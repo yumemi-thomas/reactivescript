@@ -302,6 +302,19 @@ export component Search(props: { start: boolean, q: string }) {
   after `setOn(v)` in the same action reads the value before the write, under
   Solid's batching, and AC-1d cannot say so; the guide teaches it. A plain
   closure passed as a callback option is unchecked, as O-4a's is.
+- **MO-10f (Fields that hold or fail) — proposed 2026-11-18.** A field of
+  a declared result may start with `holds` and `fails(…)`: `useQuery(…): {
+  data: holds fails(Error) T; isFetching: boolean }`. The result is still a
+  value whose fields track (MO-10b); a read of that field, `todos.data`, is
+  checked as a question's reader is (MO-10d): it carries `pending` (so
+  `pending?`, `latest` and `loading` apply, and CN-3d asks for a `loading`
+  above it in a client-only build), and it can fail with the named classes
+  (R-f-5: an `errored` or a `catch` above it). A part bound from the field
+  (`{ data } = useQuery(…)`) is a reader with the same rows. This is a store
+  whose property read suspends and throws, as `@tanstack/solid-query` 6's
+  `data` does; nothing changes at run time. A result with field rows is
+  instantiated (MO-10a, inferred). The words are taken out of the type text
+  the projection writes (TY-1c). Executable: S-module-11.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 

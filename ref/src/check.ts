@@ -96,6 +96,7 @@ type Sym = {
   serverRejects?: () => Set<string>;   // SF-6b: what a call's promise rejects with — its body's failures, and Error (transit)
   foreign?: Shape;                     // MO-10: a declared JS primitive (a fn) or an instance of one (an equation): what its result is
   reader?: boolean;                    // MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
+  held?: [string, boolean, string[]][];   // MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
   nests?: { kids: string; inside: string };   // MO-11i: how a declared factory nests what it is given
@@ -415,6 +416,7 @@ class Checker {
       const go = (x: Expr): boolean => {
         if (x.k === "fn" || x.k === "peek") return false;
         if (x.k === "await") return !x.init;
+        if (x.k === "member" && this.heldField(x, env)?.[1]) return true;                  // MO-10f: a field that holds
         if (x.k === "id") { const u = env.lookup(x.name); return !!u && u !== t && (u.kind === "eq" || u.kind === "source") && (!!u.reader || absent(u, busy)); }   // MO-10d: a foreign reader may hold
         return subExprs(x).some(go);
       };
@@ -591,9 +593,14 @@ class Checker {
       }
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side });
     }
+  }
+  /** MO-10f: the declared rows of a field read, `x.data` where `x` was bound from a JS fn's result. */
+  private heldField(e: Expr, env: Env): [string, boolean, string[]] | undefined {
+    if (e.k !== "member" || e.o.k !== "id") return undefined;
+    return env.lookup(e.o.name)?.held?.find(h => h[0] === e.p);
   }
   /** MO-10b: an equation bound from a primitive's result, or from a part of it (`[a, b] = f(…)`, `x.k`): a `ref` part is a
    *  reader (it may hold, MO-10d), a function part is io (R-io-3), anything else is a value. */
@@ -606,6 +613,8 @@ class Checker {
     }
     if (!shape) return;
     sym.foreign = shape;
+    if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; }   // MO-10f: its fields' rows come with it
+    if (e.k === "member" && this.heldField(e, env)?.[1]) sym.reader = true;                // MO-10f: a part bound from a field that holds reads as a reader (MO-10d)
     if (shape === "comp" && e.k === "call") {                                              // MO-11f: the bound name is a component
       const gives = e.f.k === "id" ? env.lookup(e.f.name)?.gives ?? [] : [];                 // MO-12c: what it provides to what it renders
       const r = this.region(null, "imported", { component: true, name: sym.name }); r.sig = { own: [], requires: [], props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: { roots: [], closesP: false, a: false, form: false, childrenAt: [[]] } };   // it renders what it was given where it is applied
@@ -661,6 +670,7 @@ class Checker {
         switch (x.k) {
           case "await": rows.add("pending"); if (!x.init && this.clientCall(x.e, env)) rows.add("client"); break;   // SV-7b: a client question (no first paint)
           case "latest": case "pending": rows.add("lane"); break;
+          case "member": if (this.heldField(x, env)?.[1]) rows.add("pending"); break;   // MO-10f: a field that holds
           case "fn": case "serverfn": return;                                               // a closure's body is not this value's
           case "use": {                                                                     // RG-7e
             const c = env.lookup(x.name)?.ctx; if (!c) return;
@@ -1338,6 +1348,7 @@ class Checker {
       }
       case "member": {
         if (e.o.k === "id" && !bound.has(e.o.name)) { const s = env.lookup(e.o.name); if (s?.kind === "props") { out.props.push({ comp: s.region, field: e.p, pre: [] }); return out; } }
+        const h = e.o.k === "id" && !bound.has(e.o.name) ? this.heldField(e, env) : undefined; if (h) for (const c of h[2]) out.cls.add(c);   // MO-10f: a field that fails
         go(e.o); return out;
       }
       case "use": {                                                                        // RG-7e: the declared rows, else what this module's provisions of it can fail with

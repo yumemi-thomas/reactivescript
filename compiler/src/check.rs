@@ -241,6 +241,8 @@ struct Sym<'a> {
     decl_env: Option<EId>,
     /// MO-10: a declared JS primitive (a fn) or an instance of one, or a part of it (an equation): what its result is
     foreign: Option<FShape>,
+    /// MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
+    held: Vec<(String, bool, Vec<String>)>,
     /// MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
     needs: Vec<String>,
     /// MO-12c: the JS contexts a declared factory's component provides to what it renders
@@ -287,6 +289,7 @@ impl<'a> Sym<'a> {
             fn_decl: None,
             decl_env: None,
             foreign: None,
+            held: vec![],
             needs: vec![],
             gives: vec![],
             nests: None,
@@ -1520,7 +1523,7 @@ impl<'a> Checker<'a> {
                     self.bind(env, alias, s);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1536,6 +1539,7 @@ impl<'a> Checker<'a> {
                         s.needs = js_keys(self, xuses);
                         s.gives = js_keys(self, xprovides);
                         s.nests = xnests.clone();
+                        s.held = xheld.clone();
                         self.bind(env, alias, s);
                         continue;
                     }
@@ -1586,6 +1590,19 @@ impl<'a> Checker<'a> {
             _ => None,
         };
         let Some(shape) = shape else { return };
+        // MO-10f: its fields' rows come with it; a part bound from a field that holds reads as a reader (MO-10d)
+        if let ExprKind::Call { f, .. } = &e.k {
+            if let ExprKind::Id(n) = &f.k {
+                if let Some(t) = self.lookup(env, n) {
+                    if !self.syms[t].held.is_empty() {
+                        sym.held = self.syms[t].held.clone();
+                    }
+                }
+            }
+        }
+        if self.held_field(e, env).is_some_and(|h| h.1) {
+            sym.reader = true;
+        }
         if shape == FShape::Part(Part::Fn) {
             sym.io = true;
         }
@@ -1593,6 +1610,13 @@ impl<'a> Checker<'a> {
             sym.reader = true;
         }
         sym.foreign = Some(shape);
+    }
+    /// MO-10f: the declared rows of a field read, `x.data` where `x` was bound from a JS fn's result.
+    fn held_field(&self, e: &Expr, env: EId) -> Option<(String, bool, Vec<String>)> {
+        let ExprKind::Member { o, p, .. } = &e.k else { return None };
+        let ExprKind::Id(on) = &o.k else { return None };
+        let t = self.lookup(env, on)?;
+        self.syms[t].held.iter().find(|h| &h.0 == p).cloned()
     }
     /// MO-3: this module's signature — every export as an importer sees it.
     pub fn signature(&mut self, p: &'a Program) -> ModSig {
@@ -1746,6 +1770,9 @@ impl<'a> Checker<'a> {
                 }
                 ExprKind::Latest(_) | ExprKind::Pending(_) => {
                     rows.insert("lane".into());
+                }
+                ExprKind::Member { .. } if self.held_field(e, env).is_some_and(|h| h.1) => {
+                    rows.insert("pending".into()); // MO-10f: a field that holds
                 }
                 ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return,
                 ExprKind::Use(name) => {
@@ -3666,6 +3693,7 @@ impl<'a> Checker<'a> {
                     ExprKind::Peek(_) if !first => continue,
                     ExprKind::Await { init: None, .. } => return true,
                     ExprKind::Await { init: Some(_), .. } => continue,
+                    ExprKind::Member { .. } if self.held_field(x, env).is_some_and(|h| h.1) => return true, // MO-10f: a field that holds
                     ExprKind::If { c, .. } if first => {
                         stack.push(Node::E(c));
                         continue;
@@ -3981,6 +4009,13 @@ impl<'a> Checker<'a> {
                                 out.props.push(PropRef { comp: self.syms[s].region, field: p.clone(), pre: vec![] });
                                 return out;
                             }
+                        }
+                    }
+                }
+                if let ExprKind::Id(on) = &o.k {
+                    if !bound.contains_key(on) {
+                        if let Some(h) = self.held_field(e, env) {
+                            out.cls.extend(h.2); // MO-10f: a field that fails
                         }
                     }
                 }

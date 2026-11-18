@@ -46,6 +46,10 @@ export component Search(props: { start: boolean, q: string }) {
 }
 ```
 
+A result that is a store whose field waits or throws when read (a query's `data`) says so on that field:
+`export pure fn useQuery(ref options: { … }): { data: holds fails(Error) any; isFetching: boolean }`. A read of
+`todos.data` then needs an `errored` (or a `catch`) above it, and in a client-only build a `loading`, like an `await`.
+
 `isOn`, `query` and `wide` are equations like any other: read them without calling them. They may hold, like a
 value from an `await` (Solid promises nothing about an accessor), so `latest`, `pending?` and `loading` apply.
 

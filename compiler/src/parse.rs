@@ -448,6 +448,9 @@ re!(REF_PART, r"^ref\s");
 re!(FN_PART, r"\)\s*=>");
 re!(REF_WORD, r"\bref\s+");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
+re!(FIELD_ROWS, r"([{;,]\s*)([A-Za-z_$][\w$]*)(\??\s*:\s*)((?:(?:holds\b|fails\([^)]*\))\s*)+)");
+re!(FAILS_WORD, r"fails\(([^)]*)\)");
+re!(HOLDS_WORD, r"\bholds\b");
 re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses|provides|nests)\(");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
@@ -488,7 +491,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -792,6 +795,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         c.ws(false);
         let mut ret = None;
         let mut shape = None;
+        let mut held = vec![];
         if c.peek() == ':' {
             c.bump();
             c.ws(true);
@@ -806,6 +810,8 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             };
             let head = LINE_COMMENT.replace(head, "");
             let head = js_trim(&head).to_string();
+            let (head, h) = field_rows(&head); // MO-10f
+            held = h;
             if !head.is_empty() {
                 shape = Some(shape_of(&head)); // MO-10b: `ref T` is an accessor, read as T
             }
@@ -861,7 +867,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             }
             break;
         }
-        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty(); // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty(); // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
         if nests.is_some() && shape != Some(Shape::Comp) {
             return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
         }
@@ -869,8 +875,21 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held });
     }
+}
+/// MO-10f: a result's field rows, `{ data: holds fails(Error) T }` — taken out of the type text, by field.
+fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
+    let mut held = vec![];
+    let text = FIELD_ROWS
+        .replace_all(t, |m: &regex::Captures| {
+            let words = &m[4];
+            let fails = FAILS_WORD.captures(words).map(|f| f[1].split('|').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
+            held.push((m[2].to_string(), HOLDS_WORD.is_match(words), fails));
+            format!("{}{}{}", &m[1], &m[2], &m[3])
+        })
+        .to_string();
+    (text, held)
 }
 /// MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it).
 fn type_params(c: &mut Cursor) -> Option<String> {
