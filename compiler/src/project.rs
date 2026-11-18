@@ -245,12 +245,12 @@ fn declaration_file(decls: &[JsDecl]) -> String {
             }
             JsDecl::Type { text, .. } => format!("export {text}"),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
-            JsDecl::Fn { name, params, ptypes, ret, .. } => {
+            JsDecl::Fn { name, params, ptypes, ret, tparams, .. } => {
                 let ps = params.iter().enumerate().map(|(i, n)| match ptypes.get(i).and_then(|t| t.as_ref()) {
                     Some(t) => format!("{n}: {t}"),
                     None => n.clone(),
                 });
-                format!("export declare function {name}({}): {};", ps.collect::<Vec<_>>().join(", "), ret.as_deref().unwrap_or("any"))
+                format!("export declare function {name}{}({}): {};", tparams.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), ret.as_deref().unwrap_or("any"))
             }
             JsDecl::Context { .. } => unreachable!(), // MO-12a: filtered above
         }))

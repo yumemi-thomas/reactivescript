@@ -114,7 +114,7 @@ function declarationFile(decls: JsDecl[]): string {
     if (d.kind === "comp") return `export declare function ${d.name}(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }): View;`;
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
     const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
-    return `export declare function ${d.name}(${ps}): ${d.ret ?? "any"};`;
+    return `export declare function ${d.name}${d.tparams ?? ""}(${ps}): ${d.ret ?? "any"};`;
   })].join("\n") + "\n";
 }
 

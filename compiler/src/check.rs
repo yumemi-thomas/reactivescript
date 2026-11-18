@@ -3124,7 +3124,8 @@ impl<'a> Checker<'a> {
         }
         out
     }
-    /// MO-11f: the components in a factory call's arguments — anywhere inside its record and array literals.
+    /// MO-11f: the components in a factory call's arguments — anywhere inside its record and array literals, and the
+    /// arguments of JS calls among them (MO-11g).
     fn factory_values(&mut self, s: SId) -> Vec<String> {
         if let Some(v) = self.factory_values.get(&s) {
             return v.clone();
@@ -3151,6 +3152,16 @@ impl<'a> Checker<'a> {
                     for x in items {
                         if !matches!(x.k, ExprKind::Spread(_)) {
                             walk(c, x, fenv, out);
+                        }
+                    }
+                }
+                ExprKind::Call { f, args } => {
+                    // MO-11g: a JS call inside the arguments (`defineRoute({ … })`) hands what it is given on to the factory
+                    if let ExprKind::Id(g) = &f.k {
+                        if c.lookup(fenv, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
+                            for a in args {
+                                walk(c, a, fenv, out);
+                            }
                         }
                     }
                 }

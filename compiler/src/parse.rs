@@ -488,7 +488,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -703,6 +703,8 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             let name = c.ident_or("type name")?;
             c.ws(true);
+            type_params(&mut c);
+            c.ws(true);
             if c.eat("=") {
                 c.ws(true);
                 parse_type(&mut c, false, true)?;
@@ -756,6 +758,8 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         }
         c.ws(true);
         let name = c.ident_or("fn name")?;
+        c.ws(true);
+        let tparams = type_params(&mut c); // MO-8d: `fn f<const S extends string>(…)`, TypeScript's, for TY
         c.ws(true);
         c.expect("(")?;
         c.ws(true);
@@ -845,8 +849,29 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams });
     }
+}
+/// MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it).
+fn type_params(c: &mut Cursor) -> Option<String> {
+    if c.peek() != '<' {
+        return None;
+    }
+    let t0 = c.i;
+    let mut depth = 0;
+    loop {
+        let ch = c.peek();
+        if ch == '<' {
+            depth += 1;
+        } else if ch == '>' && !c.src[..c.i].ends_with('=') {
+            depth -= 1;
+        }
+        c.bump();
+        if c.eof() || depth == 0 {
+            break;
+        }
+    }
+    Some(c.src[t0..c.i].to_string())
 }
 
 fn params_typed(c: &mut Cursor) -> R<(Vec<String>, Vec<Option<String>>)> {

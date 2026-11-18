@@ -128,4 +128,28 @@ export default component App() {
 - **A JS import you apply must be declared.** Without `export component X(…)` in its `.d.rx`, `<X />` is
   `UNKNOWN_COMPONENT`.
 
+### Typed params
+
+A page declares the params it reads as a prop, and the route table names it through the router's `defineRoute`, whose
+type gives each route's component the params its path supplies:
+
+```rx
+// router.d.rx: the router's own types, and defineRoute's type parameter, as TypeScript text
+export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
+export type RouteDefinition = import("@solidjs/router").RouteDefinition
+export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition
+```
+
+```rx
+component Person(props: { params: { id: string } }) {
+  person = await fetchPerson(props.params.id)        // id: string, not string | undefined
+  …
+}
+Router = createRouter({ routes: [defineRoute({ path: "/people/:id", component: Person })] })
+```
+
+`rx-tsc` refuses `defineRoute({ path: "/people", component: Person })` on that line: `/people` has no `id`. Write
+`defineRoute(…)` inside the `createRouter({ … })` call; bound on its own, a component in it is `COMPONENT_AS_VALUE`. A child
+route doesn't see its parent's params in its type, so declare those optional (`org?: string`).
+
 Rules: `spec/09-modules.md` MO-10, MO-11 and MO-12 (and MO-8 for declaration files).

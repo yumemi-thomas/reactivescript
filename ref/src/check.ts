@@ -1202,7 +1202,8 @@ class Checker {
   /** MO-11f: the factories being expanded, per walk (a factory may be given itself; C-1 reports that cycle). */
   private expanding = { markup: new Set<Sym>(), content: new Set<Sym>(), shape: new Set<Sym>() };
 
-  /** MO-11f: the components in a factory call's arguments — anywhere inside its record and array literals. */
+  /** MO-11f: the components in a factory call's arguments — anywhere inside its record and array literals, and the arguments of
+   *  JS calls among them (MO-11g). */
   private valueIds = new Set<Expr>();
   private factoryValues(s: Sym): string[] {
     const f = s.factory!; if (f.values) return f.values;
@@ -1211,6 +1212,7 @@ class Checker {
       if (e.k === "id" && /^[A-Z]/.test(e.name) && f.env.lookup(e.name)?.kind === "comp") { this.valueIds.add(e); out.push(e.name); }   // a value is applied by its tag, so it is capitalised as one
       else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
       else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
+      else if (e.k === "call" && e.f.k === "id") { const g = f.env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined))) e.args.forEach(walk); }   // MO-11g: a JS call inside the arguments (`defineRoute({ … })`) hands what it is given on to the factory
     };
     f.args.forEach(walk);
     return f.values = out;

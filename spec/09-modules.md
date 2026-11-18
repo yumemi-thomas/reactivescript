@@ -176,6 +176,13 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   ES import in the compiled module, for the bundler to resolve; no
   `package.json` `#imports` alias is needed. The one exception is `./api`,
   which is the app's injected API (`createApp({ api })`, CP-4).
+- **MO-8d (Type parameters) — proposed 2026-11-18.** A declared fn may
+  have TypeScript type parameters, `export pure fn defineRoute<const S
+  extends string>(route: { path: S; … })`, and a declared type may too
+  (`export type RouteParams<S> = …`). They are TypeScript's text: the
+  checker reads none of it, and the projection's `.d.ts` carries it as
+  written (TY-1c), so a library's own inference reaches `.rx` code that
+  calls it (S-module-8).
 
 ## MO-9 — A signature read in place of its module
 
@@ -402,6 +409,27 @@ export default component App() {
   checked where it is applied, and counts in the shape of the component that
   applies it (as a component value does). Links need
   nothing of the language: the router handles a click on any `<a href>`.
+- **MO-11g (JS calls inside a factory's arguments) — proposed
+  2026-11-18.** A call to a JS fn among a factory's argument literals hands
+  its arguments on to the factory: the components in them are values there
+  too (MO-11c), found through the call's own record and array literals. This
+  is `@solidjs/router`'s `defineRoute({ path, component })`, an identity at
+  run time whose type gives the component its params from its path (MO-8d).
+  Bound on its own (`route = defineRoute({ … })`), the call is not part of
+  any route table the checker can see, so a component in it is
+  `COMPONENT_AS_VALUE`. A JS fn that renders a component itself, somewhere
+  other than the factory's component, escapes the check (DV-24).
+- **MO-11h (Typed params) — proposed 2026-11-18.** A page declares the
+  params it reads as a prop, `component Person(props: { params: { id:
+  string } })`, as any component declares its props; the router passes
+  `params` to a route's component. Whether a route's path supplies them is
+  TypeScript's question, asked where the table is written: `defineRoute`'s
+  type carries the path's literal type into the component's props (MO-8d),
+  and `rx-tsc` refuses `defineRoute({ path: "/people", component: Person })`
+  (TS2322) on that line. The checker learns nothing about path syntax. A
+  child route's type does not see its parent's path (the router's own
+  limit), so a page under a parametrised parent declares the parent's
+  params optional (`org?: string`).
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check
@@ -597,9 +625,10 @@ Executable: S-module-7.
    - The hooks' context: MO-12 (proposed 2026-11-18) adds `uses(…)` and
      `provides(…)` for JS contexts, so `useParams` outside the router is a
      compile error.
-   - `.rx` has no type arguments, so `useParams<{ id: string }>()` cannot be
-     written: a param is the router's `string | undefined` in `rx-tsc`.
-     `defineRoute`'s typed params, or a declaration word for them, are open.
+   - Typed params: MO-11g, MO-11h and MO-8d (proposed 2026-11-18) type a
+     page's `props.params` from its route's path through `defineRoute`,
+     with no type arguments in `.rx`. `useParams()` stays the router's
+     `string | undefined`.
    - Not covered: TSX importing an `.rx` page (CP-4a's default export, #65),
      and the router under SSR (`ref/ssr` runs no JS component; a server
      render needs the router's `url`).
