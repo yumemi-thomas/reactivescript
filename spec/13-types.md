@@ -80,6 +80,32 @@ does for `.tsrx`. Nothing here is a second type system.
   any branch: `MISSING_AWAIT`. Where the type is `any` the check is silent
   (04 R-1a). (Ruled 2026-10-28; S-types-1.)
 
+## TY-6 — A declaration is checked against its module's types (proposed 2026-11-18)
+
+- **TY-6a.** The checker trusts a `.d.rx` (09 MO-8b). `rx-tsc` checks, for
+  every `.d.rx` that declares a JS module beside it, what TypeScript can:
+  each declared export is the module's real export, assigned to the
+  declaration's own type. A `ref` parameter or result part is an accessor
+  (`() => T`), a component a function of its declared props, an error class
+  a constructor of an `Error`. A missing export, a `ref` the real function
+  does not take, a prop type the real component does not accept, or a
+  result the real function does not give is `DECLARATION_MISMATCH`, on the
+  declaration's line, with TypeScript's reason.
+- **TY-6b.** The direction is the boundary's: the real export must fit the
+  declared one, so `.rx` code checked against the declaration is right
+  about the module. A declaration may say less than the types (`any`, an
+  omitted parameter type), never something else.
+- **TY-6c.** Rows TypeScript cannot see (`pure`, `uses`, `provides`,
+  `holds`, `fails`) are not checked here. A module with no TypeScript types
+  (no `.d.ts` beside it, none from its package) cannot be checked, and
+  `rx-tsc` says so: that is an error too, since an unchecked declaration is
+  the case this rule exists for.
+- **TY-6d.** The crate writes the check (`rxc serve`'s `boundary` request,
+  `project.rs` `boundary_file`); `rx-tsc` type-checks it in memory beside
+  the `.d.rx` with the project's compiler options
+  (`tooling/rx-language-server/src/boundary.js`). Nothing is emitted and
+  nothing runs.
+
 ## Found by the type layer (2026-10-25)
 
 Every scenario type-checked once these were fixed; each was invisible

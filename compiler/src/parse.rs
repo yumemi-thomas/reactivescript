@@ -425,7 +425,7 @@ impl Shape {
         }
     }
 }
-fn split_top(s: &str, seps: &str) -> Vec<String> {
+pub(crate) fn split_top(s: &str, seps: &str) -> Vec<String> {
     let cs: Vec<char> = s.chars().collect();
     let mut out = vec![];
     let mut depth: i64 = 0;

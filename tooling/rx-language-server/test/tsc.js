@@ -17,12 +17,18 @@ fs.writeFileSync(path.join(ws, "api.d.ts"), [
   "",
 ].join("\n"));
 fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(ws, "node_modules"), "dir");
+// TY-6: a JS module with its own types and a .d.rx that declares it
+fs.writeFileSync(path.join(ws, "lib.js"), "export const twice = n => n * 2;\n");
+fs.writeFileSync(path.join(ws, "lib.d.ts"), "export declare function twice(n: number): number;\n");
+const libDecl = "export pure fn twice(n: number): number\n";
+fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
 fs.writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({
   compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] },
   include: ["*.rx", "*.ts"],
+  exclude: ["*.d.rx"],   // a declaration is not a module; rx-tsc crashes on one in the program until #65
 }, null, 2));
 
-const original = Object.fromEntries(fs.readdirSync(ws).filter(f => f.endsWith(".rx")).map(f => [f, fs.readFileSync(path.join(ws, f), "utf8")]));
+const original = Object.fromEntries(fs.readdirSync(ws).filter(f => f.endsWith(".rx") && !f.endsWith(".d.rx")).map(f => [f, fs.readFileSync(path.join(ws, f), "utf8")]));
 function run(edit) {
   for (const [f, t] of Object.entries(original)) fs.writeFileSync(path.join(ws, f), t);
   if (edit) fs.writeFileSync(path.join(ws, edit.file), edit.text(original[edit.file]));
@@ -48,6 +54,12 @@ check("a parse error fails (no projection, so TypeScript alone would pass it)", 
 
 const write = run({ file: "main.rx", text: t => t + "\naction wipe() { products := [] }\n" });
 check("a checker error fails, with its rule", write.status !== 0 && /main\.rx:\d+:\d+ - error WRITE_TO_NON_SOURCE: .*\(MO-2\)/.test(write.out), write);
+
+fs.writeFileSync(path.join(ws, "lib.d.rx"), "export pure fn twice(n: string): number\nexport pure fn thrice(n: number): number\n");
+const decl = run();
+fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
+check("a .d.rx that disagrees with its module's types fails, on the declaration's line (TY-6)",
+  decl.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_MISMATCH: twice: /.test(decl.out) && /lib\.d\.rx:2:1 - error DECLARATION_MISMATCH: thrice: .*does not exist/.test(decl.out), decl);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

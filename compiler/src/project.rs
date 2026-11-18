@@ -1017,3 +1017,80 @@ fn class_map(css: &str) -> String {
     let fields: Vec<String> = r.class_map.into_iter().map(|c| format!("{}: \"\" as string", js_str(&c.class_name))).collect();
     format!("({{ {} }} as const)", fields.join(", "))
 }
+
+/// TY-6: the boundary check for a `.d.rx` — its rows as TypeScript types, and the real module's exports assigned to them.
+/// A `ref` parameter or result part is an accessor (`() => T`); a component is a function of its declared props; an error
+/// class a constructor of an `Error`. Rows TypeScript cannot see (`pure`, `uses`, `holds`, `fails`) are not checked here.
+/// Returns the code and, per check, (its line in the code, the declaration's line, the export's name).
+pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usize, String)>) {
+    let own: IndexSet<&str> = decls.iter().filter(|d| matches!(d, JsDecl::Type { .. })).map(|d| d.name()).collect();
+    let mut out: Vec<String> = vec![format!("import * as __real from {};", serde_json::to_string(module).unwrap_or_default())];
+    if !own.contains("View") {
+        out.push("type View = import(\"@solidjs/web\").JSX.Element;".into());
+    }
+    if !own.contains("Component") {
+        out.push("type Component<P = any> = (props: P) => View;".into());
+    }
+    for d in decls {
+        if let JsDecl::Type { text, .. } = d {
+            out.push(text.clone());
+        }
+    }
+    let accessor = |t: &str| format!("(() => {})", t);
+    // a result's text with its `ref` parts as accessors (MO-10b): the whole, a tuple's items, a record's fields
+    let result = |ret: Option<&String>, shape: &crate::parse::Shape| -> String {
+        use crate::parse::{Part, Shape};
+        let Some(r) = ret else { return "any".into() };
+        match shape {
+            Shape::Part(Part::Ref) => accessor(r),
+            Shape::Items(items) if items.contains(&Part::Ref) && r.starts_with('[') && r.ends_with(']') => {
+                let xs = crate::parse::split_top(&r[1..r.len() - 1], ",");
+                format!("[{}]", xs.iter().enumerate().map(|(i, x)| if items.get(i) == Some(&Part::Ref) { accessor(x.trim()) } else { x.trim().to_string() }).collect::<Vec<_>>().join(", "))
+            }
+            Shape::Fields(fields) if fields.iter().any(|f| f.1 == Part::Ref) && r.starts_with('{') && r.ends_with('}') => {
+                let xs = crate::parse::split_top(&r[1..r.len() - 1], ",;");
+                format!(
+                    "{{ {} }}",
+                    xs.iter()
+                        .map(|x| match x.find(':') {
+                            Some(i) => {
+                                let k = x[..i].trim();
+                                let ref_part = fields.iter().any(|f| f.0 == k.trim_end_matches('?') && f.1 == Part::Ref);
+                                format!("{}: {};", k, if ref_part { accessor(x[i + 1..].trim()) } else { x[i + 1..].trim().to_string() })
+                            }
+                            None => format!("{};", x.trim()),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            }
+            _ => r.clone(),
+        }
+    };
+    let mut checks = vec![];
+    for d in decls {
+        let (name, line, ty) = match d {
+            JsDecl::Fn { name, line, params, ptypes, refs, ret, shape, tparams, .. } => {
+                let ps: Vec<String> = params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        let t = ptypes.get(i).and_then(|t| t.clone()).unwrap_or_else(|| "any".into());
+                        format!("{}: {}", n, if refs.get(i).copied().unwrap_or(false) { accessor(&t) } else { t })
+                    })
+                    .collect();
+                (name, *line, format!("{}({}) => {}", tparams.as_deref().unwrap_or(""), ps.join(", "), result(ret.as_ref(), shape)))
+            }
+            JsDecl::Comp { name, line, props, .. } => {
+                let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
+                (name, *line, format!("(props: {{ {} }}) => any", fs.join(" ")))
+            }
+            JsDecl::Error { name, line } => (name, *line, "abstract new (...args: any[]) => Error".into()),
+            JsDecl::Type { .. } | JsDecl::Context { .. } => continue,
+        };
+        out.push(format!("type __decl_{} = {};", name, ty));
+        out.push(format!("const __check_{}: __decl_{} = __real.{};", name, name, name));
+        checks.push((out.len(), line, name.clone()));
+    }
+    (out.join("\n") + "\n", checks)
+}

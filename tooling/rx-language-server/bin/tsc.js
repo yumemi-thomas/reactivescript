@@ -9,6 +9,7 @@
 const path = require("node:path");
 const { runTsc } = require("@volar/typescript/lib/quickstart/runTsc");
 const { rxLanguagePlugin, analyses, guideUrl } = require("../src/index.js");
+const { checkBoundaries } = require("../src/boundary.js");
 
 const tsc = require.resolve("typescript/lib/tsc");
 
@@ -24,6 +25,15 @@ process.on("exit", code => {
       const where = d.range ? `${d.range.start.line}:${d.range.start.column + 1}` : "1:1";
       process.stdout.write(`${path.relative(process.cwd(), file)}:${where} - error ${d.code}: ${d.message} (${d.rule})\n`);
     }
+  }
+  // TY-6: each .d.rx against the JS module it declares
+  const ts = require(require.resolve("typescript"));
+  const cfg = ts.findConfigFile(process.cwd(), ts.sys.fileExists);
+  const options = cfg ? ts.parseJsonConfigFileContent(ts.readConfigFile(cfg, ts.sys.readFile).config, ts.sys, path.dirname(cfg)).options : {};
+  for (const b of checkBoundaries(ts, analyses().map(a => a.file), options)) {
+    errors++;
+    codes.add("DECLARATION_MISMATCH");
+    process.stdout.write(`${path.relative(process.cwd(), b.file)}:${b.line}:1 - error DECLARATION_MISMATCH: ${b.name ? `${b.name}: ` : ""}${b.message} (TY-6)\n`);
   }
   if (errors) {
     process.stdout.write(`\nFound ${errors} ReactiveScript error${errors === 1 ? "" : "s"}.\n`);

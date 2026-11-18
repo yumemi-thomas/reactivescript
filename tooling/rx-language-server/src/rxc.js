@@ -91,4 +91,9 @@ function preludeFor(file) {
   return at;
 }
 
-module.exports = { analyze, preludeFor, rxcPath, wasmPath };
+/** TY-6: the boundary check for a `.d.rx` against the JS module it declares (`module`, as an import from beside it). */
+function boundary(file, module) {
+  return ask("boundary", { file, module });
+}
+
+module.exports = { analyze, preludeFor, boundary, rxcPath, wasmPath };

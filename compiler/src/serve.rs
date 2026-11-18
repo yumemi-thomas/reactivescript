@@ -8,6 +8,7 @@ pub fn request(method: &str, params: &Value, disk: &dyn Fn(&str) -> Option<Strin
     match method {
         "analyze" => analyze(params, disk),
         "prelude" => json!(crate::project::PRELUDE),
+        "boundary" => boundary(params, disk),
         _ => json!({ "error": "unknown method" }),
     }
 }
@@ -93,3 +94,19 @@ pub fn analyze(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     out
 }
 
+
+/// `boundary` (`{file, text?, module}`): a TypeScript file that checks a `.d.rx` against the JS module it declares
+/// (TY-6): each export's declared row as a type, then the module's real export assigned to it. `checks` maps each
+/// assignment's line in `code` (1-based) to the declaration's line and name, so a type error lands on the `.d.rx`.
+pub fn boundary(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
+    let file = params["file"].as_str().unwrap_or_default();
+    let module = params["module"].as_str().unwrap_or_default();
+    let Some(text) = params["text"].as_str().map(str::to_string).or_else(|| disk(file)) else { return json!({ "error": format!("cannot read {}", file) }) };
+    match crate::parse::parse_declarations(&text) {
+        Ok(decls) => {
+            let (code, checks) = crate::project::boundary_file(&decls, module);
+            json!({ "code": code, "checks": checks.iter().map(|(at, line, name)| json!({ "at": at, "line": line, "name": name })).collect::<Vec<_>>() })
+        }
+        Err(e) => json!({ "error": e.0 }),
+    }
+}

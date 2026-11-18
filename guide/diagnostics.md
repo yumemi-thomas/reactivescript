@@ -1187,3 +1187,20 @@ An equation's value is a promise or a stream, which Solid would consume as a val
 
 A server function's result or parameter is not data: a function or a class instance does not cross the wire (SF). Return
 plain data.
+
+### DECLARATION_MISMATCH
+
+`rx-tsc` checks each `.d.rx` against its JS module's real TypeScript types (TY-6): the declaration says something the
+module doesn't do. Fix the declaration so the real export fits it: drop a `ref` the function doesn't take, correct a
+prop or parameter type, or remove an export the module doesn't have. A module with no types needs a `.d.ts` beside it
+(a re-export of the package's is enough) for its declaration to be checked.
+
+```rx before
+// lib.d.rx, beside lib.js whose lib.d.ts says: export declare function twice(n: number): number
+export pure fn twice(n: string): number
+```
+
+```rx after
+export pure fn twice(n: number): number
+```
+

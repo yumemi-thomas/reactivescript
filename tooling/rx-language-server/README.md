@@ -52,7 +52,8 @@ npx rx-tsc --noEmit
 
 After TypeScript's errors it prints the crate's diagnostics for every `.rx`
 module in the program (parse errors, else the checker's, with their rules),
-and exits non-zero if there are any. A module that does not parse has no
+and exits non-zero if there are any. It also checks each `.d.rx` beside a JS module against that module's real
+types (spec/13 TY-6), reporting `DECLARATION_MISMATCH` on the declaration's line. A module that does not parse has no
 projection, so TypeScript alone would pass it. Under `--watch` only
 TypeScript's errors are reported.
 
