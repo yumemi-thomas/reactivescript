@@ -245,6 +245,8 @@ struct Sym<'a> {
     needs: Vec<String>,
     /// MO-12c: the JS contexts a declared factory's component provides to what it renders
     gives: Vec<String>,
+    /// MO-11i: how a declared factory (and the component it made) nests what it is given: (kids field, component field)
+    nests: Option<(String, String)>,
     /// MO-11f: a component a JS factory made — the call's arguments and the scope they name from
     factory: Option<(&'a [Expr], EId)>,
     /// MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
@@ -285,6 +287,7 @@ impl<'a> Sym<'a> {
             foreign: None,
             needs: vec![],
             gives: vec![],
+            nests: None,
             factory: None,
             reader: false,
         }
@@ -800,6 +803,11 @@ struct Occ {
     via: Via,
 }
 
+/// MO-11i: a component value and the values nested in it (applied among its children).
+struct VTree {
+    tag: String,
+    kids: Vec<VTree>,
+}
 struct UseRec {
     region: RId,
     name: String,
@@ -1246,6 +1254,10 @@ impl<'a> Checker<'a> {
                                 ExprKind::Id(n) => self.lookup(env, n).map(|t| self.syms[t].gives.iter().cloned().collect()).unwrap_or_default(),
                                 _ => IndexSet::new(),
                             };
+                            sym.nests = match &f.k {
+                                ExprKind::Id(n) => self.lookup(env, n).and_then(|t| self.syms[t].nests.clone()),
+                                _ => None,
+                            };
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
                             props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false });
@@ -1505,7 +1517,7 @@ impl<'a> Checker<'a> {
                     self.bind(env, alias, s);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1520,6 +1532,7 @@ impl<'a> Checker<'a> {
                         s.rejects = Some(IndexSet::new());
                         s.needs = js_keys(self, xuses);
                         s.gives = js_keys(self, xprovides);
+                        s.nests = xnests.clone();
                         self.bind(env, alias, s);
                         continue;
                     }
@@ -3065,7 +3078,7 @@ impl<'a> Checker<'a> {
                         continue;
                     }
                     if is_upper_tag(tag) {
-                        self.shape_app(tag, attrs, children, env, anc, scoped, sh, roots);
+                        self.shape_app(tag, attrs, children, &[], env, anc, scoped, sh, roots);
                         continue;
                     }
                     if anc.is_empty() {
@@ -3193,16 +3206,89 @@ impl<'a> Checker<'a> {
         if !self.expanding[0].insert(s) {
             return;
         }
-        let fvs = self.factory_values(s);
+        let trees = self.factory_tree(s);
         let fe = self.env(Some(fenv), kids);
-        for v in &fvs {
-            self.apply_value(v, line, fe);
+        for t in &trees {
+            self.apply_tree(t, line, fe);
         }
         self.expanding[0].remove(&s);
     }
+    /// MO-11i: `apply_value` for a component value with the values nested in it, applied among its children.
+    fn apply_tree(&mut self, t: &VTree, line: Option<usize>, env: EId) {
+        if t.kids.is_empty() {
+            return self.apply_value(&t.tag, line, env);
+        }
+        if let Some(l) = line {
+            self.line = l as i64;
+        }
+        let region = self.reg(env);
+        let Some(s) = self.lookup(env, &t.tag) else { return };
+        let Some(cr) = self.syms[s].comp_region else { return };
+        self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: t.tag.clone(), args: vec![], passed: vec![] });
+        let kids = self.region(Some(region), "children", false, Some(t.tag.clone()));
+        self.regions[kids].kids = Some((cr, region));
+        let kenv = self.env(Some(env), kids);
+        for k in &t.kids {
+            self.apply_tree(k, line, kenv);
+        }
+        self.apply_factory(s, kids, line);
+    }
+    /// MO-11f, MO-11i: what a factory was given, as a tree: each component value, and with `nests(kids in inside)`, a
+    /// record's `kids` entries nested under its `inside` component.
+    fn factory_tree(&mut self, s: SId) -> Vec<VTree> {
+        self.factory_values(s);
+        let (args, fenv) = self.syms[s].factory.unwrap();
+        let nests = self.syms[s].nests.clone();
+        fn walk<'a>(c: &Checker<'a>, e: &'a Expr, fenv: EId, nests: &Option<(String, String)>) -> Vec<VTree> {
+            let value = |e: &Expr| -> Option<String> {
+                match &e.k {
+                    ExprKind::Id(n) if c.value_ids.contains(&(e as *const Expr)) => Some(n.clone()),
+                    _ => None,
+                }
+            };
+            if let Some(n) = value(e) {
+                return vec![VTree { tag: n, kids: vec![] }];
+            }
+            match &e.k {
+                ExprKind::Arr(items) => items.iter().filter(|x| !matches!(x.k, ExprKind::Spread(_))).flat_map(|x| walk(c, x, fenv, nests)).collect(),
+                ExprKind::Call { f, args } => match &f.k {
+                    ExprKind::Id(g) if c.lookup(fenv, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) => args.iter().flat_map(|a| walk(c, a, fenv, nests)).collect(),
+                    _ => vec![],
+                },
+                ExprKind::Rec(fields) => {
+                    let kv = |name: &str| fields.iter().position(|x| matches!(x, Field::Kv { key, .. } if key == name));
+                    let (host, kids) = match nests {
+                        Some((k, i)) => (kv(i), kv(k)),
+                        None => (None, None),
+                    };
+                    let host_tag = host.and_then(|h| if let Field::Kv { v, .. } = &fields[h] { value(v) } else { None });
+                    let Some(tag) = host_tag else {
+                        return fields.iter().flat_map(|x| if let Field::Kv { v, .. } = x { walk(c, v, fenv, nests) } else { vec![] }).collect();
+                    };
+                    let nested = match kids {
+                        Some(k) => if let Field::Kv { v, .. } = &fields[k] { walk(c, v, fenv, nests) } else { vec![] },
+                        None => vec![],
+                    };
+                    let mut out = vec![VTree { tag, kids: nested }];
+                    for (i, x) in fields.iter().enumerate() {
+                        if Some(i) == host || Some(i) == kids {
+                            continue;
+                        }
+                        if let Field::Kv { v, .. } = x {
+                            out.extend(walk(c, v, fenv, nests));
+                        }
+                    }
+                    out
+                }
+                _ => vec![],
+            }
+        }
+        args.iter().flat_map(|a| walk(self, a, fenv, &nests)).collect()
+    }
     /// SV-7d at a component's application: its roots against the elements open above it, then the children it is given (and
     /// its component values, MO-11c/f) where it places them.
-    fn content_app(&mut self, tag: &str, attrs: &'a [Attr], children: &'a [Markup], line: Option<usize>, env: EId, anc: &[String]) {
+    #[allow(clippy::too_many_arguments)]
+    fn content_app(&mut self, tag: &str, attrs: &'a [Attr], children: &'a [Markup], vkids: &[VTree], line: Option<usize>, env: EId, anc: &[String]) {
         if let Some(l) = line {
             self.line = l as i64;
         }
@@ -3222,13 +3308,16 @@ impl<'a> Checker<'a> {
             let mut a2 = anc.to_vec();
             a2.extend(ch.iter().cloned());
             self.content_check(children, env, &a2);
+            for k in vkids {
+                self.content_app(&k.tag, &[], &[], &k.kids, line, env, &a2);
+            }
             for (_, v) in self.component_values(tag, attrs, env) {
-                self.content_app(&v, &[], &[], line, env, &a2);
+                self.content_app(&v, &[], &[], &[], line, env, &a2);
             }
             if let Some((_, fenv)) = self.syms[s].factory {
                 if self.expanding[1].insert(s) {
-                    for v in self.factory_values(s) {
-                        self.content_app(&v, &[], &[], line, fenv, &a2);
+                    for t in self.factory_tree(s) {
+                        self.content_app(&t.tag, &[], &[], &t.kids, line, fenv, &a2);
                     }
                     self.expanding[1].remove(&s);
                 }
@@ -3238,7 +3327,7 @@ impl<'a> Checker<'a> {
     /// SV-7d's summary of a component application inside a view (`shape`): its roots and flags, then its children and
     /// component values where it places them.
     #[allow(clippy::too_many_arguments)]
-    fn shape_app(&mut self, tag: &str, attrs: &'a [Attr], children: &'a [Markup], env: EId, anc: &[String], scoped: bool, sh: &mut Shape, roots: &mut IndexSet<String>) {
+    fn shape_app(&mut self, tag: &str, attrs: &'a [Attr], children: &'a [Markup], vkids: &[VTree], env: EId, anc: &[String], scoped: bool, sh: &mut Shape, roots: &mut IndexSet<String>) {
         let Some(s) = self.lookup(env, tag) else { return };
         if self.syms[s].kind != SymKind::Comp {
             return;
@@ -3263,13 +3352,16 @@ impl<'a> Checker<'a> {
             a2.extend(ch.iter().cloned());
             let sc = scoped || ch.iter().any(|t| P_SCOPE.contains(t.as_str()));
             self.shape_walk(children, &a2, sc, env, sh, roots);
+            for k in vkids {
+                self.shape_app(&k.tag, &[], &[], &k.kids, env, &a2, sc, sh, roots);
+            }
             for (_, v) in self.component_values(tag, attrs, env) {
-                self.shape_app(&v, &[], &[], env, &a2, sc, sh, roots);
+                self.shape_app(&v, &[], &[], &[], env, &a2, sc, sh, roots);
             }
             if let Some((_, fenv)) = self.syms[s].factory {
                 if self.expanding[2].insert(s) {
-                    for v in self.factory_values(s) {
-                        self.shape_app(&v, &[], &[], fenv, &a2, sc, sh, roots);
+                    for t in self.factory_tree(s) {
+                        self.shape_app(&t.tag, &[], &[], &t.kids, fenv, &a2, sc, sh, roots);
                     }
                     self.expanding[2].remove(&s);
                 }
@@ -3294,7 +3386,7 @@ impl<'a> Checker<'a> {
                         continue;
                     }
                     if is_upper_tag(tag) {
-                        self.content_app(tag, attrs, children, m.line, env, anc);
+                        self.content_app(tag, attrs, children, &[], m.line, env, anc);
                         continue;
                     }
                     let why = misnested(anc, tag);

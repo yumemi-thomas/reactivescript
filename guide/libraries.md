@@ -85,7 +85,7 @@ component (a router's `createRouter`) is declared with `Component` as its result
 // router.d.rx, beside router.js: export { createRouter, useParams, useNavigate } from "@solidjs/router"
 export type RouteDefinition = { path?: string; component?: Component; children?: RouteDefinition[] }
 export context router
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router)
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component)
 export pure fn useParams(): Record<string, string> uses(router)
 export pure fn useNavigate(): (to: string) => void uses(router)
 
@@ -117,8 +117,10 @@ export default component App() {
   component's prop typed `Component` (`<Shell header={Title} />`). Anywhere else it is `COMPONENT_AS_VALUE`.
 - **Each component you hand over is checked as if it were applied there:** its failures need an `errored` above
   `<Router />` (or inside the page), the contexts it uses need a `provide` above `<Router />`, and in a client-only
-  app its first load needs a `loading` above it. A `provide` or `errored` inside a layout route is not counted for
-  the routes it wraps; put it above `<Router />`.
+  app its first load needs a `loading` above it.
+- **Layouts count for their nested routes** when the factory is declared `nests(children in component)`: a route
+  under a record's `children` is checked inside that record's `component`, so an `errored` or `provide` the layout
+  puts above `props.children` covers it. Without the word, put them above `<Router />`.
 - **Apply the router in the module that makes it.** `export Router = createRouter(…)` is refused: export the pages
   and make the router where you use it.
 - **Say which context a hook needs.** `export context router` names the library's context; `uses(router)` on a hook

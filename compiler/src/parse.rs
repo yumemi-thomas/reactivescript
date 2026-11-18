@@ -448,7 +448,7 @@ re!(REF_PART, r"^ref\s");
 re!(FN_PART, r"\)\s*=>");
 re!(REF_WORD, r"\bref\s+");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
-re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses|provides)\(");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses|provides|nests)\(");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
@@ -488,7 +488,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -798,7 +798,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             let t = c.rest().split('\n').next().unwrap_or("").to_string();
             let r1 = REJECTS.find(&t).map(|m| m.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("uses(") || t[m.start()..].starts_with("provides(") { 0 } else { 1 }); // MO-12
+            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if ["uses(", "provides(", "nests("].iter().any(|w| t[m.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
             let r = [r1, r2, r3].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
@@ -824,7 +824,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             c.expect(")")?;
         }
-        let (mut written, mut uses, mut provides) = (false, vec![], vec![]);
+        let (mut written, mut uses, mut provides, mut nests) = (false, vec![], vec![], None);
         loop {
             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
             c.ws(false);
@@ -842,14 +842,34 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                 provides.extend(context_names(&mut c)?);
                 continue;
             }
+            if c.keyword("nests") {
+                // MO-11i
+                c.ws(false);
+                c.expect("(")?;
+                c.ws(true);
+                let kids = c.ident_or("nests(children in component): the field that holds nested entries")?;
+                c.ws(true);
+                if !c.keyword("in") {
+                    return c.fail("nests(children in component)");
+                }
+                c.ws(true);
+                let inside = c.ident_or("nests(children in component): the field that holds the component")?;
+                c.ws(true);
+                c.expect(")")?;
+                nests = Some((kids, inside));
+                continue;
+            }
             break;
         }
         let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty(); // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        if nests.is_some() && shape != Some(Shape::Comp) {
+            return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
+        }
         if !provides.is_empty() && shape != Some(Shape::Comp) {
             return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests });
     }
 }
 /// MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it).

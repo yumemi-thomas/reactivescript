@@ -98,7 +98,8 @@ type Sym = {
   reader?: boolean;                    // MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
-  factory?: { args: Expr[]; env: Env; values?: string[] };   // MO-11f: a component a JS factory made — the call's arguments, and the components in them
+  nests?: { kids: string; inside: string };   // MO-11i: how a declared factory nests what it is given
+  factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string } };   // MO-11f: a component a JS factory made — the call's arguments, and the components in them
   fnDecl?: Extract<Decl, { k: "fn" }>; declEnv?: Env;   // a fn's declaration and the scope it names from (SF-3: what it reaches)   // a context (RG-7): its identity, whether it carries a source, and its declared rows (null: inferred from its provisions)
 };
 const reactiveKinds = new Set<SymKind>(["source", "eq", "props"]);
@@ -590,7 +591,7 @@ class Checker {
       }
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side });
     }
   }
@@ -608,7 +609,7 @@ class Checker {
     if (shape === "comp" && e.k === "call") {                                              // MO-11f: the bound name is a component
       const gives = e.f.k === "id" ? env.lookup(e.f.name)?.gives ?? [] : [];                 // MO-12c: what it provides to what it renders
       const r = this.region(null, "imported", { component: true, name: sym.name }); r.sig = { own: [], requires: [], props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: { roots: [], closesP: false, a: false, form: false, childrenAt: [[]] } };   // it renders what it was given where it is applied
-      sym.kind = "comp"; sym.compRegion = r; sym.factory = { args: e.args, env };
+      sym.kind = "comp"; sym.compRegion = r; sym.factory = { args: e.args, env, nests: e.f.k === "id" ? env.lookup(e.f.name)?.nests : undefined };
     }
     if (shape === "fn") sym.io = true;
     if (shape === "ref") sym.reader = true;
@@ -1139,7 +1140,7 @@ class Checker {
               const kids = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag });              // RG-4c: children are named by the caller, owned where the component reads them
               kids.kids = { comp: s.compRegion!, site: env.region };
               this.markup([...m.children, ...values.values()], new Env(env, kids));
-              if (s.factory && !this.expanding.markup.has(s)) { this.expanding.markup.add(s); this.markup(this.applied(this.factoryValues(s), m.line), new Env(s.factory.env, kids)); this.expanding.markup.delete(s); }   // MO-11f: named where the factory was called
+              if (s.factory && !this.expanding.markup.has(s)) { this.expanding.markup.add(s); this.markup(this.factoryTree(s, m.line), new Env(s.factory.env, kids)); this.expanding.markup.delete(s); }   // MO-11f: named where the factory was called
             } else this.markup(m.children, env);
             break;
           }
@@ -1218,6 +1219,26 @@ class Checker {
     return f.values = out;
   }
 
+  /** MO-11f, MO-11i: what a factory was given, as the markup the checks walk: each component applied with no arguments; with
+   *  `nests(kids in inside)`, a record's `kids` entries are applied among its `inside` component's children. */
+  private factoryTree(s: Sym, line?: number): Markup[] {
+    const f = s.factory!; this.factoryValues(s); const n = f.nests;
+    const isValue = (e: Expr): e is Extract<Expr, { k: "id" }> => e.k === "id" && this.valueIds.has(e);
+    const walk = (e: Expr): Markup[] => {
+      if (isValue(e)) return this.applied([e.name], line);
+      if (e.k === "arr") return e.items.flatMap(x => x.k === "spread" ? [] : walk(x));
+      if (e.k === "call") return e.f.k === "id" && (() => { const g = f.env.lookup(e.f.name); return !!g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined)); })() ? e.args.flatMap(walk) : [];
+      if (e.k !== "rec") return [];
+      const kv = (name: string) => e.fields.find(x => !("spread" in x) && x.key === name) as { key: string; v: Expr } | undefined;
+      const host = n ? kv(n.inside) : undefined; const kids = n ? kv(n.kids) : undefined;
+      if (!host || !isValue(host.v)) return e.fields.flatMap(x => "spread" in x ? [] : walk(x.v));
+      const el = this.applied([host.v.name], line)[0] as Extract<Markup, { k: "el" }>;
+      el.children = kids ? walk(kids.v) : [];
+      return [el, ...e.fields.flatMap(x => "spread" in x || x === host || x === kids ? [] : walk(x.v))];
+    };
+    return f.args.flatMap(walk);
+  }
+
   // ---- SV-7d: the content model across templates ----
   private shapes = new Map<Sym, Shape | null>();   // null: being computed (a recursive component contributes nothing more)
   /** What a component contributes where it is applied (content.ts Shape): from its signature, or its body. */
@@ -1240,7 +1261,7 @@ class Checker {
             for (const ch of S.childrenAt) {                                               // the caller's children, where that component puts them
               const sc = scoped || ch.some(t => P_SCOPE.has(t));
               walk([...m.children, ...this.componentValues(m, env).values()], [...anc, ...ch], sc, env);
-              if (s.factory && !this.expanding.shape.has(s)) { this.expanding.shape.add(s); walk(this.applied(this.factoryValues(s), m.line), [...anc, ...ch], sc, s.factory.env); this.expanding.shape.delete(s); }
+              if (s.factory && !this.expanding.shape.has(s)) { this.expanding.shape.add(s); walk(this.factoryTree(s, m.line), [...anc, ...ch], sc, s.factory.env); this.expanding.shape.delete(s); }
             }
             break;
           }
@@ -1273,7 +1294,7 @@ class Checker {
             report(`<${m.tag}>`, misnestedInside(anc, S));
             for (const ch of S.childrenAt) {
               this.contentCheck([...m.children, ...this.componentValues(m, env).values()], env, [...anc, ...ch]);
-              if (s.factory && !this.expanding.content.has(s)) { this.expanding.content.add(s); this.contentCheck(this.applied(this.factoryValues(s), m.line), s.factory.env, [...anc, ...ch]); this.expanding.content.delete(s); }
+              if (s.factory && !this.expanding.content.has(s)) { this.expanding.content.add(s); this.contentCheck(this.factoryTree(s, m.line), s.factory.env, [...anc, ...ch]); this.expanding.content.delete(s); }
             }
             break;
           }

@@ -430,6 +430,19 @@ export default component App() {
   child route's type does not see its parent's path (the router's own
   limit), so a page under a parametrised parent declares the parent's
   params optional (`org?: string`).
+- **MO-11i (Nested values) — proposed 2026-11-18.** `nests(kids in
+  inside)` on a fn that hands back a `Component` says how it renders a
+  record among its arguments: the component at the record's `inside` field
+  renders the entries under its `kids` field among its own children. For
+  `@solidjs/router`, `nests(children in component)`: a nested route renders
+  in its parent's `props.children`. The checker applies that record's
+  component value with the nested values as its children, as `<Layout><Page
+  /></Layout>` would be, so a layout's `errored`, `loading` and `provide`
+  above `props.children` reach its routes, and its content model holds them
+  (SV-7d). Sibling records stay siblings. Without the word, DV-24 applies;
+  on a fn that hands back no `Component` it is a parse error. The word
+  describes the shape of the arguments, not a router: any library that
+  nests a tree of components it is given says it the same way.
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check
@@ -442,7 +455,9 @@ export default component App() {
   not of its parent route's `props.children`, so a `provide` or an
   `errored` in a layout route is not credited to the routes it wraps. A
   layout that provides a context to its pages is refused
-  (`CONTEXT_NOT_FOUND`); provide it above `<Router />`.
+  (`CONTEXT_NOT_FOUND`); provide it above `<Router />`. A factory declared
+  with `nests(…)` (MO-11i) gives that precision back for the records it
+  describes.
 
 ### Design note: why declared components and factories, not a routing form
 
@@ -619,9 +634,9 @@ Executable: S-module-7.
      (MO-11f). Exporting it would need its summary to carry the escaping
      rows of the components it was given.
    - DV-24: a component value is checked as applied among the children of
-     the application it reaches. A word that says where the library renders
-     it (a route's `component` inside its parent's `props.children`) would
-     credit layout boundaries and provisions; not added.
+     the application it reaches. MO-11i (proposed 2026-11-18) adds
+     `nests(children in component)`, which credits a layout's boundaries and
+     provisions to the routes nested in it.
    - The hooks' context: MO-12 (proposed 2026-11-18) adds `uses(…)` and
      `provides(…)` for JS contexts, so `useParams` outside the router is a
      compile error.

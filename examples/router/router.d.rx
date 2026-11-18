@@ -2,6 +2,6 @@
 export type Params = Record<string, string>
 export type RouteDefinition = { path?: string; component?: Component; children?: RouteDefinition[] }
 export context router                                                                  // MO-12a: the router's own context
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router)
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component)   // MO-11i
 export pure fn useParams(): Params uses(router)                                        // MO-12b: refused where no router is above
 export pure fn useNavigate(): (to: string) => void uses(router)
