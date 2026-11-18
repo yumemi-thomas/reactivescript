@@ -25,7 +25,6 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
 fs.writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({
   compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] },
   include: ["*.rx", "*.ts"],
-  exclude: ["*.d.rx"],   // a declaration is not a module; rx-tsc crashes on one in the program until #65
 }, null, 2));
 
 const original = Object.fromEntries(fs.readdirSync(ws).filter(f => f.endsWith(".rx") && !f.endsWith(".d.rx")).map(f => [f, fs.readFileSync(path.join(ws, f), "utf8")]));
