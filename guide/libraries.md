@@ -84,9 +84,10 @@ component (a router's `createRouter`) is declared with `Component` as its result
 ```rx
 // router.d.rx, beside router.js: export { createRouter, useParams, useNavigate } from "@solidjs/router"
 export type RouteDefinition = { path?: string; component?: Component; children?: RouteDefinition[] }
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component
-export pure fn useParams(): Record<string, string> instantiates
-export pure fn useNavigate(): (to: string) => void instantiates
+export context router
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router)
+export pure fn useParams(): Record<string, string> uses(router)
+export pure fn useNavigate(): (to: string) => void uses(router)
 
 // ui.d.rx, beside ui.js
 export component Shell(props: { header?: Component; children?: View })
@@ -120,7 +121,11 @@ export default component App() {
   the routes it wraps; put it above `<Router />`.
 - **Apply the router in the module that makes it.** `export Router = createRouter(…)` is refused: export the pages
   and make the router where you use it.
+- **Say which context a hook needs.** `export context router` names the library's context; `uses(router)` on a hook
+  makes a call with no router above it `CONTEXT_NOT_FOUND`, instead of a run-time throw, and `provides(router)` on
+  `createRouter` (or on a provider component) says where it comes from. A hook that uses a context is called once, where
+  it is bound, so `instantiates` is implied.
 - **A JS import you apply must be declared.** Without `export component X(…)` in its `.d.rx`, `<X />` is
   `UNKNOWN_COMPONENT`.
 
-Rules: `spec/09-modules.md` MO-10 and MO-11 (and MO-8 for declaration files).
+Rules: `spec/09-modules.md` MO-10, MO-11 and MO-12 (and MO-8 for declaration files).

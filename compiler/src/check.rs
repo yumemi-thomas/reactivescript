@@ -241,6 +241,10 @@ struct Sym<'a> {
     decl_env: Option<EId>,
     /// MO-10: a declared JS primitive (a fn) or an instance of one, or a part of it (an equation): what its result is
     foreign: Option<FShape>,
+    /// MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
+    needs: Vec<String>,
+    /// MO-12c: the JS contexts a declared factory's component provides to what it renders
+    gives: Vec<String>,
     /// MO-11f: a component a JS factory made — the call's arguments and the scope they name from
     factory: Option<(&'a [Expr], EId)>,
     /// MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
@@ -279,6 +283,8 @@ impl<'a> Sym<'a> {
             fn_decl: None,
             decl_env: None,
             foreign: None,
+            needs: vec![],
+            gives: vec![],
             factory: None,
             reader: false,
         }
@@ -1234,11 +1240,15 @@ impl<'a> Checker<'a> {
                     }
                     self.foreign_part(&mut sym, e, env);
                     if sym.foreign == Some(FShape::Comp) {
-                        if let ExprKind::Call { args, .. } = &e.k {
-                            // MO-11f: the bound name is a component
+                        if let ExprKind::Call { f, args } = &e.k {
+                            // MO-11f: the bound name is a component; MO-12c: what it provides to what it renders
+                            let gives: IndexSet<String> = match &f.k {
+                                ExprKind::Id(n) => self.lookup(env, n).map(|t| self.syms[t].gives.iter().cloned().collect()).unwrap_or_default(),
+                                _ => IndexSet::new(),
+                            };
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
-                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false });
+                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false });
                             self.regions[r].sig = Some(CompSig { own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new() });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
@@ -1444,6 +1454,17 @@ impl<'a> Checker<'a> {
         let declared = declared.as_ref().unwrap();
         let decls: &[JsDecl] = self.opts.declarations.get(declared).map(|v| v.as_slice()).unwrap_or(&[]);
         let file = declared.split('/').last().unwrap_or("").to_string();
+        // MO-12a: a JS context's key is its declaration file's
+        let js_keys = |c: &mut Self, ns: &[String]| -> Vec<String> {
+            ns.iter()
+                .map(|n| {
+                    if !decls.iter().any(|y| matches!(y, JsDecl::Context { name, .. } if name == n)) {
+                        c.err("NOT_EXPORTED", "MO-12", format!("{} names context {} in uses(…) or provides(…) but declares none: add `export context {}`", file, n, n));
+                    }
+                    format!("{}#{}", declared, n)
+                })
+                .collect()
+        };
         if fails.is_some() {
             self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{}'s rows are declared in {}: `fails` on the import cannot restate them", from, file));
         }
@@ -1456,32 +1477,35 @@ impl<'a> Checker<'a> {
                 continue;
             };
             match x {
-                JsDecl::Type { .. } => continue,
+                JsDecl::Type { .. } | JsDecl::Context { .. } => continue, // MO-12a: a JS context is named only by its declaration file's rows
                 JsDecl::Error { .. } => {
                     self.bind(env, alias, Sym::new(SymKind::ErrClass, alias, region, line));
                     continue;
                 }
-                JsDecl::Comp { props: xprops, fails: xfails, content, .. } => {
+                JsDecl::Comp { props: xprops, fails: xfails, content, uses: xuses, provides: xprovides, .. } => {
                     // MO-11a: a Solid component — its declaration is its summary; MO-11b: an undeclared prop is read too
+                    let gives = js_keys(self, xprovides); // MO-12c: provided to everything it renders
+                    let requires = js_keys(self, xuses); // MO-12b: what it uses itself
                     let empty = || Catch::Set(IndexSet::new());
+                    let given = || Catch::Set(gives.iter().cloned().collect());
                     let mut props = IndexMap::new();
-                    props.insert("*".to_string(), PropSig { f: empty(), p: empty(), rendered: true, action: None, component: false });
+                    props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false });
                     for p in xprops {
                         let f = match &p.catches {
                             Some(c) => Catch::of(c),
                             None => empty(),
                         };
-                        props.insert(p.name.clone(), PropSig { f, p: empty(), rendered: true, action: None, component: p.component });
+                        props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component });
                     }
                     let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                     let r = self.region(None, "imported", true, Some(alias.clone()));
-                    self.regions[r].sig = Some(CompSig { own, requires: vec![], props, shape: content.clone(), stored: IndexMap::new() });
+                    self.regions[r].sig = Some(CompSig { own, requires, props, shape: content.clone(), stored: IndexMap::new() });
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
                     self.bind(env, alias, s);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1494,6 +1518,8 @@ impl<'a> Checker<'a> {
                         s.rows = Some(RowsT::Fixed(IndexSet::new()));
                         s.fails_t = Some(FailsT::Fixed(IndexSet::new()));
                         s.rejects = Some(IndexSet::new());
+                        s.needs = js_keys(self, xuses);
+                        s.gives = js_keys(self, xprovides);
                         self.bind(env, alias, s);
                         continue;
                     }
@@ -1815,6 +1841,11 @@ impl<'a> Checker<'a> {
                         if let Some(fs) = self.lookup(env, fname) {
                             if self.syms[fs].kind == SymKind::Fn && self.syms[fs].instantiating {
                                 self.snapshot_args(e, fs, env);
+                                // MO-12b: a hook reads its context where it is called
+                                let region = self.reg(env);
+                                for k in self.syms[fs].needs.clone() {
+                                    self.uses.push(UseRec { region, name: k, line: self.line, display: format!("{}()", fname) });
+                                }
                                 let params = self.syms[fs].params.clone().unwrap_or_default();
                                 self.comp(kind, env, Some(name.clone()), None, |c| {
                                     c.model.call(Some(fs), "fn");

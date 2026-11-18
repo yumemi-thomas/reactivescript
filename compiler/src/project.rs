@@ -238,7 +238,7 @@ fn declaration_file(decls: &[JsDecl]) -> String {
         }
     }
     head.into_iter()
-        .chain(decls.iter().map(|d| match d {
+        .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. })).map(|d| match d {
             JsDecl::Comp { name, props, .. } => {
                 let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
                 format!("export declare function {name}(props: {{ {} }}): View;", fs.join(" "))
@@ -252,6 +252,7 @@ fn declaration_file(decls: &[JsDecl]) -> String {
                 });
                 format!("export declare function {name}({}): {};", ps.collect::<Vec<_>>().join(", "), ret.as_deref().unwrap_or("any"))
             }
+            JsDecl::Context { .. } => unreachable!(), // MO-12a: filtered above
         }))
         .collect::<Vec<_>>()
         .join("\n")

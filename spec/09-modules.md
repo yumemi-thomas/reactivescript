@@ -378,8 +378,8 @@ export default component App() {
   back a function, which is io (R-io-3) and called from an action or a
   handler. Each is called once, in the component's region (MO-10a), which
   is where Solid's `useContext` finds the router. A hook called with no
-  router above throws at run time; the checker does not know the router's
-  context.
+  router above throws at run time, unless its declaration names the
+  router's context: then it is `CONTEXT_NOT_FOUND` (MO-12).
 - **MO-11e (Route data).** A route's data is an `await` equation over its
   params, in the route's component: `person = await fetchPerson(params.id)`.
   A change of `params.id` is a new question, held as any re-ask is (H-2); a
@@ -456,6 +456,46 @@ against a package that ships its `.d.rx`), and `examples/router/`, built by
 Vite with `@solidjs/router` 2.0.0-next.44 and driven in Chromium
 (`compiler/test/vite.mjs`).
 
+## MO-12 — JS contexts (proposed 2026-11-18; veto here)
+
+A Solid library keeps its session state in a context (`createContext`): its
+hooks read it with `useContext`, and one of its components provides it. A
+hook called where nothing provides it throws at run time. MO-12 lets a
+declaration say so, in the words `.rx` contexts already have (RG-7b), so that
+call is refused where it is written. Nothing is added at run time.
+
+```rx
+// router.d.rx
+export context router
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router)
+export pure fn useParams(): Params uses(router)
+export pure fn useNavigate(): (to: string) => void uses(router)
+export component RouterProvider(props: { children?: View }) provides(router)
+```
+
+- **MO-12a (Declared).** `export context c` in a JS module's `.d.rx` names
+  a context the module's JavaScript owns. It is named only by that file's
+  `uses(…)` and `provides(…)`: it is not importable, and `.rx` cannot `use`
+  or `provide` it. Its key is the declaration file's (`./router.d.rx#router`,
+  MO-7), so every module that imports the library names the same context.
+  A `uses(…)` or `provides(…)` naming a context the file does not declare is
+  `NOT_EXPORTED`.
+- **MO-12b (Uses).** `uses(c)` on a fn says a call reads `c`: each call is a
+  `use` of it where it is called, checked by RG-7b over the static
+  application tree, through signatures across modules (MO-3: the caller's
+  component carries `uses(./router.d.rx#router)`). A fn that uses a context
+  instantiates (MO-10a, inferred): Solid finds a context through the owner
+  a hook runs under, so it is called once, where it is bound. On a declared
+  JS component, `uses(c)` is what the component itself needs from above.
+- **MO-12c (Provides).** `provides(c)` on a declared JS component provides
+  `c` to everything it renders: its children and every prop. On a fn that
+  hands back a `Component` (MO-11f), it is the made component that provides
+  it, to the components the call was given, which MO-11c checks as applied
+  beneath it. On any other fn it is a parse error: nothing it renders could
+  see the provision.
+
+Executable: S-module-7.
+
 ---
 
 ## Diagnostics this document adds
@@ -468,6 +508,7 @@ Vite with `@solidjs/router` 2.0.0-next.44 and driven in Chromium
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a; MO-8b for a declared JS module |
 | `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
 | `UNKNOWN_COMPONENT` for an undeclared JS component, `COMPONENT_AS_VALUE` outside MO-11c's places | S | MO-11a, MO-11c, MO-11f |
+| `CONTEXT_NOT_FOUND` for a JS hook with no provider above; `NOT_EXPORTED` for an undeclared JS context | S | MO-12b, MO-12a |
 
 ## Implementation
 
@@ -553,9 +594,9 @@ Vite with `@solidjs/router` 2.0.0-next.44 and driven in Chromium
      the application it reaches. A word that says where the library renders
      it (a route's `component` inside its parent's `props.children`) would
      credit layout boundaries and provisions; not added.
-   - The hooks' context is not checked statically (MO-11d). A `uses(…)`
-     word naming a JS context, satisfied by the factory's component, would
-     make `useParams` outside the router a compile error; not added.
+   - The hooks' context: MO-12 (proposed 2026-11-18) adds `uses(…)` and
+     `provides(…)` for JS contexts, so `useParams` outside the router is a
+     compile error.
    - `.rx` has no type arguments, so `useParams<{ id: string }>()` cannot be
      written: a param is the router's `string | undefined` in `rx-tsc`.
      `defineRoute`'s typed params, or a declaration word for them, are open.

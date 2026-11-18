@@ -109,7 +109,7 @@ function signatureStub(sig: ModSig): string {
 function declarationFile(decls: JsDecl[]): string {
   const own = new Set(decls.filter(d => d.kind === "type").map(d => d.name));
   const head = decls.some(d => d.kind === "comp" || (d.kind === "fn" && d.shape === "comp")) ? [...own.has("View") ? [] : ["type View = import(\"@solidjs/web/jsx-runtime\").JSX.Element;"], ...own.has("Component") ? [] : ["type Component<P = any> = (props: P) => View;"]] : [];   // MO-11a: a field's types
-  return [...head, ...decls.map(d => {
+  return [...head, ...decls.filter(d => d.kind !== "context").map(d => {   // MO-12a: a JS context has no TypeScript of its own
     if (d.kind === "type") return `export ${d.text ?? `type ${d.name} = any`}`;
     if (d.kind === "comp") return `export declare function ${d.name}(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }): View;`;
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;

@@ -448,6 +448,7 @@ re!(REF_PART, r"^ref\s");
 re!(FN_PART, r"\)\s*=>");
 re!(REF_WORD, r"\bref\s+");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses|provides)\(");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
@@ -487,11 +488,13 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
-    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape> },
+    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String> },
+    /// MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
+    Context { name: String, line: usize },
 }
 /// MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it (`None` in the list:
 /// every class), and whether it takes a component value (MO-11c: its type is `Component`).
@@ -506,7 +509,7 @@ pub struct JsProp {
 impl JsDecl {
     pub fn name(&self) -> &str {
         match self {
-            JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } | JsDecl::Comp { name, .. } => name,
+            JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } | JsDecl::Comp { name, .. } | JsDecl::Context { name, .. } => name,
         }
     }
 }
@@ -621,8 +624,21 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
     c.expect(")")?;
     let mut fails = vec![];
     let mut content = None;
+    let (mut uses, mut provides) = (vec![], vec![]);
     loop {
         c.ws(false);
+        if c.keyword("uses") {
+            // MO-12b
+            c.ws(false);
+            uses.extend(context_names(c)?);
+            continue;
+        }
+        if c.keyword("provides") {
+            // MO-12c
+            c.ws(false);
+            provides.extend(context_names(c)?);
+            continue;
+        }
         if c.keyword("fails") {
             c.ws(false);
             c.expect("(")?;
@@ -648,7 +664,25 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         }
         break;
     }
-    Ok(JsDecl::Comp { name, line, props, fails, content })
+    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides })
+}
+/// MO-12: `(router, theme)` — contexts the same declaration file declares.
+fn context_names(c: &mut Cursor) -> R<Vec<String>> {
+    c.expect("(")?;
+    let mut out = vec![];
+    loop {
+        c.ws(true);
+        if c.eat(")") {
+            return Ok(out);
+        }
+        out.push(c.ident_or("a context name")?);
+        c.ws(true);
+        if !c.eat(",") {
+            c.ws(true);
+            c.expect(")")?;
+            return Ok(out);
+        }
+    }
 }
 pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
     let mut c = Cursor::new(src);
@@ -694,6 +728,13 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             let name = c.ident_or("error class name")?;
             out.push(JsDecl::Error { name, line });
+            continue;
+        }
+        if c.keyword("context") {
+            // MO-12a
+            c.ws(true);
+            let name = c.ident_or("context name")?;
+            out.push(JsDecl::Context { name, line });
             continue;
         }
         if c.keyword("component") {
@@ -753,10 +794,8 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             let t = c.rest().split('\n').next().unwrap_or("").to_string();
             let r1 = REJECTS.find(&t).map(|m| m.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r = match (r1, r2) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
+            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("uses(") || t[m.start()..].starts_with("provides(") { 0 } else { 1 }); // MO-12
+            let r = [r1, r2, r3].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
                 None => &t[..],
@@ -781,11 +820,32 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             c.expect(")")?;
         }
-        c.ws(false);
-        let written = c.keyword("instantiates");
-        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp); // MO-10a; MO-11f: a component handed back
+        let (mut written, mut uses, mut provides) = (false, vec![], vec![]);
+        loop {
+            // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
+            c.ws(false);
+            if c.keyword("instantiates") {
+                written = true;
+                continue;
+            }
+            if c.keyword("uses") {
+                c.ws(false);
+                uses.extend(context_names(&mut c)?);
+                continue;
+            }
+            if c.keyword("provides") {
+                c.ws(false);
+                provides.extend(context_names(&mut c)?);
+                continue;
+            }
+            break;
+        }
+        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty(); // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        if !provides.is_empty() && shape != Some(Shape::Comp) {
+            return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
+        }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides });
     }
 }
 

@@ -1,6 +1,7 @@
 // The router's factory and hooks, in rows (MO-11). Types for rx-tsc come from @solidjs/router's own .d.ts.
 export type Params = Record<string, string>
 export type RouteDefinition = { path?: string; component?: Component; children?: RouteDefinition[] }
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component
-export pure fn useParams(): Params instantiates
-export pure fn useNavigate(): (to: string) => void instantiates
+export context router                                                                  // MO-12a: the router's own context
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router)
+export pure fn useParams(): Params uses(router)                                        // MO-12b: refused where no router is above
+export pure fn useNavigate(): (to: string) => void uses(router)
