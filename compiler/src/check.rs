@@ -253,6 +253,8 @@ struct Sym<'a> {
     nests: Option<(String, String)>,
     /// MO-11j: an exported factory's component — the wrapper whose summary an importer sees
     exported_as: Option<SId>,
+    /// MO-11j: on that wrapper, the made component its view applies (`<Router />`)
+    wraps: Option<SId>,
     /// MO-11f: a component a JS factory made — the call's arguments and the scope they name from
     factory: Option<(&'a [Expr], EId)>,
     /// MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
@@ -297,6 +299,7 @@ impl<'a> Sym<'a> {
             gives: vec![],
             nests: None,
             exported_as: None,
+            wraps: None,
             factory: None,
             reader: false,
         }
@@ -3114,6 +3117,17 @@ impl<'a> Checker<'a> {
         if let Some(s) = self.shapes.get(&c) {
             return s.clone().unwrap_or_default();
         }
+        if let (Some(m), Some(cenv)) = (self.syms[c].wraps, self.syms[c].comp_env) {
+            // MO-11j: a wrapper's view is the made component, applied at its root
+            let tag = self.syms[m].name.clone();
+            self.shapes.insert(c, None);
+            let mut sh = Shape::default();
+            let mut roots: IndexSet<String> = IndexSet::new();
+            self.shape_app(&tag, &[], &[], &[], cenv, &[], false, &mut sh, &mut roots);
+            sh.roots = roots.into_iter().collect();
+            self.shapes.insert(c, Some(sh.clone()));
+            return sh;
+        }
         let (Some(d), Some(cenv)) = (self.syms[c].comp, self.syms[c].comp_env) else { return Shape::default() };
         let Decl::Component { view, .. } = d else { return Shape::default() };
         self.shapes.insert(c, None);
@@ -3283,19 +3297,16 @@ impl<'a> Checker<'a> {
     fn export_made(&mut self, made: SId, name: &str, line: i64) {
         let region = self.syms[made].region;
         let w = self.region(Some(region), "component", true, Some(name.to_string()));
-        let el = Markup { kind: MarkupKind::El { tag: name.to_string(), attrs: vec![], children: vec![] }, line: Some(line as usize), span: Span::NONE };
-        // the wrapper's declaration lives as long as the checker's program borrow; it is made once per exported factory
-        let d: &'a Decl = Box::leak(Box::new(Decl::Component { name: name.to_string(), props: "props".into(), decls: vec![], view: vec![el], line: line as usize, span: Span::NONE, props_type: None, exported: false, is_default: false }));
-        let Decl::Component { view, .. } = d else { return };
         let wenv = self.env(self.root_env, w);
         let mut wrap = Sym::new(SymKind::Comp, name, region, line);
         wrap.comp_region = Some(w);
-        wrap.comp = Some(d);
         wrap.comp_env = Some(wenv);
+        wrap.wraps = Some(made);
         let ws = self.new_sym(wrap);
         self.comp_syms.insert(w, ws);
         self.syms[made].exported_as = Some(ws);
-        self.markup(view, wenv, false);
+        // its view is `<Router />`: the made component applied, with no arguments and no children
+        self.apply_value(name, Some(line as usize), wenv);
     }
     /// MO-11i: `apply_value` for a component value with the values nested in it, applied among its children.
     fn apply_tree(&mut self, t: &VTree, line: Option<usize>, env: EId) {
