@@ -522,6 +522,11 @@ impl JsDecl {
 
 /// MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`).
 fn is_component_type(t: &str) -> bool {
+    // MO-11m: `Component & { paths: … }`, a component with properties
+    let parts = split_top(t, "&");
+    if parts.len() > 1 {
+        return is_component_type(&parts[0]);
+    }
     match t.strip_prefix("Component") {
         Some(r) => {
             let r = r.trim_start();

@@ -232,6 +232,7 @@ function typeParams(c: Cursor): string | undefined {
 
 /** MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`). */
 function isComponentType(t: string): boolean {
+  const parts = splitTop(t, "&"); if (parts.length > 1) return isComponentType(parts[0]);   // MO-11m: `Component & { paths: … }`, a component with properties
   const m = /^Component\s*/.exec(t); if (!m) return false; const r = t.slice(m[0].length); if (!r) return true; if (r[0] !== "<") return false;
   let depth = 0; for (let i = 0; i < r.length; i++) { if (r[i] === "<") depth++; else if (r[i] === ">" && r[i - 1] !== "=" && --depth === 0) return i === r.length - 1; }
   return false;
