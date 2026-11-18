@@ -209,15 +209,15 @@ export type ExportSig =
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig> };
-type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]> };
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean };   // spa: 08 CN-3d, a client-only build
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig; model: Model } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx") }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
-export function checkModules(set: ModuleSet): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {
+export function checkModules(set: ModuleSet, spa = false): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); }
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); }
   return { diags, sigs, models };
 }
 
@@ -598,6 +598,31 @@ class Checker {
       if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}) });
     }
+  }
+  /** CN-3d: `e` can have no value on the first load: it awaits without a first paint, here or in an equation it reads,
+   *  counting only what the first load surely asks (a question behind a condition, `c ? null : await f()`, `c && await
+   *  f()`, a `catch`'s alternative, waits only if `c` lets it). The crate's `expr_absent` with `first`, step for step. */
+  private firstAbsent(e0: Expr, env: Env, own: Sym | undefined, memo: Map<Sym, boolean>, busy: Set<Sym>): boolean {
+    const stack: Expr[] = [e0];
+    while (stack.length) {
+      const x = stack.pop()!;
+      switch (x.k) {
+        case "fn": case "serverfn": continue;
+        case "await": if (!x.init) return true; continue;
+        case "if": stack.push(x.c); continue;
+        case "bin": if (x.op === "&&" || x.op === "||" || x.op === "??") { stack.push(x.l); continue; } break;
+        case "catch": stack.push(x.e); continue;
+        case "member": if (this.heldField(x, env)?.[1]) return true; break;   // MO-10f: a field that holds
+        case "id": { const t = env.lookup(x.name); if (t && t !== own && (t.kind === "eq" || t.kind === "source") && this.symFirstAbsent(t, memo, busy)) return true; continue; }
+      }
+      stack.push(...subExprs(x));
+    }
+    return false;
+  }
+  private symFirstAbsent(s: Sym, memo: Map<Sym, boolean>, busy: Set<Sym>): boolean {
+    if (memo.has(s)) return memo.get(s)!;
+    if (!s.expr || !s.env || busy.has(s)) return false;
+    busy.add(s); const out = this.firstAbsent(s.expr, s.env, s, memo, busy); busy.delete(s); memo.set(s, out); return out;
   }
   /** MO-10g: closures passed where a declared JS fn takes a callback — their bodies are imperative scope, as a handler's. */
   private callbackFns = new WeakSet<Expr>();
@@ -1501,8 +1526,10 @@ class Checker {
     type Item = { cls: string; line: number; what: string };
     type Req = { name: string; line: number; what: string };
     const readerF = this.readers.map(r => ({ ...r, f: this.failsOf(r.e, r.env, false, new Map()) }));
-    for (const r of this.readers) if (this.rowsThunk(r.e, r.env)().has("client")) this.uses.push({ region: r.region, name: HOLD, line: r.line, display: show(r.e) });   // SV-7b
-    const argR = this.apps.flatMap(a => a.args.filter(x => this.rowsThunk(x.e, x.env)().has("client")).map(x => ({ app: a, field: x.field })));
+    const firstMemo = new Map<Sym, boolean>();
+    const firstHeld = (e: Expr, env: Env) => !!this.opts.spa && this.firstAbsent(e, env, undefined, firstMemo, new Set());   // CN-3d: what the first load surely waits on
+    for (const r of this.readers) if (this.rowsThunk(r.e, r.env)().has("client") || firstHeld(r.e, r.env)) this.uses.push({ region: r.region, name: HOLD, line: r.line, display: show(r.e) });   // SV-7b
+    const argR = this.apps.flatMap(a => a.args.filter(x => this.rowsThunk(x.e, x.env)().has("client") || firstHeld(x.e, x.env)).map(x => ({ app: a, field: x.field })));
     const argF = this.apps.flatMap(a => a.args.map(x => ({ app: a, field: x.field, f: this.failsOf(x.e, x.env, false, new Map()) })));
     const actF = this.actions.map(a => ({ ...a, f: this.stmtsFails(a.body, a.env, new Map()) }));
     const ck = (c?: Catch) => c === undefined ? "-" : c === "all" ? "*" : [...c].sort().join("|");
@@ -1564,7 +1591,7 @@ class Checker {
     };
     const top = esc(null);
     for (const it of top.fails) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — wrap it in \`errored fallback(e${it.cls === "Error" ? "" : `: ${it.cls}`}) { … } { … }\`, or catch it: \`… catch (e${it.cls === "Error" ? "" : `: ${it.cls}`}) => …\``); }
-    for (const it of top.reqs) { this.line = it.line; if (it.name === HOLD) { this.err("CLIENT_QUESTION_UNHELD", "SV-7b", `${it.what} awaits \`client\` JS, and no \`loading\` region above it holds it on any path that renders it: the server never asks a client question, so it could never finish this page — put the reader under \`loading fallback { … } { … }\`, or give the await a first paint (\`await f() -> v\`)`); continue; } this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision of ${keyName(it.name)} (declared in ${it.name.split("#")[0].split("/").pop()}) above this region on any path that renders it`); }
+    for (const it of top.reqs) { this.line = it.line; if (it.name === HOLD && this.opts.spa) { this.err("ASYNC_OUTSIDE_LOADING_BOUNDARY", "CN-3d", `${it.what} can have no value yet, and no \`loading\` region above it holds it on some path that renders it: in a client-only build the first load would show nothing until it answers — put it under \`loading fallback { … } { … }\`, or give the await a first paint (\`await f() -> v\`). Later answers are transitions and need no region`); continue; } if (it.name === HOLD) { this.err("CLIENT_QUESTION_UNHELD", "SV-7b", `${it.what} awaits \`client\` JS, and no \`loading\` region above it holds it on any path that renders it: the server never asks a client question, so it could never finish this page — put the reader under \`loading fallback { … } { … }\`, or give the await a first paint (\`await f() -> v\`)`); continue; } this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision of ${keyName(it.name)} (declared in ${it.name.split("#")[0].split("/").pop()}) above this region on any path that renders it`); }
     for (const a of actF) if (a.f.cls.size) { this.line = a.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${a.name} can fail with ${[...a.f.cls].join(", ")} and does not catch it: a handler cannot (it does not await the action) — \`try { … } catch (e) { … }\` in the body`); }
     // MO-3: the summaries an importing module checks against
     const meet = (a: Catch, b: Catch): Catch => a === "all" ? b : b === "all" ? a : new Set([...a].filter(x => b.has(x)));

@@ -87,7 +87,10 @@ runtime check.
   turns it on from Solid's options (`generate: "dom"`, `hydratable:
   false`). (Ryan, 2026-10-30: "The problem with topmost in csr on initial
   load is you see nothing"; "Answer after first paint is fine.. its just a
-  transition as normal".) Checked by `rxc`, not yet by `ref/`.
+  transition as normal".) Checked by `rxc` and by `ref/` (`checkModules(set,
+  true)`): a scenario's rejected variant with a `-- spa` line is checked as a
+  client-only build (S-module-11), and `ref/crate.ts --spa` compares the two
+  on every program.
 - **CN-3e (An outside read holds a `loading on`) — Ryan, 2026-10-30.** A
   `loading on(k)` region re-arms when `k` changes, to show its fallback
   while what it waits on loads again. A reader outside that region of a

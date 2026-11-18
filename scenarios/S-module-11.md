@@ -139,3 +139,24 @@ export default component App() {
 
 A record part bound from the result keeps its fields' rows.
 
+```rx
+-- reject: ASYNC_OUTSIDE_LOADING_BOUNDARY
+-- spa
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <ul>{for t in todos.data { <li>{t}</li> }}</ul>
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    {errored fallback(e) { <p>failed: {e.message}</p> } { <Todos /> }}
+  </QueryClientProvider>
+}
+```
+
+In a client-only build (`-- spa`, CN-3d) the first load waits on
+`todos.data`, and with no `loading` above it nothing would show until it
+answers.
+

@@ -45,7 +45,7 @@ fn abs(f: &str) -> String {
     std::path::absolute(f).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| f.to_string()).replace('\\', "/")
 }
 
-fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
+fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool) -> Value {
     let read = |p: &str| files.get(p).cloned();
     let set = match load_modules(entry, &read) {
         Ok(s) => s,
@@ -55,7 +55,7 @@ fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
     for p in &set.order {
         asts.insert(p.clone(), set.programs[p].to_json());
     }
-    let checked = check_modules(&set, false);
+    let checked = check_modules(&set, spa); // 08 CN-3d: a client-only build where the request says so
     let mut sigs = Map::new();
     for p in &set.order {
         sigs.insert(p.clone(), json!(print_signature(&checked.sigs[p])));
@@ -188,7 +188,8 @@ fn main() {
                 .map(|r| {
                     let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
                     let entry = r["entry"].as_str().unwrap();
-                    let mut v = std::panic::catch_unwind(|| conform_one(entry, &files)).unwrap_or_else(|e| {
+                    let spa = r["spa"].as_bool().unwrap_or(false);
+                    let mut v = std::panic::catch_unwind(|| conform_one(entry, &files, spa)).unwrap_or_else(|e| {
                         let msg = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
                         json!({ "panic": msg })
                     });
