@@ -60,5 +60,13 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
 check("a .d.rx that disagrees with its module's types fails, on the declaration's line (TY-6)",
   decl.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_MISMATCH: twice: /.test(decl.out) && /lib\.d\.rx:2:1 - error DECLARATION_MISMATCH: thrice: .*does not exist/.test(decl.out), decl);
 
+fs.writeFileSync(path.join(ws, "lib.d.rx"), "//@ for typescript ^1.0.0\n" + libDecl);
+const pin = run();
+fs.writeFileSync(path.join(ws, "lib.d.rx"), "//@ for typescript >=1.0.0\n" + libDecl);
+const pinOk = run();
+fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
+check("a .d.rx pinned to a version range the installed package is outside fails (MO-8f)", pin.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_VERSION: written for typescript \^1\.0\.0/.test(pin.out), pin);
+check("a pin the installed package satisfies passes", pinOk.status === 0, pinOk);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

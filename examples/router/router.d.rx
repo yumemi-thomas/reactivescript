@@ -1,3 +1,4 @@
+//@ for @solidjs/router ^2.0.0
 // The router's factory, route helper and hooks, in rows (MO-11, MO-12). Types are @solidjs/router's own, as TypeScript text.
 export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
 export type RouteDefinition = import("@solidjs/router").RouteDefinition

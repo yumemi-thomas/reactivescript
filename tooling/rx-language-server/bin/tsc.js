@@ -31,6 +31,15 @@ process.on("exit", code => {
   const ts = require(require.resolve("typescript"));
   const cfg = ts.findConfigFile(process.cwd(), ts.sys.fileExists);
   const options = cfg ? ts.parseJsonConfigFileContent(ts.readConfigFile(cfg, ts.sys.readFile).config, ts.sys, path.dirname(cfg)).options : {};
+  // MO-8f: a declaration pinned to the version of the package it was written for
+  const { declarations: declFiles } = require("../src/boundary.js");
+  const { checkPins } = require("../src/versions.js");
+  const pinned = new Set([...declFiles(analyses().map(a => a.file)).map(d => d.file), ...analyses().flatMap(a => (a.result.declarations ?? []))]);
+  for (const f of pinned) for (const p of checkPins(f)) {
+    errors++;
+    codes.add("DECLARATION_VERSION");
+    process.stdout.write(`${path.relative(process.cwd(), f)}:${p.line}:1 - error DECLARATION_VERSION: ${p.message} (MO-8f)\n`);
+  }
   for (const b of checkBoundaries(ts, analyses().map(a => a.file), options)) {
     errors++;
     codes.add("DECLARATION_MISMATCH");

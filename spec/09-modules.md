@@ -184,6 +184,14 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   written (TY-1c), so a library's own inference reaches `.rx` code that
   calls it (S-module-8).
 
+- **MO-8f (Pinned to a version) — proposed 2026-11-18.** A declaration may
+  say which version of a package it was written for, on a line of its own:
+  `//@ for @tanstack/solid-query ^6.0.0`. It is a comment to the checker;
+  `rx-tsc` refuses the declaration when the installed package is outside the
+  range (`DECLARATION_VERSION`), since rows written for one version may be
+  wrong about the next. `rx-declare` writes the pin of the version it drafted
+  from. Ranges: an exact version, `^`, `~`, `>=`, `>`, `<=`, `<`, joined by `||`.
+
 ## MO-9 — A signature read in place of its module
 
 - **MO-9a.** `import … from "./x.rx"` where there is no `x.rx` but there is

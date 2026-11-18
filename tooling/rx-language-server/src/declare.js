@@ -95,6 +95,10 @@ function declare(ts, spec, from, options = {}) {
   const mod = checker.getSymbolAtLocation(imp.moduleSpecifier);
   if (!mod) throw new Error(`${spec}: no TypeScript types found from ${from}`);
   const out = [`// Drafted by rx-declare from ${spec}'s TypeScript types. Check every TODO, then delete it; rx-tsc checks the rest (TY-6).`];
+  if (!spec.startsWith(".")) {                                                            // MO-8f: pinned to the version it was drafted from
+    const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
+    const v = require("./versions.js").installed(pkg, from); if (v) out.push(`//@ for ${pkg} ^${v}`);
+  }
   const contexts = [];
   const lines = [];
   for (const sym0 of checker.getExportsOfModule(mod)) {

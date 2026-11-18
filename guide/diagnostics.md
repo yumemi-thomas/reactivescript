@@ -1230,3 +1230,19 @@ giving a `View`. Anywhere else, write the markup itself, or a `for` over the lis
 <ul>{for x in xs { <li>{x}</li> }}</ul>
 ```
 
+### DECLARATION_VERSION
+
+The `.d.rx` is pinned (`//@ for <package> <range>`) to versions of its package that are not the one installed (MO-8f).
+Its rows were written for another version: check them against this one (the package's changelog, its `.d.ts`), fix
+what changed, then update the pin.
+
+```rx before
+//@ for @solidjs/router ^1.9.0
+export pure fn useParams(): any uses(router)
+```
+
+```rx after
+//@ for @solidjs/router ^2.0.0
+export pure fn useParams(): any uses(router)
+```
+
