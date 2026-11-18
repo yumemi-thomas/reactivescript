@@ -245,12 +245,16 @@ fn declaration_file(decls: &[JsDecl]) -> String {
             }
             JsDecl::Type { text, .. } => format!("export {text}"),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
-            JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, .. } => {
-                // MO-10a: a `ref` parameter is an accessor in JS
-                let ps = params.iter().enumerate().map(|(i, n)| match (refs.get(i).copied().unwrap_or(false), ptypes.get(i).and_then(|t| t.as_ref())) {
-                    (true, t) => format!("{n}: (() => {})", t.map(String::as_str).unwrap_or("any")),
-                    (false, Some(t)) => format!("{n}: {t}"),
-                    (false, None) => n.clone(),
+            JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, opts, .. } => {
+                // MO-10a: a `ref` parameter is an accessor in JS; MO-8e: an optional one is `?`
+                let ps = params.iter().enumerate().map(|(i, n)| {
+                    let o = if opts.get(i).copied().unwrap_or(false) { "?" } else { "" };
+                    match (refs.get(i).copied().unwrap_or(false), ptypes.get(i).and_then(|t| t.as_ref())) {
+                        (true, t) => format!("{n}{o}: (() => {})", t.map(String::as_str).unwrap_or("any")),
+                        (false, Some(t)) => format!("{n}{o}: {t}"),
+                        (false, None) if !o.is_empty() => format!("{n}?: any"),
+                        (false, None) => n.clone(),
+                    }
                 });
                 format!("export declare function {name}{}({}): {};", tparams.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), accessor_result(ret.as_ref(), shape))
             }
@@ -1130,13 +1134,13 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
     let mut checks = vec![];
     for d in decls {
         let (name, line, ty) = match d {
-            JsDecl::Fn { name, line, params, ptypes, refs, ret, shape, tparams, .. } => {
+            JsDecl::Fn { name, line, params, ptypes, refs, ret, shape, tparams, opts, .. } => {
                 let ps: Vec<String> = params
                     .iter()
                     .enumerate()
                     .map(|(i, n)| {
                         let t = ptypes.get(i).and_then(|t| t.clone()).unwrap_or_else(|| "any".into());
-                        format!("{}: {}", n, if refs.get(i).copied().unwrap_or(false) { accessor(&t) } else { t })
+                        format!("{}{}: {}", n, if opts.get(i).copied().unwrap_or(false) { "?" } else { "" }, if refs.get(i).copied().unwrap_or(false) { accessor(&t) } else { t })
                     })
                     .collect();
                 (name, *line, format!("{}({}) => {}", tparams.as_deref().unwrap_or(""), ps.join(", "), result(ret.as_ref(), shape)))

@@ -57,7 +57,7 @@ function ownObject(ts, t) {
 }
 function paramText(ts, checker, p, at) {
   const t = checker.getTypeOfSymbolAtLocation(p, at);
-  const opt = "";   // .d.rx parameters have no `?`: a fn that may omit one fits a declaration that passes it (TY-6)
+  const opt = p.valueDeclaration && ts.isParameter(p.valueDeclaration) && (p.valueDeclaration.questionToken || p.valueDeclaration.initializer) ? "?" : "";   // MO-8e
   const read = accessorOf(ts, checker, t);
   if (read) return `ref ${p.name}${opt}: ${text(ts, checker, read)}`;
   if (isFn(checker, t)) return `${p.name}${opt}: (...args: any[]) => any`;   // a callback (MO-10g)
@@ -65,7 +65,7 @@ function paramText(ts, checker, p, at) {
   if (ownObject(ts, obj) && obj.getProperties().some(q => isFn(checker, checker.getTypeOfSymbolAtLocation(q, at)))) {
     return `${p.name}${opt}: { ${obj.getProperties().map(q => propText(ts, checker, q, at)).join("; ")} }`;   // its callbacks are typed as functions
   }
-  return `${p.name}${opt}: ${text(ts, checker, t)}`;
+  return `${p.name}${opt}: ${text(ts, checker, opt ? checker.getNonNullableType(t) : t)}`;   // `?` already says it may be absent
 }
 
 function resultText(ts, checker, t, todos) {
@@ -128,7 +128,8 @@ function declare(ts, spec, from, options = {}) {
     const sig = [...sigs].sort((a, b) => a.getParameters().length - b.getParameters().length)[0];   // the shortest overload: the common form
     const params = [...sig.getParameters()];
     const optional = p => { const d = p.valueDeclaration; return !!d && ts.isParameter(d) && !!(d.questionToken || d.initializer || d.dotDotDotToken); };
-    while (params.length && optional(params[params.length - 1])) params.pop();   // .d.rx has no optional parameter: leave trailing ones out (a fn that takes more fits, TY-6)
+    while (params.length && params[params.length - 1].valueDeclaration && ts.isParameter(params[params.length - 1].valueDeclaration) && params[params.length - 1].valueDeclaration.dotDotDotToken) params.pop();   // a rest parameter is left out (a fn that takes more fits, TY-6)
+    void optional;
     const ps = params.map(p => paramText(ts, checker, p, imp));
     const todos = [];
     const ret = resultText(ts, checker, sig.getReturnType(), todos);

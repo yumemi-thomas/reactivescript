@@ -492,7 +492,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -773,6 +773,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         let mut params = vec![];
         let mut ptypes = vec![];
         let mut refs = vec![];
+        let mut opts = vec![];
         while !c.starts_with(")") {
             let r = c.keyword("ref"); // MO-10a: a ref parameter takes an accessor
             if r {
@@ -780,6 +781,8 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             }
             refs.push(r);
             params.push(c.ident_or("param")?);
+            c.ws(false);
+            opts.push(c.eat("?")); // MO-8e: a caller may leave it out
             c.ws(false);
             ptypes.push(if c.peek() == ':' {
                 c.bump();
@@ -880,7 +883,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
         let cbs = callbacks(&ptypes);
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts });
     }
 }
 /// MO-10g: where a declared fn takes callbacks, by parameter: the whole parameter (`(true, [])`), or the fields of a record

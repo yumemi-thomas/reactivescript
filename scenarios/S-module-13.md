@@ -7,7 +7,7 @@ Rules: TY-4b, MO-10a, MO-10b, TY-6.
 ```rx
 -- module: ./prims.d.rx
 export pure fn createToggle(initial: boolean): [ref boolean, (v: boolean) => void]
-export pure fn createDebounced(ref source: string, ms: number): ref string
+export pure fn createDebounced(ref source: string, ms?: number): ref string
 ```
 
 A `ref` parameter takes an accessor and a `ref` result is one, in JS (MO-10a,
@@ -26,7 +26,8 @@ import { createToggle, createDebounced } from "./prims.js"
 component Search(props: { start: boolean, q: string }) {
   [isOn, setOn] = createToggle(peek props.start)
   query = createDebounced(props.q, 300)
-  size = query.length
+  now = createDebounced(props.q)
+  size = query.length + now.length
   label = isOn ? "on" : "off"
   action flip() { setOn(!isOn) }
   <button onClick={flip}>{label} {size}</button>
@@ -38,7 +39,7 @@ export default component App() {
 ```
 
 Accepted by the checker and by TypeScript: `query` is a `string`, `isOn` a
-`boolean`.
+`boolean`, and `ms`, declared `ms?: number` (MO-8e), may be left out.
 
 ## Rejected variants
 

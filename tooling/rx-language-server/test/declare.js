@@ -61,7 +61,7 @@ check("a plain result gets no store TODO", !/TODO useTheme: is the result a stor
 check("a hook is pure and instantiates, with a TODO for its context", has("export pure fn useTheme(): string instantiates") && /\/\/ TODO useTheme: which context does this hook read\?/.test(draft), draft);
 check("a component's JSX children are a View", has("export component Card(props: { title: string; children?: View })"), draft);
 check("a function-typed children prop is a render prop (MO-11k)", has("export component List(props: { items: string[]; children: (item: any, index: any) => View })"), draft);
-check("a callback parameter is a function type; a trailing optional one is left out", has("export fn onIdle(run: (...args: any[]) => any): void"), draft);
+check("a callback parameter is a function type; an optional one keeps its `?` (MO-8e)", has("export fn onIdle(run: (...args: any[]) => any, delay?: number): void"), draft);
 
 const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: ws, encoding: "utf8" });
 check("the draft parses and passes rx-tsc against the module's own types (TY-6)", t.status === 0 && t.stdout.trim() === "", { status: t.status, out: t.stdout + t.stderr });

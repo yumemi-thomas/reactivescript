@@ -124,7 +124,7 @@ function declarationFile(decls: JsDecl[]): string {
     if (d.kind === "type") return `export ${d.text ?? `type ${d.name} = any`}`;
     if (d.kind === "comp") return `export declare function ${d.name}(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }): View;`;
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
-    const ps = d.params.map((n, i) => d.refs?.[i] ? `${n}: (() => ${d.ptypes?.[i] ?? "any"})` : `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");   // MO-10a: a `ref` parameter is an accessor in JS
+    const ps = d.params.map((n, i) => { const o = d.opts?.[i] ? "?" : ""; return d.refs?.[i] ? `${n}${o}: (() => ${d.ptypes?.[i] ?? "any"})` : d.ptypes?.[i] ? `${n}${o}: ${d.ptypes[i]}` : o ? `${n}?: any` : n; }).join(", ");   // MO-8e: an optional parameter   // MO-10a: a `ref` parameter is an accessor in JS
     return `export declare function ${d.name}${d.tparams ?? ""}(${ps}): ${accessorResult(d.ret, d.shape)};`;
   })].join("\n") + "\n";
 }
