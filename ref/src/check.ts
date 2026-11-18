@@ -100,8 +100,9 @@ type Sym = {
   held?: [string, boolean, string[]][];   // MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
+  renders?: boolean;                   // MO-11l: a declared JS fn that renders the components in its arguments where its result is bound
   nests?: { kids: string; inside: string };   // MO-11i: how a declared factory nests what it is given
-  factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string }; exported?: Sym };   // MO-11f; exported: MO-11j, the component an importer sees: a component a JS factory made — the call's arguments, and the components in them
+  factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string }; exported?: Sym; here?: boolean };   // here: MO-11l, applied where the result is bound   // MO-11f; exported: MO-11j, the component an importer sees: a component a JS factory made — the call's arguments, and the components in them
   fnDecl?: Extract<Decl, { k: "fn" }>; declEnv?: Env;   // a fn's declaration and the scope it names from (SF-3: what it reaches)   // a context (RG-7): its identity, whether it carries a source, and its declared rows (null: inferred from its provisions)
 };
 const reactiveKinds = new Set<SymKind>(["source", "eq", "props"]);
@@ -594,7 +595,7 @@ class Checker {
       }
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}) });
     }
   }
@@ -632,6 +633,7 @@ class Checker {
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; }   // MO-10f: its fields' rows come with it
     if (e.k === "member" && this.heldField(e, env)?.[1]) sym.reader = true;                // MO-10f: a part bound from a field that holds reads as a reader (MO-10d)
     if (e.k === "member" && e.o.k === "id") { const pre = `${e.p}.`; const sub = env.lookup(e.o.name)?.held?.filter(h => h[0].startsWith(pre)).map(h => [h[0].slice(pre.length), h[1], h[2]] as [string, boolean, string[]]); if (sub?.length) sym.held = sub; }   // a record part keeps its fields' rows
+    if (shape !== "comp" && e.k === "call" && e.f.k === "id" && env.lookup(e.f.name)?.renders) sym.factory = { args: e.args, env, here: true };   // MO-11l: its component values are applied here
     if (shape === "comp" && e.k === "call") {                                              // MO-11f: the bound name is a component
       const gives = e.f.k === "id" ? env.lookup(e.f.name)?.gives ?? [] : [];                 // MO-12c: what it provides to what it renders
       const r = this.region(null, "imported", { component: true, name: sym.name }); r.sig = { own: [], requires: [], props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: { roots: [], closesP: false, a: false, form: false, childrenAt: [[]] } };   // it renders what it was given where it is applied
@@ -727,7 +729,7 @@ class Checker {
       case "eq": {
         const kind = d.deferred ? "deferred" : d.key ? "keyed" : "memo";
         const made = env.vars.get(d.name);
-        if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (d.exported) this.exportMade(made, d.name, d.line); }
+        if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (made.factory.here) this.markup(this.factoryTree(made, d.line), env); else if (d.exported) this.exportMade(made, d.name, d.line); }   // MO-11l: applied where it is bound
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.markCallbacks(call.args, f.cbs); this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.rowCheck(d.name, d.type, env); return;
       }

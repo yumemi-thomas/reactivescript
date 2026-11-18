@@ -450,7 +450,7 @@ re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
 re!(ROW_WORD, r"^(holds\b|fails\(([^)]*)\))\s*");
 re!(ANY_ROW_WORD, r"\b(holds|fails\()");
 re!(RENDER_TYPE, r"=>\s*View\s*$");
-re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses|provides|nests)\(");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b)");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
@@ -490,7 +490,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -811,7 +811,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             let t = code_of(&line0).to_string(); // words in a `// comment` are not rows
             let r1 = REJECTS.find(&t).map(|m| m.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if ["uses(", "provides(", "nests("].iter().any(|w| t[m.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
+            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if ["uses(", "provides(", "nests(", "renders"].iter().any(|w| t[m.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
             let r = [r1, r2, r3].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
@@ -838,12 +838,17 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             c.expect(")")?;
         }
-        let (mut written, mut uses, mut provides, mut nests) = (false, vec![], vec![], None);
+        let (mut written, mut uses, mut provides, mut nests, mut renders) = (false, vec![], vec![], None, false);
         loop {
             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
             c.ws(false);
             if c.keyword("instantiates") {
                 written = true;
+                continue;
+            }
+            if c.keyword("renders") {
+                // MO-11l: renders the components in its arguments where its result is bound
+                renders = true;
                 continue;
             }
             if c.keyword("uses") {
@@ -875,7 +880,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             }
             break;
         }
-        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty(); // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
         if nests.is_some() && shape != Some(Shape::Comp) {
             return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
         }
@@ -884,7 +889,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
         let cbs = callbacks(&ptypes);
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders });
     }
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).

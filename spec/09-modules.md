@@ -505,6 +505,17 @@ export default component App() {
   that prop (`header={(n) => …}`), checked as the children are; a name the
   declaration does not type as a function giving a `View` is
   `VIEW_FN_MISPLACED`. Executable: S-module-14.
+- **MO-11l (Fns that render what they are given) — proposed 2026-11-18.**
+  `renders` on a declared fn that hands back no component (`createTable(ref
+  options: { columns: { cell: Component }[] }): any renders`) says it
+  renders the components in its argument literals, through something the
+  app calls later (`flexRender(cell.column.cell, …)` in its view). They are
+  values there, found as a factory's are (MO-11c, MO-11g), and they are
+  checked as applied, with no arguments, where its result is bound: among
+  the children of that region, which renders the table (DV-24's
+  assumption, at the binding). Their failures, contexts and first loads are
+  checked above the binding. `renders` implies `instantiates`; a component
+  passed to a fn without it is still `COMPONENT_AS_VALUE`. S-module-16.
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check
