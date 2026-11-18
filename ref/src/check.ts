@@ -99,7 +99,7 @@ type Sym = {
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
   nests?: { kids: string; inside: string };   // MO-11i: how a declared factory nests what it is given
-  factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string } };   // MO-11f: a component a JS factory made — the call's arguments, and the components in them
+  factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string }; exported?: Sym };   // MO-11f; exported: MO-11j, the component an importer sees: a component a JS factory made — the call's arguments, and the components in them
   fnDecl?: Extract<Decl, { k: "fn" }>; declEnv?: Env;   // a fn's declaration and the scope it names from (SF-3: what it reaches)   // a context (RG-7): its identity, whether it carries a source, and its declared rows (null: inferred from its provisions)
 };
 const reactiveKinds = new Set<SymKind>(["source", "eq", "props"]);
@@ -629,7 +629,7 @@ class Checker {
         case "action": exports.set(d.name, { kind: "action" }); break;
         case "server": exports.set(d.name, { kind: "server", io: !!s.io, params: (s.params ?? []).map(p => p.name), rejects: arr(s.serverRejects?.()) }); break;
         case "errclass": exports.set(d.name, { kind: "errclass", params: d.k === "error" ? d.params : [] }); break;
-        case "comp": exports.set(d.name, { kind: "comp", sig: this.compSig!(s.compRegion!) }); break;
+        case "comp": exports.set(d.name, { kind: "comp", sig: this.compSig!(s.factory?.exported?.compRegion ?? s.compRegion!) }); break;   // MO-11j: a made component's summary is its wrapper's
         case "context": { const c = s.ctx!; exports.set(d.name, { kind: "context", key: c.key, source: c.source, dflt: c.dflt, rows: arr(c.contract?.rows), fails: arr(c.contract?.fails), type: d.k === "context" ? d.type?.replace(ROW_WORDS, "") : undefined }); break; }
       }
     }
@@ -700,7 +700,7 @@ class Checker {
       case "eq": {
         const kind = d.deferred ? "deferred" : d.key ? "keyed" : "memo";
         const made = env.vars.get(d.name);
-        if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (d.exported) this.err("COMPONENT_AS_VALUE", "MO-11f", `${d.name} is a component made by a JS factory: apply it in this module (export the components it takes instead)`); }
+        if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (d.exported) this.exportMade(made, d.name, d.line); }
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.rowCheck(d.name, d.type, env); return;
       }
@@ -1219,6 +1219,16 @@ class Checker {
     return f.values = out;
   }
 
+  /** MO-11j: an exported factory's component, summarised as a component whose view applies it — what its values let out
+   *  and need from above, and its content shape, are what an importer's `<Router />` gets (MO-3). */
+  private exportMade(made: Sym, name: string, line: number) {
+    const w = this.region(made.region, "component", { component: true, name });
+    const view: Markup[] = [{ k: "el", tag: name, attrs: [], children: [], line } as Markup];
+    const wenv = new Env(this.rootEnv!, w);
+    const wrap: Sym = { kind: "comp", name, region: made.region, line, compRegion: w, comp: { k: "component", name, props: "props", decls: [], view, line } as unknown as Sym["comp"], compEnv: wenv };
+    this.compSyms.set(w, wrap); made.factory!.exported = wrap;
+    this.markup(view, wenv);
+  }
   /** MO-11f, MO-11i: what a factory was given, as the markup the checks walk: each component applied with no arguments; with
    *  `nests(kids in inside)`, a record's `kids` entries are applied among its `inside` component's children. */
   private factoryTree(s: Sym, line?: number): Markup[] {

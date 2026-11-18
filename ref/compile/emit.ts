@@ -10,7 +10,7 @@ import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
 import { unwrapServer } from "../src/check.ts";
 import { isPrims } from "../src/prims.ts";
-import type { Shape } from "../src/parse.ts";
+import type { Shape, JsDecl } from "../src/parse.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
@@ -81,7 +81,7 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
-      const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n);
+      const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n) || madeComponent(p, n, set.declarations);   // MO-11j
       const body = g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`).join(", ")} }`);
       files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function module(__rt) {\n  const __B = __rt.B;\n${body}\n}\n`);
     }
@@ -171,7 +171,8 @@ class Gen {
       case "fn": return { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js, fn: d };
       case "component": return { kind: "comp", js: cm(alias) };
       case "action": return { kind: "act", js };
-      case "source": case "eq": return { kind: "acc", js };
+      case "eq": if (madeComponent(this.mods!.set.programs.get(path)!, name, this.mods!.set.declarations)) return { kind: "comp", js: cm(alias) }; return { kind: "acc", js };   // MO-11j
+      case "source": return { kind: "acc", js };
       default: return { kind: "val", js };
     }
   }
@@ -600,4 +601,12 @@ class Gen {
       }
     }
   }
+}
+
+/** MO-11f, MO-11j: an equation bound from a declared factory's call is a component (`Router = createRouter(…)`). */
+export function madeComponent(p: Program, name: string, declarations?: Map<string, JsDecl[]>): boolean {
+  const d = p.decls.find(x => x.k === "eq" && x.name === name); if (!d || d.k !== "eq" || d.e.k !== "call" || d.e.f.k !== "id") return false;
+  const g = d.e.f.name;
+  for (const i of p.decls) if (i.k === "import" && i.declared) { const n = i.names.find(x => x.alias === g); if (n) return declarations?.get(i.declared)?.some(x => x.kind === "fn" && x.name === n.name && x.shape === "comp") ?? false; }
+  return false;
 }

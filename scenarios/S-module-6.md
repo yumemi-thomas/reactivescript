@@ -111,19 +111,6 @@ of `<Router />`. Providing `theme` above `<Router />` is accepted.
 
 ```rx
 -- reject: COMPONENT_AS_VALUE
-import { createRouter } from "@solidjs/router"
-component Home() { <h1>Home</h1> }
-export Router = createRouter({ routes: [{ path: "/", component: Home }] })
-export default component App() {
-  <Router />
-}
-```
-
-A component a factory made is applied in its own module, where the checker
-knows what it was given (MO-11f).
-
-```rx
--- reject: COMPONENT_AS_VALUE
 import { useParams } from "@solidjs/router"
 component Home() { <h1>Home</h1> }
 export default component App() {

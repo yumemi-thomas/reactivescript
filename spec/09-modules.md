@@ -403,8 +403,7 @@ export default component App() {
   bound name is a component, applied in a view (`<Router />`) and never read
   as a value. The components in its arguments are values there (MO-11c).
   The checker knows what the call was given only in the module that makes
-  it, so the made component is applied there: `export Router = …` is
-  `COMPONENT_AS_VALUE`; export the components it takes instead. For SV-7d
+  it, so an importer sees the made component through a summary (MO-11j). For SV-7d
   the made component has no element of its own: what it was given is
   checked where it is applied, and counts in the shape of the component that
   applies it (as a component value does). Links need
@@ -443,6 +442,15 @@ export default component App() {
   on a fn that hands back no `Component` it is a parse error. The word
   describes the shape of the arguments, not a router: any library that
   nests a tree of components it is given says it the same way.
+- **MO-11j (An exported factory's component) — proposed 2026-11-18.**
+  `export Router = createRouter({ … })` exports the made component. Its
+  signature (MO-3) is that of a component whose view is `<Router />` in the
+  making module: what the components it was given let out of it, the
+  contexts they need that it does not provide (MO-12c), and their content
+  shape, so `export component Router(props: {}) fails(Error)
+  uses(./theme.rx#theme) shape(roots h1)`. An importer applies it as any
+  imported component, checked against that signature. The made component is
+  exported as the component it is, not an accessor (CP-4b).
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check
@@ -630,9 +638,9 @@ Executable: S-module-7.
    - A component is a value only on a `Component` prop of a JS component or
      inside a factory's argument literals; an `.rx` component cannot take
      one (it would need a form to apply a value).
-   - A factory's component is applied only in the module that makes it
-     (MO-11f). Exporting it would need its summary to carry the escaping
-     rows of the components it was given.
+   - A factory's component may be exported: MO-11j (proposed 2026-11-18)
+     summarises it as a component whose view applies it, so its summary
+     carries the escaping rows of the components it was given.
    - DV-24: a component value is checked as applied among the children of
      the application it reaches. MO-11i (proposed 2026-11-18) adds
      `nests(children in component)`, which credits a layout's boundaries and

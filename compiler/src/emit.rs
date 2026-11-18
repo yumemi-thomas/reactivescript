@@ -223,7 +223,7 @@ pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> 
             }));
         } else {
             let exported: Vec<&str> = p.decls.iter().filter(|d| d.exported() && !matches!(d, Decl::TypeDecl { .. })).filter_map(|d| d.name()).collect();
-            let is_comp = |n: &str| p.decls.iter().any(|d| matches!(d, Decl::Component { name, .. } if name == n));
+            let is_comp = |n: &str| p.decls.iter().any(|d| matches!(d, Decl::Component { name, .. } if name == n)) || made_component(p, n, &set.declarations); // MO-11j
             let tail = E::Obj(exported.iter().map(|n| Prop::Kv(Key::Str(n.to_string()), id(if is_comp(n) { cm(n) } else { mg(n) }))).collect());
             let root = g.new_env(None);
             let mut inner = g.block(&p.decls, &[], root, Some(tail), false)?;
@@ -901,6 +901,7 @@ impl<'p> Gen<'p> {
             }
             Decl::Component { .. } => bind(Kind::Comp, cm(alias)),
             Decl::Action { .. } => bind(Kind::Act, js),
+            Decl::Eq { .. } if made_component(&self.set.programs[path], name, &self.set.declarations) => bind(Kind::Comp, cm(alias)), // MO-11j
             Decl::Source { .. } | Decl::Eq { .. } => bind(Kind::Acc, js),
             _ => val(js),
         }
@@ -1912,4 +1913,19 @@ pub fn lower_view(module: &[S], filename: &str, target: Target, module_name: &st
         _ => None,
     };
     Ok(Lowered { code: out.code, map })
+}
+
+/// MO-11f, MO-11j: an equation bound from a declared factory's call is a component (`Router = createRouter(…)`).
+fn made_component(p: &Program, name: &str, declarations: &indexmap::IndexMap<String, Vec<crate::parse::JsDecl>>) -> bool {
+    let Some(Decl::Eq { e, .. }) = p.decls.iter().find(|x| matches!(x, Decl::Eq { name: n, .. } if n == name)) else { return false };
+    let ExprKind::Call { f, .. } = &e.k else { return false };
+    let ExprKind::Id(g) = &f.k else { return false };
+    for i in &p.decls {
+        if let Decl::Import { names, declared: Some(dp), .. } = i {
+            if let Some(n) = names.iter().find(|x| &x.alias == g) {
+                return declarations.get(dp).is_some_and(|ds| ds.iter().any(|x| matches!(x, crate::parse::JsDecl::Fn { name, shape: crate::parse::Shape::Comp, .. } if *name == n.name)));
+            }
+        }
+    }
+    false
 }

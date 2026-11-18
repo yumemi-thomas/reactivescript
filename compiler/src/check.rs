@@ -247,6 +247,8 @@ struct Sym<'a> {
     gives: Vec<String>,
     /// MO-11i: how a declared factory (and the component it made) nests what it is given: (kids field, component field)
     nests: Option<(String, String)>,
+    /// MO-11j: an exported factory's component — the wrapper whose summary an importer sees
+    exported_as: Option<SId>,
     /// MO-11f: a component a JS factory made — the call's arguments and the scope they name from
     factory: Option<(&'a [Expr], EId)>,
     /// MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
@@ -288,6 +290,7 @@ impl<'a> Sym<'a> {
             needs: vec![],
             gives: vec![],
             nests: None,
+            exported_as: None,
             factory: None,
             reader: false,
         }
@@ -1633,7 +1636,8 @@ impl<'a> Checker<'a> {
                 }
                 SymKind::ErrClass => ExportSig::ErrClass { params: if let Decl::Error { params, .. } = d { params.clone() } else { vec![] } },
                 SymKind::Comp => {
-                    let r = self.syms[s].comp_region.unwrap();
+                    // MO-11j: a made component's summary is its wrapper's
+                    let r = self.syms[s].exported_as.and_then(|w| self.syms[w].comp_region).or(self.syms[s].comp_region).unwrap();
                     ExportSig::Comp { sig: self.comp_sig(r) }
                 }
                 SymKind::Context => {
@@ -1838,7 +1842,7 @@ impl<'a> Checker<'a> {
                         // the call runs once, here: its failures and holds are a reader's
                         self.readers.push(ReaderRec { region: self.reg(env), e, env, line: self.line });
                         if d.exported() {
-                            self.err("COMPONENT_AS_VALUE", "MO-11f", format!("{} is a component made by a JS factory: apply it in this module (export the components it takes instead)", name));
+                            self.export_made(made, name, d.line() as i64);
                         }
                     }
                 }
@@ -3212,6 +3216,25 @@ impl<'a> Checker<'a> {
             self.apply_tree(t, line, fe);
         }
         self.expanding[0].remove(&s);
+    }
+    /// MO-11j: an exported factory's component, summarised as a component whose view applies it — what its values let out
+    /// and need from above, and its content shape, are what an importer's `<Router />` gets (MO-3).
+    fn export_made(&mut self, made: SId, name: &str, line: i64) {
+        let region = self.syms[made].region;
+        let w = self.region(Some(region), "component", true, Some(name.to_string()));
+        let el = Markup { kind: MarkupKind::El { tag: name.to_string(), attrs: vec![], children: vec![] }, line: Some(line as usize), span: Span::NONE };
+        // the wrapper's declaration lives as long as the checker's program borrow; it is made once per exported factory
+        let d: &'a Decl = Box::leak(Box::new(Decl::Component { name: name.to_string(), props: "props".into(), decls: vec![], view: vec![el], line: line as usize, span: Span::NONE, props_type: None, exported: false, is_default: false }));
+        let Decl::Component { view, .. } = d else { return };
+        let wenv = self.env(self.root_env, w);
+        let mut wrap = Sym::new(SymKind::Comp, name, region, line);
+        wrap.comp_region = Some(w);
+        wrap.comp = Some(d);
+        wrap.comp_env = Some(wenv);
+        let ws = self.new_sym(wrap);
+        self.comp_syms.insert(w, ws);
+        self.syms[made].exported_as = Some(ws);
+        self.markup(view, wenv, false);
     }
     /// MO-11i: `apply_value` for a component value with the values nested in it, applied among its children.
     fn apply_tree(&mut self, t: &VTree, line: Option<usize>, env: EId) {

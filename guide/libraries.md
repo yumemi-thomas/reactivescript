@@ -121,8 +121,8 @@ export default component App() {
 - **Layouts count for their nested routes** when the factory is declared `nests(children in component)`: a route
   under a record's `children` is checked inside that record's `component`, so an `errored` or `provide` the layout
   puts above `props.children` covers it. Without the word, put them above `<Router />`.
-- **Apply the router in the module that makes it.** `export Router = createRouter(…)` is refused: export the pages
-  and make the router where you use it.
+- **A router can live in its own module.** `export Router = createRouter(…)` exports it; whoever applies `<Router />`
+  gets its pages' needs through its signature, so the `errored` or `provide` they need goes above `<Router />` there.
 - **Say which context a hook needs.** `export context router` names the library's context; `uses(router)` on a hook
   makes a call with no router above it `CONTEXT_NOT_FOUND`, instead of a run-time throw, and `provides(router)` on
   `createRouter` (or on a provider component) says where it comes from. A hook that uses a context is called once, where
