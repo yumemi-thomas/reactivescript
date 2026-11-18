@@ -243,6 +243,8 @@ struct Sym<'a> {
     foreign: Option<FShape>,
     /// MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
     held: Vec<(String, bool, Vec<String>)>,
+    /// MO-10g: where a declared JS fn takes callbacks, by parameter
+    cbs: Vec<Option<(bool, Vec<String>)>>,
     /// MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
     needs: Vec<String>,
     /// MO-12c: the JS contexts a declared factory's component provides to what it renders
@@ -290,6 +292,7 @@ impl<'a> Sym<'a> {
             decl_env: None,
             foreign: None,
             held: vec![],
+            cbs: vec![],
             needs: vec![],
             gives: vec![],
             nests: None,
@@ -888,6 +891,8 @@ pub struct Checker<'a> {
     line: i64,
     seq: usize,
     uses: Vec<UseRec>,
+    /// MO-10g: closures passed where a declared JS fn takes a callback
+    callback_fns: HashSet<*const Expr>,
     readers: Vec<ReaderRec<'a>>,
     /// CN-3e: `loading on(…)` regions (the region made, its `on`) and effect inputs, by where they are.
     load_ons: Vec<ReaderRec<'a>>,
@@ -971,6 +976,7 @@ impl<'a> Checker<'a> {
             line: 1,
             seq: 0,
             uses: vec![],
+            callback_fns: HashSet::new(),
             readers: vec![],
             load_ons: vec![],
             effect_ins: vec![],
@@ -1523,7 +1529,7 @@ impl<'a> Checker<'a> {
                     self.bind(env, alias, s);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1540,6 +1546,7 @@ impl<'a> Checker<'a> {
                         s.gives = js_keys(self, xprovides);
                         s.nests = xnests.clone();
                         s.held = xheld.clone();
+                        s.cbs = xcbs.clone();
                         self.bind(env, alias, s);
                         continue;
                     }
@@ -1559,6 +1566,7 @@ impl<'a> Checker<'a> {
                     s.io = !xpure;
                     s.rejects = Some(rejects.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
                     s.side = *xside;
+                    s.cbs = xcbs.clone();
                     self.bind(env, alias, s);
                 }
             }
@@ -1610,6 +1618,26 @@ impl<'a> Checker<'a> {
             sym.reader = true;
         }
         sym.foreign = Some(shape);
+    }
+    /// MO-10g: closures passed where a declared JS fn takes a callback — their bodies are imperative scope, as a handler's.
+    fn mark_callbacks(&mut self, args: &[Expr], s: SId) {
+        let cbs = self.syms[s].cbs.clone();
+        for (i, a) in args.iter().enumerate() {
+            let Some(Some((whole, fields))) = cbs.get(i) else { continue };
+            if *whole {
+                if matches!(a.k, ExprKind::Fn { .. }) {
+                    self.callback_fns.insert(a as *const Expr);
+                }
+            } else if let ExprKind::Rec(fs) = &a.k {
+                for f in fs {
+                    if let Field::Kv { key, v } = f {
+                        if fields.contains(key) && matches!(v.k, ExprKind::Fn { .. }) {
+                            self.callback_fns.insert(v as *const Expr);
+                        }
+                    }
+                }
+            }
+        }
     }
     /// MO-10f: the declared rows of a field read, `x.data` where `x` was bound from a JS fn's result.
     fn held_field(&self, e: &Expr, env: EId) -> Option<(String, bool, Vec<String>)> {
@@ -1884,6 +1912,7 @@ impl<'a> Checker<'a> {
                     if let ExprKind::Id(fname) = &f.k {
                         if let Some(fs) = self.lookup(env, fname) {
                             if self.syms[fs].kind == SymKind::Fn && self.syms[fs].instantiating {
+                                self.mark_callbacks(args, fs);
                                 self.snapshot_args(e, fs, env);
                                 // MO-12b: a hook reads its context where it is called
                                 let region = self.reg(env);
@@ -2418,6 +2447,9 @@ impl<'a> Checker<'a> {
                     if kind == Some(SymKind::Comp) {
                         self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} called as a function: apply it in a view", fname));
                     }
+                    if let Some(s) = s {
+                        self.mark_callbacks(args, s);
+                    }
                     self.model.call(s, kind.map(|k| k.as_str()).unwrap_or(""));
                 }
                 self.expr(f, env, ctx, None);
@@ -2432,7 +2464,7 @@ impl<'a> Checker<'a> {
                     self.set_value(inner, p, self.line);
                 }
                 if let Some(ss) = stmts {
-                    if !ctx.imperative {
+                    if !ctx.imperative && !self.callback_fns.contains(&(e as *const Expr)) {
                         self.err("REACTIVE_WRITE_IN_OWNED_SCOPE", "W-2", "a statement-bodied closure in reactive scope (SC-3: a closure created here is a pure function)".into());
                         return;
                     }

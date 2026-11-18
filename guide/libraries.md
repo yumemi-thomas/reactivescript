@@ -74,6 +74,9 @@ What the compiler catches:
   ```
 
   Compute the new value once and use it: `let next = !isOn; setOn(next); label := next ? "on" : "off"`.
+- **A callback the declaration types as a function is a handler.** With `onSuccess?: () => void` in the declared
+  options, `onSuccess: () => { saved := saved + 1 }` may write sources, as an `onClick` may. A statement closure
+  anywhere the declaration does not say "function" is still refused (`REACTIVE_WRITE_IN_OWNED_SCOPE`).
 - **Callbacks you pass are plain functions.** An action passed as `handler` is checked as an action; a plain closure
   is not checked beyond what any closure is.
 - **Without a declaration,** an import is io unless you import it `pure`, and `import pure` of a primitive is

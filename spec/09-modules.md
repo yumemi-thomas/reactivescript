@@ -315,6 +315,16 @@ export component Search(props: { start: boolean, q: string }) {
   `data` does; nothing changes at run time. A result with field rows is
   instantiated (MO-10a, inferred). The words are taken out of the type text
   the projection writes (TY-1c). Executable: S-module-11.
+- **MO-10g (Callbacks) — proposed 2026-11-18.** Where a declaration types
+  a parameter of a JS fn, or a field of a record parameter, as a function
+  (`useMutation(ref options: { onSuccess?: () => void })`), the library calls
+  it later, as the DOM calls a handler. A closure passed there literally, in
+  the call's arguments, is checked as a handler's is: its body is imperative
+  scope (W-1, IO-2), so it may write sources and call io. It is not part of
+  the call's value (it runs later, not now). Everywhere else a closure made
+  in reactive scope is still pure (SC-3), and a statement-bodied one is
+  `REACTIVE_WRITE_IN_OWNED_SCOPE`. The declaration is the one statement that
+  makes it a callback, as `pure` is (CN-5). Executable: S-module-12.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 

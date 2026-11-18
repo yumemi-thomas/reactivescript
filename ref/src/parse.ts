@@ -134,7 +134,7 @@ export function parseProgram(src: string): Program {
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
-  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][] }   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[] }   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
   | { kind: "error"; name: string; line: number }
   | { kind: "type"; name: string; line: number; text?: string }
   | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[] }   // MO-11a: a Solid component
@@ -176,8 +176,19 @@ export function parseDeclarations(src: string): JsDecl[] {
     const instantiates = written || refs.some(x => x) || shapeHasRef(shape) || shape === "comp" || !!uses || !!held;   // MO-10a: inferred from a ref on either side; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
     if (nests && shape !== "comp") c.fail(`nests(…) on fn ${name}: only a fn that hands back a Component renders what it is given (MO-11i)`);
     if (provides && shape !== "comp") c.fail(`provides(…) on fn ${name}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)`);
-    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}) });
+    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(callbacks(ptypes) ? { cbs: callbacks(ptypes) } : {}) });
   }
+}
+/** MO-10g: where a declared fn takes callbacks, by parameter: the whole parameter (`[true, []]`), or the fields of a record
+ *  parameter whose types are functions (`[false, ["onSuccess"]]`); null where it takes none. */
+function callbacks(ptypes: (string | undefined)[]): ([boolean, string[]] | null)[] | undefined {
+  const out = ptypes.map((t): [boolean, string[]] | null => {
+    if (!t) return null;
+    if (partOf(t) === "fn") return [true, []];
+    if (t.startsWith("{") && t.endsWith("}")) { const fs = splitTop(t.slice(1, -1), ",;").filter(f => f.includes(":") && partOf(f.slice(f.indexOf(":") + 1).trim()) === "fn").map(f => f.slice(0, f.indexOf(":")).trim().replace(/\?$/, "")); return fs.length ? [false, fs] : null; }
+    return null;
+  });
+  return out.some(Boolean) ? out : undefined;
 }
 /** MO-10f: a result's field rows, `{ data: holds fails(Error) T }` — taken out of the type text, by field. */
 function fieldRows(t: string): { text: string; held?: [string, boolean, string[]][] } {

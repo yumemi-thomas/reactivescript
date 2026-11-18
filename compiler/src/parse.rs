@@ -491,7 +491,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -875,7 +875,40 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held });
+        let cbs = callbacks(&ptypes);
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs });
+    }
+}
+/// MO-10g: where a declared fn takes callbacks, by parameter: the whole parameter (`(true, [])`), or the fields of a record
+/// parameter whose types are functions (`(false, ["onSuccess"])`); `None` where it takes none. Empty when it takes none at all.
+fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
+    let out: Vec<Option<(bool, Vec<String>)>> = ptypes
+        .iter()
+        .map(|t| {
+            let t = t.as_deref()?;
+            if part_of(t) == Part::Fn {
+                return Some((true, vec![]));
+            }
+            if t.starts_with('{') && t.ends_with('}') && t.len() >= 2 {
+                let fs: Vec<String> = split_top(&t[1..t.len() - 1], ",;")
+                    .iter()
+                    .filter_map(|f| {
+                        let i = f.find(':')?;
+                        (part_of(js_trim(&f[i + 1..])) == Part::Fn).then(|| {
+                            let k = js_trim(&f[..i]);
+                            k.strip_suffix('?').unwrap_or(k).to_string()
+                        })
+                    })
+                    .collect();
+                return if fs.is_empty() { None } else { Some((false, fs)) };
+            }
+            None
+        })
+        .collect();
+    if out.iter().any(|x| x.is_some()) {
+        out
+    } else {
+        vec![]
     }
 }
 /// MO-10f: a result's field rows, `{ data: holds fails(Error) T }` — taken out of the type text, by field.
