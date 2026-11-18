@@ -38,7 +38,6 @@ re!(STYLE, r"^<style([^A-Za-z0-9_]|$)");
 re!(SERVER_FN_EXPR, r"^server\s+fn\s*\(");
 re!(NUMBER, r"^\d[\d_]*(\.\d+)?");
 re!(REJECTS, r"(^|[^A-Za-z0-9_])rejects\(");
-re!(LINE_COMMENT, r"//.*$");
 
 static KEYWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
@@ -806,7 +805,8 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         if c.peek() == ':' {
             c.bump();
             c.ws(true);
-            let t = c.rest().split('\n').next().unwrap_or("").to_string();
+            let line0 = c.rest().split('\n').next().unwrap_or("").to_string();
+            let t = code_of(&line0).to_string(); // words in a `// comment` are not rows
             let r1 = REJECTS.find(&t).map(|m| m.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("instantiates") { 0 } else { 1 });
             let r3 = CTX_WORD.find(&t).map(|m| m.start() + if ["uses(", "provides(", "nests("].iter().any(|w| t[m.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
@@ -815,8 +815,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                 Some(at) => &t[..at],
                 None => &t[..],
             };
-            let head = LINE_COMMENT.replace(head, "");
-            let head = js_trim(&head).to_string();
+            let head = js_trim(head).to_string();
             let (head, h) = field_rows(&head); // MO-10f
             held = h;
             if !head.is_empty() {
@@ -824,7 +823,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             }
             let stripped = REF_WORD.replace_all(&head, "").to_string();
             ret = if stripped.is_empty() { None } else { Some(stripped) };
-            c.i += r.unwrap_or(t.len());
+            c.i += r.unwrap_or(line0.len());
         } else {
             c.i = save;
         }
@@ -885,6 +884,28 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         let cbs = callbacks(&ptypes);
         out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts });
     }
+}
+/// A declaration line without its `// comment` (not a `//` inside a string literal type).
+fn code_of(line: &str) -> &str {
+    let b = line.as_bytes();
+    let mut q = 0u8;
+    let mut i = 0;
+    while i < b.len() {
+        let ch = b[i];
+        if q != 0 {
+            if ch == b'\\' {
+                i += 1;
+            } else if ch == q {
+                q = 0;
+            }
+        } else if ch == b'"' || ch == b'\'' || ch == b'`' {
+            q = ch;
+        } else if ch == b'/' && b.get(i + 1) == Some(&b'/') {
+            return &line[..i];
+        }
+        i += 1;
+    }
+    line
 }
 /// MO-10g: where a declared fn takes callbacks, by parameter: the whole parameter (`(true, [])`), or the fields of a record
 /// parameter whose types are functions (`(false, ["onSuccess"])`); `None` where it takes none. Empty when it takes none at all.

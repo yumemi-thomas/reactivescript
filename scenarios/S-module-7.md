@@ -17,7 +17,7 @@ export type RouteDefinition = { path?: string; component?: any; children?: Route
 export context router
 export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router)
 export pure fn useParams(): Params uses(router)
-export pure fn useNavigate(): (to: string) => void uses(router)
+export pure fn useNavigate(): (to: string) => void uses(router)   // a comment's words are not rows: uses(other) here reads nothing
 export component Outlet(props: {}) uses(router)
 export component RouterProvider(props: { children?: View }) provides(router)
 ```

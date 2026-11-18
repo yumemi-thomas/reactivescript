@@ -162,7 +162,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); params.push(c.ident() ?? c.fail("param")); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(/.exec(t); const fr = fieldRows((r ? t.slice(0, r.index) : t).replace(/\/\/.*$/, "").trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : t.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(/.exec(t); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
     let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined;
@@ -179,6 +179,17 @@ export function parseDeclarations(src: string): JsDecl[] {
     if (provides && shape !== "comp") c.fail(`provides(…) on fn ${name}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)`);
     out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(callbacks(ptypes) ? { cbs: callbacks(ptypes) } : {}), ...(opts.some(Boolean) ? { opts } : {}) });
   }
+}
+/** A declaration line without its `// comment` (not a `//` inside a string literal type): words in a comment are not rows. */
+function codeOf(line: string): string {
+  let q = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === "\\") i++; else if (ch === q) q = ""; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") { q = ch; continue; }
+    if (ch === "/" && line[i + 1] === "/") return line.slice(0, i);
+  }
+  return line;
 }
 /** MO-10g: where a declared fn takes callbacks, by parameter: the whole parameter (`[true, []]`), or the fields of a record
  *  parameter whose types are functions (`[false, ["onSuccess"]]`); null where it takes none. */
