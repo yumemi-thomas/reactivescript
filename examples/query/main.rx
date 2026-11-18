@@ -1,0 +1,26 @@
+// TanStack Query 6 (Solid 2.0) from .rx: the client's context (MO-12), a query whose `data` holds and fails when read
+// (MO-10f), and a mutation whose onSuccess callback writes an .rx source (MO-10g).
+import { QueryClientProvider, makeClient, useQuery, useMutation, useQueryClient } from "./query.js"
+import { fetchTodos, addTodo } from "./api.js"
+
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  client = useQueryClient()
+  add = useMutation({ mutationFn: addTodo, onSuccess: () => { client.invalidateQueries({ queryKey: ["todos"] }); saved := saved + 1 } })
+  source draft := ""
+  source saved := 0
+  action save() { add.mutate(draft); draft := "" }
+  <ul>{for t in todos.data { <li>{t}</li> }}</ul>
+  <input value={draft} onInput={e => { draft := e.currentTarget.value }} />
+  <button onClick={save}>add</button>
+  <span id="saved">saved {saved}</span>
+}
+
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    {errored fallback(e) { <p class="err">failed: {e.message}</p> } {
+      {loading fallback { <p>loading…</p> } { <Todos /> }}
+    }}
+  </QueryClientProvider>
+}

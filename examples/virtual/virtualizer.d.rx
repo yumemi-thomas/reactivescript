@@ -1,0 +1,2 @@
+// the headless virtualizer: options as an accessor, rows and size as readers, scrollToIndex an io function (MO-10)
+export pure fn createVirtualizer(ref options: { count: number; getScrollElement: () => any; estimateSize: (i: number) => number }): { items: ref any[]; totalSize: ref number; scrollToIndex: (i: number) => void }

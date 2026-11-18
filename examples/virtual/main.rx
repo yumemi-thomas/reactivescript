@@ -1,0 +1,17 @@
+// A virtual list with render props (09 MO-11k): only the rows in view render, each through `{view (row, i) { … }}`,
+// and a named render prop for the header. VirtualList (virtual.js) is a small Solid 2.0 component on @tanstack/virtual-core.
+import { VirtualList } from "./virtual.js"
+import { makeRows } from "./rows.js"
+
+export default component App() {
+  rows = makeRows(10000)
+  source picked := -1
+  <p id="picked">picked {picked}</p>
+  <VirtualList items={rows} height={300} size={30}>
+    {view header (n) { <p id="head">{n} rows, picked {picked}</p> }}
+    {view (row, i) {
+      mark = i == picked ? " ✓" : ""
+      <button onClick={() => { picked := i }}>{row}{mark}</button>
+    }}
+  </VirtualList>
+}

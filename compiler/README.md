@@ -66,7 +66,8 @@ SOLID_VITE_PLUGIN=../../solid-vite-plugin node test/vite.mjs   # every example a
 ```
 
 `test/vite.mjs` needs a built checkout of solid-vite-plugin with built-in
-`.rx` (solidjs/solid-vite-plugin#471, released in 3.0.0-next.57); it does not take the package from npm yet.
+`.rx` (solidjs/solid-vite-plugin#471, released in 3.0.0-next.57). The npm release works: with
+`@solidjs/vite-plugin@3.0.1` installed somewhere, point `SOLID_VITE_PLUGIN` at its package directory.
 
 What happens to a `.rx` module in Vite:
 

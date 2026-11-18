@@ -30,17 +30,23 @@ const apps = {
   "ai-feed": "ai/feed.rx", "ai-grid": "ai/grid.rx", "ai-wizard": "ai/wizard.rx",
   "ai2-search": "ai2/search/main.rx", "ai2-settings": "ai2/settings/main.rx", "ai2-tracker": "ai2/tracker/main.rx",
   router: "router/main.rx",
+  virtual: "virtual/main.rx", "virtual-headless": "virtual/headless.rx", query: "query/main.rx",
 };
 const filter = process.argv[2];
 const out = path.join(here, ".out"); mkdirSync(out, { recursive: true });
 
-/** @solidjs/router for router/ (09 MO-11), packed once into .out; copied into the project, so its peers are the project's Solid. */
-const ROUTER = "@solidjs/router@2.0.0";
-function routerPackage() {
-  const cache = path.join(out, ".router"), dir = path.join(cache, "package");
+/** The npm packages an example needs (09 MO-11, MO-12, MO-10f/g, MO-11k), each packed once into .out and copied into the
+ *  project, so their peers are the project's Solid. */
+const PACKAGES = {
+  router: ["@solidjs/router@2.0.0"],
+  virtual: ["@tanstack/virtual-core@3.13.13"],
+  query: ["@tanstack/solid-query@6.0.0-rc.6", "@tanstack/query-core@5.107.1"],
+};
+function packed(spec) {
+  const cache = path.join(out, ".packages", spec.replace(/[@/]/g, "_")), dir = path.join(cache, "package");
   if (!existsSync(path.join(dir, "package.json"))) {
     mkdirSync(cache, { recursive: true });
-    const tgz = execFileSync("npm", ["pack", ROUTER, "--silent", "--pack-destination", cache], { encoding: "utf8" }).trim().split("\n").pop();
+    const tgz = execFileSync("npm", ["pack", spec, "--silent", "--pack-destination", cache], { encoding: "utf8" }).trim().split("\n").pop();
     execFileSync("tar", ["-xzf", path.join(cache, tgz), "-C", cache]);
   }
   return dir;
@@ -61,7 +67,10 @@ function project(name, entry) {
   symlinkSync(pkg, path.join(nm, "@reactivescript/compiler"));
   // the runtime as installed: copied, so that it takes the project's Solid (a peer), not its own dev copy
   for (const f of ["package.json", "dist"]) cpSync(path.join(runtime, f), path.join(nm, "@reactivescript/runtime", f), { recursive: true });
-  if (name.startsWith("router")) { rmSync(path.join(nm, "@solidjs/router"), { force: true }); cpSync(routerPackage(), path.join(nm, "@solidjs/router"), { recursive: true }); }
+  for (const spec of PACKAGES[name.split("-")[0]] ?? []) {
+    const id = spec.slice(0, spec.lastIndexOf("@")); rmSync(path.join(nm, id), { recursive: true, force: true });
+    mkdirSync(path.dirname(path.join(nm, id)), { recursive: true }); cpSync(packed(spec), path.join(nm, id), { recursive: true });
+  }
   cpSync(path.join(repo, "examples"), path.join(dir, "src"), { recursive: true });
   writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport main from "./${entry}";\nimport * as api from "./api.mjs";\nconst app = createApp({ root: document.getElementById("app"), api });\napp.mount(main(app));\n`);
   writeFileSync(path.join(dir, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title></head><body><div id="app"></div><script type="module" src="/src/entry.js"></script></body></html>\n`);
@@ -112,6 +121,25 @@ const router = async page => {
   if (!(await page.evaluate(() => window.__loaded))) throw new Error("the page reloaded");
 };
 
+const until = async (page, what, ok) => { for (let i = 0; i < 60; i++) { if (await ok()) return; await page.waitForTimeout(50); } throw new Error(`${what}: ${(await page.textContent("#app")).replace(/\s+/g, " ").slice(0, 200)}`); };
+const virtual = async page => {   // MO-11k: render props, a named one, and an .rx source the rows read
+  const rows = () => page.$$eval(".vrow button", bs => bs.map(x => x.textContent));
+  await until(page, "the rows in view, of 10,000", async () => { const r = await rows(); return r.length > 5 && r.length < 20 && r[0] === "row 0"; });
+  await page.click(".vrow button >> text=row 3"); await until(page, "a click in a row", async () => (await rows()).includes("row 3 ✓") && (await page.textContent("#head")) === "10000 rows, picked 3");
+  await page.$eval(".vlist", el => { el.scrollTop = 30 * 5000; }); await until(page, "scrolled to row 5,000", async () => (await rows()).includes("row 5000"));
+};
+const headless = async page => {   // 07 §4 `ref`: the element reaches the virtualizer
+  const rows = () => page.$$eval(".vrow", rs => rs.map(x => x.textContent));
+  await until(page, "the rows in view", async () => { const r = await rows(); return r.length > 5 && r.length < 20 && r[0] === "row 0"; });
+  await page.click("#jump"); await until(page, "scrollToIndex from a handler", async () => (await rows()).includes("row 7000"));
+};
+const query = async page => {   // MO-12, MO-10f, MO-10g: a query, a mutation whose onSuccess writes a source
+  await until(page, "the query's data", async () => (await page.textContent("#app")).includes("milkeggs"));
+  await page.fill("input", "bread"); await page.click("text=add");
+  await until(page, "the mutation, its onSuccess and the refetch", async () => { const t = await page.textContent("#app"); return t.includes("milkeggsbread") && t.includes("saved 1"); });
+};
+const drivers = { todo, router, virtual, "virtual-headless": headless, query };
+
 for (const [name, entry] of Object.entries(apps)) {
   if (filter && !name.includes(filter)) continue;
   let dir;
@@ -124,7 +152,7 @@ for (const [name, entry] of Object.entries(apps)) {
   const dist = path.join(dir, "dist");
   const http = createServer((req, res) => { let f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f) && name === "router" && !path.extname(f)) f = path.join(dist, "index.html"); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });   // router/: a page's URL serves the app
   await new Promise(r => http.listen(0, "127.0.0.1", r));
-  await drive(`${name} (build)`, `http://127.0.0.1:${http.address().port}/`, name === "todo" ? todo : name === "router" ? router : undefined);
+  await drive(`${name} (build)`, `http://127.0.0.1:${http.address().port}/`, drivers[name]);
   if (name === "router") await drive("router (build, a page's URL)", `http://127.0.0.1:${http.address().port}/people/2`, async page => { await page.waitForTimeout(300); const t = await page.textContent("h1"); if (t?.trim() !== "Bo") throw new Error(`/people/2 loaded: ${await page.textContent("#app")}`); });
   http.close();
 }

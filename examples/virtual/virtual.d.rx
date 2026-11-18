@@ -1,0 +1,2 @@
+// VirtualList (virtual.js): renders the rows in view, calling its children for each one, and its header once (MO-11k)
+export component VirtualList(props: { items: any[]; height?: number; size?: number; children: (item: any, index: number) => View; header?: (count: number) => View })

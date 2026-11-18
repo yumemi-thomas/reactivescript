@@ -1,0 +1,8 @@
+//@ for @tanstack/solid-query ^6.0.0-rc.6
+// @tanstack/solid-query 6 (Solid 2.0), as rows: the client's context, its provider, and the hooks that read it (MO-12)
+export context queryClient
+export component QueryClientProvider(props: { client: any; children?: View }) provides(queryClient)
+export pure fn makeClient(): any instantiates
+export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<any> }): { data: holds fails(Error) any; isFetching: boolean } uses(queryClient)
+export pure fn useMutation(ref options: { mutationFn: (v: any) => Promise<any>; onSuccess?: () => void }): any uses(queryClient)
+export pure fn useQueryClient(): any uses(queryClient)
