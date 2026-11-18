@@ -6,6 +6,9 @@ at every use; the JavaScript itself is not checked (it's the library's).
 
 ## Declare it
 
+To start from a draft, run `npx rx-declare <package> --out <name>.d.rx` (the language server's package): it writes
+what the package's TypeScript types show and leaves a `// TODO` line for each row only you can decide.
+
 ```rx
 // media.d.rx, beside media.js — or shipped by the package beside the file its import resolves to
 export pure fn createToggle(initial: boolean): [ref boolean, (v: boolean) => void]

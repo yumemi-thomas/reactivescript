@@ -57,6 +57,23 @@ types (spec/13 TY-6), reporting `DECLARATION_MISMATCH` on the declaration's line
 projection, so TypeScript alone would pass it. Under `--watch` only
 TypeScript's errors are reported.
 
+## Drafting a declaration
+
+`rx-declare <module> [--out file.d.rx]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
+types, resolved from the current directory as an import there would be:
+
+```sh
+npx rx-declare @tanstack/solid-query --out query.d.rx
+```
+
+What the types show becomes rows: an accessor parameter or result is `ref`, a function of props to a JSX element is a
+component (its JSX props are `View`, its component props `Component`), a tuple keeps its `ref` parts, an `Error`
+subclass is an `error`, a function that hands back a component is a factory. `create*`, `use*`, `define*` and
+`*Options` fns are `pure` (Solid's convention for primitives and config helpers); every other fn stays io. What types
+cannot show is a `// TODO` line above the declaration it concerns: which context a hook reads (`uses(…)`), whether a
+result's fields wait or throw (`holds fails(…)`), what a promise rejects with. `rx-tsc` then checks the draft against
+the same types (spec/13 TY-6).
+
 ## Editors
 
 **VS Code** (and Cursor, VSCodium): the extension in
@@ -111,7 +128,8 @@ instead (or `rx-language-server --stdio` once installed).
 ```sh
 cargo build --release --manifest-path ../../compiler/Cargo.toml
 npm install && node test/run.js      # VERBOSE=1 prints each answer
-node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error
+node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, a .d.rx that disagrees with its types
+node test/declare.js                 # rx-declare: each kind of export drafted as its row, and the draft passes rx-tsc
 ```
 
 `test/run.js` drives the server over LSP on a copy of `examples/shop` (Solid's

@@ -11,7 +11,8 @@
   "type": "commonjs",
   "bin": {
     "rx-language-server": "./bin/server.js",
-    "rx-tsc": "./bin/tsc.js"
+    "rx-tsc": "./bin/tsc.js",
+    "rx-declare": "./bin/declare.js"
   },
   "main": "./src/index.js",
   "files": [
@@ -22,7 +23,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node test/run.js && node test/tsc.js",
+    "test": "node test/run.js && node test/tsc.js && node test/declare.js",
     "prepack": "node scripts/wasm.js"
   },
   "dependencies": {
