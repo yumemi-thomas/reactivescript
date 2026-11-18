@@ -2318,6 +2318,8 @@ impl<'a> Checker<'a> {
                 if let Some(s) = s {
                     self.read(s, ctx, false, field);
                     match self.syms[s].kind {
+                        // MO-11m: a made component's properties (`Router.paths`) are values
+                        SymKind::Comp if field.is_some() && self.syms[s].factory.is_some() && !self.syms[s].renders => {}
                         SymKind::Comp => self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} used as a value: apply it in a view, or pass it where JS takes a `Component`: a JS component's prop, or a JS factory's arguments (MO-11c, MO-11f)", name)),
                         SymKind::Context => self.err("CONTEXT_AS_VALUE", "RG-7", format!("context {} used as a value: read the nearest provision with `use {}`", name, name)),
                         _ => {}

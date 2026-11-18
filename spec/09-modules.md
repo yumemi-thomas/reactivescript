@@ -516,6 +516,15 @@ export default component App() {
   assumption, at the binding). Their failures, contexts and first loads are
   checked above the binding. `renders` implies `instantiates`; a component
   passed to a fn without it is still `COMPONENT_AS_VALUE`. S-module-16.
+- **MO-11m (A made component's properties) — proposed 2026-11-18.** A
+  factory's component may carry properties (`@solidjs/router`'s `paths`, its
+  typed path builder). `Router.paths` is a value read in the module that
+  made it, and may be exported (`export paths = Router.paths`); with the
+  library's own types, `rx-tsc` checks a link built from it
+  (`paths.people("2")`). The component itself stays a component, applied,
+  never a value. Typed search params (`useSearchParams(paths.people)`) in a
+  page are not reachable: the pages are imported by the module that makes
+  the router, and a page importing `paths` from it would be a cycle (MO-5).
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check
