@@ -60,8 +60,7 @@ fn returns_closure(f: &Expr) -> bool {
 }
 
 fn is_handler(attr: &str) -> bool {
-    let b = attr.as_bytes();
-    b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':')
+    crate::awaits::is_handler(attr)
 }
 fn is_upper_tag(tag: &str) -> bool {
     tag.as_bytes().first().is_some_and(|c| c.is_ascii_uppercase())

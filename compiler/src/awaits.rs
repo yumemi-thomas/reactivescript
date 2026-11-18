@@ -102,8 +102,8 @@ pub fn view_readers(ms: &[Markup]) -> Vec<&Expr> {
     out
 }
 
-/// `/^on[A-Z:]/`
+/// `/^on[A-Z:]/`, or `ref` (called once with the element, 07 §4)
 pub fn is_handler(name: &str) -> bool {
     let b = name.as_bytes();
-    b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':')
+    name == "ref" || (b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':'))
 }

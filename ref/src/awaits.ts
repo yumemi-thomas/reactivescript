@@ -42,7 +42,7 @@ export function viewReaders(ms: Markup[]): Expr[] {
   return ms.flatMap((m): Expr[] => {
     switch (m.k) {
       case "read": return [m.e];
-      case "el": return [...m.attrs.filter(a => !/^on[A-Z:]/.test(a.name)).map(a => a.e), ...viewReaders(m.children)];
+      case "el": return [...m.attrs.filter(a => !(/^on[A-Z:]/.test(a.name) || a.name === "ref")).map(a => a.e), ...viewReaders(m.children)];
       case "mif": return [m.c];
       case "mfor": return [m.xs];
       case "mview": return [];

@@ -192,6 +192,12 @@ attributes are equations, children are readers, components are applied as
   only panics (R-f-10) — the root boundary that leaves every failure to the
   panes.
 
+- **`ref` (proposed 2026-11-18).** `<div ref={el => { scroller := el }}>`:
+  Solid calls an element's `ref` once, with the element it made, so its
+  closure is a handler's (imperative scope, SC-4): it may write a source.
+  That is how an element reaches a JS library, through a callback that reads
+  the source (`getScrollElement: () => scroller`, 09 MO-10g). S-module-15.
+
 ## 5. Imperative scope (02 SC-2, 06 AC)
 
 Imperative scope is: an `effect`'s apply block, an `action` body, and any

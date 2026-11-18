@@ -27,7 +27,7 @@ class Env {
 type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean };
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);
-const isHandler = (a: string) => /^on[A-Z:]/.test(a);
+const isHandler = (a: string) => /^on[A-Z:]/.test(a) || a === "ref";   // `ref`: called once with the element
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
 const mg = (n: string) => `v$${n}`;
 const cm = (n: string) => `V$${n}`;   // a component: an uppercase JSX tag

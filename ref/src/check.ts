@@ -11,7 +11,7 @@ import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./mode
 import { inferredAction, runFindings, triggerText } from "./infer.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);   // the scenario prelude; all pure
-const isHandler = (attr: string) => /^on[A-Z:]/.test(attr);                                   // SC-4
+const isHandler = (attr: string) => /^on[A-Z:]/.test(attr) || attr === "ref";                // SC-4; `ref`: called once with the element (07 §4)
 
 // ---------------------------------------------------------------- regions and symbols
 type Region = {

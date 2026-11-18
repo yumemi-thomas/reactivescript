@@ -1213,7 +1213,7 @@ export class Runtime {
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };
         }
-        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, /^on[A-Z:]/.test(a.name) ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
+        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, (/^on[A-Z:]/.test(a.name) || a.name === "ref") ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
       }
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };

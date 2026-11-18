@@ -14,7 +14,7 @@ import type { ModSig } from "../src/check.ts";
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until", "onSettled", "onFlush"]);
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
-const isHandler = (a: string) => /^on[A-Z:]/.test(a);
+const isHandler = (a: string) => /^on[A-Z:]/.test(a) || a === "ref";
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
 /** A written type, without its row words (`pending T` → `T`, 04 CN-4a) or a context's `source` (RG-7c). */
 const typeText = (t?: string) => t?.replace(ROW_WORDS, "").replace(/^source\s+/, "").trim() || undefined;
