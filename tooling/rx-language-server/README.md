@@ -74,6 +74,14 @@ cannot show is a `// TODO` line above the declaration it concerns: which context
 result's fields wait or throw (`holds fails(…)`), what a promise rejects with. `rx-tsc` then checks the draft against
 the same types (spec/13 TY-6).
 
+## Checking a declaration by running it
+
+`rx-verify <file.d.rx>...` (`bin/verify.js`) imports the JS module beside each declaration and checks the rows running
+can check: every declared export exists, a fn is a function, an `error` is an `Error` subclass, and a hook declared
+`uses(…)` that takes no arguments throws when called with no provider (otherwise the row claims a need the hook does
+not have). What needs the app's arguments (`pure`, `holds`/`fails`, `provides`, a hook with parameters) is listed as
+not verified. `rx-tsc` checks what types can (TY-6); this checks what running can.
+
 ## Editors
 
 **VS Code** (and Cursor, VSCodium): the extension in
@@ -130,6 +138,7 @@ cargo build --release --manifest-path ../../compiler/Cargo.toml
 npm install && node test/run.js      # VERBOSE=1 prints each answer
 node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, a .d.rx that disagrees with its types
 node test/declare.js                 # rx-declare: each kind of export drafted as its row, and the draft passes rx-tsc
+node test/verify.js                  # rx-verify: a uses(…) that holds, one that does not, a missing export, a non-Error error
 ```
 
 `test/run.js` drives the server over LSP on a copy of `examples/shop` (Solid's

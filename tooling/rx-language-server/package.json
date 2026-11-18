@@ -12,7 +12,8 @@
   "bin": {
     "rx-language-server": "./bin/server.js",
     "rx-tsc": "./bin/tsc.js",
-    "rx-declare": "./bin/declare.js"
+    "rx-declare": "./bin/declare.js",
+    "rx-verify": "./bin/verify.js"
   },
   "main": "./src/index.js",
   "files": [
@@ -23,7 +24,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node test/run.js && node test/tsc.js && node test/declare.js",
+    "test": "node test/run.js && node test/tsc.js && node test/declare.js && node test/verify.js",
     "prepack": "node scripts/wasm.js"
   },
   "dependencies": {
