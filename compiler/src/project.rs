@@ -10,7 +10,7 @@ use crate::signature::{ExportSig, ModSig};
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 /// The helpers every projection imports (`__`), and the prelude's names (`len`, `map`, …): `ref/types/project.ts`'s PRELUDE.
@@ -179,7 +179,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -245,12 +245,14 @@ fn declaration_file(decls: &[JsDecl]) -> String {
             }
             JsDecl::Type { text, .. } => format!("export {text}"),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
-            JsDecl::Fn { name, params, ptypes, ret, tparams, .. } => {
-                let ps = params.iter().enumerate().map(|(i, n)| match ptypes.get(i).and_then(|t| t.as_ref()) {
-                    Some(t) => format!("{n}: {t}"),
-                    None => n.clone(),
+            JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, .. } => {
+                // MO-10a: a `ref` parameter is an accessor in JS
+                let ps = params.iter().enumerate().map(|(i, n)| match (refs.get(i).copied().unwrap_or(false), ptypes.get(i).and_then(|t| t.as_ref())) {
+                    (true, t) => format!("{n}: (() => {})", t.map(String::as_str).unwrap_or("any")),
+                    (false, Some(t)) => format!("{n}: {t}"),
+                    (false, None) => n.clone(),
                 });
-                format!("export declare function {name}{}({}): {};", tparams.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), ret.as_deref().unwrap_or("any"))
+                format!("export declare function {name}{}({}): {};", tparams.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), accessor_result(ret.as_ref(), shape))
             }
             JsDecl::Context { .. } => unreachable!(), // MO-12a: filtered above
         }))
@@ -302,6 +304,10 @@ struct Proj<'a> {
     used: IndexSet<String>,
     /// names the module declares (they shadow the prelude)
     declared: HashSet<String>,
+    /// MO-10: declared JS fns with a `ref` parameter or result, by local name
+    ref_fns: HashMap<String, JsDecl>,
+    /// MO-10b: equations bound to such a fn's tuple or record result
+    ref_parts: HashMap<String, crate::parse::Shape>,
     prelude: Option<&'a str>,
 }
 
@@ -511,7 +517,19 @@ impl Proj<'_> {
                 Decl::Eq { name, e, line, ty, .. } => {
                     let nm = self.name(name, sp, &mut at);
                     let a = self.ann(ty, sp, &mut at);
-                    let v = Code::of("__.eq(").c(self.expr(e, false, Some(name))).t(", true)");   // R-1: no promise without `await`
+                    // MO-10b: a `ref` result is read as its value
+                    let x = match &e.k {
+                        ExprKind::Call { f, .. } => match &f.k {
+                            ExprKind::Id(g) => self.ref_fns.get(g).and_then(|d| if let JsDecl::Fn { shape, .. } = d { Some(shape.clone()) } else { None }),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(sh @ (crate::parse::Shape::Items(_) | crate::parse::Shape::Fields(_))) = &x {
+                        self.ref_parts.insert(name.clone(), sh.clone());
+                    }
+                    let whole = matches!(x, Some(crate::parse::Shape::Part(crate::parse::Part::Ref)));
+                    let v = Code::of("__.eq(").c(self.expr(e, false, Some(name))).t(if whole { "(), true)" } else { ", true)" });   // R-1: no promise without `await`
                     self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp), *line);
                 }
                 Decl::Provide { name, e, line, .. } => {
@@ -550,6 +568,16 @@ impl Proj<'_> {
         let rest: Vec<&ImportName> = names.iter().filter(|n| !builtin(&n.name)).collect();
         if rest.is_empty() {
             return;
+        }
+        if let Some(dp) = declared {
+            for n in &rest {
+                let x = self.set.declarations.get(dp).and_then(|ds| ds.iter().find(|y| matches!(y, JsDecl::Fn { name, .. } if *name == n.name)));
+                if let Some(x @ JsDecl::Fn { refs, shape, .. }) = x {
+                    if refs.iter().any(|r| *r) || shape.has_ref() {
+                        self.ref_fns.insert(n.alias.clone(), x.clone());
+                    }
+                }
+            }
         }
         if resolved.is_none() && declared.is_none() {
             // a JS module with no declaration: `any`
@@ -794,13 +822,28 @@ impl Proj<'_> {
                 // `.p` with its dot, so that a position just after the dot (what is being typed) is mapped too
                 let dot = format!(".{p}");
                 let at = (!sp.is_none() && sp.text(self.src).ends_with(dot.as_str())).then(|| sp.end as usize - dot.len());
-                go!(o).t(if *opt { "?" } else { "" }).at(&dot, at)
+                let call = match &o.k {
+                    ExprKind::Id(on) => matches!(self.ref_parts.get(on), Some(crate::parse::Shape::Fields(fs)) if fs.iter().any(|f| &f.0 == p && f.1 == crate::parse::Part::Ref)),
+                    _ => false,
+                };
+                go!(o).t(if *opt { "?" } else { "" }).at(&dot, at).t(if call { "()" } else { "" }) // MO-10b
             }
-            ExprKind::Index { o, i, opt } => go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]"),
+            ExprKind::Index { o, i, opt } => {
+                let call = match (&o.k, &i.k) {
+                    (ExprKind::Id(on), ExprKind::Lit(Lit::Num(v))) => matches!(self.ref_parts.get(on), Some(crate::parse::Shape::Items(items)) if *v >= 0.0 && v.fract() == 0.0 && items.get(*v as usize) == Some(&crate::parse::Part::Ref)),
+                    _ => false,
+                };
+                go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]").t(if call { "()" } else { "" }) // MO-10b
+            }
             ExprKind::StyleMap { css, .. } => Code::of(&class_map(css)),
             ExprKind::Call { f, args } => {
+                // MO-10a: a `ref` argument is an accessor
+                let refs: Vec<bool> = match &f.k {
+                    ExprKind::Id(g) => self.ref_fns.get(g).map(|d| if let JsDecl::Fn { refs, .. } = d { refs.clone() } else { vec![] }).unwrap_or_default(),
+                    _ => vec![],
+                };
                 let fc = go!(f);
-                let a = args.iter().map(|a| go!(a)).collect();
+                let a = args.iter().enumerate().map(|(i, a)| if refs.get(i).copied().unwrap_or(false) { Code::of("() => (").c(go!(a)).t(")") } else { go!(a) }).collect();
                 fc.t("(").c(Code::join(a, ", ")).t(")")
             }
             ExprKind::Arr(items) => {
@@ -1018,6 +1061,37 @@ fn class_map(css: &str) -> String {
     format!("({{ {} }} as const)", fields.join(", "))
 }
 
+/// MO-10b: a declared result's type as JS has it: a `ref` result, or a `ref` part of a tuple or record, is an accessor.
+pub(crate) fn accessor_result(ret: Option<&String>, shape: &crate::parse::Shape) -> String {
+    use crate::parse::{Part, Shape};
+    let accessor = |t: &str| format!("(() => {})", t);
+    let Some(r) = ret else { return "any".into() };
+    match shape {
+        Shape::Part(Part::Ref) => accessor(r),
+        Shape::Items(items) if items.contains(&Part::Ref) && r.starts_with('[') && r.ends_with(']') => {
+            let xs = crate::parse::split_top(&r[1..r.len() - 1], ",");
+            format!("[{}]", xs.iter().enumerate().map(|(i, x)| if items.get(i) == Some(&Part::Ref) { accessor(x.trim()) } else { x.trim().to_string() }).collect::<Vec<_>>().join(", "))
+        }
+        Shape::Fields(fields) if fields.iter().any(|f| f.1 == Part::Ref) && r.starts_with('{') && r.ends_with('}') => {
+            let xs = crate::parse::split_top(&r[1..r.len() - 1], ",;");
+            format!(
+                "{{ {} }}",
+                xs.iter()
+                    .map(|x| match x.find(':') {
+                        Some(i) => {
+                            let k = x[..i].trim();
+                            let ref_part = fields.iter().any(|f| f.0 == k.trim_end_matches('?') && f.1 == Part::Ref);
+                            format!("{}: {};", k, if ref_part { accessor(x[i + 1..].trim()) } else { x[i + 1..].trim().to_string() })
+                        }
+                        None => format!("{};", x.trim()),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        }
+        _ => r.clone(),
+    }
+}
 /// TY-6: the boundary check for a `.d.rx` — its rows as TypeScript types, and the real module's exports assigned to them.
 /// A `ref` parameter or result part is an accessor (`() => T`); a component is a function of its declared props; an error
 /// class a constructor of an `Error`. Rows TypeScript cannot see (`pure`, `uses`, `holds`, `fails`) are not checked here.
@@ -1037,36 +1111,7 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
         }
     }
     let accessor = |t: &str| format!("(() => {})", t);
-    // a result's text with its `ref` parts as accessors (MO-10b): the whole, a tuple's items, a record's fields
-    let result = |ret: Option<&String>, shape: &crate::parse::Shape| -> String {
-        use crate::parse::{Part, Shape};
-        let Some(r) = ret else { return "any".into() };
-        match shape {
-            Shape::Part(Part::Ref) => accessor(r),
-            Shape::Items(items) if items.contains(&Part::Ref) && r.starts_with('[') && r.ends_with(']') => {
-                let xs = crate::parse::split_top(&r[1..r.len() - 1], ",");
-                format!("[{}]", xs.iter().enumerate().map(|(i, x)| if items.get(i) == Some(&Part::Ref) { accessor(x.trim()) } else { x.trim().to_string() }).collect::<Vec<_>>().join(", "))
-            }
-            Shape::Fields(fields) if fields.iter().any(|f| f.1 == Part::Ref) && r.starts_with('{') && r.ends_with('}') => {
-                let xs = crate::parse::split_top(&r[1..r.len() - 1], ",;");
-                format!(
-                    "{{ {} }}",
-                    xs.iter()
-                        .map(|x| match x.find(':') {
-                            Some(i) => {
-                                let k = x[..i].trim();
-                                let ref_part = fields.iter().any(|f| f.0 == k.trim_end_matches('?') && f.1 == Part::Ref);
-                                format!("{}: {};", k, if ref_part { accessor(x[i + 1..].trim()) } else { x[i + 1..].trim().to_string() })
-                            }
-                            None => format!("{};", x.trim()),
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                )
-            }
-            _ => r.clone(),
-        }
-    };
+    let result = accessor_result;
     let mut checks = vec![];
     for d in decls {
         let (name, line, ty) = match d {

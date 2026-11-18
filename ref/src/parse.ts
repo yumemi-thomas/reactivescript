@@ -262,7 +262,7 @@ function contextNames(c: Cursor): string[] {
  *  those (only the result and its parts are declared). */
 export type Part = "ref" | "fn" | "value";
 export type Shape = Part | "comp" | { items: Part[] } | { fields: [string, Part][] };   // "comp": the whole result is a component (MO-11f)
-function splitTop(s: string, seps: string): string[] {
+export function splitTop(s: string, seps: string): string[] {
   const out: string[] = []; let depth = 0, from = 0;
   for (let i = 0; i < s.length; i++) { const ch = s[i]; if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch) && !(ch === ">" && s[i - 1] === "=")) depth--; else if (depth === 0 && seps.includes(ch)) { out.push(s.slice(from, i)); from = i + 1; } }
   out.push(s.slice(from)); return out.map(x => x.trim()).filter(x => x);

@@ -8,7 +8,7 @@
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
 import type { ModuleSet } from "../src/modules.ts";
-import type { JsDecl } from "../src/parse.ts";
+import { splitTop, shapeHasRef, type JsDecl, type Shape } from "../src/parse.ts";
 import type { ModSig } from "../src/check.ts";
 
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
@@ -106,6 +106,17 @@ function signatureStub(sig: ModSig): string {
   return [...sig.exports].map(([n, x]) => x.kind === "type" ? `export type ${n} = any;` : x.kind === "comp" ? `export declare function ${n}(props: any): any;` : `export declare const ${n}: any;`).join("\n");
 }
 /** MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module. */
+/** MO-10b: a declared result's type as JS has it: a `ref` result, or a `ref` part of a tuple or record, is an accessor. */
+export function accessorResult(ret: string | undefined, shape: Shape | undefined): string {
+  if (!ret) return "any";
+  const acc = (t: string) => `(() => ${t})`;
+  if (shape === "ref") return acc(ret);
+  if (shape && typeof shape === "object" && "items" in shape && shape.items.includes("ref") && ret.startsWith("[") && ret.endsWith("]"))
+    return `[${splitTop(ret.slice(1, -1), ",").map((x, i) => shape.items[i] === "ref" ? acc(x.trim()) : x.trim()).join(", ")}]`;
+  if (shape && typeof shape === "object" && "fields" in shape && shape.fields.some(f => f[1] === "ref") && ret.startsWith("{") && ret.endsWith("}"))
+    return `{ ${splitTop(ret.slice(1, -1), ",;").map(x => { const i = x.indexOf(":"); if (i < 0) return `${x.trim()};`; const k = x.slice(0, i).trim(); const r = shape.fields.some(f => f[0] === k.replace(/\?$/, "") && f[1] === "ref"); return `${k}: ${r ? acc(x.slice(i + 1).trim()) : x.slice(i + 1).trim()};`; }).join(" ")} }`;
+  return ret;
+}
 function declarationFile(decls: JsDecl[]): string {
   const own = new Set(decls.filter(d => d.kind === "type").map(d => d.name));
   const head = decls.some(d => d.kind === "comp" || (d.kind === "fn" && d.shape === "comp")) ? [...own.has("View") ? [] : ["type View = import(\"@solidjs/web/jsx-runtime\").JSX.Element;"], ...own.has("Component") ? [] : ["type Component<P = any> = (props: P) => View;"]] : [];   // MO-11a: a field's types
@@ -113,8 +124,8 @@ function declarationFile(decls: JsDecl[]): string {
     if (d.kind === "type") return `export ${d.text ?? `type ${d.name} = any`}`;
     if (d.kind === "comp") return `export declare function ${d.name}(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }): View;`;
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
-    const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
-    return `export declare function ${d.name}${d.tparams ?? ""}(${ps}): ${d.ret ?? "any"};`;
+    const ps = d.params.map((n, i) => d.refs?.[i] ? `${n}: (() => ${d.ptypes?.[i] ?? "any"})` : `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");   // MO-10a: a `ref` parameter is an accessor in JS
+    return `export declare function ${d.name}${d.tparams ?? ""}(${ps}): ${accessorResult(d.ret, d.shape)};`;
   })].join("\n") + "\n";
 }
 
@@ -122,6 +133,8 @@ class Proj {
   w: W; set: ModuleSet; path: string; jsStubs: Map<string, Set<string>>;
   private used = new Set<string>();                         // prelude names the module reads
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
+  private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
+  private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
 
   module(p: Program) {
@@ -170,7 +183,11 @@ class Proj {
     }
     for (const d of this.order(ds)) {
       if (d.k === "source") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${typeText(d.type) ? `__.typed<${typeText(d.type)}>(${this.expr(d.init, false)})` : `__.src(${this.expr(d.init, false)})`};`, d.line);
-      if (d.k === "eq") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}, true);`, d.line);   // R-1: no promise without `await`
+      if (d.k === "eq") {
+        const x = d.e.k === "call" && d.e.f.k === "id" ? this.refFns.get(d.e.f.name) : undefined;   // MO-10b: a `ref` result is read as its value
+        if (x && typeof x.shape === "object") this.refParts.set(d.name, x.shape);
+        this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}${x?.shape === "ref" ? "()" : ""}, true);`, d.line);   // R-1: no promise without `await`
+      }
       if (d.k === "provide") this.w.emit(`${ind}__.provide(${d.name}, ${this.expr(d.e, false)});`, d.line);
     }
     for (const d of ds) if (d.k === "effect") {
@@ -186,6 +203,7 @@ class Proj {
     const prelude = d.names.filter(n => BUILTINS.has(n.name));
     if (prelude.length) { for (const n of prelude) this.used.add(n.name); }
     const rest = d.names.filter(n => !BUILTINS.has(n.name)); if (!rest.length) return;
+    if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); }
     let from = d.from;
     if (!d.resolved && !d.declared) {                                                        // a JS module with no declaration: `any`
       const key = this.modPath(d.from) + ".ts"; let s = this.jsStubs.get(key); if (!s) this.jsStubs.set(key, (s = new Set())); for (const n of rest) s.add(n.name); from = d.from;
@@ -257,10 +275,10 @@ class Proj {
       case "throw": return `__.raise(${go(e.e)})`;
       case "catch": return `__.caught(${go(e.e)}, (${e.name ?? "__e"}: ${e.classes ? e.classes.join(" | ") : "Error"}) => ${go(e.alt)})`;
       case "tpl": return "`" + e.parts.map(p => typeof p === "string" ? p.replace(/[`\\]|\$\{/g, m => "\\" + m) : "${" + go(p) + "}").join("") + "`";
-      case "member": return `${go(e.o)}${e.opt ? "?." : "."}${e.p}`;
-      case "index": return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]`;
+      case "member": { const s = e.o.k === "id" ? this.refParts.get(e.o.name) : undefined; return `${go(e.o)}${e.opt ? "?." : "."}${e.p}${s && typeof s === "object" && "fields" in s && s.fields.some(f => f[0] === e.p && f[1] === "ref") ? "()" : ""}`; }   // MO-10b
+      case "index": { const s = e.o.k === "id" ? this.refParts.get(e.o.name) : undefined; return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]${s && typeof s === "object" && "items" in s && e.i.k === "lit" && typeof e.i.v === "number" && s.items[e.i.v] === "ref" ? "()" : ""}`; }   // MO-10b
       case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it
-      case "call": return `${go(e.f)}(${e.args.map(go).join(", ")})`;
+      case "call": { const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : go(a)).join(", ")})`; }   // MO-10a: a `ref` argument is an accessor
       case "arr": return `[${e.items.map(go).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "spread": return `...${go(e.e)}`;

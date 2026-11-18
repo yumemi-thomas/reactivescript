@@ -63,7 +63,12 @@ does for `.tsrx`. Nothing here is a second type system.
 - **TY-4b.** A `.d.rx` is its JS module's `.d.ts`: each function's
   parameter types and return type (`export pure fn f(id: number): Promise<User>`),
   its `export type`s, and its error classes (MO-8). A JS module with no
-  declaration file is `any`.
+  declaration file is `any`. A `ref` parameter or result is written as JS
+  has it, an accessor (`() => T`), and the projection writes the calls the
+  same way (proposed 2026-11-18): a `ref` argument is `() => (e)`, and a
+  `ref` result, or a tuple or record part of one, is read with a call, so
+  the binding has its value's type. The projection then type-checks against
+  a library's own `.d.ts` as it does against the projected one (S-module-13).
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such
