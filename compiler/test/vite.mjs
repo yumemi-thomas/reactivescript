@@ -35,7 +35,7 @@ const filter = process.argv[2];
 const out = path.join(here, ".out"); mkdirSync(out, { recursive: true });
 
 /** @solidjs/router for router/ (09 MO-11), packed once into .out; copied into the project, so its peers are the project's Solid. */
-const ROUTER = "@solidjs/router@2.0.0-next.44";
+const ROUTER = "@solidjs/router@2.0.0";
 function routerPackage() {
   const cache = path.join(out, ".router"), dir = path.join(cache, "package");
   if (!existsSync(path.join(dir, "package.json"))) {

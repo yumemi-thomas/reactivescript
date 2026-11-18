@@ -1,26 +1,28 @@
 // The pages the router renders: plain .rx components, named in the route table (MO-11f).
-import { useParams, useNavigate } from "./router.js"
+import { useNavigate } from "./router.js"
 import { fetchPerson, NotFound } from "./people.js"
 
-export component Layout(props) {
+export context heading: string
+
+export component Layout(props: { children?: View }) {
+  provide heading = "People"                 // MO-11i: reaches the routes nested in this one
   <nav><a href="/">Home</a> <a href="/people/1">Ann</a> <a href="/people/2">Bo</a> <a href="/people/9">Nobody</a></nav>   // the router handles a link's click
   <main>{props.children}</main>
 }
 
 export component Home() {
-  navigate = useNavigate()
+  navigate = useNavigate()                   // MO-12b: checked to be under the router
   action meetBo() { navigate("/people/2") }
-  <h1>People</h1>
+  <h1>{use heading}</h1>
   <button onClick={meetBo}>Meet Bo</button>
 }
 
-export component Person() {
-  params = useParams()                      // MO-11d: the router's store; params.id follows the URL
-  person = await fetchPerson(params.id)     // MO-11e: a route's data, asked again when the param changes
+export component Person(props: { params: { id: string } }) {   // MO-11h: rx-tsc checks the route supplies id
+  person = await fetchPerson(props.params.id)   // MO-11e: a route's data, asked again when the param changes
   errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
     loading fallback { <p>loading…</p> } {
       <h1>{person.name}</h1>
-      <p>{person.role}, #{params.id}</p>
+      <p>{person.role}, #{props.params.id}</p>
     }
   }
 }

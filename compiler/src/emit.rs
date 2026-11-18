@@ -901,7 +901,12 @@ impl<'p> Gen<'p> {
             }
             Decl::Component { .. } => bind(Kind::Comp, cm(alias)),
             Decl::Action { .. } => bind(Kind::Act, js),
-            Decl::Eq { .. } if made_component(&self.set.programs[path], name, &self.set.declarations) => bind(Kind::Comp, cm(alias)), // MO-11j
+            Decl::Eq { .. } if made_component(&self.set.programs[path], name, &self.set.declarations) => {
+                // MO-11j: a JS component, applied as JSX's <X />
+                let mut b = bind(Kind::Comp, cm(alias));
+                b.shape = Some(FShape::Comp);
+                b
+            }
             Decl::Source { .. } | Decl::Eq { .. } => bind(Kind::Acc, js),
             _ => val(js),
         }

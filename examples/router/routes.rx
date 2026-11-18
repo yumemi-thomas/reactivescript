@@ -1,0 +1,10 @@
+// The route table, in a module of its own: the router it makes is exported (MO-11j).
+import { createRouter, defineRoute } from "./router.js"
+import { Layout, Home, Person } from "./pages.rx"
+
+export Router = createRouter({ routes: [
+  defineRoute({ path: "/", component: Layout, children: [
+    defineRoute({ path: "/", component: Home }),
+    defineRoute({ path: "/people/:id", component: Person })   // MO-11h: "/people" here is a type error, Person needs id
+  ] })
+] })
