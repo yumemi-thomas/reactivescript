@@ -974,6 +974,40 @@ impl Proj<'_> {
                     }
                 }
                 let open = Code::of(&format!("{ind}<")).at(tag, tag_at).c(a);
+                // MO-11k: named render props are attributes
+                let named: Vec<&Markup> = children.iter().filter(|c| matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
+                if !named.is_empty() {
+                    self.w.emit(open, line);
+                    let i4 = format!("{ind}    ");
+                    for v in &named {
+                        let MarkupKind::Mview { prop: Some(p), params, decls, body } = &v.kind else { continue };
+                        let vl = v.line.unwrap_or(line);
+                        let vsp = v.span;
+                        let mut from = vsp.start as usize;
+                        let mut c = Code::of(&format!("{ind}  {p}={{(("));
+                        for (i, q) in params.iter().enumerate() {
+                            if i > 0 {
+                                c = c.t(", ");
+                            }
+                            let nm = self.name(q, vsp, &mut from);
+                            c = c.c(nm);
+                        }
+                        self.w.emit(c.t(") => ("), vl);
+                        self.region(decls, body, &i4, vl);
+                        self.w.emit(Code::of(&format!("{ind}  ))}}")), vl);
+                    }
+                    let kids: Vec<&Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
+                    if kids.is_empty() {
+                        self.w.emit(Code::of(&format!("{ind}/>")), line);
+                        return;
+                    }
+                    self.w.emit(Code::of(&format!("{ind}>")), line);
+                    for c in kids {
+                        self.child(c, &i2);
+                    }
+                    self.w.emit(Code::of(&format!("{ind}</{tag}>")), line);
+                    return;
+                }
                 if children.is_empty() {
                     self.w.emit(open.t(" />"), line);
                     return;
@@ -993,7 +1027,7 @@ impl Proj<'_> {
                 self.region(f_decls, f, &i2, line);
                 self.w.emit(Code::of(&format!("{ind})}}")), line);
             }
-            MarkupKind::Mview { params, decls, body } => {
+            MarkupKind::Mview { params, decls, body, .. } => {
                 // MO-11k: the render prop, as the function the component's types expect
                 let mut from = sp.start as usize;
                 let mut c = Code::of(&format!("{ind}{{(("));

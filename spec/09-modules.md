@@ -310,7 +310,10 @@ export component Search(props: { start: boolean, q: string }) {
   `pending?`, `latest` and `loading` apply, and CN-3d asks for a `loading`
   above it in a client-only build), and it can fail with the named classes
   (R-f-5: an `errored` or a `catch` above it). A part bound from the field
-  (`{ data } = useQuery(…)`) is a reader with the same rows. This is a store
+  (`{ data } = useQuery(…)`) is a reader with the same rows. A nested
+  record field has them too, kept by its path (`{ result: { data: holds T }
+  }`: `q.result.data`), and a record part bound from the result keeps its
+  fields' (`r = q.result`, then `r.data`). This is a store
   whose property read suspends and throws, as `@tanstack/solid-query` 6's
   `data` does; nothing changes at run time. A result with field rows is
   instantiated (MO-10a, inferred). The words are taken out of the type text
@@ -324,7 +327,11 @@ export component Search(props: { start: boolean, q: string }) {
   the call's value (it runs later, not now). Everywhere else a closure made
   in reactive scope is still pure (SC-3), and a statement-bodied one is
   `REACTIVE_WRITE_IN_OWNED_SCOPE`. The declaration is the one statement that
-  makes it a callback, as `pure` is (CN-5). Executable: S-module-12.
+  makes it a callback, as `pure` is (CN-5). On a declared JS component, a
+  prop typed as a function (not a `View`-giving one, MO-11k, nor a
+  `Component`) is a handler whatever its name, as an `on*` prop is: its
+  closure is imperative scope, and passing it is not a read.
+  Executable: S-module-12.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 
@@ -493,8 +500,11 @@ export default component App() {
   (`children: (row, i) => …`) and projects to the same arrow, so TypeScript
   types the parameters from the component's own types (TY-1c). Other
   children of such a component are `VIEW_FN_EXPECTED`; a view lambda
-  anywhere else is `VIEW_FN_MISPLACED`. A render prop under another name
-  (`renderItem={…}`) is not covered yet. Executable: S-module-14.
+  anywhere else is `VIEW_FN_MISPLACED`. A render prop under another name is
+  a named view lambda among the children, `{view header (n) { … }}`: it is
+  that prop (`header={(n) => …}`), checked as the children are; a name the
+  declaration does not type as a function giving a `View` is
+  `VIEW_FN_MISPLACED`. Executable: S-module-14.
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check

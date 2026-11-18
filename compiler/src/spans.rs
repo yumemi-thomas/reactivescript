@@ -240,7 +240,10 @@ impl Spans<'_> {
                 self.decls(f_decls, at);
                 self.markups(f, at);
             }
-            MarkupKind::Mview { params, decls, body } => {
+            MarkupKind::Mview { prop, params, decls, body } => {
+                if let Some(p) = prop {
+                    self.word_in(at, p, "the render prop");
+                }
                 for p in params {
                     self.word_in(at, p, "the bound name");
                 }

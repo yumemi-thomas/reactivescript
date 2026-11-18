@@ -336,7 +336,7 @@ pub enum MarkupKind {
     Mif { c: Expr, t: Vec<Markup>, t_decls: Vec<Decl>, f: Vec<Markup>, f_decls: Vec<Decl> },
     Mfor { name: String, xs: Expr, decls: Vec<Decl>, body: Vec<Markup> },
     /// MO-11k: `view (a, b) { … }`, a JS component's render prop
-    Mview { params: Vec<String>, decls: Vec<Decl>, body: Vec<Markup> },
+    Mview { prop: Option<String>, params: Vec<String>, decls: Vec<Decl>, body: Vec<Markup> },
     /// H-5/H-6
     Loading { on: Option<Expr>, fallback: Vec<Markup>, decls: Vec<Decl>, body: Vec<Markup> },
     /// H-12, R-f-4
@@ -647,7 +647,7 @@ impl Markup {
             MarkupKind::Text(x) => obj(vec![("k", s("text")), ("s", s(x)), ("line", line)]),
             MarkupKind::Style(css) => obj(vec![("k", s("style")), ("css", s(css)), ("line", line)]),
             MarkupKind::Mif { c, t, t_decls, f, f_decls } => obj(vec![("k", s("mif")), ("c", Some(c.to_json())), ("t", ms(t)), ("tDecls", ds(t_decls)), ("f", ms(f)), ("fDecls", ds(f_decls)), ("line", line)]),
-            MarkupKind::Mview { params, decls, body } => obj(vec![("k", s("mview")), ("params", Some(Value::Array(params.iter().map(|p| Value::String(p.clone())).collect()))), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),
+            MarkupKind::Mview { prop, params, decls, body } => obj(vec![("k", s("mview")), ("prop", prop.as_ref().map(|p| Value::String(p.clone()))), ("params", Some(Value::Array(params.iter().map(|p| Value::String(p.clone())).collect()))), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),
             MarkupKind::Mfor { name, xs, decls, body } => obj(vec![("k", s("mfor")), ("name", s(name)), ("xs", Some(xs.to_json())), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),
             MarkupKind::Loading { on, fallback, decls, body } => obj(vec![("k", s("loading")), ("on", on.as_ref().map(|e| e.to_json())), ("fallback", ms(fallback)), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),
             MarkupKind::Errored { fallback, decls, body, err_name, classes } => obj(vec![

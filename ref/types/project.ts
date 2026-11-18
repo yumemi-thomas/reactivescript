@@ -321,6 +321,14 @@ class Proj {
       case "el": {
         if (m.tag === "") { this.w.emit(`${ind}<>`, line); for (const c of m.children) this.child(c, ind + "  "); this.w.emit(`${ind}</>`, line); return; }
         const attrs = m.attrs.map(a => a.name === "..." ? ` {...${this.expr(a.e, false)}}` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : ` ${a.name}={${this.expr(a.e, isHandler(a.name))}}`).join("");
+        const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
+        const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
+        if (named.length) {
+          this.w.emit(`${ind}<${m.tag}${attrs}`, line);
+          for (const v of named) { this.w.emit(`${ind}  ${v.prop}={((${v.params.join(", ")}) => (`, v.line ?? line); this.region(v.decls, v.body, ind + "    ", v.line ?? line); this.w.emit(`${ind}  ))}`, v.line ?? line); }
+          if (!kids.length) { this.w.emit(`${ind}/>`, line); return; }
+          this.w.emit(`${ind}>`, line); for (const c of kids) this.child(c, ind + "  "); this.w.emit(`${ind}</${m.tag}>`, line); return;
+        }
         if (!m.children.length) { this.w.emit(`${ind}<${m.tag}${attrs} />`, line); return; }
         this.w.emit(`${ind}<${m.tag}${attrs}>`, line); for (const c of m.children) this.child(c, ind + "  "); this.w.emit(`${ind}</${m.tag}>`, line);
         void VOID_TAGS; return;

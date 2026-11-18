@@ -141,7 +141,7 @@ export type JsDecl =
   | { kind: "context"; name: string; line: number };   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
  *  component value (MO-11c: its type is `Component`). */
-export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean; render?: boolean };   // render: MO-11k, a function giving a View
+export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean; render?: boolean; callback?: boolean };   // render: MO-11k, a function giving a View; callback: MO-10g, any other function
 export function parseDeclarations(src: string): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
   for (;;) {
@@ -205,12 +205,21 @@ function callbacks(ptypes: (string | undefined)[]): ([boolean, string[]] | null)
 /** MO-10f: a result's field rows, `{ data: holds fails(Error) T }` — taken out of the type text, by field. */
 function fieldRows(t: string): { text: string; held?: [string, boolean, string[]][] } {
   const held: [string, boolean, string[]][] = [];
-  const text = t.replace(/([{;,]\s*)([A-Za-z_$][\w$]*)(\??\s*:\s*)((?:(?:holds\b|fails\([^)]*\))\s*)+)/g, (_m, lead: string, name: string, colon: string, words: string) => {
-    const f = /fails\(([^)]*)\)/.exec(words);
-    held.push([name, /\bholds\b/.test(words), f ? f[1].split("|").map(x => x.trim()).filter(Boolean) : []]);
-    return lead + name + colon;
-  });
-  return held.length ? { text, held } : { text };
+  // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
+  const walk = (x: string, prefix: string): string => {
+    if (!(x.startsWith("{") && x.endsWith("}"))) return x;
+    return `{ ${splitTop(x.slice(1, -1), ",;").map(f => {
+      const i = f.indexOf(":"); if (i < 0) return f;
+      const key = f.slice(0, i).trim(); let rest = f.slice(i + 1).trim(); let holds = false; let fails: string[] = []; let any = false;
+      for (let m; (m = /^(holds\b|fails\(([^)]*)\))\s*/.exec(rest)); rest = rest.slice(m[0].length)) { any = true; if (m[1] === "holds") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
+      const path = prefix + key.replace(/\?$/, "");
+      if (any) held.push([path, holds, fails]);
+      return `${key}: ${walk(rest, path + ".")}`;
+    }).join("; ")} }`;
+  };
+  if (!/\b(holds|fails\()/.test(t)) return { text: t };   // no rows: the type text is kept as written
+  const text = walk(t, "");
+  return held.length ? { text, held } : { text: t };
 }
 /** MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it). */
 function typeParams(c: Cursor): string | undefined {
@@ -247,7 +256,7 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
         }
         type = c.src.slice(t0, c.i).trim() || undefined;
       }
-      props.push({ name: fname, optional, ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : {}) });
+      props.push({ name: fname, optional, ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : {}) });
       c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
     }
     c.ws();
@@ -798,9 +807,10 @@ function parseControl(c: Cursor): Markup | null {
   {                                                                                          // MO-11k: `view (a, b) { … }`, only with names in the parentheses and a block after them
     const save = c.i;
     if (c.keyword("view")) {
-      c.ws(); const params: string[] = []; let ok = c.eat("(");
+      c.ws(); let prop: string | undefined; if (!c.startsWith("(")) { const n = c.ident(); if (n && !KEYWORDS.has(n)) { prop = n; c.ws(); } }   // a named render prop
+      const params: string[] = []; let ok = c.eat("(");
       while (ok) { c.ws(); if (c.eat(")")) break; const n = c.ident(); if (!n || KEYWORDS.has(n)) { ok = false; break; } params.push(n); c.ws(); if (!c.eat(",") && !c.startsWith(")")) ok = false; }
-      if (ok) { c.ws(); if (c.eat("{")) { const { decls, body } = parseBlockBody(c); return { k: "mview", params, decls, body }; } }
+      if (ok) { c.ws(); if (c.eat("{")) { const { decls, body } = parseBlockBody(c); return { k: "mview", ...(prop ? { prop } : {}), params, decls, body }; } }
     }
     c.i = save;
   }

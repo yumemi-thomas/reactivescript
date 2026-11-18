@@ -41,7 +41,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; callback?: boolean }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -588,7 +588,7 @@ class Checker {
       if (x.kind === "comp") {                                                             // MO-11a: a Solid component — its declaration is its summary
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders
         const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
-        for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true } : {}) };
+        for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true } : {}), ...(p.callback ? { callback: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig;
         this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }); continue;
       }
@@ -611,8 +611,12 @@ class Checker {
   }
   /** MO-10f: the declared rows of a field read, `x.data` where `x` was bound from a JS fn's result. */
   private heldField(e: Expr, env: Env): [string, boolean, string[]] | undefined {
-    if (e.k !== "member" || e.o.k !== "id") return undefined;
-    return env.lookup(e.o.name)?.held?.find(h => h[0] === e.p);
+    if (e.k !== "member") return undefined;
+    const path: string[] = []; let x: Expr = e;                                         // `q.result.data`: the path from the bound name
+    while (x.k === "member") { path.unshift(x.p); x = x.o; }
+    if (x.k !== "id") return undefined;
+    const p = path.join(".");
+    return env.lookup(x.name)?.held?.find(h => h[0] === p);
   }
   /** MO-10b: an equation bound from a primitive's result, or from a part of it (`[a, b] = f(…)`, `x.k`): a `ref` part is a
    *  reader (it may hold, MO-10d), a function part is io (R-io-3), anything else is a value. */
@@ -627,6 +631,7 @@ class Checker {
     sym.foreign = shape;
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; }   // MO-10f: its fields' rows come with it
     if (e.k === "member" && this.heldField(e, env)?.[1]) sym.reader = true;                // MO-10f: a part bound from a field that holds reads as a reader (MO-10d)
+    if (e.k === "member" && e.o.k === "id") { const pre = `${e.p}.`; const sub = env.lookup(e.o.name)?.held?.filter(h => h[0].startsWith(pre)).map(h => [h[0].slice(pre.length), h[1], h[2]] as [string, boolean, string[]]); if (sub?.length) sym.held = sub; }   // a record part keeps its fields' rows
     if (shape === "comp" && e.k === "call") {                                              // MO-11f: the bound name is a component
       const gives = e.f.k === "id" ? env.lookup(e.f.name)?.gives ?? [] : [];                 // MO-12c: what it provides to what it renders
       const r = this.region(null, "imported", { component: true, name: sym.name }); r.sig = { own: [], requires: [], props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: { roots: [], closesP: false, a: false, form: false, childrenAt: [[]] } };   // it renders what it was given where it is applied
@@ -1156,14 +1161,20 @@ class Checker {
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? `<${m.tag}> is imported from JS, which declares no component ${m.tag}: declare it beside the module, \`export component ${m.tag}(props: { … })\` (MO-11a)` : `<${m.tag}> is not a component declared here`); }
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
-            for (const a of args) this.comp(isHandler(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" }));   // R-2: an argument is read where the component reads it
+            const handles = (n: string) => isHandler(n) || !!s?.compRegion?.sig?.props[n]?.callback;   // MO-10g: a prop the declaration types as a function is a handler
+            for (const a of args) this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" }));   // R-2: an argument is read where the component reads it
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
-              this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: args.filter(a => !isHandler(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: args.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
+              this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: args.filter(a => !handles(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: args.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
               const kids = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag });              // RG-4c: children are named by the caller, owned where the component reads them
               kids.kids = { comp: s.compRegion!, site: env.region };
-              if (s.compRegion!.sig?.props.children?.render) {                                // MO-11k: children are one view lambda
-                const real = m.children.filter(x => !(x.k === "text" && !x.s.trim()));
+              const sigProps = s.compRegion!.sig?.props;
+              for (const x of m.children) if (x.k === "mview" && x.prop) {                     // MO-11k: a named render prop
+                if (!sigProps?.[x.prop]?.render) this.err("VIEW_FN_MISPLACED", "MO-11k", `<${m.tag}> declares no render prop ${x.prop} (a prop typed as a function giving a View)`);
+                this.viewFns.add(x);                                                           // reported once; its body is still checked
+              }
+              if (sigProps?.children?.render) {                                               // MO-11k: children are one view lambda
+                const real = m.children.filter(x => !(x.k === "text" && !x.s.trim()) && !(x.k === "mview" && x.prop));
                 if (real.length !== 1 || real[0].k !== "mview") this.err("VIEW_FN_EXPECTED", "MO-11k", `<${m.tag}>'s children are a function of what it renders: write them as \`{view (item) { … }}\``);
                 for (const x of real) if (x.k === "mview") this.viewFns.add(x);
               }
@@ -1373,7 +1384,8 @@ class Checker {
       }
       case "member": {
         if (e.o.k === "id" && !bound.has(e.o.name)) { const s = env.lookup(e.o.name); if (s?.kind === "props") { out.props.push({ comp: s.region, field: e.p, pre: [] }); return out; } }
-        const h = e.o.k === "id" && !bound.has(e.o.name) ? this.heldField(e, env) : undefined; if (h) for (const c of h[2]) out.cls.add(c);   // MO-10f: a field that fails
+        let root: Expr = e; while (root.k === "member") root = root.o;
+        const h = root.k === "id" && !bound.has(root.name) ? this.heldField(e, env) : undefined; if (h) for (const c of h[2]) out.cls.add(c);   // MO-10f: a field that fails, at any depth
         go(e.o); return out;
       }
       case "use": {                                                                        // RG-7e: the declared rows, else what this module's provisions of it can fail with

@@ -15,6 +15,12 @@ export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<a
 ```
 
 ```rx
+-- module: ./thing.d.rx
+// a result whose rows are on a nested field: `q.result.data`, or `r.data` with `r = q.result`
+export pure fn useThing(): { result: { data: holds fails(Error) any; at: number }; status: string }
+```
+
+```rx
 -- module: ./api.d.rx
 export pure fn fetchTodos(): Promise<string[]>
 ```
@@ -108,3 +114,28 @@ export default component App() {
 
 The hook still needs its provider (MO-12b); a `catch` on the read
 discharges the field's failure where it is read.
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+export default component App() {
+  q = useThing()
+  <p>{q.result.data} {q.result.at} {q.status}</p>
+}
+```
+
+The rows are kept by the field's path (`result.data`): a read of it, at any
+depth, can fail; its siblings cannot.
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+export default component App() {
+  q = useThing()
+  r = q.result
+  <p>{r.data}</p>
+}
+```
+
+A record part bound from the result keeps its fields' rows.
+

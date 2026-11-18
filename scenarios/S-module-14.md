@@ -7,7 +7,7 @@ Rules: MO-11k, MO-11a, RG-4c, R-f-5, RG-7b, SV-7d.
 ```rx
 -- module: ./virtual.d.rx
 // a list that renders only the rows in view, calling its children for each one
-export component VirtualList(props: { items: any[]; height?: number; children: (item: any, index: number) => View })
+export component VirtualList(props: { items: any[]; height?: number; children: (item: any, index: number) => View; header?: (count: number) => View })
 export component Panel(props: { title: string; children?: View })
 ```
 
@@ -40,6 +40,7 @@ export default component App() {
   errored fallback(e) { <p>failed</p> } {
     loading fallback { <p>loading…</p> } {
       <VirtualList items={["a", "b", "c"]} height={300}>
+        {view header (n) { <p>{n} rows, {use theme}</p> }}
         {view (row, i) {
           detail = await fetch(`detail:${row}`)
           mark = i == picked ? "✓" : ""
@@ -51,7 +52,8 @@ export default component App() {
 }
 ```
 
-Accepted: the row's `fetch` can fail, and the `errored` above
+Accepted (a named render prop, `{view header (n) { … }}`, is the prop of
+that name, and is checked as the children are): the row's `fetch` can fail, and the `errored` above
 `<VirtualList>` discharges it; `use theme` finds the provision above it; the
 handler writes `picked` with the row's index.
 
@@ -125,3 +127,18 @@ export default component App() {
 
 The body is reactive scope like any view's: a statement closure there is
 refused; writes belong in handlers.
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+import { VirtualList } from "./virtual.js"
+export default component App() {
+  <VirtualList items={["a"]}>
+    {view footer (n) { <p>{n}</p> }}
+    {view (row) { <p>{row}</p> }}
+  </VirtualList>
+}
+```
+
+A named view lambda names a render prop the declaration has: `footer` is
+not one.
+

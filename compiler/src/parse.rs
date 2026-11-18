@@ -447,9 +447,8 @@ re!(REF_PART, r"^ref\s");
 re!(FN_PART, r"\)\s*=>");
 re!(REF_WORD, r"\bref\s+");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
-re!(FIELD_ROWS, r"([{;,]\s*)([A-Za-z_$][\w$]*)(\??\s*:\s*)((?:(?:holds\b|fails\([^)]*\))\s*)+)");
-re!(FAILS_WORD, r"fails\(([^)]*)\)");
-re!(HOLDS_WORD, r"\bholds\b");
+re!(ROW_WORD, r"^(holds\b|fails\(([^)]*)\))\s*");
+re!(ANY_ROW_WORD, r"\b(holds|fails\()");
 re!(RENDER_TYPE, r"=>\s*View\s*$");
 re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses|provides|nests)\(");
 fn part_of(t: &str) -> Part {
@@ -510,6 +509,8 @@ pub struct JsProp {
     pub component: bool,
     /// MO-11k: a function giving a View (a render prop)
     pub render: bool,
+    /// MO-10g: any other function (a callback, checked as a handler)
+    pub callback: bool,
 }
 impl JsDecl {
     pub fn name(&self) -> &str {
@@ -616,7 +617,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             }
             let component = ty.as_deref().is_some_and(is_component_type);
             let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
-            props.push(JsProp { name: fname, optional, ty, catches, component, render });
+            let callback = !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
+            props.push(JsProp { name: fname, optional, ty, catches, component, render, callback });
             // a newline separates fields too, as in TypeScript
             c.ws(false);
             if !c.eat(";") && !c.eat(",") && c.peek() != '\n' {
@@ -941,16 +943,46 @@ fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
 }
 /// MO-10f: a result's field rows, `{ data: holds fails(Error) T }` — taken out of the type text, by field.
 fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
+    // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
+    fn walk(x: &str, prefix: &str, held: &mut Vec<(String, bool, Vec<String>)>) -> String {
+        if !(x.starts_with('{') && x.ends_with('}') && x.len() >= 2) {
+            return x.to_string();
+        }
+        let fs: Vec<String> = split_top(&x[1..x.len() - 1], ",;")
+            .iter()
+            .map(|f| {
+                let Some(i) = f.find(':') else { return f.clone() };
+                let key = js_trim(&f[..i]).to_string();
+                let mut rest = js_trim(&f[i + 1..]).to_string();
+                let (mut holds, mut fails, mut any) = (false, vec![], false);
+                while let Some(m) = ROW_WORD.captures(&rest) {
+                    any = true;
+                    if &m[1] == "holds" {
+                        holds = true;
+                    } else {
+                        fails = m[2].split('|').map(|y| y.trim().to_string()).filter(|y| !y.is_empty()).collect();
+                    }
+                    rest = rest[m[0].len()..].to_string();
+                }
+                let path = format!("{}{}", prefix, key.strip_suffix('?').unwrap_or(&key));
+                if any {
+                    held.push((path.clone(), holds, fails));
+                }
+                format!("{}: {}", key, walk(&rest, &format!("{}.", path), held))
+            })
+            .collect();
+        format!("{{ {} }}", fs.join("; "))
+    }
+    if !ANY_ROW_WORD.is_match(t) {
+        return (t.to_string(), vec![]); // no rows: the type text is kept as written
+    }
     let mut held = vec![];
-    let text = FIELD_ROWS
-        .replace_all(t, |m: &regex::Captures| {
-            let words = &m[4];
-            let fails = FAILS_WORD.captures(words).map(|f| f[1].split('|').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
-            held.push((m[2].to_string(), HOLDS_WORD.is_match(words), fails));
-            format!("{}{}{}", &m[1], &m[2], &m[3])
-        })
-        .to_string();
-    (text, held)
+    let text = walk(t, "", &mut held);
+    if held.is_empty() {
+        (t.to_string(), held)
+    } else {
+        (text, held)
+    }
 }
 /// MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it).
 fn type_params(c: &mut Cursor) -> Option<String> {
@@ -2444,6 +2476,16 @@ fn parse_control(c: &mut Cursor) -> R<Option<Markup>> {
         let save = c.i;
         if c.keyword("view") {
             c.ws(true);
+            // a named render prop
+            let mut prop = None;
+            if !c.starts_with("(") {
+                if let Some(n) = c.ident() {
+                    if !KEYWORDS.contains(n.as_str()) {
+                        prop = Some(n);
+                        c.ws(true);
+                    }
+                }
+            }
             let mut params = vec![];
             let mut ok = c.eat("(");
             while ok {
@@ -2467,7 +2509,7 @@ fn parse_control(c: &mut Cursor) -> R<Option<Markup>> {
                 c.ws(true);
                 if c.eat("{") {
                     let (decls, body) = parse_block_body(c)?;
-                    return Ok(mk(MarkupKind::Mview { params, decls, body }));
+                    return Ok(mk(MarkupKind::Mview { prop, params, decls, body }));
                 }
             }
         }

@@ -12,6 +12,12 @@ export pure fn onIdle(run: () => void): any instantiates
 ```
 
 ```rx
+-- module: ./ui.d.rx
+// a JS component whose prop `valueChange` is a callback (any name, not only on*)
+export component Slider(props: { value: number; valueChange: (v: number) => void; label: string })
+```
+
+```rx
 -- module: ./api.d.rx
 export fn addTodo(text: string): Promise<string>
 ```
@@ -29,19 +35,23 @@ loosens: a statement closure anywhere else is still refused.
 ```rx
 import { useMutation, onIdle } from "./query.js"
 import { addTodo } from "./api.js"
+import { Slider } from "./ui.js"
 
 export default component App() {
   source saved := 0
   source idle := false
   add = useMutation({ mutationFn: addTodo, onSuccess: () => { saved := saved + 1 }, retry: 0 })
   watcher = onIdle(() => { idle := true })
+  source level := 3
   <button onClick={() => { add.mutate("milk") }}>add</button>
   <p>{saved} {idle}</p>
+  <Slider value={level} valueChange={v => { level := v }} label="level" />
 }
 ```
 
 Accepted: `onSuccess` and `run` are declared function types, so their
-closures write sources as a handler's would.
+closures write sources as a handler's would; so is `Slider`'s `valueChange`,
+a JS component's prop declared as a function, whatever its name.
 
 ## Rejected variants
 
@@ -69,3 +79,16 @@ export default component App() {
 ```
 
 A closure handed to anything but a declared callback is still pure.
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+import { Slider } from "./ui.js"
+export default component App() {
+  source level := 3
+  <Slider value={level} valueChange={v => { level := v }} label={[1].map(n => { level := n; "x" })[0]} />
+}
+```
+
+`label` is declared a `string`: a statement closure in its argument is a
+reactive scope's.
+

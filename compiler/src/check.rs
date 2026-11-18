@@ -896,8 +896,10 @@ pub struct Checker<'a> {
     uses: Vec<UseRec>,
     /// MO-10g: closures passed where a declared JS fn takes a callback
     callback_fns: HashSet<*const Expr>,
-    /// MO-11k: declared JS components whose `children` is a function giving a View, by region
-    render_children: HashSet<RId>,
+    /// MO-11k: declared JS components' render props (fields typed as a function giving a View), by region
+    render_props: HashMap<RId, HashSet<String>>,
+    /// MO-10g: declared JS components' callback props (fields typed as any other function), by region
+    callback_props: HashMap<RId, HashSet<String>>,
     /// MO-11k: view lambdas in a render-prop position
     view_fns: HashSet<*const Markup>,
     readers: Vec<ReaderRec<'a>>,
@@ -984,7 +986,8 @@ impl<'a> Checker<'a> {
             seq: 0,
             uses: vec![],
             callback_fns: HashSet::new(),
-            render_children: HashSet::new(),
+            render_props: HashMap::new(),
+            callback_props: HashMap::new(),
             view_fns: HashSet::new(),
             readers: vec![],
             load_ons: vec![],
@@ -1533,8 +1536,13 @@ impl<'a> Checker<'a> {
                     let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                     let r = self.region(None, "imported", true, Some(alias.clone()));
                     self.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new() });
-                    if xprops.iter().any(|p| p.name == "children" && p.render) {
-                        self.render_children.insert(r);
+                    let renders: HashSet<String> = xprops.iter().filter(|p| p.render).map(|p| p.name.clone()).collect();
+                    if !renders.is_empty() {
+                        self.render_props.insert(r, renders);
+                    }
+                    let callbacks: HashSet<String> = xprops.iter().filter(|p| p.callback).map(|p| p.name.clone()).collect();
+                    if !callbacks.is_empty() {
+                        self.callback_props.insert(r, callbacks);
                     }
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
@@ -1623,6 +1631,18 @@ impl<'a> Checker<'a> {
         if self.held_field(e, env).is_some_and(|h| h.1) {
             sym.reader = true;
         }
+        // a record part keeps its fields' rows
+        if let ExprKind::Member { o, p, .. } = &e.k {
+            if let ExprKind::Id(on) = &o.k {
+                if let Some(t) = self.lookup(env, on) {
+                    let pre = format!("{}.", p);
+                    let sub: Vec<(String, bool, Vec<String>)> = self.syms[t].held.iter().filter(|h| h.0.starts_with(&pre)).map(|h| (h.0[pre.len()..].to_string(), h.1, h.2.clone())).collect();
+                    if !sub.is_empty() {
+                        sym.held = sub;
+                    }
+                }
+            }
+        }
         if shape == FShape::Part(Part::Fn) {
             sym.io = true;
         }
@@ -1653,10 +1673,18 @@ impl<'a> Checker<'a> {
     }
     /// MO-10f: the declared rows of a field read, `x.data` where `x` was bound from a JS fn's result.
     fn held_field(&self, e: &Expr, env: EId) -> Option<(String, bool, Vec<String>)> {
-        let ExprKind::Member { o, p, .. } = &e.k else { return None };
-        let ExprKind::Id(on) = &o.k else { return None };
+        // `q.result.data`: the path from the bound name
+        let ExprKind::Member { .. } = &e.k else { return None };
+        let mut path: Vec<&str> = vec![];
+        let mut x = e;
+        while let ExprKind::Member { o, p, .. } = &x.k {
+            path.insert(0, p);
+            x = o;
+        }
+        let ExprKind::Id(on) = &x.k else { return None };
         let t = self.lookup(env, on)?;
-        self.syms[t].held.iter().find(|h| &h.0 == p).cloned()
+        let p = path.join(".");
+        self.syms[t].held.iter().find(|h| h.0 == p).cloned()
     }
     /// MO-3: this module's signature — every export as an importer sees it.
     pub fn signature(&mut self, p: &'a Program) -> ModSig {
@@ -3014,20 +3042,34 @@ impl<'a> Checker<'a> {
                         }
                         let values = self.component_values(tag, attrs, env);
                         let args: Vec<&'a Attr> = attrs.iter().enumerate().filter(|(i, _)| !values.iter().any(|(j, _)| j == i)).map(|(_, a)| a).collect();
+                        // MO-10g: a prop the declaration types as a function is a handler
+                        let cbs = s.and_then(|s| self.syms[s].comp_region).and_then(|r| self.callback_props.get(&r).cloned()).unwrap_or_default();
+                        let handles = |n: &str| is_handler(n) || cbs.contains(n);
                         for a in &args {
-                            let h = is_handler(&a.name);
+                            let h = handles(&a.name);
                             let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };
                             self.comp(if h { "handler" } else { "prop" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
                         }
                         if is_comp {
                             let cr = self.syms[s.unwrap()].comp_region.unwrap();
-                            self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: tag.clone(), args: args.iter().filter(|a| !is_handler(&a.name)).map(|a| (field_of(&a.name), &a.e, env)).collect(), passed: args.iter().map(|a| (field_of(&a.name), &a.e, env)).collect() });
+                            self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: tag.clone(), args: args.iter().filter(|a| !handles(&a.name)).map(|a| (field_of(&a.name), &a.e, env)).collect(), passed: args.iter().map(|a| (field_of(&a.name), &a.e, env)).collect() });
                             let kids = self.region(Some(region), "children", false, Some(tag.clone()));
                             self.regions[kids].kids = Some((cr, region));
                             let kenv = self.env(Some(env), kids);
-                            if self.render_children.contains(&cr) {
+                            let renders = self.render_props.get(&cr).cloned().unwrap_or_default();
+                            for x in children.iter() {
+                                // MO-11k: a named render prop
+                                if let MarkupKind::Mview { prop: Some(p), .. } = &x.kind {
+                                    if !renders.contains(p) {
+                                        self.err("VIEW_FN_MISPLACED", "MO-11k", format!("<{}> declares no render prop {} (a prop typed as a function giving a View)", tag, p));
+                                    }
+                                    // reported once; its body is still checked
+                                    self.view_fns.insert(x as *const Markup);
+                                }
+                            }
+                            if renders.contains("children") {
                                 // MO-11k: children are one view lambda
-                                let real: Vec<&Markup> = children.iter().filter(|x| !matches!(&x.kind, MarkupKind::Text(t) if js_trim(t).is_empty())).collect();
+                                let real: Vec<&Markup> = children.iter().filter(|x| !matches!(&x.kind, MarkupKind::Text(t) if js_trim(t).is_empty()) && !matches!(&x.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
                                 if real.len() != 1 || !matches!(real[0].kind, MarkupKind::Mview { .. }) {
                                     self.err("VIEW_FN_EXPECTED", "MO-11k", format!("<{}>'s children are a function of what it renders: write them as `{{view (item) {{ … }}}}`", tag));
                                 }
@@ -3069,7 +3111,7 @@ impl<'a> Checker<'a> {
                     let e2 = self.env(Some(env), r);
                     self.block(f_decls, f, e2, Ctx::reactive());
                 }
-                MarkupKind::Mview { params, decls, body } => {
+                MarkupKind::Mview { params, decls, body, .. } => {
                     // MO-11k: a render prop's body, owned where the component calls it
                     if !self.view_fns.contains(&(m as *const Markup)) {
                         self.err("VIEW_FN_MISPLACED", "MO-11k", "a `view (…) { … }` is a JS component's render prop: it is the only child of a component whose declaration types `children` as a function giving a View".into());
@@ -4093,10 +4135,14 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                if let ExprKind::Id(on) = &o.k {
-                    if !bound.contains_key(on) {
+                let mut root: &Expr = o;
+                while let ExprKind::Member { o: inner, .. } = &root.k {
+                    root = inner;
+                }
+                if let ExprKind::Id(rn) = &root.k {
+                    if !bound.contains_key(rn) {
                         if let Some(h) = self.held_field(e, env) {
-                            out.cls.extend(h.2); // MO-10f: a field that fails
+                            out.cls.extend(h.2); // MO-10f: a field that fails, at any depth
                         }
                     }
                 }

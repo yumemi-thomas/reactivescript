@@ -65,7 +65,7 @@ export type Markup = (
   | { k: "style"; css: string }                                                   // 07 §6b CSS-1: a scoped stylesheet, raw text
   | { k: "mif"; c: Expr; t: Markup[]; tDecls: Decl[]; f: Markup[]; fDecls: Decl[] }
   | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] }
-  | { k: "mview"; params: string[]; decls: Decl[]; body: Markup[] }                 // MO-11k: `view (a, b) { … }`, a JS component's render prop
+  | { k: "mview"; prop?: string; params: string[]; decls: Decl[]; body: Markup[] }   // MO-11k: `view (a, b) { … }` (children) or `view renderItem (a) { … }`, a JS component's render prop
   | { k: "loading"; on?: Expr; fallback: Markup[]; decls: Decl[]; body: Markup[] }    // H-5/H-6
   | { k: "errored"; fallback: Markup[]; decls: Decl[]; body: Markup[]; errName?: string; classes?: string[] }   // H-12; errName: `fallback(e)`; classes: `fallback(e: A | B)` (R-f-4), absent: every failure
   | { k: "portal"; to?: Expr; decls: Decl[]; body: Markup[] }                     // RG-8: rendered at the end of the document (or `to(e)`), owned here

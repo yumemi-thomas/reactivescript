@@ -1670,6 +1670,15 @@ impl<'p> Gen<'p> {
         }
         Ok(E::Jsx(Box::new(Jsx::Frag(self.kids(ms, env)?, None))))
     }
+    /// MO-11k: a render prop, an arrow over the view, its parameters bound as values.
+    fn view_fn(&mut self, params: &[String], decls: &[Decl], body: &[Markup], env: Env) -> R<E> {
+        let inner = self.new_env(Some(env));
+        for p in params {
+            self.set(inner, p, val(mg(p)));
+        }
+        let pre = self.block(decls, body, inner, None, false)?;
+        Ok(arrow_block(params.iter().map(|p| P::Id(mg(p))).collect(), pre, false))
+    }
     fn kids(&mut self, ms: &[Markup], env: Env) -> R<Vec<Child>> {
         let mut out = vec![];
         for m in ms {
@@ -1727,14 +1736,22 @@ impl<'p> Gen<'p> {
                 for a in attrs {
                     xs.push(self.attr(&a.name, &a.e, env)?);
                 }
-                if children.is_empty() {
+                // MO-11k: named render props are attributes
+                for c in children {
+                    if let MarkupKind::Mview { prop: Some(p), params, decls, body } = &c.kind {
+                        let f = self.view_fn(params, decls, body, env)?;
+                        xs.push((p.clone(), AttrValue::Expr(f)));
+                    }
+                }
+                let rest: Vec<Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).cloned().collect();
+                if rest.is_empty() {
                     // MO-11: a JS component gets JSX's own `<X />`, with no children prop
                     if b.shape != Some(FShape::Comp) {
                         xs.push(("children".into(), AttrValue::Expr(E::Arr(vec![]))));
                     }
                     el(JsxName::Ident(b.js), xs, vec![], true)
                 } else {
-                    el(JsxName::Ident(b.js), xs, self.kids(children, env)?, false)
+                    el(JsxName::Ident(b.js), xs, self.kids(&rest, env)?, false)
                 }
             }
             MarkupKind::El { tag, attrs, children } => {
@@ -1773,15 +1790,7 @@ impl<'p> Gen<'p> {
                 let fb = self.region_fn(f_decls, f, env, None, None, None)?;
                 el(JsxName::Ident("Show".into()), vec![("when".into(), AttrValue::Expr(when)), ("fallback".into(), AttrValue::Expr(call(fb, vec![])))], vec![Child::Expr(tf)], false)
             }
-            MarkupKind::Mview { params, decls, body } => {
-                // MO-11k: the render prop, an arrow over the view
-                let inner = self.new_env(Some(env));
-                for p in params {
-                    self.set(inner, p, val(mg(p)));
-                }
-                let pre = self.block(decls, body, inner, None, false)?;
-                Child::Expr(arrow_block(params.iter().map(|p| P::Id(mg(p))).collect(), pre, false))
-            }
+            MarkupKind::Mview { params, decls, body, .. } => Child::Expr(self.view_fn(params, decls, body, env)?),
             MarkupKind::Mfor { name, xs, decls, body } => {
                 let b = self.region_fn(decls, body, env, Some(mg(name)), None, Some(name.clone()))?;
                 let each = self.expr(xs, env, &re)?;
