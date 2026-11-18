@@ -38,6 +38,9 @@ const isFn = (checker, t) => { const u = checker.getNonNullableType(t); return u
 function propText(ts, checker, p, at) {
   const t = checker.getTypeOfSymbolAtLocation(p, at);
   const opt = p.flags & ts.SymbolFlags.Optional ? "?" : "";
+  const fnSigs = checker.getNonNullableType(t).getCallSignatures();
+  if (p.name === "children" && fnSigs.length && fnSigs.every(s => isElement(ts, checker, s.getReturnType())))
+    return `children${opt}: (${fnSigs[0].getParameters().map(q => `${q.name}: any`).join(", ")}) => View`;   // MO-11k: a render prop, written `{view (…) { … }}`
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return `${p.name}${opt}: Component`;
   if (isElement(ts, checker, t)) return `${p.name}${opt}: View`;
   if (isFn(checker, t)) return `${p.name}${opt}: (...args: any[]) => any`;   // a callback (MO-10g)

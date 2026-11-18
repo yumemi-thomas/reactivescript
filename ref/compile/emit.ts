@@ -210,7 +210,7 @@ class Gen {
           return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${tree(m.children)}</${m.tag}>`;
         }
         case "mif": return `{(<>${tree(m.t)}</>)}{(<>${tree(m.f)}</>)}`;
-        case "mfor": return `{(<>${tree(m.body)}</>)}`;
+        case "mfor": case "mview": return `{(<>${tree(m.body)}</>)}`;
         case "loading": case "errored": return `{(<>${tree(m.fallback)}</>)}{(<>${tree(m.body)}</>)}`;
       }
     }).join("");
@@ -580,6 +580,10 @@ class Gen {
         const narrowed = m.c.k === "id" ? env.lookup(m.c.name) : undefined;
         const t = this.regionFn(m.tDecls, m.t, env, ind + 1, "__item", e => { if (m.c.k === "id" && narrowed && (narrowed.kind === "acc" || narrowed.kind === "src")) { e.vars.set(m.c.name, { kind: "acc", js: `n$${m.c.name}`, w: narrowed.w }); return `${pad}  const n$${m.c.name} = __item;\n`; } return ""; });
         return `<Show when={${this.expr(m.c, env, re)}} fallback={(${this.regionFn(m.fDecls, m.f, env, ind + 1)})()}>{${t}}</Show>`;
+      }
+      case "mview": {                                                                         // MO-11k: the render prop, an arrow over the view
+        const body = this.regionFn(m.decls, m.body, env, ind + 1, m.params.map(mg).join(", "), e => { for (const p of m.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; });
+        return `{${body}}`;
       }
       case "mfor": {
         const body = this.regionFn(m.decls, m.body, env, ind + 1, mg(m.name), e => { e.vars.set(m.name, { kind: "val", js: mg(m.name) }); return ""; });

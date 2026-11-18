@@ -17,6 +17,7 @@ fs.writeFileSync(path.join(ws, "lib.js"), [
   "export const useTheme = () => \"dark\";",
   "export const Card = props => props.children;",
   "export const onIdle = run => run;",
+  "export const List = props => props.items.map(props.children);",
   "",
 ].join("\n"));
 fs.writeFileSync(path.join(ws, "lib.d.ts"), [
@@ -27,6 +28,7 @@ fs.writeFileSync(path.join(ws, "lib.d.ts"), [
   "export declare function useTheme(): string;",
   "export declare function Card(props: { title: string; children?: JSX.Element }): JSX.Element;",
   "export declare function onIdle(run: () => void, delay?: number): void;",
+  "export declare function List(props: { items: string[]; children: (item: string, index: number) => JSX.Element }): JSX.Element;",
   "",
 ].join("\n"));
 fs.writeFileSync(path.join(ws, "main.rx"), [
@@ -58,6 +60,7 @@ check("a tuple keeps its ref part and its setter (instantiates is inferred from 
 check("a plain result gets no store TODO", !/TODO useTheme: is the result a store/.test(draft), draft);
 check("a hook is pure and instantiates, with a TODO for its context", has("export pure fn useTheme(): string instantiates") && /\/\/ TODO useTheme: which context does this hook read\?/.test(draft), draft);
 check("a component's JSX children are a View", has("export component Card(props: { title: string; children?: View })"), draft);
+check("a function-typed children prop is a render prop (MO-11k)", has("export component List(props: { items: string[]; children: (item: any, index: any) => View })"), draft);
 check("a callback parameter is a function type; a trailing optional one is left out", has("export fn onIdle(run: (...args: any[]) => any): void"), draft);
 
 const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: ws, encoding: "utf8" });

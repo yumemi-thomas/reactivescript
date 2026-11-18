@@ -141,7 +141,7 @@ export type JsDecl =
   | { kind: "context"; name: string; line: number };   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
  *  component value (MO-11c: its type is `Component`). */
-export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean };
+export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean; render?: boolean };   // render: MO-11k, a function giving a View
 export function parseDeclarations(src: string): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
   for (;;) {
@@ -235,7 +235,7 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
         }
         type = c.src.slice(t0, c.i).trim() || undefined;
       }
-      props.push({ name: fname, optional, ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type) });
+      props.push({ name: fname, optional, ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : {}) });
       c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
     }
     c.ws();
@@ -782,6 +782,15 @@ function parseControl(c: Cursor): Markup | null {
       const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
       const { decls, body } = parseBlockBody(c);
       return { k: "errored", fallback, decls, body, errName, classes };
+  }
+  {                                                                                          // MO-11k: `view (a, b) { … }`, only with names in the parentheses and a block after them
+    const save = c.i;
+    if (c.keyword("view")) {
+      c.ws(); const params: string[] = []; let ok = c.eat("(");
+      while (ok) { c.ws(); if (c.eat(")")) break; const n = c.ident(); if (!n || KEYWORDS.has(n)) { ok = false; break; } params.push(n); c.ws(); if (!c.eat(",") && !c.startsWith(")")) ok = false; }
+      if (ok) { c.ws(); if (c.eat("{")) { const { decls, body } = parseBlockBody(c); return { k: "mview", params, decls, body }; } }
+    }
+    c.i = save;
   }
   if (c.keyword("for")) {
       c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();

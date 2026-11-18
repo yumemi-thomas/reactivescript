@@ -90,6 +90,7 @@ pub fn view_readers(ms: &[Markup]) -> Vec<&Expr> {
             }
             MarkupKind::Mif { c, .. } => out.push(c),
             MarkupKind::Mfor { xs, .. } => out.push(xs),
+            MarkupKind::Mview { .. } => {}
             MarkupKind::Loading { on, fallback, .. } => {
                 out.extend(on.iter());
                 out.extend(view_readers(fallback));

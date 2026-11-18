@@ -989,6 +989,21 @@ impl Proj<'_> {
                 self.region(f_decls, f, &i2, line);
                 self.w.emit(Code::of(&format!("{ind})}}")), line);
             }
+            MarkupKind::Mview { params, decls, body } => {
+                // MO-11k: the render prop, as the function the component's types expect
+                let mut from = sp.start as usize;
+                let mut c = Code::of(&format!("{ind}{{(("));
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        c = c.t(", ");
+                    }
+                    let nm = self.name(p, sp, &mut from);
+                    c = c.c(nm);
+                }
+                self.w.emit(c.t(") => ("), line);
+                self.region(decls, body, &i2, line);
+                self.w.emit(Code::of(&format!("{ind}))}}")), line);
+            }
             MarkupKind::Mfor { name, xs, decls, body } => {
                 let mut from = sp.start as usize;
                 let nm = self.name(name, sp, &mut from);

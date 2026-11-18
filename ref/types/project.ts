@@ -329,6 +329,9 @@ class Proj {
         this.w.emit(`${ind}{${this.expr(m.c, false)} ? (`, line); this.region(m.tDecls, m.t, ind + "  ", line);
         this.w.emit(`${ind}) : (`, line); this.region(m.fDecls, m.f, ind + "  ", line); this.w.emit(`${ind})}`, line); return;
       }
+      case "mview": {                                                                           // MO-11k: the render prop, as the function the component's types expect
+        this.w.emit(`${ind}{((${m.params.join(", ")}) => (`, line); this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind}))}`, line); return;
+      }
       case "mfor": {
         this.w.emit(`${ind}{__.each(${this.expr(m.xs, false)}, (${m.name}) => (`, line); this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind}))}`, line); return;
       }

@@ -451,6 +451,7 @@ re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
 re!(FIELD_ROWS, r"([{;,]\s*)([A-Za-z_$][\w$]*)(\??\s*:\s*)((?:(?:holds\b|fails\([^)]*\))\s*)+)");
 re!(FAILS_WORD, r"fails\(([^)]*)\)");
 re!(HOLDS_WORD, r"\bholds\b");
+re!(RENDER_TYPE, r"=>\s*View\s*$");
 re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses|provides|nests)\(");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
@@ -508,6 +509,8 @@ pub struct JsProp {
     pub ty: Option<String>,
     pub catches: Option<Option<Vec<String>>>,
     pub component: bool,
+    /// MO-11k: a function giving a View (a render prop)
+    pub render: bool,
 }
 impl JsDecl {
     pub fn name(&self) -> &str {
@@ -613,7 +616,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
                 ty = (!t.is_empty()).then(|| t.to_string());
             }
             let component = ty.as_deref().is_some_and(is_component_type);
-            props.push(JsProp { name: fname, optional, ty, catches, component });
+            let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
+            props.push(JsProp { name: fname, optional, ty, catches, component, render });
             // a newline separates fields too, as in TypeScript
             c.ws(false);
             if !c.eat(";") && !c.eat(",") && c.peek() != '\n' {
@@ -2410,6 +2414,40 @@ fn parse_control(c: &mut Cursor) -> R<Option<Markup>> {
         c.expect("{")?;
         let (decls, body) = parse_block_body(c)?;
         return Ok(mk(MarkupKind::Errored { fallback, decls, body, err_name, classes }));
+    }
+    {
+        // MO-11k: `view (a, b) { … }`, only with names in the parentheses and a block after them
+        let save = c.i;
+        if c.keyword("view") {
+            c.ws(true);
+            let mut params = vec![];
+            let mut ok = c.eat("(");
+            while ok {
+                c.ws(true);
+                if c.eat(")") {
+                    break;
+                }
+                match c.ident() {
+                    Some(n) if !KEYWORDS.contains(n.as_str()) => params.push(n),
+                    _ => {
+                        ok = false;
+                        break;
+                    }
+                }
+                c.ws(true);
+                if !c.eat(",") && !c.starts_with(")") {
+                    ok = false;
+                }
+            }
+            if ok {
+                c.ws(true);
+                if c.eat("{") {
+                    let (decls, body) = parse_block_body(c)?;
+                    return Ok(mk(MarkupKind::Mview { params, decls, body }));
+                }
+            }
+        }
+        c.i = save;
     }
     if c.keyword("for") {
         c.ws(true);

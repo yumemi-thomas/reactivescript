@@ -140,6 +140,29 @@ export default component App() {
 - **A JS import you apply must be declared.** Without `export component X(…)` in its `.d.rx`, `<X />` is
   `UNKNOWN_COMPONENT`.
 
+### Render props
+
+A component that calls its children for each thing it renders (a virtual list, a headless table) declares `children`
+as a function giving a `View`, and `.rx` passes a view lambda as its only child:
+
+```rx
+// virtual.d.rx
+export component VirtualList(props: { items: any[]; height?: number; children: (item: any, index: number) => View })
+```
+
+```rx
+<VirtualList items={rows} height={300}>
+  {view (row, i) {
+    mark = i == picked ? " ✓" : ""
+    <button onClick={() => { picked := i }}>{row}{mark}</button>
+  }}
+</VirtualList>
+```
+
+`row` and `i` are what the component passes on each call. The body is checked as the component's children are: a
+failure in it needs an `errored` above `<VirtualList>`, a context it uses a `provide` above it. With the component's
+`.d.ts`, `rx-tsc` types `row` from `items`.
+
 ### Typed params
 
 A page declares the params it reads as a prop, and the route table names it through the router's `defineRoute`, whose

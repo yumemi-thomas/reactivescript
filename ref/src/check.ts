@@ -41,7 +41,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -317,7 +317,7 @@ class Checker {
       for (const m of ms) {
         if (m.k === "el") { if (m.tag === "button" && !m.attrs.some(a => a.name === "type" && !(a.e.k === "lit" && a.e.v === "submit"))) out.push(m.attrs); submitButtons(m.children, out); }
         else if (m.k === "mif") { submitButtons(m.t, out); submitButtons(m.f, out); }
-        else if (m.k === "mfor" || m.k === "loading" || m.k === "errored" || m.k === "portal") submitButtons(m.body, out);
+        else if (m.k === "mfor" || m.k === "mview" || m.k === "loading" || m.k === "errored" || m.k === "portal") submitButtons(m.body, out);
       }
     };
     const done = new Set<Expr>();
@@ -588,7 +588,7 @@ class Checker {
       if (x.kind === "comp") {                                                             // MO-11a: a Solid component — its declaration is its summary
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders
         const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
-        for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}) };
+        for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig;
         this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }); continue;
       }
@@ -600,6 +600,8 @@ class Checker {
   }
   /** MO-10g: closures passed where a declared JS fn takes a callback — their bodies are imperative scope, as a handler's. */
   private callbackFns = new WeakSet<Expr>();
+  /** MO-11k: view lambdas in a render-prop position (the only child of a JS component whose `children` gives a View). */
+  private viewFns = new WeakSet<Markup>();
   private markCallbacks(args: Expr[], cbs?: ([boolean, string[]] | null)[]) {
     if (cbs) args.forEach((a, i) => {
       const c = cbs[i]; if (!c) return;
@@ -1160,6 +1162,11 @@ class Checker {
               this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: args.filter(a => !isHandler(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: args.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
               const kids = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag });              // RG-4c: children are named by the caller, owned where the component reads them
               kids.kids = { comp: s.compRegion!, site: env.region };
+              if (s.compRegion!.sig?.props.children?.render) {                                // MO-11k: children are one view lambda
+                const real = m.children.filter(x => !(x.k === "text" && !x.s.trim()));
+                if (real.length !== 1 || real[0].k !== "mview") this.err("VIEW_FN_EXPECTED", "MO-11k", `<${m.tag}>'s children are a function of what it renders: write them as \`{view (item) { … }}\``);
+                for (const x of real) if (x.k === "mview") this.viewFns.add(x);
+              }
               this.markup([...m.children, ...values.values()], new Env(env, kids));
               if (s.factory && !this.expanding.markup.has(s)) { this.expanding.markup.add(s); this.markup(this.factoryTree(s, m.line), new Env(s.factory.env, kids)); this.expanding.markup.delete(s); }   // MO-11f: named where the factory was called
             } else this.markup(m.children, env);
@@ -1173,6 +1180,13 @@ class Checker {
           this.comp("reader", env, { at: "if" }, () => this.expr(m.c, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
           this.block(m.tDecls, m.t, new Env(env, this.region(env.region, "then")), { scope: "reactive" });
           this.block(m.fDecls, m.f, new Env(env, this.region(env.region, "else")), { scope: "reactive" });
+          break;
+        }
+        case "mview": {                                                                     // MO-11k: a render prop's body, owned where the component calls it
+          if (!this.viewFns.has(m)) { this.err("VIEW_FN_MISPLACED", "MO-11k", "a `view (…) { … }` is a JS component's render prop: it is the only child of a component whose declaration types `children` as a function giving a View"); break; }
+          const r = this.region(env.region, "for"); const inner = new Env(env, r);
+          for (const p of m.params) inner.vars.set(p, { kind: "value", name: p, region: r, line: this.line });   // what the component passes: a value per call
+          this.block(m.decls, m.body, inner, { scope: "reactive" });
           break;
         }
         case "mfor": {
@@ -1301,7 +1315,7 @@ class Checker {
           walk(m.children, [...anc, m.tag], scoped || P_SCOPE.has(m.tag), env); break;
         }
         case "mif": walk(m.t, anc, scoped, env); walk(m.f, anc, scoped, env); break;
-        case "mfor": walk(m.body, anc, scoped, env); break;
+        case "mfor": case "mview": walk(m.body, anc, scoped, env); break;
         case "loading": case "errored": walk(m.fallback, anc, scoped, env); walk(m.body, anc, scoped, env); break;
       }
     };
@@ -1333,7 +1347,7 @@ class Checker {
           this.contentCheck(m.children, env, [...anc, m.tag]); break;
         }
         case "mif": this.contentCheck(m.t, env, anc); this.contentCheck(m.f, env, anc); break;
-        case "mfor": this.contentCheck(m.body, env, anc); break;
+        case "mfor": case "mview": this.contentCheck(m.body, env, anc); break;
         case "loading": case "errored": this.contentCheck(m.fallback, env, anc); this.contentCheck(m.body, env, anc); break;
       }
     }

@@ -547,7 +547,7 @@ impl<'p> Gen<'p> {
                         out.push(Item::Container(tree(g, t)));
                         out.push(Item::Container(tree(g, f)));
                     }
-                    MarkupKind::Mfor { body, .. } => out.push(Item::Container(tree(g, body))),
+                    MarkupKind::Mfor { body, .. } | MarkupKind::Mview { body, .. } => out.push(Item::Container(tree(g, body))),
                     MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => {
                         out.push(Item::Container(tree(g, fallback)));
                         out.push(Item::Container(tree(g, body)));
@@ -1772,6 +1772,15 @@ impl<'p> Gen<'p> {
                 let when = self.expr(c, env, &re)?;
                 let fb = self.region_fn(f_decls, f, env, None, None, None)?;
                 el(JsxName::Ident("Show".into()), vec![("when".into(), AttrValue::Expr(when)), ("fallback".into(), AttrValue::Expr(call(fb, vec![])))], vec![Child::Expr(tf)], false)
+            }
+            MarkupKind::Mview { params, decls, body } => {
+                // MO-11k: the render prop, an arrow over the view
+                let inner = self.new_env(Some(env));
+                for p in params {
+                    self.set(inner, p, val(mg(p)));
+                }
+                let pre = self.block(decls, body, inner, None, false)?;
+                Child::Expr(arrow_block(params.iter().map(|p| P::Id(mg(p))).collect(), pre, false))
             }
             MarkupKind::Mfor { name, xs, decls, body } => {
                 let b = self.region_fn(decls, body, env, Some(mg(name)), None, Some(name.clone()))?;

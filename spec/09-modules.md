@@ -476,6 +476,25 @@ export default component App() {
   exported as the component it is, not an accessor (CP-4b); `made` in the
   signature says it is a JS component, so an importer that has only the
   signature (MO-9) applies it as JSX's `<X />`, with no `children` prop.
+- **MO-11k (Render props) — proposed 2026-11-18.** A declared JS
+  component whose `children` field is typed as a function giving a `View`
+  (`children: (item: T, index: number) => View`) takes a render prop: the
+  library calls it for each thing it renders (a virtual list's rows). In
+  `.rx` it is written as the application's only child, a view lambda:
+  `<VirtualList items={rows}>{view (row, i) { … }}</VirtualList>`. Its
+  parameters are values, what the library passes on each call (as a `for`
+  row's binding is); its body is a reactive block, declarations then a
+  view, owned where the component calls it. The checks treat the body as
+  the application's children (RG-4c, MO-11b): its readers' failures and the
+  contexts it uses are checked above the application, through the
+  component's declared `catches(…)` and `provides(…)`, and its content model
+  where the component places its children (SV-7d). Handlers in it write
+  sources as any handler does. It lowers to an arrow returning the view
+  (`children: (row, i) => …`) and projects to the same arrow, so TypeScript
+  types the parameters from the component's own types (TY-1c). Other
+  children of such a component are `VIEW_FN_EXPECTED`; a view lambda
+  anywhere else is `VIEW_FN_MISPLACED`. A render prop under another name
+  (`renderItem={…}`) is not covered yet. Executable: S-module-14.
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check
@@ -585,6 +604,7 @@ Executable: S-module-7.
 | `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
 | `UNKNOWN_COMPONENT` for an undeclared JS component, `COMPONENT_AS_VALUE` outside MO-11c's places | S | MO-11a, MO-11c, MO-11f |
 | `CONTEXT_NOT_FOUND` for a JS hook with no provider above; `NOT_EXPORTED` for an undeclared JS context | S | MO-12b, MO-12a |
+| `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k |
 
 ## Implementation
 

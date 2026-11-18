@@ -90,6 +90,7 @@ named.
 | `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
 | `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a) | S-check-1 |
 | `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories | S-check-1, S-region-5, S-module-5, S-module-6 |
+| `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k (render props) | S-module-14 |
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
 | `SNAPSHOT_INITIALIZER`            | S   | E-4 / DV-6 | S-surface-1 |

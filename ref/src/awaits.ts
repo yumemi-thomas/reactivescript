@@ -45,6 +45,7 @@ export function viewReaders(ms: Markup[]): Expr[] {
       case "el": return [...m.attrs.filter(a => !/^on[A-Z:]/.test(a.name)).map(a => a.e), ...viewReaders(m.children)];
       case "mif": return [m.c];
       case "mfor": return [m.xs];
+      case "mview": return [];
       case "loading": return [...(m.on ? [m.on] : []), ...viewReaders(m.fallback)];
       case "portal": return m.to ? [m.to] : [];
       default: return [];

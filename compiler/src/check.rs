@@ -393,7 +393,7 @@ fn submit_buttons<'a>(ms: &'a [Markup], out: &mut Vec<&'a [Attr]>) {
                 submit_buttons(t, out);
                 submit_buttons(f, out);
             }
-            MarkupKind::Mfor { body, .. } | MarkupKind::Loading { body, .. } | MarkupKind::Errored { body, .. } | MarkupKind::Portal { body, .. } => submit_buttons(body, out),
+            MarkupKind::Mfor { body, .. } | MarkupKind::Mview { body, .. } | MarkupKind::Loading { body, .. } | MarkupKind::Errored { body, .. } | MarkupKind::Portal { body, .. } => submit_buttons(body, out),
             _ => {}
         }
     }
@@ -896,6 +896,10 @@ pub struct Checker<'a> {
     uses: Vec<UseRec>,
     /// MO-10g: closures passed where a declared JS fn takes a callback
     callback_fns: HashSet<*const Expr>,
+    /// MO-11k: declared JS components whose `children` is a function giving a View, by region
+    render_children: HashSet<RId>,
+    /// MO-11k: view lambdas in a render-prop position
+    view_fns: HashSet<*const Markup>,
     readers: Vec<ReaderRec<'a>>,
     /// CN-3e: `loading on(…)` regions (the region made, its `on`) and effect inputs, by where they are.
     load_ons: Vec<ReaderRec<'a>>,
@@ -980,6 +984,8 @@ impl<'a> Checker<'a> {
             seq: 0,
             uses: vec![],
             callback_fns: HashSet::new(),
+            render_children: HashSet::new(),
+            view_fns: HashSet::new(),
             readers: vec![],
             load_ons: vec![],
             effect_ins: vec![],
@@ -1527,6 +1533,9 @@ impl<'a> Checker<'a> {
                     let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                     let r = self.region(None, "imported", true, Some(alias.clone()));
                     self.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new() });
+                    if xprops.iter().any(|p| p.name == "children" && p.render) {
+                        self.render_children.insert(r);
+                    }
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
                     self.bind(env, alias, s);
@@ -3016,6 +3025,18 @@ impl<'a> Checker<'a> {
                             let kids = self.region(Some(region), "children", false, Some(tag.clone()));
                             self.regions[kids].kids = Some((cr, region));
                             let kenv = self.env(Some(env), kids);
+                            if self.render_children.contains(&cr) {
+                                // MO-11k: children are one view lambda
+                                let real: Vec<&Markup> = children.iter().filter(|x| !matches!(&x.kind, MarkupKind::Text(t) if js_trim(t).is_empty())).collect();
+                                if real.len() != 1 || !matches!(real[0].kind, MarkupKind::Mview { .. }) {
+                                    self.err("VIEW_FN_EXPECTED", "MO-11k", format!("<{}>'s children are a function of what it renders: write them as `{{view (item) {{ … }}}}`", tag));
+                                }
+                                for x in real {
+                                    if matches!(x.kind, MarkupKind::Mview { .. }) {
+                                        self.view_fns.insert(x as *const Markup);
+                                    }
+                                }
+                            }
                             self.markup(children, kenv, false);
                             for (_, v) in &values {
                                 self.apply_value(v, m.line, kenv);
@@ -3047,6 +3068,21 @@ impl<'a> Checker<'a> {
                     let r = self.region(Some(region), "else", false, None);
                     let e2 = self.env(Some(env), r);
                     self.block(f_decls, f, e2, Ctx::reactive());
+                }
+                MarkupKind::Mview { params, decls, body } => {
+                    // MO-11k: a render prop's body, owned where the component calls it
+                    if !self.view_fns.contains(&(m as *const Markup)) {
+                        self.err("VIEW_FN_MISPLACED", "MO-11k", "a `view (…) { … }` is a JS component's render prop: it is the only child of a component whose declaration types `children` as a function giving a View".into());
+                        continue;
+                    }
+                    let r = self.region(Some(region), "for", false, None);
+                    let inner = self.env(Some(env), r);
+                    for p in params {
+                        // what the component passes: a value per call
+                        let s = self.new_sym(Sym::new(SymKind::Value, p, r, self.line));
+                        self.envs[inner].vars.insert(p.clone(), s);
+                    }
+                    self.block(decls, body, inner, Ctx::reactive());
                 }
                 MarkupKind::Mfor { name, xs, decls, body } => {
                     self.comp("reader", env, None, Some("for".into()), |c| c.expr(xs, env, Ctx::reactive(), None));
@@ -3180,7 +3216,7 @@ impl<'a> Checker<'a> {
                     self.shape_walk(t, anc, scoped, env, sh, roots);
                     self.shape_walk(f, anc, scoped, env, sh, roots);
                 }
-                MarkupKind::Mfor { body, .. } => self.shape_walk(body, anc, scoped, env, sh, roots),
+                MarkupKind::Mfor { body, .. } | MarkupKind::Mview { body, .. } => self.shape_walk(body, anc, scoped, env, sh, roots),
                 MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => {
                     self.shape_walk(fallback, anc, scoped, env, sh, roots);
                     self.shape_walk(body, anc, scoped, env, sh, roots);
@@ -3494,7 +3530,7 @@ impl<'a> Checker<'a> {
                     self.content_check(t, env, anc);
                     self.content_check(f, env, anc);
                 }
-                MarkupKind::Mfor { body, .. } => self.content_check(body, env, anc),
+                MarkupKind::Mfor { body, .. } | MarkupKind::Mview { body, .. } => self.content_check(body, env, anc),
                 MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => {
                     self.content_check(fallback, env, anc);
                     self.content_check(body, env, anc);

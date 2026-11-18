@@ -240,6 +240,13 @@ impl Spans<'_> {
                 self.decls(f_decls, at);
                 self.markups(f, at);
             }
+            MarkupKind::Mview { params, decls, body } => {
+                for p in params {
+                    self.word_in(at, p, "the bound name");
+                }
+                self.decls(decls, at);
+                self.markups(body, at);
+            }
             MarkupKind::Mfor { name, xs, decls, body } => {
                 self.word_in(at, name, "the bound name");
                 self.expr(xs, at);
@@ -390,6 +397,7 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
             MarkupKind::Text(_) | MarkupKind::Style(_) => (vec![], vec![], vec![]),
             MarkupKind::Mif { c, t, t_decls, f: fm, f_decls } => (t_decls.iter().chain(f_decls).collect(), t.iter().chain(fm).collect(), vec![c]),
             MarkupKind::Mfor { xs, decls, body, .. } => (decls.iter().collect(), body.iter().collect(), vec![xs]),
+            MarkupKind::Mview { decls, body, .. } => (decls.iter().collect(), body.iter().collect(), vec![]),
             MarkupKind::Loading { on, fallback, decls, body } => (decls.iter().collect(), fallback.iter().chain(body).collect(), on.iter().collect()),
             MarkupKind::Errored { fallback, decls, body, .. } => (decls.iter().collect(), fallback.iter().chain(body).collect(), vec![]),
             MarkupKind::Portal { to, decls, body } => (decls.iter().collect(), body.iter().collect(), to.iter().collect()),

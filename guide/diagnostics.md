@@ -1204,3 +1204,29 @@ export pure fn twice(n: string): number
 export pure fn twice(n: number): number
 ```
 
+### VIEW_FN_EXPECTED
+
+The component's declaration types `children` as a function giving a `View` (a render prop): it calls its children for
+each thing it renders, so they are written as a view lambda, its only child (MO-11k).
+
+```rx before
+<VirtualList items={rows}><p>row</p></VirtualList>
+```
+
+```rx after
+<VirtualList items={rows}>{view (row, i) { <p>{row} #{i}</p> }}</VirtualList>
+```
+
+### VIEW_FN_MISPLACED
+
+A `view (…) { … }` is a render prop: the only child of a JS component whose declaration types `children` as a function
+giving a `View`. Anywhere else, write the markup itself, or a `for` over the list (MO-11k).
+
+```rx before
+<ul>{view (x) { <li>{x}</li> }}</ul>
+```
+
+```rx after
+<ul>{for x in xs { <li>{x}</li> }}</ul>
+```
+
