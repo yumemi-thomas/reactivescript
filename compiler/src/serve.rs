@@ -9,6 +9,7 @@ pub fn request(method: &str, params: &Value, disk: &dyn Fn(&str) -> Option<Strin
         "analyze" => analyze(params, disk),
         "prelude" => json!(crate::project::PRELUDE),
         "boundary" => boundary(params, disk),
+        "declaration" => declaration(params, disk),
         _ => json!({ "error": "unknown method" }),
     }
 }
@@ -107,6 +108,17 @@ pub fn boundary(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value 
             let (code, checks) = crate::project::boundary_file(&decls, module);
             json!({ "code": code, "checks": checks.iter().map(|(at, line, name)| json!({ "at": at, "line": line, "name": name })).collect::<Vec<_>>() })
         }
+        Err(e) => json!({ "error": e.0 }),
+    }
+}
+
+/// `declaration` (`{file, text?}`): the `.d.ts` a `.d.rx` stands for (TY-4b), for a JS module that has no TypeScript types
+/// of its own: what `rx-tsc` gives TypeScript in its place.
+pub fn declaration(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
+    let file = params["file"].as_str().unwrap_or_default();
+    let Some(text) = params["text"].as_str().map(str::to_string).or_else(|| disk(file)) else { return json!({ "error": format!("cannot read {}", file) }) };
+    match crate::parse::parse_declarations(&text) {
+        Ok(decls) => json!({ "code": crate::project::declaration_file(&decls) }),
         Err(e) => json!({ "error": e.0 }),
     }
 }

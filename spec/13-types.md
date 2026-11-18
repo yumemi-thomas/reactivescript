@@ -69,6 +69,8 @@ does for `.tsrx`. Nothing here is a second type system.
   `ref` result, or a tuple or record part of one, is read with a call, so
   the binding has its value's type. The projection then type-checks against
   a library's own `.d.ts` as it does against the projected one (S-module-13).
+  `rx-tsc` uses the projected `.d.ts` where a JS module has a `.d.rx` and no
+  types of its own (`tooling/rx-language-server/src/declarations.js`).
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such
@@ -102,9 +104,10 @@ does for `.tsrx`. Nothing here is a second type system.
   omitted parameter type), never something else.
 - **TY-6c.** Rows TypeScript cannot see (`pure`, `uses`, `provides`,
   `holds`, `fails`) are not checked here. A module with no TypeScript types
-  (no `.d.ts` beside it, none from its package) cannot be checked, and
-  `rx-tsc` says so: that is an error too, since an unchecked declaration is
-  the case this rule exists for.
+  of its own (no `.d.ts` beside it, none from its package) is typed by its
+  `.d.rx` (TY-4b: `rx-tsc` gives TypeScript the projected `.d.ts` in its
+  place, without writing it), and there is nothing to check it against: a
+  hand-written `.d.ts` would be the same assertion, as `pure` is (CN-5).
 - **TY-6d.** The crate writes the check (`rxc serve`'s `boundary` request,
   `project.rs` `boundary_file`); `rx-tsc` type-checks it in memory beside
   the `.d.rx` with the project's compiler options

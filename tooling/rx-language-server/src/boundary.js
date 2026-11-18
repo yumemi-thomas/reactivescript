@@ -44,10 +44,8 @@ function checkBoundaries(ts, rxFiles, options) {
   for (const u of units) {
     const sf = program.getSourceFile(u.at);
     const typesOf = program.getSourceFile(u.at) && ts.resolveModuleName(u.module, u.at, options, host).resolvedModule;
-    if (!typesOf || /\.(m?js|jsx)$/.test(typesOf.resolvedFileName)) {
-      found.push({ file: u.file, line: 1, name: "", message: `${u.module} has no TypeScript types (a .d.ts beside it, or the package's): its declarations are not checked against it` });
-      continue;
-    }
+    // a module with no TypeScript types of its own is typed by its .d.rx (TY-4b): there is nothing to check it against
+    if (!typesOf || /\.(m?js|jsx)$/.test(typesOf.resolvedFileName) || require("./declarations.js").isVirtual(typesOf.resolvedFileName)) continue;
     for (const dg of [...program.getSyntacticDiagnostics(sf), ...program.getSemanticDiagnostics(sf)]) {
       const line = dg.start === undefined ? 0 : sf.getLineAndCharacterOfPosition(dg.start).line + 1;
       const c = u.checks.find(x => x.at === line);

@@ -225,7 +225,7 @@ fn signature_stub(sig: &ModSig) -> String {
         .join("\n")
 }
 /// MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module.
-fn declaration_file(decls: &[JsDecl]) -> String {
+pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
     let own: IndexSet<&str> = decls.iter().filter(|d| matches!(d, JsDecl::Type { .. })).map(|d| d.name()).collect();
     let mut head: Vec<String> = vec![];
     if decls.iter().any(|d| matches!(d, JsDecl::Comp { .. } | JsDecl::Fn { shape: crate::parse::Shape::Comp, .. })) {

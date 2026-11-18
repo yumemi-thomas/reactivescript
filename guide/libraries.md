@@ -183,8 +183,9 @@ component Person(props: { params: { id: string } }) {
 Router = createRouter({ routes: [defineRoute({ path: "/people/:id", component: Person })] })
 ```
 
-`rx-tsc` reads a JS module's types from its `.d.ts`, not its `.d.rx`, so put one beside the re-export too
-(`router.d.ts`: `export { createRouter, defineRoute, … } from "@solidjs/router"`). Then `rx-tsc` refuses
+`rx-tsc` reads a JS module's types from its `.d.ts` when it has one (else from its `.d.rx`), so for the router's own
+inference put one beside the re-export (`router.d.ts`: `export { createRouter, defineRoute, … } from "@solidjs/router"`).
+Then `rx-tsc` refuses
 `defineRoute({ path: "/people", component: Person })` on that line: `/people` has no `id`. Write
 `defineRoute(…)` inside the `createRouter({ … })` call; bound on its own, a component in it is `COMPONENT_AS_VALUE`. A child
 route doesn't see its parent's params in its type, so declare those optional (`org?: string`).

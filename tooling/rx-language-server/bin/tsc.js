@@ -12,6 +12,7 @@ const { rxLanguagePlugin, analyses, guideUrl } = require("../src/index.js");
 const { checkBoundaries } = require("../src/boundary.js");
 
 const tsc = require.resolve("typescript/lib/tsc");
+require("../src/declarations.js").install();   // TY-4b: a JS module typed only by its .d.rx
 
 process.on("exit", code => {
   const watching = process.argv.includes("--watch") || process.argv.includes("-w");

@@ -96,4 +96,9 @@ function boundary(file, module) {
   return ask("boundary", { file, module });
 }
 
-module.exports = { analyze, preludeFor, boundary, rxcPath, wasmPath };
+/** TY-4b: the `.d.ts` a `.d.rx` stands for, for a JS module with no TypeScript types of its own. */
+function declaration(file) {
+  return ask("declaration", { file });
+}
+
+module.exports = { analyze, preludeFor, boundary, declaration, rxcPath, wasmPath };
