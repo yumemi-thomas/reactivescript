@@ -885,7 +885,14 @@ impl<'p> Gen<'p> {
                         b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: None });
                         b
                     }
-                    ExportSig::Comp { .. } => bind(Kind::Comp, cm(alias)),
+                    ExportSig::Comp { sig } => {
+                        // MO-11j: a made component is a JS component
+                        let mut b = bind(Kind::Comp, cm(alias));
+                        if sig.made {
+                            b.shape = Some(FShape::Comp);
+                        }
+                        b
+                    }
                     ExportSig::Action => bind(Kind::Act, js),
                     ExportSig::Source { .. } | ExportSig::Eq { .. } => bind(Kind::Acc, js),
                     _ => val(js),

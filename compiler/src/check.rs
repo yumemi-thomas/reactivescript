@@ -1273,7 +1273,7 @@ impl<'a> Checker<'a> {
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
                             props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false });
-                            self.regions[r].sig = Some(CompSig { own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new() });
+                            self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new() });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
                             sym.factory = Some((args.as_slice(), env));
@@ -1523,7 +1523,7 @@ impl<'a> Checker<'a> {
                     }
                     let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                     let r = self.region(None, "imported", true, Some(alias.clone()));
-                    self.regions[r].sig = Some(CompSig { own, requires, props, shape: content.clone(), stored: IndexMap::new() });
+                    self.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new() });
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
                     self.bind(env, alias, s);
@@ -1690,7 +1690,9 @@ impl<'a> Checker<'a> {
                 SymKind::Comp => {
                     // MO-11j: a made component's summary is its wrapper's
                     let r = self.syms[s].exported_as.and_then(|w| self.syms[w].comp_region).or(self.syms[s].comp_region).unwrap();
-                    ExportSig::Comp { sig: self.comp_sig(r) }
+                    let mut sig = self.comp_sig(r);
+                    sig.made = self.syms[s].exported_as.is_some(); // a JS component
+                    ExportSig::Comp { sig }
                 }
                 SymKind::Context => {
                     let c = self.syms[s].ctx.clone().unwrap();
@@ -4729,7 +4731,7 @@ impl<'a> Checker<'a> {
                 stored.insert(f.clone(), v);
             }
         }
-        CompSig { own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored }
+        CompSig { made: false, own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored }
     }
 }
 

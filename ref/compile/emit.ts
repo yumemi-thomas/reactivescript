@@ -159,7 +159,7 @@ class Gen {
     const sig = this.mods!.set.programs.has(path) ? undefined : this.mods!.set.signatures?.get(path)?.exports.get(name);
     if (sig) switch (sig.kind) {                                                             // MO-9: the kind is the signature's
       case "fn": return { kind: sig.instantiating || sig.params.some(p => p.ref) ? "ifn" : "fn", js: mg(alias), fn: { k: "fn", name, params: sig.params, decls: [], tail: { k: "lit", v: undefined } } as unknown as FnDecl };
-      case "comp": return { kind: "comp", js: cm(alias) };
+      case "comp": return sig.sig.made ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "comp", js: cm(alias) };   // MO-11j: a made component is a JS component
       case "action": return { kind: "act", js: mg(alias) };
       case "source": case "eq": return { kind: "acc", js: mg(alias) };
       default: return { kind: "val", js: mg(alias) };

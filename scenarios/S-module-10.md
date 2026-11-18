@@ -41,7 +41,7 @@ export Router = createRouter({ routes: [{ path: "/", component: Home }, { path: 
 
 An exported factory's component is summarised as a component whose view
 applies it (MO-11j): what its components let out and need from above is its
-signature, `export component Router(props: {}) fails(Error) uses(./theme.rx#theme)
+signature, `export component Router(props: {}) made fails(Error) uses(./theme.rx#theme)
 shape(roots h1; closes-p)`. The router's own context is provided inside it
 (MO-12c), so it does not escape. An importer applies `<Router />` as any
 imported component and checks it against that signature (MO-3).

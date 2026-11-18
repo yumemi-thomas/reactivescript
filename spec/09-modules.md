@@ -470,10 +470,12 @@ export default component App() {
   signature (MO-3) is that of a component whose view is `<Router />` in the
   making module: what the components it was given let out of it, the
   contexts they need that it does not provide (MO-12c), and their content
-  shape, so `export component Router(props: {}) fails(Error)
+  shape, so `export component Router(props: {}) made fails(Error)
   uses(./theme.rx#theme) shape(roots h1)`. An importer applies it as any
   imported component, checked against that signature. The made component is
-  exported as the component it is, not an accessor (CP-4b).
+  exported as the component it is, not an accessor (CP-4b); `made` in the
+  signature says it is a JS component, so an importer that has only the
+  signature (MO-9) applies it as JSX's `<X />`, with no `children` prop.
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check

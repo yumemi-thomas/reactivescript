@@ -60,6 +60,8 @@ pub struct Own {
 /// MO-3: an exported component as an importer sees it.
 #[derive(Debug, Clone)]
 pub struct CompSig {
+    /// MO-11j: a JS factory's component, exported from the module that made it (applied as JSX's `<X />`)
+    pub made: bool,
     pub own: Vec<Own>,
     pub requires: Vec<String>,
     pub props: IndexMap<String, PropSig>,
@@ -260,9 +262,10 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 .collect();
             let own: IndexSet<String> = s.own.iter().map(|o| o.cls.clone()).collect();
             format!(
-                "export component {}(props: {}){}{}{}{}",
+                "export component {}(props: {}){}{}{}{}{}",
                 name,
                 if props.is_empty() { "{}".to_string() } else { format!("{{ {} }}", props.join("; ")) },
+                if s.made { " made" } else { "" },
                 if own.is_empty() { String::new() } else { format!(" fails({})", sorted(own).join(" | ")) },
                 if s.requires.is_empty() { String::new() } else { format!(" uses({})", s.requires.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) },
                 retains_text(file, &s.stored),
@@ -307,6 +310,7 @@ re!(P_CATCHES, r"(^|[^A-Za-z0-9_])catches\(([^)]*)\)");
 re!(P_PROVIDES, r"(^|[^A-Za-z0-9_])provides\(([^)]*)\)");
 re!(C_FAILS, r"(^|[^A-Za-z0-9_])fails\(([^)]*)\)");
 re!(C_USES, r"(^|[^A-Za-z0-9_])uses\(([^)]*)\)");
+re!(C_MADE, r"^\s*made\b");
 re!(C_RETAINS, r"(^|[^A-Za-z0-9_])retains\(([^)]*)\)");
 re!(C_SHAPE, r"(^|[^A-Za-z0-9_])shape\(([^)]*)\)");
 re!(SOURCE_WORD, r"^source([^A-Za-z0-9_]|$)");
@@ -456,7 +460,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_COMP.captures(&s) {
-            let mut sig = CompSig { own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new() };
+            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new() };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
                 let (fname0, spec) = match f.find(':') {
@@ -497,6 +501,9 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             if let Some(fl) = C_FAILS.captures(tail) {
                 let at = file.split('/').last().map(String::from);
                 sig.own = classes_of(&fl[2]).into_iter().map(|c| Own { cls: c, what: format!("{}'s root", &m[1]), at: at.clone() }).collect();
+            }
+            if C_MADE.is_match(tail) {
+                sig.made = true; // MO-11j
             }
             if let Some(us) = C_USES.captures(tail) {
                 sig.requires = us[2].split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect();
