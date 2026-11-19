@@ -101,7 +101,9 @@ type Sym = {
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
   carrier?: boolean;                   // MO-11o: a declared fn whose result carries the components in its arguments
-  carried?: { args: Expr[]; env: Env };   // MO-11o: on an equation bound to such a call, those arguments
+  carried?: { args: Expr[]; env: Env; under?: { parent: string; inside: string } };   // MO-11o: on an equation bound to such a call, those arguments; MO-11p: where it renders
+  under?: { parent: string; inside: string };   // MO-11p: a carrying fn whose result renders at its parent's outlet
+  outlet?: boolean;                    // MO-11p: a JS component that renders, where it is written, what nests under its component
   carriedExpr?: { e: Expr; env: Env };   // MO-11o: every equation's expression, looked through for what it carries
   rendersRoot?: boolean;               // MO-11n: renders(root), under a root of the library's own
   carries?: string[];                  // MO-11n: renders(root, ctx…): the JS contexts (keys) it provides inside that root
@@ -506,7 +508,7 @@ class Checker {
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); }
       if (d.k === "eq") sym.eqDecl = d;
-      if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.carrier) sym.carried = { args: d.e.args, env }; sym.carriedExpr = { e: d.e, env }; }   // MO-11o
+      if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.carrier) { const by = env.lookup(d.e.f.name)!; sym.carried = { args: d.e.args, env, ...(by.under ? { under: by.under } : {}) }; } sym.carriedExpr = { e: d.e, env }; }   // MO-11o
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
       this.bind(env, d.name, sym);
     }
@@ -602,11 +604,11 @@ class Checker {
         for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true } : {}), ...(p.callback ? { callback: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig;
         const cp = x.props.filter(p => p.carried).map(p => p.name); if (cp.length) this.carriedProps.set(r, new Set(cp));   // MO-11o
-        this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }); continue;
+        this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(x.outlet ? { outlet: true } : {}) }); continue;
       }
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}) });
     }
   }
@@ -1218,6 +1220,7 @@ class Checker {
                 for (const x of real) if (x.k === "mview") this.viewFns.add(x);
               }
               this.markup([...m.children, ...values.values()], new Env(env, kids));
+              if (s.outlet) { const p = this.propsOf(env); if (p) this.outlets.push({ region: env.region, comp: p.region }); }   // MO-11p: what nests under this component renders here, as if it read props.children
               if (s.factory && !this.expanding.markup.has(s)) { this.expanding.markup.add(s); this.markup(this.factoryTree(s, m.line), new Env(s.factory.env, kids)); this.expanding.markup.delete(s); }   // MO-11f: named where the factory was called
             } else this.markup(m.children, env);
             break;
@@ -1282,8 +1285,35 @@ class Checker {
     const sig = env.lookup(m.tag)?.compRegion?.sig;
     for (const a of m.attrs) if (sig?.props[a.name]?.component && a.e.k === "id" && /^[A-Z]/.test(a.e.name) && env.lookup(a.e.name)?.kind === "comp") out.set(a, this.applied([a.e.name], m.line)[0]);
     const cp = env.lookup(m.tag)?.compRegion ? this.carriedProps.get(env.lookup(m.tag)!.compRegion!) : undefined;   // MO-11o: what a prop renders
-    if (cp) { const names: string[] = []; const seen = new Set<Sym>(); for (const a of m.attrs) if (cp.has(a.name)) this.carriedNames(a.e, env, seen, names); for (const n of [...new Set(names)]) out.set({ carried: n }, this.applied([n], m.line)[0]); }
+    if (cp) { const names: string[] = []; const seen = new Set<Sym>(); for (const a of m.attrs) if (cp.has(a.name)) this.carriedNames(a.e, env, seen, names); for (const el of this.carriedTree(seen, names, m.line)) out.set({ carried: el }, el); }
     return out;
+  }
+  /** MO-11o, MO-11p: the carried components as applied: each value carried `under(parent in inside)` is its `inside`
+   *  component, applied among the children of its parent's (where that one's `outlet` renders them, `<Outlet />`); the
+   *  rest, and any whose parent is not carried here, side by side. */
+  private carriedTree(seen: Set<Sym>, names: string[], line?: number): Markup[] {
+    const field = (s: Sym, key: string): Expr | undefined => { for (const a of s.carried!.args) if (a.k === "rec") for (const x of a.fields) if (!("spread" in x) && x.key === key) return x.v; return undefined; };
+    const els = new Map<Sym, Extract<Markup, { k: "el" }>>();
+    const host = (s: Sym, inside: string) => {   // a carried value's component, at its `inside` field
+      const v = field(s, inside);
+      if (!els.has(s) && v?.k === "id" && /^[A-Z]/.test(v.name) && s.carried!.env.lookup(v.name)?.kind === "comp") els.set(s, this.applied([v.name], line)[0] as Extract<Markup, { k: "el" }>);
+    };
+    const parentOf = (s: Sym): Sym | undefined => {
+      if (!s.carried?.under) return undefined;
+      let v = field(s, s.carried.under.parent); if (v?.k === "fn" && !v.stmts?.length) v = v.body;   // `getParentRoute: () => rootRoute`
+      const p = v?.k === "id" ? s.carried.env.lookup(v.name) : undefined;
+      return p?.carried && seen.has(p) ? p : undefined;
+    };
+    for (const s of seen) if (s.carried?.under) { host(s, s.carried.under.inside); const p = parentOf(s); if (p) host(p, s.carried.under.inside); }   // a parent with no `under` of its own (the root) is found by its child's field
+    const top: Markup[] = []; const placed = new Set<string>();
+    for (const [s, el] of els) {
+      placed.add(el.tag);
+      const p = parentOf(s); const up = new Set<Sym>();   // a parent chain that comes back to s is a cycle: s stays side by side
+      for (let q = p; q && els.has(q) && !up.has(q); q = parentOf(q)) up.add(q);
+      if (p && els.has(p) && !up.has(s)) els.get(p)!.children.push(el); else top.push(el);
+    }
+    for (const n of [...new Set(names)]) if (!placed.has(n)) top.push(...this.applied([n], line));
+    return top;
   }
   /** MO-11o: the JS components' props that render what their value carries, by component. */
   private carriedProps = new Map<Region, Set<string>>();
@@ -1383,6 +1413,7 @@ class Checker {
           if (m.tag === "") { walk(m.children, anc, scoped, env); break; }
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag); if (s?.kind !== "comp") break; const S = this.shape(s);
+            if (s.outlet && this.propsOf(env)) sh.childrenAt.push(anc);   // MO-11p: the caller's children, at the outlet
             if (!anc.length) S.roots.forEach(r => roots.add(r));
             if (S.closesP && !scoped) sh.closesP = true; if (S.a) sh.a = true; if (S.form) sh.form = true;
             for (const ch of S.childrenAt) {                                               // the caller's children, where that component puts them
@@ -1404,6 +1435,10 @@ class Checker {
     walk(c.comp.view, [], false, c.compEnv);
     sh.roots = [...roots]; this.shapes.set(c, sh); return sh;
   }
+  /** The props of the component a view belongs to (MO-11p: `<Outlet />` renders its children). */
+  private propsOf(env: Env): Sym | undefined { for (let e: Env | null = env; e; e = e.parent) for (const s of e.vars.values()) if (s.kind === "props") return s; return undefined; }
+  /** MO-11p: each outlet, where it is (its region) and whose children it renders (the component's region). */
+  private outlets: { region: Region; comp: Region }[] = [];
   private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
   /** SV-7d: every element, text and component root of a view against the elements open above it (in this view; a view's
    *  root is an unknown place), and a component's caller's children where that component places them. */
@@ -1595,6 +1630,7 @@ class Checker {
     // PF: where a component's prop field goes once read — up to its root, or out of an action
     const occ: { comp: Region; field: string; pre: Step[]; via: () => PFEntry[] }[] = [];
     for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => routes(r.region).map(q => ({ chain: q, term: null })) });
+    for (const o of this.outlets) occ.push({ comp: o.comp, field: "children", pre: [], via: () => routes(o.region).map(q => ({ chain: q, term: null })) });   // MO-11p: an outlet places the children
     for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => PF(a.app.comp, a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
     for (const a of actF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => [{ chain: [], term: { line: a.line, name: a.name } }] });
     const pfMemo = new Map<string, PFEntry[]>(); const pfBusy = new Set<string>();

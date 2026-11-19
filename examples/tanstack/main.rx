@@ -4,7 +4,10 @@ import { fetchPerson, NotFound } from "./people.js"
 
 component Root() {
   <nav><Link to="/">Home</Link> <Link to="/people/$id" params={{ id: "1" }}>Ann</Link> <Link to="/people/$id" params={{ id: "2" }}>Bo</Link> <Link to="/people/$id" params={{ id: "9" }}>Nobody</Link></nav>
-  <main><Outlet /></main>
+  // the routes below render at the outlet, inside this boundary (MO-11p): a route's NotFound shows here
+  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
+    <main><Outlet /></main>
+  }
 }
 component Home() {
   navigate = useNavigate()
@@ -14,11 +17,9 @@ component Home() {
 component Person() {
   params = useParams({ from: "/people/$id" })
   person = await fetchPerson(params.id)
-  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
-    loading fallback { <p>loading…</p> } {
-      <h1>{person.name}</h1>
-      <p>{person.role}, #{params.id}</p>
-    }
+  loading fallback { <p>loading…</p> } {
+    <h1>{person.name}</h1>
+    <p>{person.role}, #{params.id}</p>
   }
 }
 

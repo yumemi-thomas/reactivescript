@@ -141,7 +141,9 @@ const c0last = (chains: Chain[]) => chains[0][chains[0].length - 1];
  *  client. The frames after hydration are the client's own (a recorded oracle divergence where there is one; a panic's
  *  message may be redacted, SV-5b). After hydrating: every element the server sent was adopted, and no question the server
  *  answered was asked again. */
-async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string, chains: Chain[], served: number, at: number, label: string, lines: string[]): Promise<boolean> {
+async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string, chains: Chain[], served: number, at: number, label: string, lines: string[], checkFrom = 0): Promise<boolean> {
+  // checkFrom: a variant program's chains before this index are the base table's, replayed only to drive state (their
+  // frames are the base program's, not this one's)
   let out: Built;
   try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) return true; out = build(sc, src, chains.flat().filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7))); }
   catch (e) { if (e instanceof CompileError) return true; lines.push(`  ✗ ${t.title} [${label}]: ${(e as Error).message}`); return false; }
@@ -229,7 +231,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
       else if (issues.length) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}`); }
       shown.push(norm(await textOf()));
       const lastRow = chains[at - 1][chains[at - 1].length - 1]; const got = shown[shown.length - 1];
-      if (!matches(lastRow, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: expected '${framesOf(lastRow).join("' or '")}', got '${got}'`); }
+      if (at - 1 >= checkFrom && !matches(lastRow, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: expected '${framesOf(lastRow).join("' or '")}', got '${got}'`); }
     }
     if (i === chains.length) break;
     if (i === 0) continue;   // the mount is the request
@@ -246,6 +248,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
     await page.evaluate(() => { (window as any).__client.flush(); });
     if (process.env.DEBUG_NAMES) console.log("  after", r.instant, "ended=" + ended, await page.evaluate(() => { const sc = (window as any).__client.sharedConfig; return `done=${sc.done} hydrating=${sc.hydrating} HYdone=${(window as any)._$HY.done}`; }), await page.evaluate((names: string[]) => names.map(n => { try { return n + "=" + (window as any).__client.app.fmt((window as any).__client.app.dget(n)); } catch (e) { return n + "!" + (e as Error).message; } }).join(" "), process.env.DEBUG_NAMES.split(",")));
     const got = norm(await textOf()); const last = c[c.length - 1];
+    if (i < checkFrom) continue;   // a base row of a variant program: it drives state only
     const k = known(last); if (k && got === norm(k.frame)) { lines.push(`  ${k.ruled ? "✓" : "≠"} ${t.title} [${label}] instant ${last.instant}: ${got}  — ${k.ruled ? "SV-3b hydration window" : "recorded (hydrated)"}`); break; }
     if (!matches(last, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${last.instant}: expected '${framesOf(last).join("' or '")}', got '${got}'${pageErrors.length ? `  (page: ${pageErrors.join(" | ")})` : ""}`); break; }
     shown.push(got);
@@ -273,7 +276,10 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   if (!served.length || served[0][0].action !== "mount") return true;
   // A variant with its own program has no frames for the base's rows: they only drive state, and its own rows are checked.
   const from = t.program ? served.findIndex(c => rows.indexOf(c[0]) >= own) : 0;
-  if (from < 0) { lines.push(`  ~ ${t.title}: a variant program whose own rows begin after a handler`); return true; }
+  if (from < 0) {   // its own rows begin after a handler: served and hydrated, the base's rows driven in the browser, its own checked
+    if (!hydrating) { lines.push(`  ~ ${t.title}: a variant program whose own rows begin after a handler`); return true; }
+    return hydrated(sc, t, src, chains, served.length, served.length, "hydrated, base rows driven", lines, chains.findIndex(c => rows.indexOf(c[0]) >= own));
+  }
   // the client's frames for these instants: the spec's, or the oracle's where a divergence is recorded — every row of a
   // chain, since the server runs no effect (SV-2) and shows the frame before an effect's chain lands
   // (a `server` divergence: what Solid's server render shows there instead — DV-9)

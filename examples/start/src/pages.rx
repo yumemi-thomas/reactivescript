@@ -1,4 +1,4 @@
-// pages.rx: the app's .rx components, imported by the TSX file routes with ?rx-lib (CP-4d); the routes are TSX because Start's route generator reads TypeScript.
+// pages.rx: the app's .rx components, imported by the TSX file routes with ?rx-lib (CP-4d), typed by rx-tsc; the routes are TSX because Start's route generator reads TypeScript.
 import { fetchPerson, NotFound } from "./people.js"
 
 source clicks := 0

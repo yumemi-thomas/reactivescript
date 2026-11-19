@@ -165,14 +165,20 @@ record argued each way; this is the decision.
   dependency is (`module(__rt)`, returning its exports; `rxc app --lib`,
   the Node-API `app(…, library)`), and the runtime's
   `components(pages)` turns those exports into Solid components the host
-  renders itself (`const { PersonCard } = components(pages)`). They are
+  renders itself (`const { PersonCard } = components(pages)`), or, the
+  same bound, by name (`import { PersonCard } from "./pages.rx?rx-lib"`;
+  the build's `components` lists the module's exported components). They are
   bound to an app made on first use: on the client, one for the page; on
   the server, one per request, kept on Solid's request event
   (`getRequestEvent().locals`), so module state is per request (SV-4) as
   in a program's own server; outside a request, one for the process. The
   module is checked as an entry is (its components' failures reach their
-  own boundaries, or are refused); what the host passes in is the host's
-  to type. It is how a framework that owns routing and the document —
+  own boundaries, or are refused); what the host passes in is typed by
+  the module's projection: `rx-tsc` resolves `pages.rx?rx-lib` to
+  declarations of its exported components (13 TY-1c), so a TSX host
+  passing `PersonCard` a number is a type error on its own line. A
+  TypeScript without `.rx` support takes them untyped, through the
+  runtime's `@reactivescript/runtime/rx-lib` pattern. It is how a framework that owns routing and the document —
   TanStack Start's file routes, which its generator reads as TypeScript —
   renders `.rx` components (`examples/start`, `compiler/test/start.mjs`).
 

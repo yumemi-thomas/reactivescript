@@ -444,9 +444,9 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   it is born held and the old arm stays until the landing. Built in Solid
   2.0.1: no longer recorded.
 - **DV-25 (a reader out of an error state does not hold the change) — a
-  Solid regression in 2.0.1, reproduced 2026-11-19**
+  Solid regression in 2.0.1, reproduced 2026-11-19; still in 2.0.2**
   (`ref/oracle/repros/dv25-errored-reask.mjs`, plain Solid: rc.21 holds,
-  2.0.1 does not). After a source's question fails into a `catch` value or
+  2.0.1 and 2.0.2 do not). After a source's question fails into a `catch` value or
   an `errored` fallback, a change that makes it ask again shows at once:
   the new input beside the old fallback, with the question in flight
   (S-module-1 instant 3: `#2 nobody Z`; S-fail-2 instant 6: `zzznone`, the

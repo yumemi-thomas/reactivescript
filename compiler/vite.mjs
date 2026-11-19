@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 
 const { app } = createRequire(import.meta.url)("./index.js");
 const DEP = "rx-dep";
-const LIB = "rx-lib";   // CP-4d: a JS module imports an .rx module for its components: `import pages from "./pages.rx?rx-lib"`
+const LIB = "rx-lib";   // CP-4d: a JS module imports an .rx module's components: `import { PersonCard } from "./pages.rx?rx-lib"`
 // the page each code points to: the package's copy (scripts/guide.mjs), else the repository's
 const GUIDE = [path.join(path.dirname(fileURLToPath(import.meta.url)), "guide/diagnostics.md"), path.join(path.dirname(fileURLToPath(import.meta.url)), "../guide/diagnostics.md")].find(existsSync)
   ?? "https://github.com/solidjs/reactivescript/blob/main/guide/diagnostics.md";
@@ -100,7 +100,12 @@ export default function rx() {
       const m = out.modules[file];
       for (const p of Object.keys(out.modules)) if (p !== file) addWatchFile(p);
       // CSS-4: the program's stylesheet, linked once, from its entry
-      return { code: tagDeps(m.code), map: m.map, css: !dep && file === entry ? out.css : "" };
+      // CP-4d: a library's components by name, bound to the host's app (`import { PersonCard } from "./pages.rx?rx-lib"`);
+      // the default export stays the module, for `components(pages)`. Appended, so the source map's lines still hold.
+      const named = lib && file === entry && out.components?.length
+        ? `\nimport { components as __rxComponents } from "@reactivescript/runtime";\nconst __rx = __rxComponents(module);\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n`
+        : "";
+      return { code: tagDeps(m.code) + named, map: m.map, css: !dep && file === entry ? out.css : "" };
     },
   };
 }

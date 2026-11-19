@@ -15,6 +15,15 @@ function virtualText(p) {
   const abs = path.resolve(p);
   if (virtual.has(abs)) return virtual.get(abs);
   let text = null;
+  // CP-4d: `import { PersonCard } from "./pages.rx?rx-lib"` in a JS host is typed by the module's projection: TypeScript
+  // looks for `pages.rx?rx-lib.d.ts`, which answers with the module's exported components (and, as its default, the
+  // module itself for `components(pages)`)
+  if (abs.endsWith(LIB + ".d.ts")) {
+    const rx = abs.slice(0, -(LIB + ".d.ts").length);
+    if (rx.endsWith(".rx") && !rx.endsWith(".d.rx") && real.existsSync(rx)) text = libDeclaration(rx);
+    virtual.set(abs, text);
+    return text;
+  }
   const base = abs.slice(0, -".d.ts".length);
   if (!real.existsSync(abs) && real.existsSync(base + ".d.rx") && JS.some(x => real.existsSync(base + x))) {
     const r = declaration(base + ".d.rx");
@@ -22,6 +31,15 @@ function virtualText(p) {
   }
   virtual.set(abs, text);
   return text;
+}
+
+const LIB = "?rx-lib";
+/** The `.d.ts` of `rx` imported `?rx-lib`: its exported components, as its projection types them. */
+function libDeclaration(rx) {
+  const names = [...real.readFileSync.call(fs, rx, "utf8").matchAll(/^export\s+(?:default\s+)?component\s+([A-Za-z_$][\w$]*)/gm)].map(m => m[1]);
+  const from = JSON.stringify("./" + path.basename(rx));
+  return `import type * as M from ${from};\n${names.map(n => `export declare const ${n}: typeof M.${n};`).join("\n")}\n` +
+    `declare const module: (rt: unknown) => { ${names.map(n => `${n}: typeof M.${n}`).join("; ")} };\nexport default module;\n`;
 }
 
 const real = { existsSync: fs.existsSync, statSync: fs.statSync, readFileSync: fs.readFileSync, realpathSync: fs.realpathSync };

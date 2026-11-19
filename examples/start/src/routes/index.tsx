@@ -1,8 +1,5 @@
 import { createFileRoute } from "@tanstack/solid-router";
-import { components } from "@reactivescript/runtime";
-import pages from "../pages.rx?rx-lib";
-
-const { Counter } = components(pages);
+import { Counter } from "../pages.rx?rx-lib";
 
 export const Route = createFileRoute("/")({ component: Home });
 function Home() {

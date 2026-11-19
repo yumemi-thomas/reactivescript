@@ -1,5 +1,5 @@
 // DV-25 (spec/05): a reader out of an error state does not hold the change. A Solid regression between 2.0.0-rc.21 and
-// 2.0.1, reproduced with no ReactiveScript code (2026-11-19). rc.21 prints `#0 nobody` at the re-ask; 2.0.1 `#2 nobody`.
+// 2.0.1 (still in 2.0.2), reproduced with no ReactiveScript code (2026-11-19). rc.21 prints `#0 nobody` at the re-ask; 2.0.1 and 2.0.2 `#2 nobody`.
 //   node --conditions=browser ref/oracle/repros/dv25-errored-reask.mjs
 // Plain Solid 2 (no ReactiveScript): a signal `sel`, an async memo `user` over it that throws synchronously for 0, a plain
 // read of `sel` beside an Errored boundary around the read of `user`. After `sel` 1 -> 0 (an error) -> 2 (pending again),

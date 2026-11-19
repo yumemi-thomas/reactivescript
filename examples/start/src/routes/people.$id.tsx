@@ -1,8 +1,5 @@
 import { createFileRoute } from "@tanstack/solid-router";
-import { components } from "@reactivescript/runtime";
-import pages from "../pages.rx?rx-lib";
-
-const { PersonCard, Counter } = components(pages);
+import { Counter, PersonCard } from "../pages.rx?rx-lib";   // typed by pages.rx (rx-tsc)
 
 export const Route = createFileRoute("/people/$id")({ component: PersonPage });
 function PersonPage() {

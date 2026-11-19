@@ -450,7 +450,7 @@ re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
 re!(ROW_WORD, r"^(holds\b|fails\(([^)]*)\))\s*");
 re!(ANY_ROW_WORD, r"\b(holds|fails\()");
 re!(RENDER_TYPE, r"=>\s*View\s*$");
-re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b)");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\()");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
@@ -502,11 +502,11 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
-    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String> },
+    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, outlet: bool },
     /// MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
     Context { name: String, line: usize },
     /// MO-8g: a value the module exports (`export const pageSearch: Schema`)
@@ -663,8 +663,14 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
     let mut fails = vec![];
     let mut content = None;
     let (mut uses, mut provides) = (vec![], vec![]);
+    let mut outlet = false;
     loop {
         c.ws(false);
+        if c.keyword("outlet") {
+            // MO-11p: it renders, where it is written, what nests under its component
+            outlet = true;
+            continue;
+        }
         if c.keyword("uses") {
             // MO-12b
             c.ws(false);
@@ -702,7 +708,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         }
         break;
     }
-    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides })
+    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides, outlet })
 }
 /// MO-12: `(router, theme)` — contexts the same declaration file declares.
 fn context_names(c: &mut Cursor) -> R<Vec<String>> {
@@ -867,7 +873,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             let t = code_of(&line0).to_string(); // words in a `// comment` are not rows
             let r1 = REJECTS.find(&t).map(|m| m.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if ["uses(", "provides(", "nests(", "renders", "carries"].iter().any(|w| t[m.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
+            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under("].iter().any(|w| t[m.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
             let r = [r1, r2, r3].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
@@ -898,6 +904,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         let mut renders_root = false;
         let mut carries: Vec<String> = vec![];
         let mut carrier = false;
+        let mut under: Option<(String, String)> = None;
         loop {
             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
             c.ws(false);
@@ -907,6 +914,24 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             }
             if c.keyword("carries") {
                 // MO-11o: the components in its arguments travel in its result
+                carrier = true;
+                continue;
+            }
+            if c.keyword("under") {
+                // MO-11p: rendered at its parent's outlet
+                c.ws(false);
+                c.expect("(")?;
+                c.ws(true);
+                let parent = c.ident_or("under(getParentRoute in component): the field that names the parent value")?;
+                c.ws(true);
+                if !c.keyword("in") {
+                    return c.fail("under(getParentRoute in component)");
+                }
+                c.ws(true);
+                let inside = c.ident_or("under(getParentRoute in component): the field that holds the component")?;
+                c.ws(true);
+                c.expect(")")?;
+                under = Some((parent, inside));
                 carrier = true;
                 continue;
             }
@@ -973,7 +998,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
         let cbs = callbacks(&ptypes);
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root, carries, sigs, carrier });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under });
     }
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).

@@ -23,7 +23,7 @@ pub fn target(name: &str) -> Target {
     }
 }
 
-/// `{entry, css, modules: {path: {code, map}}}`, or `{diagnostics: [...]}` / `{error}`. `entry` is an absolute path.
+/// `{entry, css, modules: {path: {code, map}}}` (and, for a library, `components`: its exported components' names), or `{diagnostics: [...]}` / `{error}`. `entry` is an absolute path.
 /// `spa`: a client-only build, checked under 08 CN-3d.
 pub fn app(entry: &str, target: Target, module_name: &str, spa: bool) -> Value {
     app_as(entry, target, module_name, spa, false)
@@ -55,7 +55,20 @@ pub fn app_as(entry: &str, target: Target, module_name: &str, spa: bool, library
             let l = lower_view(module, path, target, module_name, Some((path, &text))).map_err(|e| json!({ "error": e }))?;
             modules.insert(path.clone(), json!({ "code": l.code, "map": l.map }));
         }
-        Ok(json!({ "entry": set.entry, "css": out.css, "modules": modules }))
+        let mut result = json!({ "entry": set.entry, "css": out.css, "modules": modules });
+        if library {
+            // CP-4d: the components a JS host may import by name (`import { PersonCard } from "./pages.rx?rx-lib"`)
+            let names: Vec<&str> = set.programs[&set.entry]
+                .decls
+                .iter()
+                .filter_map(|d| match d {
+                    crate::ast::Decl::Component { name, exported: true, .. } => Some(name.as_str()),
+                    _ => None,
+                })
+                .collect();
+            result["components"] = json!(names);
+        }
+        Ok(result)
     })()
     .unwrap_or_else(|e| e)
 }

@@ -261,6 +261,12 @@ struct Sym<'a> {
     carrier: bool,
     /// MO-11o: on an equation bound to such a call, those arguments and their scope
     carried: Option<(&'a [Expr], EId)>,
+    /// MO-11p: on such an equation, where it renders (`under(parent in inside)` on the carrying fn)
+    carried_under: Option<(String, String)>,
+    /// MO-11p: a carrying fn whose result renders at its parent's outlet
+    under: Option<(String, String)>,
+    /// MO-11p: a JS component that renders, where it is written, what nests under its component
+    outlet: bool,
     /// MO-11o: every equation's expression, looked through for what it carries
     carried_expr: Option<(&'a Expr, EId)>,
     /// MO-11j: an exported factory's component — the wrapper whose summary an importer sees
@@ -315,6 +321,9 @@ impl<'a> Sym<'a> {
             carries: vec![],
             carrier: false,
             carried: None,
+            carried_under: None,
+            under: None,
+            outlet: false,
             carried_expr: None,
             exported_as: None,
             wraps: None,
@@ -921,6 +930,8 @@ pub struct Checker<'a> {
     /// MO-11o: the component values carrying calls were given (the value, its name, the line, the call), and those a
     /// `renders` prop reached
     carried_pending: Vec<(*const Expr, String, i64, String)>,
+    /// MO-11p: each outlet, where it is (its region) and whose children it renders (the component's region)
+    outlets: Vec<(RId, RId)>,
     carried_rendered: HashSet<*const Expr>,
     /// MO-11o: the carried values `carried_names` reached (read-only walks record them here; the application keeps them)
     reached: std::cell::RefCell<HashSet<*const Expr>>,
@@ -1015,6 +1026,7 @@ impl<'a> Checker<'a> {
             render_props: HashMap::new(),
             carried_props: HashMap::new(),
             carried_pending: vec![],
+            outlets: vec![],
             carried_rendered: HashSet::new(),
             reached: std::cell::RefCell::new(HashSet::new()),
             callback_props: HashMap::new(),
@@ -1311,8 +1323,9 @@ impl<'a> Checker<'a> {
                     // MO-11o: a carrying call's arguments; every equation's expression, looked through later
                     if let ExprKind::Call { f, args } = &e.k {
                         if let ExprKind::Id(n) = &f.k {
-                            if self.lookup(env, n).is_some_and(|t| self.syms[t].carrier) {
+                            if let Some(t) = self.lookup(env, n).filter(|&t| self.syms[t].carrier) {
                                 sym.carried = Some((args.as_slice(), env));
+                                sym.carried_under = self.syms[t].under.clone();
                             }
                         }
                     }
@@ -1584,7 +1597,7 @@ impl<'a> Checker<'a> {
                     self.bind(env, alias, Sym::new(SymKind::ErrClass, alias, region, line));
                     continue;
                 }
-                JsDecl::Comp { props: xprops, fails: xfails, content, uses: xuses, provides: xprovides, .. } => {
+                JsDecl::Comp { props: xprops, fails: xfails, content, uses: xuses, provides: xprovides, outlet: xoutlet, .. } => {
                     // MO-11a: a Solid component — its declaration is its summary; MO-11b: an undeclared prop is read too
                     let gives = js_keys(self, xprovides); // MO-12c: provided to everything it renders
                     let requires = js_keys(self, xuses); // MO-12b: what it uses itself
@@ -1617,10 +1630,11 @@ impl<'a> Checker<'a> {
                     }
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
+                    s.outlet = *xoutlet;
                     self.bind(env, alias, s);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1640,6 +1654,7 @@ impl<'a> Checker<'a> {
                         s.renders_root = *xroot;
                         s.carries = js_keys(self, xcarries);
                         s.carrier = *xcarrier;
+                        s.under = xunder.clone();
                         s.held = xheld.clone();
                         s.cbs = xcbs.clone();
                         self.bind(env, alias, s);
@@ -3194,7 +3209,14 @@ impl<'a> Checker<'a> {
                             }
                             self.markup(children, kenv, false);
                             for (_, v) in &values {
-                                self.apply_value(v, m.line, kenv);
+                                self.apply_tree(v, m.line, kenv);
+                            }
+                            if self.syms[s.unwrap()].outlet {
+                                // MO-11p: what nests under this component renders here, as if it read props.children
+                                if let Some(p) = self.props_of(env) {
+                                    let comp = self.syms[p].region;
+                                    self.outlets.push((region, comp));
+                                }
                             }
                             self.apply_factory(s.unwrap(), kids, m.line);
                         } else {
@@ -3348,6 +3370,9 @@ impl<'a> Checker<'a> {
                         continue;
                     }
                     if is_upper_tag(tag) {
+                        if self.lookup(env, tag).is_some_and(|t| self.syms[t].kind == SymKind::Comp && self.syms[t].outlet) && self.props_of(env).is_some() {
+                            sh.children_at.push(anc.to_vec()); // MO-11p: the caller's children, at the outlet
+                        }
                         self.shape_app(tag, attrs, children, &[], env, anc, scoped, sh, roots);
                         continue;
                     }
@@ -3380,6 +3405,17 @@ impl<'a> Checker<'a> {
             }
         }
     }
+    /// The props of the component a view belongs to (MO-11p: `<Outlet />` renders its children).
+    fn props_of(&self, env: EId) -> Option<SId> {
+        let mut e = Some(env);
+        while let Some(i) = e {
+            if let Some(&s) = self.envs[i].vars.values().find(|&&s| self.syms[s].kind == SymKind::Props) {
+                return Some(s);
+            }
+            e = self.envs[i].parent;
+        }
+        None
+    }
     fn reads_children(&self, e: &Expr, env: EId) -> bool {
         match &e.k {
             ExprKind::Member { o, p, .. } if p == "children" => match &o.k {
@@ -3392,7 +3428,7 @@ impl<'a> Checker<'a> {
     /// SV-7d: every element, text and component root of a view against the elements open above it.
     /// MO-11c: the components passed to a JS component's `Component` props (by attribute index) — each checked as applied,
     /// with no arguments, among the application's children (DV-24).
-    fn component_values(&self, tag: &str, attrs: &'a [Attr], env: EId) -> Vec<(usize, String)> {
+    fn component_values(&self, tag: &str, attrs: &'a [Attr], env: EId) -> Vec<(usize, VTree)> {
         let Some(sig) = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.regions[r].sig.as_ref()) else { return vec![] };
         let mut out = vec![];
         for (i, a) in attrs.iter().enumerate() {
@@ -3401,7 +3437,7 @@ impl<'a> Checker<'a> {
             }
             if let ExprKind::Id(n) = &a.e.k {
                 if is_upper_tag(n) && self.lookup(env, n).is_some_and(|s| self.syms[s].kind == SymKind::Comp) {
-                    out.push((i, n.clone()));
+                    out.push((i, VTree { tag: n.clone(), kids: vec![] }));
                 }
             }
         }
@@ -3409,21 +3445,106 @@ impl<'a> Checker<'a> {
         let region = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region);
         if let Some(cp) = region.and_then(|r| self.carried_props.get(&r)) {
             let mut names = vec![];
-            let mut seen = HashSet::new();
+            let mut seen = IndexSet::new();
             for a in attrs {
                 if cp.contains(&a.name) {
                     self.carried_names(&a.e, env, &mut seen, &mut names);
                 }
             }
-            let mut uniq: IndexSet<String> = IndexSet::new();
-            for n in names {
-                uniq.insert(n);
-            }
-            for n in uniq {
-                out.push((usize::MAX, n));
+            for t in self.carried_tree(&seen, names) {
+                out.push((usize::MAX, t));
             }
         }
         out
+    }
+    /// MO-11o, MO-11p: the carried components as applied: each value carried `under(parent in inside)` is its `inside`
+    /// component, applied among the children of its parent's (where that one's `outlet` renders them); the rest, and any
+    /// whose parent is not carried here, side by side.
+    fn carried_tree(&self, seen: &IndexSet<SId>, names: Vec<String>) -> Vec<VTree> {
+        let field = |s: SId, key: &str| -> Option<&'a Expr> {
+            let (args, _) = self.syms[s].carried?;
+            for a in args {
+                if let ExprKind::Rec(fields) = &a.k {
+                    for f in fields {
+                        if let Field::Kv { key: k, v } = f {
+                            if k == key {
+                                return Some(v);
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        };
+        let parent_of = |s: SId| -> Option<SId> {
+            let (_, cenv) = self.syms[s].carried?;
+            let (parent, _) = self.syms[s].carried_under.as_ref()?;
+            let mut v = field(s, parent)?;
+            if let ExprKind::Fn { body, stmts, .. } = &v.k {
+                // `getParentRoute: () => rootRoute`
+                if stmts.as_ref().is_none_or(|s| s.is_empty()) {
+                    v = body;
+                }
+            }
+            let ExprKind::Id(n) = &v.k else { return None };
+            let p = self.lookup(cenv, n)?;
+            (self.syms[p].carried.is_some() && seen.contains(&p)).then_some(p)
+        };
+        // a carried value's component, at its `inside` field
+        let mut tags: IndexMap<SId, String> = IndexMap::new();
+        let host = |s: SId, inside: &str, tags: &mut IndexMap<SId, String>| {
+            if tags.contains_key(&s) {
+                return;
+            }
+            let Some((_, cenv)) = self.syms[s].carried else { return };
+            if let Some(v) = field(s, inside) {
+                if let ExprKind::Id(n) = &v.k {
+                    if is_upper_tag(n) && self.lookup(cenv, n).is_some_and(|t| self.syms[t].kind == SymKind::Comp) {
+                        tags.insert(s, n.clone());
+                    }
+                }
+            }
+        };
+        for &s in seen {
+            if let Some((_, inside)) = self.syms[s].carried_under.clone() {
+                host(s, &inside, &mut tags);
+                // a parent with no `under` of its own (the root) is found by its child's field
+                if let Some(p) = parent_of(s) {
+                    host(p, &inside, &mut tags);
+                }
+            }
+        }
+        // each placed under its parent, unless its parent chain comes back to it (a cycle stays side by side)
+        let mut parent: IndexMap<SId, Option<SId>> = IndexMap::new();
+        for &s in tags.keys() {
+            let p = parent_of(s);
+            let mut up: HashSet<SId> = HashSet::new();
+            let mut q = p;
+            while let Some(x) = q {
+                if !tags.contains_key(&x) || up.contains(&x) {
+                    break;
+                }
+                up.insert(x);
+                q = parent_of(x);
+            }
+            parent.insert(s, p.filter(|p| tags.contains_key(p) && !up.contains(&s)));
+        }
+        fn build(s: SId, tags: &IndexMap<SId, String>, parent: &IndexMap<SId, Option<SId>>) -> VTree {
+            let kids = tags.keys().filter(|&&k| parent.get(&k).copied().flatten() == Some(s)).map(|&k| build(k, tags, parent)).collect();
+            VTree { tag: tags[&s].clone(), kids }
+        }
+        let mut top: Vec<VTree> = tags.keys().filter(|&&s| parent.get(&s).copied().flatten().is_none()).map(|&s| build(s, &tags, &parent)).collect();
+        let placed: HashSet<&String> = tags.values().collect();
+        let mut uniq: IndexSet<String> = IndexSet::new();
+        for n in names {
+            uniq.insert(n);
+        }
+        for n in uniq {
+            if !placed.contains(&n) {
+                top.push(VTree { tag: n, kids: vec![] });
+            }
+        }
+        top
     }
     /// MO-11o: the components in a carrying call's arguments, as a factory's are found (MO-11c, MO-11g); `mark` registers
     /// them as values (no COMPONENT_AS_VALUE where they are written).
@@ -3472,7 +3593,7 @@ impl<'a> Checker<'a> {
     }
     /// MO-11o: the components an expression's value carries: through the names it reads, to the carrying calls they were
     /// bound to (`rootRoute.addChildren([…])`, `createRouter({ routeTree })`).
-    fn carried_names(&self, e: &Expr, env: EId, seen: &mut HashSet<SId>, out: &mut Vec<String>) {
+    fn carried_names(&self, e: &Expr, env: EId, seen: &mut IndexSet<SId>, out: &mut Vec<String>) {
         fn names_in<'a>(c: &Checker<'a>, e: &Expr, env: EId, out: &mut Vec<String>) {
             match &e.k {
                 ExprKind::Id(n) => {
@@ -3741,7 +3862,7 @@ impl<'a> Checker<'a> {
                 self.content_app(&k.tag, &[], &[], &k.kids, line, env, &a2);
             }
             for (_, v) in self.component_values(tag, attrs, env) {
-                self.content_app(&v, &[], &[], &[], line, env, &a2);
+                self.content_app(&v.tag, &[], &[], &v.kids, line, env, &a2);
             }
             if let Some((_, fenv)) = self.syms[s].factory {
                 if self.expanding[1].insert(s) {
@@ -3785,7 +3906,7 @@ impl<'a> Checker<'a> {
                 self.shape_app(&k.tag, &[], &[], &k.kids, env, &a2, sc, sh, roots);
             }
             for (_, v) in self.component_values(tag, attrs, env) {
-                self.shape_app(&v, &[], &[], &[], env, &a2, sc, sh, roots);
+                self.shape_app(&v.tag, &[], &[], &v.kids, env, &a2, sc, sh, roots);
             }
             if let Some((_, fenv)) = self.syms[s].factory {
                 if self.expanding[2].insert(s) {
@@ -4741,6 +4862,10 @@ impl<'a> Checker<'a> {
             for pr in &f.props {
                 occ.push(Occ { comp: pr.comp, field: pr.field.clone(), pre: pre(&pr.pre), via: Via::Reader(*region) });
             }
+        }
+        for &(region, comp) in &self.outlets {
+            // MO-11p: an outlet places the children
+            occ.push(Occ { comp, field: "children".into(), pre: vec![], via: Via::Reader(region) });
         }
         for (i, field, f) in &arg_f {
             for pr in &f.props {

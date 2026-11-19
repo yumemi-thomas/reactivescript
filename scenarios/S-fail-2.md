@@ -62,7 +62,7 @@ readers of `value` hold nothing (H-4) and recover with the answer (D-41);
 - oracle "Frames" instant 6: `zzznone`
 - hydrated "Frames" instant 6: `zzznone`
 
-Solid 2.0.1 regressed here (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
+Solid 2.0.1 regressed here, still in 2.0.2 (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
 does not hold the change, so the screen shows the new input beside the old fallback while the question is in flight.
 rc.21 held it, as the spec rules; the spec frames stand.
 

@@ -589,12 +589,33 @@ export default component App() {
   children (MO-11c), so its `provides(…)` reaches them and the boundaries
   above it hold their failures. A carried component that no `renders` prop
   reaches is checked nowhere, so it is `COMPONENT_AS_VALUE` where it is
-  passed. A route's nested components render at TanStack's `<Outlet />`;
-  they are checked as siblings under the provider, which errs strict (a
-  boundary inside the parent's component is not credited to them).
-  S-module-22; `examples/tanstack` runs on `@tanstack/solid-router` 2.0 (rc)
+  passed. Without MO-11p, a route's nested components are checked as
+  siblings under the provider, which errs strict (a boundary inside the
+  parent's component is not credited to them). S-module-22; `examples/tanstack` runs on `@tanstack/solid-router` 2.0 (rc)
   in the Vite suite, with TanStack's registered route types checked by the
   build (a link to no route fails it, TS2820).
+- **MO-11p (Carried values that nest) — proposed 2026-11-19.** A route
+  tree in values says its nesting through each child's link to its parent
+  (`createRoute({ getParentRoute: () => rootRoute, component: Person })`),
+  and a parent's component renders its children at an outlet
+  (`<Outlet />`), not at `props.children`. `under(parent in inside)` on a
+  carrying fn (implying `carries`) says so: its result's `inside`
+  component renders among the children of the component of the value its
+  `parent` field names (a closure returning that value, or the value
+  itself), which is found by the same `inside` field when it has no
+  `under` of its own (the root route). `outlet` on a declared JS component
+  says it renders, where it is written, the children of the component
+  whose view it is in, as `{props.children}` would. So where a `renders`
+  prop renders the tree, a child route's component is applied among its
+  parent's component's children, and its failures and context reads take
+  the parent's `errored`, `loading` and `provide` around the outlet; a
+  sibling's are not credited. A parent whose view has no outlet never
+  renders its children, and nothing they fail with is anyone's, as at
+  run time. A parent not carried in the same tree, or a chain of parents
+  that comes back to a value (a cycle), leaves the value side by side
+  under the provider (MO-11o's strict default). For TanStack Router:
+  `createRoute(…): any under(getParentRoute in component)` and
+  `component Outlet(props: {}) uses(router) outlet`. S-module-23.
 - **MO-11m (A made component's properties) — proposed 2026-11-18.** A
   factory's component may carry properties (`@solidjs/router`'s `paths`, its
   typed path builder). `Router.paths` is a value read in the module that
@@ -812,7 +833,8 @@ Executable: S-module-7.
      page's `props.params` from its route's path through `defineRoute`,
      with no type arguments in `.rx`. `useParams()` stays the router's
      `string | undefined`.
-   - Not covered: TSX importing an `.rx` page (CP-4a's default export, #65).
+   - TSX importing an `.rx` module's components (#65): 11 CP-4d,
+     `import { PersonCard } from "./pages.rx?rx-lib"`, typed by `rx-tsc`.
      The router under SSR is: the host gives the app its request (10 SV-4a),
      and `compiler/test/vite.mjs router-ssr` builds, serves and hydrates it.
 9. **The ecosystem words, taken while prototyping** (2026-11-19; each is
@@ -865,3 +887,20 @@ Executable: S-module-7.
      (`people.d.rx#NotFound`, SV-5a), written by the compiler, and on the
      server the class is safe from construction: whoever serializes an
      instance first (a library's own cache) sends it as itself.
+   - *`signal` parameters* (MO-10h) are kept over a general escape: a
+     primitive that wraps a Solid signal gets one the compiler makes from a
+     plain value, untracked, so `.rx` never holds a writable Solid signal
+     and a reactive argument is refused as a snapshot would be (E-10).
+   - *`carries`, a prop's `renders`, `under(…)` and `outlet`* (MO-11o,
+     MO-11p) are kept for components held in values (TanStack Router's
+     routes). Like `nests`, they say where a library renders what it is
+     given, which no type says; a carried component no `renders` prop
+     reaches is refused rather than trusted, and a route the words cannot
+     place (no carried parent, a cycle) is checked as a sibling under the
+     provider, the strict default.
+   - *A JS host imports `.rx` components with `?rx-lib`* (11 CP-4d) is
+     kept over `.rx` learning a framework's file-route conventions: the
+     framework keeps its own (TypeScript) route files, the `.rx` module is
+     checked as an entry is, and what the host passes in is typed by the
+     module's projection (`rx-tsc`, the build). Module state is per request
+     on the server, through Solid's request event, as in a program's own.

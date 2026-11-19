@@ -134,10 +134,10 @@ export function parseProgram(src: string): Program {
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
-  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean }   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string } }   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
   | { kind: "error"; name: string; line: number }
   | { kind: "type"; name: string; line: number; text?: string }
-  | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[] }   // MO-11a: a Solid component
+  | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean }   // outlet: MO-11p   // MO-11a: a Solid component
   | { kind: "context"; name: string; line: number }
   | { kind: "value"; name: string; line: number; type?: string };   // MO-8g: a value the module exports (`export const pageSearch: Schema`)   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
@@ -164,14 +164,15 @@ export function parseDeclarations(src: string): JsDecl[] {
     while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const sv = c.i; let g = !r && c.keyword("signal"); if (g) { c.ws(); if (!/^[A-Za-z_$]/.test(c.peek())) { c.i = sv; g = false; } } sigs.push(g);   /* MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name) */ params.push(c.ident() ?? c.fail("param")); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b/.exec(t); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(/.exec(t); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
-    let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders = false; let rendersRoot = false; const carries: string[] = []; let carrier = false;
+    let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders = false; let rendersRoot = false; const carries: string[] = []; let carrier = false; let under: { parent: string; inside: string } | undefined;
     for (;;) {                                                                             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
       c.ws(false);
       if (c.keyword("instantiates")) { written = true; continue; }
       if (c.keyword("carries")) { carrier = true; continue; }   // MO-11o: the components in its arguments travel in its result
+      if (c.keyword("under")) { c.ws(false); c.expect("("); c.ws(); const parent = c.ident() ?? c.fail("under(getParentRoute in component): the field that names the parent value"); c.ws(); if (!c.keyword("in")) c.fail("under(getParentRoute in component)"); c.ws(); const inside = c.ident() ?? c.fail("under(getParentRoute in component): the field that holds the component"); c.ws(); c.expect(")"); under = { parent, inside }; carrier = true; continue; }   // MO-11p: rendered at its parent's outlet
       if (c.keyword("renders")) { renders = true; c.ws(false); if (c.peek() === "(") { c.i++; c.ws(); if (!c.keyword("root")) c.fail("renders(root): the library renders them under a root of its own"); c.ws(); while (c.eat(",")) { c.ws(); carries.push(c.ident() ?? c.fail("renders(root, ctx): a context the library carries into its root")); c.ws(); } c.expect(")"); rendersRoot = true; if (carries.length) uses = [...(uses ?? []), ...carries]; }   /* MO-11n: what it carries, it reads where it is called */ continue; }   // MO-11n: renders(root)                                 // MO-11l: renders the components in its arguments where its result is bound
       if (c.keyword("uses")) { c.ws(false); uses = [...(uses ?? []), ...contextNames(c)]; continue; }
       if (c.keyword("provides")) { c.ws(false); provides = [...(provides ?? []), ...contextNames(c)]; continue; }
@@ -181,7 +182,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     const instantiates = written || refs.some(x => x) || sigs.some(x => x) || carrier || shapeHasRef(shape) || shape === "comp" || !!uses || !!held || renders;   // MO-10a: inferred from a ref on either side; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
     if (nests && shape !== "comp") c.fail(`nests(…) on fn ${name}: only a fn that hands back a Component renders what it is given (MO-11i)`);
     if (provides && shape !== "comp") c.fail(`provides(…) on fn ${name}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)`);
-    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(callbacks(ptypes) ? { cbs: callbacks(ptypes) } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}) });
+    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(callbacks(ptypes) ? { cbs: callbacks(ptypes) } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}) });
   }
 }
 /** A declaration line without its `// comment` (not a `//` inside a string literal type): words in a comment are not rows. */
@@ -268,16 +269,17 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
     c.ws();
   }
   c.expect(")");
-  let fails: string[] = []; let content: ContentShape | undefined; let uses: string[] | undefined; let provides: string[] | undefined;
+  let fails: string[] = []; let content: ContentShape | undefined; let uses: string[] | undefined; let provides: string[] | undefined; let outlet = false;
   for (;;) {
     c.ws(false);
+    if (c.keyword("outlet")) { outlet = true; continue; }   // MO-11p: it renders, where it is written, what nests under its component
     if (c.keyword("fails")) { c.ws(false); c.expect("("); fails = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); continue; }
     if (c.keyword("uses")) { c.ws(false); uses = [...(uses ?? []), ...contextNames(c)]; continue; }          // MO-12b
     if (c.keyword("provides")) { c.ws(false); provides = [...(provides ?? []), ...contextNames(c)]; continue; }   // MO-12c
     if (c.keyword("shape")) { c.ws(false); c.expect("("); const t0 = c.i; while (!c.eof() && c.peek() !== ")") c.i++; const t = c.src.slice(t0, c.i); c.expect(")"); try { content = contentShapeOf(t); } catch (e) { c.fail((e as Error).message); } continue; }
     break;
   }
-  return { kind: "comp", name, line, props, fails, ...(content ? { content } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}) };
+  return { kind: "comp", name, line, props, fails, ...(content ? { content } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(outlet ? { outlet } : {}) };
 }
 /** MO-12: `(router, theme)` — contexts the same declaration file declares. */
 function contextNames(c: Cursor): string[] {

@@ -55,14 +55,18 @@ render with two `@solidjs/web`s, and nothing hydrates). The Vite suite
 (`compiler/test/vite.mjs router-ssr`) builds and serves it this way.
 
 A JS host can render `.rx` components itself (spec/11 CP-4d): import the
-module with `?rx-lib` and bind its exports with `components()`:
+module with `?rx-lib` and import its components:
 
 ```tsx
-import { components } from "@reactivescript/runtime";
-import pages from "./pages.rx?rx-lib";
-const { PersonCard } = components(pages);
+import { PersonCard } from "./pages.rx?rx-lib";
 export default () => <PersonCard id="1" />;
 ```
+
+(or `components(pages)` over the default export, `import pages from
+"./pages.rx?rx-lib"`). `rx-tsc` types these imports from the `.rx` module,
+so a wrong prop is a type error in the TSX; for a TypeScript without `.rx`
+support, add `"types": ["@reactivescript/runtime/rx-lib"]` and they are
+untyped.
 
 On the client they share one app; on the server, one per request, found
 through Solid's request event, so module state is per request. TanStack
