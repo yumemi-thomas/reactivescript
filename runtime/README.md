@@ -19,6 +19,21 @@ const app = createApp({ root: document.getElementById("app") });
 app.mount(main(app));
 ```
 
+On the server, an app is a request (spec/10 SV-4): pass it, so a library that
+locates a render by Solid's request event (`@solidjs/router` reads the page's
+URL from it) sees the request being served:
+
+```js
+import { createApp, generateHydrationScript } from "@reactivescript/runtime";   // the server build
+import main from "./app.rx";
+
+const app = createApp({ request });   // one app per request
+app.stream(main(app), { write: chunk => res.write(chunk), end: () => res.end() });
+```
+
+`compiler/test/ssr-router.mjs` serves `examples/router` this way and hydrates
+it in Chromium.
+
 Solid is a peer: `solid-js`, `@solidjs/web` and `@solidjs/signals` (the
 runtime reads owner context from `@solidjs/signals`, which `solid-js` runs on;
 with pnpm, add it to the app).

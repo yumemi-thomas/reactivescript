@@ -121,6 +121,14 @@ by default — see the list at the end.
   exists at JS module scope. (S-server-1: a second request, in flight at
   the same time, keeps its own shell while the first one's questions land.)
 
+- **SV-4a (The request) — proposed 2026-11-19.** The host gives the app
+  its request (the runtime's `createApp({ request })`), and the render runs
+  in Solid's request event for it, so a JS library that locates a server
+  render by that event sees the request being served: `@solidjs/router`
+  matches the page's URL from it (`compiler/test/ssr-router.mjs`). A
+  program's own code does not read the request; what it needs from it, a
+  route's params, comes through the library.
+
 ## SV-5 — What crosses: failures sent, panics redacted (ruled)
 
 - **SV-5a.** A failure whose class is declared — `error C(…)` in a `.rx`
@@ -130,7 +138,11 @@ by default — see the list at the end.
   so a typed boundary or catch decides the same on both sides (S-server-1:
   the `NotFound` boundary takes the `NotFound` the server sent). A class is
   identified by its declaration, not its name: two modules that each
-  declare `NotFound` declare two classes (as two contexts, MO-7).
+  declare `NotFound` declare two classes (as two contexts, MO-7). A JS module's
+  class (`export error C` in its `.d.rx`) is the JS class itself, on both
+  sides: the runtime identifies it by the order the program registers its
+  imports, the same on the server and the client, and a rejection of it
+  that a question awaits is sent with that identity.
 - **SV-5b.** Anything else that reaches a boundary is sent as the generic
   error: an `Error` whose message is Solid's `Internal Server Error`. That
   is every panic (R-f-3), and a rejection of an undeclared class — a JS

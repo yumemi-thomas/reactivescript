@@ -81,7 +81,9 @@ export class Flight {
 type Owner = ReturnType<typeof getOwner>;
 type Ctx = { name: string; id: symbol; dflt: (() => unknown) | null; owner: Owner; dv: Entry | null };
 
-export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
+/** `request`: the request this app renders (SV-4: one app per request). Libraries that locate a server render by Solid's
+ *  request event (`@solidjs/router` reads the page's URL from it) see this one; without it, a placeholder for `/`. */
+export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request?: Request } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const registry = new Map<string, Entry[]>();
@@ -90,6 +92,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const declared: unknown[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
   const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
+  const jsClassIds = new Map<unknown, string>(); let jsClassSeq = 0;   // SV-5a: a JS error class the program imports, by the order it registers it (as rt-web.ts)
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
@@ -99,7 +102,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** Render `view` as a stream: `write` receives each chunk, `end` the close. */
     /** One request (a request event, as Solid's integrations provide one — a server function called during the render runs
      *  in it, SF-2b). */
-    stream(view: () => unknown, sink: { write: (s: string) => void; end: () => void }) { return provideRequestEvent({ request: new Request("http://127.0.0.1/"), locals: {} }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
+    stream(view: () => unknown, sink: { write: (s: string) => void; end: () => void }) { return provideRequestEvent({ request: opts.request ?? new Request("http://127.0.0.1/"), locals: {} }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
 
     B: {
       len: (x: unknown) => (Array.isArray(x) || typeof x === "string") ? x.length : (typeof x === "object" && x) ? Object.keys(x).length : 0,
@@ -124,7 +127,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** MO-10: the scenario prelude's `./prims` — Solid primitives, as a library writes them (`ref/compile/prims-solid.ts`). */
     prim: (name: string) => primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any })[name] ?? (() => { throw new Error(`./prims has no ${name}`); }),
 
-    reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
+    reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); const v = e.value as { prototype?: unknown; declared?: boolean } | undefined; if (typeof v === "function" && v.prototype instanceof Error && !v.declared && !jsClassIds.has(v)) jsClassIds.set(v, `${name}#js${jsClassSeq++}`); },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
 
@@ -157,7 +160,17 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       createEffect((() => { try { return inputs(); } catch (e) { if (e instanceof NotReadyError) throw e; return ERR; } }) as any, { effect() {}, error() {} } as any);
     },
     action(_gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) { return onServer("an action"); },
-    awaited: (v: unknown) => v instanceof Flight ? v.first : v,
+    /** SV-5a: a JS promise that rejects with a declared JS error class (imported by the program) is sent as it is, carrying
+     *  its class's identity; the side branch only marks it, before Solid serializes it, and changes nothing else. */
+    awaited: (v: unknown) => {
+      if (v instanceof Flight) return v.first;
+      if (jsClassIds.size && v && typeof (v as PromiseLike<unknown>).then === "function") (v as PromiseLike<unknown>).then(undefined, (err: unknown) => {
+        if (!err || typeof err !== "object") return; let id: string | undefined;
+        for (const [k, i] of jsClassIds) if (err instanceof (k as new () => unknown)) { id = i; break; }
+        if (id) { (err as { $class?: string }).$class = id; markSafeError(err as Error); }
+      });
+      return v;
+    },
     /** RG-8: Solid's Portal — client-only: the server renders nothing for it, the browser renders it once it has the page. */
     Portal: WebPortal,
     /** CSS-2: a dynamic class with the view's scope class after it. */
