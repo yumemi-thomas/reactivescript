@@ -34,6 +34,26 @@ app.stream(main(app), { write: chunk => res.write(chunk), end: () => res.end() }
 `compiler/test/ssr-router.mjs` serves `examples/router` this way and hydrates
 it in Chromium.
 
+With Vite, `solid({ ssr: true })` compiles `.rx` for each side: build the
+client (`entry.js`: `createApp({ root }).mount(main(app), true)`), then the
+server (`build.ssr: "src/server.js"`), whose module exports a `render`:
+
+```js
+// src/server.js
+import { createApp, generateHydrationScript } from "@reactivescript/runtime";
+import main from "./main.rx";
+export { generateHydrationScript };
+export function render(request, sink) { const app = createApp({ request }); app.stream(main(app), sink); }
+```
+
+The host writes the client's `index.html` around the stream, with
+`generateHydrationScript()` in its head. Solid, the router and this runtime
+must be one copy each on the server: as installed packages they are
+external to the server build; a linked checkout of Solid is not, so name
+them in `ssr.external` (otherwise the compiled templates and the runtime
+render with two `@solidjs/web`s, and nothing hydrates). The Vite suite
+(`compiler/test/vite.mjs router-ssr`) builds and serves it this way.
+
 Solid is a peer: `solid-js`, `@solidjs/web` and `@solidjs/signals` (the
 runtime reads owner context from `@solidjs/signals`, which `solid-js` runs on;
 with pnpm, add it to the app).

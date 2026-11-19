@@ -171,6 +171,43 @@ for (const [name, entry] of Object.entries(apps)) {
   http.close();
 }
 process.env.RX_TYPECHECK = "0";
+if (!filter || "router-ssr".includes(filter)) {   // SV-4a through Vite: a client and a server build of the router app, served per request and hydrated
+  const dir = project("router-ssr", "router/main.rx");
+  writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport main from "./router/main.rx";\nconst app = createApp({ root: document.getElementById("app") });\napp.mount(main(app), true);\nwindow.__hydrated = true;\n`);
+  writeFileSync(path.join(dir, "src/server.js"), `import { createApp, generateHydrationScript } from "@reactivescript/runtime";\nimport main from "./router/main.rx";\nexport { generateHydrationScript };\n/** One request: its own app (SV-4), rendering for its URL (SV-4a). */\nexport function render(request, sink) { const app = createApp({ request }); app.stream(main(app), sink); }\n`);
+  // Solid, the router and the runtime stay external on the server, as installed packages are: one copy each (the suite
+  // links Solid from the solid-next checkout, which Vite would otherwise bundle, beside the runtime's own import of it)
+  const ssrConfig = (build) => ({ ...config(dir, "router/main.rx"), plugins: [solid({ ssr: true })], ssr: { external: ["solid-js", "@solidjs/web", "@solidjs/signals", "@solidjs/router", "@reactivescript/runtime"] }, build: { sourcemap: true, emptyOutDir: true, ...build } });
+  try {
+    await vite.build(ssrConfig({ outDir: "dist/client" }));
+    await vite.build(ssrConfig({ outDir: "dist/server", ssr: "src/server.js" }));
+    const server = await import(pathToFileURL(path.join(dir, "dist/server/server.mjs")).href);
+    const page = readFileSync(path.join(dir, "dist/client/index.html"), "utf8");
+    const [head, tail] = page.replace("</head>", `${server.generateHydrationScript()}</head>`).split('<div id="app"></div>');
+    const http = createServer((req, res) => {
+      const f = path.join(dir, "dist/client", req.url.split("?")[0]);
+      if (req.url.startsWith("/assets/") && existsSync(f)) { res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : "text/css"); return res.end(readFileSync(f)); }
+      res.setHeader("content-type", "text/html"); res.write(`${head}<div id="app">`);
+      let first = true;
+      server.render(new Request(`http://localhost${req.url}`), { write: s => { res.write(s); if (first) { first = false; res.write("</div>"); } }, end: () => res.end(tail) });
+    });
+    await new Promise(r => http.listen(0, "127.0.0.1", r));
+    const base = `http://127.0.0.1:${http.address().port}`;
+    await drive("router (ssr build, /people/2 served and hydrated)", `${base}/people/2`, async page => {
+      await page.waitForFunction(() => window.__hydrated, null, { timeout: 5000 });
+      await page.waitForTimeout(400);
+      const t = await page.textContent("h1"); if (t?.trim() !== "Bo") throw new Error(`/people/2: ${await page.textContent("#app")}`);
+      await page.evaluate(() => { window.__same = true; });
+      await page.click("a[href='/people/1']"); await page.waitForTimeout(700);
+      if ((await page.textContent("h1"))?.trim() !== "Ann" || !(await page.evaluate(() => window.__same))) throw new Error(`after a click: ${await page.textContent("#app")}`);
+    });
+    await drive("router (ssr build, /people/9: NotFound across the wire)", `${base}/people/9`, async page => {
+      await page.waitForFunction(() => window.__hydrated, null, { timeout: 5000 }); await page.waitForTimeout(600);
+      const t = await page.evaluate(() => document.querySelector("p.missing")?.textContent); if (t !== "no person 9") throw new Error(`/people/9: ${await page.textContent("#app")}`);
+    });
+    http.close();
+  } catch (e) { fail++; console.log(`✗ router (ssr build): ${e.message.split("\n").slice(0, 4).join(" | ")}`); }
+}
 if (!filter || "shared".includes(filter)) {   // two programs on one page, sharing shop/catalog.rx: no entry option, one catalog module
   const dir = project("shared", "shop/main.rx");
   writeFileSync(path.join(dir, "src/shop/count.rx"), `import { products } from "./catalog.rx"\n\nexport default component Count() {\n  errored fallback(e) { <p>no catalogue</p> } {\n    <p>{len(products)} products</p>\n  }\n}\n`);
