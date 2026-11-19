@@ -262,15 +262,18 @@ class Proj {
   /** MO-11i, types only: under a factory that nests, a record's literal path is written joined with its parents' (the
    *  projection is never run; a record with no path, such as the config around the table, is looked through), so a child route's types see its parents' params. `prefix` null: a parent path the
    *  projection cannot read, so nothing below is rewritten. */
-  private nestArg(e: Expr, prefix: string | null, n: { kids: string; inside: string }, imp: boolean, self?: string): string {
+  private nestArg(e: Expr, prefix: string[] | null, n: { kids: string; inside: string }, imp: boolean, self?: string): string {
     const go = (x: Expr) => this.expr(x, imp, self);
     if (prefix === null) return go(e);
     if (e.k === "arr") return `[${e.items.map(x => x.k === "spread" ? go(x) : this.nestArg(x, prefix, n, imp, self)).join(", ")}]`;
     if (e.k === "call") return `${go(e.f)}(${e.args.map(a => this.nestArg(a, prefix, n, imp, self)).join(", ")})`;
     if (e.k !== "rec") return go(e);
     const pathField = e.fields.find(f => !("spread" in f) && f.key === "path") as { key: string; v: Expr } | undefined;
-    const own = pathField ? (pathField.v.k === "lit" && typeof pathField.v.v === "string" ? joinPath(prefix, pathField.v.v) : null) : prefix;
-    return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : f === pathField && own !== null ? `${J(f.key)}: ${J(own)}` : f.key === n.kids || !pathField ? `${J(f.key)}: ${this.nestArg(f.v, own, n, imp, self)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
+    // a path is a literal or an array of literals (alternatives); under alternatives, each joined with each
+    const lits = !pathField ? null : pathField.v.k === "lit" && typeof pathField.v.v === "string" ? [pathField.v.v] : pathField.v.k === "arr" && pathField.v.items.length && pathField.v.items.every(x => x.k === "lit" && typeof x.v === "string") ? pathField.v.items.map(x => (x as { v: string }).v) : null;
+    const own = pathField ? (lits ? prefix.flatMap(p => lits.map(l => joinPath(p, l))) : null) : prefix;
+    const written = (o: string[]) => o.length === 1 && !(pathField!.v.k === "arr") ? J(o[0]) : `[${o.map(J).join(", ")}]`;
+    return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : f === pathField && own !== null ? `${J(f.key)}: ${written(own)}` : f.key === n.kids || !pathField ? `${J(f.key)}: ${this.nestArg(f.v, own, n, imp, self)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
   }
 
   // ---- expressions: `imp` imperative scope (a real `await`); `self` the equation being defined (its own `pre`) ----
@@ -296,7 +299,7 @@ class Proj {
       case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it
       case "call": {
         const nests = e.f.k === "id" ? this.nestFns.get(e.f.name) : undefined;
-        if (nests) return `${go(e.f)}(${e.args.map(a => this.nestArg(a, "", nests, imp, self)).join(", ")})`;   // MO-11i: a nested route typed with its parents' path
+        if (nests) return `${go(e.f)}(${e.args.map(a => this.nestArg(a, [""], nests, imp, self)).join(", ")})`;   // MO-11i: a nested route typed with its parents' path
         const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : go(a)).join(", ")})`;   // MO-10a: a `ref` argument is an accessor
       }
       case "arr": return `[${e.items.map(go).join(", ")}]`;

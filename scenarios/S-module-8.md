@@ -8,10 +8,10 @@ Rules: MO-11g, MO-8d, MO-11c, MO-11f, MO-11i, TY-1c.
 -- module: ./router.d.rx
 // A router's route helper, with its TypeScript: `defineRoute` types a route's component from its path. (The real
 // @solidjs/router's RouteParams reads every `:name`; this one reads `:id`, enough for the scenario.)
-export type RouteParams<S> = S extends `${string}:id${string}` ? { id: string } : {}
+export type RouteParams<S> = S extends readonly (infer P)[] ? RouteParams<P> : S extends `${string}:id${string}` ? { id: string } : {}
 export type RouteDefinition = { path?: string | readonly string[]; component?: Component; children?: RouteDefinition[] }
 export pure fn createRouter(config: { routes: RouteDefinition[] }): Component nests(children in component)
-export pure fn defineRoute<const S extends string>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition
+export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition
 ```
 
 ```rx
@@ -41,7 +41,9 @@ gives the child `id`). The router joins the paths when it builds the tree;
 the projection, which is only type-checked and never run, writes each
 literal path under a factory that `nests(…)` (MO-11i) joined with its
 parents' paths, so `defineRoute` types the child's component from the whole
-path. The lowered program passes the paths as written.
+path. A path written as alternatives (an array of literals) joins each
+with each, so the child is typed from every path it can be reached by.
+The lowered program passes the paths as written.
 
 ## Program
 
@@ -52,7 +54,8 @@ import { Home, Person, Shell } from "./pages.rx"
 Router = createRouter({ routes: [
   defineRoute({ path: "/", component: Home }),
   defineRoute({ path: "/people/:id", component: Person }),
-  defineRoute({ path: "/team/:id", component: Shell, children: [defineRoute({ path: "/", component: Person })] })
+  defineRoute({ path: "/team/:id", component: Shell, children: [defineRoute({ path: "/", component: Person })] }),
+  defineRoute({ path: ["/crew/:id", "/staff/:id"], component: Shell, children: [defineRoute({ path: "/", component: Person })] })
 ] })
 
 export default component App() {
@@ -88,6 +91,18 @@ export default component App() {
 ```
 
 Under `/team`, the child's whole path has no `id`.
+
+```rx
+-- types: TS2322
+import { createRouter, defineRoute } from "./router.js"
+import { Person, Shell } from "./pages.rx"
+Router = createRouter({ routes: [defineRoute({ path: ["/crew/:id", "/crew"], component: Shell, children: [defineRoute({ path: "/", component: Person })] })] })
+export default component App() {
+  <Router />
+}
+```
+
+Reached by `/crew`, the child has no `id`.
 
 ```rx
 -- reject: COMPONENT_AS_VALUE

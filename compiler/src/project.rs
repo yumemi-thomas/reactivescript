@@ -765,7 +765,7 @@ impl Proj<'_> {
     /// MO-11i, types only: under a factory that nests, a record's literal path is written joined with its parents' (the
     /// projection is never run), so a child route's types see its parents' params. `prefix` None: a parent path the
     /// projection cannot read, so nothing below is rewritten.
-    fn nest_arg(&mut self, e: &Expr, prefix: Option<String>, n: &(String, String), imp: bool, me: Option<&str>) -> Code {
+    fn nest_arg(&mut self, e: &Expr, prefix: Option<Vec<String>>, n: &(String, String), imp: bool, me: Option<&str>) -> Code {
         let Some(prefix) = prefix else { return self.expr(e, imp, me) };
         match &e.k {
             ExprKind::Arr(items) => {
@@ -779,17 +779,28 @@ impl Proj<'_> {
             }
             ExprKind::Rec(fields) => {
                 let path = fields.iter().position(|f| matches!(f, Field::Kv { key, .. } if key == "path"));
-                let own: Option<String> = match path.map(|i| &fields[i]) {
-                    Some(Field::Kv { v: Expr { k: ExprKind::Lit(Lit::Str(s)), .. }, .. }) => Some(join_route_path(&prefix, s)),
-                    Some(_) => None,
-                    None => Some(prefix.clone()),
+                // a path is a literal or an array of literals (alternatives); under alternatives, each joined with each
+                let (lits, is_arr): (Option<Vec<String>>, bool) = match path.map(|i| &fields[i]) {
+                    Some(Field::Kv { v: Expr { k: ExprKind::Lit(Lit::Str(s)), .. }, .. }) => (Some(vec![s.clone()]), false),
+                    Some(Field::Kv { v: Expr { k: ExprKind::Arr(items), .. }, .. })
+                        if !items.is_empty() && items.iter().all(|x| matches!(x.k, ExprKind::Lit(Lit::Str(_)))) =>
+                    {
+                        (Some(items.iter().map(|x| if let ExprKind::Lit(Lit::Str(s)) = &x.k { s.clone() } else { unreachable!() }).collect()), true)
+                    }
+                    _ => (None, false),
                 };
+                let own: Option<Vec<String>> = match (path, lits) {
+                    (None, _) => Some(prefix.clone()),
+                    (Some(_), Some(ls)) => Some(prefix.iter().flat_map(|p| ls.iter().map(move |l| join_route_path(p, l))).collect()),
+                    (Some(_), None) => None,
+                };
+                let written = |o: &Vec<String>| if o.len() == 1 && !is_arr { js_str(&o[0]) } else { format!("[{}]", o.iter().map(|x| js_str(x)).collect::<Vec<_>>().join(", ")) };
                 let fs = fields
                     .iter()
                     .enumerate()
                     .map(|(i, f)| match f {
                         Field::Spread(x) => Code::of("...").c(self.expr(x, imp, me)),
-                        Field::Kv { key, .. } if Some(i) == path && own.is_some() => Code::of(&js_str(key)).t(": ").t(&js_str(own.as_ref().unwrap())),
+                        Field::Kv { key, .. } if Some(i) == path && own.is_some() => Code::of(&js_str(key)).t(": ").t(&written(own.as_ref().unwrap())),
                         Field::Kv { key, v } if *key == n.0 || path.is_none() => Code::of(&js_str(key)).t(": ").c(self.nest_arg(v, own.clone(), n, imp, me)),
                         Field::Kv { key, v } => Code::of(&js_str(key)).t(": ").c(self.expr(v, imp, me)),
                     })
@@ -888,7 +899,7 @@ impl Proj<'_> {
                 let ExprKind::Id(g) = &f.k else { unreachable!() };
                 let ns = self.nest_fns[g].clone();
                 let fc = go!(f);
-                let a = args.iter().map(|a| self.nest_arg(a, Some(String::new()), &ns, imp, me)).collect();
+                let a = args.iter().map(|a| self.nest_arg(a, Some(vec![String::new()]), &ns, imp, me)).collect();
                 fc.t("(").c(Code::join(a, ", ")).t(")")
             }
             ExprKind::Call { f, args } => {

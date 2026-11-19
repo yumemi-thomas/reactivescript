@@ -490,9 +490,12 @@ export default component App() {
   parents' literal paths (`/org/:org` above `/:id` gives `/org/:org/:id`;
   `/` gives the parent's), looking through records with no `path` (the
   config around the table) and JS calls (`defineRoute(…)`), so a nested
-  route's component is typed with every param above it. A path that is not
-  a literal stops the joining beneath it. The lowered program passes the
-  paths as written.
+  route's component is typed with every param above it. A path written as
+  alternatives (an array of literals) joins each with each. A path that is
+  neither stops the joining beneath it, which errs strict: the routes
+  below are typed with their own params only, so a page that needs a
+  parent's param is refused, never accepted unchecked. The lowered program
+  passes the paths as written.
 - **MO-11j (An exported factory's component) — proposed 2026-11-18.**
   `export Router = createRouter({ … })` exports the made component. Its
   signature (MO-3) is that of a component whose view is `<Router />` in the
