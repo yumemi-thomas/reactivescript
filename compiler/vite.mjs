@@ -13,7 +13,14 @@
 // changes. The crate's output imports its dependencies as `./x.rx?rx-dep`, and a dependency is served from the build
 // of a program that contains it. A module several programs share is one module: its instance is keyed by its factory
 // (11 CP-4b `module`), not by its place in a program.
+//
+// Types (13 TY-1a): a production build type-checks the project with `rx-tsc` (from @reactivescript/language-server),
+// once, when it compiles its first entry: TypeScript's errors on the `.rx` (a route whose path lacks a param its page
+// needs, MO-11h), TY-6's on the `.d.rx`, fail the build. Without the language server installed the build says that the
+// types went unchecked. The dev server leaves types to the editor, which runs the same projection. RX_TYPECHECK=0 or 1
+// overrides either default.
 import { existsSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,8 +42,22 @@ const isDep = moduleId => new URLSearchParams(moduleId.split("?")[1] ?? "").has(
 // `import __m0 from "./catalog.rx";` → `"./catalog.rx?rx-dep"` (one line each: the module's map is by line, CP-1c)
 const tagDeps = code => code.replace(/^(import \w+ from ")(\.{1,2}\/[^"?]*\.rx)(";?)$/gm, `$1$2?${DEP}$3`);
 
+/** TY-1a: `rx-tsc --noEmit` over the project the entry belongs to (its nearest tsconfig.json): null when it passes, the
+ *  report when it does not, `undefined` when there is nothing to run it with. */
+function typecheck(entry) {
+  let dir = path.dirname(entry);
+  while (!existsSync(path.join(dir, "tsconfig.json")) && path.dirname(dir) !== dir) dir = path.dirname(dir);
+  if (!existsSync(path.join(dir, "tsconfig.json"))) return undefined;
+  let bin;
+  try { bin = createRequire(path.join(dir, "package.json")).resolve("@reactivescript/language-server/bin/tsc.js"); } catch { return undefined; }
+  const r = spawnSync(process.execPath, [bin, "--noEmit", "-p", path.join(dir, "tsconfig.json")], { cwd: dir, encoding: "utf8" });
+  return r.status === 0 ? null : (r.stdout + r.stderr).trim() || `rx-tsc exited with ${r.status}`;
+}
+
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx() {
+  const flag = process.env.RX_TYPECHECK;
+  let typed = flag === "0" ? true : null;   // whether this process has type-checked (once per build)
   const builds = new Map();   // entry\0target\0moduleName\0spa → { entry, target, moduleName, spa, out, stamps }
   const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
   function build(entry, target, moduleName, spa) {
@@ -65,6 +86,12 @@ export default function rx() {
       // 08 CN-3d: a client-only build (no SSR, nothing hydrates) has nothing to show on a first load nothing holds
       const spa = target === "dom" && solid.hydratable === false;
       const dep = isDep(moduleId);
+      if (!typed && !dep && (flag === "1" || process.env.NODE_ENV === "production")) {
+        typed = true;
+        const t = typecheck(file);
+        if (t === undefined) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${path.relative(process.cwd(), file)}, or no @reactivescript/language-server to run rx-tsc with (13 TY-1a)`);
+        else if (t) throw new Error(`type errors (rx-tsc):\n${t}`);
+      }
       const { entry, out } = dep ? containing(file, target, moduleName, spa) : build(file, target, moduleName, spa);
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);

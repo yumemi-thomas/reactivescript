@@ -72,10 +72,16 @@ function project(name, entry) {
     mkdirSync(path.dirname(path.join(nm, id)), { recursive: true }); cpSync(packed(spec), path.join(nm, id), { recursive: true });
   }
   cpSync(path.join(repo, "examples"), path.join(dir, "src"), { recursive: true });
+  if (TYPED.has(name)) {   // TY-1a: the build type-checks with rx-tsc, from the language server, over the app's tsconfig
+    symlinkSync(path.join(repo, "tooling/rx-language-server"), path.join(nm, "@reactivescript/language-server"));
+    writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] }, include: [`src/${path.dirname(entry)}/**/*.rx`] }, null, 2));
+  }
   writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport main from "./${entry}";\nimport * as api from "./api.mjs";\nconst app = createApp({ root: document.getElementById("app"), api });\napp.mount(main(app));\n`);
   writeFileSync(path.join(dir, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title></head><body><div id="app"></div><script type="module" src="/src/entry.js"></script></body></html>\n`);
   return dir;
 }
+/** The apps whose build type-checks (13 TY-1a); the rest build with RX_TYPECHECK=0. */
+const TYPED = new Set(["router"]);
 const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
   plugins: [solid()],
@@ -143,6 +149,7 @@ const drivers = { todo, router, virtual, "virtual-headless": headless, query };
 for (const [name, entry] of Object.entries(apps)) {
   if (filter && !name.includes(filter)) continue;
   let dir;
+  process.env.RX_TYPECHECK = TYPED.has(name) ? "1" : "0";
   try { dir = project(name, entry); await vite.build(config(dir, entry)); }
   catch (e) { fail++; console.log(`✗ ${name}: build: ${e.message.split("\n")[0]}`); continue; }
   // CP-1c: the bundle's map reaches the .rx sources
@@ -153,9 +160,17 @@ for (const [name, entry] of Object.entries(apps)) {
   const http = createServer((req, res) => { let f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f) && name === "router" && !path.extname(f)) f = path.join(dist, "index.html"); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });   // router/: a page's URL serves the app
   await new Promise(r => http.listen(0, "127.0.0.1", r));
   await drive(`${name} (build)`, `http://127.0.0.1:${http.address().port}/`, drivers[name]);
+  if (name === "router") {   // TY-1a: a route whose path lacks the param its page needs fails the build, on its line
+    const routes = path.join(dir, "src/router/routes.rx");
+    writeFileSync(routes, readFileSync(routes, "utf8").replace('path: "/people/:id"', 'path: "/people"'));
+    try { await vite.build(config(dir, entry)); fail++; console.log("✗ router (typed build): a route missing its page's param built"); }
+    catch (e) { if (/TS2\d+/.test(e.message) && /routes\.rx/.test(e.message)) { pass++; console.log(`✓ router (typed build): refused, ${e.message.split("\n").find(l => /routes\.rx/.test(l)).trim().slice(0, 90)}`); } else { fail++; console.log(`✗ router (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
+    cpSync(path.join(repo, "examples/router/routes.rx"), routes);
+  }
   if (name === "router") await drive("router (build, a page's URL)", `http://127.0.0.1:${http.address().port}/people/2`, async page => { await page.waitForTimeout(300); const t = await page.textContent("h1"); if (t?.trim() !== "Bo") throw new Error(`/people/2 loaded: ${await page.textContent("#app")}`); });
   http.close();
 }
+process.env.RX_TYPECHECK = "0";
 if (!filter || "shared".includes(filter)) {   // two programs on one page, sharing shop/catalog.rx: no entry option, one catalog module
   const dir = project("shared", "shop/main.rx");
   writeFileSync(path.join(dir, "src/shop/count.rx"), `import { products } from "./catalog.rx"\n\nexport default component Count() {\n  errored fallback(e) { <p>no catalogue</p> } {\n    <p>{len(products)} products</p>\n  }\n}\n`);

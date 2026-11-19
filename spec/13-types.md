@@ -26,6 +26,15 @@ does for `.tsrx`. Nothing here is a second type system.
   JavaScript (11, CP-1a) and hands it to TypeScript; an editor uses the
   same projection. The crate emits it with mappings onto the `.rx` (11
   CP-8c: `rxc project`), the same text as `ref/`'s.
+- **TY-1d (Types in the build) — proposed 2026-11-19.** A production
+  build type-checks: the Vite frontend runs `rx-tsc` over the project's
+  `tsconfig.json` once per build, and a type error fails the build on its
+  `.rx` line, as a checker error does. So what only TypeScript can check
+  (a route whose path lacks a param its page needs, MO-11h; a `.d.rx`
+  that disagrees with its module, TY-6) cannot ship by being left out of a
+  CI step. A build that cannot type-check (no `tsconfig.json`, or no
+  language server installed) says its types went unchecked. The dev
+  server leaves types to the editor, which runs the same projection.
 
 ## TY-2 — What each form is, as a value
 
