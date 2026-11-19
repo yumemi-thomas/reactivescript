@@ -547,8 +547,14 @@ export default component App() {
   `useContext` and boundaries walk owners, and that root has none of the
   app's). What they need, they provide and catch themselves; otherwise
   `CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`, or in a client-only build
-  `ASYNC_OUTSIDE_LOADING_BOUNDARY`. `root` is the only word `renders(…)`
-  takes. S-module-18.
+  `ASYNC_OUTSIDE_LOADING_BOUNDARY`. A library that carries some of its own
+  JS contexts into that root (it reads them where it is called and provides
+  them there) names them: `renders(root, toastTheme)`. Each is read at the
+  call, as a hook's `uses(…)` (MO-12b), so it must be provided above the
+  binding, and is provided inside the root. Only contexts the same
+  declaration file declares can be named (MO-12a): a library cannot carry
+  the program's contexts by name; one that forwards its whole owner says
+  `renders`. `root` is the only word `renders(…)` takes. S-module-18.
 - **MO-11m (A made component's properties) — proposed 2026-11-18.** A
   factory's component may carry properties (`@solidjs/router`'s `paths`, its
   typed path builder). `Router.paths` is a value read in the module that

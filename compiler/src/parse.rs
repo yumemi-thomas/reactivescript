@@ -490,7 +490,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -861,6 +861,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         }
         let (mut written, mut uses, mut provides, mut nests, mut renders) = (false, vec![], vec![], None, false);
         let mut renders_root = false;
+        let mut carries: Vec<String> = vec![];
         loop {
             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
             c.ws(false);
@@ -880,6 +881,14 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                         return c.fail("renders(root): the library renders them under a root of its own");
                     }
                     c.ws(true);
+                    while c.eat(",") {
+                        // MO-11n: the contexts it carries into its root; it reads them where it is called
+                        c.ws(true);
+                        let n = c.ident_or("renders(root, ctx): a context the library carries into its root")?;
+                        carries.push(n.clone());
+                        uses.push(n);
+                        c.ws(true);
+                    }
                     c.expect(")")?;
                     renders_root = true;
                 }
@@ -923,7 +932,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
         let cbs = callbacks(&ptypes);
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root, carries });
     }
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).

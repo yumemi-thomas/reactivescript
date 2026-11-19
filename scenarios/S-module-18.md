@@ -1,4 +1,4 @@
-# S-module-18 — components a JS library renders under a root of its own: `renders(root)`
+# S-module-18 — components a JS library renders under a root of its own: `renders(root)`, and what it carries there
 
 Rules: MO-11n, MO-11l, DV-24, RG-7b, R-f-5.
 
@@ -8,6 +8,20 @@ Rules: MO-11n, MO-11l, DV-24, RG-7b, R-f-5.
 -- module: ./toast.d.rx
 // a toast library: it mounts the toasts it is given with a render() of its own, into a node at the end of <body>
 export pure fn createToaster(options: { template: Component }): any renders(root)
+// one that carries its own context into that root: it reads `toastTheme` where it is called and provides it there
+export context toastTheme
+export component ToastTheme(props: { children?: View }) provides(toastTheme)
+export pure fn useToastTheme(): string uses(toastTheme)
+export pure fn createThemedToaster(options: { template: Component }): any renders(root, toastTheme)
+```
+
+```rx
+-- module: ./branded.rx
+import { useToastTheme } from "./toast.js"
+export component Branded(props: { text: string }) {
+  theme = useToastTheme()
+  <p class={theme}>{props.text}</p>
+}
 ```
 
 ```rx
@@ -48,24 +62,34 @@ them a root of their own: no owner above them is the app's, so no
 `provide`, `errored` or `loading` above the binding reaches them (Solid's
 `useContext` walks owners, and there are none). `renders(root)` says so:
 the components are checked as applied under a fresh root, as a program's
-view is. What they need, they bring.
+view is. What they need, they bring, or the library carries: `renders(root,
+toastTheme)` says it reads `toastTheme` where it is called (so it must be
+provided above the binding, as a hook's `uses`, MO-12b) and provides it
+inside its root. Only JS contexts its own declaration file declares can be
+carried: the library cannot know the program's.
 
 ## Program
 
 ```rx
-import { createToaster } from "./toast.js"
+import { createToaster, createThemedToaster, ToastTheme } from "./toast.js"
 import { accent, Plain, SelfContained } from "./toasts.rx"
+import { Branded } from "./branded.rx"
 
-export default component App() {
-  provide accent = "hot"
+component Toasts() {
   toaster = createToaster({ template: Plain })
   boxed = createToaster({ template: SelfContained })
+  branded = createThemedToaster({ template: Branded })
   <button onClick={() => { toaster.show("saved") }}>save</button>
+}
+export default component App() {
+  provide accent = "hot"
+  <ToastTheme><Toasts /></ToastTheme>
 }
 ```
 
-Accepted: `Plain` needs nothing, and `SelfContained` provides and catches
-what its own children need.
+Accepted: `Plain` needs nothing, `SelfContained` provides and catches what
+its own children need, and `Branded`'s `toastTheme` is carried into the
+themed toaster's root from the `ToastTheme` above the binding.
 
 ## Rejected variants
 
@@ -109,3 +133,32 @@ export default component App() {
 ```
 
 `root` is the only place `renders(…)` names.
+
+```rx
+-- reject: CONTEXT_NOT_FOUND
+import { createThemedToaster } from "./toast.js"
+import { Branded } from "./branded.rx"
+export default component App() {
+  branded = createThemedToaster({ template: Branded })
+  <p>app</p>
+}
+```
+
+What the library carries, it reads where it is called: with no
+`ToastTheme` above the binding there is nothing to carry.
+
+```rx
+-- reject: CONTEXT_NOT_FOUND
+import { createToaster, ToastTheme } from "./toast.js"
+import { Branded } from "./branded.rx"
+component Toasts() {
+  toaster = createToaster({ template: Branded })
+  <p>app</p>
+}
+export default component App() {
+  <ToastTheme><Toasts /></ToastTheme>
+}
+```
+
+A plain `renders(root)` carries nothing: the `ToastTheme` above the
+binding does not reach `Branded`.

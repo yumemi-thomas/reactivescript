@@ -255,6 +255,8 @@ struct Sym<'a> {
     renders: bool,
     /// MO-11n: `renders(root)`, applied under a root of the library's own
     renders_root: bool,
+    /// MO-11n: the JS contexts (keys) it carries into that root
+    carries: Vec<String>,
     /// MO-11j: an exported factory's component — the wrapper whose summary an importer sees
     exported_as: Option<SId>,
     /// MO-11j: on that wrapper, the made component its view applies (`<Router />`)
@@ -304,6 +306,7 @@ impl<'a> Sym<'a> {
             nests: None,
             renders: false,
             renders_root: false,
+            carries: vec![],
             exported_as: None,
             wraps: None,
             factory: None,
@@ -1304,6 +1307,7 @@ impl<'a> Checker<'a> {
                                     sym.factory = Some((args.as_slice(), env));
                                     sym.renders = true;
                                     sym.renders_root = self.syms[t].renders_root;
+                                    sym.carries = self.syms[t].carries.clone();
                                 }
                             }
                         }
@@ -1574,7 +1578,7 @@ impl<'a> Checker<'a> {
                     self.bind(env, alias, s);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1592,6 +1596,7 @@ impl<'a> Checker<'a> {
                         s.nests = xnests.clone();
                         s.renders = *xrenders;
                         s.renders_root = *xroot;
+                        s.carries = js_keys(self, xcarries);
                         s.held = xheld.clone();
                         s.cbs = xcbs.clone();
                         self.bind(env, alias, s);
@@ -1970,6 +1975,9 @@ impl<'a> Checker<'a> {
                             let trees = self.factory_tree(made);
                             let at = if self.syms[made].renders_root {
                                 let r = self.region(None, "root", false, None);
+                                for k in self.syms[made].carries.clone() {
+                                    self.regions[r].provides.insert(k);
+                                }
                                 self.env(Some(env), r)
                             } else {
                                 env
