@@ -460,7 +460,19 @@ fn part_of(t: &str) -> Part {
         Part::Value
     }
 }
+/// A declared field's name: `readonly width?` is `width` (the modifier and the `?` are TypeScript's, not the name's).
+fn field_name(k: &str) -> String {
+    let k = js_trim(k);
+    let k = k.strip_prefix("readonly ").map(js_trim).unwrap_or(k);
+    k.strip_suffix('?').unwrap_or(k).to_string()
+}
 fn shape_of(t: &str) -> Shape {
+    // MO-10b: a read-only tuple is a tuple (`as const` results)
+    if let Some(rest) = t.strip_prefix("readonly ") {
+        if rest.trim_start().starts_with('[') {
+            return shape_of(rest.trim_start());
+        }
+    }
     if t.starts_with('[') && t.ends_with(']') && t.len() >= 2 {
         return Shape::Items(split_top(&t[1..t.len() - 1], ",").iter().map(|x| part_of(x)).collect());
     }
@@ -474,7 +486,7 @@ fn shape_of(t: &str) -> Shape {
                         None => (&f[..f.len().saturating_sub(1)], &f[..]),
                     };
                     let k = js_trim(k);
-                    (k.strip_suffix('?').unwrap_or(k).to_string(), part_of(js_trim(v)))
+                    (field_name(k), part_of(js_trim(v)))
                 })
                 .collect(),
         );
@@ -974,7 +986,7 @@ fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
                         let i = f.find(':')?;
                         (part_of(js_trim(&f[i + 1..])) == Part::Fn).then(|| {
                             let k = js_trim(&f[..i]);
-                            k.strip_suffix('?').unwrap_or(k).to_string()
+                            field_name(k)
                         })
                     })
                     .collect();
@@ -1012,7 +1024,7 @@ fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
                     }
                     rest = rest[m[0].len()..].to_string();
                 }
-                let path = format!("{}{}", prefix, key.strip_suffix('?').unwrap_or(&key));
+                let path = format!("{}{}", prefix, field_name(&key));
                 if any {
                     held.push((path.clone(), holds, fails));
                 }

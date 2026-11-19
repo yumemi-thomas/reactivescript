@@ -292,6 +292,10 @@ export component Search(props: { start: boolean, q: string }) {
     API that takes an accessor of a store declares `ref`.
   - Only the return and its tuple or object parts are declared; an accessor
     nested deeper is a value.
+  - TypeScript's `readonly` is a modifier, not a shape (proposed
+    2026-11-19): `readonly [ref T, …]` (an `as const` result) is a tuple,
+    and `{ readonly width: number }` has the field `width`. Libraries such
+    as `@solid-primitives` return both; S-module-20.
 - **MO-10c (Where a package's declaration is).** Beside the file the import
   resolves to, as MO-8a's is beside a relative module and a `.d.ts` beside its
   `.js`: `@solid-primitives/media` resolves through the package's `exports`

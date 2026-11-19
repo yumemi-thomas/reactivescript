@@ -200,7 +200,7 @@ function callbacks(ptypes: (string | undefined)[]): ([boolean, string[]] | null)
   const out = ptypes.map((t): [boolean, string[]] | null => {
     if (!t) return null;
     if (partOf(t) === "fn") return [true, []];
-    if (t.startsWith("{") && t.endsWith("}")) { const fs = splitTop(t.slice(1, -1), ",;").filter(f => f.includes(":") && partOf(f.slice(f.indexOf(":") + 1).trim()) === "fn").map(f => f.slice(0, f.indexOf(":")).trim().replace(/\?$/, "")); return fs.length ? [false, fs] : null; }
+    if (t.startsWith("{") && t.endsWith("}")) { const fs = splitTop(t.slice(1, -1), ",;").filter(f => f.includes(":") && partOf(f.slice(f.indexOf(":") + 1).trim()) === "fn").map(f => fieldName(f.slice(0, f.indexOf(":")))); return fs.length ? [false, fs] : null; }
     return null;
   });
   return out.some(Boolean) ? out : undefined;
@@ -215,7 +215,7 @@ function fieldRows(t: string): { text: string; held?: [string, boolean, string[]
       const i = f.indexOf(":"); if (i < 0) return f;
       const key = f.slice(0, i).trim(); let rest = f.slice(i + 1).trim(); let holds = false; let fails: string[] = []; let any = false;
       for (let m; (m = /^(holds\b|fails\(([^)]*)\))\s*/.exec(rest)); rest = rest.slice(m[0].length)) { any = true; if (m[1] === "holds") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
-      const path = prefix + key.replace(/\?$/, "");
+      const path = prefix + fieldName(key);
       if (any) held.push([path, holds, fails]);
       return `${key}: ${walk(rest, path + ".")}`;
     }).join("; ")} }`;
@@ -297,9 +297,12 @@ function partOf(t: string): Part {
   if (t.startsWith("(") && /\)\s*=>/.test(t)) return "fn";
   return "value";
 }
+/** A declared field's name: `readonly width?` is `width` (the modifier and the `?` are TypeScript's, not the name's). */
+function fieldName(k: string): string { return k.trim().replace(/^readonly\s+/, "").replace(/\?$/, ""); }
 function shapeOf(t: string): Shape {
+  if (/^readonly\s+\[/.test(t)) return shapeOf(t.replace(/^readonly\s+/, ""));   // MO-10b: a read-only tuple is a tuple (`as const` results)
   if (t.startsWith("[") && t.endsWith("]")) return { items: splitTop(t.slice(1, -1), ",").map(partOf) };
-  if (t.startsWith("{") && t.endsWith("}")) return { fields: splitTop(t.slice(1, -1), ",;").map(f => { const i = f.indexOf(":"); return [f.slice(0, i).trim().replace(/\?$/, ""), partOf(f.slice(i + 1).trim())] as [string, Part]; }) };
+  if (t.startsWith("{") && t.endsWith("}")) return { fields: splitTop(t.slice(1, -1), ",;").map(f => { const i = f.indexOf(":"); return [fieldName(f.slice(0, i)), partOf(f.slice(i + 1).trim())] as [string, Part]; }) };
   if (isComponentType(t)) return "comp";
   return partOf(t);
 }

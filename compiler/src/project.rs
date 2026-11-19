@@ -1183,6 +1183,10 @@ pub(crate) fn accessor_result(ret: Option<&String>, shape: &crate::parse::Shape)
     let Some(r) = ret else { return "any".into() };
     match shape {
         Shape::Part(Part::Ref) => accessor(r),
+        // MO-10b: an `as const` tuple
+        _ if r.starts_with("readonly ") && r["readonly ".len()..].trim_start().starts_with('[') => {
+            format!("readonly {}", accessor_result(Some(&r["readonly ".len()..].trim_start().to_string()), shape))
+        }
         Shape::Items(items) if items.contains(&Part::Ref) && r.starts_with('[') && r.ends_with(']') => {
             let xs = crate::parse::split_top(&r[1..r.len() - 1], ",");
             format!("[{}]", xs.iter().enumerate().map(|(i, x)| if items.get(i) == Some(&Part::Ref) { accessor(x.trim()) } else { x.trim().to_string() }).collect::<Vec<_>>().join(", "))
@@ -1195,7 +1199,8 @@ pub(crate) fn accessor_result(ret: Option<&String>, shape: &crate::parse::Shape)
                     .map(|x| match x.find(':') {
                         Some(i) => {
                             let k = x[..i].trim();
-                            let ref_part = fields.iter().any(|f| f.0 == k.trim_end_matches('?') && f.1 == Part::Ref);
+                            let name = k.strip_prefix("readonly ").map(str::trim).unwrap_or(k).trim_end_matches('?');
+                            let ref_part = fields.iter().any(|f| f.0 == name && f.1 == Part::Ref);
                             format!("{}: {};", k, if ref_part { accessor(x[i + 1..].trim()) } else { x[i + 1..].trim().to_string() })
                         }
                         None => format!("{};", x.trim()),

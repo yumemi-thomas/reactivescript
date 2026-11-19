@@ -111,10 +111,11 @@ export function accessorResult(ret: string | undefined, shape: Shape | undefined
   if (!ret) return "any";
   const acc = (t: string) => `(() => ${t})`;
   if (shape === "ref") return acc(ret);
+  if (/^readonly\s+\[/.test(ret)) return `readonly ${accessorResult(ret.replace(/^readonly\s+/, ""), shape)}`;   // MO-10b: an `as const` tuple
   if (shape && typeof shape === "object" && "items" in shape && shape.items.includes("ref") && ret.startsWith("[") && ret.endsWith("]"))
     return `[${splitTop(ret.slice(1, -1), ",").map((x, i) => shape.items[i] === "ref" ? acc(x.trim()) : x.trim()).join(", ")}]`;
   if (shape && typeof shape === "object" && "fields" in shape && shape.fields.some(f => f[1] === "ref") && ret.startsWith("{") && ret.endsWith("}"))
-    return `{ ${splitTop(ret.slice(1, -1), ",;").map(x => { const i = x.indexOf(":"); if (i < 0) return `${x.trim()};`; const k = x.slice(0, i).trim(); const r = shape.fields.some(f => f[0] === k.replace(/\?$/, "") && f[1] === "ref"); return `${k}: ${r ? acc(x.slice(i + 1).trim()) : x.slice(i + 1).trim()};`; }).join(" ")} }`;
+    return `{ ${splitTop(ret.slice(1, -1), ",;").map(x => { const i = x.indexOf(":"); if (i < 0) return `${x.trim()};`; const k = x.slice(0, i).trim(); const r = shape.fields.some(f => f[0] === k.replace(/^readonly\s+/, "").replace(/\?$/, "") && f[1] === "ref"); return `${k}: ${r ? acc(x.slice(i + 1).trim()) : x.slice(i + 1).trim()};`; }).join(" ")} }`;
   return ret;
 }
 function declarationFile(decls: JsDecl[]): string {
