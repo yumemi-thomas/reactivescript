@@ -1,6 +1,7 @@
 //! guide/diagnostics.md, the page each diagnostic code points to: every code the crate (and its type prelude) can
 //! report has a section, every `rx before` fence gets its section's code, and every `rx after` fence checks clean. A
-//! fence may declare the modules it imports (`-- module: ./ui.d.rx`, then `-- main`).
+//! fence may declare the modules it imports (`-- module: ./ui.d.rx`, then `-- main`); `rx before spa` checks it as a
+//! client-only build.
 
 use reactivescript::check::check_modules;
 use reactivescript::modules::load_modules;
@@ -14,7 +15,7 @@ fn root() -> &'static Path {
 
 /// The codes a program `src` gets: its parse error's, else its checker diagnostics'. A fence may hold other modules first,
 /// each after a line `-- module: ./name` (as scenarios write them: `./ui.d.rx`, `./util.rx`), then `-- main` and the program.
-fn codes(src: &str) -> Vec<String> {
+fn codes(src: &str, spa: bool) -> Vec<String> {
     let entry = "/page/main.rx";
     let mut files: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut main = String::new();
@@ -45,7 +46,7 @@ fn codes(src: &str) -> Vec<String> {
     let read = |p: &str| if p == entry { Some(src.clone()) } else { files.get(p).cloned() };
     match load_modules(entry, &read) {
         Err(e) => vec![e.3.to_string()],
-        Ok(set) => check_modules(&set, false).diags.into_iter().map(|d| format!("{} ({}: {})", d.code, d.line, d.msg)).collect(),
+        Ok(set) => check_modules(&set, spa).diags.into_iter().map(|d| format!("{} ({}: {})", d.code, d.line, d.msg)).collect(),
     }
 }
 
@@ -59,9 +60,11 @@ fn every_code_has_a_section_and_its_examples_hold() {
     for line in page.lines() {
         if let Some((mark, body)) = &mut fence {
             if line == "```" {
-                let got = codes(body);
+                // `rx before spa`: checked as a client-only build (08 CN-3d)
+                let spa = mark.ends_with(" spa");
+                let got = codes(body, spa);
                 let c = code.clone().unwrap_or_default();
-                let ok = if mark == "before" { got.iter().any(|g| g == &c || g.starts_with(&format!("{} (", c))) } else { got.is_empty() };
+                let ok = if mark.starts_with("before") { got.iter().any(|g| g == &c || g.starts_with(&format!("{} (", c))) } else { got.is_empty() };
                 if !ok {
                     failures.push(format!("{} `rx {}`: got {:?}\n{}", c, mark, got, body));
                 }

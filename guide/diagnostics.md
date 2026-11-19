@@ -9,7 +9,7 @@ The `[rule]` is the id of the rule in `spec/` (`grep -n "^- \*\*AC-1c" spec/*.md
 one line; you rarely need more than this page and that one.
 
 Fences marked `rx before` get the section's code and fences marked `rx after` check clean: the compiler's tests run
-every one of them (`compiler/tests/diagnostics_page.rs`). Fences with no mark are sketches that need other modules.
+every one of them (`compiler/tests/diagnostics_page.rs`). A fence may declare the modules it imports first, each after a line `-- module: ./ui.d.rx`, then `-- main` and the program. Fences with no mark are sketches the page cannot check (a type error is `rx-tsc`'s, and its tests check those).
 
 ## Parse errors: habits from JavaScript, React and Solid
 
@@ -18,7 +18,9 @@ A parse error names the habit it looks like, when it recognises one; otherwise i
 ### PARSE
 
 The text has no `.rx` reading at that point. The message says what the parser expected and quotes what it found.
-`reference.md`'s grammar is the whole syntax.
+`reference.md`'s grammar is the whole syntax. In a `.d.rx`, the first drafts of the placement words are refused with their spelling now: `carries` is
+`renders(later)`, and `under(parent in component)` is `nests(component under parent)` (09 MO-11r). An `.rx` module is
+imported for what it exports, never as `import "./x.rx"`, which is for a stylesheet or a polyfill (07 §1a).
 
 ### JS_LOCAL
 
@@ -189,6 +191,32 @@ export default component App() {
 }
 ```
 
+A library may hand a callback a draft to change in place (Solid 2's store setter). The `.d.rx` marks that parameter
+`draft`, and in a closure passed there its paths are written with `:=`; any other parameter's fields are not (MO-10i),
+so a `.rx` value is never changed behind its writes. The draft itself is replaced by returning the new value.
+
+```rx before
+-- module: ./store.d.rx
+export pure fn makeStore(init: { done: number }): [{ done: number }, (update: (state: { done: number }) => void) => void]
+-- main
+import { makeStore } from "./store.js"
+export default component App() {
+  [todos, setTodos] = makeStore({ done: 0 })
+  <button onClick={() => { setTodos((d) => { d.done := d.done + 1 }) }}>{todos.done}</button>
+}
+```
+
+```rx after
+-- module: ./store.d.rx
+export pure fn makeStore(init: { done: number }): [{ done: number }, (update: (draft state: { done: number }) => void) => void]
+-- main
+import { makeStore } from "./store.js"
+export default component App() {
+  [todos, setTodos] = makeStore({ done: 0 })
+  <button onClick={() => { setTodos((d) => { d.done := d.done + 1 }) }}>{todos.done}</button>
+}
+```
+
 ### STALE_OWN_READ
 
 All the writes of one run land together when the run ends, so after `count := count + 1` the run still reads the old
@@ -289,6 +317,9 @@ export default component App() {
   <p>{w}</p>
 }
 ```
+
+An equation that never changes is no snapshot: one that awaits nothing and reads only pure JS imports, components,
+error classes and such equations (a validation schema built at module level, passed to `createForm({ schema })`).
 
 ### DUPLICATE_DECLARATION
 
@@ -660,13 +691,19 @@ export default component App() {
 
 A `fn` is pure by definition (R-io-2). Code that calls io is an `action`, or the io call moves into the handler.
 
-```rx
-import { log } from "./prelude"
+```rx before
 export default component App() {
-  fn noisy(v) => log(v)                        // IO_IN_FN
-  action noisy2(v: number) { log(v) }          // fixed
+  fn noisy(v) => log(v)
   source n := 1
-  <button onClick={() => { noisy2(n) }}>{n}</button>
+  <p>{noisy(n)}</p>
+}
+```
+
+```rx after
+export default component App() {
+  action noisy(v: number) { log(v) }
+  source n := 1
+  <button onClick={() => { noisy(n) }}>{n}</button>
 }
 ```
 
@@ -797,6 +834,14 @@ export default component App() {
 }
 ```
 
+```rx after
+export default component App() {
+  source id := 1
+  user: lane pending fails(Error) string = await fetch("u:" + id)
+  {errored fallback(e) { <p>failed</p> } { <p>{user}</p> }}
+}
+```
+
 ### UNGUARDED_SNAPSHOT
 
 A handler reads a value as a snapshot when it can have no value yet (a first load) or can fail, so the click sees no
@@ -805,7 +850,15 @@ value or throws (R-8). Put the element inside the `loading` / `errored` regions 
 value itself, not only `pending? x`: a probe takes no failure, so a region that reads `x` only through `pending?` stays
 on its content when `x` fails, and the click throws.
 
-```rx
+```rx before
+export default component App() {
+  source id := 1
+  user = await fetch("u:" + id)
+  <button onClick={() => { log(user) }}>show</button>
+}
+```
+
+```rx after
 export default component App() {
   source id := 1
   user = await fetch("u:" + id)
@@ -878,6 +931,37 @@ In a client-only build (`--spa`), a value with no answer yet and no `loading` re
 answers (CN-3d). Put it under `loading fallback { … } { … }`, or give the await a first paint, `await f() -> v`. Later
 answers are transitions and need no region.
 
+```rx before spa
+-- module: ./api.d.rx
+export pure fn getProduct(id: string): Promise<{ name: string }>
+-- main
+import { getProduct } from "./api.js"
+export default component App() {
+  source id := "a"
+  product = await getProduct(id)
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{product.name}</p>
+  }
+}
+```
+
+```rx after spa
+-- module: ./api.d.rx
+export pure fn getProduct(id: string): Promise<{ name: string }>
+-- main
+import { getProduct } from "./api.js"
+export default component App() {
+  source id := "a"
+  product = await getProduct(id)
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    loading fallback { <p>loading…</p> } { <p>{product.name}</p> }
+  }
+}
+```
+
+Fences marked `spa` are checked as a client-only build: a served page shows the server's first frame, so the same
+program is clean when it is server-rendered.
+
 ### LOADING_ON_OUTSIDE_HOLD
 
 A value is read outside the `loading on(x)` region that waits on it, so that read holds the change: the region's
@@ -890,6 +974,16 @@ export default component App() {
   data = await fetch("d:" + id)
   {errored fallback(e) { <p>error: {e.message}</p> } {
     <div>{loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
+  }}
+}
+```
+
+```rx after
+export default component App() {
+  source id := 1
+  data = await fetch("d:" + id)
+  {errored fallback(e) { <p>error: {e.message}</p> } {
+    <div>{loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
   }}
 }
 ```
@@ -941,6 +1035,9 @@ export default component App() {
 }
 ```
 
+A kit's compound part is a member of an object, `<Dialog.Trigger>`: the `.d.rx` declares each member by its written
+name, `export component Dialog.Trigger(props: { … })` (MO-11q), and a member it does not declare is unknown.
+
 ### COMPONENT_AS_VALUE
 
 A component is applied in markup, `<Greeting name="x" />`, not stored or called as a function (RG-4a). The one
@@ -959,6 +1056,44 @@ export default component App() {
 component Greeting(props: { name: string }) { <p>{props.name}</p> }
 export default component App() {
   <Greeting name="x" />
+}
+```
+
+Where a library renders the components it is given is said in its `.d.rx`, in one vocabulary (MO-11r): a fn handing
+back a `Component` renders them inside it; `renders` where its result is bound; `renders(root, ctx…)` under a root of its
+own; `renders(later)` in a value its result carries, rendered by a JS component's prop declared `renders T`; and
+`nests(children in component)` or `nests(component under parent)` say the tree. A component carried by `renders(later)`
+that no `renders` prop reaches would be checked nowhere, so it is refused where it is passed:
+
+```rx before
+-- module: ./tsr.d.rx
+export pure fn createRootRoute(options: { component?: Component }): any renders(later)
+export component Inspector(props: { router: any })
+export component RouterProvider(props: { router: renders any })
+-- main
+import { createRootRoute, Inspector } from "./tsr.js"
+component Root() {
+  <main>home</main>
+}
+rootRoute = createRootRoute({ component: Root })
+export default component App() {
+  <Inspector router={rootRoute} />
+}
+```
+
+```rx after
+-- module: ./tsr.d.rx
+export pure fn createRootRoute(options: { component?: Component }): any renders(later)
+export component Inspector(props: { router: any })
+export component RouterProvider(props: { router: renders any })
+-- main
+import { createRootRoute, RouterProvider } from "./tsr.js"
+component Root() {
+  <main>home</main>
+}
+rootRoute = createRootRoute({ component: Root })
+export default component App() {
+  <RouterProvider router={rootRoute} />
 }
 ```
 
@@ -995,6 +1130,28 @@ export default component App() {
 A closure that captures something from a region that ends sooner (a `for` row, an `if` branch) is stored where it
 outlives that region (O-3). Keep the state at the level that stores the closure, or pass the value rather than a
 closure over it.
+
+```rx before
+export default component App() {
+  source handlers := []
+  source rows := [1, 2]
+  <ul>{for r in rows {
+    source hits := 0
+    <li onClick={() => { handlers := [...handlers, () => hits] }}>{hits}</li>
+  }}</ul>
+}
+```
+
+```rx after
+export default component App() {
+  source seen := []
+  source rows := [1, 2]
+  <ul>{for r in rows {
+    source hits := 0
+    <li onClick={() => { seen := [...seen, hits] }}>{hits}</li>
+  }}</ul>
+}
+```
 
 ### UNSTABLE_LIST_IDENTITY
 
@@ -1049,9 +1206,51 @@ export default component App() {
 }
 ```
 
+A UI kit's compound parts read their root's context (`<Dialog.Trigger>` needs `<Dialog>` above it): their `.d.rx`
+says so, `uses(dialog)` on each part and `provides(dialog)` on the root (MO-11q, MO-12), and `rx-declare` drafts both
+by rendering each part alone and inside its root.
+
+```rx before
+-- module: ./kit.d.rx
+export context dialog
+export component Dialog(props: { children?: View }) provides(dialog)
+export component Dialog.Trigger(props: { children?: View }) uses(dialog)
+-- main
+import { Dialog } from "./kit.js"
+export default component App() {
+  <Dialog.Trigger>open</Dialog.Trigger>
+}
+```
+
+```rx after
+-- module: ./kit.d.rx
+export context dialog
+export component Dialog(props: { children?: View }) provides(dialog)
+export component Dialog.Trigger(props: { children?: View }) uses(dialog)
+-- main
+import { Dialog } from "./kit.js"
+export default component App() {
+  <Dialog><Dialog.Trigger>open</Dialog.Trigger></Dialog>
+}
+```
+
 ### CONTEXT_AS_VALUE
 
 A context is read with `use`, which gives the nearest provision (RG-7): `{use theme}`, not `{theme}`.
+
+```rx before
+context theme: string = "light"
+export default component App() {
+  <b>{theme}</b>
+}
+```
+
+```rx after
+context theme: string = "light"
+export default component App() {
+  <b>{use theme}</b>
+}
+```
 
 ### NOT_A_CONTEXT
 
@@ -1078,35 +1277,182 @@ export default component App() {
 A context is read-only beneath its provision (O-4); `context x: source T` was withdrawn (RG-7c, 2026-10-31). Provide the
 value and the writes you allow, as actions: `context picked: { current: number; set: (v: number) => void }`.
 
+```rx before
+context picked: source number
+export default component App() {
+  source n := 1
+  provide picked = n
+  <b>{use picked}</b>
+}
+```
+
+```rx after
+context picked: { current: number; set: (v: number) => void }
+export default component App() {
+  source n := 1
+  action set(v: number) { n := v }
+  provide picked = { current: n, set: set }
+  <b>{(use picked).current}</b>
+}
+```
+
 ## Modules
 
 ### TOP_LEVEL_MARKUP
 
 A module is declarations (MO-1c). The app's view is a component: `export default component App() { … }`.
 
+```rx before
+source n := 1
+<p>{n}</p>
+```
+
+```rx after
+source n := 1
+export default component App() {
+  <p>{n}</p>
+}
+```
+
 ### SHADOWED_IMPORT
 
-A local declaration has the name of an import (MO-1d). Rename one: `import { initials as initialsOf } from "./store.rx"`.
+A local declaration has the name of an import (MO-1d). Rename one: `import { initials as initialsOf } from "./util.rx"`.
+
+```rx before
+-- module: ./util.rx
+export fn initials(name) => name.slice(0, 1)
+-- main
+import { initials } from "./util.rx"
+export default component App() {
+  source initials := "AB"
+  <p>{initials(initials)}</p>
+}
+```
+
+```rx after
+-- module: ./util.rx
+export fn initials(name) => name.slice(0, 1)
+-- main
+import { initials as initialsOf } from "./util.rx"
+export default component App() {
+  source initials := "AB"
+  <p>{initialsOf(initials)}</p>
+}
+```
 
 ### NOT_EXPORTED
 
 The module, or its `.d.rx` declaration file, does not export that name (MO-6, MO-8). Check the spelling, or declare the
 export.
 
+```rx before
+-- module: ./util.rx
+export fn initials(name) => name.slice(0, 1)
+-- main
+import { initial } from "./util.rx"
+export default component App() {
+  <p>{initial("Ann")}</p>
+}
+```
+
+```rx after
+-- module: ./util.rx
+export fn initials(name) => name.slice(0, 1)
+-- main
+import { initials } from "./util.rx"
+export default component App() {
+  <p>{initials("Ann")}</p>
+}
+```
+
 ### MODULE_NOT_FOUND
 
 No file at that import path (MO-6). `.rx` modules are imported with their extension, `"./ui.rx"`; JavaScript modules
 without it.
 
+```rx before
+-- module: ./util.rx
+export fn initials(name) => name.slice(0, 1)
+-- main
+import { initials } from "./utils.rx"
+export default component App() {
+  <p>{initials("Ann")}</p>
+}
+```
+
+```rx after
+-- module: ./util.rx
+export fn initials(name) => name.slice(0, 1)
+-- main
+import { initials } from "./util.rx"
+export default component App() {
+  <p>{initials("Ann")}</p>
+}
+```
+
 ### MODULE_CYCLE
 
 Two modules import each other, directly or through others (MO-5). Move what both need into a third module.
+
+```rx before
+-- module: ./a.rx
+import { b } from "./b.rx"
+export source n := 1
+export a = b + 1
+-- module: ./b.rx
+import { n } from "./a.rx"
+export b = n * 2
+-- main
+import { a } from "./a.rx"
+export default component App() {
+  <p>{a}</p>
+}
+```
+
+```rx after
+-- module: ./n.rx
+export source n := 1
+-- module: ./a.rx
+import { n } from "./n.rx"
+import { b } from "./b.rx"
+export a = b + 1
+-- module: ./b.rx
+import { n } from "./n.rx"
+export b = n * 2
+-- main
+import { a } from "./a.rx"
+export default component App() {
+  <p>{a}</p>
+}
+```
 
 ### IMPORT_ROW_MISMATCH
 
 An import restates what its source already declares (MO-4, MO-8, SF-5): `pure` on a function that is io, `fails(…)` on
 an `.rx` module (its rows are its signature's), or `server` / `client` on a name its `.d.rx` declares otherwise. Drop
 the annotation on the import and let the declaration say it.
+
+```rx before
+-- module: ./store.rx
+export source selected := 1
+export action select(id: number) { selected := id }
+-- main
+import pure { select } from "./store.rx"
+export default component App() {
+  <button onClick={() => { select(2) }}>pick</button>
+}
+```
+
+```rx after
+-- module: ./store.rx
+export source selected := 1
+export action select(id: number) { selected := id }
+-- main
+import { select } from "./store.rx"
+export default component App() {
+  <button onClick={() => { select(2) }}>pick</button>
+}
+```
 
 ## Server functions
 
@@ -1116,9 +1462,18 @@ A server function runs in its own request on the server, so it cannot read the c
 context (`use`), `refresh`, `affects`, `action { … }` (SF-3). Pass what it needs as an argument, and do the client's
 part in the action that awaited the call.
 
-```rx
+```rx before
 source n := 1
-server fn f(v: number) { return v }            // was: server fn f() { return n }
+server fn f() { return n }
+x = await f() catch (e) => 0
+export default component App() {
+  <p>{x}</p>
+}
+```
+
+```rx after
+source n := 1
+server fn f(v: number) { return v }
 x = await f(n) catch (e) => 0
 export default component App() {
   <p>{x}</p>
@@ -1130,24 +1485,139 @@ export default component App() {
 A server function cannot write client state (SF-4). Return the value and write it in the action that awaited the call:
 `let r = await save(x); status := r`.
 
+```rx before
+source status := ""
+server fn save(x) { status := "saved"; return x }
+export default component App() {
+  <p>{status}</p>
+}
+```
+
+```rx after
+source status := ""
+server fn save(x) { return x }
+action go() {
+  let r = await save("saved") catch (e) => "failed"
+  status := r
+}
+export default component App() {
+  <button onClick={() => { go() }}>{status}</button>
+}
+```
+
 ### SERVER_ONLY
 
 A `server` JS import is not in the client bundle (SF-5a). Call it in a `server fn` body and await that from the client.
+
+```rx before
+-- module: ./api.d.rx
+export server pure fn findUser(id: number)
+-- main
+import { findUser } from "./api"
+export default component App() {
+  user = await findUser(1) catch (e) => null
+  <p>{user}</p>
+}
+```
+
+```rx after
+-- module: ./api.d.rx
+export server pure fn findUser(id: number)
+-- main
+import { findUser } from "./api"
+server fn loadUser(id) {
+  let u = await findUser(id)
+  return { name: u.name }
+}
+export default component App() {
+  user = await loadUser(1) catch (e) => null
+  <p>{user}</p>
+}
+```
 
 ### CLIENT_IN_SERVER
 
 A `client` JS import (the browser's API) is called in a server function's body, which runs on the server (SF-5c). Call
 it from the client and pass the value as an argument.
 
+```rx before
+-- module: ./api.d.rx
+export client pure fn viewport()
+-- main
+import { viewport } from "./api"
+server fn size() { return viewport() }
+export default component App() {
+  n = await size() catch (e) => 0
+  <p>{n}</p>
+}
+```
+
+```rx after
+-- module: ./api.d.rx
+export client pure fn viewport()
+-- main
+import { viewport } from "./api"
+server fn size(w: number) { return w * 2 }
+export default component App() {
+  width = await viewport() -> 0
+  n = await size(width) catch (e) => 0
+  {errored fallback(e) { <p>error</p> } { <p>{n}</p> }}
+}
+```
+
 ### CLIENT_NOT_AWAITED
 
 In reactive scope a `client` JS function is a client question, asked once the browser has the page (SV-7b), so it is
 awaited: `width = await viewport() -> 0`.
 
+```rx before
+-- module: ./api.d.rx
+export client pure fn viewport()
+-- main
+import { viewport } from "./api"
+export default component App() {
+  width = viewport()
+  <p>{width}</p>
+}
+```
+
+```rx after
+-- module: ./api.d.rx
+export client pure fn viewport()
+-- main
+import { viewport } from "./api"
+export default component App() {
+  width = await viewport() -> 0
+  {errored fallback(e) { <p>error</p> } { <p>{width}</p> }}
+}
+```
+
 ### CLIENT_QUESTION_UNHELD
 
 The server never asks a client question, so the page needs a `loading` region above the reader, or a first paint on
 the await, `await viewport() -> 0` (SV-7b).
+
+```rx before
+-- module: ./api.d.rx
+export client pure fn viewport()
+-- main
+import { viewport } from "./api"
+export default component App() {
+  width = await viewport() catch (e) => 0
+  <p>{width}</p>
+}
+```
+
+```rx after
+-- module: ./api.d.rx
+export client pure fn viewport()
+-- main
+import { viewport } from "./api"
+export default component App() {
+  width = await viewport() catch (e) => 0
+  {loading fallback { <p>measuring</p> } { <p>{width}</p> }}
+}
+```
 
 ## Markup and styles
 
@@ -1155,6 +1625,18 @@ the await, `await viewport() -> 0` (SV-7b).
 
 The browser's HTML parser rewrites some nestings (a `<tr>` outside a table, a `<div>` inside a `<p>`), so the page the
 server sends is not the tree the client builds and hydration fails (SV-7d). Nest the elements the way HTML allows.
+
+```rx before
+export default component App() {
+  <p><div>x</div></p>
+}
+```
+
+```rx after
+export default component App() {
+  <div><p>x</p></div>
+}
+```
 
 ### STYLE_PLACEMENT
 
@@ -1209,10 +1691,10 @@ export pure fn twice(n: number): number
 The component's declaration types `children` as a function giving a `View` (a render prop): it calls its children for
 each thing it renders, so they are written as a view lambda, its only child (MO-11k).
 
-With `list.d.rx` beside `list.js` saying
-`export component VirtualList(props: { items: any[]; children: (row: any, i: number) => View })`:
-
-```rx+d.rx before
+```rx before
+-- module: ./list.d.rx
+export component VirtualList(props: { items: any[]; children: (row: any, i: number) => View })
+-- main
 import { VirtualList } from "./list.js"
 export default component App() {
   rows = ["a", "b"]
@@ -1220,7 +1702,10 @@ export default component App() {
 }
 ```
 
-```rx+d.rx after
+```rx after
+-- module: ./list.d.rx
+export component VirtualList(props: { items: any[]; children: (row: any, i: number) => View })
+-- main
 import { VirtualList } from "./list.js"
 export default component App() {
   rows = ["a", "b"]
