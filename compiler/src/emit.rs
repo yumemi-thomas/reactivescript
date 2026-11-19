@@ -1458,7 +1458,7 @@ impl<'p> Gen<'p> {
                 }
                 E::Obj(ps)
             }
-            ExprKind::Fn { params, body, stmts } => {
+            ExprKind::Fn { params, body, stmts, .. } => {
                 let inner = self.params(env, params);
                 let ps: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
                 match stmts {

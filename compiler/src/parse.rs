@@ -1917,6 +1917,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
         // 07 §3: TS arrow functions, verbatim — `x => e`, `(a, b) => e`
         let save = c.i;
         let mut params = vec![];
+        let mut ptypes: Vec<Option<String>> = vec![];
         let mut ok = false;
         if c.peek() == '(' {
             c.bump();
@@ -1931,6 +1932,22 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
                     }
                 }
                 c.ws(true);
+                // 07 §3: `(v: string) => …`, the type is TypeScript's
+                if c.starts_with(":") && !c.starts_with(":=") {
+                    // `:=` is a write, not a type; a type that does not parse is not an arrow's parameter
+                    c.bump();
+                    c.ws(true);
+                    match parse_type(c, false, false) {
+                        Ok(t) if !t.trim().is_empty() => ptypes.push(Some(t.trim().to_string())),
+                        _ => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    c.ws(true);
+                } else {
+                    ptypes.push(None);
+                }
                 if !c.eat(",") {
                     break;
                 }
@@ -1956,13 +1973,13 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
                 let at = c.i;
                 if let Ok(stmts) = parse_block(c) {
                     if stmts.iter().any(|st| !matches!(&st.k, StmtKind::Expr(Expr { k: ExprKind::Id(_), .. }))) {
-                        return Ok(ex(start, ExprKind::Fn { params, body: Box::new(Expr::made(ExprKind::Lit(Lit::Undefined))), stmts: Some(stmts) }, c));
+                        return Ok(ex(start, ExprKind::Fn { params, body: Box::new(Expr::made(ExprKind::Lit(Lit::Undefined))), stmts: Some(stmts), ptypes: ptypes.clone() }, c));
                     }
                 }
                 c.i = at;
             }
             let body = parse_expr(c)?;
-            return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None }, c));
+            return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None, ptypes }, c));
         }
         c.i = save;
     }
@@ -1984,7 +2001,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
         c.expect("=>")?;
         c.ws(true);
         let body = parse_expr(c)?;
-        return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None }, c));
+        return Ok(ex(start, ExprKind::Fn { ptypes: vec![None; params.len()], params, body: Box::new(body), stmts: None }, c));
     }
     let cond = parse_bin(c, 0)?;
     c.ws(false);

@@ -1,6 +1,6 @@
 # S-module-20 — the shapes solid-primitives returns: read-only fields and tuples, a scheduled callback
 
-Rules: MO-10b, MO-10g, MO-10a, MO-8.
+Rules: MO-10b, MO-10g, MO-10a, MO-8, 07 §3.
 
 ## Modules
 
@@ -30,14 +30,16 @@ source query: string := ""
 export default component App() {
   size = createWindowSize()
   [entries, isVisible] = createObserver([])
-  search = debounce((v) => { query := `${v}` }, 150)
+  search = debounce((v: string) => { query := v }, 150)
   <p>{size.width}x{size.height} {len(entries)}</p>
   <input onInput={(e) => { search(e.target.value) }} />
   <p>{query}</p>
 }
 ```
 
-Accepted.
+Accepted. A closure's parameter may carry its TypeScript type (`v: string`, 07 §3): the
+library types the debounced arguments as `unknown`, and the type says what the closure takes. It is TypeScript's
+alone, checked in the projection and gone from the JavaScript.
 
 ## Rejected variants
 
@@ -55,3 +57,16 @@ Where the declaration types the parameter `any`, nothing says the library
 calls it later: the closure is pure, and a write in it is refused. (So
 `rx-declare` keeps a callback's function type even in a generic
 signature.)
+
+```rx
+-- types: TS2345
+import { debounce } from "./prims.js"
+source query: string := ""
+export default component App() {
+  search = debounce((v: number) => { query := v }, 150)
+  <input onInput={(e) => { search(e.target.value) }} />
+}
+```
+
+The parameter's type is checked as TypeScript checks it: a `number` is not written into a `string` source (a write is
+the source's setter called with the value, so TypeScript reports the argument).

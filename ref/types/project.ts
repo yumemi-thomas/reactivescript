@@ -308,7 +308,7 @@ class Proj {
       case "spread": return `...${go(e.e)}`;
       case "omit": return `__.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;
       case "fn": {
-        const ps = e.params.join(", ");
+        const ps = e.params.map((n, i) => `${n}${e.ptypes?.[i] ? `: ${e.ptypes[i]}` : ""}`).join(", ");   // 07 §3: a parameter's type
         if (!e.stmts) return `((${ps}) => ${this.expr(e.body, imp, self)})`;
         const w = new W(); const saved = this.w; this.w = w; this.stmts(e.stmts, "  "); this.w = saved;
         return `(${hasAwait(e.stmts) ? "async " : ""}(${ps}) => {\n${w.out.join("\n")}\n})`;

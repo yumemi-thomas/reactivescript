@@ -548,7 +548,7 @@ fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<String>) {
                 }
             }
         }
-        ExprKind::Fn { params, body, stmts } => {
+        ExprKind::Fn { params, body, stmts, .. } => {
             let mut b = bound.clone();
             b.extend(params.iter().cloned());
             free_names(body, &b, out);
@@ -2548,7 +2548,7 @@ impl<'a> Checker<'a> {
                     self.expr(a, env, ctx, None);
                 }
             }
-            ExprKind::Fn { params, body, stmts } => {
+            ExprKind::Fn { params, body, stmts, .. } => {
                 let region = self.reg(env);
                 let inner = self.env(Some(env), region);
                 for p in params {
@@ -4256,7 +4256,7 @@ impl<'a> Checker<'a> {
                 out.add(f);
                 out
             }
-            ExprKind::Fn { params, body, stmts } => {
+            ExprKind::Fn { params, body, stmts, .. } => {
                 if imp || stmts.is_some() {
                     return out;
                 }

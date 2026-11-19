@@ -105,7 +105,11 @@ Removed (unwritable, bin U): assignment and update operators (`=`, `+=`,
 `++`, …), `delete`, `new` on reactive values, `this`, `function`
 expressions, `async`/generators, `?.` on a probe. Arrow functions are
 allowed and are reactive (lifted) in reactive scope, imperative in
-imperative scope (SC-3).
+imperative scope (SC-3). An arrow's parameter may carry a TypeScript type
+(`(v: string) => …`, proposed 2026-11-19): it is TypeScript's alone,
+checked in the projection (13 TY-1) and dropped from the JavaScript, for
+a library that types what it passes as `unknown`. `:=` after a name is a
+write, never a type.
 
 Added:
 

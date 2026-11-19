@@ -84,7 +84,8 @@ pub enum ExprKind {
     Arr(Vec<Expr>),
     Rec(Vec<Field>),
     /// `stmts`: a statement-bodied arrow (imperative scope, 07 §5)
-    Fn { params: Vec<String>, body: Box<Expr>, stmts: Option<Vec<Stmt>> },
+    /// ptypes: a parameter's TypeScript type (07 §3), types only
+    Fn { params: Vec<String>, body: Box<Expr>, stmts: Option<Vec<Stmt>>, ptypes: Vec<Option<String>> },
     /// ST-3
     Draft { seed: Box<Expr>, body: Vec<Stmt> },
     /// RG-7b
@@ -470,7 +471,7 @@ impl Expr {
                     )),
                 ),
             ]),
-            ExprKind::Fn { params, body, stmts } => obj(vec![("k", k), ("params", Some(strs(params))), ("body", b(body)), ("stmts", stmts.as_ref().map(|ss| stmts_json(ss)))]),
+            ExprKind::Fn { params, body, stmts, ptypes } => obj(vec![("k", k), ("params", Some(strs(params))), ("body", b(body)), ("stmts", stmts.as_ref().map(|ss| stmts_json(ss))), ("ptypes", ptypes.iter().any(|t| t.is_some()).then(|| ostrs(ptypes)))]),
             ExprKind::Draft { seed, body } => obj(vec![("k", k), ("seed", b(seed)), ("body", Some(stmts_json(body)))]),
             ExprKind::Use(n) => obj(vec![("k", k), ("name", s(n))]),
             ExprKind::Catch { e, name, classes, alt } => obj(vec![("k", k), ("e", b(e)), ("name", os(name)), ("classes", classes.as_ref().map(|c| strs(c))), ("alt", b(alt))]),

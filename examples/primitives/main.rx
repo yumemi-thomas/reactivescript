@@ -11,7 +11,7 @@ export default component App() {
   active = createActiveElement()
   ticks = createIntervalCounter(100)
   [pages, page, setPage] = createPagination({ pages: 5 })
-  search = debounce((v) => { query := `${v}` }, 150)   // the library types v as unknown: written as text
+  search = debounce((v: string) => { query := v }, 150)   // the library types v as unknown: the closure says what it takes
   mouse = createMousePosition()
   [theme, setTheme] = createPersisted("theme", "light")
   items = [{ id: 1, label: "one" }, { id: 2, label: "two" }, { id: 3, label: "three" }]

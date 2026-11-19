@@ -931,9 +931,9 @@ impl Proj<'_> {
                 let ks: String = keys.iter().map(|k| format!(", {}", js_str(k))).collect();
                 Code::of("__.omit(").c(go!(x)).t(&ks).t(")")
             }
-            ExprKind::Fn { params, body, stmts } => {
+            ExprKind::Fn { params, body, stmts, ptypes } => {
                 let mut from = sp.start as usize;
-                let ps = Code::join(params.iter().map(|p| self.name(p, sp, &mut from)).collect(), ", ");
+                let ps = self.params(params, ptypes, sp, &mut from);   // 07 §3: a parameter's type
                 let Some(ss) = stmts else {
                     return Code::of("((").c(ps).t(") => ").c(self.expr(body, imp, me)).t(")");
                 };

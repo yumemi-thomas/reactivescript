@@ -18,7 +18,7 @@ export type Expr =
   | { k: "call"; f: Expr; args: Expr[] }
   | { k: "arr"; items: Expr[] }
   | { k: "rec"; fields: ({ key: string; v: Expr } | { spread: Expr })[] }
-  | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[] }   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
+  | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[]; ptypes?: (string | undefined)[] }   // ptypes: a parameter's TypeScript type (07 §3), types only   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
   | { k: "draft"; seed: Expr; body: Stmt[] }                  // ST-3: the only writes in reactive scope, to `d`
   | { k: "use"; name: string }                                 // RG-7b: the nearest provision above
   | { k: "spread"; e: Expr }                                   // only inside an array literal
