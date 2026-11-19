@@ -450,6 +450,8 @@ re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
 re!(ROW_WORD, r"^(holds\b|fails\(([^)]*)\))\s*");
 re!(ANY_ROW_WORD, r"\b(holds|fails\()");
 re!(RENDER_TYPE, r"=>\s*View\s*$");
+re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
+re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
 re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\()");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
@@ -502,7 +504,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -537,6 +539,74 @@ impl JsDecl {
 }
 
 /// MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`).
+/// MO-10i: a function type's parameter list (`(a: A, b: B) => R` → `a: A, b: B`), or None.
+fn fn_params_text(t: &str) -> Option<String> {
+    let t = t.trim();
+    if !t.starts_with('(') {
+        return None;
+    }
+    let cs: Vec<char> = t.chars().collect();
+    let mut depth = 0i64;
+    for i in 0..cs.len() {
+        let ch = cs[i];
+        if "([{<".contains(ch) {
+            depth += 1;
+        } else if ")]}".contains(ch) || (ch == '>' && i > 0 && cs[i - 1] != '=') {
+            depth -= 1;
+            if depth == 0 {
+                let rest: String = cs[i + 1..].iter().collect();
+                return if rest.trim_start().starts_with("=>") { Some(cs[1..i].iter().collect()) } else { None };
+            }
+        }
+    }
+    None
+}
+/// MO-10i: the positions of a function type's parameters written `draft` (`(draft state: T) => void` → [0]).
+fn draft_params(t: Option<&str>) -> Vec<usize> {
+    let Some(ps) = t.and_then(fn_params_text) else { return vec![] };
+    split_top(&ps, ",").iter().enumerate().filter(|(_, p)| DRAFT_PARAM.is_match(p)).map(|(i, _)| i).collect()
+}
+/// MO-10i: for a function type, its callback parameters' draft positions.
+fn drafts_of_fn(t: &str) -> Vec<(usize, Vec<usize>)> {
+    let Some(ps) = fn_params_text(t) else { return vec![] };
+    split_top(&ps, ",")
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| {
+            let ds = match p.find(':') {
+                Some(c) => draft_params(Some(p[c + 1..].trim())),
+                None => vec![],
+            };
+            (!ds.is_empty()).then_some((i, ds))
+        })
+        .collect()
+}
+/// MO-10i: a result's function parts that take draft callbacks, by tuple index or field name.
+fn draft_parts(ret: Option<&str>) -> Vec<(String, Vec<(usize, Vec<usize>)>)> {
+    let Some(t) = ret.map(str::trim) else { return vec![] };
+    let mut out = vec![];
+    if t.starts_with('[') && t.ends_with(']') {
+        for (i, x) in split_top(&t[1..t.len() - 1], ",").iter().enumerate() {
+            let d = drafts_of_fn(x);
+            if !d.is_empty() {
+                out.push((i.to_string(), d));
+            }
+        }
+    } else if t.starts_with('{') && t.ends_with('}') {
+        for f in split_top(&t[1..t.len() - 1], ",;") {
+            if let Some(c) = f.find(':') {
+                let d = drafts_of_fn(f[c + 1..].trim());
+                if !d.is_empty() {
+                    out.push((field_name(&f[..c]), d));
+                }
+            }
+        }
+    }
+    out
+}
+fn strip_draft(t: &str) -> String {
+    DRAFT_WORD.replace_all(t, "$1").to_string()
+}
 fn is_component_type(t: &str) -> bool {
     // MO-11c: `string | Component` (a polymorphic `as`), `Component | undefined`
     let alts = split_top(t, "|");
@@ -854,7 +924,9 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                 }
             }
             sigs.push(g);
-            params.push(c.ident_or("param")?);
+            let rest = !r && !g && c.eat("..."); // MO-8h: a rest parameter, `...items: T[]`
+            let n = c.ident_or("param")?;
+            params.push(if rest { format!("...{}", n) } else { n });
             c.ws(false);
             opts.push(c.eat("?")); // MO-8e: a caller may leave it out
             c.ws(false);
@@ -1009,7 +1081,12 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
         let cbs = callbacks(&ptypes);
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under });
+        // MO-10i: callbacks whose parameters are a library's drafts, by position; the word is the .d.rx's, not TypeScript's
+        let drafts: Vec<(usize, Vec<usize>)> = ptypes.iter().enumerate().filter_map(|(i, t)| { let ds = draft_params(t.as_deref()); (!ds.is_empty()).then_some((i, ds)) }).collect();
+        let part_drafts = draft_parts(ret.as_deref());
+        let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_draft(&t))).collect();
+        let ret = ret.map(|t| strip_draft(&t));
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts });
     }
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).

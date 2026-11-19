@@ -527,6 +527,8 @@ class Gen {
           const keys = `[${s.target.path.map(p => typeof p === "string" ? J(p) : e(p)).join(", ")}]`;
           const v = e(s.e);
           if (ctx.dyn && !s.target.ctx && !env.lookup(s.target.name)) { out.push(`${pad}__rt.dset(${J(s.target.name)}, ${keys}, ${v}, ${s.k === "optimistic"});`); break; }
+          { const b = s.target.ctx || s.k !== "write" || !s.target.path.length ? undefined : env.lookup(s.target.name);   // MO-10i: a library's draft, written along its path
+            if (b && b.kind === "val" && !b.w) { out.push(`${pad}${b.js}${s.target.path.map(p => `[${typeof p === "string" ? J(p) : e(p)}]`).join("")} = ${v};`); break; } }
           let w: string;
           if (s.target.ctx) w = `__rt.use(${this.ref(s.target.name, env, { imp: false, dyn: ctx.dyn })}, __o).w`;
           else { const b = env.lookup(s.target.name); if (!b?.w) throw new CompileError(`W-1: ${s.target.name} is not a source`); w = b.w; }

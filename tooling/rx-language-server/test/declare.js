@@ -125,6 +125,27 @@ check("its parts are dotted members that use it (MO-11q, by running)", kitHas("e
 check("the same part exported by its own name gets the same rows; a prop a .d.rx cannot name (`aria-label`) is left out", kitHas("export component Trigger(props: { children?: View }) uses(dialog)") && /^export context dialog   \/\/ drafted by running: compound parts/m.test(kit), kit);
 check("a value is declared a value (MO-8g)", kitHas("export const normalizeProps: typeof import(\"./kit.mjs\").normalizeProps"), kit);
 
+// a package that ships .jsx (its solid build) runs compiled by the project's Solid compiler; a context it does not export is
+// named after its hook (`usePanelContext` → panel), or as `--context` says
+fs.writeFileSync(path.join(ws, "jsxkit.jsx"), [
+  "import { createContext, useContext } from \"solid-js\";",
+  "const PanelContext = createContext();",
+  "export const usePanelContext = () => { const c = useContext(PanelContext); if (!c) throw new Error(\"no panel\"); return c; };",
+  "export const Panel = props => <PanelContext value={{}}><section>{props.children}</section></PanelContext>;",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "jsxkit.d.ts"), [
+  "import type { JSX } from \"@solidjs/web\";",
+  "export declare function usePanelContext(): object;",
+  "export declare function Panel(props: { children?: JSX.Element }): JSX.Element;",
+  "",
+].join("\n"));
+const r4 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./jsxkit.jsx"], { cwd: ws, encoding: "utf8" });
+if (process.env.VERBOSE) console.log(r4.stdout, r4.stderr);
+check("a .jsx module runs compiled; its hook's context is named after the hook", /^rx-declare: ran 1 hook: 1 read a context/m.test(r4.stderr) && r4.stdout.split("\n").includes("export pure fn usePanelContext(): object uses(panel)") && /^export context panel /m.test(r4.stdout), r4.stdout + r4.stderr);
+const r5 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./jsxkit.jsx", "--context", "sidePanel"], { cwd: ws, encoding: "utf8" });
+check("--context names it", r5.stdout.split("\n").includes("export pure fn usePanelContext(): object uses(sidePanel)"), r5.stdout + r5.stderr);
+
 const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: ws, encoding: "utf8" });
 check("the draft parses and passes rx-tsc against the module's own types (TY-6)", t.status === 0 && t.stdout.trim() === "", { status: t.status, out: t.stdout + t.stderr });
 

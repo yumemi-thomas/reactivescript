@@ -267,6 +267,12 @@ struct Sym<'a> {
     under: Option<(String, String)>,
     /// MO-11p: a JS component that renders, where it is written, what nests under its component
     outlet: bool,
+    /// MO-10i: a JS fn's callbacks whose parameters are its drafts (argument index, parameter positions)
+    drafts: Vec<(usize, Vec<usize>)>,
+    /// MO-10i: the same, for its result's function parts (tuple index or field)
+    part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>,
+    /// MO-10i: a callback's parameter the library declares a draft: its paths are written
+    js_draft: bool,
     /// MO-11o: every equation's expression, looked through for what it carries
     carried_expr: Option<(&'a Expr, EId)>,
     /// MO-11j: an exported factory's component — the wrapper whose summary an importer sees
@@ -324,6 +330,9 @@ impl<'a> Sym<'a> {
             carried_under: None,
             under: None,
             outlet: false,
+            drafts: vec![],
+            part_drafts: vec![],
+            js_draft: false,
             carried_expr: None,
             exported_as: None,
             wraps: None,
@@ -923,6 +932,8 @@ pub struct Checker<'a> {
     uses: Vec<UseRec>,
     /// MO-10g: closures passed where a declared JS fn takes a callback
     callback_fns: HashSet<*const Expr>,
+    /// MO-10i: closures passed where a JS fn's declaration makes their parameters drafts, with those positions
+    draft_fns: HashMap<*const Expr, Vec<usize>>,
     /// MO-11k: declared JS components' render props (fields typed as a function giving a View), by region
     render_props: HashMap<RId, HashSet<String>>,
     /// MO-11o: the JS components' props that render what their value carries
@@ -932,6 +943,8 @@ pub struct Checker<'a> {
     carried_pending: Vec<(*const Expr, String, i64, String)>,
     /// MO-11p: each outlet, where it is (its region) and whose children it renders (the component's region)
     outlets: Vec<(RId, RId)>,
+    /// E-10: equations decided constant (None while being decided)
+    const_eqs: HashMap<SId, Option<bool>>,
     carried_rendered: HashSet<*const Expr>,
     /// MO-11o: the carried values `carried_names` reached (read-only walks record them here; the application keeps them)
     reached: std::cell::RefCell<HashSet<*const Expr>>,
@@ -1023,10 +1036,12 @@ impl<'a> Checker<'a> {
             seq: 0,
             uses: vec![],
             callback_fns: HashSet::new(),
+            draft_fns: HashMap::new(),
             render_props: HashMap::new(),
             carried_props: HashMap::new(),
             carried_pending: vec![],
             outlets: vec![],
+            const_eqs: HashMap::new(),
             carried_rendered: HashSet::new(),
             reached: std::cell::RefCell::new(HashSet::new()),
             callback_props: HashMap::new(),
@@ -1654,7 +1669,7 @@ impl<'a> Checker<'a> {
                     bind_comp(self, x, alias);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1675,6 +1690,8 @@ impl<'a> Checker<'a> {
                         s.carries = js_keys(self, xcarries);
                         s.carrier = *xcarrier;
                         s.under = xunder.clone();
+                        s.drafts = xdrafts.clone();
+                        s.part_drafts = xpart_drafts.clone();
                         s.held = xheld.clone();
                         s.cbs = xcbs.clone();
                         self.bind(env, alias, s);
@@ -1697,6 +1714,8 @@ impl<'a> Checker<'a> {
                     s.rejects = Some(rejects.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
                     s.side = *xside;
                     s.cbs = xcbs.clone();
+                    s.drafts = xdrafts.clone();
+                    s.part_drafts = xpart_drafts.clone();
                     self.bind(env, alias, s);
                 }
             }
@@ -1706,6 +1725,36 @@ impl<'a> Checker<'a> {
     /// MO-10b: an equation bound from a primitive's result, or from a part of it (`[a, b] = f(…)`, `x.k`): a `ref` part is
     /// a reader (it may hold, MO-10d), a function part is io (R-io-3), anything else is a value.
     fn foreign_part(&self, sym: &mut Sym<'a>, e: &Expr, env: EId) {
+        // MO-10i: a result's function parts that take drafts, and a part bound from them
+        match &e.k {
+            ExprKind::Call { f, .. } => {
+                if let ExprKind::Id(n) = &f.k {
+                    if let Some(t) = self.lookup(env, n) {
+                        if !self.syms[t].part_drafts.is_empty() {
+                            sym.part_drafts = self.syms[t].part_drafts.clone();
+                        }
+                    }
+                }
+            }
+            ExprKind::Index { o, .. } | ExprKind::Member { o, .. } => {
+                let key = match &e.k {
+                    ExprKind::Member { p, .. } => Some(p.clone()),
+                    ExprKind::Index { i, .. } => match &i.k {
+                        ExprKind::Lit(Lit::Num(v)) if *v >= 0.0 && v.fract() == 0.0 => Some((*v as usize).to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let (Some(key), ExprKind::Id(on)) = (key, &o.k) {
+                    if let Some(t) = self.lookup(env, on) {
+                        if let Some((_, d)) = self.syms[t].part_drafts.iter().find(|(k, _)| *k == key) {
+                            sym.drafts = d.clone();
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
         let shape: Option<FShape> = match &e.k {
             ExprKind::Call { f, .. } => match &f.k {
                 ExprKind::Id(n) => self.lookup(env, n).and_then(|t| if self.syms[t].kind == SymKind::Fn { self.syms[t].foreign.clone() } else { None }),
@@ -2279,6 +2328,36 @@ impl<'a> Checker<'a> {
     }
 
     /// E-10: a reactive argument for a value parameter of an instantiating fn is snapshotted.
+    /// E-10: an equation that never changes — it awaits nothing, reads no context, and every name it reads is a pure import,
+    /// a component, an error class or such an equation (`schema = object({ email: string() })`).
+    fn constant_eq(&mut self, s: SId) -> bool {
+        if self.syms[s].kind != SymKind::Eq {
+            return false;
+        }
+        let Some((e, env)) = self.syms[s].carried_expr else { return false };
+        if let Some(m) = self.const_eqs.get(&s) {
+            return *m == Some(true); // None: being decided (a cycle is not constant)
+        }
+        self.const_eqs.insert(s, None);
+        let text = e.to_json().to_string();
+        let mut ok = !["\"k\":\"await\"", "\"k\":\"latest\"", "\"k\":\"use\"", "\"k\":\"pre\""].iter().any(|k| text.contains(k));
+        if ok {
+            let mut reads = IndexSet::new();
+            reads_outside_peek(Node::E(e), &mut reads);
+            for n in reads {
+                if let Some(t) = self.lookup(env, &n) {
+                    // an .rx fn may read a source: not constant
+                    let fixed = (self.syms[t].kind == SymKind::Import && !self.syms[t].io) || matches!(self.syms[t].kind, SymKind::Comp | SymKind::ErrClass);
+                    if !fixed && !self.constant_eq(t) {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+        }
+        self.const_eqs.insert(s, Some(ok));
+        ok
+    }
     fn snapshot_args(&mut self, call: &'a Expr, f: SId, env: EId) {
         let ExprKind::Call { args, .. } = &call.k else { return };
         let params = self.syms[f].params.clone().unwrap_or_default();
@@ -2292,7 +2371,15 @@ impl<'a> Checker<'a> {
             reads_outside_peek(Node::E(a), &mut reads);
             // E-10: an instance a primitive made (its value result) is made once and never changes
             let constant = |s: SId| matches!(self.syms[s].foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value)) | Some(crate::parse::Shape::Comp));
-            let hit = reads.iter().find(|n| self.lookup(env, n).is_some_and(|s| self.syms[s].kind.reactive() && !constant(s))).cloned();
+            let cands: Vec<(String, SId)> = reads.iter().filter_map(|n| self.lookup(env, n).filter(|&s| self.syms[s].kind.reactive() && !constant(s)).map(|s| (n.clone(), s))).collect();
+            // and an equation that reads nothing that changes
+            let mut hit = None;
+            for (n, s) in cands {
+                if !self.constant_eq(s) {
+                    hit = Some(n);
+                    break;
+                }
+            }
             if let Some(h) = hit {
                 self.err(
                     "SNAPSHOT_ARGUMENT",
@@ -2571,6 +2658,16 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Call { f, args } => {
                 if let ExprKind::Id(fname) = &f.k {
+                    // MO-10i: closures at a declared draft callback
+                    if let Some(t) = self.lookup(env, fname) {
+                        for (i, ps) in self.syms[t].drafts.clone() {
+                            if let Some(a) = args.get(i) {
+                                if matches!(a.k, ExprKind::Fn { .. }) {
+                                    self.draft_fns.insert(a as *const Expr, ps);
+                                }
+                            }
+                        }
+                    }
                     if fname == "until" && self.lookup(env, "until").is_none() {
                         if !ctx.imperative {
                             self.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited".into());
@@ -2647,8 +2744,14 @@ impl<'a> Checker<'a> {
             ExprKind::Fn { params, body, stmts, .. } => {
                 let region = self.reg(env);
                 let inner = self.env(Some(env), region);
-                for p in params {
+                let drafts = self.draft_fns.get(&(e as *const Expr)).cloned().unwrap_or_default();
+                for (j, p) in params.iter().enumerate() {
                     self.set_value(inner, p, self.line);
+                    if drafts.contains(&j) {
+                        // MO-10i
+                        let s = self.envs[inner].vars[p.as_str()];
+                        self.syms[s].js_draft = true;
+                    }
                 }
                 if let Some(ss) = stmts {
                     if !ctx.imperative && !self.callback_fns.contains(&(e as *const Expr)) {
@@ -2772,6 +2875,16 @@ impl<'a> Checker<'a> {
                         }
                     } else {
                         tsym = self.resolve(&target.name, env, ctx);
+                        if op == "write" && !target.path.is_empty() && tsym.is_some_and(|t| self.syms[t].js_draft) {
+                            // MO-10i: a path of a library's draft: the library's write, not a source's
+                            for p in &target.path {
+                                if let PathSeg::Expr(x) = p {
+                                    self.expr(x, env, ctx, None);
+                                }
+                            }
+                            self.expr(e, env, ctx, None);
+                            continue;
+                        }
                         self.model.write(tsym, op, !target.path.is_empty());
                         if let Some(t) = tsym {
                             let k = self.syms[t].kind;
@@ -2790,7 +2903,15 @@ impl<'a> Checker<'a> {
                                     SymKind::Props => "props".to_string(),
                                     k => format!("a {}", k.as_str()),
                                 };
-                                let hint = if k == SymKind::Props || k == SymKind::Value || self.syms[t].param { " — a source is written only in the region that declares it: have its owner pass an action that writes it (O-4)" } else { "" };
+                                let hint = if self.syms[t].js_draft {
+                                    format!(" — a library's draft is written along its paths (`{}.field := …`), or the callback returns the new value (MO-10i)", target.name)
+                                } else if k == SymKind::Value && !target.path.is_empty() {
+                                    " — a field of a callback's parameter is written only when the library declares it a draft, `(draft state: T) => void` (MO-10i)".to_string()
+                                } else if k == SymKind::Props || k == SymKind::Value || self.syms[t].param {
+                                    " — a source is written only in the region that declares it: have its owner pass an action that writes it (O-4)".to_string()
+                                } else {
+                                    String::new()
+                                };
                                 self.err("WRITE_TO_NON_SOURCE", "W-1", format!("{} is {}: only sources are written{}", target.name, what, hint));
                             } else if let Some(imp) = self.syms[t].imported.clone() {
                                 self.err(

@@ -103,6 +103,9 @@ type Sym = {
   carrier?: boolean;                   // MO-11o: a declared fn whose result carries the components in its arguments
   carried?: { args: Expr[]; env: Env; under?: { parent: string; inside: string } };   // MO-11o: on an equation bound to such a call, those arguments; MO-11p: where it renders
   under?: { parent: string; inside: string };   // MO-11p: a carrying fn whose result renders at its parent's outlet
+  drafts?: [number, number[]][];       // MO-10i: a JS fn's callbacks whose parameters are its drafts (argument index, parameter positions)
+  partDrafts?: Record<string, [number, number[]][]>;   // MO-10i: the same, for its result's function parts (tuple index or field)
+  jsDraft?: boolean;                   // MO-10i: a callback's parameter the library declares a draft: its paths are written
   outlet?: boolean;                    // MO-11p: a JS component that renders, where it is written, what nests under its component
   carriedExpr?: { e: Expr; env: Env };   // MO-11o: every equation's expression, looked through for what it carries
   rendersRoot?: boolean;               // MO-11n: renders(root), under a root of the library's own
@@ -613,8 +616,8 @@ class Checker {
       if (x.kind === "comp") { bindComp(x, alias); continue; }   // MO-11a
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}) });
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}) });
     }
   }
   /** CN-3d: `e` can have no value on the first load: it awaits without a first paint, here or in an equation it reads,
@@ -671,6 +674,9 @@ class Checker {
       const t = e.o.k === "id" ? env.lookup(e.o.name) : undefined; const s = t?.foreign;
       if (s && typeof s === "object") shape = e.k === "index" ? ("items" in s ? s.items[(e.i as { v: number }).v] : undefined) : ("fields" in s ? s.fields.find(f => f[0] === e.p)?.[1] : undefined);
     }
+    // MO-10i: a result's function parts that take drafts, and a part bound from them
+    if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.partDrafts) sym.partDrafts = f.partDrafts; }
+    else if ((e.k === "index" || e.k === "member") && e.o.k === "id") { const key = e.k === "member" ? e.p : e.i.k === "lit" ? String(e.i.v) : ""; const pd = env.lookup(e.o.name)?.partDrafts?.[key]; if (pd) sym.drafts = pd; }
     if (!shape) return;
     sym.foreign = shape;
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; }   // MO-10f: its fields' rows come with it
@@ -867,11 +873,25 @@ class Checker {
   }
 
   /** E-10: a reactive argument for a value parameter of an instantiating fn is snapshotted. */
+  /** E-10: an equation that never changes — it awaits nothing, reads no context, and every name it reads is a pure import,
+   *  a component, an error class or such an equation (`schema = object({ email: string() })`). */
+  private constEqs = new Map<Sym, boolean | null>();
+  /** MO-10i: closures passed where a JS fn's declaration makes their parameters drafts, with those positions. */
+  private draftFns = new Map<Expr, number[]>();
+  private constantEq(s: Sym): boolean {
+    if (s.kind !== "eq" || !s.carriedExpr) return false;
+    const memo = this.constEqs.get(s); if (memo !== undefined) return memo === true;   // null: being decided (a cycle is not constant)
+    this.constEqs.set(s, null);
+    const { e, env } = s.carriedExpr;
+    let ok = !/"k":"(await|latest|use|pre)"/.test(JSON.stringify(e));
+    if (ok) { const reads = new Set<string>(); readsOutsidePeek(e, reads); ok = [...reads].every(n => { const t = env.lookup(n); return !t || (t.kind === "import" && !t.io) || t.kind === "comp" || t.kind === "errclass" || this.constantEq(t); }); }   // an .rx fn may read a source: not constant
+    this.constEqs.set(s, ok); return ok;
+  }
   private snapshotArgs(call: Extract<Expr, { k: "call" }>, f: Sym, env: Env) {
     f.params!.forEach((p, i) => {
       const a = call.args[i]; if (!a || p.ref) return;
       const reads = new Set<string>(); readsOutsidePeek(a, reads);
-      const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !(s.foreign === "value" || s.foreign === "comp"); });   // E-10: an instance a primitive made (its value result) is made once and never changes
+      const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !(s.foreign === "value" || s.foreign === "comp") && !this.constantEq(s); });   // E-10: an instance a primitive made (its value result) is made once and never changes; so does an equation that reads nothing that changes
       if (hit) this.err("SNAPSHOT_ARGUMENT", "E-10", `${f.name}(…): the argument for value parameter ${p.name} reads ${hit} and would be snapshotted — declare the parameter \`ref\`, or pass peek(…)`);
     });
   }
@@ -967,6 +987,7 @@ class Checker {
       case "arr": e.items.forEach(go); return;
       case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
       case "call": {
+        if (e.f.k === "id") for (const [i, ps] of env.lookup(e.f.name)?.drafts ?? []) { const a = e.args[i]; if (a?.k === "fn") this.draftFns.set(a, ps); }   // MO-10i
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
           if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited");
           const p = e.args[0];
@@ -998,8 +1019,8 @@ class Checker {
         go(e.f); e.args.forEach(go); return;
       }
       case "fn": {
-        const inner = new Env(env, env.region);
-        for (const p of e.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: this.line });
+        const inner = new Env(env, env.region); const drafts = this.draftFns.get(e);
+        e.params.forEach((p, j) => inner.vars.set(p, { kind: "value", name: p, region: env.region, line: this.line, ...(drafts?.includes(j) ? { jsDraft: true } : {}) }));   // MO-10i
         if (e.stmts) {
           if (ctx.scope === "reactive" && !this.callbackFns.has(e)) { this.err("REACTIVE_WRITE_IN_OWNED_SCOPE", "W-2", "a statement-bodied closure in reactive scope (SC-3: a closure created here is a pure function)"); return; }
           const why = ctx.server ? null : inferredAction(e.stmts);                          // AC-1b: an arrow that guesses, or writes and awaits, is an action
@@ -1059,11 +1080,15 @@ class Checker {
             if (c) { this.model.write(c, s.k, s.target.path.length > 0); this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: s.target.name }); if (!c.ctx!.source) this.err("WRITE_TO_NON_SOURCE", "O-4", `context ${s.target.name} is read beneath its provision: call an action it provides that writes it`); }
           }
           else {
-            target = this.resolve(s.target.name, env, ctx); this.model.write(target, s.k, s.target.path.length > 0);
+            target = this.resolve(s.target.name, env, ctx);
+            if (target?.jsDraft && s.k === "write" && s.target.path.length) {                  // MO-10i: a path of a library's draft: the library's write, not a source's
+              s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx)); this.expr(s.e, env, ctx); break;
+            }
+            this.model.write(target, s.k, s.target.path.length > 0);
             const guessable = s.k === "optimistic" && target?.kind === "eq" && !!target.eqDecl && !target.param && !target.imported;   // AC-3: a guess may sit over an equation (Solid's createOptimistic(fn)); it is not a write of the truth
             if (guessable && target!.eqDecl!.deferred) this.err("GUESS_ON_DEFERRED", "AC-3", `${s.target.name} is deferred: its value is a lagging copy (V-16), so nothing would confirm a guess on it — guess the equation it lags`);
             else if (guessable) {}
-            else if (target && target.kind !== "source") this.err("WRITE_TO_NON_SOURCE", "W-1", `${s.target.name} is ${target.kind === "eq" ? "an equation" : target.kind === "props" ? "props" : `a ${target.kind}`}: only sources are written${target.kind === "props" || target.kind === "value" || target.param ? " — a source is written only in the region that declares it: have its owner pass an action that writes it (O-4)" : ""}`);
+            else if (target && target.kind !== "source") this.err("WRITE_TO_NON_SOURCE", "W-1", `${s.target.name} is ${target.kind === "eq" ? "an equation" : target.kind === "props" ? "props" : `a ${target.kind}`}: only sources are written${target.jsDraft ? " — a library's draft is written along its paths (`" + s.target.name + ".field := …`), or the callback returns the new value (MO-10i)" : target.kind === "value" && s.target.path.length ? " — a field of a callback's parameter is written only when the library declares it a draft, `(draft state: T) => void` (MO-10i)" : target.kind === "props" || target.kind === "value" || target.param ? " — a source is written only in the region that declares it: have its owner pass an action that writes it (O-4)" : ""}`);
             else if (target?.imported) this.err("WRITE_TO_NON_SOURCE", "MO-2", `${s.target.name} is a source of ${target.imported}: a module boundary is a value boundary — write it through an action ${target.imported} exports`);
           }
           if (s.k === "optimistic") {

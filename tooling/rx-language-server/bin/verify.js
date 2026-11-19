@@ -113,6 +113,7 @@ async function verify(file) {
   const base = file.slice(0, -".d.rx".length);
   const js = JS.map(x => base + x).find(f => fs.existsSync(f));
   if (!js) return [{ line: 1, status: "fail", what: `no JS module beside ${path.basename(file)}` }];
+  require("../src/declare-run.js").compileJsx(path.dirname(path.resolve(js)));   // a package that ships .jsx runs compiled (its solid build)
   const mod = await import(pathToFileURL(path.resolve(js)).href);
   const probeFile = [".probe.mjs", ".probe.js"].map(x => base + x).find(f => fs.existsSync(f));
   const probeMod = probeFile ? await import(pathToFileURL(path.resolve(probeFile)).href) : null;

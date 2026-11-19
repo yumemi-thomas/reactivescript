@@ -134,7 +134,7 @@ export function parseProgram(src: string): Program {
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
-  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string } }   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string }; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]> }   // drafts, partDrafts: MO-10i   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
   | { kind: "error"; name: string; line: number }
   | { kind: "type"; name: string; line: number; text?: string }
   | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean }   // outlet: MO-11p   // MO-11a: a Solid component
@@ -161,7 +161,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); const tparams = typeParams(c); c.ws(); c.expect("("); c.ws();   // MO-8d: `fn f<const S extends string>(…)`, TypeScript's, for TY
     const params: string[] = []; const ptypes: (string | undefined)[] = []; const refs: boolean[] = []; const sigs: boolean[] = [];
     const opts: boolean[] = [];
-    while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const sv = c.i; let g = !r && c.keyword("signal"); if (g) { c.ws(); if (!/^[A-Za-z_$]/.test(c.peek())) { c.i = sv; g = false; } } sigs.push(g);   /* MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name) */ params.push(c.ident() ?? c.fail("param")); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
+    while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const sv = c.i; let g = !r && c.keyword("signal"); if (g) { c.ws(); if (!/^[A-Za-z_$]/.test(c.peek())) { c.i = sv; g = false; } } sigs.push(g);   /* MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name) */ const rest = !r && !g && c.eat("...");   /* MO-8h: a rest parameter, `...items: T[]` */ params.push((rest ? "..." : "") + (c.ident() ?? c.fail("param"))); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined;
     if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(/.exec(t); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
@@ -182,7 +182,12 @@ export function parseDeclarations(src: string): JsDecl[] {
     const instantiates = written || refs.some(x => x) || sigs.some(x => x) || carrier || shapeHasRef(shape) || shape === "comp" || !!uses || !!held || renders;   // MO-10a: inferred from a ref on either side; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
     if (nests && shape !== "comp") c.fail(`nests(…) on fn ${name}: only a fn that hands back a Component renders what it is given (MO-11i)`);
     if (provides && shape !== "comp") c.fail(`provides(…) on fn ${name}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)`);
-    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(callbacks(ptypes) ? { cbs: callbacks(ptypes) } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}) });
+    // MO-10i: callbacks whose parameters are a library's drafts (`(update: (draft state: T) => void) => void`), by position;
+    // the word is the .d.rx's, not TypeScript's
+    const drafts = ptypes.flatMap((t, i) => { const ds = draftParams(t); return ds.length ? [[i, ds] as [number, number[]]] : []; });
+    const partDrafts = draftParts(ret);
+    for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripDraft(ptypes[i]); ret = stripDraft(ret);
+    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(callbacks(ptypes) ? { cbs: callbacks(ptypes) } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}) });
   }
 }
 /** A declaration line without its `// comment` (not a `//` inside a string literal type): words in a comment are not rows. */
@@ -242,6 +247,31 @@ function isComponentType(t: string): boolean {
   let depth = 0; for (let i = 0; i < r.length; i++) { if (r[i] === "<") depth++; else if (r[i] === ">" && r[i - 1] !== "=" && --depth === 0) return i === r.length - 1; }
   return false;
 }
+/** MO-10i: a function type's parameter list (`(a: A, b: B) => R` → `a: A, b: B`), or null. */
+function fnParamsText(t: string): string | null {
+  t = t.trim(); if (!t.startsWith("(")) return null; let depth = 0;
+  for (let i = 0; i < t.length; i++) { const ch = t[i]; if ("([{<".includes(ch)) depth++; else if (")]}".includes(ch) || (ch === ">" && t[i - 1] !== "=")) { if (--depth === 0) return /^\s*=>/.test(t.slice(i + 1)) ? t.slice(1, i) : null; } }
+  return null;
+}
+/** MO-10i: the positions of a function type's parameters written `draft` (`(draft state: T) => void` → [0]). */
+function draftParams(t: string | undefined): number[] {
+  const ps = t === undefined ? null : fnParamsText(t); if (ps === null) return [];
+  return splitTop(ps, ",").flatMap((p, i) => /^draft\s+[A-Za-z_$]/.test(p) ? [i] : []);
+}
+/** MO-10i: for a function type, its callback parameters' draft positions. */
+function draftsOfFn(t: string): [number, number[]][] {
+  const ps = fnParamsText(t); if (ps === null) return [];
+  return splitTop(ps, ",").flatMap((p, i) => { const c = p.indexOf(":"); const ds = c < 0 ? [] : draftParams(p.slice(c + 1).trim()); return ds.length ? [[i, ds] as [number, number[]]] : []; });
+}
+/** MO-10i: a result's function parts that take draft callbacks (`[ref T, (update: (draft s: T) => void) => void]`), by tuple index or field name. */
+function draftParts(ret: string | undefined): Record<string, [number, number[]][]> | undefined {
+  if (!ret) return undefined; const t = ret.trim(); const out: Record<string, [number, number[]][]> = {};
+  if (t.startsWith("[") && t.endsWith("]")) splitTop(t.slice(1, -1), ",").forEach((x, i) => { const d = draftsOfFn(x); if (d.length) out[String(i)] = d; });
+  else if (t.startsWith("{") && t.endsWith("}")) for (const f of splitTop(t.slice(1, -1), ",;")) { const c = f.indexOf(":"); if (c < 0) continue; const d = draftsOfFn(f.slice(c + 1).trim()); if (d.length) out[fieldName(f.slice(0, c))] = d; }
+  return Object.keys(out).length ? out : undefined;
+}
+const stripDraft = (t: string | undefined) => t?.replace(/\bdraft\s+(?=[A-Za-z_$][\w$]*\s*[?:,)])/g, "");
+
 /** MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`. */
 function parseJsComponent(c: Cursor, line: number): JsDecl {
   c.ws(); let name = c.ident() ?? c.fail("component name");

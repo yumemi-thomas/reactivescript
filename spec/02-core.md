@@ -171,6 +171,13 @@ Function application `f(e…)` covers both language functions and FFI imports;
   made once and never changes, so reading it in an argument loses nothing
   and is no diagnostic (proposed 2026-11-19: `createRouter({ routeTree:
   rootRoute.addChildren(…) })`, S-module-22); a reader (`ref`) still is.
+  So is an equation that never changes (proposed 2026-11-19): one that
+  awaits nothing, reads no context, and reads only pure JS imports,
+  components, error classes and such equations — a validation schema built
+  at module level, `schema = object({ email: pipe(string(), isEmail()) })`,
+  passed to `createForm({ schema })`. An `.rx` `fn` may read a source, so a
+  call of one is not constant; a schema that reads a source is still a
+  snapshot (`examples/formisch`).
 
 ### W — Writes
 

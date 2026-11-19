@@ -197,6 +197,12 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   object, a symbol): imported, it is read as any import is, never io, and
   projected as `export declare const`. TY-6 checks its type.
 
+- **MO-8h (Rest parameters) — proposed 2026-11-19.** `export pure fn
+  pipe(...items: any[]): any` declares a variadic JS function (valibot's
+  `pipe`, `clsx`): a call passes any number of arguments after the fixed
+  ones. `rx-declare` drafts it from the types; TypeScript checks the
+  arguments as it checks the library's own signature.
+
 ## MO-9 — A signature read in place of its module
 
 - **MO-9a.** `import … from "./x.rx"` where there is no `x.rx` but there is
@@ -362,6 +368,26 @@ export component Search(props: { start: boolean, q: string }) {
   library hands back, which MO-10b already reads: `[theme, setTheme] =
   makePersisted("light", { name: "theme" })`, a reader and a setter called
   from handlers. `signal` implies `instantiates`. S-module-21.
+- **MO-10i (A library's drafts) — proposed 2026-11-19.** Some libraries
+  hand a callback a value to change in place: Solid 2's store setter calls
+  it with the store's draft (`setStore(s => { s.done += 1 })`), and the
+  write is the library's, inside its setter. A declaration marks such a
+  callback parameter `draft`: `(update: (draft state: T) => T | void) =>
+  void`, on a fn's parameter or on a function part of its result (the
+  setter of `[store, setStore] = makeStore(…)`). In a closure literal passed
+  there, a path of that parameter is written with `:=`, as an equation
+  writes its own draft (ST-3): `setTodos((d) => { d.done := d.done + 1;
+  d.items[len(d.items)] := text })`, compiled as a plain assignment
+  (`d["done"] = …`). The draft itself is not reassigned; the callback
+  returns the new value instead. Every other path write stays refused
+  (W-1, `WRITE_TO_NON_SOURCE`, with the reason): a parameter the
+  declaration does not mark, a local, a captured `.rx` value, so a source
+  is never changed behind its writes. The trust is the declaration's, as
+  every row at the JS boundary is: TY-6 checks the type with `draft`
+  removed, and TypeScript checks each value written against the draft's
+  field. Solid 2's store is a proxy read field by field, so its declared
+  first part is a value, not `ref`. S-module-25; `examples/formisch` runs
+  Solid 2's own store this way.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 
@@ -931,3 +957,8 @@ Executable: S-module-7.
      name: a kit's parts are distinct components with distinct rows (each
      reads the root's context), which one object type could not say, and
      `rx-declare` settles those rows by running the parts.
+   - *A library's draft* (MO-10i) is allowed, marked in the declaration,
+     not in `.rx`: writing into what a library hands a callback is how its
+     API writes (Solid 2's store setter), and marking it where the trust
+     already sits keeps a `.rx` value from being changed behind its writes.
+     Writing it uses `:=` on a path, as ST-3's own drafts do.

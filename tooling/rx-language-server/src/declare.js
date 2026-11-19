@@ -184,10 +184,10 @@ function declare(ts, spec, from, options = {}) {
     const sig = [...sigs].sort((a, b) => a.getParameters().length - b.getParameters().length)[0];   // the shortest overload: the common form
     const params = [...sig.getParameters()];
     const optional = p => { const d = p.valueDeclaration; return !!d && ts.isParameter(d) && !!(d.questionToken || d.initializer || d.dotDotDotToken); };
-    while (params.length && params[params.length - 1].valueDeclaration && ts.isParameter(params[params.length - 1].valueDeclaration) && params[params.length - 1].valueDeclaration.dotDotDotToken) params.pop();   // a rest parameter is left out (a fn that takes more fits, TY-6)
+    const isRest = p => !!p?.valueDeclaration && ts.isParameter(p.valueDeclaration) && !!p.valueDeclaration.dotDotDotToken;
     void optional;
     const generic = !!sig.getTypeParameters()?.length;   // MO-8d: what ranges over type parameters is loosened (TY-6 checks the rest)
-    const ps = params.map(p => paramText(ts, checker, p, imp, generic));
+    const ps = params.map(p => isRest(p) ? `...${p.name}: any[]` : paramText(ts, checker, p, imp, generic));   // MO-8h: a rest parameter (`pipe(...items)`)
     const todos = [];
     const ret = resultText(ts, checker, sig.getReturnType(), todos, generic);
     const primitive = /^(create|use)[A-Z]/.test(name);

@@ -37,11 +37,26 @@ function resolveModule(spec, from) {
   }
 }
 
-async function runRows(draft, spec, from) {
+/** A package that ships only `.jsx` (its `solid` build) runs once compiled: the project's Solid compiler, through a
+ *  module hook (src/jsx-hook.mjs). Without one the package is not run, and the note says why. */
+let jsxHook = null;
+function compileJsx(from) {
+  if (jsxHook !== null) return jsxHook;
+  try {
+    const compiler = require.resolve("@solidjs/compiler", { paths: [from, path.join(from, "node_modules/@solidjs/vite-plugin")] });
+    require("node:module").register(pathToFileURL(path.join(__dirname, "jsx-hook.mjs")).href, { data: { compiler, from: path.join(from, "package.json") } });
+    jsxHook = true;
+  } catch { jsxHook = false; }
+  return jsxHook;
+}
+
+async function runRows(draft, spec, from, opts = {}) {
   let file;
   file = resolveModule(spec, from);
   if (!file) return { draft, notes: [`not run: ${spec} does not resolve from ${from}`] };
   const dir = path.dirname(file);
+  if (/\.(jsx|tsx)$/.test(file) && !compileJsx(from)) return { draft, notes: [`not run: ${spec} ships .jsx (its solid build); install @solidjs/compiler (the Vite plugin's) to run it here`] };
+  compileJsx(from);   // a .js entry may import .jsx too
   const load = p => import(pathToFileURL(require.resolve(p, { paths: [dir, from, __dirname] })).href);
   let mod, s;
   try { mod = await import(pathToFileURL(file).href); s = await load("solid-js"); }
@@ -70,7 +85,12 @@ async function runRows(draft, spec, from) {
   const bare = l => { const m = /^export pure fn (use[A-Z]\w*)\(([^)]*)\)/.exec(l); return m && (!m[2].trim() || m[2].split(",").every(q => /^\s*(ref\s+)?[\w$]+\?/.test(q))) ? m[1] : null; };
   lines.forEach((l, i) => { const n = bare(l); if (n && typeof mod[n] === "function") hooks.push({ name: n, i }); });
   const contexts = Object.entries(mod).filter(([, v]) => v && typeof v === "function" && "id" in v && "defaultValue" in v);   // Solid 2's createContext
-  const pkgCtx = ident(spec.startsWith(".") ? path.basename(spec).replace(/\.[^.]+$/, "") : spec);
+  // the name of a context the module does not export: `--context <name>`, else what its hooks call it (`useDialogContext`
+  // → dialog), else its one compound object's (`Dialog.Trigger` → dialog), else the module's
+  const lower = n => n.replace(/^./, c => c.toLowerCase());
+  const fromHooks = [...new Set(hooks.map(h => /^use([A-Z]\w*?)Context$/.exec(h.name)?.[1]).filter(Boolean))];
+  const objects = [...new Set(lines.flatMap(l => { const m = /^export component (\w+)\.\w+\(/.exec(l); return m ? [m[1]] : []; }))];
+  const pkgCtx = opts.context ?? (fromHooks.length === 1 ? lower(fromHooks[0]) : objects.length === 1 ? lower(objects[0]) : ident(spec.startsWith(".") ? path.basename(spec).replace(/\.[^.]+$/, "") : spec));
   const needs = new Map();   // hook → context name
   const unsettled = new Set();
   const envOnly = new Map();   // hook → what it threw for want of a browser
@@ -99,7 +119,7 @@ async function runRows(draft, spec, from) {
   for (const [obj, parts] of partsOf) {
     const O = mod[obj]; const rootName = typeof O === "function" ? obj : typeof O.Root === "function" ? `${obj}.Root` : null; if (!rootName) continue;
     const Root = typeof O === "function" ? O : O.Root;
-    const ctx = used.length === 1 ? used[0] : ident(obj);
+    const ctx = used.length === 1 ? used[0] : opts.context ?? lower(obj);
     for (const part of parts) {
       if (`${obj}.${part}` === rootName) continue;
       const render = () => s.createComponent(O[part], {});
@@ -144,4 +164,4 @@ async function runRows(draft, spec, from) {
   return { draft: text, notes: [`ran ${hooks.length} hook${hooks.length === 1 ? "" : "s"}: ${needs.size} read a context${provided.size ? `; ${[...provided.keys()].join(", ")} provide${provided.size === 1 ? "s" : ""} it` : ""}${partNeeds.size ? `; ${partNeeds.size} compound part${partNeeds.size === 1 ? "" : "s"} read${partNeeds.size === 1 ? "s" : ""} ${[...rootGives.keys()].join(", ")}'s context` : ""}`] };
 }
 
-module.exports = { runRows };
+module.exports = { runRows, resolveModule, compileJsx };

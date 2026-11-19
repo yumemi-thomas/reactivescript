@@ -1628,6 +1628,15 @@ impl<'p> Gen<'p> {
                         out.push(sexpr(rtc("dset", vec![str(target.name.clone()), keys, v, E::Bool(optimistic)])));
                         continue;
                     }
+                    // MO-10i: a library's draft, written along its path
+                    if !optimistic && has_path && !target.is_ctx() {
+                        if let Some(b) = self.lookup(env, &target.name).filter(|b| b.kind == Kind::Val && b.w.is_none()) {
+                            let E::Arr(segs) = keys else { unreachable!() };
+                            let lhs = segs.into_iter().fold(id(b.js), |o, k| E::Index(Box::new(o), Box::new(k), false));
+                            out.push(sexpr(E::Assign("=", Box::new(lhs), Box::new(v))));
+                            continue;
+                        }
+                    }
                     let w = if target.is_ctx() {
                         let c = self.reference(&target.name, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?;
                         dot(rtc("use", vec![c, id("__o")]), "w")

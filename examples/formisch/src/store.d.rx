@@ -1,0 +1,2 @@
+// Solid 2's createStore in rows: its setter's callback gets the store's draft (MO-10i); the store is a proxy read field by field, not an accessor
+export pure fn makeStore(init: { items: string[]; done: number }): [{ items: string[]; done: number }, (update: (draft state: { items: string[]; done: number }) => { items: string[]; done: number } | void) => void]
