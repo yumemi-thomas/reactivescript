@@ -3,7 +3,8 @@
 // TY-6 checks what types can, this checks what running can). For each declared export: it exists, and a fn is a function.
 // For each hook declared `uses(…)` that needs no arguments: called with nothing providing its context, it must throw
 // (Solid's `useContext` finds nothing, and the library refuses), or the row claims a need the hook does not have. The
-// rest is listed as not verified, with why.
+// rest is listed as not verified, with why. A failure that only says there is no browser (no `window`) is not
+// verified either; `--dom` runs with happy-dom's browser globals (@happy-dom/global-registrator, from the project).
 //
 // Probes: `lib.probe.mjs` (or .js) beside `lib.d.rx` may give what only the app has. It exports `probes`, by hook name,
 // `{ args: () => [...], fail?: () => [...], run?: result => … }` (the arguments as JS passes them: a `ref` parameter is
@@ -142,6 +143,9 @@ async function verify(file) {
     if (x.kind === "fn" && x.fields && (probe?.args || !x.required)) {
       const fails = x.fields.filter(f => f.fails.length);
       const ran = await mount(dir, mod, probeMod, v, probe?.args?.() ?? [], x.fields);
+      // what failed only for want of a browser (no `window` here) is no evidence either way: run with --dom
+      const envErr = [ran.boundary, ...x.fields.map(f => ran.seen.get(f.path.join(".")).failed)].find(environmental);
+      if (envErr) { out.push({ line: x.line, status: "unverified", what: `${x.name}: not run: it needs a browser (${String(envErr.message ?? envErr).slice(0, 40)}); run rx-verify with --dom` }); continue; }
       const bad = [];
       for (const f of x.fields) {
         const st = ran.seen.get(f.path.join("."));
@@ -209,8 +213,20 @@ function same(a, b, seen = new Set()) {
 }
 const show = v => { try { return JSON.stringify(v)?.slice(0, 30) ?? String(v); } catch { return String(v); } };
 
+/** A failure that says only that there is no browser here (a missing `window`, `document`, …). */
+function environmental(e) {
+  return !!e && (e instanceof ReferenceError || /\bis not defined\b|\b(window|document|navigator|localStorage|matchMedia)\b/.test(String(e.message ?? "")) || environmental(e.cause));
+}
+
 (async () => {
-  const files = process.argv.slice(2);
+  const dom = process.argv.includes("--dom");
+  const files = process.argv.slice(2).filter(a => a !== "--dom");
+  if (dom) {   // a browser's globals, from happy-dom, resolved from the project: its hooks then run as in a page
+    let reg;
+    try { reg = require(require.resolve("@happy-dom/global-registrator", { paths: [process.cwd(), __dirname] })); }
+    catch { process.stderr.write("rx-verify --dom: install @happy-dom/global-registrator in the project\n"); process.exit(2); }
+    reg.GlobalRegistrator.register({ url: "http://localhost/" });
+  }
   if (!files.length) { process.stderr.write("usage: rx-verify <file.d.rx>...\n"); process.exit(2); }
   let fails = 0;
   for (const f of files) {

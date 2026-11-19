@@ -11,6 +11,8 @@ const path = require("node:path");
 /** A type's text, kept where it names nothing the draft cannot see; `any` otherwise (types are text to the checker). */
 const KNOWN = new Set(["Promise", "Record", "Array", "ReadonlyArray", "Partial", "Readonly", "View", "Component", "Error", "Date", "Map", "Set", "Element", "HTMLElement", "Event"]);
 function text(ts, checker, t) {
+  if (isJsxElement(ts, checker, t)) return "View";
+  if (checker.isArrayType(t) && isJsxElement(ts, checker, checker.getTypeArguments(t)[0])) return "View[]";
   const s = checker.typeToString(t, undefined, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.InTypeAlias);
   const names = s.replace(/"[^"]*"|'[^']*'/g, "").match(/\b[A-Z][A-Za-z0-9_$]*\b/g) ?? [];
   return names.every(n => KNOWN.has(n)) && !/=>/.test(s) ? s : "any";
@@ -19,6 +21,8 @@ function text(ts, checker, t) {
 /** An accessor: one call signature, no parameters (Solid's `Accessor<T>`). Returns what it reads, or undefined. */
 function accessorOf(ts, checker, t) {
   t = checker.getNonNullableType(t);
+  // `MaybeAccessor<T>` (`T | Accessor<T>`): it takes an accessor, so `.rx` passes one (a live value, MO-10a)
+  if (t.flags & ts.TypeFlags.Union) { const a = t.types.map(x => accessorOf(ts, checker, x)).find(Boolean); if (a) return a; }
   if (t.getConstructSignatures().length || t.getProperties().length) return undefined;
   const sigs = t.getCallSignatures();
   if (sigs.length !== 1 || sigs[0].getParameters().length) return undefined;
@@ -26,7 +30,17 @@ function accessorOf(ts, checker, t) {
   return r.flags & ts.TypeFlags.Void ? undefined : r;   // `() => void` is a callback, not an accessor
 }
 // Solid's JSX.Element is a union with null and undefined: its name, not its members, says it is an element
-const isElement = (ts, checker, t) => /\bElement\b/.test(checker.typeToString(t)) || /\bElement\b/.test(checker.typeToString(checker.getNonNullableType(t)));
+// (by its declaration: the DOM's `Element`, `HTMLElement`, a function of an element, are not)
+const isJsxElement = (ts, checker, t) => {
+  const u = checker.getNonNullableType(t);
+  for (const x of [t, u]) {
+    const sym = x.aliasSymbol ?? x.symbol;
+    const file = sym?.declarations?.[0]?.getSourceFile().fileName ?? "";
+    if (sym?.name === "Element" && !/\/typescript\/lib\/lib\./.test(file)) return true;
+  }
+  return false;
+};
+const isElement = isJsxElement;
 /** A component: a callable whose signatures take at most props and give a JSX element. */
 function isComponent(ts, checker, t) {
   const sigs = checker.getNonNullableType(t).getCallSignatures();
@@ -48,35 +62,46 @@ function propText(ts, checker, p, at) {
 }
 
 /** An options object the library declares (not a primitive's methods, a class instance or an array): its callbacks matter. */
-function ownObject(ts, t) {
+function ownObject(ts, t, checker) {
   if (!(t.flags & ts.TypeFlags.Object) || t.getCallSignatures().length) return false;
+  if (checker && (checker.isTupleType(t) || checker.isArrayType(t))) return false;   // a tuple (a Signal) or an array is written whole
+  if (t.getProperties().some(q => q.name.startsWith("__@"))) return false;          // an iterable (`[Symbol.iterator]`) is not a record
   if (t.symbol?.flags & ts.SymbolFlags.Class) return false;
   const decl = t.symbol?.declarations?.[0];
   const file = decl?.getSourceFile().fileName ?? "";
   return !!t.getProperties().length && !/\/typescript\/lib\/lib\./.test(file) && !t.getProperties().some(q => q.name.startsWith("#"));
 }
-function paramText(ts, checker, p, at) {
+const RESERVED = new Set(["ref", "fn", "pure", "component", "context", "error", "type", "const", "export"]);
+function paramText(ts, checker, p, at, generic = false) {
   const t = checker.getTypeOfSymbolAtLocation(p, at);
   const opt = p.valueDeclaration && ts.isParameter(p.valueDeclaration) && (p.valueDeclaration.questionToken || p.valueDeclaration.initializer) ? "?" : "";   // MO-8e
+  const name = RESERVED.has(p.name) ? `${p.name}_` : p.name;   // a parameter's name is only a name: never a row word (`ref`)
   const read = accessorOf(ts, checker, t);
-  if (read) return `ref ${p.name}${opt}: ${text(ts, checker, read)}`;
-  if (isFn(checker, t)) return `${p.name}${opt}: (...args: any[]) => any`;   // a callback (MO-10g)
+  if (read) return `ref ${name}${opt}: ${text(ts, checker, read)}`;
+  // a callback (MO-10g); one whose type is a predicate, or ranges over the signature's type parameters, is written `any`
+  if (isFn(checker, t)) return checker.getNonNullableType(t).getCallSignatures().some(s => checker.getTypePredicateOfSignature?.(s)) ? `${name}${opt}: any` : `${name}${opt}: (...args: any[]) => any`;
   const obj = checker.getNonNullableType(t);
-  if (ownObject(ts, obj) && obj.getProperties().some(q => isFn(checker, checker.getTypeOfSymbolAtLocation(q, at)))) {
-    return `${p.name}${opt}: { ${obj.getProperties().map(q => propText(ts, checker, q, at)).join("; ")} }`;   // its callbacks are typed as functions
+  if (ownObject(ts, obj, checker) && obj.getProperties().some(q => isFn(checker, checker.getTypeOfSymbolAtLocation(q, at)))) {
+    return `${name}${opt}: { ${obj.getProperties().map(q => propText(ts, checker, q, at)).join("; ")} }`;   // its callbacks are typed as functions
   }
-  return `${p.name}${opt}: ${text(ts, checker, opt ? checker.getNonNullableType(t) : t)}`;   // `?` already says it may be absent
+  return `${name}${opt}: ${text(ts, checker, opt ? checker.getNonNullableType(t) : t)}`;   // `?` already says it may be absent
 }
 
-function resultText(ts, checker, t, todos) {
+/** What a type may also be: ` | undefined`, ` | null`, from its union members. */
+const nullish = (ts, t) => !(t.flags & ts.TypeFlags.Union) ? "" : (t.types.some(x => x.flags & ts.TypeFlags.Undefined) ? " | undefined" : "") + (t.types.some(x => x.flags & ts.TypeFlags.Null) ? " | null" : "");
+function resultText(ts, checker, t, todos, generic = false) {
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return "Component";
   const read = accessorOf(ts, checker, t);
   if (read) return `ref ${text(ts, checker, read)}`;
-  if (isFn(checker, t)) return "(...args: any[]) => any";   // a function part is io (MO-10b)
-  if (checker.isTupleType(t)) return `[${checker.getTypeArguments(t).map(x => accessorOf(ts, checker, x) ? `ref ${text(ts, checker, accessorOf(ts, checker, x))}` : isFn(checker, x) ? "(...args: any[]) => void" : text(ts, checker, x)).join(", ")}]`;
+  if (isFn(checker, t)) return generic ? "any" : `((...args: any[]) => any)${nullish(ts, t)}`;   // a function part is io (MO-10b); it may be absent
+  const tuple = checker.getNonNullableType(t);
+  if (checker.isTupleType(tuple)) {
+    const ro = tuple.target?.readonly ? "readonly " : "";   // MO-10b: `as const` results stay read-only
+    return `${ro}[${checker.getTypeArguments(tuple).map(x => accessorOf(ts, checker, x) ? `ref ${text(ts, checker, accessorOf(ts, checker, x))}` : isFn(checker, x) ? (generic ? "any" : "(...args: any[]) => void") : text(ts, checker, x)).join(", ")}]`;
+  }
   const s = text(ts, checker, t);
   if (/^Promise</.test(checker.typeToString(t))) todos.push("what does its promise reject with? add rejects(<classes>) (default Error)");
-  else if (ownObject(ts, t) && !checker.isArrayType(t)) todos.push("is the result a store with fields that wait or throw when read? mark them `holds fails(<classes>)` (MO-10f)");
+  else if (ownObject(ts, t, checker)) todos.push("is the result a store with fields that wait or throw when read? mark them `holds fails(<classes>)` (MO-10f)");
   return s;
 }
 
@@ -104,6 +129,7 @@ function declare(ts, spec, from, options = {}) {
   for (const sym0 of checker.getExportsOfModule(mod)) {
     const sym = sym0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym0) : sym0;
     const name = sym0.name;
+    if (name === "default") { lines.push(`// TODO: the module's default export: import it by name in a JS helper (\`export { default as x } from …\`) and declare that`); continue; }
     if (sym.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(sym.flags & ts.SymbolFlags.Value)) {
       const tp = sym.declarations?.[0]?.typeParameters ?? [];
       // a generic type's bounds name the library's own types, which the draft cannot see: declare it only if `.rx` names it
@@ -134,9 +160,10 @@ function declare(ts, spec, from, options = {}) {
     const optional = p => { const d = p.valueDeclaration; return !!d && ts.isParameter(d) && !!(d.questionToken || d.initializer || d.dotDotDotToken); };
     while (params.length && params[params.length - 1].valueDeclaration && ts.isParameter(params[params.length - 1].valueDeclaration) && params[params.length - 1].valueDeclaration.dotDotDotToken) params.pop();   // a rest parameter is left out (a fn that takes more fits, TY-6)
     void optional;
-    const ps = params.map(p => paramText(ts, checker, p, imp));
+    const generic = !!sig.getTypeParameters()?.length;   // MO-8d: what ranges over type parameters is loosened (TY-6 checks the rest)
+    const ps = params.map(p => paramText(ts, checker, p, imp, generic));
     const todos = [];
-    const ret = resultText(ts, checker, sig.getReturnType(), todos);
+    const ret = resultText(ts, checker, sig.getReturnType(), todos, generic);
     const primitive = /^(create|use)[A-Z]/.test(name);
     const config = /^define[A-Z]|[a-z]Options$/.test(name);   // a config helper (`defineRoute`, `queryOptions`): pure by convention
     if (/^use[A-Z]/.test(name)) todos.unshift("which context does this hook read? add uses(<context>) (MO-12b)");

@@ -13,9 +13,32 @@ const { pathToFileURL } = require("node:url");
 const ANY = new Proxy(function () {}, { get: (_, k) => k === Symbol.toPrimitive ? () => "" : k === "then" ? undefined : ANY, apply: () => ANY });
 const ident = s => s.replace(/^@[^/]+\//, "").replace(/[^A-Za-z0-9]+(.)/g, (_, c) => c.toUpperCase()).replace(/^[^A-Za-z_$]+/, "").replace(/^./, c => c.toLowerCase()) || "context";
 
+/** Where `spec` resolves from `from`, as a browser bundle would import it: CommonJS resolution first, else the package's
+ *  `exports` under the `browser`, `import` and `default` conditions (an ESM-only package has no `require` one). */
+function resolveModule(spec, from) {
+  try { return require.resolve(spec, { paths: [from] }); } catch {}
+  if (spec.startsWith(".")) return null;
+  const parts = spec.split("/"), name = spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+  const sub = "." + spec.slice(name.length);
+  const fs = require("node:fs");
+  for (let dir = path.resolve(from); ; dir = path.dirname(dir)) {
+    const pkgDir = path.join(dir, "node_modules", name), pj = path.join(pkgDir, "package.json");
+    if (fs.existsSync(pj)) {
+      const pkg = JSON.parse(fs.readFileSync(pj, "utf8"));
+      const pick = e => typeof e === "string" ? e : Array.isArray(e) ? e.map(pick).find(Boolean) : e && typeof e === "object" ? ["browser", "import", "default"].map(k => k in e ? pick(e[k]) : null).find(Boolean) : null;
+      const ex = pkg.exports;
+      const entry = ex === undefined ? (sub === "." ? pkg.module ?? pkg.main ?? "index.js" : sub) : typeof ex === "object" && !Array.isArray(ex) && Object.keys(ex).some(k => k.startsWith(".")) ? pick(ex[sub]) : sub === "." ? pick(ex) : null;
+      const f = entry && path.join(pkgDir, entry);
+      return f && fs.existsSync(f) ? f : null;
+    }
+    if (path.dirname(dir) === dir) return null;
+  }
+}
+
 async function runRows(draft, spec, from) {
   let file;
-  try { file = require.resolve(spec, { paths: [from] }); } catch { return { draft, notes: [`not run: ${spec} does not resolve from ${from}`] }; }
+  file = resolveModule(spec, from);
+  if (!file) return { draft, notes: [`not run: ${spec} does not resolve from ${from}`] };
   const dir = path.dirname(file);
   const load = p => import(pathToFileURL(require.resolve(p, { paths: [dir, from, __dirname] })).href);
   let mod, s;
@@ -32,8 +55,13 @@ async function runRows(draft, spec, from) {
       catch (e) { threw ??= e; }
       d();
     });
+    lastThrow = threw;
     return ran && !threw;
   };
+  let lastThrow = null;
+  // a missing global (`window`, `document`: running here has no DOM) or a property of nothing says nothing about contexts
+  // (Solid may wrap what a computation threw: its cause is looked at too)
+  const environmental = e => !!e && (e instanceof ReferenceError || e instanceof TypeError || /\bis not defined\b|Cannot read propert|\b(window|document|navigator|localStorage|matchMedia)\b/.test(String(e.message ?? "")) || environmental(e.cause));
   const lines = draft.split("\n");
   const hooks = [];
   // a hook every parameter of which is optional (`useQueryClient(client?: …)`) runs with none
@@ -43,8 +71,10 @@ async function runRows(draft, spec, from) {
   const pkgCtx = ident(spec.startsWith(".") ? path.basename(spec).replace(/\.[^.]+$/, "") : spec);
   const needs = new Map();   // hook → context name
   const unsettled = new Set();
+  const envOnly = new Map();   // hook → what it threw for want of a browser
   for (const h of hooks) {
     if (runs(mod[h.name])) continue;
+    if (environmental(lastThrow)) { envOnly.set(h.name, String(lastThrow?.message ?? lastThrow).slice(0, 60)); continue; }
     const by = contexts.find(([, C]) => runs(mod[h.name], kids => s.createComponent(C, { value: ANY, get children() { return kids(); } })));
     if (by) needs.set(h.name, ident(by[0].replace(/Context$/, "")));
     else if (!contexts.length) needs.set(h.name, pkgCtx);   // a module that exports no context: one, named after it
@@ -64,6 +94,7 @@ async function runRows(draft, spec, from) {
     const l = lines[i];
     const todo = /^\/\/ TODO (\w+): which context does this hook read\?/.exec(l);
     if (todo && needs.has(todo[1])) continue;   // settled below
+    if (todo && envOnly.has(todo[1])) { out.push(`// TODO ${todo[1]}: run here it throws for want of a browser (${envOnly.get(todo[1])}): not settled; rx-verify in a browser-like setup, or read its source (MO-12b)`); continue; }
     if (todo && unsettled.has(todo[1])) { out.push(`// TODO ${todo[1]}: run with no provider it throws, and under each of this module's contexts too: does it need arguments, or another module's context? (MO-12b)`); continue; }
     if (todo && hooks.some(h => h.name === todo[1])) { out.push(`// TODO ${todo[1]}: run with no provider, and its result read, it does not throw; if it reads a context only later, add uses(…) (strict: an undeclared need passes the checker)`); continue; }
     if (todo && used.length === 1) { out.push(`// TODO ${todo[1]}: it takes arguments, so it was not run; if it reads ${used[0]} as the hooks run here do, add uses(${used[0]}) (rx-verify confirms it with a probe)`); continue; }

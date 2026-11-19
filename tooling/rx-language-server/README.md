@@ -82,7 +82,11 @@ contexts are tried around it (with a placeholder value) and the one under which 
 (`export context router`). A `…Provider` component under which the hook then runs, with no props or placeholder ones,
 `provides` it. A hook that never throws keeps its TODO rather than a claim of no need (it may read its context later
 than running reaches), and one that throws under every context gets no invented one. On `@solidjs/router` 2.0 this
-settles 7 of 8 argument-free hooks; on `@tanstack/solid-query` 6, `useQueryClient` and `QueryClientProvider`.
+settles 7 of 8 argument-free hooks; on `@tanstack/solid-query` 6, `useQueryClient` and `QueryClientProvider`. A hook
+that throws only for want of a browser (no `window` in Node) is not a context read; `--dom` runs with happy-dom's
+globals (`@happy-dom/global-registrator`, installed in the project) so such hooks run as in a page. Drafted over all 98
+`@solid-primitives` packages with a Solid 2 release, the drafts pass TY-6 but for three types no draft can spell (a
+props type intersected with a tuple, a callable interface), which a person writes.
 
 ## Checking a declaration by running it
 
@@ -111,7 +115,8 @@ With it, a `uses(…)` hook with parameters is run with no provider (it, or the 
 throw; `run` is checked under `provide` too, so a broken probe is reported, not counted), and a hook whose result is a
 declared record is mounted under `provide` (with `@solidjs/universal`, beneath an errored boundary) and each field
 read: a field that holds or fails without `holds`/`fails(…)` is a mismatch, and under `fail`'s arguments a
-`fails(C)` field must fail with a `C`. Run it with `node --conditions=browser`, so Solid is its client build. On
+`fails(C)` field must fail with a `C`. Run it with `node --conditions=browser`, so Solid is its client build. A failure that only says there is no browser
+(a missing `window`) is reported as unverified, never as a mismatch; `--dom` runs with happy-dom's globals. On
 `@tanstack/solid-query` 6 it found that `isFetching` holds on the first load too: the whole result waits.
 A tuple's parts and a `ref` result are read the same way (a `ref` part must be an accessor). A `pure` fn that makes
 nothing is called twice with the probe's arguments and must answer alike. A component that `provides(c)` is mounted,

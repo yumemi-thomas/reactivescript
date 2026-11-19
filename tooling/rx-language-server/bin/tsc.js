@@ -30,17 +30,21 @@ process.on("exit", code => {
   // TY-6: each .d.rx against the JS module it declares
   const ts = require(require.resolve("typescript"));
   const cfg = ts.findConfigFile(process.cwd(), ts.sys.fileExists);
-  const options = cfg ? ts.parseJsonConfigFileContent(ts.readConfigFile(cfg, ts.sys.readFile).config, ts.sys, path.dirname(cfg)).options : {};
+  const parsed = cfg ? ts.parseJsonConfigFileContent(ts.readConfigFile(cfg, ts.sys.readFile).config, ts.sys, path.dirname(cfg), undefined, undefined, undefined, [{ extension: ".rx", isMixedContent: true, scriptKind: ts.ScriptKind.Deferred }]) : null;
+  const options = parsed ? parsed.options : {};
+  // the files TY-6 and MO-8f look beside: every .rx module analysed, and every .rx or .d.rx the tsconfig names (a package
+  // that ships only declarations has no .rx module of its own)
+  const named = [...new Set([...analyses().map(a => a.file), ...(parsed?.fileNames ?? []).filter(f => f.endsWith(".rx")).map(f => path.resolve(f))])];
   // MO-8f: a declaration pinned to the version of the package it was written for
   const { declarations: declFiles } = require("../src/boundary.js");
   const { checkPins } = require("../src/versions.js");
-  const pinned = new Set([...declFiles(analyses().map(a => a.file)).map(d => d.file), ...analyses().flatMap(a => (a.result.declarations ?? []))]);
+  const pinned = new Set([...declFiles(named).map(d => d.file), ...analyses().flatMap(a => (a.result.declarations ?? []))]);
   for (const f of pinned) for (const p of checkPins(f)) {
     errors++;
     codes.add("DECLARATION_VERSION");
     process.stdout.write(`${path.relative(process.cwd(), f)}:${p.line}:1 - error DECLARATION_VERSION: ${p.message} (MO-8f)\n`);
   }
-  for (const b of checkBoundaries(ts, analyses().map(a => a.file), options)) {
+  for (const b of checkBoundaries(ts, named, options)) {
     errors++;
     codes.add("DECLARATION_MISMATCH");
     process.stdout.write(`${path.relative(process.cwd(), b.file)}:${b.line}:1 - error DECLARATION_MISMATCH: ${b.name ? `${b.name}: ` : ""}${b.message} (TY-6)\n`);

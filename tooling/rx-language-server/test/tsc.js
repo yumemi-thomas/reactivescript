@@ -68,5 +68,14 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
 check("a .d.rx pinned to a version range the installed package is outside fails (MO-8f)", pin.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_VERSION: written for typescript \^1\.0\.0/.test(pin.out), pin);
 check("a pin the installed package satisfies passes", pinOk.status === 0, pinOk);
 
+// a package that ships only declarations: no .rx module of its own, its .d.rx named by the tsconfig, still checked (TY-6)
+const only = path.join(ws, "decl-only"); fs.mkdirSync(only, { recursive: true });
+for (const f of fs.readdirSync(ws)) if (/^lib\.(js|d\.ts)$/.test(f)) fs.copyFileSync(path.join(ws, f), path.join(only, f));
+fs.symlinkSync(path.join(ws, "node_modules"), path.join(only, "node_modules"), "dir");
+fs.writeFileSync(path.join(only, "tsconfig.json"), JSON.stringify({ compilerOptions: JSON.parse(fs.readFileSync(path.join(ws, "tsconfig.json"), "utf8")).compilerOptions, include: ["*.d.rx"] }));
+fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: string): number\n");
+const onlyBad = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: only, encoding: "utf8" });
+check("a .d.rx the tsconfig names, with no .rx module beside it, is checked too (TY-6)", onlyBad.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_MISMATCH: twice: /.test(onlyBad.stdout), { status: onlyBad.status, out: onlyBad.stdout + onlyBad.stderr });
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
