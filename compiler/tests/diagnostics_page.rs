@@ -1,5 +1,6 @@
 //! guide/diagnostics.md, the page each diagnostic code points to: every code the crate (and its type prelude) can
-//! report has a section, every `rx before` fence gets its section's code, and every `rx after` fence checks clean.
+//! report has a section, every `rx before` fence gets its section's code, and every `rx after` fence checks clean. A
+//! fence may declare the modules it imports (`-- module: ./ui.d.rx`, then `-- main`).
 
 use reactivescript::check::check_modules;
 use reactivescript::modules::load_modules;
@@ -11,10 +12,37 @@ fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
 }
 
-/// The codes a program `src` gets: its parse error's, else its checker diagnostics'.
+/// The codes a program `src` gets: its parse error's, else its checker diagnostics'. A fence may hold other modules first,
+/// each after a line `-- module: ./name` (as scenarios write them: `./ui.d.rx`, `./util.rx`), then `-- main` and the program.
 fn codes(src: &str) -> Vec<String> {
     let entry = "/page/main.rx";
-    let read = |p: &str| if p == entry { Some(src.to_string()) } else { None };
+    let mut files: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut main = String::new();
+    let mut at: Option<String> = None;
+    let modular = src.lines().any(|l| l.starts_with("-- module: "));
+    for line in src.lines() {
+        if let Some(m) = line.strip_prefix("-- module: ") {
+            at = Some(format!("/page/{}", m.trim().trim_start_matches("./")));
+            continue;
+        }
+        if line == "-- main" {
+            at = None;
+            continue;
+        }
+        match &at {
+            Some(f) => {
+                let b = files.entry(f.clone()).or_default();
+                b.push_str(line);
+                b.push('\n');
+            }
+            None => {
+                main.push_str(line);
+                main.push('\n');
+            }
+        }
+    }
+    let src = if modular { main } else { src.to_string() };
+    let read = |p: &str| if p == entry { Some(src.clone()) } else { files.get(p).cloned() };
     match load_modules(entry, &read) {
         Err(e) => vec![e.3.to_string()],
         Ok(set) => check_modules(&set, false).diags.into_iter().map(|d| format!("{} ({}: {})", d.code, d.line, d.msg)).collect(),

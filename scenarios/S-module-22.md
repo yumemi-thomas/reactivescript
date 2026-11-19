@@ -8,8 +8,8 @@ Rules: MO-11o, MO-11c, MO-12, E-10, R-f-5, RG-4a.
 -- module: ./tsr.d.rx
 // as @tanstack/solid-router declares it: routes carry their components, the provider renders what its router carries
 export context router
-export pure fn createRootRoute(options: { component?: Component }): any carries
-export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any carries
+export pure fn createRootRoute(options: { component?: Component }): any renders(later)
+export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later)
 export pure fn createRouter(options: { routeTree: any }): any instantiates
 export component RouterProvider(props: { router: renders any }) provides(router)
 export component Outlet(props: {}) uses(router)
@@ -26,8 +26,8 @@ export pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFou
 TanStack Router's routes are values: `createRoute({ component: Person })`
 makes a route object, `rootRoute.addChildren([…])` a tree of them,
 `createRouter({ routeTree })` a router, and `<RouterProvider router={…}>`
-renders the routes' components under its context. `carries` on a fn says
-its result carries the components in its arguments, and so does any value
+renders the routes' components under its context. `renders(later)` on a fn
+says its result carries the components in its arguments (MO-11r), and so does any value
 computed from it (`rootRoute.addChildren([…])`, `createRouter(…)`);
 `renders` on a JS component's prop says it renders the components its
 value carries. They are checked as applied there, among its children

@@ -171,16 +171,27 @@ export function parseDeclarations(src: string): JsDecl[] {
     for (;;) {                                                                             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
       c.ws(false);
       if (c.keyword("instantiates")) { written = true; continue; }
-      if (c.keyword("carries")) { carrier = true; continue; }   // MO-11o: the components in its arguments travel in its result
-      if (c.keyword("under")) { c.ws(false); c.expect("("); c.ws(); const parent = c.ident() ?? c.fail("under(getParentRoute in component): the field that names the parent value"); c.ws(); if (!c.keyword("in")) c.fail("under(getParentRoute in component)"); c.ws(); const inside = c.ident() ?? c.fail("under(getParentRoute in component): the field that holds the component"); c.ws(); c.expect(")"); under = { parent, inside }; carrier = true; continue; }   // MO-11p: rendered at its parent's outlet
-      if (c.keyword("renders")) { renders = true; c.ws(false); if (c.peek() === "(") { c.i++; c.ws(); if (!c.keyword("root")) c.fail("renders(root): the library renders them under a root of its own"); c.ws(); while (c.eat(",")) { c.ws(); carries.push(c.ident() ?? c.fail("renders(root, ctx): a context the library carries into its root")); c.ws(); } c.expect(")"); rendersRoot = true; if (carries.length) uses = [...(uses ?? []), ...carries]; }   /* MO-11n: what it carries, it reads where it is called */ continue; }   // MO-11n: renders(root)                                 // MO-11l: renders the components in its arguments where its result is bound
+      // MO-11r: one placement vocabulary — `renders` (here), `renders(root, ctx…)`, `renders(later)`; `nests(…)` for the tree
+      if (c.keyword("carries")) c.fail("`carries` is now `renders(later)`: the components travel in the result and a JS component's prop declared `renders` renders them (MO-11r)");
+      if (c.keyword("under")) c.fail("`under(parent in component)` is now `nests(component under parent)`, beside `renders(later)` (MO-11r)");
+      if (c.keyword("renders")) { c.ws(false);
+        if (c.peek() !== "(") { renders = true; continue; }   // MO-11l: here, where its result is bound
+        c.i++; c.ws();
+        if (c.keyword("later")) { c.ws(); c.expect(")"); carrier = true; continue; }   // MO-11o: the components travel in its result
+        if (!c.keyword("root")) c.fail("renders(root, …) or renders(later): where the library renders the components it is given (MO-11r)");
+        renders = true; c.ws(); while (c.eat(",")) { c.ws(); carries.push(c.ident() ?? c.fail("renders(root, ctx): a context the library carries into its root")); c.ws(); } c.expect(")"); rendersRoot = true; if (carries.length) uses = [...(uses ?? []), ...carries];   /* MO-11n: what it carries, it reads where it is called */
+        continue; }   // MO-11n: renders(root)                                 // MO-11l: renders the components in its arguments where its result is bound
       if (c.keyword("uses")) { c.ws(false); uses = [...(uses ?? []), ...contextNames(c)]; continue; }
       if (c.keyword("provides")) { c.ws(false); provides = [...(provides ?? []), ...contextNames(c)]; continue; }
-      if (c.keyword("nests")) { c.ws(false); c.expect("("); c.ws(); const kids = c.ident() ?? c.fail("nests(children in component): the field that holds nested entries"); c.ws(); if (!c.keyword("in")) c.fail("nests(children in component)"); c.ws(); const inside = c.ident() ?? c.fail("nests(children in component): the field that holds the component"); c.ws(); c.expect(")"); nests = { kids, inside }; continue; }   // MO-11i
+      if (c.keyword("nests")) { c.ws(false); c.expect("("); c.ws(); const first = c.ident() ?? c.fail("nests(children in component) or nests(component under parent): a field of the record (MO-11r)"); c.ws();
+        if (c.keyword("in")) { c.ws(); const inside = c.ident() ?? c.fail("nests(children in component): the field that holds the component"); c.ws(); c.expect(")"); nests = { kids: first, inside }; continue; }   // MO-11i: a children field
+        if (c.keyword("under")) { c.ws(); const parent = c.ident() ?? c.fail("nests(component under parent): the field that names the parent value"); c.ws(); c.expect(")"); under = { parent, inside: first }; continue; }   // MO-11p: a parent link
+        c.fail("nests(children in component) or nests(component under parent) (MO-11r)"); }
       break;
     }
     const instantiates = written || refs.some(x => x) || sigs.some(x => x) || carrier || shapeHasRef(shape) || shape === "comp" || !!uses || !!held || renders;   // MO-10a: inferred from a ref on either side; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
     if (nests && shape !== "comp") c.fail(`nests(…) on fn ${name}: only a fn that hands back a Component renders what it is given (MO-11i)`);
+    if (under && !carrier) c.fail(`nests(${under.inside} under ${under.parent}) on fn ${name}: it places what the result carries, which is rendered later — add renders(later) (MO-11r)`);
     if (provides && shape !== "comp") c.fail(`provides(…) on fn ${name}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)`);
     // MO-10i: callbacks whose parameters are a library's drafts (`(update: (draft state: T) => void) => void`), by position;
     // the word is the .d.rx's, not TypeScript's

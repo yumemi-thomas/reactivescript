@@ -995,52 +995,45 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                 written = true;
                 continue;
             }
+            // MO-11r: one placement vocabulary — `renders` (here), `renders(root, ctx…)`, `renders(later)`; `nests(…)` for the tree
             if c.keyword("carries") {
-                // MO-11o: the components in its arguments travel in its result
-                carrier = true;
-                continue;
+                return c.fail("`carries` is now `renders(later)`: the components travel in the result and a JS component's prop declared `renders` renders them (MO-11r)");
             }
             if c.keyword("under") {
-                // MO-11p: rendered at its parent's outlet
-                c.ws(false);
-                c.expect("(")?;
-                c.ws(true);
-                let parent = c.ident_or("under(getParentRoute in component): the field that names the parent value")?;
-                c.ws(true);
-                if !c.keyword("in") {
-                    return c.fail("under(getParentRoute in component)");
-                }
-                c.ws(true);
-                let inside = c.ident_or("under(getParentRoute in component): the field that holds the component")?;
-                c.ws(true);
-                c.expect(")")?;
-                under = Some((parent, inside));
-                carrier = true;
-                continue;
+                return c.fail("`under(parent in component)` is now `nests(component under parent)`, beside `renders(later)` (MO-11r)");
             }
             if c.keyword("renders") {
-                // MO-11l: renders the components in its arguments where its result is bound
-                renders = true;
                 c.ws(false);
-                if c.peek() == '(' {
-                    // MO-11n: renders(root)
-                    c.i += 1;
-                    c.ws(true);
-                    if !c.keyword("root") {
-                        return c.fail("renders(root): the library renders them under a root of its own");
-                    }
-                    c.ws(true);
-                    while c.eat(",") {
-                        // MO-11n: the contexts it carries into its root; it reads them where it is called
-                        c.ws(true);
-                        let n = c.ident_or("renders(root, ctx): a context the library carries into its root")?;
-                        carries.push(n.clone());
-                        uses.push(n);
-                        c.ws(true);
-                    }
-                    c.expect(")")?;
-                    renders_root = true;
+                if c.peek() != '(' {
+                    // MO-11l: here, where its result is bound
+                    renders = true;
+                    continue;
                 }
+                c.i += 1;
+                c.ws(true);
+                if c.keyword("later") {
+                    // MO-11o: the components travel in its result
+                    c.ws(true);
+                    c.expect(")")?;
+                    carrier = true;
+                    continue;
+                }
+                if !c.keyword("root") {
+                    return c.fail("renders(root, …) or renders(later): where the library renders the components it is given (MO-11r)");
+                }
+                // MO-11n: renders(root)
+                renders = true;
+                c.ws(true);
+                while c.eat(",") {
+                    // MO-11n: the contexts it carries into its root; it reads them where it is called
+                    c.ws(true);
+                    let n = c.ident_or("renders(root, ctx): a context the library carries into its root")?;
+                    carries.push(n.clone());
+                    uses.push(n);
+                    c.ws(true);
+                }
+                c.expect(")")?;
+                renders_root = true;
                 continue;
             }
             if c.keyword("uses") {
@@ -1054,27 +1047,39 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                 continue;
             }
             if c.keyword("nests") {
-                // MO-11i
                 c.ws(false);
                 c.expect("(")?;
                 c.ws(true);
-                let kids = c.ident_or("nests(children in component): the field that holds nested entries")?;
+                let first = c.ident_or("nests(children in component) or nests(component under parent): a field of the record (MO-11r)")?;
                 c.ws(true);
-                if !c.keyword("in") {
-                    return c.fail("nests(children in component)");
+                if c.keyword("in") {
+                    // MO-11i: a children field
+                    c.ws(true);
+                    let inside = c.ident_or("nests(children in component): the field that holds the component")?;
+                    c.ws(true);
+                    c.expect(")")?;
+                    nests = Some((first, inside));
+                    continue;
                 }
-                c.ws(true);
-                let inside = c.ident_or("nests(children in component): the field that holds the component")?;
-                c.ws(true);
-                c.expect(")")?;
-                nests = Some((kids, inside));
-                continue;
+                if c.keyword("under") {
+                    // MO-11p: a parent link
+                    c.ws(true);
+                    let parent = c.ident_or("nests(component under parent): the field that names the parent value")?;
+                    c.ws(true);
+                    c.expect(")")?;
+                    under = Some((parent, first));
+                    continue;
+                }
+                return c.fail("nests(children in component) or nests(component under parent) (MO-11r)");
             }
             break;
         }
         let instantiates = written || refs.iter().any(|x| *x) || sigs.iter().any(|x| *x) || carrier || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
         if nests.is_some() && shape != Some(Shape::Comp) {
             return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
+        }
+        if let (Some((parent, inside)), false) = (&under, carrier) {
+            return c.fail(&format!("nests({} under {}) on fn {}: it places what the result carries, which is rendered later — add renders(later) (MO-11r)", inside, parent, name));
         }
         if !provides.is_empty() && shape != Some(Shape::Comp) {
             return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));

@@ -8,8 +8,8 @@ Rules: MO-11p, MO-11o, MO-11c, R-f-5, RG-4c.
 -- module: ./tsr.d.rx
 // as @tanstack/solid-router declares it: a route renders under the one its getParentRoute names, at that one's <Outlet />
 export context router
-export pure fn createRootRoute(options: { component?: Component }): any carries
-export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any under(getParentRoute in component)
+export pure fn createRootRoute(options: { component?: Component }): any renders(later)
+export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) nests(component under getParentRoute)
 export pure fn createRouter(options: { routeTree: any }): any instantiates
 export component RouterProvider(props: { router: renders any }) provides(router)
 export component Outlet(props: {}) uses(router) outlet
@@ -22,8 +22,8 @@ export error NotFound
 export pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)
 ```
 
-`under(getParentRoute in component)` on a carrying fn (MO-11p) says
-where its result renders: its `component` renders among the children of
+`nests(component under getParentRoute)` beside `renders(later)` (MO-11p,
+MO-11r) says where its result renders: its `component` renders among the children of
 the component of the route its `getParentRoute` names, and `outlet` on a
 JS component says it renders those children where it is written. So a
 child route's component is checked at its parent's `<Outlet />`: the

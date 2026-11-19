@@ -606,7 +606,7 @@ export default component App() {
   elsewhere: TanStack Router's `createRoute({ component })` makes a route
   object, `rootRoute.addChildren([…])` a tree, `createRouter({ routeTree })`
   a router, and `<RouterProvider router={…}>` renders the routes'
-  components. `carries` on a declared fn says its result carries the
+  components. `renders(later)` (MO-11r; first drafted as `carries`) on a declared fn says its result carries the
   components in its arguments (found as a factory's are, MO-11c, MO-11g;
   it implies `instantiates`), and a value computed from a carrying value
   carries them too. `renders` on a declared JS component's prop
@@ -624,8 +624,9 @@ export default component App() {
   tree in values says its nesting through each child's link to its parent
   (`createRoute({ getParentRoute: () => rootRoute, component: Person })`),
   and a parent's component renders its children at an outlet
-  (`<Outlet />`), not at `props.children`. `under(parent in inside)` on a
-  carrying fn (implying `carries`) says so: its result's `inside`
+  (`<Outlet />`), not at `props.children`. `nests(inside under parent)`
+  beside `renders(later)` (MO-11r; first drafted as `under(parent in
+  inside)`) says so: its result's `inside`
   component renders among the children of the component of the value its
   `parent` field names (a closure returning that value, or the value
   itself), which is found by the same `inside` field when it has no
@@ -640,7 +641,7 @@ export default component App() {
   run time. A parent not carried in the same tree, or a chain of parents
   that comes back to a value (a cycle), leaves the value side by side
   under the provider (MO-11o's strict default). For TanStack Router:
-  `createRoute(…): any under(getParentRoute in component)` and
+  `createRoute(…): any renders(later) nests(component under getParentRoute)` and
   `component Outlet(props: {}) uses(router) outlet`. S-module-23.
 - **MO-11q (Compound components: a JS object's member components) —
   proposed 2026-11-19.** UI kits export a component's parts on one object
@@ -665,6 +666,30 @@ export default component App() {
   polymorphic `as`) takes a component value as a `Component` prop does
   (MO-11c). S-module-24; `examples/kobalte` runs Kobalte 2.0 (alpha) in
   Chromium (`compiler/test/kobalte.mjs`).
+- **MO-11r (One placement vocabulary) — proposed 2026-11-19.** Where a
+  library renders the components a program gives it is said in one
+  vocabulary, on the declared fn that takes them; each form replaces DV-24's
+  blanket assumption with a narrower, checked one, and a component passed
+  to a call with none of them is refused (`COMPONENT_AS_VALUE`).
+
+  | written | the components are checked | rule |
+  | --- | --- | --- |
+  | (a fn handing back a `Component`) | inside the made component, where it is applied | MO-11f |
+  | `renders` | where the call's result is bound | MO-11l |
+  | `renders(root, ctx…)` | under a root of the library's own, with `ctx…` carried in | MO-11n |
+  | `renders(later)` | where a JS component's prop declared `renders` renders the value carrying them | MO-11o |
+  | `nests(children in component)` | each entry of a record's `children` field among its `component`'s children | MO-11i |
+  | `nests(component under parent)` | each value's `component` among its `parent` value's component's children, at that one's `outlet` | MO-11p |
+
+  On the other side, two words say where a JS component renders what it
+  is given: a prop's type `renders T` (the components its value carries)
+  and `outlet` (the children nested under the component whose view it is
+  in, as `{props.children}` would). The tree forms combine with the
+  placement forms they describe (`nests(… in …)` with a factory,
+  `nests(… under …)` with `renders(later)`); either form refuses a value
+  it cannot place by leaving it where its placement puts it, the strict
+  default. The words first drafted for these, `carries` and `under(parent
+  in component)`, are refused with the spelling that replaced them.
 - **MO-11m (A made component's properties) — proposed 2026-11-18.** A
   factory's component may carry properties (`@solidjs/router`'s `paths`, its
   typed path builder). `Router.paths` is a value read in the module that
@@ -892,7 +917,7 @@ Executable: S-module-7.
    (no unchecked escape inside `.rx`, CN-5), and is what it lets in either
    checked statically, by TypeScript in the build (13 TY-1d), or by running
    (rx-verify)?
-   - *`nests(kids in inside)`, `renders`, `renders(root, …)`* (MO-11i, l, n)
+   - *`nests(…)`, `renders`, `renders(root, …)`, `renders(later)`* (MO-11i, l, n, o, p; one vocabulary, MO-11r)
      are kept. They describe the shape of a call's arguments and where its
      components end up, which no type says, and each replaces DV-24's
      blanket assumption with a narrower, checked one. Without them a
@@ -940,7 +965,7 @@ Executable: S-module-7.
      primitive that wraps a Solid signal gets one the compiler makes from a
      plain value, untracked, so `.rx` never holds a writable Solid signal
      and a reactive argument is refused as a snapshot would be (E-10).
-   - *`carries`, a prop's `renders`, `under(…)` and `outlet`* (MO-11o,
+   - *`renders(later)`, a prop's `renders`, `nests(… under …)` and `outlet`* (MO-11o,
      MO-11p) are kept for components held in values (TanStack Router's
      routes). Like `nests`, they say where a library renders what it is
      given, which no type says; a carried component no `renders` prop
@@ -962,3 +987,9 @@ Executable: S-module-7.
      API writes (Solid 2's store setter), and marking it where the trust
      already sits keeps a `.rx` value from being changed behind its writes.
      Writing it uses `:=` on a path, as ST-3's own drafts do.
+   - *One placement vocabulary* (MO-11r) replaces five words that answered
+     one question (where does the library render what it is given?):
+     `renders` says where (here, a root of its own, or later through a
+     prop), `nests` says the tree (a children field, or a parent link),
+     and `renders T` on a prop and `outlet` say where a JS component puts
+     them. Each form is still a narrow, checked replacement for DV-24.
