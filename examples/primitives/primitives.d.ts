@@ -8,4 +8,4 @@ export { debounce } from "@solid-primitives/scheduled";
 export { WindowEventListener } from "@solid-primitives/event-listener";
 export { Key } from "@solid-primitives/keyed";
 export { createMousePosition } from "@solid-primitives/mouse";
-export declare function createPersisted(name: string, init: string): [() => string, (v: string) => void];
+export { makePersisted } from "@solid-primitives/storage";

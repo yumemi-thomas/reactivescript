@@ -349,6 +349,19 @@ export component Search(props: { start: boolean, q: string }) {
   `Component`) is a handler whatever its name, as an `on*` prop is: its
   closure is imperative scope, and passing it is not a read.
   Executable: S-module-12.
+- **MO-10h (Signal parameters) — proposed 2026-11-19.** Some primitives
+  take a Solid signal, a getter and a setter, and wrap it
+  (`@solid-primitives/storage`'s `makePersisted`, `utils`' `wrapSetter`).
+  An `.rx` source is not one, and the program needs none: `signal init: T`
+  on the declared parameter says the library takes a signal, so the
+  program passes the initial value and the compiler makes a Solid signal
+  of it (`__rt.signal(…)`; to TypeScript, Solid's own `Signal<T>`, so TY-6
+  checks it against the library's overloads). The value is read once, as
+  an instantiation's arguments are (E-10: `peek` for a source). Nothing in
+  the program can write the signal made for it except through what the
+  library hands back, which MO-10b already reads: `[theme, setTheme] =
+  makePersisted("light", { name: "theme" })`, a reader and a setter called
+  from handlers. `signal` implies `instantiates`. S-module-21.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 

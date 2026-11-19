@@ -245,10 +245,13 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
             }
             JsDecl::Type { text, .. } => format!("export {text}"),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
-            JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, opts, .. } => {
-                // MO-10a: a `ref` parameter is an accessor in JS; MO-8e: an optional one is `?`
+            JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, opts, sigs, .. } => {
+                // MO-10a: a `ref` parameter is an accessor in JS; MO-8e: an optional one is `?`; MO-10h: a `signal` one a pair
                 let ps = params.iter().enumerate().map(|(i, n)| {
                     let o = if opts.get(i).copied().unwrap_or(false) { "?" } else { "" };
+                    if sigs.get(i).copied().unwrap_or(false) {
+                        return format!("{n}{o}: import(\"solid-js\").Signal<{}>", ptypes.get(i).and_then(|t| t.as_deref()).unwrap_or("any"));
+                    }
                     match (refs.get(i).copied().unwrap_or(false), ptypes.get(i).and_then(|t| t.as_ref())) {
                         (true, t) => format!("{n}{o}: (() => {})", t.map(String::as_str).unwrap_or("any")),
                         (false, Some(t)) => format!("{n}{o}: {t}"),
@@ -579,8 +582,8 @@ impl Proj<'_> {
         if let Some(dp) = declared {
             for n in &rest {
                 let x = self.set.declarations.get(dp).and_then(|ds| ds.iter().find(|y| matches!(y, JsDecl::Fn { name, .. } if *name == n.name)));
-                if let Some(x @ JsDecl::Fn { refs, shape, nests, .. }) = x {
-                    if refs.iter().any(|r| *r) || shape.has_ref() {
+                if let Some(x @ JsDecl::Fn { refs, shape, nests, sigs, .. }) = x {
+                    if refs.iter().any(|r| *r) || sigs.iter().any(|g| *g) || shape.has_ref() {
                         self.ref_fns.insert(n.alias.clone(), x.clone());
                     }
                     if let Some(ns) = nests {
@@ -904,12 +907,17 @@ impl Proj<'_> {
             }
             ExprKind::Call { f, args } => {
                 // MO-10a: a `ref` argument is an accessor
+                let sigs: Vec<bool> = match &f.k {
+                    ExprKind::Id(g) => self.ref_fns.get(g).map(|d| if let JsDecl::Fn { sigs, .. } = d { sigs.clone() } else { vec![] }).unwrap_or_default(),
+                    _ => vec![],
+                };
                 let refs: Vec<bool> = match &f.k {
                     ExprKind::Id(g) => self.ref_fns.get(g).map(|d| if let JsDecl::Fn { refs, .. } = d { refs.clone() } else { vec![] }).unwrap_or_default(),
                     _ => vec![],
                 };
                 let fc = go!(f);
-                let a = args.iter().enumerate().map(|(i, a)| if refs.get(i).copied().unwrap_or(false) { Code::of("() => (").c(go!(a)).t(")") } else { go!(a) }).collect();
+                // MO-10a: a `ref` argument is an accessor; MO-10h: a `signal` one a signal of the value
+                let a = args.iter().enumerate().map(|(i, a)| if refs.get(i).copied().unwrap_or(false) { Code::of("() => (").c(go!(a)).t(")") } else if sigs.get(i).copied().unwrap_or(false) { Code::of("__.signal(").c(go!(a)).t(")") } else { go!(a) }).collect();
                 fc.t("(").c(Code::join(a, ", ")).t(")")
             }
             ExprKind::Arr(items) => {
@@ -1235,13 +1243,15 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
     let mut checks = vec![];
     for d in decls {
         let (name, line, ty) = match d {
-            JsDecl::Fn { name, line, params, ptypes, refs, ret, shape, tparams, opts, .. } => {
+            JsDecl::Fn { name, line, params, ptypes, refs, ret, shape, tparams, opts, sigs, .. } => {
                 let ps: Vec<String> = params
                     .iter()
                     .enumerate()
                     .map(|(i, n)| {
                         let t = ptypes.get(i).and_then(|t| t.clone()).unwrap_or_else(|| "any".into());
-                        format!("{}{}: {}", n, if opts.get(i).copied().unwrap_or(false) { "?" } else { "" }, if refs.get(i).copied().unwrap_or(false) { accessor(&t) } else { t })
+                        // MO-10h: a `signal` parameter is a getter and a setter
+                        let t = if sigs.get(i).copied().unwrap_or(false) { format!("import(\"solid-js\").Signal<{}>", t) } else if refs.get(i).copied().unwrap_or(false) { accessor(&t) } else { t };
+                        format!("{}{}: {}", n, if opts.get(i).copied().unwrap_or(false) { "?" } else { "" }, t)
                     })
                     .collect();
                 (name, *line, format!("{}({}) => {}", tparams.as_deref().unwrap_or(""), ps.join(", "), result(ret.as_ref(), shape)))

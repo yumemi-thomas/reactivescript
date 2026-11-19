@@ -1,7 +1,5 @@
-// @solid-primitives (Solid 2.0 releases), re-exported for the app with one helper: `makePersisted` wraps a Solid signal
-// tuple, which `.rx` sources are not, so the helper makes the signal in JS and hands back its parts.
-import { createSignal } from "solid-js";
-import { makePersisted } from "@solid-primitives/storage";
+// @solid-primitives (Solid 2.0 releases), re-exported for the app.
+export { makePersisted } from "@solid-primitives/storage";
 export { createMediaQuery } from "@solid-primitives/media";
 export { createWindowSize } from "@solid-primitives/resize-observer";
 export { createActiveElement } from "@solid-primitives/active-element";
@@ -11,8 +9,3 @@ export { debounce } from "@solid-primitives/scheduled";
 export { WindowEventListener } from "@solid-primitives/event-listener";
 export { Key } from "@solid-primitives/keyed";
 export { createMousePosition } from "@solid-primitives/mouse";
-
-export function createPersisted(name, init) {
-  const [get, set] = makePersisted(createSignal(init), { name });
-  return [get, set];
-}

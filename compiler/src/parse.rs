@@ -502,7 +502,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -807,6 +807,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         let mut params = vec![];
         let mut ptypes = vec![];
         let mut refs = vec![];
+        let mut sigs = vec![];
         let mut opts = vec![];
         while !c.starts_with(")") {
             let r = c.keyword("ref"); // MO-10a: a ref parameter takes an accessor
@@ -814,6 +815,17 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                 c.ws(true);
             }
             refs.push(r);
+            // MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name)
+            let sv = c.i;
+            let mut g = !r && c.keyword("signal");
+            if g {
+                c.ws(true);
+                if !(c.peek().is_ascii_alphabetic() || c.peek() == '_' || c.peek() == '$') {
+                    c.i = sv;
+                    g = false;
+                }
+            }
+            sigs.push(g);
             params.push(c.ident_or("param")?);
             c.ws(false);
             opts.push(c.eat("?")); // MO-8e: a caller may leave it out
@@ -935,7 +947,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             }
             break;
         }
-        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        let instantiates = written || refs.iter().any(|x| *x) || sigs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
         if nests.is_some() && shape != Some(Shape::Comp) {
             return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
         }
@@ -944,7 +956,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
         let cbs = callbacks(&ptypes);
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root, carries });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root, carries, sigs });
     }
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).

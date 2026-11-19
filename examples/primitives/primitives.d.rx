@@ -9,4 +9,6 @@ export pure fn debounce(callback: (...args: any[]) => void, wait?: number): (...
 export component WindowEventListener(props: { onKeydown?: (e: any) => void })
 export component Key(props: { each?: any[]; by: any; fallback?: View; children: (v: any, i: any) => View })
 export pure fn createMousePosition(): { x: number; y: number; isInside: boolean } instantiates
-export pure fn createPersisted(name: string, init: string): [ref string, (v: string) => void]
+// takes a Solid signal (MO-10h): the app passes the initial value, the compiler makes the signal; reads and writes go
+// through what it hands back, which persists them
+export pure fn makePersisted(signal init: string, options?: { name?: string }): [ref string, (v: string) => void, any, any]

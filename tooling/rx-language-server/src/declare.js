@@ -71,11 +71,25 @@ function ownObject(ts, t, checker) {
   const file = decl?.getSourceFile().fileName ?? "";
   return !!t.getProperties().length && !/\/typescript\/lib\/lib\./.test(file) && !t.getProperties().some(q => q.name.startsWith("#"));
 }
-const RESERVED = new Set(["ref", "fn", "pure", "component", "context", "error", "type", "const", "export"]);
+const RESERVED = new Set(["ref", "signal", "fn", "pure", "component", "context", "error", "type", "const", "export"]);
+/** MO-10h: a Solid signal, `[getter, setter]` (Solid 2's getter is a branded accessor): what it holds, or undefined. A type
+ *  parameter is looked at through its constraint, a union through its members. */
+function signalOf(ts, checker, t) {
+  const c = t.flags & ts.TypeFlags.TypeParameter ? checker.getBaseConstraintOfType(t) : t;
+  if (!c) return undefined;
+  if (c.flags & ts.TypeFlags.Union) { for (const u of c.types) { const r = signalOf(ts, checker, u); if (r) return r; } return undefined; }
+  if (!checker.isTupleType(c)) return undefined;
+  const [get, set] = checker.getTypeArguments(c);
+  const g = get && checker.getNonNullableType(get).getCallSignatures().find(x => !x.getParameters().length);
+  if (!g || !set || !checker.getNonNullableType(set).getCallSignatures().length) return undefined;
+  return g.getReturnType();
+}
 function paramText(ts, checker, p, at, generic = false) {
   const t = checker.getTypeOfSymbolAtLocation(p, at);
   const opt = p.valueDeclaration && ts.isParameter(p.valueDeclaration) && (p.valueDeclaration.questionToken || p.valueDeclaration.initializer) ? "?" : "";   // MO-8e
   const name = RESERVED.has(p.name) ? `${p.name}_` : p.name;   // a parameter's name is only a name: never a row word (`ref`)
+  const held = signalOf(ts, checker, t);
+  if (held) return `signal ${name}${opt}: ${text(ts, checker, held)}`;   // MO-10h: the program passes the value, the compiler the signal
   const read = accessorOf(ts, checker, t);
   if (read) return `ref ${name}${opt}: ${text(ts, checker, read)}`;
   // a callback (MO-10g); one whose type is a predicate, or ranges over the signature's type parameters, is written `any`
