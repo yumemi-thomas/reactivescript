@@ -807,11 +807,11 @@ Executable: S-module-7.
    - *A declared function type makes a callback* (MO-10g) is kept, with no
      word of its own: the declaration already says what the library will do
      with the argument, and `ref` already marks the parameters a library
-     reads reactively (a computation, never a handler). So a function the
-     library calls during the render (a mapper, a comparator) must be
-     declared `ref` or with a pure function type it never writes in; a
-     closure there is then pure (SC-3). A wrong declaration is TY-6's and
-     rx-verify's to catch, not the program's.
+     reads reactively (a computation, never a handler). So a value the
+     library computes during the render must be declared `ref` (the program
+     passes an expression, read as an accessor, MO-10a), never a function
+     type; what is passed there is pure (SC-3). A wrong declaration is
+     TY-6's and rx-verify's to catch, not the program's.
    - *`view (…) { … }` for render props* (MO-11k) is kept: it is markup,
      read as children, applied per call, with the parameters the library's
      own types give TypeScript.
