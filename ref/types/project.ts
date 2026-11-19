@@ -136,6 +136,7 @@ class Proj {
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
   private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
   private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
+  private nestFns = new Map<string, { kids: string; inside: string }>();   // MO-11i: declared factories that nest, by local name
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
 
   module(p: Program) {
@@ -204,7 +205,7 @@ class Proj {
     const prelude = d.names.filter(n => BUILTINS.has(n.name));
     if (prelude.length) { for (const n of prelude) this.used.add(n.name); }
     const rest = d.names.filter(n => !BUILTINS.has(n.name)); if (!rest.length) return;
-    if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); }
+    if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); if (x?.kind === "fn" && x.nests) this.nestFns.set(n.alias, x.nests); }
     let from = d.from;
     if (!d.resolved && !d.declared) {                                                        // a JS module with no declaration: `any`
       const key = this.modPath(d.from) + ".ts"; let s = this.jsStubs.get(key); if (!s) this.jsStubs.set(key, (s = new Set())); for (const n of rest) s.add(n.name); from = d.from;
@@ -258,6 +259,20 @@ class Proj {
     return s;
   }
 
+  /** MO-11i, types only: under a factory that nests, a record's literal path is written joined with its parents' (the
+   *  projection is never run; a record with no path, such as the config around the table, is looked through), so a child route's types see its parents' params. `prefix` null: a parent path the
+   *  projection cannot read, so nothing below is rewritten. */
+  private nestArg(e: Expr, prefix: string | null, n: { kids: string; inside: string }, imp: boolean, self?: string): string {
+    const go = (x: Expr) => this.expr(x, imp, self);
+    if (prefix === null) return go(e);
+    if (e.k === "arr") return `[${e.items.map(x => x.k === "spread" ? go(x) : this.nestArg(x, prefix, n, imp, self)).join(", ")}]`;
+    if (e.k === "call") return `${go(e.f)}(${e.args.map(a => this.nestArg(a, prefix, n, imp, self)).join(", ")})`;
+    if (e.k !== "rec") return go(e);
+    const pathField = e.fields.find(f => !("spread" in f) && f.key === "path") as { key: string; v: Expr } | undefined;
+    const own = pathField ? (pathField.v.k === "lit" && typeof pathField.v.v === "string" ? joinPath(prefix, pathField.v.v) : null) : prefix;
+    return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : f === pathField && own !== null ? `${J(f.key)}: ${J(own)}` : f.key === n.kids || !pathField ? `${J(f.key)}: ${this.nestArg(f.v, own, n, imp, self)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
+  }
+
   // ---- expressions: `imp` imperative scope (a real `await`); `self` the equation being defined (its own `pre`) ----
   expr(e: Expr, imp: boolean, self?: string): string {
     const go = (x: Expr) => this.expr(x, imp, self);
@@ -279,7 +294,11 @@ class Proj {
       case "member": { const s = e.o.k === "id" ? this.refParts.get(e.o.name) : undefined; return `${go(e.o)}${e.opt ? "?." : "."}${e.p}${s && typeof s === "object" && "fields" in s && s.fields.some(f => f[0] === e.p && f[1] === "ref") ? "()" : ""}`; }   // MO-10b
       case "index": { const s = e.o.k === "id" ? this.refParts.get(e.o.name) : undefined; return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]${s && typeof s === "object" && "items" in s && e.i.k === "lit" && typeof e.i.v === "number" && s.items[e.i.v] === "ref" ? "()" : ""}`; }   // MO-10b
       case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it
-      case "call": { const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : go(a)).join(", ")})`; }   // MO-10a: a `ref` argument is an accessor
+      case "call": {
+        const nests = e.f.k === "id" ? this.nestFns.get(e.f.name) : undefined;
+        if (nests) return `${go(e.f)}(${e.args.map(a => this.nestArg(a, "", nests, imp, self)).join(", ")})`;   // MO-11i: a nested route typed with its parents' path
+        const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : go(a)).join(", ")})`;   // MO-10a: a `ref` argument is an accessor
+      }
       case "arr": return `[${e.items.map(go).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "spread": return `...${go(e.e)}`;
@@ -369,4 +388,11 @@ function freeIds(e: unknown, out = new Set<string>()): Set<string> {
   if (o.k === "pre") return out;                        // the previous instant's value: no ordering edge
   for (const [k, v] of Object.entries(o)) if (k !== "k") freeIds(v, out);
   return out;
+}
+
+/** MO-11i: a route path under its parent's: `/org/:org` and `/:id` give `/org/:org/:id`; `/` under anything is the parent. */
+function joinPath(parent: string, child: string): string {
+  if (!parent || parent === "/") return child;
+  if (child === "/" || child === "") return parent;
+  return parent.replace(/\/+$/, "") + (child.startsWith("/") ? child : "/" + child);
 }

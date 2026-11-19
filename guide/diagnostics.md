@@ -1195,12 +1195,12 @@ module doesn't do. Fix the declaration so the real export fits it: drop a `ref` 
 prop or parameter type, or remove an export the module doesn't have. A module with no types needs a `.d.ts` beside it
 (a re-export of the package's is enough) for its declaration to be checked; without one, the `.d.rx` is its types.
 
-```rx before
+```d.rx before
 // lib.d.rx, beside lib.js whose lib.d.ts says: export declare function twice(n: number): number
 export pure fn twice(n: string): number
 ```
 
-```rx after
+```d.rx after
 export pure fn twice(n: number): number
 ```
 
@@ -1209,12 +1209,23 @@ export pure fn twice(n: number): number
 The component's declaration types `children` as a function giving a `View` (a render prop): it calls its children for
 each thing it renders, so they are written as a view lambda, its only child (MO-11k).
 
-```rx before
-<VirtualList items={rows}><p>row</p></VirtualList>
+With `list.d.rx` beside `list.js` saying
+`export component VirtualList(props: { items: any[]; children: (row: any, i: number) => View })`:
+
+```rx+d.rx before
+import { VirtualList } from "./list.js"
+export default component App() {
+  rows = ["a", "b"]
+  <VirtualList items={rows}><p>row</p></VirtualList>
+}
 ```
 
-```rx after
-<VirtualList items={rows}>{view (row, i) { <p>{row} #{i}</p> }}</VirtualList>
+```rx+d.rx after
+import { VirtualList } from "./list.js"
+export default component App() {
+  rows = ["a", "b"]
+  <VirtualList items={rows}>{view (row, i) { <p>{row} #{i}</p> }}</VirtualList>
+}
 ```
 
 ### VIEW_FN_MISPLACED
@@ -1223,11 +1234,17 @@ A `view (…) { … }` is a render prop: the only child of a JS component whose 
 giving a `View`. Anywhere else, write the markup itself, or a `for` over the list (MO-11k).
 
 ```rx before
-<ul>{view (x) { <li>{x}</li> }}</ul>
+export default component App() {
+  xs = ["a", "b"]
+  <ul>{view (x) { <li>{x}</li> }}</ul>
+}
 ```
 
 ```rx after
-<ul>{for x in xs { <li>{x}</li> }}</ul>
+export default component App() {
+  xs = ["a", "b"]
+  <ul>{for x in xs { <li>{x}</li> }}</ul>
+}
 ```
 
 ### DECLARATION_VERSION
@@ -1236,12 +1253,12 @@ The `.d.rx` is pinned (`//@ for <package> <range>`) to versions of its package t
 Its rows were written for another version: check them against this one (the package's changelog, its `.d.ts`), fix
 what changed, then update the pin.
 
-```rx before
+```d.rx before
 //@ for @solidjs/router ^1.9.0
 export pure fn useParams(): any uses(router)
 ```
 
-```rx after
+```d.rx after
 //@ for @solidjs/router ^2.0.0
 export pure fn useParams(): any uses(router)
 ```

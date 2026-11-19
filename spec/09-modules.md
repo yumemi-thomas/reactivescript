@@ -485,6 +485,14 @@ export default component App() {
   on a fn that hands back no `Component` it is a parse error. The word
   describes the shape of the arguments, not a router: any library that
   nests a tree of components it is given says it the same way.
+  In the projection (TY-1c), which is type-checked and never run, a
+  record's literal `path` under such a fn is written joined with its
+  parents' literal paths (`/org/:org` above `/:id` gives `/org/:org/:id`;
+  `/` gives the parent's), looking through records with no `path` (the
+  config around the table) and JS calls (`defineRoute(…)`), so a nested
+  route's component is typed with every param above it. A path that is not
+  a literal stops the joining beneath it. The lowered program passes the
+  paths as written.
 - **MO-11j (An exported factory's component) — proposed 2026-11-18.**
   `export Router = createRouter({ … })` exports the made component. Its
   signature (MO-3) is that of a component whose view is `<Router />` in the

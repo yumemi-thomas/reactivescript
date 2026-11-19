@@ -179,7 +179,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), nest_fns: HashMap::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -313,6 +313,8 @@ struct Proj<'a> {
     ref_fns: HashMap<String, JsDecl>,
     /// MO-10b: equations bound to such a fn's tuple or record result
     ref_parts: HashMap<String, crate::parse::Shape>,
+    /// MO-11i: declared factories that nest, by local name: (kids field, component field)
+    nest_fns: HashMap<String, (String, String)>,
     prelude: Option<&'a str>,
 }
 
@@ -577,9 +579,12 @@ impl Proj<'_> {
         if let Some(dp) = declared {
             for n in &rest {
                 let x = self.set.declarations.get(dp).and_then(|ds| ds.iter().find(|y| matches!(y, JsDecl::Fn { name, .. } if *name == n.name)));
-                if let Some(x @ JsDecl::Fn { refs, shape, .. }) = x {
+                if let Some(x @ JsDecl::Fn { refs, shape, nests, .. }) = x {
                     if refs.iter().any(|r| *r) || shape.has_ref() {
                         self.ref_fns.insert(n.alias.clone(), x.clone());
+                    }
+                    if let Some(ns) = nests {
+                        self.nest_fns.insert(n.alias.clone(), ns.clone());
                     }
                 }
             }
@@ -757,6 +762,43 @@ impl Proj<'_> {
     }
 
     // ---- expressions: `imp` imperative scope (a real `await`); `me` the equation being defined (its own `pre`) ----
+    /// MO-11i, types only: under a factory that nests, a record's literal path is written joined with its parents' (the
+    /// projection is never run), so a child route's types see its parents' params. `prefix` None: a parent path the
+    /// projection cannot read, so nothing below is rewritten.
+    fn nest_arg(&mut self, e: &Expr, prefix: Option<String>, n: &(String, String), imp: bool, me: Option<&str>) -> Code {
+        let Some(prefix) = prefix else { return self.expr(e, imp, me) };
+        match &e.k {
+            ExprKind::Arr(items) => {
+                let a = items.iter().map(|x| if matches!(x.k, ExprKind::Spread(_)) { self.expr(x, imp, me) } else { self.nest_arg(x, Some(prefix.clone()), n, imp, me) }).collect();
+                Code::of("[").c(Code::join(a, ", ")).t("]")
+            }
+            ExprKind::Call { f, args } => {
+                let fc = self.expr(f, imp, me);
+                let a = args.iter().map(|x| self.nest_arg(x, Some(prefix.clone()), n, imp, me)).collect();
+                fc.t("(").c(Code::join(a, ", ")).t(")")
+            }
+            ExprKind::Rec(fields) => {
+                let path = fields.iter().position(|f| matches!(f, Field::Kv { key, .. } if key == "path"));
+                let own: Option<String> = match path.map(|i| &fields[i]) {
+                    Some(Field::Kv { v: Expr { k: ExprKind::Lit(Lit::Str(s)), .. }, .. }) => Some(join_route_path(&prefix, s)),
+                    Some(_) => None,
+                    None => Some(prefix.clone()),
+                };
+                let fs = fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| match f {
+                        Field::Spread(x) => Code::of("...").c(self.expr(x, imp, me)),
+                        Field::Kv { key, .. } if Some(i) == path && own.is_some() => Code::of(&js_str(key)).t(": ").t(&js_str(own.as_ref().unwrap())),
+                        Field::Kv { key, v } if *key == n.0 || path.is_none() => Code::of(&js_str(key)).t(": ").c(self.nest_arg(v, own.clone(), n, imp, me)),
+                        Field::Kv { key, v } => Code::of(&js_str(key)).t(": ").c(self.expr(v, imp, me)),
+                    })
+                    .collect();
+                Code::of("({ ").c(Code::join(fs, ", ")).t(" })")
+            }
+            _ => self.expr(e, imp, me),
+        }
+    }
     fn expr(&mut self, e: &Expr, imp: bool, me: Option<&str>) -> Code {
         self.expr_text(e, imp, me).from(e.span)
     }
@@ -841,6 +883,14 @@ impl Proj<'_> {
                 go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]").t(if call { "()" } else { "" }) // MO-10b
             }
             ExprKind::StyleMap { css, .. } => Code::of(&class_map(css)),
+            ExprKind::Call { f, args } if matches!(&f.k, ExprKind::Id(g) if self.nest_fns.contains_key(g)) => {
+                // MO-11i: a nested route typed with its parents' path
+                let ExprKind::Id(g) = &f.k else { unreachable!() };
+                let ns = self.nest_fns[g].clone();
+                let fc = go!(f);
+                let a = args.iter().map(|a| self.nest_arg(a, Some(String::new()), &ns, imp, me)).collect();
+                fc.t("(").c(Code::join(a, ", ")).t(")")
+            }
             ExprKind::Call { f, args } => {
                 // MO-10a: a `ref` argument is an accessor
                 let refs: Vec<bool> = match &f.k {
@@ -1193,4 +1243,15 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
         checks.push((out.len(), line, name.clone()));
     }
     (out.join("\n") + "\n", checks)
+}
+
+/// MO-11i: a route path under its parent's: `/org/:org` and `/:id` give `/org/:org/:id`; `/` under anything is the parent.
+fn join_route_path(parent: &str, child: &str) -> String {
+    if parent.is_empty() || parent == "/" {
+        return child.to_string();
+    }
+    if child == "/" || child.is_empty() {
+        return parent.to_string();
+    }
+    format!("{}{}", parent.trim_end_matches('/'), if child.starts_with('/') { child.to_string() } else { format!("/{}", child) })
 }
