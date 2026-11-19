@@ -1,0 +1,32 @@
+// A routed app on @tanstack/solid-router (2.0 rc), code-based routes, the way TanStack's docs write them.
+import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, Link, useParams, useNavigate } from "./tsr.js"
+import { fetchPerson, NotFound } from "./people.js"
+
+component Root() {
+  <nav><Link to="/">Home</Link> <Link to="/people/$id" params={{ id: "1" }}>Ann</Link> <Link to="/people/$id" params={{ id: "2" }}>Bo</Link> <Link to="/people/$id" params={{ id: "9" }}>Nobody</Link></nav>
+  <main><Outlet /></main>
+}
+component Home() {
+  navigate = useNavigate()
+  <h1>People</h1>
+  <button onClick={() => { navigate({ to: "/people/$id", params: { id: "2" } }) }}>Meet Bo</button>
+}
+component Person() {
+  params = useParams({ from: "/people/$id" })
+  person = await fetchPerson(params.id)
+  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
+    loading fallback { <p>loading…</p> } {
+      <h1>{person.name}</h1>
+      <p>{person.role}, #{params.id}</p>
+    }
+  }
+}
+
+rootRoute = createRootRoute({ component: Root })
+indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: Home })
+personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
+export router = createRouter({ routeTree: rootRoute.addChildren([indexRoute, personRoute]) })   // exported for its type: register.d.ts registers it
+
+export default component App() {
+  <RouterProvider router={router} />
+}

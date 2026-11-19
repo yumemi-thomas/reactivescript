@@ -257,6 +257,12 @@ struct Sym<'a> {
     renders_root: bool,
     /// MO-11n: the JS contexts (keys) it carries into that root
     carries: Vec<String>,
+    /// MO-11o: a declared fn whose result carries the components in its arguments
+    carrier: bool,
+    /// MO-11o: on an equation bound to such a call, those arguments and their scope
+    carried: Option<(&'a [Expr], EId)>,
+    /// MO-11o: every equation's expression, looked through for what it carries
+    carried_expr: Option<(&'a Expr, EId)>,
     /// MO-11j: an exported factory's component — the wrapper whose summary an importer sees
     exported_as: Option<SId>,
     /// MO-11j: on that wrapper, the made component its view applies (`<Router />`)
@@ -307,6 +313,9 @@ impl<'a> Sym<'a> {
             renders: false,
             renders_root: false,
             carries: vec![],
+            carrier: false,
+            carried: None,
+            carried_expr: None,
             exported_as: None,
             wraps: None,
             factory: None,
@@ -907,6 +916,14 @@ pub struct Checker<'a> {
     callback_fns: HashSet<*const Expr>,
     /// MO-11k: declared JS components' render props (fields typed as a function giving a View), by region
     render_props: HashMap<RId, HashSet<String>>,
+    /// MO-11o: the JS components' props that render what their value carries
+    carried_props: HashMap<RId, HashSet<String>>,
+    /// MO-11o: the component values carrying calls were given (the value, its name, the line, the call), and those a
+    /// `renders` prop reached
+    carried_pending: Vec<(*const Expr, String, i64, String)>,
+    carried_rendered: HashSet<*const Expr>,
+    /// MO-11o: the carried values `carried_names` reached (read-only walks record them here; the application keeps them)
+    reached: std::cell::RefCell<HashSet<*const Expr>>,
     /// MO-10g: declared JS components' callback props (fields typed as any other function), by region
     callback_props: HashMap<RId, HashSet<String>>,
     /// MO-11k: view lambdas in a render-prop position
@@ -996,6 +1013,10 @@ impl<'a> Checker<'a> {
             uses: vec![],
             callback_fns: HashSet::new(),
             render_props: HashMap::new(),
+            carried_props: HashMap::new(),
+            carried_pending: vec![],
+            carried_rendered: HashSet::new(),
+            reached: std::cell::RefCell::new(HashSet::new()),
             callback_props: HashMap::new(),
             view_fns: HashSet::new(),
             readers: vec![],
@@ -1116,6 +1137,13 @@ impl<'a> Checker<'a> {
             self.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`".into());
         }
         self.block(&p.decls, &p.view, root, Ctx::reactive());
+        // MO-11o: a component a value carries is checked where a prop renders it; one nothing renders is not checked anywhere
+        for (e, name, line, by) in std::mem::take(&mut self.carried_pending) {
+            if !self.carried_rendered.contains(&e) {
+                self.line = line;
+                self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} is carried by {}(…), but nothing renders it: pass what carries it to a JS component's prop declared `renders` (MO-11o)", name, by));
+            }
+        }
         self.later.push(Later::Content { ms: &p.view, env: root, anc: vec![] });
         let mut i = 0;
         while i < self.later.len() {
@@ -1280,6 +1308,15 @@ impl<'a> Checker<'a> {
                         }
                     }
                     self.foreign_part(&mut sym, e, env);
+                    // MO-11o: a carrying call's arguments; every equation's expression, looked through later
+                    if let ExprKind::Call { f, args } = &e.k {
+                        if let ExprKind::Id(n) = &f.k {
+                            if self.lookup(env, n).is_some_and(|t| self.syms[t].carrier) {
+                                sym.carried = Some((args.as_slice(), env));
+                            }
+                        }
+                    }
+                    sym.carried_expr = Some((e, env));
                     if sym.foreign == Some(FShape::Comp) {
                         if let ExprKind::Call { f, args } = &e.k {
                             // MO-11f: the bound name is a component; MO-12c: what it provides to what it renders
@@ -1573,12 +1610,17 @@ impl<'a> Checker<'a> {
                     if !callbacks.is_empty() {
                         self.callback_props.insert(r, callbacks);
                     }
+                    // MO-11o: the props that render what their value carries
+                    let carried: HashSet<String> = xprops.iter().filter(|p| p.carried).map(|p| p.name.clone()).collect();
+                    if !carried.is_empty() {
+                        self.carried_props.insert(r, carried);
+                    }
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
                     self.bind(env, alias, s);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1597,6 +1639,7 @@ impl<'a> Checker<'a> {
                         s.renders = *xrenders;
                         s.renders_root = *xroot;
                         s.carries = js_keys(self, xcarries);
+                        s.carrier = *xcarrier;
                         s.held = xheld.clone();
                         s.cbs = xcbs.clone();
                         self.bind(env, alias, s);
@@ -1966,6 +2009,22 @@ impl<'a> Checker<'a> {
             }
             Decl::Eq { name, e, deferred, key, ty, .. } => {
                 if let Some(&made) = self.envs[env].vars.get(name.as_str()) {
+                    // MO-11o: its component values are values, applied where a prop renders them
+                    if let Some((args, cenv)) = self.syms[made].carried {
+                        let by = match &e.k {
+                            ExprKind::Call { f, .. } => match &f.k {
+                                ExprKind::Id(n) => n.clone(),
+                                _ => String::new(),
+                            },
+                            _ => String::new(),
+                        };
+                        let mut names = vec![];
+                        let before = self.carried_pending.len();
+                        self.carried_values(args, cenv, true, &mut names);
+                        for p in &mut self.carried_pending[before..] {
+                            p.3 = by.clone();
+                        }
+                    }
                     if self.syms[made].factory.is_some() {
                         self.factory_values(made);
                         // the call runs once, here: its failures and holds are a reader's
@@ -2196,7 +2255,9 @@ impl<'a> Checker<'a> {
             }
             let mut reads = IndexSet::new();
             reads_outside_peek(Node::E(a), &mut reads);
-            let hit = reads.iter().find(|n| self.lookup(env, n).is_some_and(|s| self.syms[s].kind.reactive())).cloned();
+            // E-10: an instance a primitive made (its value result) is made once and never changes
+            let constant = |s: SId| matches!(self.syms[s].foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value)) | Some(crate::parse::Shape::Comp));
+            let hit = reads.iter().find(|n| self.lookup(env, n).is_some_and(|s| self.syms[s].kind.reactive() && !constant(s))).cloned();
             if let Some(h) = hit {
                 self.err(
                     "SNAPSHOT_ARGUMENT",
@@ -3090,6 +3151,9 @@ impl<'a> Checker<'a> {
                             }
                         }
                         let values = self.component_values(tag, attrs, env);
+                        // MO-11o: the carried values a `renders` prop reached are rendered here
+                        let reached: Vec<*const Expr> = self.reached.borrow_mut().drain().collect();
+                        self.carried_rendered.extend(reached);
                         let args: Vec<&'a Attr> = attrs.iter().enumerate().filter(|(i, _)| !values.iter().any(|(j, _)| j == i)).map(|(_, a)| a).collect();
                         // MO-10g: a prop the declaration types as a function is a handler
                         let cbs = s.and_then(|s| self.syms[s].comp_region).and_then(|r| self.callback_props.get(&r).cloned()).unwrap_or_default();
@@ -3341,7 +3405,150 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+        // MO-11o: what a prop renders, the components its value carries
+        let region = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region);
+        if let Some(cp) = region.and_then(|r| self.carried_props.get(&r)) {
+            let mut names = vec![];
+            let mut seen = HashSet::new();
+            for a in attrs {
+                if cp.contains(&a.name) {
+                    self.carried_names(&a.e, env, &mut seen, &mut names);
+                }
+            }
+            let mut uniq: IndexSet<String> = IndexSet::new();
+            for n in names {
+                uniq.insert(n);
+            }
+            for n in uniq {
+                out.push((usize::MAX, n));
+            }
+        }
         out
+    }
+    /// MO-11o: the components in a carrying call's arguments, as a factory's are found (MO-11c, MO-11g); `mark` registers
+    /// them as values (no COMPONENT_AS_VALUE where they are written).
+    fn carried_values(&mut self, args: &'a [Expr], env: EId, mark: bool, out: &mut Vec<String>) {
+        fn walk<'a>(c: &mut Checker<'a>, e: &'a Expr, env: EId, mark: bool, out: &mut Vec<String>) {
+            match &e.k {
+                ExprKind::Id(n) => {
+                    if is_upper_tag(n) && c.lookup(env, n).is_some_and(|t| c.syms[t].kind == SymKind::Comp) {
+                        if mark {
+                            c.value_ids.insert(e as *const Expr);
+                            let line = c.line;
+                            c.carried_pending.push((e as *const Expr, n.clone(), line, String::new()));
+                        }
+                        out.push(n.clone());
+                    }
+                }
+                ExprKind::Rec(fields) => {
+                    for f in fields {
+                        if let Field::Kv { v, .. } = f {
+                            walk(c, v, env, mark, out);
+                        }
+                    }
+                }
+                ExprKind::Arr(items) => {
+                    for x in items {
+                        if !matches!(x.k, ExprKind::Spread(_)) {
+                            walk(c, x, env, mark, out);
+                        }
+                    }
+                }
+                ExprKind::Call { f, args } => {
+                    if let ExprKind::Id(g) = &f.k {
+                        if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
+                            for a in args {
+                                walk(c, a, env, mark, out);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        for a in args {
+            walk(self, a, env, mark, out);
+        }
+    }
+    /// MO-11o: the components an expression's value carries: through the names it reads, to the carrying calls they were
+    /// bound to (`rootRoute.addChildren([…])`, `createRouter({ routeTree })`).
+    fn carried_names(&self, e: &Expr, env: EId, seen: &mut HashSet<SId>, out: &mut Vec<String>) {
+        fn names_in<'a>(c: &Checker<'a>, e: &Expr, env: EId, out: &mut Vec<String>) {
+            match &e.k {
+                ExprKind::Id(n) => {
+                    if is_upper_tag(n) && c.lookup(env, n).is_some_and(|t| c.syms[t].kind == SymKind::Comp) {
+                        c.reached.borrow_mut().insert(e as *const Expr);
+                        out.push(n.clone());
+                    }
+                }
+                ExprKind::Rec(fields) => {
+                    for f in fields {
+                        if let Field::Kv { v, .. } = f {
+                            names_in(c, v, env, out);
+                        }
+                    }
+                }
+                ExprKind::Arr(items) => {
+                    for x in items {
+                        if !matches!(x.k, ExprKind::Spread(_)) {
+                            names_in(c, x, env, out);
+                        }
+                    }
+                }
+                ExprKind::Call { f, args } => {
+                    if let ExprKind::Id(g) = &f.k {
+                        if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
+                            for a in args {
+                                names_in(c, a, env, out);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        match &e.k {
+            ExprKind::Id(n) => {
+                let Some(s) = self.lookup(env, n) else { return };
+                if !seen.insert(s) {
+                    return;
+                }
+                if let Some((args, cenv)) = self.syms[s].carried {
+                    for a in args {
+                        names_in(self, a, cenv, out);
+                    }
+                }
+                if let Some((x, xenv)) = self.syms[s].carried_expr {
+                    self.carried_names(x, xenv, seen, out);
+                }
+            }
+            ExprKind::Member { o, .. } => self.carried_names(o, env, seen, out),
+            ExprKind::Index { o, i, .. } => {
+                self.carried_names(o, env, seen, out);
+                self.carried_names(i, env, seen, out);
+            }
+            ExprKind::Call { f, args } => {
+                self.carried_names(f, env, seen, out);
+                for a in args {
+                    self.carried_names(a, env, seen, out);
+                }
+            }
+            ExprKind::Rec(fields) => {
+                for f in fields {
+                    match f {
+                        Field::Kv { v, .. } => self.carried_names(v, env, seen, out),
+                        Field::Spread(x) => self.carried_names(x, env, seen, out),
+                    }
+                }
+            }
+            ExprKind::Arr(items) => {
+                for x in items {
+                    self.carried_names(x, env, seen, out);
+                }
+            }
+            ExprKind::Spread(x) | ExprKind::Peek(x) => self.carried_names(x, env, seen, out),
+            _ => {}
+        }
     }
     /// MO-11f: the components in a factory call's arguments — anywhere inside its record and array literals, and the
     /// arguments of JS calls among them (MO-11g).

@@ -166,7 +166,11 @@ Function application `f(e…)` covers both language functions and FFI imports;
   once" is legitimate. The check lives at the call site because that is where
   both facts are known: the parameter's kind and the argument's reactivity.
   (First drafted as a rejection inside the function body; `ref/` S-region-6
-  showed that rejects `counter(n, 10)`, the legitimate case.)
+  showed that rejects `counter(n, 10)`, the legitimate case.) An equation
+  bound to what a declared primitive made, its value result (09 MO-10b), is
+  made once and never changes, so reading it in an argument loses nothing
+  and is no diagnostic (proposed 2026-11-19: `createRouter({ routeTree:
+  rootRoute.addChildren(…) })`, S-module-22); a reader (`ref`) still is.
 
 ### W — Writes
 

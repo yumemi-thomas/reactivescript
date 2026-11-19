@@ -575,6 +575,26 @@ export default component App() {
   declaration file declares can be named (MO-12a): a library cannot carry
   the program's contexts by name; one that forwards its whole owner says
   `renders`. `root` is the only word `renders(…)` takes. S-module-18.
+- **MO-11o (Components that travel in values) — proposed 2026-11-19.** Some
+  libraries take components into values and render them later, from
+  elsewhere: TanStack Router's `createRoute({ component })` makes a route
+  object, `rootRoute.addChildren([…])` a tree, `createRouter({ routeTree })`
+  a router, and `<RouterProvider router={…}>` renders the routes'
+  components. `carries` on a declared fn says its result carries the
+  components in its arguments (found as a factory's are, MO-11c, MO-11g;
+  it implies `instantiates`), and a value computed from a carrying value
+  carries them too. `renders` on a declared JS component's prop
+  (`router: renders any`) says the component renders what its value
+  carries: those components are checked as applied there, among its
+  children (MO-11c), so its `provides(…)` reaches them and the boundaries
+  above it hold their failures. A carried component that no `renders` prop
+  reaches is checked nowhere, so it is `COMPONENT_AS_VALUE` where it is
+  passed. A route's nested components render at TanStack's `<Outlet />`;
+  they are checked as siblings under the provider, which errs strict (a
+  boundary inside the parent's component is not credited to them).
+  S-module-22; `examples/tanstack` runs on `@tanstack/solid-router` 2.0 (rc)
+  in the Vite suite, with TanStack's registered route types checked by the
+  build (a link to no route fails it, TS2820).
 - **MO-11m (A made component's properties) — proposed 2026-11-18.** A
   factory's component may carry properties (`@solidjs/router`'s `paths`, its
   typed path builder). `Router.paths` is a value read in the module that

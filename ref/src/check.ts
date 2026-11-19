@@ -100,6 +100,9 @@ type Sym = {
   held?: [string, boolean, string[]][];   // MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
+  carrier?: boolean;                   // MO-11o: a declared fn whose result carries the components in its arguments
+  carried?: { args: Expr[]; env: Env };   // MO-11o: on an equation bound to such a call, those arguments
+  carriedExpr?: { e: Expr; env: Env };   // MO-11o: every equation's expression, looked through for what it carries
   rendersRoot?: boolean;               // MO-11n: renders(root), under a root of the library's own
   carries?: string[];                  // MO-11n: renders(root, ctx…): the JS contexts (keys) it provides inside that root
   renders?: boolean;                   // MO-11l: a declared JS fn that renders the components in its arguments where its result is bound
@@ -264,6 +267,8 @@ class Checker {
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     this.block(p.decls, p.view, root, { scope: "reactive" });
+    // MO-11o: a component a value carries is checked where a prop renders it; one nothing renders is not checked anywhere
+    for (const c of this.carriedPending) if (!this.carriedRendered.has(c.e)) { this.line = c.line; this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${c.name} is carried by ${c.by}(…), but nothing renders it: pass what carries it to a JS component's prop declared \`renders\` (MO-11o)`); }
     this.later.push(() => this.contentCheck(p.view, root, []));
     for (const f of this.later) f();
     this.retained();
@@ -501,7 +506,7 @@ class Checker {
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); }
       if (d.k === "eq") sym.eqDecl = d;
-      if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); }
+      if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.carrier) sym.carried = { args: d.e.args, env }; sym.carriedExpr = { e: d.e, env }; }   // MO-11o
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
       this.bind(env, d.name, sym);
     }
@@ -596,11 +601,12 @@ class Checker {
         const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
         for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true } : {}), ...(p.callback ? { callback: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig;
+        const cp = x.props.filter(p => p.carried).map(p => p.name); if (cp.length) this.carriedProps.set(r, new Set(cp));   // MO-11o
         this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }); continue;
       }
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}) });
     }
   }
@@ -759,6 +765,7 @@ class Checker {
       case "eq": {
         const kind = d.deferred ? "deferred" : d.key ? "keyed" : "memo";
         const made = env.vars.get(d.name);
+        if (made?.carried) this.carriedValues(made.carried.args, made.carried.env, true, [], d.e.k === "call" && d.e.f.k === "id" ? d.e.f.name : "");   // MO-11o: its component values are values, applied where a prop renders them
         if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (made.factory.here) this.markup(this.factoryTree(made, d.line), made.factory.root ? new Env(env, this.rootOf(made.factory.carries ?? [])) : env);   /* MO-11n: under a root of its own, nothing above the binding reaches them */ else if (d.exported) this.exportMade(made, d.name, d.line); }   // MO-11l: applied where it is bound
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.markCallbacks(call.args, f.cbs); this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.rowCheck(d.name, d.type, env); return;
@@ -857,7 +864,7 @@ class Checker {
     f.params!.forEach((p, i) => {
       const a = call.args[i]; if (!a || p.ref) return;
       const reads = new Set<string>(); readsOutsidePeek(a, reads);
-      const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind); });
+      const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !(s.foreign === "value" || s.foreign === "comp"); });   // E-10: an instance a primitive made (its value result) is made once and never changes
       if (hit) this.err("SNAPSHOT_ARGUMENT", "E-10", `${f.name}(…): the argument for value parameter ${p.name} reads ${hit} and would be snapshotted — declare the parameter \`ref\`, or pass peek(…)`);
     });
   }
@@ -1270,11 +1277,43 @@ class Checker {
 
   /** MO-11c: a component passed to a JS component's `Component` prop — checked as applied, with no arguments, among the
    *  application's children (DV-24). */
-  private componentValues(m: Extract<Markup, { k: "el" }>, env: Env): Map<Extract<Markup, { k: "el" }>["attrs"][number], Markup> {
-    const out = new Map<Extract<Markup, { k: "el" }>["attrs"][number], Markup>();
+  private componentValues(m: Extract<Markup, { k: "el" }>, env: Env): Map<unknown, Markup> {
+    const out = new Map<unknown, Markup>();
     const sig = env.lookup(m.tag)?.compRegion?.sig;
     for (const a of m.attrs) if (sig?.props[a.name]?.component && a.e.k === "id" && /^[A-Z]/.test(a.e.name) && env.lookup(a.e.name)?.kind === "comp") out.set(a, this.applied([a.e.name], m.line)[0]);
+    const cp = env.lookup(m.tag)?.compRegion ? this.carriedProps.get(env.lookup(m.tag)!.compRegion!) : undefined;   // MO-11o: what a prop renders
+    if (cp) { const names: string[] = []; const seen = new Set<Sym>(); for (const a of m.attrs) if (cp.has(a.name)) this.carriedNames(a.e, env, seen, names); for (const n of [...new Set(names)]) out.set({ carried: n }, this.applied([n], m.line)[0]); }
     return out;
+  }
+  /** MO-11o: the JS components' props that render what their value carries, by component. */
+  private carriedProps = new Map<Region, Set<string>>();
+  /** MO-11o: the component values carrying calls were given, and those a `renders` prop reached. */
+  private carriedPending: { e: Expr; name: string; line: number; by: string }[] = [];
+  private carriedRendered = new Set<Expr>();
+  /** MO-11o: the components in a carrying call's arguments, as a factory's are found (MO-11c, MO-11g); `mark` registers
+   *  them as values (no COMPONENT_AS_VALUE where they are written). */
+  private carriedValues(args: Expr[], env: Env, mark: boolean, out: string[] = [], by = ""): string[] {
+    const walk = (e: Expr) => {
+      if (e.k === "id" && /^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp") { if (mark) { this.valueIds.add(e); this.carriedPending.push({ e, name: e.name, line: this.line, by }); } else this.carriedRendered.add(e); out.push(e.name); }
+      else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
+      else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
+      else if (e.k === "call" && e.f.k === "id") { const g = env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined))) e.args.forEach(walk); }
+    };
+    args.forEach(walk); return out;
+  }
+  /** MO-11o: the components an expression's value carries: through the names it reads, to the carrying calls they were
+   *  bound to (`rootRoute.addChildren([…])`, `createRouter({ routeTree })`). */
+  private carriedNames(e: Expr, env: Env, seen: Set<Sym>, out: string[]) {
+    const go = (x: Expr) => this.carriedNames(x, env, seen, out);
+    switch (e.k) {
+      case "id": { const s = env.lookup(e.name); if (!s || seen.has(s)) return; seen.add(s); if (s.carried) this.carriedValues(s.carried.args, s.carried.env, false, out); if (s.carriedExpr) this.carriedNames(s.carriedExpr.e, s.carriedExpr.env, seen, out); return; }
+      case "member": go(e.o); return;
+      case "index": go(e.o); go(e.i); return;
+      case "call": go(e.f); e.args.forEach(go); return;
+      case "rec": for (const x of e.fields) go("spread" in x ? x.spread : x.v); return;
+      case "arr": e.items.forEach(go); return;
+      case "spread": case "peek": go(e.e); return;
+    }
   }
   /** MO-11c: `<C />` for each component value, as the checks see it. */
   private applied(tags: string[], line?: number): Markup[] { return tags.map(tag => ({ k: "el", tag, attrs: [], children: [], line }) as Markup); }

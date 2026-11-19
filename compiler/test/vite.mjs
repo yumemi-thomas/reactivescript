@@ -41,6 +41,7 @@ const apps = {
   router: "router/main.rx",
   virtual: "virtual/main.rx", "virtual-headless": "virtual/headless.rx", query: "query/main.rx",
   primitives: "primitives/main.rx",
+  tanstack: "tanstack/main.rx",
 };
 const filter = process.argv[2];
 const out = path.join(here, ".out"); mkdirSync(out, { recursive: true });
@@ -51,6 +52,8 @@ const PACKAGES = {
   router: ["@solidjs/router@2.0.0"],
   virtual: ["@tanstack/virtual-core@3.13.13"],
   query: ["@tanstack/solid-query@6.0.0-rc.6", "@tanstack/query-core@5.107.1"],
+  // @tanstack/solid-router's Solid 2 line (2.0 rc), and what it depends on
+  tanstack: ["@tanstack/solid-router@2.0.0-rc.11", "@solid-devtools/logger@0.9.11", "@solid-primitives/refs@1.1.4", "@solidjs/meta@0.29.8", "@tanstack/history@1.162.5", "@tanstack/router-core@1.171.39", "isbot@5.2.3", "@nothing-but/utils@0.17.0", "@solid-primitives/utils@6.4.1", "@solid-devtools/shared@0.20.0", "@solid-devtools/debugger@0.28.1", "cookie-es@3.1.1", "seroval@1.8.2", "seroval-plugins@1.8.0", "@solid-primitives/event-listener@2.4.6", "@solid-primitives/media@2.3.6", "@solid-primitives/rootless@1.5.4", "@solid-primitives/scheduled@1.5.3", "@solid-primitives/static-store@0.1.4", "@solid-primitives/styles@0.1.4", "@solid-primitives/bounds@0.1.7", "@solid-primitives/keyboard@1.3.7", "@solid-primitives/resize-observer@2.2.0"],
   // @solid-primitives' Solid 2.0 releases the app uses, and what they depend on
   primitives: ["@solid-primitives/media@4.0.0", "@solid-primitives/resize-observer@4.0.0", "@solid-primitives/active-element@3.0.0", "@solid-primitives/timer@1.4.5", "@solid-primitives/pagination@1.0.0", "@solid-primitives/scheduled@2.0.0", "@solid-primitives/event-listener@3.0.0", "@solid-primitives/keyed@3.0.0", "@solid-primitives/mouse@4.0.0", "@solid-primitives/storage@5.0.0", "@solid-primitives/rootless@2.0.0", "@solid-primitives/static-store@1.0.0", "@solid-primitives/utils@7.0.0"],
 };
@@ -86,14 +89,14 @@ function project(name, entry) {
   cpSync(path.join(repo, "examples"), path.join(dir, "src"), { recursive: true });
   if (TYPED.has(name)) {   // TY-1a: the build type-checks with rx-tsc, from the language server, over the app's tsconfig
     symlinkSync(path.join(repo, "tooling/rx-language-server"), path.join(nm, "@reactivescript/language-server"));
-    writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] }, include: [`src/${path.dirname(entry)}/**/*.rx`] }, null, 2));
+    writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] }, include: [`src/${path.dirname(entry)}/**/*.rx`, `src/${path.dirname(entry)}/**/register.d.ts`] }, null, 2));
   }
   writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport main from "./${entry}";\nimport * as api from "./api.mjs";\nconst app = createApp({ root: document.getElementById("app"), api });\napp.mount(main(app));\n`);
   writeFileSync(path.join(dir, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title></head><body><div id="app"></div><script type="module" src="/src/entry.js"></script></body></html>\n`);
   return dir;
 }
 /** The apps whose build type-checks (13 TY-1a); the rest build with RX_TYPECHECK=0. */
-const TYPED = new Set(["router", "primitives"]);
+const TYPED = new Set(["router", "primitives", "tanstack"]);
 const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
   plugins: [solid()],
@@ -175,7 +178,22 @@ const primitives = async page => {
   await page.click("#theme"); await until("a persisted signal", async () => (await t("#theme")) === "theme: dark");
   if ((await page.evaluate(() => localStorage.getItem("theme"))) !== JSON.stringify("dark")) throw new Error(`persisted: ${await page.evaluate(() => localStorage.getItem("theme"))}`);
 };
-const drivers = { todo, router, virtual, "virtual-headless": headless, query, primitives };
+// @tanstack/solid-router from .rx: code-based routes, links, a param, navigate, a failing route's typed boundary
+const tanstack = async page => {
+  const h1 = async () => (await page.textContent("h1"))?.trim();
+  const app = async () => (await page.textContent("#app")).replace(/\s+/g, " ");
+  const until = async (what, ok) => { for (let i = 0; i < 40; i++) { if (await ok()) return; await page.waitForTimeout(50); } throw new Error(`${what}: ${await app()} at ${page.url()}`); };
+  await page.evaluate(() => { window.__loaded = true; });
+  if ((await h1()) !== "People") throw new Error(`home: ${await app()}`);
+  await page.click("nav >> text=Ann"); await until("after the Ann link", async () => (await h1()) === "Ann" && (await app()).includes("engineer, #1"));
+  if (!page.url().endsWith("/people/1")) throw new Error(`url ${page.url()}`);
+  await page.click("nav >> text=Bo"); await until("after the Bo link (same route, new param)", async () => (await h1()) === "Bo" && (await app()).includes("designer, #2"));
+  await page.click("nav >> text=Home"); await until("back home", async () => (await h1()) === "People");
+  await page.click("text=Meet Bo"); await until("after navigate()", async () => (await h1()) === "Bo" && page.url().endsWith("/people/2"));
+  await page.click("nav >> text=Nobody"); await until("an unknown id, its typed boundary", async () => (await app()).includes("no person 9"));
+  if (!(await page.evaluate(() => window.__loaded))) throw new Error("a link reloaded the page");
+};
+const drivers = { todo, router, virtual, "virtual-headless": headless, query, primitives, tanstack };
 
 for (const [name, entry] of Object.entries(apps)) {
   if (filter && !name.includes(filter)) continue;
@@ -188,7 +206,7 @@ for (const [name, entry] of Object.entries(apps)) {
   const sources = maps.flatMap(f => JSON.parse(readFileSync(path.join(dir, "dist/assets", f), "utf8")).sources);
   if (!sources.some(s => s.endsWith(".rx"))) { fail++; console.log(`✗ ${name}: the bundle's source map names no .rx file`); continue; }
   const dist = path.join(dir, "dist");
-  const http = createServer((req, res) => { let f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f) && name === "router" && !path.extname(f)) f = path.join(dist, "index.html"); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });   // router/: a page's URL serves the app
+  const http = createServer((req, res) => { let f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f) && (name === "router" || name === "tanstack") && !path.extname(f)) f = path.join(dist, "index.html"); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });   // router/: a page's URL serves the app
   await new Promise(r => http.listen(0, "127.0.0.1", r));
   await drive(`${name} (build)`, `http://127.0.0.1:${http.address().port}/`, drivers[name]);
   if (name === "router") {   // TY-1a: a route whose path lacks the param its page needs fails the build, on its line
@@ -197,6 +215,13 @@ for (const [name, entry] of Object.entries(apps)) {
     try { await vite.build(config(dir, entry)); fail++; console.log("✗ router (typed build): a route missing its page's param built"); }
     catch (e) { if (/TS2\d+/.test(e.message) && /routes\.rx/.test(e.message)) { pass++; console.log(`✓ router (typed build): refused, ${e.message.split("\n").find(l => /routes\.rx/.test(l)).trim().slice(0, 90)}`); } else { fail++; console.log(`✗ router (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
     cpSync(path.join(repo, "examples/router/routes.rx"), routes);
+  }
+  if (name === "tanstack") {   // TY-1d with TanStack's registered router: a link to a route that does not exist fails the build
+    const main = path.join(dir, "src/tanstack/main.rx");
+    writeFileSync(main, readFileSync(main, "utf8").replace('<Link to="/people/$id" params={{ id: "1" }}>', '<Link to="/peeple/$id" params={{ id: "1" }}>'));
+    try { await vite.build(config(dir, entry)); fail++; console.log("✗ tanstack (typed build): a link to no route built"); }
+    catch (e) { if (/TS2820/.test(e.message) && /main\.rx/.test(e.message)) { pass++; console.log(`✓ tanstack (typed build): refused, ${e.message.split("\n").find(l => /TS2820/.test(l)).trim().slice(0, 100)}`); } else { fail++; console.log(`✗ tanstack (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
+    cpSync(path.join(repo, "examples/tanstack/main.rx"), main);
   }
   if (name === "router") await drive("router (build, a page's URL)", `http://127.0.0.1:${http.address().port}/people/2`, async page => { await page.waitForTimeout(300); const t = await page.textContent("h1"); if (t?.trim() !== "Bo") throw new Error(`/people/2 loaded: ${await page.textContent("#app")}`); });
   http.close();
