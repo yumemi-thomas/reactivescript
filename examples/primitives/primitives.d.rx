@@ -1,0 +1,12 @@
+// Rows for the primitives the app uses, from rx-declare's drafts (checked against their types by rx-tsc, TY-6).
+export pure fn createMediaQuery(query: string, serverFallback?: boolean): ref boolean instantiates
+export pure fn createWindowSize(): { readonly width: number; readonly height: number } instantiates
+export pure fn createActiveElement(): ref Element | null
+export pure fn createIntervalCounter(ref timeout: number | false): ref number
+export pure fn createPagination(ref options?: { pages: number }): [ref any, ref number, (page: number) => void]
+// a scheduled callback: made once (instantiates), called later from handlers; the closure it takes is a handler (MO-10g)
+export pure fn debounce(callback: (...args: any[]) => void, wait?: number): (...args: any[]) => void instantiates
+export component WindowEventListener(props: { onKeydown?: (e: any) => void })
+export component Key(props: { each?: any[]; by: any; fallback?: View; children: (v: any, i: any) => View })
+export pure fn createMousePosition(): { x: number; y: number; isInside: boolean } instantiates
+export pure fn createPersisted(name: string, init: string): [ref string, (v: string) => void]

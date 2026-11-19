@@ -40,6 +40,7 @@ const apps = {
   "ai2-search": "ai2/search/main.rx", "ai2-settings": "ai2/settings/main.rx", "ai2-tracker": "ai2/tracker/main.rx",
   router: "router/main.rx",
   virtual: "virtual/main.rx", "virtual-headless": "virtual/headless.rx", query: "query/main.rx",
+  primitives: "primitives/main.rx",
 };
 const filter = process.argv[2];
 const out = path.join(here, ".out"); mkdirSync(out, { recursive: true });
@@ -50,6 +51,8 @@ const PACKAGES = {
   router: ["@solidjs/router@2.0.0"],
   virtual: ["@tanstack/virtual-core@3.13.13"],
   query: ["@tanstack/solid-query@6.0.0-rc.6", "@tanstack/query-core@5.107.1"],
+  // @solid-primitives' Solid 2.0 releases the app uses, and what they depend on
+  primitives: ["@solid-primitives/media@4.0.0", "@solid-primitives/resize-observer@4.0.0", "@solid-primitives/active-element@3.0.0", "@solid-primitives/timer@1.4.5", "@solid-primitives/pagination@1.0.0", "@solid-primitives/scheduled@2.0.0", "@solid-primitives/event-listener@3.0.0", "@solid-primitives/keyed@3.0.0", "@solid-primitives/mouse@4.0.0", "@solid-primitives/storage@5.0.0", "@solid-primitives/rootless@2.0.0", "@solid-primitives/static-store@1.0.0", "@solid-primitives/utils@7.0.0"],
 };
 function packed(spec) {
   const cache = path.join(out, ".packages", spec.replace(/[@/]/g, "_")), dir = path.join(cache, "package");
@@ -90,7 +93,7 @@ function project(name, entry) {
   return dir;
 }
 /** The apps whose build type-checks (13 TY-1a); the rest build with RX_TYPECHECK=0. */
-const TYPED = new Set(["router"]);
+const TYPED = new Set(["router", "primitives"]);
 const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
   plugins: [solid()],
@@ -156,7 +159,22 @@ const query = async page => {   // MO-12, MO-10f, MO-10g: a query, a mutation wh
   await page.fill("input", "bread"); await page.click("text=add");
   await until(page, "the mutation, its onSuccess and the refetch", async () => { const t = await page.textContent("#app"); return t.includes("milkeggsbread") && t.includes("saved 1"); });
 };
-const drivers = { todo, router, virtual, "virtual-headless": headless, query };
+// @solid-primitives from .rx: each primitive's value reaches the page and follows what it tracks
+const primitives = async page => {
+  const t = async sel => ((await page.textContent(sel)) ?? "").replace(/\s+/g, " ").trim();
+  const until = async (what, ok) => { for (let i = 0; i < 40; i++) { if (await ok()) return; await page.waitForTimeout(50); } throw new Error(`${what}: ${(await page.textContent("#app")).replace(/\s+/g, " ")}`); };
+  await until("a media query and the window's size", async () => /^wide 1280x720$/.test(await t("#media")));
+  await until("an interval counter", async () => (await t("#ticks")) === "ticking");
+  if ((await t("#items")) !== "onetwothree") throw new Error(`keyed list: ${await t("#items")}`);
+  await page.click("#search"); await until("the active element", async () => (await t("#active")) === "focus: INPUT");
+  await page.keyboard.type("milk"); await until("a debounced callback writing a source", async () => (await t("#query")) === "query: milk");
+  await until("a window event listener's handler", async () => (await t("#key")) === "key: k");
+  await page.click("#next"); await until("a pagination tuple", async () => (await t("#page")) === "page 2 of 5");
+  await page.mouse.move(40, 30); await until("the mouse position store", async () => (await t("#mouse")) === "mouse 40,30");
+  await page.click("#theme"); await until("a persisted signal", async () => (await t("#theme")) === "theme: dark");
+  if ((await page.evaluate(() => localStorage.getItem("theme"))) !== JSON.stringify("dark")) throw new Error(`persisted: ${await page.evaluate(() => localStorage.getItem("theme"))}`);
+};
+const drivers = { todo, router, virtual, "virtual-headless": headless, query, primitives };
 
 for (const [name, entry] of Object.entries(apps)) {
   if (filter && !name.includes(filter)) continue;
