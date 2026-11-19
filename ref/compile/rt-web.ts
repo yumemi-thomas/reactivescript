@@ -345,3 +345,14 @@ function assignDraft(draft: any, v: unknown) {
   for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k];
   Object.assign(draft, v);
 }
+
+/** CP-4d: an `.rx` module's components for a JS host (`import pages from "./pages.rx?rx-lib"`; `const { Home } =
+ *  components(pages)`): Solid components bound to the page's one app, made on first use. */
+let hostApp: ReturnType<typeof createApp> | null = null;
+export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T): T {
+  const made = new Map<string, unknown>();
+  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) => {
+    hostApp ??= createApp({ root: null });
+    return ((hostApp.module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props);
+  }), made.get(k)) });
+}

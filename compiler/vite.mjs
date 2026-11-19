@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 
 const { app } = createRequire(import.meta.url)("./index.js");
 const DEP = "rx-dep";
+const LIB = "rx-lib";   // CP-4d: a JS module imports an .rx module for its components: `import pages from "./pages.rx?rx-lib"`
 // the page each code points to: the package's copy (scripts/guide.mjs), else the repository's
 const GUIDE = [path.join(path.dirname(fileURLToPath(import.meta.url)), "guide/diagnostics.md"), path.join(path.dirname(fileURLToPath(import.meta.url)), "../guide/diagnostics.md")].find(existsSync)
   ?? "https://github.com/solidjs/reactivescript/blob/main/guide/diagnostics.md";
@@ -58,16 +59,16 @@ function typecheck(entry) {
 export default function rx() {
   const flag = process.env.RX_TYPECHECK;
   let typed = flag === "0" ? true : null;   // whether this process has type-checked (once per build)
-  const builds = new Map();   // entry\0target\0moduleName\0spa → { entry, target, moduleName, spa, out, stamps }
+  const builds = new Map();   // entry\0target\0moduleName\0spa\0lib → { entry, target, moduleName, spa, lib, out, stamps }
   const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
-  function build(entry, target, moduleName, spa) {
-    const key = `${entry}\0${target}\0${moduleName}\0${spa}`;
+  function build(entry, target, moduleName, spa, lib = false) {
+    const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${lib}`;
     const prior = builds.get(key);
     if (prior && fresh(prior)) return prior;
-    const out = JSON.parse(app(entry, target, moduleName, spa));
+    const out = JSON.parse(app(entry, target, moduleName, spa, lib));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
     const files = out.modules ? Object.keys(out.modules) : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];
-    const b = { entry, target, moduleName, spa, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
+    const b = { entry, target, moduleName, spa, lib, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
     builds.set(key, b);
     return b;
   }
@@ -86,13 +87,14 @@ export default function rx() {
       // 08 CN-3d: a client-only build (no SSR, nothing hydrates) has nothing to show on a first load nothing holds
       const spa = target === "dom" && solid.hydratable === false;
       const dep = isDep(moduleId);
+      const lib = new URLSearchParams(moduleId.split("?")[1] ?? "").has(LIB);
       if (!typed && !dep && (flag === "1" || process.env.NODE_ENV === "production")) {
         typed = true;
         const t = typecheck(file);
         if (t === undefined) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${path.relative(process.cwd(), file)}, or no @reactivescript/language-server to run rx-tsc with (13 TY-1a)`);
         else if (t) throw new Error(`type errors (rx-tsc):\n${t}`);
       }
-      const { entry, out } = dep ? containing(file, target, moduleName, spa) : build(file, target, moduleName, spa);
+      const { entry, out } = dep ? containing(file, target, moduleName, spa) : build(file, target, moduleName, spa, lib);
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];

@@ -54,6 +54,20 @@ them in `ssr.external` (otherwise the compiled templates and the runtime
 render with two `@solidjs/web`s, and nothing hydrates). The Vite suite
 (`compiler/test/vite.mjs router-ssr`) builds and serves it this way.
 
+A JS host can render `.rx` components itself (spec/11 CP-4d): import the
+module with `?rx-lib` and bind its exports with `components()`:
+
+```tsx
+import { components } from "@reactivescript/runtime";
+import pages from "./pages.rx?rx-lib";
+const { PersonCard } = components(pages);
+export default () => <PersonCard id="1" />;
+```
+
+On the client they share one app; on the server, one per request, found
+through Solid's request event, so module state is per request. TanStack
+Start's file routes use this (`examples/start`).
+
 Solid is a peer: `solid-js`, `@solidjs/web` and `@solidjs/signals` (the
 runtime reads owner context from `@solidjs/signals`, which `solid-js` runs on;
 with pnpm, add it to the app).

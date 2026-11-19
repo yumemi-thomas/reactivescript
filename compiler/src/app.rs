@@ -2,7 +2,7 @@
 //! compiler for `target`, each importing its dependencies by `.rx` path, with the program's stylesheet. What `rxc app`
 //! prints and the Node-API build (`src/node.rs`) returns to `@reactivescript/compiler/vite`.
 use crate::check::check_modules;
-use crate::emit::{compile_linked, lower_view, Target};
+use crate::emit::{compile_linked_as, lower_view, Target};
 use crate::modules::load_modules;
 use serde_json::{json, Map, Value};
 use std::path::Path;
@@ -26,6 +26,10 @@ pub fn target(name: &str) -> Target {
 /// `{entry, css, modules: {path: {code, map}}}`, or `{diagnostics: [...]}` / `{error}`. `entry` is an absolute path.
 /// `spa`: a client-only build, checked under 08 CN-3d.
 pub fn app(entry: &str, target: Target, module_name: &str, spa: bool) -> Value {
+    app_as(entry, target, module_name, spa, false)
+}
+/// CP-4d: `library`, the entry's exports for a JS host (`compile_linked_as`).
+pub fn app_as(entry: &str, target: Target, module_name: &str, spa: bool, library: bool) -> Value {
     // module keys are POSIX paths (`modules::join_path`); Windows takes `D:/a/b.rx` as it takes `D:\a\b.rx`
     let entry = &entry.replace('\\', "/");
     (|| {
@@ -43,7 +47,7 @@ pub fn app(entry: &str, target: Target, module_name: &str, spa: bool) -> Value {
         if !checked.diags.is_empty() {
             return Err(json!({ "diagnostics": checked.diags.iter().map(|d| { let mut j = d.to_json(); if j["file"].is_null() { j["file"] = json!(set.entry); } j }).collect::<Vec<_>>() }));
         }
-        let out = compile_linked(&set, &[], true).map_err(|e| json!({ "error": format!("{entry}: not compiled: {}", e.0) }))?;
+        let out = compile_linked_as(&set, &[], true, library).map_err(|e| json!({ "error": format!("{entry}: not compiled: {}", e.0) }))?;
         let mut modules = Map::new();
         for (name, module) in &out.files {
             let path = &out.paths[name];

@@ -227,6 +227,24 @@ for (const [name, entry] of Object.entries(apps)) {
   http.close();
 }
 process.env.RX_TYPECHECK = "0";
+if (!filter || "host".includes(filter)) {   // CP-4d: a JS host (TSX, Solid's own render) uses .rx components, imported ?rx-lib
+  const dir = project("host", "host/main.tsx");
+  writeFileSync(path.join(dir, "index.html"), readFileSync(path.join(dir, "index.html"), "utf8").replace("/src/entry.js", "/src/host/main.tsx"));
+  try {
+    await vite.build(config(dir, "host/main.tsx"));
+    const dist = path.join(dir, "dist");
+    const http = createServer((req, res) => { const f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });
+    await new Promise(r => http.listen(0, "127.0.0.1", r));
+    await drive("host (TSX renders .rx components)", `http://127.0.0.1:${http.address().port}/`, async page => {
+      const app = async () => (await page.textContent("#app")).replace(/\s+/g, " ");
+      const until = async (what, ok) => { for (let i = 0; i < 40; i++) { if (await ok()) return; await page.waitForTimeout(50); } throw new Error(`${what}: ${await app()}`); };
+      await until("the .rx data, and its typed boundary", async () => (await app()).includes("Annengineer") && (await app()).includes("no person 9"));
+      await page.click("button.counter >> nth=0"); await page.click("button.counter >> nth=1");
+      await until("one .rx source behind both components", async () => (await app()).includes("clicks: 2") && (await app()).includes("same clicks: 2"));
+    });
+    http.close();
+  } catch (e) { fail++; console.log(`✗ host: ${e.message.split("\n").slice(0, 4).join(" | ")}`); }
+}
 if (!filter || "router-ssr".includes(filter)) {   // SV-4a through Vite: a client and a server build of the router app, served per request and hydrated
   const dir = project("router-ssr", "router/main.rx");
   writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport main from "./router/main.rx";\nconst app = createApp({ root: document.getElementById("app") });\napp.mount(main(app), true);\nwindow.__hydrated = true;\n`);

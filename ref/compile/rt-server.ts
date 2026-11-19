@@ -10,7 +10,7 @@ import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit } from "solid-js";
-import { escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
+import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
 const SAFE_ERROR = Symbol.for("solid.SafeError");
 let warnedCopies = false;   // once per process   // @solidjs/web's mark (markSafeError), read through the prototype
 import { $TARGET } from "@solidjs/signals";
@@ -295,3 +295,19 @@ function assignDraft(draft: any, v: unknown) {
   for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k];
   Object.assign(draft, v);
 }
+
+/** CP-4d: an `.rx` module's components for a JS host (`import pages from "./pages.rx?rx-lib"`; `const { Home } =
+ *  components(pages)`): Solid components bound to the request's app (SV-4: module state is per request), found through
+ *  Solid's request event and made on first use. Outside a request, one app for the process. */
+let processApp: ReturnType<typeof createApp> | null = null;
+export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T): T {
+  const made = new Map<string, unknown>();
+  const appNow = () => {
+    const ev = getRequestEvent() as { request: Request; locals: Record<PropertyKey, unknown> } | undefined;
+    if (!ev) return (processApp ??= createApp());
+    return (ev.locals[HOST_APP] ??= createApp({ request: ev.request })) as ReturnType<typeof createApp>;
+  };
+  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) =>
+    ((appNow().module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
+}
+const HOST_APP = Symbol.for("reactivescript.app");

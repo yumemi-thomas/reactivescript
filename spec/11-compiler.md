@@ -159,6 +159,22 @@ record argued each way; this is the decision.
   `frame` (what the runners observe). Compiled code calls them only in a
   conformance build — the compiler's option for running `scenarios/`
   (CP-5); `ref/compile/emit.ts` always emits one.
+- **CP-4d (A JS host's `.rx` components).** A JS module may import an
+  `.rx` module for its components rather than mount a program from it:
+  `import pages from "./pages.rx?rx-lib"` compiles the module as a
+  dependency is (`module(__rt)`, returning its exports; `rxc app --lib`,
+  the Node-API `app(…, library)`), and the runtime's
+  `components(pages)` turns those exports into Solid components the host
+  renders itself (`const { PersonCard } = components(pages)`). They are
+  bound to an app made on first use: on the client, one for the page; on
+  the server, one per request, kept on Solid's request event
+  (`getRequestEvent().locals`), so module state is per request (SV-4) as
+  in a program's own server; outside a request, one for the process. The
+  module is checked as an entry is (its components' failures reach their
+  own boundaries, or are refused); what the host passes in is the host's
+  to type. It is how a framework that owns routing and the document —
+  TanStack Start's file routes, which its generator reads as TypeScript —
+  renders `.rx` components (`examples/start`, `compiler/test/start.mjs`).
 
 ## CP-5 — `ref/` is the conformance suite
 

@@ -194,6 +194,11 @@ pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
 /// `compile_modules`, with each module importing its dependencies by their `.rx` paths (relative to the importer) when
 /// `by_source`, as a bundler resolves them, rather than as the sibling `.mjs` files `compile_modules` names.
 pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> R<Compiled> {
+    compile_linked_as(set, extra, by_source, false)
+}
+/// CP-4d: `library`, the entry is compiled as a dependency is (`module(__rt)`, its exports), for a JS host that imports
+/// an `.rx` module for its components (`./pages.rx?rx-lib`) rather than mounting a program from it.
+pub fn compile_linked_as(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, library: bool) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
     g.by_source = by_source;
@@ -211,7 +216,7 @@ pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> 
             }
         }
         let mut body: Vec<S> = deps.iter().map(|d| S::ImportDefault(g.dep_var(d), if by_source { relative(path, d) } else { format!("./{}", g.out(d)) })).collect();
-        if *path == set.entry {
+        if *path == set.entry && !library {
             let root = g.new_env(None);
             let inner = g.block(&p.decls, &p.view, root, None, true)?;
             body.append(&mut g.top);

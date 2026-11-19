@@ -14,4 +14,4 @@ export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-was
  * universal; dom by default) over `module_name` (`@solidjs/web` by default). `spa`: a client-only build (dom, not
  * hydratable), checked under 08 CN-3d.
  */
-export declare function app(entry: string, target?: string | undefined | null, moduleName?: string | undefined | null, spa?: boolean | undefined | null): string
+export declare function app(entry: string, target?: string | undefined | null, moduleName?: string | undefined | null, spa?: boolean | undefined | null, library?: boolean | undefined | null): string
