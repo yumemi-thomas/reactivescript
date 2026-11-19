@@ -537,6 +537,18 @@ export default component App() {
   assumption, at the binding). Their failures, contexts and first loads are
   checked above the binding. `renders` implies `instantiates`; a component
   passed to a fn without it is still `COMPONENT_AS_VALUE`. S-module-16.
+- **MO-11n (Components a library renders under its own root) — proposed
+  2026-11-19.** `renders(root)` is `renders` (MO-11l) for a library that
+  mounts the components it is given with a root of its own (`render()`,
+  `createRoot`): a toaster, a modal manager, a widget host. They are found
+  as `renders`'s are, and checked as applied, with no arguments, under a
+  fresh root at the binding, as a program's view is: no `provide`,
+  `errored` or `loading` above the binding reaches them (Solid's
+  `useContext` and boundaries walk owners, and that root has none of the
+  app's). What they need, they provide and catch themselves; otherwise
+  `CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`, or in a client-only build
+  `ASYNC_OUTSIDE_LOADING_BOUNDARY`. `root` is the only word `renders(…)`
+  takes. S-module-18.
 - **MO-11m (A made component's properties) — proposed 2026-11-18.** A
   factory's component may carry properties (`@solidjs/router`'s `paths`, its
   typed path builder). `Router.paths` is a value read in the module that

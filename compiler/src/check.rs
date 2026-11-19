@@ -253,6 +253,8 @@ struct Sym<'a> {
     /// MO-11l: a declared JS fn that renders the components in its arguments where its result is bound; on the bound
     /// name, that its factory record's values are applied there
     renders: bool,
+    /// MO-11n: `renders(root)`, applied under a root of the library's own
+    renders_root: bool,
     /// MO-11j: an exported factory's component — the wrapper whose summary an importer sees
     exported_as: Option<SId>,
     /// MO-11j: on that wrapper, the made component its view applies (`<Router />`)
@@ -301,6 +303,7 @@ impl<'a> Sym<'a> {
             gives: vec![],
             nests: None,
             renders: false,
+            renders_root: false,
             exported_as: None,
             wraps: None,
             factory: None,
@@ -1297,9 +1300,10 @@ impl<'a> Checker<'a> {
                         if let ExprKind::Call { f, args } = &e.k {
                             // MO-11l: its component values are applied where it is bound
                             if let ExprKind::Id(n) = &f.k {
-                                if self.lookup(env, n).is_some_and(|t| self.syms[t].renders) {
+                                if let Some(t) = self.lookup(env, n).filter(|t| self.syms[*t].renders) {
                                     sym.factory = Some((args.as_slice(), env));
                                     sym.renders = true;
+                                    sym.renders_root = self.syms[t].renders_root;
                                 }
                             }
                         }
@@ -1570,7 +1574,7 @@ impl<'a> Checker<'a> {
                     self.bind(env, alias, s);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1587,6 +1591,7 @@ impl<'a> Checker<'a> {
                         s.gives = js_keys(self, xprovides);
                         s.nests = xnests.clone();
                         s.renders = *xrenders;
+                        s.renders_root = *xroot;
                         s.held = xheld.clone();
                         s.cbs = xcbs.clone();
                         self.bind(env, alias, s);
@@ -1961,9 +1966,16 @@ impl<'a> Checker<'a> {
                         // the call runs once, here: its failures and holds are a reader's
                         self.readers.push(ReaderRec { region: self.reg(env), e, env, line: self.line });
                         if self.syms[made].renders {
-                            // MO-11l: applied where it is bound
-                            for t in self.factory_tree(made) {
-                                self.apply_tree(&t, Some(d.line()), env);
+                            // MO-11l: applied where it is bound; MO-11n: under a root of its own, nothing above the binding reaches them
+                            let trees = self.factory_tree(made);
+                            let at = if self.syms[made].renders_root {
+                                let r = self.region(None, "root", false, None);
+                                self.env(Some(env), r)
+                            } else {
+                                env
+                            };
+                            for t in trees {
+                                self.apply_tree(&t, Some(d.line()), at);
                             }
                         } else if d.exported() {
                             self.export_made(made, name, d.line() as i64);
