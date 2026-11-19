@@ -626,6 +626,10 @@ export component RouterProvider(props: { children?: View }) provides(router)
   it, to the components the call was given, which MO-11c checks as applied
   beneath it. On any other fn it is a parse error: nothing it renders could
   see the provision.
+- **MO-12d (Provider order).** A provider that needs another above it says
+  so with `uses(…)` (`export component DevtoolsProvider(props) uses(queryClient)
+  provides(devtools)`): nested in the wrong order, it is `CONTEXT_NOT_FOUND`
+  like any other use. Nothing new is needed.
 
 Executable: S-module-7.
 

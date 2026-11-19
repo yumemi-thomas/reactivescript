@@ -23,6 +23,16 @@ export component RouterProvider(props: { children?: View }) provides(router)
 ```
 
 ```rx
+-- module: ./order.d.rx
+// provider order: the devtools provider needs the query client's provider above it
+export context queryClient
+export context devtools
+export component QueryClientProvider(props: { client: any; children?: View }) provides(queryClient)
+export component DevtoolsProvider(props: { children?: View }) uses(queryClient) provides(devtools)
+export pure fn useDevtools(): any uses(devtools, queryClient)
+```
+
+```rx
 -- module: ./pages.rx
 import { useParams } from "@solidjs/router"
 export component Person() {
@@ -140,3 +150,20 @@ export default component App() {
 
 Only a fn that hands back a `Component` provides a context: what it
 provides it to is what that component renders (MO-12c).
+
+```rx
+-- reject: CONTEXT_NOT_FOUND
+import { QueryClientProvider, DevtoolsProvider, useDevtools } from "./order.js"
+component Panel() {
+  d = useDevtools()
+  <p>panel</p>
+}
+export default component App() {
+  <DevtoolsProvider><QueryClientProvider client={1}><Panel /></QueryClientProvider></DevtoolsProvider>
+}
+```
+
+Provider order is a provider's own need: `DevtoolsProvider` declares
+`uses(queryClient)`, so nested outside `QueryClientProvider` it is refused,
+and inside it (`<QueryClientProvider><DevtoolsProvider>…`) it is accepted.
+
