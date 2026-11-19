@@ -585,6 +585,7 @@ class Checker {
       const x = decls.find(y => y.name === name);
       if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
       if (x.kind === "type" || x.kind === "context") continue;   // MO-12a: a JS context is named only by its declaration file's rows
+      if (x.kind === "value") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // MO-8g: a value, read as any import, never io
       if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
       if (x.kind === "comp") {                                                             // MO-11a: a Solid component — its declaration is its summary
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders

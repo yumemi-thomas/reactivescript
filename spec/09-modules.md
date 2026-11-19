@@ -192,6 +192,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   wrong about the next. `rx-declare` writes the pin of the version it drafted
   from. Ranges: an exact version, `^`, `~`, `>=`, `>`, `<=`, `<`, joined by `||`.
 
+- **MO-8g (Values) — proposed 2026-11-18.** `export const pageSearch:
+  Schema` declares a value the module exports (a validator, a config
+  object, a symbol): imported, it is read as any import is, never io, and
+  projected as `export declare const`. TY-6 checks its type.
+
 ## MO-9 — A signature read in place of its module
 
 - **MO-9a.** `import … from "./x.rx"` where there is no `x.rx` but there is
@@ -530,9 +535,11 @@ export default component App() {
   made it, and may be exported (`export paths = Router.paths`); with the
   library's own types, `rx-tsc` checks a link built from it
   (`paths.people("2")`). The component itself stays a component, applied,
-  never a value. Typed search params (`useSearchParams(paths.people)`) in a
-  page are not reachable: the pages are imported by the module that makes
-  the router, and a page importing `paths` from it would be a cycle (MO-5).
+  never a value. A page's typed search params (`useSearchParams(paths.people)`)
+  cannot take `paths` from the router's module, which imports the pages
+  (MO-5); the route tree's definitions go in a module of their own, with no
+  page imports, and `pathsOf(defs)` builds the typed paths from them; the
+  routing module adds the components to the same definitions. S-module-17.
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check

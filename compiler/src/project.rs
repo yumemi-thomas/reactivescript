@@ -259,6 +259,7 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
                 format!("export declare function {name}{}({}): {};", tparams.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), accessor_result(ret.as_ref(), shape))
             }
             JsDecl::Context { .. } => unreachable!(), // MO-12a: filtered above
+            JsDecl::Value { name, ty, .. } => format!("export declare const {name}: {};", ty.as_deref().unwrap_or("any")), // MO-8g
         }))
         .collect::<Vec<_>>()
         .join("\n")
@@ -1184,6 +1185,7 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
                 (name, *line, format!("(props: {{ {} }}) => any", fs.join(" ")))
             }
             JsDecl::Error { name, line } => (name, *line, "abstract new (...args: any[]) => Error".into()),
+            JsDecl::Value { name, line, ty } => (name, *line, ty.clone().unwrap_or_else(|| "any".into())),
             JsDecl::Type { .. } | JsDecl::Context { .. } => continue,
         };
         out.push(format!("type __decl_{} = {};", name, ty));

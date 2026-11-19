@@ -1527,6 +1527,14 @@ impl<'a> Checker<'a> {
             };
             match x {
                 JsDecl::Type { .. } | JsDecl::Context { .. } => continue, // MO-12a: a JS context is named only by its declaration file's rows
+                JsDecl::Value { .. } => {
+                    // MO-8g: a value, read as any import, never io
+                    let mut s = Sym::new(SymKind::Import, alias, region, line);
+                    s.io = false;
+                    s.rejects = Some(["Error".to_string()].into_iter().collect());
+                    self.bind(env, alias, s);
+                    continue;
+                }
                 JsDecl::Error { .. } => {
                     self.bind(env, alias, Sym::new(SymKind::ErrClass, alias, region, line));
                     continue;

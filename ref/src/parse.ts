@@ -138,7 +138,8 @@ export type JsDecl =
   | { kind: "error"; name: string; line: number }
   | { kind: "type"; name: string; line: number; text?: string }
   | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[] }   // MO-11a: a Solid component
-  | { kind: "context"; name: string; line: number };   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
+  | { kind: "context"; name: string; line: number }
+  | { kind: "value"; name: string; line: number; type?: string };   // MO-8g: a value the module exports (`export const pageSearch: Schema`)   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
  *  component value (MO-11c: its type is `Component`). */
 export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean; render?: boolean; callback?: boolean };   // render: MO-11k, a function giving a View; callback: MO-10g, any other function
@@ -151,6 +152,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     c.ws();
     if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
     if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
+    if (c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("const name"); c.ws(false); const type = c.eat(":") ? (c.ws(), parseType(c, false, true)) : undefined; out.push({ kind: "value", name, line, ...(type ? { type } : {}) }); continue; }   // MO-8g
     if (c.keyword("context")) { c.ws(); const name = c.ident() ?? c.fail("context name"); out.push({ kind: "context", name, line }); continue; }   // MO-12a
     if (c.keyword("component")) { out.push(parseJsComponent(c, line)); continue; }
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only

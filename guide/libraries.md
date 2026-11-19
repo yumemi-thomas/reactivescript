@@ -190,4 +190,21 @@ Then `rx-tsc` refuses
 `defineRoute(…)` inside the `createRouter({ … })` call; bound on its own, a component in it is `COMPONENT_AS_VALUE`. A child
 route doesn't see its parent's params in its type, so declare those optional (`org?: string`).
 
+### Typed search params
+
+A page can't import `paths` from the module that makes the router (that module imports the page). Put the route
+definitions in a module of their own and build the typed paths from them:
+
+```rx
+// defs.rx: no pages here
+export people = defineRoute({ path: "/people", search: pageSearch })   // pageSearch: `export const` in a .d.rx
+export paths = pathsOf([people])                                        // router.js: createRouter({ routes }).paths
+
+// pages.rx
+[search, setSearch] = useSearchParams(peek paths.people)                // search.page: number, from the schema
+
+// main.rx
+Router = createRouter({ routes: [{ ...(peek people), component: People }] })
+```
+
 Rules: `spec/09-modules.md` MO-10, MO-11 and MO-12 (and MO-8 for declaration files).

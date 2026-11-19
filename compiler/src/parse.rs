@@ -497,6 +497,8 @@ pub enum JsDecl {
     Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String> },
     /// MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
     Context { name: String, line: usize },
+    /// MO-8g: a value the module exports (`export const pageSearch: Schema`)
+    Value { name: String, line: usize, ty: Option<String> },
 }
 /// MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it (`None` in the list:
 /// every class), and whether it takes a component value (MO-11c: its type is `Component`).
@@ -515,7 +517,7 @@ pub struct JsProp {
 impl JsDecl {
     pub fn name(&self) -> &str {
         match self {
-            JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } | JsDecl::Comp { name, .. } | JsDecl::Context { name, .. } => name,
+            JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } | JsDecl::Comp { name, .. } | JsDecl::Context { name, .. } | JsDecl::Value { name, .. } => name,
         }
     }
 }
@@ -743,6 +745,20 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             let name = c.ident_or("error class name")?;
             out.push(JsDecl::Error { name, line });
+            continue;
+        }
+        if c.keyword("const") {
+            // MO-8g
+            c.ws(true);
+            let name = c.ident_or("const name")?;
+            c.ws(false);
+            let ty = if c.eat(":") {
+                c.ws(true);
+                Some(parse_type(&mut c, false, true)?)
+            } else {
+                None
+            };
+            out.push(JsDecl::Value { name, line, ty });
             continue;
         }
         if c.keyword("context") {
