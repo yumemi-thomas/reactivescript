@@ -1,6 +1,6 @@
 // The pages the router renders: plain .rx components, named in the route table (MO-11f).
-import { useNavigate } from "./router.js"
-import { fetchPerson, NotFound } from "./people.js"
+import { useNavigate, useSubmissions } from "./router.js"
+import { getPerson, promoteForm, NotFound } from "./people.js"
 
 export context heading: string
 
@@ -18,11 +18,18 @@ export component Home() {
 }
 
 export component Person(props: { params: { id: string } }) {   // MO-11h: rx-tsc checks the route supplies id
-  person = await fetchPerson(props.params.id)   // MO-11e: a route's data, asked again when the param changes
+  person = await getPerson(props.params.id)     // MO-11e: a route's data (a router query), asked again when the param changes
+  submissions = useSubmissions(promoteForm)     // the router's data layer: a form action's settled submissions
+  last = len(submissions) > 0 ? submissions[len(submissions) - 1] : null
   errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
     loading fallback { <p>loading…</p> } {
       <h1>{person.name}</h1>
       <p>{person.role}, #{props.params.id}</p>
+      // the router submits the form, then asks its queries again
+      <form action={promoteForm} method="post">
+        <input type="hidden" name="id" value={props.params.id} />
+        <button type="submit">Promote</button> <small>{last != null && last.result != null ? last.result : ""}</small>
+      </form>
     }
   }
 }

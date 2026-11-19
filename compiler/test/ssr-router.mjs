@@ -58,7 +58,7 @@ let pass = 0, fail = 0;
 const check = (name, ok, got) => { ok ? pass++ : fail++; console.log(`${ok ? "  ✓" : "  ✗"} ${name}${ok ? "" : `\n      ${JSON.stringify(got)}`}`); };
 async function open(url) { problems.length = 0; await page.goto(base + url); await page.waitForFunction(() => window.__hydrated, null, { timeout: 10000 }); await page.waitForTimeout(600); }
 const nav = "Home Ann Bo Nobody";
-for (const [url, want] of [["/", "People Meet Bo"], ["/people/1", "Ann engineer, #1"], ["/people/2", "Bo designer, #2"]]) {
+for (const [url, want] of [["/", "People Meet Bo"], ["/people/1", "Ann engineer, #1 Promote"], ["/people/2", "Bo designer, #2 Promote"]]) {
   await open(url); const got = await text();
   check(`${url}: served for its URL and hydrated`, got === `${nav} ${want}` && !problems.length, { got, problems });
 }
@@ -66,7 +66,7 @@ await open("/people/9");
 check("/people/9: the route's NotFound crosses as itself, to its typed boundary (SV-5a)", (await page.evaluate(() => document.querySelector("p.missing")?.textContent)) === "no person 9" && !problems.length, { got: await text(), problems });
 await page.evaluate(() => { window.__sameDocument = true; });
 await page.click("a[href='/people/2']"); await page.waitForTimeout(700);
-check("a link navigates on the hydrated page, in the same document", (await text()) === `${nav} Bo designer, #2` && (await page.evaluate(() => window.__sameDocument === true)) && new URL(page.url()).pathname === "/people/2", { got: await text(), url: page.url() });
+check("a link navigates on the hydrated page, in the same document", (await text()) === `${nav} Bo designer, #2 Promote` && (await page.evaluate(() => window.__sameDocument === true)) && new URL(page.url()).pathname === "/people/2", { got: await text(), url: page.url() });
 await browser.close(); server.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -11,6 +11,7 @@ import { getObserver } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit } from "solid-js";
 import { escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
+const SAFE_ERROR = Symbol.for("solid.SafeError");   // @solidjs/web's mark (markSafeError), read through the prototype
 import { $TARGET } from "@solidjs/signals";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -129,7 +130,15 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
     /** SV-5a: a JS module's error class, declared in its `.d.rx` (`export error C`): `id` is that declaration. */
-    jsClass<T>(C: T, id: string): T { if (!jsClassIds.has(C)) jsClassIds.set(C, id); return C; },
+    jsClass<T>(C: T, id: string): T {
+      if (jsClassIds.has(C)) return C;
+      jsClassIds.set(C, id);
+      // safe from construction, whoever serializes an instance first (a library's own cache, as the router's query): Solid
+      // reads the mark through the prototype, and the read stamps the instance's identity before it is serialized
+      const proto = (C as { prototype?: object }).prototype;
+      if (proto && !Object.prototype.hasOwnProperty.call(proto, SAFE_ERROR)) Object.defineProperty(proto, SAFE_ERROR, { configurable: true, get(this: object) { if (!Object.prototype.hasOwnProperty.call(this, "$class")) Object.defineProperty(this, "$class", { value: id, enumerable: true, configurable: true, writable: true }); return true; } });
+      return C;
+    },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
 

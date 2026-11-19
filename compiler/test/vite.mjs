@@ -119,6 +119,9 @@ const router = async page => {
   if ((await h1()) !== "People") throw new Error(`home: ${await app()}`);
   await page.click("nav >> text=Ann"); await until("after the Ann link", async () => (await h1()) === "Ann" && (await app()).includes("engineer, #1"));
   if (!page.url().endsWith("/people/1")) throw new Error(`url ${page.url()}`);
+  // the router's data layer: a form action bound to a form, its settled submission's result, the query revalidated
+  await page.click("text=Promote");
+  await until("the action's result, and the query revalidated after it", async () => (await app()).includes("lead engineer, #1") && (await app()).includes("Ann promoted"));
   await page.click("nav >> text=Bo"); await until("after the Bo link (same route, new param)", async () => (await h1()) === "Bo" && (await app()).includes("designer, #2"));
   await page.click("nav >> text=Home"); await until("back home", async () => (await h1()) === "People");
   await page.click("text=Meet Bo"); await until("after navigate()", async () => (await h1()) === "Bo" && page.url().endsWith("/people/2"));
