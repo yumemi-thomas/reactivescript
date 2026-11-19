@@ -79,8 +79,31 @@ the same types (spec/13 TY-6).
 `rx-verify <file.d.rx>...` (`bin/verify.js`) imports the JS module beside each declaration and checks the rows running
 can check: every declared export exists, a fn is a function, an `error` is an `Error` subclass, and a hook declared
 `uses(…)` that takes no arguments throws when called with no provider (otherwise the row claims a need the hook does
-not have). What needs the app's arguments (`pure`, `holds`/`fails`, `provides`, a hook with parameters) is listed as
-not verified. `rx-tsc` checks what types can (TY-6); this checks what running can.
+not have). `rx-tsc` checks what types can (TY-6); this checks what running can.
+
+What needs the app (a hook's arguments, its providers) comes from a probe, `lib.probe.mjs` beside `lib.d.rx`:
+
+```js
+import { createComponent } from "solid-js";
+import { QueryClientProvider, makeClient } from "./query.js";
+let n = 0;
+export const provide = children => createComponent(QueryClientProvider, { client: makeClient(), get children() { return children(); } });
+export const probes = {
+  useQuery: {
+    args: () => [() => ({ queryKey: ["probe", n++], queryFn: async () => ["a"] })],
+    fail: () => [() => ({ queryKey: ["probe", n++], queryFn: async () => { throw new Error("probe"); } })],
+  },
+  useMutation: { args: () => [() => ({ mutationFn: async v => v })], run: m => m.mutate(1) },
+};
+```
+
+With it, a `uses(…)` hook with parameters is run with no provider (it, or the probe's `run` on its result, must
+throw; `run` is checked under `provide` too, so a broken probe is reported, not counted), and a hook whose result is a
+declared record is mounted under `provide` (with `@solidjs/universal`, beneath an errored boundary) and each field
+read: a field that holds or fails without `holds`/`fails(…)` is a mismatch, and under `fail`'s arguments a
+`fails(C)` field must fail with a `C`. Run it with `node --conditions=browser`, so Solid is its client build. On
+`@tanstack/solid-query` 6 it found that `isFetching` holds on the first load too: the whole result waits.
+`pure` and `provides` stay unverified.
 
 ## Editors
 
@@ -138,7 +161,7 @@ cargo build --release --manifest-path ../../compiler/Cargo.toml
 npm install && node test/run.js      # VERBOSE=1 prints each answer
 node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, a .d.rx that disagrees with its types
 node test/declare.js                 # rx-declare: each kind of export drafted as its row, and the draft passes rx-tsc
-node test/verify.js                  # rx-verify: a uses(…) that holds, one that does not, a missing export, a non-Error error
+node test/verify.js                  # rx-verify: uses(…) rows, missing exports, errors, and probes (fields that hold and fail, lazy contexts)
 ```
 
 `test/run.js` drives the server over LSP on a copy of `examples/shop` (Solid's
