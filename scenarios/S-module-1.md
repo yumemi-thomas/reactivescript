@@ -105,6 +105,15 @@ Instant 2: the write goes through `store.rx`'s action; `user` throws
 question holds the change. Instant 4: the rejection is an `Error`, which
 `Name` passes and `Card` takes, in one frame with `#2`.
 
+## Divergences (DV-25)
+
+- oracle "Frames" instant 3: `#2 nobody Z`
+- hydrated "Frames" instant 3: `#2 nobody Z`
+
+Solid 2.0.1 regressed here (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
+does not hold the change, so the screen shows the new input beside the old fallback while the question is in flight.
+rc.21 held it, as the spec rules; the spec frames stand.
+
 ## Rejected variants
 
 ```rx

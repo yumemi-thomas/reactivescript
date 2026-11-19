@@ -98,6 +98,7 @@ const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
   plugins: [solid()],
   server: { fs: { allow: [repo, path.dirname(deps), path.resolve(repo, "../solid-next"), pluginDir] } },
+  optimizeDeps: { force: true },   // the dev server's prebundled deps are rebuilt every run: a Solid repin never meets a stale cache
   build: { outDir: "dist", sourcemap: true, emptyOutDir: true },
 });
 

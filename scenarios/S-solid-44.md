@@ -40,8 +40,8 @@ frame before instant 6 is a tear.
 ## Divergences (DV-19, DV-22)
 
 - oracle "Frames" instant 3: `3 9 9 false`
-- oracle "Frames" instant 4: `3 9 2 true`
-- oracle "Frames" instant 5: `3 9 2 true`
+
+Solid 2.0.1 (the repin of 2026-11-19) builds the `latest` half (instants 4 and 5 now show the ruled frames); `pending? comments` under the new question still reads `false` (DV-22).
 
 Solid's S-44 is ruled, not built (#4695): today `pending? comments` reads
 `false` under the new question (DV-22), and `latest comments` answers the new

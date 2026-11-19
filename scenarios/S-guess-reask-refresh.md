@@ -60,8 +60,7 @@ D-34): it logs the guess once and nothing after, since the re-ask confirms it.
 
 ## Divergences (DV-20)
 
-- oracle "Variant: read by an effect alone" instant 5: `x` effects `log(Old)`
-- oracle "Variant: read by an effect alone" instant 6: `x` effects `log(New)`
+Fixed in Solid 2.0.1 (the repin of 2026-11-19): every runner shows the ruled frames, so nothing is recorded.
 
 Found reviewing PR #31: an effect over a source nothing renders is a legal `.rx` program, so #4690 is reachable.
 Fixed on `next` (2026-11-05); the divergence stays recorded until the repin.

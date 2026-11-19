@@ -49,10 +49,7 @@ refresh (instant 5). The re-ask's answer commits the server's list (instant 6).
 
 ## Divergences (DV-19)
 
-- oracle "Frames" instant 4: `2 / 3`
-- oracle "Frames" instant 5: `2 / 3`
-- oracle "Variant: the outside answer changes the truth" instant 4: `2 / 4`
-- oracle "Variant: the outside answer changes the truth" instant 5: `2 / 4`
+Fixed in Solid 2.0.1 (the repin of 2026-11-19): every runner shows the ruled frames, so nothing is recorded.
 
 Found by the timing fuzzer on the chain4 reference desk (Solid 2.0.0-rc.21): a tab count read with `latest` showed the
 server's row count beside a list with a close in flight. Filed as solidjs/solid#4689; Solid ruled it (decision 3 in
