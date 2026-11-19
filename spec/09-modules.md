@@ -775,6 +775,56 @@ Executable: S-module-7.
      page's `props.params` from its route's path through `defineRoute`,
      with no type arguments in `.rx`. `useParams()` stays the router's
      `string | undefined`.
-   - Not covered: TSX importing an `.rx` page (CP-4a's default export, #65),
-     and the router under SSR (`ref/ssr` runs no JS component; a server
-     render needs the router's `url`).
+   - Not covered: TSX importing an `.rx` page (CP-4a's default export, #65).
+     The router under SSR is: the host gives the app its request (10 SV-4a),
+     and `compiler/test/vite.mjs router-ssr` builds, serves and hydrates it.
+9. **The ecosystem words, taken while prototyping** (2026-11-19; each is
+   a proposal for a maintainer to rule on, recorded with why it was taken).
+   The test applied to each: does it keep every check the language makes
+   (no unchecked escape inside `.rx`, CN-5), and is what it lets in either
+   checked statically, by TypeScript in the build (13 TY-1d), or by running
+   (rx-verify)?
+   - *`nests(kids in inside)`, `renders`, `renders(root, …)`* (MO-11i, l, n)
+     are kept. They describe the shape of a call's arguments and where its
+     components end up, which no type says, and each replaces DV-24's
+     blanket assumption with a narrower, checked one. Without them a
+     library that takes components must be refused (`COMPONENT_AS_VALUE`,
+     kept for every call without a word) or trusted; with them, a layout's
+     boundaries reach its routes and a toaster's root gets nothing it was
+     not given. No library name appears in them.
+   - *Typed params in TypeScript, nested paths joined in the projection*
+     (MO-11h, TY-1d) are kept. The router's own types already compute a
+     path's params; restating them as rows would duplicate and drift. Since
+     a production build type-checks, they are not optional. Joining a
+     nested route's literal paths happens only in the projection, which is
+     never run, and errs strict where a path is not a literal.
+   - *`holds`/`fails(…)` on result fields, nested paths included* (MO-10f)
+     are kept at field granularity. A store is read field by field, and
+     only some fields wait or throw; whole-result rows would refuse its
+     plain fields' reads. rx-verify reads every field under a provider and
+     reports an undeclared hold or failure, which is how `isFetching`'s
+     hold was found.
+   - *A declared function type makes a callback* (MO-10g) is kept, with no
+     word of its own: the declaration already says what the library will do
+     with the argument, and `ref` already marks the parameters a library
+     reads reactively (a computation, never a handler). So a function the
+     library calls during the render (a mapper, a comparator) must be
+     declared `ref` or with a pure function type it never writes in; a
+     closure there is then pure (SC-3). A wrong declaration is TY-6's and
+     rx-verify's to catch, not the program's.
+   - *`view (…) { … }` for render props* (MO-11k) is kept: it is markup,
+     read as children, applied per call, with the parameters the library's
+     own types give TypeScript.
+   - *`ref={el => { … }}` as a handler* (07 §4) is kept. Solid runs a ref
+     once, before mount, outside tracking; a write there lands as a
+     handler's does, and a reader of the element reads the source.
+   - *The request as a `createApp` option* (SV-4a) is kept: the server entry
+     is the host's (an adapter, a framework), and the runtime is the one
+     place every host already calls once per request.
+   - *Probes beside the declaration* (`lib.probe.mjs`, rx-verify) are kept:
+     they are a declaration's tests, written once by whoever writes the
+     declaration, and shipped with it.
+   - *A declared JS error class's identity is its declaration*
+     (`people.d.rx#NotFound`, SV-5a), written by the compiler, and on the
+     server the class is safe from construction: whoever serializes an
+     instance first (a library's own cache) sends it as itself.
