@@ -140,9 +140,11 @@ by default — see the list at the end.
   identified by its declaration, not its name: two modules that each
   declare `NotFound` declare two classes (as two contexts, MO-7). A JS module's
   class (`export error C` in its `.d.rx`) is the JS class itself, on both
-  sides: the runtime identifies it by the order the program registers its
-  imports, the same on the server and the client, and a rejection of it
-  that a question awaits is sent with that identity.
+  sides, identified by its declaration: the compiler writes it at the
+  import (`jsClass(NotFound, "people.d.rx#NotFound")`: a package's
+  specifier, or the app's `.d.rx` relative to the entry, never a machine
+  path), so both builds agree whatever each imports. A rejection of it that
+  a question awaits is sent with that identity.
 - **SV-5b.** Anything else that reaches a boundary is sent as the generic
   error: an `Error` whose message is Solid's `Internal Server Error`. That
   is every panic (R-f-3), and a rejection of an undeclared class — a JS

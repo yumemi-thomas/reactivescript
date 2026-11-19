@@ -55,8 +55,8 @@ function errorClass(name: string, params: string[], message: (...args: unknown[]
 const PANIC = { panic: true } as const;   // R-f-10: statically discharges nothing; at run time takes whatever reaches it
 /** SV-5a: a failure the server sent arrives as a plain `Error` carrying its declaration's identity (`$class`); the first
  *  test against that class gives it back its class. */
-/** SV-5a for a JS module's error class (`export error C` in a `.d.rx`), imported as the class itself: its identity is the
- *  order the program registers it in (`reg`), the same on the server and the client. */
+/** SV-5a for a JS module's error class (`export error C` in a `.d.rx`), imported as the class itself: its identity is its
+ *  declaration, which the compiler writes (`jsClass(C, "people.d.rx#NotFound")`), the same on the server and the client. */
 const jsClassIds = new WeakMap<object, string>();
 const isA = (err: unknown, classes: unknown[] | undefined): boolean => !classes || classes.includes(PANIC) || classes.some(c => {
   const k = (c as { cls?: unknown })?.cls ?? c; if (typeof k !== "function") return false;
@@ -105,9 +105,7 @@ export class Flight {
 }
 
 // ---------------------------------------------------------------- one app instance
-const isJsErrorClass = (v: unknown) => typeof v === "function" && (v as { prototype?: unknown }).prototype instanceof Error && !(v as { declared?: boolean }).declared;
 export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown> }) {
-  let jsClassSeq = 0;
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const truthOf = new Map<Acc, Acc>();                                  // an optimistic signal-form source: its guess layer -> its question
@@ -156,7 +154,9 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     prim: (name: string) => primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any })[name] ?? (() => { throw new Error(`./prims has no ${name}`); }),
 
     // ---- the scenario harness's view of names (handler rows reach any live binding by name) ----
-    reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); if (isJsErrorClass(e.value) && !jsClassIds.has(e.value as object)) jsClassIds.set(e.value as object, `${name}#js${jsClassSeq++}`); const h = hoistedBy.get(name); if (h && e.get) { hoistedOf.set(e.get, h); hoistedBy.delete(name); } },
+    reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); const h = hoistedBy.get(name); if (h && e.get) { hoistedOf.set(e.get, h); hoistedBy.delete(name); } },
+    /** SV-5a: a JS module's error class, declared in its `.d.rx`: `id` is that declaration (as rt-server.ts). */
+    jsClass<T>(C: T, id: string): T { if (!jsClassIds.has(C as object)) jsClassIds.set(C as object, id); return C; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) throw new Error(`unbound ${name}`); for (let i = l.length - 1; i >= 0; i--) if (l[i].w) return l[i]; return l[l.length - 1]; },
     dget(name: string, live = false) { const e = app.lookup(name); return e.get ? (live ? e.get() : app.snapshot(e.get)) : e.value; },   // live: inside a probe (R-12), the read itself
     dset(name: string, keys: (string | number)[], v: unknown, guess = false) { const w = app.lookup(name).w; if (!w) throw new Error(`W-1: write to non-source ${name}`); if (guess) w.guess(v, keys); else if (keys.length) w.path(keys, v); else w.set(v); },

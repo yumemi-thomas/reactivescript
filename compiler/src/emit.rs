@@ -272,6 +272,17 @@ impl<'p> Gen<'p> {
     fn js_import(&self, from: &str) -> bool {
         !from.starts_with('.') || (self.by_source && !from.ends_with("/api"))
     }
+    /// SV-5a: the module a declared JS error class is identified by: a package's specifier, or the app's own `.d.rx`
+    /// relative to the entry's directory (no machine path in a client bundle; the same for both builds).
+    fn class_module(&self, from: &str, declared: Option<&str>) -> String {
+        match declared {
+            Some(dts) if from.starts_with('.') => {
+                let base = self.set.entry.rsplit_once('/').map(|(d, _)| format!("{d}/")).unwrap_or_default();
+                dts.strip_prefix(&base).unwrap_or(dts).to_string()
+            }
+            _ => from.to_string(),
+        }
+    }
     fn new(u: Usage, set: &'p ModuleSet) -> Self {
         Gen {
             u,
@@ -687,12 +698,17 @@ impl<'p> Gen<'p> {
             }
         }
         for d in decls {
-            let Decl::Import { resolved: None, names, from, declared_errors, .. } = d else { continue };
+            let Decl::Import { resolved: None, names, from, declared_errors, declared, .. } = d else { continue };
             let n0 = out.len();
             for n in names {
                 let (name, alias) = (&n.name, &n.alias);
                 let v = if self.js_import(from) && !builtin(name) && name != "log" {
-                    id(format!("w${alias}"))
+                    if declared_errors.as_ref().is_some_and(|e| e.contains(name)) {
+                        // SV-5a: a declared JS error class, by its declaration's identity (the same on server and client)
+                        rtc("jsClass", vec![id(format!("w${alias}")), str(format!("{}#{}", self.class_module(from, declared.as_deref()), name))])
+                    } else {
+                        id(format!("w${alias}"))
+                    }
                 } else if name == "log" {
                     dot(id("__B"), "log")
                 } else if declared_errors.as_ref().is_some_and(|e| e.contains(name)) {

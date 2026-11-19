@@ -92,7 +92,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const declared: unknown[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
   const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
-  const jsClassIds = new Map<unknown, string>(); let jsClassSeq = 0;   // SV-5a: a JS error class the program imports, by the order it registers it (as rt-web.ts)
+  const jsClassIds = new Map<unknown, string>();   // SV-5a: a declared JS error class the program imports, by its declaration (`jsClass`)
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
@@ -127,7 +127,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** MO-10: the scenario prelude's `./prims` — Solid primitives, as a library writes them (`ref/compile/prims-solid.ts`). */
     prim: (name: string) => primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any })[name] ?? (() => { throw new Error(`./prims has no ${name}`); }),
 
-    reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); const v = e.value as { prototype?: unknown; declared?: boolean } | undefined; if (typeof v === "function" && v.prototype instanceof Error && !v.declared && !jsClassIds.has(v)) jsClassIds.set(v, `${name}#js${jsClassSeq++}`); },
+    reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
+    /** SV-5a: a JS module's error class, declared in its `.d.rx` (`export error C`): `id` is that declaration. */
+    jsClass<T>(C: T, id: string): T { if (!jsClassIds.has(C)) jsClassIds.set(C, id); return C; },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
 
