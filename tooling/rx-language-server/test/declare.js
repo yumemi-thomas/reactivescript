@@ -63,6 +63,39 @@ check("a component's JSX children are a View", has("export component Card(props:
 check("a function-typed children prop is a render prop (MO-11k)", has("export component List(props: { items: string[]; children: (item: any, index: any) => View })"), draft);
 check("a callback parameter is a function type; an optional one keeps its `?` (MO-8e)", has("export fn onIdle(run: (...args: any[]) => any, delay?: number): void"), draft);
 
+// the run pass (src/declare-run.js): which hook reads which context, which provider provides it
+fs.writeFileSync(path.join(ws, "ctx.mjs"), [
+  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "export const ThemeContext = createContext();",
+  "export const useTheme = () => { const t = useContext(ThemeContext); if (!t) throw new Error(\"no theme\"); return t; };",
+  "export const useLazy = () => ({ read: () => { const t = useContext(ThemeContext); if (!t) throw new Error(\"no theme yet\"); return t; } });",
+  "export const useBroken = () => { throw new Error(\"always\"); };",
+  "export const useFree = () => 1;",
+  "export const ThemeProvider = props => createComponent(ThemeContext, { value: \"dark\", get children() { return props.children; } });",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "ctx.d.mts"), [
+  "import type { JSX } from \"@solidjs/web\";",
+  "import type { Context } from \"solid-js\";",
+  "export declare const ThemeContext: Context<string | undefined>;",
+  "export declare function useTheme(): string;",
+  "export declare function useLazy(): { read: () => string };",
+  "export declare function useFree(): number;",
+  "export declare function useBroken(): number;",
+  "export declare function ThemeProvider(props: { children?: JSX.Element }): JSX.Element;",
+  "",
+].join("\n"));
+const r2 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./ctx.mjs"], { cwd: ws, encoding: "utf8" });
+const ran = r2.stdout;
+if (process.env.VERBOSE) console.log(ran, r2.stderr);
+const hasRan = line => ran.split("\n").some(l => l.split("   //")[0] === line);
+check("running: the exported context is named from its export", hasRan("export context theme"), ran + r2.stderr);
+check("running: a hook that throws with no provider uses it", hasRan("export pure fn useTheme(): string uses(theme)"), ran);
+check("running: a provider that lets it run provides it", hasRan("export component ThemeProvider(props: { children?: View }) provides(theme)"), ran);
+check("running: a hook that reads its context only when its result is read uses it too", /export pure fn useLazy\(\): .* uses\(theme\)/.test(ran), ran);
+check("running: a hook that throws under every context gets no invented one", /TODO useBroken: run with no provider it throws, and under each of this module's contexts too/.test(ran) && !/useBroken\(\).*uses\(/.test(ran), ran);
+check("running: a hook that never throws keeps a TODO, not a claim", /TODO useFree: run with no provider, and its result read, it does not throw/.test(ran), ran);
+
 const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: ws, encoding: "utf8" });
 check("the draft parses and passes rx-tsc against the module's own types (TY-6)", t.status === 0 && t.stdout.trim() === "", { status: t.status, out: t.stdout + t.stderr });
 

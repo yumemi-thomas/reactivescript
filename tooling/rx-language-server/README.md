@@ -74,6 +74,16 @@ cannot show is a `// TODO` line above the declaration it concerns: which context
 result's fields wait or throw (`holds fails(…)`), what a promise rejects with. `rx-tsc` then checks the draft against
 the same types (spec/13 TY-6).
 
+Then it runs the module (`--no-run` skips this; run it with `node --conditions=browser`) to settle what running can:
+a hook whose parameters are all optional is called with nothing providing anything, and its result read (fields,
+accessors), since a hook may look its context up only then. One that throws reads a context: the module's exported
+contexts are tried around it (with a placeholder value) and the one under which it runs is named (`QueryClientContext`
+→ `export context queryClient`, `uses(queryClient)`); a module that exports none gets one context named after it
+(`export context router`). A `…Provider` component under which the hook then runs, with no props or placeholder ones,
+`provides` it. A hook that never throws keeps its TODO rather than a claim of no need (it may read its context later
+than running reaches), and one that throws under every context gets no invented one. On `@solidjs/router` 2.0 this
+settles 7 of 8 argument-free hooks; on `@tanstack/solid-query` 6, `useQueryClient` and `QueryClientProvider`.
+
 ## Checking a declaration by running it
 
 `rx-verify <file.d.rx>...` (`bin/verify.js`) imports the JS module beside each declaration and checks the rows running
@@ -163,7 +173,7 @@ instead (or `rx-language-server --stdio` once installed).
 cargo build --release --manifest-path ../../compiler/Cargo.toml
 npm install && node test/run.js      # VERBOSE=1 prints each answer
 node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, a .d.rx that disagrees with its types
-node test/declare.js                 # rx-declare: each kind of export drafted as its row, and the draft passes rx-tsc
+node test/declare.js                 # rx-declare: each kind of export drafted as its row, the run pass, and the draft passes rx-tsc
 node test/verify.js                  # rx-verify: uses(…) rows, missing exports, errors, and probes (fields that hold and fail, lazy contexts)
 ```
 

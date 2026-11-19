@@ -1,0 +1,85 @@
+// rx-declare's second pass: what running the module shows (MO-12), where its types cannot. The draft's TODOs for a hook's
+// context and a provider's are replaced by rows when running settles them; rx-verify then confirms them (and checks the
+// rest) against the same module.
+//   - a hook that takes no arguments, called with nothing providing anything, throws: it reads a context (uses);
+//   - which one: each context the module exports, provided around the hook with a placeholder value, until the hook runs;
+//     a module that exports none gets one context, named after the package, for all of them;
+//   - a `…Provider` component that mounts with no props and lets the hook run provides that context.
+// What running cannot settle keeps its TODO.
+const path = require("node:path");
+const { pathToFileURL } = require("node:url");
+
+/** A placeholder context value: anything a hook asks of it (a field, a call) answers with itself. */
+const ANY = new Proxy(function () {}, { get: (_, k) => k === Symbol.toPrimitive ? () => "" : k === "then" ? undefined : ANY, apply: () => ANY });
+const ident = s => s.replace(/^@[^/]+\//, "").replace(/[^A-Za-z0-9]+(.)/g, (_, c) => c.toUpperCase()).replace(/^[^A-Za-z_$]+/, "").replace(/^./, c => c.toLowerCase()) || "context";
+
+async function runRows(draft, spec, from) {
+  let file;
+  try { file = require.resolve(spec, { paths: [from] }); } catch { return { draft, notes: [`not run: ${spec} does not resolve from ${from}`] }; }
+  const dir = path.dirname(file);
+  const load = p => import(pathToFileURL(require.resolve(p, { paths: [dir, from, __dirname] })).href);
+  let mod, s;
+  try { mod = await import(pathToFileURL(file).href); s = await load("solid-js"); }
+  catch (e) { return { draft, notes: [`not run: ${String(e.message ?? e).slice(0, 80)}`] }; }
+  /** Does `hook()` run (no throw) under `wrap`? The tree is resolved in a root (no renderer: only whether it throws). */
+  const runs = (hook, wrap) => {
+    let threw = null, ran = false;
+    // the result is read too (its fields, its accessors): a hook may look its context up only then (useMutation's client)
+    const touch = r => { if (typeof r === "function" && r.length === 0) return r(); if (r && typeof r === "object") for (const k of Object.keys(r)) { const v = r[k]; if (typeof v === "function" && v.length === 0 && /^(is|get|use)?[a-z]/.test(k) && !/^(mutate|refetch|reset|navigate|set)/.test(k)) v(); } };
+    const Probe = () => { ran = true; try { touch(hook()); } catch (e) { threw = e; } return null; };
+    s.createRoot(d => {
+      try { let out = wrap ? wrap(() => s.createComponent(Probe, {})) : s.createComponent(Probe, {}); for (let n = 0; typeof out === "function" && n < 8; n++) out = out(); s.flush(); }
+      catch (e) { threw ??= e; }
+      d();
+    });
+    return ran && !threw;
+  };
+  const lines = draft.split("\n");
+  const hooks = [];
+  // a hook every parameter of which is optional (`useQueryClient(client?: …)`) runs with none
+  const bare = l => { const m = /^export pure fn (use[A-Z]\w*)\(([^)]*)\)/.exec(l); return m && (!m[2].trim() || m[2].split(",").every(q => /^\s*(ref\s+)?[\w$]+\?/.test(q))) ? m[1] : null; };
+  lines.forEach((l, i) => { const n = bare(l); if (n && typeof mod[n] === "function") hooks.push({ name: n, i }); });
+  const contexts = Object.entries(mod).filter(([, v]) => v && typeof v === "function" && "id" in v && "defaultValue" in v);   // Solid 2's createContext
+  const pkgCtx = ident(spec.startsWith(".") ? path.basename(spec).replace(/\.[^.]+$/, "") : spec);
+  const needs = new Map();   // hook → context name
+  const unsettled = new Set();
+  for (const h of hooks) {
+    if (runs(mod[h.name])) continue;
+    const by = contexts.find(([, C]) => runs(mod[h.name], kids => s.createComponent(C, { value: ANY, get children() { return kids(); } })));
+    if (by) needs.set(h.name, ident(by[0].replace(/Context$/, "")));
+    else if (!contexts.length) needs.set(h.name, pkgCtx);   // a module that exports no context: one, named after it
+    else unsettled.add(h.name);   // it throws under each of the module's contexts too: not (only) a context it reads
+  }
+  const used = [...new Set(needs.values())];
+  const provided = new Map();   // provider → context names
+  for (const [name, P] of Object.entries(mod)) {
+    if (!/Provider$/.test(name) || typeof P !== "function") continue;
+    const props = kids => new Proxy({}, { get: (_, k) => k === "children" ? kids() : typeof k === "symbol" ? undefined : ANY, has: () => true });   // props it was not given: placeholders
+    for (const h of hooks) if (needs.has(h.name) && (runs(mod[h.name], kids => s.createComponent(P, { get children() { return kids(); } })) || runs(mod[h.name], kids => s.createComponent(P, props(kids))))) {
+      const set = provided.get(name) ?? new Set(); set.add(needs.get(h.name)); provided.set(name, set);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    const todo = /^\/\/ TODO (\w+): which context does this hook read\?/.exec(l);
+    if (todo && needs.has(todo[1])) continue;   // settled below
+    if (todo && unsettled.has(todo[1])) { out.push(`// TODO ${todo[1]}: run with no provider it throws, and under each of this module's contexts too: does it need arguments, or another module's context? (MO-12b)`); continue; }
+    if (todo && hooks.some(h => h.name === todo[1])) { out.push(`// TODO ${todo[1]}: run with no provider, and its result read, it does not throw; if it reads a context only later, add uses(…) (strict: an undeclared need passes the checker)`); continue; }
+    if (todo && used.length === 1) { out.push(`// TODO ${todo[1]}: it takes arguments, so it was not run; if it reads ${used[0]} as the hooks run here do, add uses(${used[0]}) (rx-verify confirms it with a probe)`); continue; }
+    const ptodo = /^\/\/ TODO (\w+): does it provide a context to its children\?/.exec(l);
+    if (ptodo && provided.has(ptodo[1])) continue;
+    const hook = bare(l);
+    if (hook && needs.has(hook)) { out.push(`${l.replace(/ instantiates$/, "")} uses(${needs.get(hook)})`); continue; }
+    const comp = /^export component (\w+)\(/.exec(l);
+    if (comp && provided.has(comp[1])) { out.push(`${l} provides(${[...provided.get(comp[1])].join(", ")})`); continue; }
+    out.push(l);
+  }
+  const ctxLines = used.map(c => `export context ${c}   // drafted by running: hooks that throw with no provider read it`);
+  const at = out.findIndex(l => !l.startsWith("//"));
+  const merged = at < 0 ? [...out, ...ctxLines] : [...out.slice(0, at), ...ctxLines, ...out.slice(at)];
+  const text = merged.join("\n").replace(/\n\/\/ TODO: the module's contexts \([^)]*\):[^\n]*/, used.length ? "" : "$&");
+  return { draft: text, notes: [`ran ${hooks.length} hook${hooks.length === 1 ? "" : "s"}: ${needs.size} read a context${provided.size ? `; ${[...provided.keys()].join(", ")} provide${provided.size === 1 ? "s" : ""} it` : ""}`] };
+}
+
+module.exports = { runRows };
