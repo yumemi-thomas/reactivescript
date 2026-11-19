@@ -23,8 +23,14 @@ fs.writeFileSync(path.join(ws, "lib.mjs"), [
   "export const useLater = opts => { const o = getOwner(); return { run: () => runWithOwner(o, () => { const t = useContext(Theme); if (!t) throw new Error(\"no theme\"); return opts().x + t; }) }; };",
   "export const useWrongly = opts => ({ run: () => opts().x });",
   "export { Theme };",
+  "export const usePair = () => { const [g] = createSignal(1); return [g, v => {}]; };",
+  "export const useBadRef = () => [1, () => {}];",
+  "export const double = n => n * 2;",
+  "export const roll = () => Math.random();",
+  "export const ThemeProvider = props => createComponent(Theme, { value: \"x\", get children() { return props.children; } });",
+  "export const FakeProvider = props => props.children;",
   "",
-].join("\n").replace("import { createContext, useContext }", "import { createContext, useContext, createMemo, getOwner, runWithOwner }"));
+].join("\n").replace("import { createContext, useContext }", "import { createContext, useContext, createMemo, getOwner, runWithOwner, createSignal, createComponent }"));
 fs.writeFileSync(path.join(ws, "lib.probe.mjs"), [
   "import { createComponent } from \"solid-js\";",
   "import { Theme } from \"./lib.mjs\";",
@@ -34,6 +40,7 @@ fs.writeFileSync(path.join(ws, "lib.probe.mjs"), [
   "  useEager: { args: () => [() => ({ load: async () => 2 })] },",
   "  useLater: { args: () => [() => ({ x: \"a\" })], run: r => r.run() },",
   "  useWrongly: { args: () => [() => ({ x: \"a\" })], run: r => r.nope() },",
+  "  double: { args: () => [3] },",
   "};",
   "",
 ].join("\n"));
@@ -48,6 +55,12 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), [
   "export pure fn useEager(ref opts: { load: () => Promise<any> }): { data: any; size: number }",
   "export pure fn useLater(ref opts: { x: string }): any uses(theme)",
   "export pure fn useWrongly(ref opts: { x: string }): any uses(theme)",
+  "export pure fn usePair(): [ref number, (v: number) => void]",
+  "export pure fn useBadRef(): [ref number, () => void]",
+  "export pure fn double(n: number): number",
+  "export pure fn roll(): number",
+  "export component ThemeProvider(props: { children?: View }) provides(theme)",
+  "export component FakeProvider(props: { children?: View }) provides(theme)",
   "",
 ].join("\n"));
 
@@ -67,6 +80,12 @@ check("a probe's failing arguments fail with the declared class", /lib\.d\.rx:7 
 check("a field that holds without holds is a mismatch", /lib\.d\.rx:8 MISMATCH\s+useEager: size holds/.test(out), out);
 check("a hook that reads its context only when used: the probe's run finds it", /lib\.d\.rx:9 ok\s+useLater: uses\(…\) holds/.test(out), out);
 check("a probe whose run throws under its providers too is not evidence", /lib\.d\.rx:10 unverified useWrongly: the probe's run throws under its providers too/.test(out), out);
+check("a tuple's ref part is read as an accessor", /lib\.d\.rx:11 ok\s+usePair: its fields read as declared/.test(out), out);
+check("a ref part that is not an accessor is a mismatch", /lib\.d\.rx:12 MISMATCH\s+useBadRef: 0 is declared ref, but is not an accessor/.test(out), out);
+check("pure: two calls with the probe's arguments answer alike", /lib\.d\.rx:13 ok\s+double: pure/.test(out), out);
+check("pure that answers differently is a mismatch", /lib\.d\.rx:14 MISMATCH\s+roll: declared pure, but two calls/.test(out), out);
+check("provides: a hook of the file runs under the component", /lib\.d\.rx:15 ok\s+ThemeProvider: provides\(…\) holds: useTheme runs under it/.test(out), out);
+check("a component that provides nothing is a mismatch", /lib\.d\.rx:16 MISMATCH\s+FakeProvider: declared provides\(theme\), but useTheme under it still fails/.test(out), out);
 check("mismatches fail the run", r.status === 1, r.status);
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -103,7 +103,10 @@ declared record is mounted under `provide` (with `@solidjs/universal`, beneath a
 read: a field that holds or fails without `holds`/`fails(…)` is a mismatch, and under `fail`'s arguments a
 `fails(C)` field must fail with a `C`. Run it with `node --conditions=browser`, so Solid is its client build. On
 `@tanstack/solid-query` 6 it found that `isFetching` holds on the first load too: the whole result waits.
-`pure` and `provides` stay unverified.
+A tuple's parts and a `ref` result are read the same way (a `ref` part must be an accessor). A `pure` fn that makes
+nothing is called twice with the probe's arguments and must answer alike. A component that `provides(c)` is mounted,
+with the probe's `props` (`QueryClientProvider: { props: () => ({ client: makeClient() }) }`), around a hook of the
+same file that uses only what it provides, which must then run cleanly.
 
 ## Editors
 

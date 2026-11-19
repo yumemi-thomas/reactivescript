@@ -4,6 +4,7 @@ import { QueryClientProvider, makeClient } from "./query.js";
 let n = 0;
 export const provide = children => createComponent(QueryClientProvider, { client: makeClient(), get children() { return children(); } });
 export const probes = {
+  QueryClientProvider: { props: () => ({ client: makeClient() }) },
   useQuery: {
     args: () => [() => ({ queryKey: ["probe", n++], queryFn: async () => ["a"] })],
     fail: () => [() => ({ queryKey: ["probe", n++], queryFn: async () => { throw new Error("probe") } })],
