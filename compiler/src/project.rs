@@ -237,8 +237,34 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
             head.push("type Component<P = any> = (props: P) => View;".into());
         }
     }
+    let fn_of = |props: &[crate::parse::JsProp]| -> String {
+        let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
+        format!("(props: {{ {} }}) => View", fs.join(" "))
+    };
+    // MO-11q: `Dialog.Root` and its siblings are members of one exported object (itself a component when it is declared one)
+    let mut members: IndexMap<String, Vec<&JsDecl>> = IndexMap::new();
+    for d in decls {
+        if let JsDecl::Comp { name, .. } = d {
+            if let Some((h, _)) = name.split_once('.') {
+                members.entry(h.to_string()).or_default().push(d);
+            }
+        }
+    }
+    let object_of = |h: &str| -> String {
+        let ms: Vec<String> = members[h]
+            .iter()
+            .map(|m| match m {
+                JsDecl::Comp { name, props, .. } => format!("{}: {};", &name[h.len() + 1..], fn_of(props)),
+                _ => unreachable!(),
+            })
+            .collect();
+        format!("{{ {} }}", ms.join(" "))
+    };
+    let objects: Vec<String> = members.keys().filter(|h| !decls.iter().any(|d| matches!(d, JsDecl::Comp { name, .. } if name == *h))).map(|h| format!("export declare const {h}: {};", object_of(h))).collect();
     head.into_iter()
-        .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. })).map(|d| match d {
+        .chain(objects)
+        .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. }) && !matches!(d, JsDecl::Comp { name, .. } if name.contains('.'))).map(|d| match d {
+            JsDecl::Comp { name, props, .. } if members.contains_key(name) => format!("export declare const {name}: ({}) & {};", fn_of(props), object_of(name)),
             JsDecl::Comp { name, props, .. } => {
                 let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
                 format!("export declare function {name}(props: {{ {} }}): View;", fs.join(" "))
@@ -1264,8 +1290,9 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
             JsDecl::Value { name, line, ty } => (name, *line, ty.clone().unwrap_or_else(|| "any".into())),
             JsDecl::Type { .. } | JsDecl::Context { .. } => continue,
         };
-        out.push(format!("type __decl_{} = {};", name, ty));
-        out.push(format!("const __check_{}: __decl_{} = __real.{};", name, name, name));
+        let key = name.replace('.', "$$"); // MO-11q: a member (`Dialog.Trigger`), read as a property of its object
+        out.push(format!("type __decl_{} = {};", key, ty));
+        out.push(format!("const __check_{}: __decl_{} = __real.{};", key, key, name));
         checks.push((out.len(), line, name.clone()));
     }
     (out.join("\n") + "\n", checks)

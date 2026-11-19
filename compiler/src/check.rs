@@ -1575,7 +1575,60 @@ impl<'a> Checker<'a> {
         if fails.is_some() {
             self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{}'s rows are declared in {}: `fails` on the import cannot restate them", from, file));
         }
+        // MO-11a: a Solid component — its declaration is its summary (MO-11q: a member too, bound by its written name)
+        let bind_comp = |c: &mut Self, x: &JsDecl, alias: &str| {
+            let JsDecl::Comp { props: xprops, fails: xfails, content, uses: xuses, provides: xprovides, outlet: xoutlet, .. } = x else { return };
+                // MO-11a: a Solid component — its declaration is its summary; MO-11b: an undeclared prop is read too
+                let gives = js_keys(c, xprovides); // MO-12c: provided to everything it renders
+                let requires = js_keys(c, xuses); // MO-12b: what it uses itself
+                let empty = || Catch::Set(IndexSet::new());
+                let given = || Catch::Set(gives.iter().cloned().collect());
+                let mut props = IndexMap::new();
+                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false });
+                for p in xprops {
+                    let f = match &p.catches {
+                        Some(c) => Catch::of(c),
+                        None => empty(),
+                    };
+                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component });
+                }
+                let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
+                let r = c.region(None, "imported", true, Some(alias.to_string()));
+                c.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new() });
+                let renders: HashSet<String> = xprops.iter().filter(|p| p.render).map(|p| p.name.clone()).collect();
+                if !renders.is_empty() {
+                    c.render_props.insert(r, renders);
+                }
+                let callbacks: HashSet<String> = xprops.iter().filter(|p| p.callback).map(|p| p.name.clone()).collect();
+                if !callbacks.is_empty() {
+                    c.callback_props.insert(r, callbacks);
+                }
+                // MO-11o: the props that render what their value carries
+                let carried: HashSet<String> = xprops.iter().filter(|p| p.carried).map(|p| p.name.clone()).collect();
+                if !carried.is_empty() {
+                    c.carried_props.insert(r, carried);
+                }
+                let mut s = Sym::new(SymKind::Comp, alias, region, line);
+                s.comp_region = Some(r);
+                s.outlet = *xoutlet;
+                c.bind(env, alias, s);
+        };
         for ImportName { name, alias } in names {
+            // MO-11q: `export component Dialog.Root(…)`: the import's members, each a component named as it is written
+            let prefix = format!("{}.", name);
+            let members: Vec<&JsDecl> = decls.iter().filter(|y| matches!(y, JsDecl::Comp { name: n, .. } if n.starts_with(&prefix))).collect();
+            for m in &members {
+                let full = format!("{}{}", alias, &m.name()[name.len()..]);
+                bind_comp(self, m, &full);
+            }
+            if members.len() > 0 && !decls.iter().any(|y| y.name() == name) {
+                // the object itself: a value
+                let mut s = Sym::new(SymKind::Import, alias, region, line);
+                s.io = false;
+                s.rejects = Some(["Error".to_string()].into_iter().collect());
+                self.bind(env, alias, s);
+                continue;
+            }
             let Some(x) = decls.iter().find(|y| y.name() == name) else {
                 self.err("NOT_EXPORTED", "MO-8", format!("{} declares no export {} (declare it, or it is not {}'s)", file, name, from));
                 let mut s = Sym::new(SymKind::Import, alias, region, line);
@@ -1597,41 +1650,8 @@ impl<'a> Checker<'a> {
                     self.bind(env, alias, Sym::new(SymKind::ErrClass, alias, region, line));
                     continue;
                 }
-                JsDecl::Comp { props: xprops, fails: xfails, content, uses: xuses, provides: xprovides, outlet: xoutlet, .. } => {
-                    // MO-11a: a Solid component — its declaration is its summary; MO-11b: an undeclared prop is read too
-                    let gives = js_keys(self, xprovides); // MO-12c: provided to everything it renders
-                    let requires = js_keys(self, xuses); // MO-12b: what it uses itself
-                    let empty = || Catch::Set(IndexSet::new());
-                    let given = || Catch::Set(gives.iter().cloned().collect());
-                    let mut props = IndexMap::new();
-                    props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false });
-                    for p in xprops {
-                        let f = match &p.catches {
-                            Some(c) => Catch::of(c),
-                            None => empty(),
-                        };
-                        props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component });
-                    }
-                    let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
-                    let r = self.region(None, "imported", true, Some(alias.clone()));
-                    self.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new() });
-                    let renders: HashSet<String> = xprops.iter().filter(|p| p.render).map(|p| p.name.clone()).collect();
-                    if !renders.is_empty() {
-                        self.render_props.insert(r, renders);
-                    }
-                    let callbacks: HashSet<String> = xprops.iter().filter(|p| p.callback).map(|p| p.name.clone()).collect();
-                    if !callbacks.is_empty() {
-                        self.callback_props.insert(r, callbacks);
-                    }
-                    // MO-11o: the props that render what their value carries
-                    let carried: HashSet<String> = xprops.iter().filter(|p| p.carried).map(|p| p.name.clone()).collect();
-                    if !carried.is_empty() {
-                        self.carried_props.insert(r, carried);
-                    }
-                    let mut s = Sym::new(SymKind::Comp, alias, region, line);
-                    s.comp_region = Some(r);
-                    s.outlet = *xoutlet;
-                    self.bind(env, alias, s);
+                JsDecl::Comp { .. } => {
+                    bind_comp(self, x, alias);
                     continue;
                 }
                 JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, .. } => {

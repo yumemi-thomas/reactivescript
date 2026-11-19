@@ -4,7 +4,9 @@
 //   - a hook that takes no arguments, called with nothing providing anything, throws: it reads a context (uses);
 //   - which one: each context the module exports, provided around the hook with a placeholder value, until the hook runs;
 //     a module that exports none gets one context, named after the package, for all of them;
-//   - a `…Provider` component that mounts with no props and lets the hook run provides that context.
+//   - a `…Provider` component that mounts with no props and lets the hook run provides that context;
+//   - a compound part (`Dialog.Trigger`, MO-11q) that throws rendered alone but renders inside its object's root (the
+//     object itself, or its `Root`) reads a context that root provides.
 // What running cannot settle keeps its TODO.
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -89,6 +91,30 @@ async function runRows(draft, spec, from) {
       const set = provided.get(name) ?? new Set(); set.add(needs.get(h.name)); provided.set(name, set);
     }
   }
+  // MO-11q: compound parts, rendered alone, then inside their object's root
+  const partNeeds = new Map();   // "Dialog.Trigger" → context name
+  const rootGives = new Map();   // "Dialog" / "Dialog.Root" → context names
+  const partsOf = new Map();
+  for (const l of lines) { const m = /^export component (\w+)\.(\w+)\(/.exec(l); if (m && mod[m[1]] && typeof mod[m[1]][m[2]] === "function") partsOf.set(m[1], [...partsOf.get(m[1]) ?? [], m[2]]); }
+  for (const [obj, parts] of partsOf) {
+    const O = mod[obj]; const rootName = typeof O === "function" ? obj : typeof O.Root === "function" ? `${obj}.Root` : null; if (!rootName) continue;
+    const Root = typeof O === "function" ? O : O.Root;
+    const ctx = used.length === 1 ? used[0] : ident(obj);
+    for (const part of parts) {
+      if (`${obj}.${part}` === rootName) continue;
+      const render = () => s.createComponent(O[part], {});
+      if (runs(render) || environmental(lastThrow)) continue;
+      if (runs(render, kids => s.createComponent(Root, { get children() { return kids(); } }))) { partNeeds.set(`${obj}.${part}`, ctx); rootGives.set(rootName, new Set([...rootGives.get(rootName) ?? [], ctx])); }
+    }
+  }
+  for (const c of partNeeds.values()) if (!used.includes(c)) used.push(c);
+  // the same functions exported by their own names too (`Trigger` is `Dialog.Trigger`): the same rows
+  const fnOf = n => n.includes(".") ? mod[n.split(".")[0]]?.[n.split(".")[1]] : mod[n];
+  for (const [name, v] of Object.entries(mod)) {
+    if (typeof v !== "function" || partNeeds.has(name) || rootGives.has(name)) continue;
+    for (const [p, c] of [...partNeeds]) if (fnOf(p) === v) partNeeds.set(name, c);
+    for (const [r, cs] of [...rootGives]) if (fnOf(r) === v) rootGives.set(name, cs);
+  }
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
@@ -104,13 +130,18 @@ async function runRows(draft, spec, from) {
     if (hook && needs.has(hook)) { out.push(`${l.replace(/ instantiates$/, "")} uses(${needs.get(hook)})`); continue; }
     const comp = /^export component (\w+)\(/.exec(l);
     if (comp && provided.has(comp[1])) { out.push(`${l} provides(${[...provided.get(comp[1])].join(", ")})`); continue; }
+    const named = /^export component ([\w.]+)\(/.exec(l)?.[1];
+    if (named && rootGives.has(named)) { out.push(`${l} provides(${[...rootGives.get(named)].join(", ")})`); continue; }
+    if (named && partNeeds.has(named)) { out.push(`${l} uses(${partNeeds.get(named)})`); continue; }
+    const ptodo2 = /^\/\/ TODO ([\w.]+): its parts likely read a context it provides/.exec(l);
+    if (ptodo2 && rootGives.has(ptodo2[1])) continue;
     out.push(l);
   }
-  const ctxLines = used.map(c => `export context ${c}   // drafted by running: hooks that throw with no provider read it`);
+  const ctxLines = used.map(c => `export context ${c}   // drafted by running: ${[...needs.values()].includes(c) ? "hooks that throw with no provider read it" : "compound parts that throw outside their root read it"}`);
   const at = out.findIndex(l => !l.startsWith("//"));
   const merged = at < 0 ? [...out, ...ctxLines] : [...out.slice(0, at), ...ctxLines, ...out.slice(at)];
   const text = merged.join("\n").replace(/\n\/\/ TODO: the module's contexts \([^)]*\):[^\n]*/, used.length ? "" : "$&");
-  return { draft: text, notes: [`ran ${hooks.length} hook${hooks.length === 1 ? "" : "s"}: ${needs.size} read a context${provided.size ? `; ${[...provided.keys()].join(", ")} provide${provided.size === 1 ? "s" : ""} it` : ""}`] };
+  return { draft: text, notes: [`ran ${hooks.length} hook${hooks.length === 1 ? "" : "s"}: ${needs.size} read a context${provided.size ? `; ${[...provided.keys()].join(", ")} provide${provided.size === 1 ? "s" : ""} it` : ""}${partNeeds.size ? `; ${partNeeds.size} compound part${partNeeds.size === 1 ? "" : "s"} read${partNeeds.size === 1 ? "s" : ""} ${[...rootGives.keys()].join(", ")}'s context` : ""}`] };
 }
 
 module.exports = { runRows };

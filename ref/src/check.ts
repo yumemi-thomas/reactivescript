@@ -592,20 +592,25 @@ class Checker {
       return `${d.declared}#${n}`;
     });
     if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
-    for (const { name, alias } of d.names) {
-      const x = decls.find(y => y.name === name);
-      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
-      if (x.kind === "type" || x.kind === "context") continue;   // MO-12a: a JS context is named only by its declaration file's rows
-      if (x.kind === "value") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // MO-8g: a value, read as any import, never io
-      if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
-      if (x.kind === "comp") {                                                             // MO-11a: a Solid component — its declaration is its summary
+    const bindComp = (x: Extract<JsDecl, { kind: "comp" }>, alias: string) => {   // MO-11a: a Solid component — its declaration is its summary
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders
         const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
         for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true } : {}), ...(p.callback ? { callback: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig;
         const cp = x.props.filter(p => p.carried).map(p => p.name); if (cp.length) this.carriedProps.set(r, new Set(cp));   // MO-11o
-        this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(x.outlet ? { outlet: true } : {}) }); continue;
-      }
+        this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(x.outlet ? { outlet: true } : {}) });
+    };
+    for (const { name, alias } of d.names) {
+      const x = decls.find(y => y.name === name);
+      // MO-11q: `export component Dialog.Root(…)`: the import's members, each a component named as it is written (`<Dialog.Root>`)
+      const members = decls.filter((y): y is Extract<JsDecl, { kind: "comp" }> => y.kind === "comp" && y.name.startsWith(name + "."));
+      for (const m of members) bindComp(m, alias + m.name.slice(name.length));
+      if (!x && members.length) { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // the object itself: a value
+      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
+      if (x.kind === "type" || x.kind === "context") continue;   // MO-12a: a JS context is named only by its declaration file's rows
+      if (x.kind === "value") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // MO-8g: a value, read as any import, never io
+      if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
+      if (x.kind === "comp") { bindComp(x, alias); continue; }   // MO-11a
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
       if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)

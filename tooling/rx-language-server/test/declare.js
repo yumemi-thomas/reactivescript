@@ -96,6 +96,35 @@ check("running: a hook that reads its context only when its result is read uses 
 check("running: a hook that throws under every context gets no invented one", /TODO useBroken: run with no provider it throws, and under each of this module's contexts too/.test(ran) && !/useBroken\(\).*uses\(/.test(ran), ran);
 check("running: a hook that never throws keeps a TODO, not a claim", /TODO useFree: run with no provider, and its result read, it does not throw/.test(ran), ran);
 
+// MO-11q: a kit's compound parts on its root (`Dialog.Trigger`), which read the root's context; an `aria-label` prop, and a
+// value export
+fs.writeFileSync(path.join(ws, "kit.mjs"), [
+  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "const DialogContext = createContext();",
+  "const part = name => props => { if (!useContext(DialogContext)) throw new Error(`<Dialog.${name}> outside <Dialog>`); return props.children; };",
+  "const Trigger = part(\"Trigger\"), Content = part(\"Content\");",
+  "export const Dialog = Object.assign(props => createComponent(DialogContext, { value: {}, get children() { return props.children; } }), { Trigger, Content });",
+  "export { Trigger };",
+  "export const normalizeProps = { button: x => x };",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "kit.d.mts"), [
+  "import type { JSX } from \"@solidjs/web\";",
+  "type Part = (props: { \"aria-label\"?: string; children?: JSX.Element }) => JSX.Element;",
+  "export declare const Dialog: ((props: { open?: boolean; children?: JSX.Element }) => JSX.Element) & { Trigger: Part; Content: Part };",
+  "export declare const Trigger: Part;",
+  "export declare const normalizeProps: { button: (x: object) => object };",
+  "",
+].join("\n"));
+const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./kit.mjs"], { cwd: ws, encoding: "utf8" });
+const kit = r3.stdout;
+if (process.env.VERBOSE) console.log(kit, r3.stderr);
+const kitHas = line => kit.split("\n").includes(line);
+check("a compound root is a component that provides its parts' context (MO-11q, by running)", kitHas("export component Dialog(props: { open?: boolean | undefined; children?: View }) provides(dialog)"), kit + r3.stderr);
+check("its parts are dotted members that use it (MO-11q, by running)", kitHas("export component Dialog.Trigger(props: { children?: View }) uses(dialog)") && kitHas("export component Dialog.Content(props: { children?: View }) uses(dialog)"), kit);
+check("the same part exported by its own name gets the same rows; a prop a .d.rx cannot name (`aria-label`) is left out", kitHas("export component Trigger(props: { children?: View }) uses(dialog)") && /^export context dialog   \/\/ drafted by running: compound parts/m.test(kit), kit);
+check("a value is declared a value (MO-8g)", kitHas("export const normalizeProps: typeof import(\"./kit.mjs\").normalizeProps"), kit);
+
 const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: ws, encoding: "utf8" });
 check("the draft parses and passes rx-tsc against the module's own types (TY-6)", t.status === 0 && t.stdout.trim() === "", { status: t.status, out: t.stdout + t.stderr });
 

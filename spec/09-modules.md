@@ -616,6 +616,29 @@ export default component App() {
   under the provider (MO-11o's strict default). For TanStack Router:
   `createRoute(…): any under(getParentRoute in component)` and
   `component Outlet(props: {}) uses(router) outlet`. S-module-23.
+- **MO-11q (Compound components: a JS object's member components) —
+  proposed 2026-11-19.** UI kits export a component's parts on one object
+  (Kobalte's `<Dialog>` with `<Dialog.Trigger>`, `<Dialog.Content>`; Ark's
+  `<Dialog.Root>`), the object a component itself or not. A `.d.rx`
+  declares each member by its written name, `export component
+  Dialog.Trigger(props: { … }) uses(dialog)`, with its own rows;
+  `import { Dialog } from "./kit.js"` binds each declared member as a
+  component named as written (an alias renames the head: `import { Dialog
+  as D }` gives `<D.Trigger>`), and `Dialog` itself as the component it is
+  declared, or else as a value. `<Dialog.Footer>` with no such member is
+  `UNKNOWN_COMPONENT`. The parts read the root's context, so they are
+  declared `uses(…)` and the root `provides(…)` (MO-12): a part outside
+  its root is `CONTEXT_NOT_FOUND`. The compiled view applies the member
+  (`<v$Dialog.Trigger>`), and the projection types it from the library's
+  own types; TY-6 checks each member against the object's property (a
+  declared `Dialog.Root` that Kobalte does not have fails the check).
+  `rx-declare` drafts the members of an exported object of components,
+  and running them settles their rows: a part that throws rendered alone
+  but renders inside its object's root reads a context that root provides.
+  A prop typed with `Component` in a union (`as?: string | Component`, a
+  polymorphic `as`) takes a component value as a `Component` prop does
+  (MO-11c). S-module-24; `examples/kobalte` runs Kobalte 2.0 (alpha) in
+  Chromium (`compiler/test/kobalte.mjs`).
 - **MO-11m (A made component's properties) — proposed 2026-11-18.** A
   factory's component may carry properties (`@solidjs/router`'s `paths`, its
   typed path builder). `Router.paths` is a value read in the module that
@@ -904,3 +927,7 @@ Executable: S-module-7.
      checked as an entry is, and what the host passes in is typed by the
      module's projection (`rx-tsc`, the build). Module state is per request
      on the server, through Solid's request event, as in a program's own.
+   - *Member components* (MO-11q) are kept, declared by their written
+     name: a kit's parts are distinct components with distinct rows (each
+     reads the root's context), which one object type could not say, and
+     `rx-declare` settles those rows by running the parts.

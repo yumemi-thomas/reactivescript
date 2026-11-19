@@ -89,6 +89,8 @@ pub enum S {
     ImportDefault(String, String),
     /// `import { name as local, … } from "src"`
     ImportNamed(Vec<(String, String)>, String),
+    /// `import "src"`, for its effect
+    ImportBare(String),
     ExportDefault(Func),
     /// `s`, lowered from `.rx` line `line` (1-based): no JavaScript of its own, only the position its spans map to (CP-1c)
     At(usize, Box<S>),

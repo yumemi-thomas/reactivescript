@@ -376,6 +376,11 @@ impl<'p> Gen<'p> {
                 if !self.js_import(from) {
                     continue;
                 }
+                if names.is_empty() {
+                    // 07 §1a: for its effect
+                    self.top.push(S::ImportBare(from.clone()));
+                    continue;
+                }
                 let ns: Vec<(String, String)> = names.iter().filter(|n| !builtin(&n.name) && n.name != "log").map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
                 if !ns.is_empty() {
                     self.top.push(S::ImportNamed(ns, from.clone()));
@@ -1760,7 +1765,23 @@ impl<'p> Gen<'p> {
                 }
             }
             MarkupKind::El { tag, attrs, children } if tag.as_bytes()[0].is_ascii_uppercase() => {
-                let Some(b) = self.lookup(env, tag).filter(|b| b.kind == Kind::Comp) else { return fail(format!("unknown component {tag}")) };
+                // MO-11q: `<Dialog.Root>`, a member of a declared JS object
+                let member = match tag.split_once('.') {
+                    Some((h, m)) if self.lookup(env, tag).is_none() => self.lookup(env, h).map(|hb| (hb.js.clone(), m.to_string())),
+                    _ => None,
+                };
+                let b = match &member {
+                    Some(_) => None,
+                    None => Some(self.lookup(env, tag).filter(|b| b.kind == Kind::Comp)),
+                };
+                if let Some(None) = b {
+                    return fail(format!("unknown component {tag}"));
+                }
+                let (name, shape) = match (&member, b.flatten()) {
+                    (Some((o, m)), _) => (JsxName::Member(o.clone(), m.clone()), Some(FShape::Comp)),
+                    (None, Some(b)) => (JsxName::Ident(b.js), b.shape),
+                    (None, None) => unreachable!(),
+                };
                 let mut xs = vec![];
                 for a in attrs {
                     xs.push(self.attr(&a.name, &a.e, env)?);
@@ -1775,12 +1796,12 @@ impl<'p> Gen<'p> {
                 let rest: Vec<Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).cloned().collect();
                 if rest.is_empty() {
                     // MO-11: a JS component gets JSX's own `<X />`, with no children prop
-                    if b.shape != Some(FShape::Comp) {
+                    if shape != Some(FShape::Comp) {
                         xs.push(("children".into(), AttrValue::Expr(E::Arr(vec![]))));
                     }
-                    el(JsxName::Ident(b.js), xs, vec![], true)
+                    el(name, xs, vec![], true)
                 } else {
-                    el(JsxName::Ident(b.js), xs, self.kids(&rest, env)?, false)
+                    el(name, xs, self.kids(&rest, env)?, false)
                 }
             }
             MarkupKind::El { tag, attrs, children } => {

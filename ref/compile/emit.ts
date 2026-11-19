@@ -105,6 +105,7 @@ class Gen {
     for (const d of decls) if (d.k === "server" || (d.k === "eq" && unwrapServer(d.e))) this.serverNames.set(d.name, `sf$${d.name}`);
     // a package's JS (\`@solidjs/web/server-functions\`): a real import at module level, where a hoisted server fn's wrappers are
     for (const d of decls) if (d.k === "import" && !d.resolved && !d.from.startsWith(".")) {
+      if (!d.names.length) { this.top.push(`import ${J(d.from)};`); continue; }   // 07 §1a: for its effect
       const names = d.names.filter(n => !BUILTINS.has(n.name) && n.name !== "log");
       if (names.length) this.top.push(`import { ${names.map(n => `${n.name} as w$${n.alias}`).join(", ")} } from ${J(d.from)};`);
     }
@@ -569,7 +570,8 @@ class Gen {
       case "el": {
         if (m.tag === "") return this.markup(m.children, env, ind);
         if (/^[A-Z]/.test(m.tag)) {
-          const b = env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
+          const dot = m.tag.indexOf("."); const head = dot > 0 && !env.lookup(m.tag) ? env.lookup(m.tag.slice(0, dot)) : undefined;   // MO-11q: `<Dialog.Root>`, a member of a declared JS object
+          const b = head ? { kind: "comp" as const, js: `${head.js}${m.tag.slice(dot)}`, shape: "comp" as const } : env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
           const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
           const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
           const kids = m.children.filter(c => !(c.k === "mview" && c.prop));

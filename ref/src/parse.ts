@@ -236,6 +236,7 @@ function typeParams(c: Cursor): string | undefined {
 
 /** MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`). */
 function isComponentType(t: string): boolean {
+  const alts = splitTop(t, "|"); if (alts.length > 1) return alts.some(a => isComponentType(a));   // MO-11c: `string | Component` (a polymorphic `as`), `Component | undefined`
   const parts = splitTop(t, "&"); if (parts.length > 1) return isComponentType(parts[0]);   // MO-11m: `Component & { paths: … }`, a component with properties
   const m = /^Component\s*/.exec(t); if (!m) return false; const r = t.slice(m[0].length); if (!r) return true; if (r[0] !== "<") return false;
   let depth = 0; for (let i = 0; i < r.length; i++) { if (r[i] === "<") depth++; else if (r[i] === ">" && r[i - 1] !== "=" && --depth === 0) return i === r.length - 1; }
@@ -243,7 +244,9 @@ function isComponentType(t: string): boolean {
 }
 /** MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`. */
 function parseJsComponent(c: Cursor, line: number): JsDecl {
-  c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();
+  c.ws(); let name = c.ident() ?? c.fail("component name");
+  while (c.peek() === ".") { c.i++; name += "." + (c.ident() ?? c.fail("a member component's name: `component Dialog.Root(…)`")); }   // MO-11q
+  c.ws(); c.expect("("); c.ws();
   const props: JsProp[] = [];
   if (!c.startsWith(")")) {
     if (c.ident() !== "props") c.fail("a component's props: `(props: { … })`"); c.ws(); c.expect(":"); c.ws(); c.expect("{");
@@ -395,7 +398,12 @@ function parseDecl(c: Cursor): Decl {
     if (c.keyword("default")) { c.ws(); const d = parseDecl(c); if (d.k !== "component") c.fail("export default: only a component is a module's default export (the app's entry, MO-1c)"); d.exported = true; d.isDefault = true; return d; }
     const d = parseDecl(c); if (d.k === "import" || d.k === "effect" || d.k === "provide") c.fail("export of a non-declaration"); (d as { exported?: boolean }).exported = true; return d; }
   if (c.keyword("import")) {                                           // 07 §1: `import pure? { a, b as c } from "m"` / `import X from "m"`
-    c.ws(); const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
+    c.ws();
+    if (c.peek() === '"' || c.peek() === "'") {                                         // 07 §1a: `import "./styles.css"`, for its effect (a stylesheet, a polyfill)
+      const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
+      if (/\.rx$/.test(from.v)) c.fail(`import ${JSON.stringify(from.v)}: an .rx module is imported for what it exports, \`import { … } from ${JSON.stringify(from.v)}\``);
+      return { k: "import", names: [], from: from.v, pure: false, line };
+    } const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
     const pure = c.keyword("pure"); c.ws();
     const names: { name: string; alias: string }[] = [];
     if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }

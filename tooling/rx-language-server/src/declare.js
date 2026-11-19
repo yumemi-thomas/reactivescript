@@ -56,6 +56,7 @@ function propText(ts, checker, p, at) {
   if (p.name === "children" && fnSigs.length && fnSigs.every(s => isElement(ts, checker, s.getReturnType())))
     return `children${opt}: (${fnSigs[0].getParameters().map(q => `${q.name}: any`).join(", ")}) => View`;   // MO-11k: a render prop, written `{view (…) { … }}`
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return `${p.name}${opt}: Component`;
+  if (/^(as|component)$/.test(p.name) && checker.getNonNullableType(t).isUnion?.() && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u))) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
   if (isElement(ts, checker, t)) return `${p.name}${opt}: View`;
   if (isFn(checker, t)) return `${p.name}${opt}: (...args: any[]) => any`;   // a callback (MO-10g)
   return `${p.name}${opt}: ${text(ts, checker, t)}`;
@@ -160,13 +161,24 @@ function declare(ts, spec, from, options = {}) {
     }
     if (/^Context</.test(checker.typeToString(t))) { contexts.push(name); continue; }
     const sigs = t.getCallSignatures();
-    if (!sigs.length) { lines.push(`// TODO: ${name} is a value (${checker.typeToString(t).slice(0, 60)}): .d.rx declares fns, components, errors and types`); continue; }
-    if (/^[A-Z]/.test(name) && isComponent(ts, checker, t)) {
-      const p = sigs[0].getParameters()[0];
+    // a component's declaration: its props, those a .d.rx can name (an `aria-label` is passed as any undeclared prop is, MO-11b)
+    const componentOf = (as, ct) => {
+      const p = ct.getCallSignatures()[0].getParameters()[0];
       const pt = p ? checker.getTypeOfSymbolAtLocation(p, imp) : undefined;
-      const props = pt ? checker.getNonNullableType(pt).getProperties().map(q => propText(ts, checker, q, imp)) : [];
+      const props = pt ? checker.getNonNullableType(pt).getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)).map(q => propText(ts, checker, q, imp)) : [];
+      return `export component ${as}(props: { ${props.join("; ")} })`;
+    };
+    // MO-11q: a kit's compound parts on one object (`Dialog.Trigger`), the object a component itself or not
+    const members = /^[A-Z]/.test(name) ? t.getProperties().filter(q => /^[A-Z]/.test(q.name)).map(q => [q.name, checker.getTypeOfSymbolAtLocation(q, imp)]).filter(([, mt]) => isComponent(ts, checker, mt)) : [];
+    const memberLines = () => { for (const [m, mt] of members) lines.push(componentOf(`${name}.${m}`, mt)); };
+    if (!sigs.length) {
+      if (members.length) { memberLines(); continue; }
+      lines.push(`export const ${name}: typeof import(${JSON.stringify(spec)}).${name}`); continue;   // MO-8g: a value
+    }
+    if (/^[A-Z]/.test(name) && isComponent(ts, checker, t)) {
       if (/Provider$/.test(name)) lines.push(`// TODO ${name}: does it provide a context to its children? add provides(<context>) (MO-12c)`);
-      lines.push(`export component ${name}(props: { ${props.join("; ")} })`);
+      lines.push(componentOf(name, t));
+      if (members.length) { lines.push(`// TODO ${name}: its parts likely read a context it provides: add provides(<context>) to it and uses(<context>) to them (MO-12)`); memberLines(); }
       continue;
     }
     const sig = [...sigs].sort((a, b) => a.getParameters().length - b.getParameters().length)[0];   // the shortest overload: the common form

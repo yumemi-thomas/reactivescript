@@ -54,6 +54,13 @@ export component Profile(props: { id: number }) { … }
   variable shared across requests. Module state lives as long as the app
   and there is one of it: state for a subtree, a route or an instance
   belongs in a component, shared down through a context (RG-7).
+- **§1a An import for its effect** (proposed 2026-11-19).
+  `import "./styles.css"` or `import "@fontsource/inter"` imports a module
+  for what loading it does: a stylesheet a UI kit ships, a polyfill, a
+  font. It binds nothing, needs no declaration file, and the compiled
+  module imports it as written (a bundler loads the stylesheet). An `.rx`
+  module is imported for what it exports, never this way (`PARSE`).
+  S-module-24; `examples/kobalte`.
 - `export` works on `component`, `fn`, `action`, `error`, `type`, and
   module-level sources and equations (exported as accessors — a module
   boundary is a value boundary, never a write boundary: W-1 holds across

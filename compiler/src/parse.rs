@@ -538,6 +538,11 @@ impl JsDecl {
 
 /// MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`).
 fn is_component_type(t: &str) -> bool {
+    // MO-11c: `string | Component` (a polymorphic `as`), `Component | undefined`
+    let alts = split_top(t, "|");
+    if alts.len() > 1 {
+        return alts.iter().any(|a| is_component_type(a));
+    }
     // MO-11m: `Component & { paths: … }`, a component with properties
     let parts = split_top(t, "&");
     if parts.len() > 1 {
@@ -573,7 +578,13 @@ fn is_component_type(t: &str) -> bool {
 /// MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`.
 fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
     c.ws(true);
-    let name = c.ident_or("component name")?;
+    let mut name = c.ident_or("component name")?;
+    while c.peek() == '.' {
+        // MO-11q: a member component, `component Dialog.Root(…)`
+        c.i += 1;
+        name.push('.');
+        name.push_str(&c.ident_or("a member component's name: `component Dialog.Root(…)`")?);
+    }
     c.ws(true);
     c.expect("(")?;
     c.ws(true);
@@ -1382,6 +1393,17 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
     }
     if c.keyword("import") {
         c.ws(true);
+        if c.peek() == '"' || c.peek() == '\'' {
+            // 07 §1a: `import "./styles.css"`, for its effect (a stylesheet, a polyfill)
+            let from = match parse_primary(c)?.k {
+                ExprKind::Lit(Lit::Str(s)) => s,
+                _ => return c.fail("module path"),
+            };
+            if from.ends_with(".rx") {
+                return c.fail(&format!("import \"{}\": an .rx module is imported for what it exports, `import {{ … }} from \"{}\"`", from, from));
+            }
+            return Ok(Decl::Import { names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, declared: None, declared_errors: None, declared_pure: None, declared_side: None });
+        }
         let side = if IMPORT_SIDE.is_match(c.rest()) {
             if c.keyword("server") {
                 Some(Side::Server)

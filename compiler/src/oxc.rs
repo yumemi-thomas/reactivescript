@@ -182,6 +182,7 @@ impl<'a> Build<'a> {
                 ImportOrExportKind::Value,
                 b,
             ),
+            S::ImportBare(src) => Statement::new_import_declaration(SPAN, None, StringLiteral::new(SPAN, self.s(src), None, b), None, None, ImportOrExportKind::Value, b),
             S::ExportDefault(f) => {
                 let (params, body) = self.func_parts(f, FormalParameterKind::FormalParameter);
                 let decl = ExportDefaultDeclarationKind::new_function_declaration(
