@@ -4,7 +4,8 @@
 // Solid. Solid's plugin needs built-in `.rx` (solid-vite-plugin PR, see README): SOLID_VITE_PLUGIN names a built
 // checkout of it, else the one pnpm installed in solid-next. The Node-API build first: `npm run build` here,
 // and the runtime's: `npm run build` in ../runtime.
-// Usage: SOLID_VITE_PLUGIN=../solid-vite-plugin node compiler/test/vite.mjs [filter]
+// Usage: node compiler/test/vite.mjs [filter]   (SOLID_VITE_PLUGIN=dir picks the plugin; without it, the checkout's if it
+// loads .rx, else npm's 3.0.1, installed once into .out)
 import { readdirSync, mkdirSync, rmSync, symlinkSync, writeFileSync, cpSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
@@ -17,7 +18,15 @@ const pkg = path.resolve(here, "..");
 const repo = path.resolve(pkg, "..");
 const store = path.resolve(repo, "../solid-next/node_modules/.pnpm");
 const installed = path.join(store, readdirSync(store).filter(d => d.startsWith("@solidjs+vite-plugin@")).sort().pop(), "node_modules/@solidjs/vite-plugin");
-const pluginDir = process.env.SOLID_VITE_PLUGIN ? path.resolve(process.env.SOLID_VITE_PLUGIN) : installed;
+// a plugin that loads `.rx` (it finds @reactivescript/compiler/vite): SOLID_VITE_PLUGIN, else the checkout's if it can,
+// else npm's 3.0.1, installed once into .out
+const loadsRx = dir => { try { return readFileSync(path.join(dir, "dist/esm/index.mjs"), "utf8").includes("@reactivescript/compiler/vite"); } catch { return false; } };
+function npmPlugin() {
+  const at = path.join(here, ".out/.plugin"), dir = path.join(at, "node_modules/@solidjs/vite-plugin");
+  if (!loadsRx(dir)) { mkdirSync(at, { recursive: true }); execFileSync("npm", ["install", "--prefix", at, "--no-save", "--silent", "@solidjs/vite-plugin@3.0.1"], { stdio: "inherit" }); }
+  return dir;
+}
+const pluginDir = process.env.SOLID_VITE_PLUGIN ? path.resolve(process.env.SOLID_VITE_PLUGIN) : loadsRx(installed) ? installed : npmPlugin();
 const deps = path.resolve(installed, "../..");   // the installed plugin's node_modules: vite, solid-js, @solidjs/web
 const vite = await import(pathToFileURL(path.join(deps, "vite/dist/node/index.js")).href);
 const solid = (await import(pathToFileURL(path.join(pluginDir, "dist/esm/index.mjs")).href)).default;

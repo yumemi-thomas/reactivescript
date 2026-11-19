@@ -11,7 +11,8 @@ import { getObserver } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit } from "solid-js";
 import { escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
-const SAFE_ERROR = Symbol.for("solid.SafeError");   // @solidjs/web's mark (markSafeError), read through the prototype
+const SAFE_ERROR = Symbol.for("solid.SafeError");
+let warnedCopies = false;   // once per process   // @solidjs/web's mark (markSafeError), read through the prototype
 import { $TARGET } from "@solidjs/signals";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -103,7 +104,12 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** Render `view` as a stream: `write` receives each chunk, `end` the close. */
     /** One request (a request event, as Solid's integrations provide one — a server function called during the render runs
      *  in it, SF-2b). */
-    stream(view: () => unknown, sink: { write: (s: string) => void; end: () => void }) { return provideRequestEvent({ request: opts.request ?? new Request("http://127.0.0.1/"), locals: {} }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
+    stream(view: () => unknown, sink0: { write: (s: string) => void; end: () => void }) {
+      // the shell carries hydration keys; one with markup and none means the compiled templates read another copy of
+      // @solidjs/web than this runtime renders with (a bundler that inlined one of them): nothing would hydrate
+      let first = true;
+      const sink = { end: () => sink0.end(), write: (c: string) => { if (first) { first = false; if (!process.env.SV_SCOPE && /<[a-z][^>]*>/i.test(c) && !/\b_hk=/.test(c) && !warnedCopies) { warnedCopies = true; console.warn("[reactivescript] the server's shell has markup but no hydration keys: the compiled modules and @reactivescript/runtime use different copies of @solidjs/web (keep Solid, the runtime and libraries that render external to the server build, or all bundled together)"); } } sink0.write(c); } };
+      return provideRequestEvent({ request: opts.request ?? new Request("http://127.0.0.1/"), locals: {} }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
 
     B: {
       len: (x: unknown) => (Array.isArray(x) || typeof x === "string") ? x.length : (typeof x === "object" && x) ? Object.keys(x).length : 0,
