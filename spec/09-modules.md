@@ -211,7 +211,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | --- | --- | --- |
   | the kind of fn | before `fn` | `pure`, `server`, `client` |
   | a parameter | before the parameter, as in an `.rx` fn (`fn f(ref n)`) | `ref`, `signal`, `...` (rest); `draft` on a callback's parameter |
-  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor), `pending`, `fails(E)` on a result, a field or a part; `renders` and `catches(E)` on a prop |
+  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor), `pending`, `fails(E)` on a result, a field or a part; `renders` and `catches(E)` on a prop; `tracked` on a function type (MO-10j) |
   | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `renders`, `renders(root, c…)`, `renders(later)`, `nests(…)`, `outlet`, `shape(…)`, a component's `fails(E)`, `trusted` |
   | a pin | a comment line | `//@ for <package> <range>` |
 
@@ -396,6 +396,21 @@ export component Search(props: { start: boolean, q: string }) {
   `ref`); never called under the probe, it is unverified (the probe's `act`
   should make the library call it).
   Executable: S-module-12.
+- **MO-10j (Tracked callbacks) — proposed 2026-11-20.** Some libraries
+  call a function they are given inside a computation of their own, not
+  later as a handler: TanStack Query's `useQuery` runs `fetch`, and so
+  `queryFn`, in the projection that computes `data`. A closure checked as a
+  handler there would be wrong twice: its reads are tracked by the library,
+  and Solid refuses its writes. The declaration says so with `tracked`
+  before the function type (a value word, MO-8i): `queryFn: tracked () =>
+  Promise<any>`, on a parameter, a field of a record parameter, or a
+  component's prop. A closure passed there is not a callback: it is checked
+  as any closure made in reactive scope is (SC-3), a pure function, so a
+  statement body is `REACTIVE_WRITE_IN_OWNED_SCOPE` and an io call is
+  `IO_IN_REACTIVE`. `tracked` before anything but a function type is
+  refused. `rx-verify` checks the word by running (MO-10g): a `tracked`
+  callback called inside a computation holds; an undeclared one called
+  there is a mismatch that names the word.
 - **MO-10h (Signal parameters) — proposed 2026-11-19.** Some primitives
   take a Solid signal, a getter and a setter, and wrap it
   (`@solid-primitives/storage`'s `makePersisted`, `utils`' `wrapSetter`).

@@ -454,6 +454,7 @@ re!(ANY_ROW_WORD, r"\b(pending|fails\()");
 re!(OLD_HOLDS, r"(^|[:,\[{]\s*)holds\b");
 re!(RENDER_TYPE, r"=>\s*View\s*$");
 re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
+re!(TRACKED_WORD, r"\btracked\s+");
 re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
 re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\(|trusted\b)");
 fn part_of(t: &str) -> Part {
@@ -607,6 +608,23 @@ fn draft_parts(ret: Option<&str>) -> Vec<(String, Vec<(usize, Vec<usize>)>)> {
     }
     out
 }
+/// MO-10j: `tracked` not followed by a function type (`(`).
+fn tracked_misplaced(t: &str) -> bool {
+    TRACKED_WORD.find_iter(t).any(|m| !t[m.end()..].starts_with('('))
+}
+/// MO-10j: the type without the `.d.rx`'s `tracked` word.
+fn strip_tracked(t: &str) -> String {
+    let mut out = String::new();
+    let mut at = 0;
+    for m in TRACKED_WORD.find_iter(t) {
+        if t[m.end()..].starts_with('(') {
+            out.push_str(&t[at..m.start()]);
+            at = m.end();
+        }
+    }
+    out.push_str(&t[at..]);
+    out
+}
 fn strip_draft(t: &str) -> String {
     DRAFT_WORD.replace_all(t, "$1").to_string()
 }
@@ -751,9 +769,21 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
                     ty = (!rest.is_empty()).then(|| rest.to_string());
                 }
             }
+            // MO-10j: `onTick: tracked (n: number) => void` — called inside a computation, so not a handler
+            let mut tracked = false;
+            if let Some(t) = ty.clone() {
+                if let Some(rest) = t.strip_prefix("tracked ") {
+                    tracked = true;
+                    let rest = js_trim(rest);
+                    if part_of(rest) != Part::Fn {
+                        return c.fail(&format!("`tracked` on prop {}: it goes before a function type, one the library calls inside a computation (MO-10j)", fname));
+                    }
+                    ty = Some(rest.to_string());
+                }
+            }
             let component = ty.as_deref().is_some_and(is_component_type);
             let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
-            let callback = !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
+            let callback = !tracked && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
             props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, carried });
             // a newline separates fields too, as in TypeScript
             c.ws(false);
@@ -1121,12 +1151,18 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
+        // MO-10j: `tracked` goes before a function type; the callbacks are found before the word is taken out
+        for t in ptypes.iter().flatten().chain(ret.iter()) {
+            if tracked_misplaced(t) {
+                return c.fail(&format!("`tracked` on fn {}: it goes before a function type, one the library calls inside a computation (MO-10j)", name));
+            }
+        }
         let cbs = callbacks(&ptypes);
         // MO-10i: callbacks whose parameters are a library's drafts, by position; the word is the .d.rx's, not TypeScript's
         let drafts: Vec<(usize, Vec<usize>)> = ptypes.iter().enumerate().filter_map(|(i, t)| { let ds = draft_params(t.as_deref()); (!ds.is_empty()).then_some((i, ds)) }).collect();
         let part_drafts = draft_parts(ret.as_deref());
-        let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_draft(&t))).collect();
-        let ret = ret.map(|t| strip_draft(&t));
+        let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_tracked(&strip_draft(&t)))).collect();
+        let ret = ret.map(|t| strip_tracked(&strip_draft(&t)));
         out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts });
     }
 }

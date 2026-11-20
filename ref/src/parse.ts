@@ -199,8 +199,10 @@ export function parseDeclarations(src: string): JsDecl[] {
     // the word is the .d.rx's, not TypeScript's
     const drafts = ptypes.flatMap((t, i) => { const ds = draftParams(t); return ds.length ? [[i, ds] as [number, number[]]] : []; });
     const partDrafts = draftParts(ret);
-    for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripDraft(ptypes[i]); ret = stripDraft(ret);
-    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(callbacks(ptypes) ? { cbs: callbacks(ptypes) } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}) });
+    for (const t of [...ptypes, ret]) if (t && TRACKED_MISPLACED.test(t)) c.fail(`\`tracked\` on fn ${name}: it goes before a function type, one the library calls inside a computation (MO-10j)`);
+    const cbs = callbacks(ptypes);   // MO-10j: before the word is taken out, so a `tracked` function stays out of them
+    for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripTracked(stripDraft(ptypes[i])); ret = stripTracked(stripDraft(ret));
+    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(cbs ? { cbs } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}) });
   }
 }
 /** A declaration line without its `// comment` (not a `//` inside a string literal type): words in a comment are not rows. */
@@ -284,6 +286,10 @@ function draftParts(ret: string | undefined): Record<string, [number, number[]][
   else if (t.startsWith("{") && t.endsWith("}")) for (const f of splitTop(t.slice(1, -1), ",;")) { const c = f.indexOf(":"); if (c < 0) continue; const d = draftsOfFn(f.slice(c + 1).trim()); if (d.length) out[fieldName(f.slice(0, c))] = d; }
   return Object.keys(out).length ? out : undefined;
 }
+/** MO-10j: `tracked` before a function type — the library calls it inside a computation, so a closure passed there is a
+ *  pure closure (SC-3), not a handler. The word is the .d.rx's, not TypeScript's. */
+const TRACKED_MISPLACED = /\btracked\s+(?!\()/;
+const stripTracked = (t: string | undefined) => t?.replace(/\btracked\s+(?=\()/g, "");
 const stripDraft = (t: string | undefined) => t?.replace(/\bdraft\s+(?=[A-Za-z_$][\w$]*\s*[?:,)])/g, "");
 
 /** MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`. */
@@ -310,7 +316,8 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
         type = c.src.slice(t0, c.i).trim() || undefined;
       }
       let carried = false; if (type && /^renders\s+/.test(type)) { carried = true; type = type.replace(/^renders\s+/, "") || undefined; }   // MO-11o: `router: renders any`
-      props.push({ name: fname, optional, ...(carried ? { carried } : {}), ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : {}) });
+      let tracked = false; if (type && /^tracked\s+/.test(type)) { tracked = true; type = type.replace(/^tracked\s+/, "") || undefined; if (!type || partOf(type) !== "fn") c.fail(`\`tracked\` on prop ${fname}: it goes before a function type, one the library calls inside a computation (MO-10j)`); }
+      props.push({ name: fname, optional, ...(carried ? { carried } : {}), ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && !tracked && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : {}) });
       c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
     }
     c.ws();

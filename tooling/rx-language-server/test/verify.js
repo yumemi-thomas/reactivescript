@@ -177,6 +177,7 @@ fs.writeFileSync(path.join(ws, "cb.mjs"), [
   "export const watchIn = cb => { const m = createMemo(() => cb(2)); m(); };",
   "export const never = cb => {};",
   "export const later = n => n;",
+  "export const watchTracked = cb => { const m = createMemo(() => cb(2)); m(); };",
   "",
 ].join("\n"));
 fs.writeFileSync(path.join(ws, "cb.probe.mjs"), [
@@ -184,6 +185,7 @@ fs.writeFileSync(path.join(ws, "cb.probe.mjs"), [
   "  onTick: { args: () => [n => {}] },",
   "  watchIn: { args: () => [n => n] },",
   "  never: { args: () => [n => {}] },",
+  "  watchTracked: { args: () => [n => n] },",
   "};",
   "",
 ].join("\n"));
@@ -192,18 +194,20 @@ const cbDecl = [
   "export fn watchIn(cb: (n: number) => number): void",
   "export fn never(cb: (n: number) => void): void",
   "export fn later(n: number): number trusted",
+  "export fn watchTracked(cb: tracked (n: number) => number): void",
   "",
 ].join("\n");
 fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl);
 fs.rmSync(path.join(ws, "cb.verified.json"), { force: true });
 const { checkStrict } = require("../src/strict.js");
 const before = checkStrict(path.join(ws, "cb.d.rx"));
-check("strict: with no record, every row but the trusted one is refused", before.length === 3 && before.every(u => /nothing verified it/.test(u.message)) && !before.some(u => u.name === "later"), before);
+check("strict: with no record, every row but the trusted one is refused", before.length === 4 && before.every(u => /nothing verified it/.test(u.message)) && !before.some(u => u.name === "later"), before);
 const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "cb.d.rx"], { cwd: ws, encoding: "utf8" });
 const out3 = r3.stdout + r3.stderr;
 if (process.env.VERBOSE) console.log(out3);
 check("callback: called outside tracking holds, as a handler", /cb\.d\.rx:1 ok\s+onTick: callback cb holds/.test(out3), out3);
 check("callback: called inside a computation is a mismatch (MO-10g)", /cb\.d\.rx:2 MISMATCH\s+watchIn: the library calls cb inside a computation/.test(out3), out3);
+check("callback: declared tracked and called inside a computation holds (MO-10j)", /cb\.d\.rx:5 ok\s+watchTracked: cb is tracked, as declared/.test(out3), out3);
 check("callback: never called under the probe is unverified", /cb\.d\.rx:3 unverified never: callback cb never called/.test(out3), out3);
 check("--record writes the record beside the declaration", fs.existsSync(path.join(ws, "cb.verified.json")) && /recorded/.test(out3), out3);
 const after = checkStrict(path.join(ws, "cb.d.rx"));

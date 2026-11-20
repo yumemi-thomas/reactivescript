@@ -44,8 +44,10 @@ function exportsOf(text) {
       params.forEach((p0, index) => {
         const c = p0.indexOf(":"); if (c < 0) return; const ty = p0.slice(c + 1).trim().replace(/^ref\s+/, "");
         const name = p0.slice(0, c).replace(/^(ref|signal)\s+|\?$/g, "").replace(/^\.\.\./, "").trim();
-        if (/^\(.*\)\s*=>/.test(ty)) cbs.push({ index, name, ref: /^ref\s/.test(p0) });
-        else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && /^\(.*\)\s*=>/.test(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0) }); }
+        // MO-10j: `tracked` before the function type — the library is expected to call it inside a computation
+        const fnType = t => /^(?:tracked\s+)?\(.*\)\s*=>/.test(t), trackedOf = t => /^tracked\s/.test(t);
+        if (fnType(ty)) cbs.push({ index, name, ref: /^ref\s/.test(p0), tracked: trackedOf(ty) });
+        else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && fnType(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0), tracked: trackedOf(m2[2].trim()) }); }
       });
       const fields = ret.startsWith("{") ? fieldsOf(ret) : ret.startsWith("[") ? partsOf(ret) : /^ref\s/.test(ret) ? [{ path: [], holds: false, fails: [], ref: true }] : null;
       const inst = /\binstantiates\b|\brenders\b|\bnests\(|\bprovides\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));

@@ -245,7 +245,10 @@ async function verifyCallbacks({ fns, at, probeMod, resolve, mount }) {
     const err = m.renderError ?? m.boundary ?? m.runError;
     for (const c of f.cbs) {
       const st = seen.get(c.name);
-      out.push(st.tracked ? { line: f.line, status: "fail", what: `${f.name}: the library calls ${c.name} inside a computation (tracked), but a closure there is checked as a handler (MO-10g): its reads would be tracked by the library and its writes refused by Solid${c.field ? "" : "; declare the parameter `ref` if the library reads it as a value"}` }
+      if (c.tracked) { out.push(st.tracked ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is tracked, as declared: the library calls it inside a computation (MO-10j)` }
+        : st.calls ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is declared tracked, but the library calls it outside tracking: a handler would do (stricter than needed)` }
+        : { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe: give an act that makes the library call it` }); continue; }
+      out.push(st.tracked ? { line: f.line, status: "fail", what: `${f.name}: the library calls ${c.name} inside a computation (tracked), but a closure there is checked as a handler (MO-10g): its reads would be tracked by the library and its writes refused by Solid: write \`${c.field ?? c.name.split(".").pop()}: tracked (…) => …\` (MO-10j)` }
         : st.calls ? { line: f.line, status: "ok", what: `${f.name}: callback ${c.name} holds: the library calls it outside tracking, as a handler` }
         : { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe${err ? ` (it threw: ${String(err.message ?? err).slice(0, 40)})` : ""}: give an act that makes the library call it` });
     }

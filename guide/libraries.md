@@ -80,6 +80,10 @@ What the compiler catches:
 - **A callback the declaration types as a function is a handler.** With `onSuccess?: () => void` in the declared
   options, `onSuccess: () => { saved := saved + 1 }` may write sources, as an `onClick` may. A statement closure
   anywhere the declaration does not say "function" is still refused (`REACTIVE_WRITE_IN_OWNED_SCOPE`).
+- **A function the library calls inside its own computation is `tracked`.** TanStack Query runs `queryFn` while it
+  computes `data`, so `queryFn: tracked () => Promise<any>`: a closure there is a pure one, as anywhere in reactive
+  scope (no writes; its reads are tracked by the library). `rx-verify` tells the two apart by running: it reports a
+  callback called inside a computation that is not declared `tracked` (MO-10j).
 - **Callbacks you pass are plain functions.** An action passed as `handler` is checked as an action; a plain closure
   is not checked beyond what any closure is.
 - **Without a declaration,** an import is io unless you import it `pure`, and `import pure` of a primitive is

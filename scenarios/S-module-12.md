@@ -1,6 +1,6 @@
 # S-module-12 — callbacks into JS: a declared function-typed parameter takes an imperative closure
 
-Rules: MO-10g, W-2, SC-3, R-io-3, MO-8.
+Rules: MO-10g, MO-10j, W-2, SC-3, R-io-3, MO-8.
 
 ## Modules
 
@@ -9,17 +9,22 @@ Rules: MO-10g, W-2, SC-3, R-io-3, MO-8.
 // a mutation hook whose options carry callbacks, and a helper that takes one directly
 export pure fn useMutation(ref options: { mutationFn: (v: string) => Promise<string>; onSuccess?: () => void; retry: number }): any instantiates
 export pure fn onIdle(run: () => void): any instantiates
+// a query hook that calls queryFn inside its own computation (MO-10j)
+export pure fn useQuery(ref options: { queryKey: any[]; queryFn: tracked () => Promise<string[]> }): any instantiates
 ```
 
 ```rx
 -- module: ./ui.d.rx
 // a JS component whose prop `valueChange` is a callback (any name, not only on*)
 export component Slider(props: { value: number; valueChange: (v: number) => void; label: string })
+// a JS component that calls `format` as it renders, tracked (MO-10j)
+export component Gauge(props: { value: number; format: tracked (v: number) => string })
 ```
 
 ```rx
 -- module: ./api.d.rx
 export fn addTodo(text: string): Promise<string>
+export pure fn fetchTodos(): Promise<string[]>
 ```
 
 A closure created in reactive scope is a pure function (SC-3), so a
@@ -28,14 +33,17 @@ declaration says a parameter, or a field of a record parameter, is a
 function, the library calls it later, as the DOM calls a handler: a closure
 passed there is checked as a handler's is, in imperative scope (MO-10g). The
 declaration is the statement that it is a callback, so nothing else
-loosens: a statement closure anywhere else is still refused.
+loosens: a statement closure anywhere else is still refused. A function
+type written `tracked` is one the library calls inside a computation of its
+own (MO-10j): a closure there is not a callback but a pure closure, as
+anywhere else in reactive scope.
 
 ## Program
 
 ```rx
-import { useMutation, onIdle } from "./query.js"
-import { addTodo } from "./api.js"
-import { Slider } from "./ui.js"
+import { useMutation, onIdle, useQuery } from "./query.js"
+import { addTodo, fetchTodos } from "./api.js"
+import { Slider, Gauge } from "./ui.js"
 
 export default component App() {
   source saved := 0
@@ -43,15 +51,19 @@ export default component App() {
   add = useMutation({ mutationFn: addTodo, onSuccess: () => { saved := saved + 1 }, retry: 0 })
   watcher = onIdle(() => { idle := true })
   source level := 3
+  todos = useQuery({ queryKey: ["todos", level], queryFn: () => fetchTodos() })
   <button onClick={() => { add.mutate("milk") }}>add</button>
   <p>{saved} {idle}</p>
   <Slider value={level} valueChange={v => { level := v }} label="level" />
+  <Gauge value={level} format={v => `${v} of 10`} />
 }
 ```
 
 Accepted: `onSuccess` and `run` are declared function types, so their
 closures write sources as a handler's would; so is `Slider`'s `valueChange`,
 a JS component's prop declared as a function, whatever its name.
+`queryFn` and `format` are `tracked`: their closures are expressions, pure,
+as a reactive scope's must be.
 
 ## Rejected variants
 
@@ -91,4 +103,30 @@ export default component App() {
 
 `label` is declared a `string`: a statement closure in its argument is a
 reactive scope's.
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+import { useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+export default component App() {
+  source fetched := 0
+  todos = useQuery({ queryKey: ["todos"], queryFn: () => { fetched := fetched + 1; fetchTodos() } })
+  <p>{fetched}</p>
+}
+```
+
+`queryFn` is declared `tracked`: the library calls it inside its own
+computation, where a write is refused, so a statement closure there is a
+reactive scope's (MO-10j).
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+import { Gauge } from "./ui.js"
+export default component App() {
+  source shown := 0
+  <Gauge value={3} format={v => { shown := v; "x" }} />
+}
+```
+
+A `tracked` prop is not a handler, whatever its name.
 
