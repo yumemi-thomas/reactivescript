@@ -386,7 +386,11 @@ export component Search(props: { start: boolean, q: string }) {
   every row at the JS boundary is: TY-6 checks the type with `draft`
   removed, and TypeScript checks each value written against the draft's
   field. Solid 2's store is a proxy read field by field, so its declared
-  first part is a value, not `ref`. S-module-25; `examples/formisch` runs
+  first part is a value, not `ref`. A path write takes an updater as a
+  source's write does (W-6): `d.done := v => v + 1` assigns `f(d.done)`.
+  `rx-verify` checks the row by running it: the setter must hand its
+  callback an object, and a write to it must be kept (a library that
+  hands a copy is a mismatch). S-module-25; `examples/formisch` runs
   Solid 2's own store this way.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
@@ -690,6 +694,22 @@ export default component App() {
   it cannot place by leaving it where its placement puts it, the strict
   default. The words first drafted for these, `carries` and `under(parent
   in component)`, are refused with the spelling that replaced them.
+
+  They are checked by running (proposed 2026-11-20): a probe file beside
+  the `.d.rx` may export `scene(lib, h)`, a small app built from the
+  module's exports, instrumented, with `h.component(name)` standing for
+  the program's components. `rx-verify` mounts it and reads where each
+  of those rendered, through a context every recording component
+  provides (so the evidence is Solid's own owner chain): what a factory
+  was given inside the made component, `renders` inside the caller and
+  `renders(root, …)` not, `renders(later)` inside a component whose prop
+  renders it, and each `nests(…)` entry inside its parent's component —
+  at an `outlet` for `nests(… under …)`. A library that renders a child
+  route beside its parent is a mismatch; a row the scene does not reach
+  is reported unverified. `examples/tanstack/tsr.probe.mjs` checks
+  TanStack Router's rows this way. A hook that warns rather than throws
+  with no provider (TanStack's `useRouter`) counts as reading its
+  context, for `rx-declare`'s draft and `rx-verify`'s check alike.
 - **MO-11m (A made component's properties) — proposed 2026-11-18.** A
   factory's component may carry properties (`@solidjs/router`'s `paths`, its
   typed path builder). `Router.paths` is a value read in the module that

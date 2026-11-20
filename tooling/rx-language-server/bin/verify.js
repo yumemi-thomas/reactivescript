@@ -130,14 +130,21 @@ async function verify(file) {
       if (x.required && !probe?.args) out.push({ line: x.line, status: "unverified", what: `${x.name}: uses(…) not run, it needs ${x.required} argument${x.required > 1 ? "s" : ""} (give them in a probe)` });
       else {
         let threw = null, dispose = () => {}, result;
-        createRoot(d => { dispose = d; try { result = v(...(probe?.args?.() ?? [])); } catch (e) { threw = e; } });
-        if (!threw && probe?.run) { try { await probe.run(result); } catch (e) { threw = e; } }   // a hook that reads its context lazily: the probe uses what it gave
-        dispose();
+        const warned = [];   // a hook that warns, not throws, with no provider (TanStack Router's `useRouter must be used inside a <RouterProvider>`)
+        const saved = [console.warn, console.error]; console.warn = console.error = (...a) => { warned.push(a.map(String).join(" ")); };
+        try {
+          createRoot(d => { dispose = d; try { result = v(...(probe?.args?.() ?? [])); } catch (e) { threw = e; } });
+          if (!threw && probe?.run) { try { await probe.run(result); } catch (e) { threw = e; } }   // a hook that reads its context lazily: the probe uses what it gave
+          dispose();
+        } finally { [console.warn, console.error] = saved; }
+        if (!threw && warned.length) { out.push({ line: x.line, status: "ok", what: `${x.name}: uses(…) holds: with no provider it warns (${warned[0].slice(0, 60)})` }); if (!x.fields) continue; }
+        else {
         // the control: under its providers, the same `run` must not throw, or the probe (not the row) is what failed
         const control = threw && probe?.run && probeMod?.provide ? (await mount(dir, mod, probeMod, v, probe.args?.() ?? [], [], probe.run)).runError : null;
         if (control) out.push({ line: x.line, status: "unverified", what: `${x.name}: the probe's run throws under its providers too (${String(control.message || control).slice(0, 60)}): fix the probe` });
         else out.push(threw ? { line: x.line, status: "ok", what: `${x.name}: uses(…) holds: with no provider it throws (${String(threw.message || threw.name || threw).slice(0, 60)})` }
-          : { line: x.line, status: "fail", what: `${x.name}: declared uses(…), but called with no provider it does not throw: does it read a context?` });
+          : { line: x.line, status: "fail", what: `${x.name}: declared uses(…), but called with no provider it neither throws nor warns: does it read a context?` });
+        }
       }
       if (!x.fields) continue;
     }
@@ -198,6 +205,9 @@ async function verify(file) {
     const left = [x.pure && "pure", x.holds && "holds/fails", x.provides && "provides"].filter(Boolean);
     out.push({ line: x.line, status: left.length ? "unverified" : "ok", what: `${x.name}: a ${x.kind}${left.length ? `; ${left.join(", ")} not run (${x.inst && x.pure ? "it makes something each call: two calls are not alike by design" : "it needs what the app passes: give it in a probe"})` : ""}` });
   }
+  // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its drafts
+  const from = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
+  out.push(...await require("../src/verify-place.js").verifyPlacement({ text: fs.readFileSync(file, "utf8"), mod, probeMod, dir, resolve: from }));
   return out;
 }
 

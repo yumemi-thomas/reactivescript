@@ -146,6 +146,17 @@ check("a .jsx module runs compiled; its hook's context is named after the hook",
 const r5 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./jsxkit.jsx", "--context", "sidePanel"], { cwd: ws, encoding: "utf8" });
 check("--context names it", r5.stdout.split("\n").includes("export pure fn usePanelContext(): object uses(sidePanel)"), r5.stdout + r5.stderr);
 
+// a hook that warns, not throws, with no provider reads its context too
+fs.writeFileSync(path.join(ws, "warns.mjs"), [
+  "import { createContext, useContext } from \"solid-js\";",
+  "export const RouterContext = createContext();",
+  "export const useRouter = () => { const r = useContext(RouterContext); if (!r) console.warn(\"useRouter must be used inside a <RouterProvider>\"); return r; };",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "warns.d.mts"), ["import type { Context } from \"solid-js\";", "export declare const RouterContext: Context<object | undefined>;", "export declare function useRouter(): object | undefined;", ""].join("\n"));
+const r6 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./warns.mjs"], { cwd: ws, encoding: "utf8" });
+check("running: a hook that warns with no provider uses the context it warns about", /^export pure fn useRouter\(\): .* uses\(router\)$/m.test(r6.stdout), r6.stdout + r6.stderr);
+
 const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: ws, encoding: "utf8" });
 check("the draft parses and passes rx-tsc against the module's own types (TY-6)", t.status === 0 && t.stdout.trim() === "", { status: t.status, out: t.stdout + t.stderr });
 

@@ -40,6 +40,7 @@ export function viewStart(src: string): number { parseProgram(src); return viewA
 class Cursor {
   i = 0;
   pendingStmts: Stmt[] = [];           // a destructuring `let` (07 §5) is several statements: the rest of them, after the first
+  imported = new Set<string>();        // the names this module imports so far (a hook's pair is a habit only when it is not one of them)
   temps = 0;                           // `$$n`: the bound value of a destructuring whose right side is not a name (RG-4b)
   src: string;
   constructor(src: string) { this.src = src; }
@@ -421,7 +422,7 @@ function destructuringAhead(c: Cursor): boolean {
 function parseDestructuringDecl(c: Cursor): Decl[] {
   const line = c.line;
   const pat = parsePattern(c); c.ws(); c.expect("="); c.ws();
-  if (JS_APIS.exec(c.src.slice(c.i).split("\n", 1)[0])?.index === 0) c.fail("a hook's pair is not .rx");   // `[n, setN] = createSignal(0)`: JS_API's hint
+  { const m = JS_APIS.exec(c.src.slice(c.i).split("\n", 1)[0]); if (m?.index === 0 && !c.imported.has(m[1])) c.fail("a hook's pair is not .rx"); }   // `[n, setN] = createSignal(0)`: JS_API's hint — unless the module imports that name from a declared JS module (`[todos, setTodos] = createStore(…)`, MO-10i)
   let base = parseExpr(c);
   const out: Decl[] = [];
   if (!isPath(base)) { const t = `$$${++c.temps}`; out.push({ k: "eq", name: t, e: base, line }); base = { k: "id", name: t }; }
@@ -447,8 +448,8 @@ function parseDecl(c: Cursor): Decl {
     } const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
     const pure = c.keyword("pure"); c.ws();
     const names: { name: string; alias: string }[] = [];
-    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
-    else { const name = c.ident() ?? c.fail("import name"); names.push({ name: "default", alias: name }); }
+    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); c.imported.add(alias); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
+    else { const name = c.ident() ?? c.fail("import name"); names.push({ name: "default", alias: name }); c.imported.add(name); }
     c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
     const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
     const save = c.i; c.ws(false);
@@ -713,16 +714,29 @@ function parseUnary(c: Cursor): Expr {
   if (c.startsWith("pending?")) { c.i += 8; c.ws(); return { k: "pending", e: parseUnary(c) }; }
   return parsePostfix(c);
 }
+/** 07 §3: type arguments at a call, `f<T>(…)`: a balanced `<…>` written right after the callee and followed by `(`; else
+ *  null (`a < b` stays a comparison). */
+function typeArgsAt(s: string, i: number): { text: string; end: number } | null {
+  if (s[i] !== "<") return null; let depth = 0;
+  for (let j = i; j < s.length; j++) {
+    const ch = s[j];
+    if ("<([{".includes(ch)) depth++;
+    else if (")]}".includes(ch) || (ch === ">" && s[j - 1] !== "=")) { if (--depth === 0) return ch === ">" && s[j + 1] === "(" ? { text: s.slice(i + 1, j).trim(), end: j + 1 } : null; }
+    else if (ch === "\n") return null;
+  }
+  return null;
+}
 function parsePostfix(c: Cursor): Expr {
-  let e = parsePrimary(c);
+  let e = parsePrimary(c); let targs: string | undefined;
   for (;;) {
+    if (c.peek() === "<" && (e.k === "id" || e.k === "member")) { const t = typeArgsAt(c.src, c.i); if (!t) return e; c.i = t.end; targs = t.text; continue; }
     if (c.eat("?.")) { if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i, opt: true }; } else e = { k: "member", o: e, p: c.ident() ?? c.fail("member"), opt: true }; }
     else if (c.eat(".")) e = { k: "member", o: e, p: c.ident() ?? c.fail("member") };
     else if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i }; }
     else if (c.peek() === "(") {
       c.i++; c.ws(); const args: Expr[] = [];
       while (!c.startsWith(")")) { args.push(parseExpr(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
-      c.expect(")"); e = { k: "call", f: e, args };
+      c.expect(")"); e = { k: "call", f: e, args, ...(targs ? { targs } : {}) }; targs = undefined;
     } else return e;
   }
 }

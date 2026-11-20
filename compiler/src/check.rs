@@ -459,7 +459,7 @@ pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
             ExprKind::Tpl(parts) => out.extend(parts.iter().filter_map(|p| if let TplPart::Expr(e) = p { Some(Node::E(e)) } else { None })),
             ExprKind::Member { o, .. } => out.push(Node::E(o)),
             ExprKind::Index { o, i, .. } => out.extend([Node::E(o), Node::E(i)]),
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 out.push(Node::E(f));
                 out.extend(args.iter().map(Node::E));
             }
@@ -556,7 +556,7 @@ fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<String>) {
             go(o, out);
             go(i, out);
         }
-        ExprKind::Call { f, args } => {
+        ExprKind::Call { f, args, .. } => {
             go(f, out);
             for a in args {
                 go(a, out);
@@ -690,7 +690,7 @@ fn reads_outside_peek(n: Node, out: &mut IndexSet<String>) {
 }
 /// `map(xs, x => ({…}))` / `xs.map(x => ({…}))`
 fn maps_into_records(e: &Expr) -> bool {
-    let ExprKind::Call { f, args } = &e.k else { return false };
+    let ExprKind::Call { f, args, .. } = &e.k else { return false };
     let fn_arg = match &f.k {
         ExprKind::Id(n) if n == "map" => args.get(1),
         ExprKind::Member { p, .. } if p == "map" => args.first(),
@@ -1336,7 +1336,7 @@ impl<'a> Checker<'a> {
                     }
                     self.foreign_part(&mut sym, e, env);
                     // MO-11o: a carrying call's arguments; every equation's expression, looked through later
-                    if let ExprKind::Call { f, args } = &e.k {
+                    if let ExprKind::Call { f, args, .. } = &e.k {
                         if let ExprKind::Id(n) = &f.k {
                             if let Some(t) = self.lookup(env, n).filter(|&t| self.syms[t].carrier) {
                                 sym.carried = Some((args.as_slice(), env));
@@ -1346,7 +1346,7 @@ impl<'a> Checker<'a> {
                     }
                     sym.carried_expr = Some((e, env));
                     if sym.foreign == Some(FShape::Comp) {
-                        if let ExprKind::Call { f, args } = &e.k {
+                        if let ExprKind::Call { f, args, .. } = &e.k {
                             // MO-11f: the bound name is a component; MO-12c: what it provides to what it renders
                             let gives: IndexSet<String> = match &f.k {
                                 ExprKind::Id(n) => self.lookup(env, n).map(|t| self.syms[t].gives.iter().cloned().collect()).unwrap_or_default(),
@@ -1365,7 +1365,7 @@ impl<'a> Checker<'a> {
                             sym.factory = Some((args.as_slice(), env));
                         }
                     } else if sym.foreign.is_some() {
-                        if let ExprKind::Call { f, args } = &e.k {
+                        if let ExprKind::Call { f, args, .. } = &e.k {
                             // MO-11l: its component values are applied where it is bound
                             if let ExprKind::Id(n) = &f.k {
                                 if let Some(t) = self.lookup(env, n).filter(|t| self.syms[*t].renders) {
@@ -2140,7 +2140,7 @@ impl<'a> Checker<'a> {
                 } else {
                     "memo"
                 };
-                if let ExprKind::Call { f, args } = &e.k {
+                if let ExprKind::Call { f, args, .. } = &e.k {
                     if let ExprKind::Id(fname) = &f.k {
                         if let Some(fs) = self.lookup(env, fname) {
                             if self.syms[fs].kind == SymKind::Fn && self.syms[fs].instantiating {
@@ -2656,7 +2656,7 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 if let ExprKind::Id(fname) = &f.k {
                     // MO-10i: closures at a declared draft callback
                     if let Some(t) = self.lookup(env, fname) {
@@ -3066,7 +3066,7 @@ impl<'a> Checker<'a> {
                 let m = self.prop_mark(s, format!("{}.{}", self.syms[s].name, p), p);
                 out.push(m);
             }
-            Node::E(Expr { k: ExprKind::Call { f, args }, .. }) => {
+            Node::E(Expr { k: ExprKind::Call { f, args, .. }, .. }) => {
                 let fs = match &f.k {
                     ExprKind::Id(name) => self.lookup(env, name),
                     _ => None,
@@ -3716,7 +3716,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                ExprKind::Call { f, args } => {
+                ExprKind::Call { f, args, .. } => {
                     if let ExprKind::Id(g) = &f.k {
                         if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
                             for a in args {
@@ -3757,7 +3757,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                ExprKind::Call { f, args } => {
+                ExprKind::Call { f, args, .. } => {
                     if let ExprKind::Id(g) = &f.k {
                         if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
                             for a in args {
@@ -3789,7 +3789,7 @@ impl<'a> Checker<'a> {
                 self.carried_names(o, env, seen, out);
                 self.carried_names(i, env, seen, out);
             }
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 self.carried_names(f, env, seen, out);
                 for a in args {
                     self.carried_names(a, env, seen, out);
@@ -3843,7 +3843,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                ExprKind::Call { f, args } => {
+                ExprKind::Call { f, args, .. } => {
                     // MO-11g: a JS call inside the arguments (`defineRoute({ … })`) hands what it is given on to the factory
                     if let ExprKind::Id(g) = &f.k {
                         if c.lookup(fenv, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
@@ -3942,7 +3942,7 @@ impl<'a> Checker<'a> {
             }
             match &e.k {
                 ExprKind::Arr(items) => items.iter().filter(|x| !matches!(x.k, ExprKind::Spread(_))).flat_map(|x| walk(c, x, fenv, nests)).collect(),
-                ExprKind::Call { f, args } => match &f.k {
+                ExprKind::Call { f, args, .. } => match &f.k {
                     ExprKind::Id(g) if c.lookup(fenv, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) => args.iter().flat_map(|a| walk(c, a, fenv, nests)).collect(),
                     _ => vec![],
                 },
@@ -4742,7 +4742,7 @@ impl<'a> Checker<'a> {
                 out.add(f);
                 out
             }
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 match &f.k {
                     ExprKind::Id(fname) if !bound.contains_key(fname) => {
                         if let Some(s) = self.lookup(env, fname) {
@@ -4803,7 +4803,7 @@ impl<'a> Checker<'a> {
                 a.extend(self.rejects(f, env, seen));
                 a
             }
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 let r = root(f);
                 if let ExprKind::Id(fname) = &f.k {
                     if fname == "until" && self.lookup(env, "until").is_none() {

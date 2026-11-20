@@ -171,7 +171,7 @@ impl Spans<'_> {
                 sub(o);
                 sub(i);
             }
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 sub(f);
                 args.iter().for_each(&mut sub);
             }
@@ -370,7 +370,7 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
             ExprKind::Tpl(parts) => sub.extend(parts.iter().filter_map(|p| if let TplPart::Expr(x) = p { Some(x) } else { None })),
             ExprKind::Member { o, .. } => sub.push(o),
             ExprKind::Index { o, i, .. } => sub.extend([&**o, &**i]),
-            ExprKind::Call { f, args } => sub.extend(std::iter::once(&**f).chain(args.iter())),
+            ExprKind::Call { f, args, .. } => sub.extend(std::iter::once(&**f).chain(args.iter())),
             ExprKind::Arr(items) => sub.extend(items.iter()),
             ExprKind::Rec(fields) => sub.extend(fields.iter().map(|x| match x {
                 Field::Kv { v, .. } => v,

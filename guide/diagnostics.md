@@ -83,7 +83,8 @@ export default component App() {
 ### JS_API
 
 `createSignal`, `useState`, `createMemo`, `useEffect` and the rest are spelled as declarations: `source x := v` is
-state, `x = e` is a memo, `effect (x) { … }` is an effect.
+state, `x = e` is a memo, `effect (x) { … }` is an effect. A name the module imports is not the habit: `[todos, setTodos] = createStore<Todos>(…)` with
+`createStore` imported from a declared JS module is that library's call (its setter may hand a draft, 09 MO-10i).
 
 ```rx before
 export default component App() {

@@ -2,7 +2,7 @@
 // with no peek, E-10), each field's render prop (MO-11k), the submit handler writing an .rx source. Below it, Solid 2's
 // own store, written through its setter's draft (MO-10i).
 import { createForm, Form, Field, object, string, pipe, isEmail, minLength } from "./formisch.js"
-import { makeStore } from "./store.js"
+import { createStore } from "./store.js"
 
 schema = object({ email: pipe(string(), isEmail("Enter a valid email")), password: pipe(string(), minLength(8, "At least 8 characters")) })
 source signedIn := ""
@@ -25,10 +25,10 @@ component Login() {
 }
 
 component Todos() {
-  [todos, setTodos] = makeStore({ items: [], done: 0 })
+  [todos, setTodos] = createStore<{ items: string[]; done: number }>({ items: [], done: 0 })
   <input class="text" value={text} onInput={(e) => { text := e.target.value }} />
   <button class="add" onClick={() => { setTodos((d) => { d.items[len(d.items)] := text }); text := "" }}>add</button>
-  <button class="finish" onClick={() => { setTodos((d) => { d.done := d.done + 1 }) }}>finish one</button>
+  <button class="finish" onClick={() => { setTodos((d) => { d.done := v => v + 1 }) }}>finish one</button>
   <ul>{for item in todos.items { <li>{item}</li> }}</ul>
   <p class="count">{todos.done} of {len(todos.items)} done</p>
 }

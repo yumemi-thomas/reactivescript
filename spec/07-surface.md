@@ -116,7 +116,11 @@ imperative scope (SC-3). An arrow's parameter may carry a TypeScript type
 (`(v: string) => …`, proposed 2026-11-19): it is TypeScript's alone,
 checked in the projection (13 TY-1) and dropped from the JavaScript, for
 a library that types what it passes as `unknown`. `:=` after a name is a
-write, never a type.
+write, never a type. A call may carry TypeScript type arguments
+(`createStore<Todos>({ items: [] })`, proposed 2026-11-20): written right
+after the callee and followed by `(`, they are TypeScript's alone too,
+for a generic whose argument leaves nothing to infer (`[]` would be
+`never[]`); `a < b` stays a comparison.
 
 Added:
 

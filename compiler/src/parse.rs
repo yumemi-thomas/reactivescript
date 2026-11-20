@@ -75,10 +75,12 @@ pub struct Cursor<'a> {
     pub pending: Vec<Stmt>,
     /// `$$n`: the bound value of a destructuring whose right side is not a name (RG-4b)
     pub temps: usize,
+    /// the names this module imports so far (a hook's pair is a habit only when it is not one of them)
+    pub imported: std::collections::HashSet<String>,
 }
 impl<'a> Cursor<'a> {
     pub fn new(src: &'a str) -> Self {
-        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], temps: 0 }
+        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], temps: 0, imported: std::collections::HashSet::new() }
     }
     /// What `fail` would return, recorded instead (`recover`).
     fn note(&mut self, msg: &str) {
@@ -606,6 +608,28 @@ fn draft_parts(ret: Option<&str>) -> Vec<(String, Vec<(usize, Vec<usize>)>)> {
 }
 fn strip_draft(t: &str) -> String {
     DRAFT_WORD.replace_all(t, "$1").to_string()
+}
+/// 07 §3: a balanced `<…>` at the start of `s` followed by `(`: its text and the byte length up to the `(`.
+fn type_args_at(s: &str) -> Option<(String, usize)> {
+    let b = s.as_bytes();
+    if b.first() != Some(&b'<') {
+        return None;
+    }
+    let mut depth = 0i64;
+    for j in 0..b.len() {
+        let ch = b[j];
+        if b"<([{".contains(&ch) {
+            depth += 1;
+        } else if b")]}".contains(&ch) || (ch == b'>' && (j == 0 || b[j - 1] != b'=')) {
+            depth -= 1;
+            if depth == 0 {
+                return if ch == b'>' && b.get(j + 1) == Some(&b'(') { Some((s[1..j].trim().to_string(), j + 1)) } else { None };
+            }
+        } else if ch == b'\n' {
+            return None;
+        }
+    }
+    None
 }
 fn is_component_type(t: &str) -> bool {
     // MO-11c: `string | Component` (a polymorphic `as`), `Component | undefined`
@@ -1360,7 +1384,7 @@ fn expand_pattern(pat: &Pat, base: Expr, out: &mut Vec<(String, Expr, usize, Spa
             }
             if let Some(r) = rest {
                 let f = syn(ExprKind::Member { o: Box::new(base.clone()), p: "slice".into(), opt: false });
-                expand_pattern(r, syn(ExprKind::Call { f: Box::new(f), args: vec![syn(ExprKind::Lit(Lit::Num(items.len() as f64)))] }), out, snap);
+                expand_pattern(r, syn(ExprKind::Call { f: Box::new(f), args: vec![syn(ExprKind::Lit(Lit::Num(items.len() as f64)))], targs: None }), out, snap);
             }
         }
     }
@@ -1416,8 +1440,12 @@ fn parse_destructuring_decl(c: &mut Cursor) -> R<Vec<Decl>> {
     c.expect("=")?;
     c.ws(true);
     // `[n, setN] = createSignal(0)`: JS_API's hint
-    if JS_APIS.find(c.src[c.i..].split('\n').next().unwrap_or("")).is_some_and(|m| m.start() == 0) {
-        return c.fail("a hook's pair is not .rx");
+    // — unless the module imports that name from a declared JS module (`[todos, setTodos] = createStore(…)`, MO-10i)
+    let line0 = c.src[c.i..].split('\n').next().unwrap_or("");
+    if let Some(m) = JS_APIS.captures(line0) {
+        if m.get(0).is_some_and(|x| x.start() == 0) && !c.imported.contains(&m[1]) {
+            return c.fail("a hook's pair is not .rx");
+        }
     }
     let mut base = parse_expr(c)?;
     let mut out = vec![];
@@ -1511,6 +1539,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
                     alias = c.ident_or("alias")?;
                     c.ws(true);
                 }
+                c.imported.insert(alias.clone());
                 names.push(ImportName { name, alias });
                 if !c.eat(",") {
                     break;
@@ -1520,6 +1549,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             c.expect("}")?;
         } else {
             let name = c.ident_or("import name")?;
+            c.imported.insert(name.clone());
             names.push(ImportName { name: "default".into(), alias: name });
         }
         c.ws(true);
@@ -2259,6 +2289,7 @@ fn parse_unary(c: &mut Cursor) -> R<Expr> {
 fn parse_postfix(c: &mut Cursor) -> R<Expr> {
     let mut e = parse_primary(c)?;
     let start = e.span.start as usize;
+    let mut targs: Option<String> = None;
     loop {
         if c.eat("?.") {
             if c.peek() == '[' {
@@ -2282,6 +2313,16 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
             c.ws(true);
             c.expect("]")?;
             e = Expr::new(ExprKind::Index { o: Box::new(e), i: Box::new(i), opt: false }, Span::new(start, c.i));
+        } else if c.peek() == '<' && matches!(e.k, ExprKind::Id(_) | ExprKind::Member { .. }) {
+            // 07 §3: type arguments at a call, `f<T>(…)`; else `a < b` stays a comparison
+            match type_args_at(&c.src[c.i..]) {
+                Some((text, len)) => {
+                    c.i += len;
+                    targs = Some(text);
+                    continue;
+                }
+                None => return Ok(e),
+            }
         } else if c.peek() == '(' {
             c.bump();
             c.ws(true);
@@ -2295,7 +2336,7 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
                 c.ws(true);
             }
             c.expect(")")?;
-            e = Expr::new(ExprKind::Call { f: Box::new(e), args }, Span::new(start, c.i));
+            e = Expr::new(ExprKind::Call { f: Box::new(e), args, targs: targs.take() }, Span::new(start, c.i));
         } else {
             return Ok(e);
         }

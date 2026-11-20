@@ -801,10 +801,10 @@ impl Proj<'_> {
                 let a = items.iter().map(|x| if matches!(x.k, ExprKind::Spread(_)) { self.expr(x, imp, me) } else { self.nest_arg(x, Some(prefix.clone()), n, imp, me) }).collect();
                 Code::of("[").c(Code::join(a, ", ")).t("]")
             }
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, targs } => {
                 let fc = self.expr(f, imp, me);
                 let a = args.iter().map(|x| self.nest_arg(x, Some(prefix.clone()), n, imp, me)).collect();
-                fc.t("(").c(Code::join(a, ", ")).t(")")
+                fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")
             }
             ExprKind::Rec(fields) => {
                 let path = fields.iter().position(|f| matches!(f, Field::Kv { key, .. } if key == "path"));
@@ -923,15 +923,15 @@ impl Proj<'_> {
                 go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]").t(if call { "()" } else { "" }) // MO-10b
             }
             ExprKind::StyleMap { css, .. } => Code::of(&class_map(css)),
-            ExprKind::Call { f, args } if matches!(&f.k, ExprKind::Id(g) if self.nest_fns.contains_key(g)) => {
+            ExprKind::Call { f, args, targs } if matches!(&f.k, ExprKind::Id(g) if self.nest_fns.contains_key(g)) => {
                 // MO-11i: a nested route typed with its parents' path
                 let ExprKind::Id(g) = &f.k else { unreachable!() };
                 let ns = self.nest_fns[g].clone();
                 let fc = go!(f);
                 let a = args.iter().map(|a| self.nest_arg(a, Some(vec![String::new()]), &ns, imp, me)).collect();
-                fc.t("(").c(Code::join(a, ", ")).t(")")
+                fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")
             }
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, targs } => {
                 // MO-10a: a `ref` argument is an accessor
                 let sigs: Vec<bool> = match &f.k {
                     ExprKind::Id(g) => self.ref_fns.get(g).map(|d| if let JsDecl::Fn { sigs, .. } = d { sigs.clone() } else { vec![] }).unwrap_or_default(),
@@ -944,7 +944,7 @@ impl Proj<'_> {
                 let fc = go!(f);
                 // MO-10a: a `ref` argument is an accessor; MO-10h: a `signal` one a signal of the value
                 let a = args.iter().enumerate().map(|(i, a)| if refs.get(i).copied().unwrap_or(false) { Code::of("() => (").c(go!(a)).t(")") } else if sigs.get(i).copied().unwrap_or(false) { Code::of("__.signal(").c(go!(a)).t(")") } else { go!(a) }).collect();
-                fc.t("(").c(Code::join(a, ", ")).t(")")
+                fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")   // 07 §3: type arguments, as written
             }
             ExprKind::Arr(items) => {
                 let a = items.iter().map(|a| go!(a)).collect();

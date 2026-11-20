@@ -66,7 +66,9 @@ async function runRows(draft, spec, from, opts = {}) {
     let threw = null, ran = false;
     // the result is read too (its fields, its accessors): a hook may look its context up only then (useMutation's client)
     const touch = r => { if (typeof r === "function" && r.length === 0) return r(); if (r && typeof r === "object") for (const k of Object.keys(r)) { const v = r[k]; if (typeof v === "function" && v.length === 0 && /^(is|get|use)?[a-z]/.test(k) && !/^(mutate|refetch|reset|navigate|set)/.test(k)) v(); } };
-    const Probe = () => { ran = true; try { touch(hook()); } catch (e) { threw = e; } return null; };
+    // a hook that warns, not throws, with no provider (TanStack Router's `useRouter must be used inside a <RouterProvider>`)
+    // is read the same way: what it warned is what it would have thrown
+    const Probe = () => { ran = true; const saved = [console.warn, console.error]; console.warn = console.error = (...a) => { threw ??= new Error(a.map(String).join(" ")); }; try { touch(hook()); } catch (e) { threw = e; } finally { [console.warn, console.error] = saved; } return null; };
     s.createRoot(d => {
       try { let out = wrap ? wrap(() => s.createComponent(Probe, {})) : s.createComponent(Probe, {}); for (let n = 0; typeof out === "function" && n < 8; n++) out = out(); s.flush(); }
       catch (e) { threw ??= e; }

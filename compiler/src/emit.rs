@@ -399,7 +399,7 @@ impl<'p> Gen<'p> {
     fn chain(&mut self, name: &str, x: &Expr) -> R<E> {
         match &x.k {
             ExprKind::ServerFn { params, body, .. } => self.server_hoist(name, params, body, true),
-            ExprKind::Call { f, args } if matches!(&f.k, ExprKind::Id(_)) => {
+            ExprKind::Call { f, args, .. } if matches!(&f.k, ExprKind::Id(_)) => {
                 let ExprKind::Id(fname) = &f.k else { unreachable!() };
                 let found = self.mod_decls.iter().any(|d| matches!(d, Decl::Import { resolved: None, from, names, .. } if self.js_import(from) && names.iter().any(|n| &n.alias == fname)));
                 if !found {
@@ -1241,7 +1241,7 @@ impl<'p> Gen<'p> {
         }
         let ix = |r: &str, k: E| E::Index(Box::new(id(r)), Box::new(k), false);
         match &e.k {
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 let ExprKind::Id(fname) = &f.k else { return Ok(None) };
                 let Some(fb) = self.lookup(env, fname).filter(|x| x.kind == Kind::Jfn) else { return Ok(None) };
                 let refs: Vec<bool> = fb.f.as_ref().unwrap().params.iter().map(|p| p.1).collect();
@@ -1308,7 +1308,7 @@ impl<'p> Gen<'p> {
         }
     }
     fn instantiate(&mut self, e: &Expr, env: Env) -> R<E> {
-        let ExprKind::Call { f, args } = &e.k else { unreachable!() };
+        let ExprKind::Call { f, args, .. } = &e.k else { unreachable!() };
         let ExprKind::Id(fname) = &f.k else { unreachable!() };
         let b = self.lookup(env, fname).unwrap();
         let mut out = vec![];
@@ -1432,7 +1432,7 @@ impl<'p> Gen<'p> {
             }
             // 07 CSS-5
             ExprKind::StyleMap { css, line } => self.class_map(css, *line)?,
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 // AC-6: Solid's until; the predicate is reactive scope
                 if let (ExprKind::Id(n), Some(Expr { k: ExprKind::Fn { body, .. }, .. })) = (&f.k, args.first()) {
                     if n == "until" && self.lookup(env, "until").is_none() {
@@ -1633,7 +1633,10 @@ impl<'p> Gen<'p> {
                         if let Some(b) = self.lookup(env, &target.name).filter(|b| b.kind == Kind::Val && b.w.is_none()) {
                             let E::Arr(segs) = keys else { unreachable!() };
                             let lhs = segs.into_iter().fold(id(b.js), |o, k| E::Index(Box::new(o), Box::new(k), false));
-                            out.push(sexpr(E::Assign("=", Box::new(lhs), Box::new(v))));
+                            // W-6: `d.n := v => v + 1` applies it
+                            let updater = matches!(&e.k, ExprKind::Fn { params, stmts: None, .. } if params.len() == 1);
+                            let rhs = if updater { E::Call(Box::new(v), vec![lhs.clone()]) } else { v };
+                            out.push(sexpr(E::Assign("=", Box::new(lhs), Box::new(rhs))));
                             continue;
                         }
                     }

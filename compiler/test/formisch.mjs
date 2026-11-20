@@ -34,8 +34,8 @@ const rxTsc = () => { try { execFileSync(process.execPath, [path.join(rx, "langu
 const main = path.join(ws, "src/main.rx"); const good = readFileSync(main, "utf8");
 check("rx-tsc: main.rx with Formisch's, valibot's and Solid's types, and the .d.rx against them (TY-6)", rxTsc() === "", rxTsc());
 const refused = (name, edit, want) => { const bad = edit(good); if (bad === good) { check(name, false, "the edit did not apply"); return; } writeFileSync(main, bad); const out = rxTsc(); writeFileSync(main, good); check(name, want.test(out), out); };
-refused("the draft itself is not reassigned: the callback returns the new value (MO-10i)", s => s.replace("{ d.done := d.done + 1 }", "{ d := { items: [], done: 0 } }"), /WRITE_TO_NON_SOURCE/);
-refused("a draft's field is written with its own type (TS2345)", s => s.replace("d.done := d.done + 1", "d.done := \"many\""), /main\.rx\(\d+,\d+\): error TS2345/);
+refused("the draft itself is not reassigned: the callback returns the new value (MO-10i)", s => s.replace("{ d.done := v => v + 1 }", "{ d := { items: [], done: 0 } }"), /WRITE_TO_NON_SOURCE/);
+refused("a draft's field is written with its own type (TS2345)", s => s.replace("d.done := v => v + 1", "d.done := \"many\""), /main\.rx\(\d+,\d+\): error TS2345/);
 refused("a schema that reads a source is still a snapshot (E-10)", s => s.replace("form = createForm({ schema: schema })", "form = createForm({ schema: object({ email: pipe(string(), minLength(len(text))) }) })"), /SNAPSHOT_ARGUMENT/);
 execFileSync(process.execPath, [path.join(ws, "node_modules/vite/bin/vite.js"), "build"], { cwd: ws, stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, RX_TYPECHECK: "0" } });
 

@@ -275,7 +275,7 @@ class Proj {
     const go = (x: Expr) => this.expr(x, imp, self);
     if (prefix === null) return go(e);
     if (e.k === "arr") return `[${e.items.map(x => x.k === "spread" ? go(x) : this.nestArg(x, prefix, n, imp, self)).join(", ")}]`;
-    if (e.k === "call") return `${go(e.f)}(${e.args.map(a => this.nestArg(a, prefix, n, imp, self)).join(", ")})`;
+    if (e.k === "call") return `${go(e.f)}${e.targs ? `<${e.targs}>` : ""}(${e.args.map(a => this.nestArg(a, prefix, n, imp, self)).join(", ")})`;
     if (e.k !== "rec") return go(e);
     const pathField = e.fields.find(f => !("spread" in f) && f.key === "path") as { key: string; v: Expr } | undefined;
     // a path is a literal or an array of literals (alternatives); under alternatives, each joined with each
@@ -308,8 +308,9 @@ class Proj {
       case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it
       case "call": {
         const nests = e.f.k === "id" ? this.nestFns.get(e.f.name) : undefined;
-        if (nests) return `${go(e.f)}(${e.args.map(a => this.nestArg(a, [""], nests, imp, self)).join(", ")})`;   // MO-11i: a nested route typed with its parents' path
-        const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : x?.sigs?.[i] ? `__.signal(${go(a)})` : go(a)).join(", ")})`;   // MO-10a: a `ref` argument is an accessor; MO-10h: a `signal` one a signal of the value
+        const ta = e.targs ? `<${e.targs}>` : "";   // 07 §3: type arguments, as written
+        if (nests) return `${go(e.f)}${ta}(${e.args.map(a => this.nestArg(a, [""], nests, imp, self)).join(", ")})`;   // MO-11i: a nested route typed with its parents' path
+        const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}${ta}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : x?.sigs?.[i] ? `__.signal(${go(a)})` : go(a)).join(", ")})`;   // MO-10a: a `ref` argument is an accessor; MO-10h: a `signal` one a signal of the value
       }
       case "arr": return `[${e.items.map(go).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;

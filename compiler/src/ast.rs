@@ -80,7 +80,8 @@ pub enum ExprKind {
     Tpl(Vec<TplPart>),
     Member { o: Box<Expr>, p: String, opt: bool },
     Index { o: Box<Expr>, i: Box<Expr>, opt: bool },
-    Call { f: Box<Expr>, args: Vec<Expr> },
+    /// targs: TypeScript type arguments written at the call (`makeStore<Todos>(…)`, 07 §3), types only
+    Call { f: Box<Expr>, args: Vec<Expr>, targs: Option<String> },
     Arr(Vec<Expr>),
     Rec(Vec<Field>),
     /// `stmts`: a statement-bodied arrow (imperative scope, 07 §5)
@@ -454,7 +455,7 @@ impl Expr {
             ]),
             ExprKind::Member { o, p, opt } => obj(vec![("k", k), ("o", b(o)), ("p", s(p)), ("opt", flag(*opt))]),
             ExprKind::Index { o, i, opt } => obj(vec![("k", k), ("o", b(o)), ("i", b(i)), ("opt", flag(*opt))]),
-            ExprKind::Call { f, args } => obj(vec![("k", k), ("f", b(f)), ("args", Some(Value::Array(args.iter().map(|a| a.to_json()).collect())))]),
+            ExprKind::Call { f, args, targs } => obj(vec![("k", k), ("f", b(f)), ("args", Some(Value::Array(args.iter().map(|a| a.to_json()).collect()))), ("targs", targs.as_ref().map(|t| Value::String(t.clone())))]),
             ExprKind::Arr(items) => obj(vec![("k", k), ("items", Some(Value::Array(items.iter().map(|a| a.to_json()).collect())))]),
             ExprKind::Rec(fields) => obj(vec![
                 ("k", k),

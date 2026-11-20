@@ -243,7 +243,7 @@ impl Walker {
         }
         match &x.k {
             ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Draft { .. } | ExprKind::Pending(_) | ExprKind::Latest(_) | ExprKind::Lit(_) | ExprKind::Pre { .. } | ExprKind::Peek(_) | ExprKind::StyleMap { .. } => {}
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 let c = called_closure(x, local);
                 for a in args {
                     self.read(a, st, sh, local, depth);
@@ -352,7 +352,7 @@ impl Walker {
         match &x.k {
             ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Draft { .. } | ExprKind::Pending(_) | ExprKind::Latest(_) | ExprKind::Lit(_) | ExprKind::Pre { .. } | ExprKind::Peek(_) | ExprKind::StyleMap { .. } | ExprKind::Await { .. } => {}
             ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::Member { .. } | ExprKind::Index { .. } => {}
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 self.deps(f, st, sh, out);
                 for a in args {
                     self.deps(a, st, sh, out);

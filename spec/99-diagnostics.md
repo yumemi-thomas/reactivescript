@@ -166,7 +166,7 @@ section with a fix in `guide/diagnostics.md`, and the compiler's tests check its
 | `JS_LOCAL`   | `const` / `let` / `var` in a component or at top level   |
 | `JS_FUNCTION`| `function f() { … }`                                     |
 | `JS_RETURN`  | `return <div>…</div>` in a component                     |
-| `JS_API`     | `createSignal(…)`, `useState(…)`, … on a failing line    |
+| `JS_API`     | `createSignal(…)`, `useState(…)`, … on a failing line, or `[a, b] = createStore(…)` when the module does not import that name (an imported one is its declared JS fn, 09 MO-10i) |
 | `ASSIGNMENT` | `x = …`, `x += …`, `x++` where a write `x := …` was meant (W-1) |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE` | `() => x := …`: the arrow needs a braced body (W-2, SC-3) |
 

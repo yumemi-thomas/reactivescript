@@ -15,7 +15,7 @@ export type Expr =
   | { k: "tpl"; parts: (string | Expr)[] }                      // template literal
   | { k: "member"; o: Expr; p: string; opt?: boolean }          // opt: `?.`
   | { k: "index"; o: Expr; i: Expr; opt?: boolean }
-  | { k: "call"; f: Expr; args: Expr[] }
+  | { k: "call"; f: Expr; args: Expr[]; targs?: string }   // targs: TypeScript type arguments written at the call (`makeStore<Todos>(…)`, 07 §3), types only
   | { k: "arr"; items: Expr[] }
   | { k: "rec"; fields: ({ key: string; v: Expr } | { spread: Expr })[] }
   | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[]; ptypes?: (string | undefined)[] }   // ptypes: a parameter's TypeScript type (07 §3), types only   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
