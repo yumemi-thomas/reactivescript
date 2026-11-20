@@ -125,6 +125,32 @@ Function application `f(e…)` covers both language functions and FFI imports;
   (SC-2). `peek e` of an equation nothing demands evaluates it from scratch
   (P-3) without making it part of the frame: it stays undemanded for E-8/P-6.
   (Solid: `untrack` on a lazy memo.)
+- **E-5a (A kept peek of what changes).** (Proposed 2026-11-20.) A `peek` is
+  *kept* when the expression it is in is kept and read again: an equation, a
+  provision or a context's default, what a view reads (a `{…}`, an attribute,
+  an `if` condition, a `for` list), a component's argument, a `ref` argument.
+  A source's seed (E-4) and a value argument (E-10) are snapshots by rule, an
+  effect's compute half runs its apply, and a closure reads when it is
+  called: none is kept. A kept `peek e` whose expression reads nothing else
+  that changes freezes it, and if `e` can change — a source written,
+  guessed, refreshed or affected; something that awaits; a `ref` parameter;
+  a JS reader or a field declared to hold (MO-10b, MO-10f) — every reader
+  keeps the first value. That is a compile error (`SNAPSHOT_KEPT`, bin S):
+  drop the `peek` to read it live, or name the snapshot, `source saved :=
+  peek e`. When the rest of the expression changes the `peek` is a sample
+  (`n * 2 + peek n`) and is accepted. Writes to a source are always in its
+  own module (MO-2) and a context is read-only beneath its provision (RG-7c),
+  so what only another module can tell is a prop's arguments, a context's
+  provisions and an `.rx` import. Checked one module at a time (the default)
+  each of those can change; checked as the whole program (`--whole-program`)
+  they change when an application, a provision or the export passes
+  something that does (a least fixpoint over all modules). The whole-program
+  check assumes JS applies the entry's exported components and the
+  components passed to it as values, whose props can change, and nothing
+  else; a module known only by its signature (MO-9) is not seen. (Solid:
+  `untrack(data)` in a memo with no other source, or `<Ctx
+  value={untrack(data)}>`, which `createContext`'s provider reads once
+  anyway.) S-surface-6.
 - **E-6 (Equality cuts).** An equation whose re-evaluation yields a value equal
   to its previous value has not changed: it is not part of the instant's cone
   from that point on, its dependents are not re-evaluated through it, and

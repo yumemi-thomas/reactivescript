@@ -161,6 +161,8 @@ struct Region {
     /// children passed to a component: (the component's root, the site)
     kids: Option<(RId, RId)>,
     sig: Option<CompSig>,
+    /// E-5a: a component root's identity across modules (`file#name`), for what its props are given
+    key: Option<String>,
 }
 
 #[derive(Clone)]
@@ -283,6 +285,8 @@ struct Sym<'a> {
     factory: Option<(&'a [Expr], EId)>,
     /// MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
     reader: bool,
+    /// E-5a: an .rx import's `file#name`, whose changing the whole-program pass knows
+    export_key: Option<String>,
 }
 impl<'a> Sym<'a> {
     fn new(kind: SymKind, name: &str, region: RId, line: i64) -> Self {
@@ -338,6 +342,7 @@ impl<'a> Sym<'a> {
             wraps: None,
             factory: None,
             reader: false,
+            export_key: None,
         }
     }
 }
@@ -906,6 +911,148 @@ enum Later<'a> {
     Escape { target: &'a Target, e: &'a Expr, tsym: Option<SId>, env: EId, line: i64 },
 }
 
+/// E-5a: whether a value can change: by what this module sees (`yes`), or only if one of `deps` does — a prop of a component
+/// (`prop|file#Comp|field`, `*` for all of them), a context's provisions (`ctx|key`), an .rx module's export (`exp|file#name`).
+#[derive(Clone, Default)]
+pub struct Ch {
+    pub yes: bool,
+    pub deps: IndexSet<String>,
+}
+fn add_ch(acc: &mut Ch, c: &Ch) {
+    if c.yes {
+        acc.yes = true;
+    }
+    acc.deps.extend(c.deps.iter().cloned());
+}
+#[derive(Clone, Copy, PartialEq)]
+enum ChMode {
+    All,
+    Out,
+    In,
+}
+/// E-5a: a kept peek the whole-program pass decides (the peek and what it reads, as messages show them).
+pub struct Deferred {
+    pub line: i64,
+    pub peek: String,
+    pub what: String,
+    pub p: Ch,
+    pub o: Ch,
+}
+/// E-5a: what a module tells the whole-program pass — the arguments its applications give each prop (component, field),
+/// its provisions, its exports, the components it passes as values (their props come from JS), and the kept peeks that wait.
+#[derive(Default)]
+pub struct PeekFacts {
+    pub apps: Vec<(String, String, Ch)>,
+    pub provs: Vec<(String, Ch)>,
+    pub exports: Vec<(String, Ch)>,
+    pub escapes: Vec<String>,
+    pub exported: Vec<String>,
+    pub aliases: Vec<(String, String)>,
+    pub deferred: Vec<Deferred>,
+}
+/// E-5a: the outermost `peek`s of an expression, outside closures (a closure's body is read when it is called).
+fn peeks_in<'a>(n: Node<'a>, out: &mut Vec<&'a Expr>) {
+    match n {
+        Node::E(e @ Expr { k: ExprKind::Peek(_), .. }) => out.push(e),
+        Node::E(Expr { k: ExprKind::Fn { .. } | ExprKind::ServerFn { .. }, .. }) => {}
+        _ => {
+            for c in children(n, false) {
+                peeks_in(c, out);
+            }
+        }
+    }
+}
+fn kept_msg(peek: &str, why: &str) -> String {
+    format!("`{}` is kept where it is read, but {} — it would keep its first value: drop peek to read it live, or name the snapshot, `source saved := {}`", peek, why, peek)
+}
+/// E-5a: why a kept peek's value can change, when this module alone cannot tell that it does not.
+fn why_of(what: &str, c: &Ch) -> String {
+    if c.yes {
+        format!("{} changes", what)
+    } else if c.deps.iter().any(|d| d.starts_with("prop|")) {
+        format!("{} is a prop: the parent can change it", what)
+    } else if c.deps.iter().any(|d| d.starts_with("ctx|")) {
+        format!("{} reads a provision, which can change", what)
+    } else {
+        format!("{} is imported and can change", what)
+    }
+}
+fn ch_val(c: &Ch, truth: &HashSet<String>) -> bool {
+    c.yes || c.deps.iter().any(|d| truth.contains(d))
+}
+/// E-5a, the whole-program pass: each prop, provision and export changes when what can reach it does (a least fixpoint);
+/// then each kept peek that waited on them is decided. A component the entry exports, or one passed as a value, is applied by
+/// JS: its props can change. A module known only by its signature (MO-9) is not seen: what comes from it can change.
+fn resolve_peeks(all: &[(String, PeekFacts)], set: &ModuleSet) -> Vec<Diagnostic> {
+    let alias: HashMap<&str, &str> = all.iter().flat_map(|(_, f)| f.aliases.iter().map(|(a, b)| (a.as_str(), b.as_str()))).collect();
+    let kk = |x: &str| -> String { alias.get(x).map(|s| s.to_string()).unwrap_or_else(|| x.to_string()) };
+    let seen = |x: &str| set.programs.contains_key(x.split('#').next().unwrap_or(""));
+    let mut escapes: HashSet<String> = HashSet::new();
+    for (path, f) in all {
+        for k in &f.escapes {
+            escapes.insert(kk(k));
+        }
+        if *path == set.entry {
+            for k in &f.exported {
+                escapes.insert(kk(k));
+            }
+        }
+    }
+    let apps: Vec<&(String, String, Ch)> = all.iter().flat_map(|(_, f)| f.apps.iter()).collect();
+    let provs: Vec<&(String, Ch)> = all.iter().flat_map(|(_, f)| f.provs.iter()).collect();
+    let mut exps: IndexMap<&str, &Ch> = IndexMap::new();
+    for (_, f) in all {
+        for (k, c) in &f.exports {
+            exps.insert(k.as_str(), c);
+        }
+    }
+    let mut nodes: IndexSet<String> = IndexSet::new();
+    let chs = apps.iter().map(|a| &a.2).chain(provs.iter().map(|p| &p.1)).chain(exps.values().copied()).chain(all.iter().flat_map(|(_, f)| f.deferred.iter().flat_map(|x| [&x.p, &x.o])));
+    for c in chs {
+        nodes.extend(c.deps.iter().cloned());
+    }
+    let mut truth: HashSet<String> = HashSet::new();
+    let holds = |n: &str, truth: &HashSet<String>| -> bool {
+        let parts: Vec<&str> = n.split('|').collect();
+        let kind = parts[0];
+        let key = kk(parts.get(1).copied().unwrap_or(""));
+        let field = parts.get(2).copied().unwrap_or("");
+        if !seen(&key) {
+            return true;
+        }
+        match kind {
+            "prop" => escapes.contains(&key) || apps.iter().any(|a| kk(&a.0) == key && (field == "*" || a.1 == field || a.1 == "*") && ch_val(&a.2, truth)),
+            "ctx" => provs.iter().any(|p| p.0 == key && ch_val(&p.1, truth)),
+            _ => exps.get(key.as_str()).is_none_or(|c| ch_val(c, truth)),
+        }
+    };
+    loop {
+        let mut grew = false;
+        for n in &nodes {
+            if !truth.contains(n) && holds(n, &truth) {
+                truth.insert(n.clone());
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    let mut out: Vec<Diagnostic> = vec![];
+    for (path, f) in all {
+        for x in &f.deferred {
+            if !ch_val(&x.p, &truth) || ch_val(&x.o, &truth) {
+                continue;
+            }
+            let d = Diagnostic { code: "SNAPSHOT_KEPT".into(), rule: "E-5a".into(), line: x.line, msg: kept_msg(&x.peek, &format!("{} changes", x.what)), file: Some(path.clone()) };
+            if !out.iter().any(|y| y.file == d.file && y.line == d.line && y.msg == d.msg) {
+                out.push(d);
+            }
+        }
+    }
+    out
+}
+
 pub struct Opts<'a> {
     pub sigs: &'a IndexMap<String, ModSig>,
     pub file: Option<String>,
@@ -913,6 +1060,8 @@ pub struct Opts<'a> {
     /// CN-3d: a client-only build (no SSR): a first load nothing holds shows nothing, so every reader that can have
     /// no value yet needs a `loading` region above it, as a client question's reader does (SV-7b).
     pub spa: bool,
+    /// E-5a: the modules checked are the whole program
+    pub whole: bool,
 }
 
 pub struct Checker<'a> {
@@ -985,12 +1134,21 @@ pub struct Checker<'a> {
     reader_f: Vec<(RId, &'a Expr, i64, Fails)>,
     arg_r: Vec<(usize, String)>,
     arg_f: Vec<(usize, String, Fails)>,
+    /// E-5a: kept expressions that contain a `peek` (the expression, its scope, the line)
+    kept_peeks: Vec<(&'a Expr, EId, i64)>,
+    /// E-5a: written, guessed, refreshed or affected here
+    changed: HashSet<SId>,
+    /// E-5a: components passed as values: JS applies them
+    escapes: IndexSet<String>,
+    ch_memo: HashMap<SId, Ch>,
+    deferred: Vec<Deferred>,
 }
 
 pub struct CheckResult {
     pub diags: Vec<Diagnostic>,
     pub sig: ModSig,
     pub model: serde_json::Value,
+    pub peeks: PeekFacts,
 }
 
 pub fn check_with_signature(p: &Program, opts: Opts) -> CheckResult {
@@ -999,7 +1157,8 @@ pub fn check_with_signature(p: &Program, opts: Opts) -> CheckResult {
     c.run(p);
     let sig = c.signature(p);
     let model = c.build_model(&file);
-    CheckResult { diags: c.diags, sig, model }
+    let peeks = c.peek_facts(p);
+    CheckResult { diags: c.diags, sig, model, peeks }
 }
 
 pub struct Checked {
@@ -1009,14 +1168,24 @@ pub struct Checked {
 }
 /// CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only.
 pub fn check_modules(set: &ModuleSet, spa: bool) -> Checked {
+    check_modules_with(set, spa, false)
+}
+/// The same; `whole` (E-5a): the modules are the whole program, so a kept peek of a prop or a provision is decided by every
+/// application and provision in them.
+pub fn check_modules_with(set: &ModuleSet, spa: bool, whole: bool) -> Checked {
     let mut sigs: IndexMap<String, ModSig> = set.signatures.clone();
     let mut diags = set.diags.clone();
     let mut models = IndexMap::new();
+    let mut facts = vec![];
     for path in &set.order {
-        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa });
+        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole });
         diags.extend(r.diags);
         sigs.insert(path.clone(), r.sig);
         models.insert(path.clone(), r.model);
+        facts.push((path.clone(), r.peeks));
+    }
+    if whole {
+        diags.extend(resolve_peeks(&facts, set));
     }
     Checked { diags, sigs, models }
 }
@@ -1075,6 +1244,11 @@ impl<'a> Checker<'a> {
             reader_f: vec![],
             arg_r: vec![],
             arg_f: vec![],
+            kept_peeks: vec![],
+            changed: HashSet::new(),
+            escapes: IndexSet::new(),
+            ch_memo: HashMap::new(),
+            deferred: vec![],
         }
     }
 
@@ -1090,7 +1264,7 @@ impl<'a> Checker<'a> {
         let r = self.regions.len();
         let depth = parent.map(|p| self.regions[p].depth + 1).unwrap_or(0);
         let comp = if component { Some(r) } else { parent.and_then(|p| self.regions[p].component) };
-        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, kids: None, sig: None });
+        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, kids: None, sig: None, key: None });
         self.model.region(id, kind, parent.map(|p| self.regions[p].id), name);
         r
     }
@@ -1183,6 +1357,7 @@ impl<'a> Checker<'a> {
         self.loading_on_outside();
         self.snapshot_guards();
         self.guess_while_loading();
+        self.kept_peek_check();
     }
     fn run_later(&mut self, job: Later<'a>) {
         match job {
@@ -1323,6 +1498,10 @@ impl<'a> Checker<'a> {
                     sym.comp = Some(d);
                     let r = self.region(Some(region), "component", true, Some(name.clone()));
                     sym.comp_region = Some(r);
+                    // E-5a
+                    let file = self.opts.file.clone().unwrap_or_else(|| "main.rx".into());
+                    let nested = if self.regions[region].parent.is_some() { format!("@{}", self.regions[r].id) } else { String::new() };
+                    self.regions[r].key = Some(format!("{}#{}{}", file, name, nested));
                 }
                 Decl::Eq { e, key, deferred, .. } => {
                     sym.eq_decl = Some(*deferred);
@@ -1534,6 +1713,7 @@ impl<'a> Checker<'a> {
                 ExportSig::Comp { sig } => {
                     let r = self.region(None, "imported", true, Some(alias.clone()));
                     self.regions[r].sig = Some(sig.clone());
+                    self.regions[r].key = Some(format!("{}#{}", resolved.as_ref().unwrap(), name)); // E-5a
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
                     s
@@ -1544,6 +1724,10 @@ impl<'a> Checker<'a> {
                     s
                 }
             };
+            let mut sym = sym;
+            if matches!(sym.kind, SymKind::Source | SymKind::Eq | SymKind::Fn) {
+                sym.export_key = Some(format!("{}#{}", resolved.as_ref().unwrap(), name)); // E-5a
+            }
             if *pure && sym.io {
                 self.err("IMPORT_ROW_MISMATCH", "MO-4", format!("{} is io in {}'s signature; `pure` cannot lower an .rx row", name, from));
             }
@@ -2152,6 +2336,11 @@ impl<'a> Checker<'a> {
                                     self.uses.push(UseRec { region, name: k, line: self.line, display: format!("{}()", fname) });
                                 }
                                 let params = self.syms[fs].params.clone().unwrap_or_default();
+                                for (i, a) in args.iter().enumerate() {
+                                    if params.get(i).is_some_and(|p| p.r#ref) {
+                                        self.keep(a, env); // E-5a: a ref argument is kept
+                                    }
+                                }
                                 self.comp(kind, env, Some(name.clone()), None, |c| {
                                     c.model.call(Some(fs), "fn");
                                     for (i, a) in args.iter().enumerate() {
@@ -2172,10 +2361,12 @@ impl<'a> Checker<'a> {
                     }
                 }
                 self.comp(kind, env, Some(name.clone()), None, |c| c.expr(e, env, reactive, None));
+                self.keep(e, env);
                 self.row_check(name, ty.as_deref(), env);
             }
             Decl::Provide { name, e, .. } => {
                 self.comp("provide", env, Some(name.clone()), None, |c| c.expr(e, env, reactive, None));
+                self.keep(e, env);
                 let Some(c) = self.ctx_of(name, env) else { return };
                 let info = self.syms[c].ctx.clone().unwrap();
                 let region = self.reg(env);
@@ -2189,6 +2380,7 @@ impl<'a> Checker<'a> {
             Decl::Context { name, dflt, .. } => {
                 if let Some(dflt) = dflt {
                     self.comp("default", env, Some(name.clone()), None, |c| c.expr(dflt, env, reactive, None));
+                    self.keep(dflt, env);
                 }
             }
             Decl::Effect { inputs, body, line, .. } => {
@@ -2391,6 +2583,215 @@ impl<'a> Checker<'a> {
     }
 
     /// CN-4a: a written row narrower than the inferred one.
+    // ---- E-5a: a peek kept where it is read, of a value that changes ----
+    /// Expressions whose value is kept and re-read — an equation, a provision, a context's default, what a view reads, a
+    /// component's argument, a `ref` argument — that contain a `peek`. A source's seed and a value argument are snapshots by
+    /// rule (E-4, E-10), an effect's compute half runs its apply, and a closure reads when it is called: none is kept.
+    fn keep(&mut self, e: &'a Expr, env: EId) {
+        let mut ps = vec![];
+        peeks_in(Node::E(e), &mut ps);
+        if !ps.is_empty() {
+            self.kept_peeks.push((e, env, self.line));
+        }
+    }
+    /// E-5a: a component named as a value is applied by JS (its props come from there)
+    fn escape_comp(&mut self, name: &str, env: EId) {
+        if let Some(k) = self.lookup(env, name).filter(|&c| self.syms[c].kind == SymKind::Comp).and_then(|c| self.syms[c].comp_region).and_then(|r| self.regions[r].key.clone()) {
+            self.escapes.insert(k);
+        }
+    }
+    /// Whether an expression can change — counting what it reads outside `peek` (`Out`), inside it (`In`), or both (`All`).
+    fn ch_of(&mut self, n: Node<'a>, env: EId, mode: ChMode, acc: &mut Ch, in_peek: bool) {
+        let counting = mode == ChMode::All || (mode == ChMode::In) == in_peek;
+        if let Node::E(e) = n {
+            match &e.k {
+                ExprKind::Peek(x) => {
+                    if mode != ChMode::Out {
+                        self.ch_of(Node::E(x), env, mode, acc, true);
+                    }
+                    return;
+                }
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return, // a closure reads when it is called
+                ExprKind::Id(name) => {
+                    if counting {
+                        let s = self.lookup(env, name);
+                        let c = self.sym_ch(s);
+                        add_ch(acc, &c);
+                    }
+                    return;
+                }
+                ExprKind::Pre { name, init } => {
+                    if counting {
+                        let s = self.lookup(env, name);
+                        let c = self.sym_ch(s);
+                        add_ch(acc, &c);
+                    }
+                    if let Some(i) = init {
+                        self.ch_of(Node::E(i), env, mode, acc, in_peek);
+                    }
+                    return;
+                }
+                ExprKind::Use(name) => {
+                    if counting {
+                        if let Some(c) = self.lookup(env, name).filter(|&c| self.syms[c].kind == SymKind::Context) {
+                            let key = self.syms[c].ctx.as_ref().unwrap().key.clone();
+                            if key.contains(".d.rx#") {
+                                acc.yes = true; // a JS context's provider is JS
+                            } else {
+                                acc.deps.insert(format!("ctx|{}", key));
+                            }
+                        }
+                    }
+                    return;
+                }
+                ExprKind::Member { o, p, .. } => {
+                    if let ExprKind::Id(on) = &o.k {
+                        if let Some(s) = self.lookup(env, on).filter(|&s| self.syms[s].kind == SymKind::Props) {
+                            if counting {
+                                let key = self.regions[self.syms[s].region].key.clone().unwrap_or_default();
+                                acc.deps.insert(format!("prop|{}|{}", key, p));
+                            }
+                            return;
+                        }
+                    }
+                }
+                ExprKind::Await { .. } => {
+                    if counting {
+                        acc.yes = true; // it loads: pending, then a value
+                    }
+                }
+                _ => {}
+            }
+        }
+        for c in children(n, false) {
+            self.ch_of(c, env, mode, acc, in_peek);
+        }
+    }
+    fn ch_expr(&mut self, e: &'a Expr, env: EId, mode: ChMode) -> Ch {
+        let mut acc = Ch::default();
+        self.ch_of(Node::E(e), env, mode, &mut acc, false);
+        acc
+    }
+    fn sym_ch(&mut self, s: Option<SId>) -> Ch {
+        let Some(s) = s else { return Ch::default() };
+        if let Some(m) = self.ch_memo.get(&s) {
+            return m.clone();
+        }
+        self.ch_memo.insert(s, Ch::default()); // a cycle adds nothing
+        let r = self.sym_ch_of(s);
+        self.ch_memo.insert(s, r.clone());
+        r
+    }
+    fn sym_ch_of(&mut self, s: SId) -> Ch {
+        let one = |yes: bool, dep: Option<String>| Ch { yes, deps: dep.into_iter().collect() };
+        if let Some(k) = self.syms[s].export_key.clone() {
+            return one(false, Some(format!("exp|{}", k))); // an .rx import: its module knows
+        }
+        match self.syms[s].kind {
+            SymKind::Props => one(false, Some(format!("prop|{}|*", self.regions[self.syms[s].region].key.clone().unwrap_or_default()))),
+            SymKind::Import => one(self.syms[s].reader, None),
+            SymKind::Source => {
+                if self.changed.contains(&s) {
+                    one(true, None)
+                } else if self.syms[s].question {
+                    match self.syms[s].expr {
+                        Some((e, env)) => self.ch_expr(e, env, ChMode::Out),
+                        None => one(false, None),
+                    }
+                } else {
+                    one(false, None)
+                }
+            }
+            SymKind::Eq => {
+                let sy = &self.syms[s];
+                if sy.param || sy.reader || self.changed.contains(&s) {
+                    return one(true, None); // a ref parameter: the caller's, reactive
+                }
+                if let Some(f) = &sy.foreign {
+                    return one(f.has_ref() || !sy.held.is_empty(), None); // MO-10b: a value result is made once; a reader, or a field that holds, changes
+                }
+                match sy.carried_expr {
+                    Some((e, env)) => self.ch_expr(e, env, ChMode::Out),
+                    None => one(true, None),
+                }
+            }
+            SymKind::Fn => match self.syms[s].fn_tail {
+                Some((e, env)) => self.ch_expr(e, env, ChMode::Out),
+                None => one(false, None), // a JS fn is pure (R-io)
+            },
+            _ => one(false, None),
+        }
+    }
+    /// At the end of the module: a kept peek of what can change. Not when the rest of the expression changes — then the peek is
+    /// a sample, read again each time (`a + peek b`). With the whole program (`whole`), what only another module can tell waits.
+    fn kept_peek_check(&mut self) {
+        for (e, env, line) in std::mem::take(&mut self.kept_peeks) {
+            let o = self.ch_expr(e, env, ChMode::Out);
+            if o.yes {
+                continue;
+            }
+            let mut ps = vec![];
+            peeks_in(Node::E(e), &mut ps);
+            for p in ps {
+                let ExprKind::Peek(inner) = &p.k else { continue };
+                let pc = self.ch_expr(inner, env, ChMode::All);
+                if !pc.yes && pc.deps.is_empty() {
+                    continue;
+                }
+                self.line = line;
+                let (peek, what) = (show(p), show(inner));
+                if !self.opts.whole || (pc.yes && o.deps.is_empty()) {
+                    self.err("SNAPSHOT_KEPT", "E-5a", kept_msg(&peek, &why_of(&what, &pc)));
+                } else {
+                    self.deferred.push(Deferred { line, peek, what, p: pc, o: o.clone() });
+                }
+            }
+        }
+    }
+    /// E-5a: what the whole-program pass needs from this module.
+    pub fn peek_facts(&mut self, p: &'a Program) -> PeekFacts {
+        let file = self.opts.file.clone().unwrap_or_else(|| "main.rx".into());
+        let mut f = PeekFacts::default();
+        let apps: Vec<(String, Vec<(String, &'a Expr, EId)>)> = self.apps.iter().filter_map(|a| self.regions[a.comp].key.clone().map(|k| (k, a.args.clone()))).collect();
+        for (k, args) in apps {
+            for (field, e, env) in args {
+                let c = self.ch_expr(e, env, ChMode::Out);
+                f.apps.push((k.clone(), field, c));
+            }
+        }
+        let provs: Vec<(String, &'a Expr, EId)> = self.provisions.iter().map(|x| (x.key.clone(), x.e, x.env)).collect();
+        for (k, e, env) in provs {
+            let c = self.ch_expr(e, env, ChMode::Out);
+            f.provs.push((k, c));
+        }
+        let root = self.root_env.unwrap();
+        for d in &p.decls {
+            if !d.exported() {
+                continue;
+            }
+            let Some(name) = d.name() else { continue };
+            let Some(&s) = self.envs[root].vars.get(name) else { continue };
+            match self.syms[s].kind {
+                SymKind::Comp => {
+                    if let Some(k) = self.syms[s].comp_region.and_then(|r| self.regions[r].key.clone()) {
+                        f.exported.push(k.clone());
+                        if matches!(d, Decl::Component { is_default: true, .. }) {
+                            f.aliases.push((format!("{}#default", file), k));
+                        }
+                    }
+                }
+                SymKind::Source | SymKind::Eq | SymKind::Fn => {
+                    let c = self.sym_ch(Some(s));
+                    f.exports.push((format!("{}#{}", file, name), c));
+                }
+                _ => {}
+            }
+        }
+        f.escapes = self.escapes.iter().cloned().collect();
+        f.deferred = std::mem::take(&mut self.deferred);
+        f
+    }
+
     fn row_check(&mut self, name: &str, ty: Option<&str>, env: EId) {
         let Some(ty) = ty else { return };
         let Some(m) = ROW_WORDS.find(ty) else { return };
@@ -2523,8 +2924,9 @@ impl<'a> Checker<'a> {
     fn expr(&mut self, e: &'a Expr, env: EId, ctx: Ctx, field: Option<&str>) {
         match &e.k {
             ExprKind::Lit(_) => {}
-            ExprKind::Id(_) if self.value_ids.contains(&(e as *const Expr)) => {}
+            ExprKind::Id(name) if self.value_ids.contains(&(e as *const Expr)) => self.escape_comp(name, env),
             ExprKind::Id(name) => {
+                self.escape_comp(name, env);
                 let s = self.resolve(name, env, ctx);
                 if let Some(s) = s {
                     self.read(s, ctx, false, field);
@@ -2887,6 +3289,7 @@ impl<'a> Checker<'a> {
                         }
                         self.model.write(tsym, op, !target.path.is_empty());
                         if let Some(t) = tsym {
+                            self.changed.insert(t); // E-5a
                             let k = self.syms[t].kind;
                             // AC-3: a guess may sit over an equation (Solid's createOptimistic(fn)); it is not a write of the truth
                             let guessable = op == "optimistic" && k == SymKind::Eq && self.syms[t].eq_decl.is_some() && !self.syms[t].param && self.syms[t].imported.is_none();
@@ -2955,6 +3358,9 @@ impl<'a> Checker<'a> {
                         continue;
                     }
                     let t = self.resolve(name, env, ctx);
+                    if let Some(t) = t {
+                        self.changed.insert(t); // E-5a
+                    }
                     if is_refresh {
                         self.model.write(t, "refresh", false);
                         if let Some(t) = t {
@@ -3293,6 +3699,7 @@ impl<'a> Checker<'a> {
                 }
                 MarkupKind::Read(e) => {
                     self.comp("reader", env, None, Some("{…}".into()), |c| c.expr(e, env, Ctx::reactive(), None));
+                    self.keep(e, env);
                     self.readers.push(ReaderRec { region, e, env, line: self.line });
                 }
                 MarkupKind::El { tag, attrs, children } => {
@@ -3307,6 +3714,11 @@ impl<'a> Checker<'a> {
                             }
                         }
                         let values = self.component_values(tag, attrs, env);
+                        for (i, _) in &values {
+                            if let Some(Attr { e: Expr { k: ExprKind::Id(n), .. }, .. }) = attrs.get(*i) {
+                                self.escape_comp(n, env); // E-5a: a JS component applies it
+                            }
+                        }
                         // MO-11o: the carried values a `renders` prop reached are rendered here
                         let reached: Vec<*const Expr> = self.reached.borrow_mut().drain().collect();
                         self.carried_rendered.extend(reached);
@@ -3318,6 +3730,9 @@ impl<'a> Checker<'a> {
                             let h = handles(&a.name);
                             let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };
                             self.comp(if h { "handler" } else { "prop" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
+                            if !h {
+                                self.keep(&a.e, env);
+                            }
                         }
                         if is_comp {
                             let cr = self.syms[s.unwrap()].comp_region.unwrap();
@@ -3370,6 +3785,9 @@ impl<'a> Checker<'a> {
                         let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };
                         self.comp(if h { "handler" } else { "reader" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
                         if !h {
+                            self.keep(&a.e, env);
+                        }
+                        if !h {
                             self.readers.push(ReaderRec { region, e: &a.e, env, line: self.line });
                         } else {
                             self.handlers.push(HandlerRec { attrs, kids: children, h: &a.e, env, region, line: self.line, what: format!("<{}> {}", tag, a.name) });
@@ -3379,6 +3797,7 @@ impl<'a> Checker<'a> {
                 }
                 MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
                     self.comp("reader", env, None, Some("if".into()), |cc| cc.expr(c, env, Ctx::reactive(), None));
+                    self.keep(c, env);
                     self.readers.push(ReaderRec { region, e: c, env, line: self.line });
                     let r = self.region(Some(region), "then", false, None);
                     let e1 = self.env(Some(env), r);
@@ -3404,6 +3823,7 @@ impl<'a> Checker<'a> {
                 }
                 MarkupKind::Mfor { name, xs, decls, body } => {
                     self.comp("reader", env, None, Some("for".into()), |c| c.expr(xs, env, Ctx::reactive(), None));
+                    self.keep(xs, env);
                     self.readers.push(ReaderRec { region, e: xs, env, line: self.line });
                     let src = if let ExprKind::Id(n) = &xs.k { self.lookup(env, n) } else { None };
                     if src.is_some_and(|s| self.syms[s].maps_records) || maps_into_records(xs) {

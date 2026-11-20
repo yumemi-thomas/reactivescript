@@ -30,10 +30,14 @@ Five runners over the same scenarios (`cd ref && npm install` once):
 
 Checker: `ref/src/check.ts` (spec/08) runs before the interpreter; a
 program with any diagnostic does not run. `node --experimental-strip-types
-ref/check.ts [--signature] file.rx…` prints diagnostics for files and the
+ref/check.ts [--signature] [--whole-program] file.rx…` prints diagnostics for files and the
 `.rx` modules they import (spec/09), and with `--signature` each module's
 signature as `.d.rx` text — the text an importer is checked against when
-the module's `.rx` is not there (MO-9, `src/signature.ts`).
+the module's `.rx` is not there (MO-9, `src/signature.ts`). With
+`--whole-program` the modules loaded are checked as the whole program: a
+kept `peek` of a prop or a provision is decided by every application and
+provision in them (E-5a, `-- whole-program` and `-- accept: whole-program`
+in a scenario).
 
 Resolved model (spec/11 CP-6): `src/model.ts`, filled by the checker's walk.
 `node --experimental-strip-types ref/model.ts file.rx…` prints, per module, its

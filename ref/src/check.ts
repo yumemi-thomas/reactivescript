@@ -25,6 +25,7 @@ type Region = {
   catches?: Catch;                     // an `errored` body: what its boundary discharges (R-f-4)
   kids?: { comp: Region; site: Region };   // children passed to a component: read where it reads props.children (R-f-5)
   sig?: CompSig;                       // an imported component's root: its signature stands in for its body (MO-3)
+  key?: string;                        // E-5a: a component root's identity across modules (`file#name`), for what its props are given
 };
 // ---------------------------------------------------------------- failures (R-f)
 /** What a catch or a boundary discharges: named classes, or every failure. `Error` is the top: only "all" discharges it. */
@@ -113,6 +114,7 @@ type Sym = {
   renders?: boolean;                   // MO-11l: a declared JS fn that renders the components in its arguments where its result is bound
   nests?: { kids: string; inside: string };   // MO-11i: how a declared factory nests what it is given
   factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string }; exported?: Sym; here?: boolean; root?: boolean; carries?: string[] };   // here: MO-11l, applied where the result is bound   // MO-11f; exported: MO-11j, the component an importer sees: a component a JS factory made — the call's arguments, and the components in them
+  exportKey?: string;                  // E-5a: an .rx import's `file#name`, whose changing the whole-program pass knows
   fnDecl?: Extract<Decl, { k: "fn" }>; declEnv?: Env;   // a fn's declaration and the scope it names from (SF-3: what it reaches)   // a context (RG-7): its identity, whether it carries a source, and its declared rows (null: inferred from its provisions)
 };
 const reactiveKinds = new Set<SymKind>(["source", "eq", "props"]);
@@ -191,6 +193,56 @@ function subExprs(e: Expr): Expr[] {
   }
   return out;
 }
+/** E-5a: the outermost `peek`s of an expression, outside closures (a closure's body is read when it is called). */
+function peeksIn(e: Expr, out: Extract<Expr, { k: "peek" }>[] = []): Extract<Expr, { k: "peek" }>[] {
+  if (e.k === "peek") { out.push(e); return out; }
+  if (e.k === "fn" || e.k === "serverfn") return out;
+  for (const x of subExprs(e)) peeksIn(x, out);
+  return out;
+}
+/** E-5a: whether a value can change: by what this module sees (`yes`), or only if one of `deps` does — a prop of a component
+ *  (`prop|file#Comp|field`, `*` for all of them), a context's provisions (`ctx|key`), an .rx module's export (`exp|file#name`). */
+type Ch = { yes: boolean; deps: Set<string> };
+const noCh = (): Ch => ({ yes: false, deps: new Set() });
+/** E-5a: what a module tells the whole-program pass — the arguments its applications give each prop, its provisions, its
+ *  exports, the components it passes as values (their props come from JS), and the kept peeks that wait on the rest. */
+export type PeekFacts = { apps: { key: string; field: string; ch: Ch }[]; provs: { key: string; ch: Ch }[]; exports: { key: string; ch: Ch }[];
+  escapes: string[]; exported: string[]; aliases: [string, string][]; deferred: { line: number; peek: Expr; p: Ch; o: Ch }[] };
+const keptMsg = (p: Extract<Expr, { k: "peek" }>, why: string) => `\`${show(p)}\` is kept where it is read, but ${why} — it would keep its first value: drop peek to read it live, or name the snapshot, \`source saved := ${show(p)}\``;
+/** E-5a: why a kept peek's value can change, when this module alone cannot tell that it does not. */
+function whyOf(p: Extract<Expr, { k: "peek" }>, c: Ch): string {
+  const what = show(p.e); const d = [...c.deps];
+  return c.yes ? `${what} changes` : d.some(x => x.startsWith("prop|")) ? `${what} is a prop: the parent can change it` : d.some(x => x.startsWith("ctx|")) ? `${what} reads a provision, which can change` : `${what} is imported and can change`;
+}
+/** E-5a, the whole-program pass: each prop, provision and export changes when what can reach it does (a least fixpoint);
+ *  then each kept peek that waited on them is decided. A component the entry exports, or one passed as a value, is applied by
+ *  JS: its props can change. A module known only by its signature (MO-9) is not seen: what comes from it can change. */
+function resolvePeeks(all: [string, PeekFacts][], set: ModuleSet): Diagnostic[] {
+  const alias = new Map<string, string>(); for (const [, f] of all) for (const [a, b] of f.aliases) alias.set(a, b);
+  const K = (k: string) => alias.get(k) ?? k;
+  const seen = (k: string) => set.programs.has(k.split("#")[0]);
+  const escapes = new Set<string>(); for (const [path, f] of all) { for (const k of f.escapes) escapes.add(K(k)); if (path === set.entry) for (const k of f.exported) escapes.add(K(k)); }
+  const apps = all.flatMap(([, f]) => f.apps); const provs = all.flatMap(([, f]) => f.provs); const exps = new Map(all.flatMap(([, f]) => f.exports.map(x => [x.key, x.ch] as [string, Ch])));
+  const truth = new Set<string>();
+  const val = (c: Ch) => c.yes || [...c.deps].some(d => truth.has(d));
+  const nodes = new Set<string>();
+  for (const c of [...apps.map(a => a.ch), ...provs.map(p => p.ch), ...exps.values(), ...all.flatMap(([, f]) => f.deferred.flatMap(x => [x.p, x.o]))]) for (const d of c.deps) nodes.add(d);
+  const holds = (n: string): boolean => {
+    const [kind, key0, field] = n.split("|"); const key = K(key0);
+    if (!seen(key)) return true;
+    if (kind === "prop") return escapes.has(key) || apps.some(a => K(a.key) === key && (field === "*" || a.field === field || a.field === "*") && val(a.ch));
+    if (kind === "ctx") return provs.some(p => p.key === key && val(p.ch));
+    const x = exps.get(key); return !x || val(x);
+  };
+  for (let grew = true; grew;) { grew = false; for (const n of nodes) if (!truth.has(n) && holds(n)) { truth.add(n); grew = true; } }
+  const out: Diagnostic[] = [];
+  for (const [path, f] of all) for (const x of f.deferred) {
+    if (!val(x.p) || val(x.o)) continue;
+    const d: Diagnostic = { code: "SNAPSHOT_KEPT", rule: "E-5a", line: x.line, msg: keptMsg(x.peek as Extract<Expr, { k: "peek" }>, `${show((x.peek as Extract<Expr, { k: "peek" }>).e)} changes`), file: path };
+    if (!out.some(y => y.file === d.file && y.line === d.line && y.msg === d.msg)) out.push(d);
+  }
+  return out;
+}
 const mapsIntoRecords = (e: Expr): boolean => {                         // `map(xs, x => ({…}))` / `xs.map(x => ({…}))`
   if (e.k !== "call") return false;
   const fnArg = e.f.k === "id" && e.f.name === "map" ? e.args[1] : e.f.k === "member" && e.f.p === "map" ? e.args[0] : undefined;
@@ -219,15 +271,17 @@ export type ExportSig =
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig> };
-type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean };   // spa: 08 CN-3d, a client-only build
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean };   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
-export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig; model: Model } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx") }; }
+export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
-export function checkModules(set: ModuleSet, spa = false): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {
+export function checkModules(set: ModuleSet, spa = false, whole = false): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {   // whole: E-5a, the modules are the whole program
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); }
+  const facts: [string, PeekFacts][] = [];
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
+  if (whole) diags.push(...resolvePeeks(facts, set));
   return { diags, sigs, models };
 }
 
@@ -280,6 +334,7 @@ class Checker {
     this.resolveTree();
     this.loadingOnOutside();
     this.guessWhileLoading();
+    this.keptPeekCheck();
   }
 
   // ---- AC-3a: a guess a click can make while its value loads a new question ----
@@ -509,7 +564,7 @@ class Checker {
       if (d.k === "source") sym.question = !!d.question;
       if (d.k === "action") sym.io = true;                                                 // R-io-2: an action is io
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
-      if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); }
+      if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); sym.compRegion.key = `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${sym.compRegion.id}` : ""}`; }   // E-5a
       if (d.k === "eq") sym.eqDecl = d;
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.carrier) { const by = env.lookup(d.e.f.name)!; sym.carried = { args: d.e.args, env, ...(by.under ? { under: by.under } : {}) }; } sym.carriedExpr = { e: d.e, env }; }   // MO-11o
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
@@ -566,9 +621,10 @@ class Checker {
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
-        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; break; }
+        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; break; }   // E-5a
         case "context": sym = { kind: "context", name: alias, region: env.region, line: d.line, ctx: { key: x.key, source: x.source, dflt: x.dflt, contract: { rows: new Set(x.rows), fails: new Set(x.fails) } } }; break;
       }
+      if (sym.kind === "source" || sym.kind === "eq" || sym.kind === "fn") sym.exportKey = `${d.resolved}#${name}`;   // E-5a
       if (d.pure && sym.io) this.err("IMPORT_ROW_MISMATCH", "MO-4", `${name} is io in ${d.from}'s signature; \`pure\` cannot lower an .rx row`);
       this.bind(env, alias, sym);
     }
@@ -780,11 +836,11 @@ class Checker {
         const made = env.vars.get(d.name);
         if (made?.carried) this.carriedValues(made.carried.args, made.carried.env, true, [], d.e.k === "call" && d.e.f.k === "id" ? d.e.f.name : "");   // MO-11o: its component values are values, applied where a prop renders them
         if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (made.factory.here) this.markup(this.factoryTree(made, d.line), made.factory.root ? new Env(env, this.rootOf(made.factory.carries ?? [])) : env);   /* MO-11n: under a root of its own, nothing above the binding reaches them */ else if (d.exported) this.exportMade(made, d.name, d.line); }   // MO-11l: applied where it is bound
-        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.markCallbacks(call.args, f.cbs); this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
-        this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.rowCheck(d.name, d.type, env); return;
+        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.markCallbacks(call.args, f.cbs); this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
+        this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
-        this.comp("provide", env, { name: d.name }, () => this.expr(d.e, env, reactive));
+        this.comp("provide", env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env);
         const c = this.ctxOf(d.name, env); if (!c) return;
         env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env });
         const contract = c.ctx!.contract; const line = this.line;
@@ -796,7 +852,7 @@ class Checker {
         });
         return;
       }
-      case "context": if (d.dflt) { const dflt = d.dflt; this.comp("default", env, { name: d.name }, () => this.expr(dflt, env, reactive)); } return;
+      case "context": if (d.dflt) { const dflt = d.dflt; this.comp("default", env, { name: d.name }, () => this.expr(dflt, env, reactive)); this.keep(dflt, env); } return;
       case "effect": {
         for (const i of d.inputs) this.effectIns.push({ region: env.region, e: i, env, line: d.line });
         this.comp("effect", env, {}, () => {
@@ -896,6 +952,85 @@ class Checker {
     });
   }
 
+  // ---- E-5a: a peek kept where it is read, of a value that changes ----
+  /** Expressions whose value is kept and re-read — an equation, a provision, a context's default, what a view reads, a
+   *  component's argument, a `ref` argument — that contain a `peek`. A source's seed and a value argument are snapshots by
+   *  rule (E-4, E-10), an effect's compute half runs its apply, and a closure reads when it is called: none is kept. */
+  private keptPeeks: { e: Expr; env: Env; line: number }[] = [];
+  private changed = new Set<Sym>();                                      // written, guessed, refreshed or affected here
+  private escapes = new Set<string>();                                   // components passed as values: JS applies them
+  private chMemo = new Map<Sym, Ch>();
+  private deferred: PeekFacts["deferred"] = [];
+  private keep(e: Expr, env: Env) { if (peeksIn(e).length) this.keptPeeks.push({ e, env, line: this.line }); }
+  /** Whether `e` can change — counting what it reads outside `peek` (`out`), inside it (`in`), or both (`all`). */
+  private chOf(e: Expr, env: Env, mode: "all" | "out" | "in", acc: Ch = noCh(), inPeek = false): Ch {
+    const counting = mode === "all" || (mode === "in") === inPeek;
+    switch (e.k) {
+      case "peek": if (mode !== "out") this.chOf(e.e, env, mode, acc, true); return acc;
+      case "fn": case "serverfn": return acc;                                              // a closure reads when it is called
+      case "id": if (counting) this.addCh(acc, this.symCh(env.lookup(e.name))); return acc;
+      case "pre": if (counting) this.addCh(acc, this.symCh(env.lookup(e.name))); if (e.init) this.chOf(e.init, env, mode, acc, inPeek); return acc;
+      case "use": { const c = env.lookup(e.name); if (counting && c?.kind === "context") { if (/\.d\.rx#/.test(c.ctx!.key)) acc.yes = true; else acc.deps.add(`ctx|${c.ctx!.key}`); } return acc; }   // a JS context's provider is JS
+      case "member": { const o = e.o.k === "id" ? env.lookup(e.o.name) : undefined; if (o?.kind === "props") { if (counting) acc.deps.add(`prop|${o.region.key ?? ""}|${e.p}`); return acc; } break; }
+      case "await": if (counting) acc.yes = true; break;                                   // it loads: pending, then a value
+    }
+    for (const x of subExprs(e)) this.chOf(x, env, mode, acc, inPeek);
+    return acc;
+  }
+  private addCh(acc: Ch, c: Ch) { if (c.yes) acc.yes = true; for (const d of c.deps) acc.deps.add(d); }
+  private symCh(s: Sym | undefined): Ch {
+    if (!s) return noCh();
+    const m = this.chMemo.get(s); if (m) return m;
+    this.chMemo.set(s, noCh());                                                            // a cycle adds nothing
+    const r = this.symChOf(s); this.chMemo.set(s, r); return r;
+  }
+  private symChOf(s: Sym): Ch {
+    const ch = (yes: boolean, dep?: string): Ch => ({ yes, deps: new Set(dep ? [dep] : []) });
+    if (s.exportKey) return ch(false, `exp|${s.exportKey}`);                              // an .rx import: its module knows
+    switch (s.kind) {
+      case "props": return ch(false, `prop|${s.region.key ?? ""}|*`);
+      case "import": return ch(!!s.reader);
+      case "source": return this.changed.has(s) ? ch(true) : s.question && s.expr && s.env ? this.chOf(s.expr, s.env, "out") : ch(false);
+      case "eq": {
+        if (s.param || s.reader || this.changed.has(s)) return ch(true);                  // a ref parameter: the caller's, reactive
+        if (s.foreign) return ch(s.foreign === "ref" || !!s.held?.length || (typeof s.foreign === "object" && ("items" in s.foreign ? s.foreign.items : s.foreign.fields.map(f => f[1])).includes("ref")));   // MO-10b: a value result is made once; a reader, or a field that holds, changes
+        return s.carriedExpr ? this.chOf(s.carriedExpr.e, s.carriedExpr.env, "out") : ch(true);
+      }
+      case "fn": return s.fnTail && s.fnEnv ? this.chOf(s.fnTail, s.fnEnv, "out") : ch(false);   // a JS fn is pure (R-io)
+      default: return ch(false);
+    }
+  }
+  /** At the end of the module: a kept peek of what can change. Not when the rest of the expression changes — then the peek is
+   *  a sample, read again each time (`a + peek b`). With the whole program (`whole`), what only another module can tell waits. */
+  private keptPeekCheck() {
+    for (const k of this.keptPeeks) {
+      const o = this.chOf(k.e, k.env, "out");
+      if (o.yes) continue;
+      for (const p of peeksIn(k.e)) {
+        const pc = this.chOf(p.e, k.env, "all");
+        if (!pc.yes && !pc.deps.size) continue;
+        this.line = k.line;
+        if (!this.opts.whole) this.err("SNAPSHOT_KEPT", "E-5a", keptMsg(p, whyOf(p, pc)));
+        else if (pc.yes && !o.deps.size) this.err("SNAPSHOT_KEPT", "E-5a", keptMsg(p, whyOf(p, pc)));
+        else this.deferred.push({ line: k.line, peek: p, p: pc, o });
+      }
+    }
+  }
+  /** E-5a: what the whole-program pass needs from this module. */
+  peekFacts(p: Program): PeekFacts {
+    const file = this.opts.file ?? "main.rx";
+    const apps = this.apps.filter(a => a.comp.key).flatMap(a => a.args.map(x => ({ key: a.comp.key!, field: x.field, ch: this.chOf(x.e, x.env, "out") })));
+    const provs = this.provisions.map(x => ({ key: x.key, ch: this.chOf(x.e, x.env, "out") }));
+    const exports: PeekFacts["exports"] = []; const exported: string[] = []; const aliases: [string, string][] = [];
+    for (const d of p.decls) {
+      if (!(d as { exported?: boolean }).exported || !("name" in d)) continue;
+      const s = this.rootEnv?.vars.get(d.name); if (!s) continue;
+      if (s.kind === "comp") { const k = s.compRegion?.key; if (k) { exported.push(k); if (d.k === "component" && d.isDefault) aliases.push([`${file}#default`, k]); } }
+      else if (s.kind === "source" || s.kind === "eq" || s.kind === "fn") exports.push({ key: `${file}#${d.name}`, ch: this.symCh(s) });
+    }
+    return { apps, provs, exports, escapes: [...this.escapes], exported, aliases, deferred: this.deferred };
+  }
+
   /** CN-4a: a written row narrower than the inferred one. Rows are checked only when written (`x: pending T`). */
   private rowCheck(name: string, type: string | undefined, env: Env) {
     if (!type) return; const m = ROW_WORDS.exec(type); if (!m) return;
@@ -956,7 +1091,7 @@ class Checker {
     const go = (x: Expr) => this.expr(x, env, ctx);
     switch (e.k) {
       case "lit": return;
-      case "id": { if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory && !s.factory.here)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes a \`Component\`: a JS component's prop, or a JS factory's arguments (MO-11c, MO-11f)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
+      case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory && !s.factory.here)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes a \`Component\`: a JS component's prop, or a JS factory's arguments (MO-11c, MO-11f)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", true); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
       case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c) this.model.read(c, ctx.scope === "imperative"); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": this.model.snap++; go(e.e); this.model.snap--; return;                  // E-5: a snapshot
@@ -1084,7 +1219,7 @@ class Checker {
             if (target?.jsDraft && s.k === "write" && s.target.path.length) {                  // MO-10i: a path of a library's draft: the library's write, not a source's
               s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx)); this.expr(s.e, env, ctx); break;
             }
-            this.model.write(target, s.k, s.target.path.length > 0);
+            this.model.write(target, s.k, s.target.path.length > 0); if (target) this.changed.add(target);   // E-5a
             const guessable = s.k === "optimistic" && target?.kind === "eq" && !!target.eqDecl && !target.param && !target.imported;   // AC-3: a guess may sit over an equation (Solid's createOptimistic(fn)); it is not a write of the truth
             if (guessable && target!.eqDecl!.deferred) this.err("GUESS_ON_DEFERRED", "AC-3", `${s.target.name} is deferred: its value is a lagging copy (V-16), so nothing would confirm a guess on it — guess the equation it lags`);
             else if (guessable) {}
@@ -1102,8 +1237,8 @@ class Checker {
         }
         case "refresh": case "affects": case "action": if (ctx.server) { this.err("SERVER_CAPTURE", "SF-3", `\`${s.k}${s.k === "action" ? " { … }" : ` ${(s as { name: string }).name}`}\` in a server function's body: it is the client's (do it in the action that awaited the call)`); break; }
           if (s.k === "action") { this.comp("action", env, { name: "(inline)" }, () => this.stmts(s.body, env, { scope: "imperative", inAction: true })); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); this.runChecks(s.body, true, []); break; }
-          if (s.k === "affects") { const t = this.resolve(s.name, env, ctx); this.model.write(t, "affects"); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
-          { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
+          if (s.k === "affects") { const t = this.resolve(s.name, env, ctx); this.model.write(t, "affects"); if (t) this.changed.add(t); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
+          { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t) this.changed.add(t); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
         case "sif": this.expr(s.c, env, ctx); this.stmts(s.t, env, ctx); this.stmts(s.f, env, ctx); break;
         case "try": {
           this.stmts(s.body, env, ctx);
@@ -1225,7 +1360,7 @@ class Checker {
           if (!viewRoot) this.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there");
           else if (++styles > 1) this.err("STYLE_PLACEMENT", "CSS-1", "a second <style> in one view: a view has one stylesheet");
           break;
-        case "read": this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
+        case "read": this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.keep(m.e, env); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
@@ -1233,7 +1368,7 @@ class Checker {
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
             const handles = (n: string) => isHandler(n) || !!s?.compRegion?.sig?.props[n]?.callback;   // MO-10g: a prop the declaration types as a function is a handler
-            for (const a of args) this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" }));   // R-2: an argument is read where the component reads it
+            for (const a of args) { this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" })); if (!handles(a.name)) this.keep(a.e, env); }   // R-2: an argument is read where the component reads it
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
               this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: args.filter(a => !handles(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: args.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
@@ -1255,12 +1390,12 @@ class Checker {
             } else this.markup(m.children, env);
             break;
           }
-          for (const a of m.attrs) { this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
+          for (const a of m.attrs) { this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.keep(a.e, env); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
           this.markup(m.children, env);
           break;
         }
         case "mif": {
-          this.comp("reader", env, { at: "if" }, () => this.expr(m.c, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
+          this.comp("reader", env, { at: "if" }, () => this.expr(m.c, env, { scope: "reactive" })); this.keep(m.c, env); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
           this.block(m.tDecls, m.t, new Env(env, this.region(env.region, "then")), { scope: "reactive" });
           this.block(m.fDecls, m.f, new Env(env, this.region(env.region, "else")), { scope: "reactive" });
           break;
@@ -1273,7 +1408,7 @@ class Checker {
           break;
         }
         case "mfor": {
-          this.comp("reader", env, { at: "for" }, () => this.expr(m.xs, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
+          this.comp("reader", env, { at: "for" }, () => this.expr(m.xs, env, { scope: "reactive" })); this.keep(m.xs, env); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
           const src = m.xs.k === "id" ? env.lookup(m.xs.name) : undefined;
           if ((src?.mapsRecords) || mapsIntoRecords(m.xs)) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
           const r = this.region(env.region, "for"); const inner = new Env(env, r);
@@ -1313,7 +1448,7 @@ class Checker {
   private componentValues(m: Extract<Markup, { k: "el" }>, env: Env): Map<unknown, Markup> {
     const out = new Map<unknown, Markup>();
     const sig = env.lookup(m.tag)?.compRegion?.sig;
-    for (const a of m.attrs) if (sig?.props[a.name]?.component && a.e.k === "id" && /^[A-Z]/.test(a.e.name) && env.lookup(a.e.name)?.kind === "comp") out.set(a, this.applied([a.e.name], m.line)[0]);
+    for (const a of m.attrs) if (sig?.props[a.name]?.component && a.e.k === "id" && /^[A-Z]/.test(a.e.name) && env.lookup(a.e.name)?.kind === "comp") { out.set(a, this.applied([a.e.name], m.line)[0]); const k = env.lookup(a.e.name)!.compRegion?.key; if (k) this.escapes.add(k); }   // E-5a: a JS component applies it
     const cp = env.lookup(m.tag)?.compRegion ? this.carriedProps.get(env.lookup(m.tag)!.compRegion!) : undefined;   // MO-11o: what a prop renders
     if (cp) { const names: string[] = []; const seen = new Set<Sym>(); for (const a of m.attrs) if (cp.has(a.name)) this.carriedNames(a.e, env, seen, names); for (const el of this.carriedTree(seen, names, m.line)) out.set({ carried: el }, el); }
     return out;

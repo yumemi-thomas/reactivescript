@@ -42,6 +42,7 @@ Bins:
 | `ON_FLUSH_IN_OWNED_SCOPE`         | S   | EF-8: `onFlush` in reactive scope is `IO_IN_REACTIVE`, an error (Solid: a dev warning) |
 | `SNAPSHOT_ARGUMENT` (new)         | S   | E-10: reactive argument to a value parameter at an instantiation       |
 | `SNAPSHOT_INITIALIZER` (new)      | S   | E-4 / DV-6: a source initializer reads a reactive value outside `peek(…)` |
+| `SNAPSHOT_KEPT` (new)             | S   | E-5a: a `peek` kept where it is read (an equation, a provision, a view, an argument) of a value that changes |
 | `INVALID_REFRESH_TARGET`          | S   | `refresh` requires a source with a question (V-9)                  |
 | `INVALID_AFFECTS_TARGET`          | S   | same                                                               |
 | `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary; S within a component (08 CN-3e), R through a prop |
@@ -94,6 +95,7 @@ named.
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
 | `SNAPSHOT_INITIALIZER`            | S   | E-4 / DV-6 | S-surface-1 |
+| `SNAPSHOT_KEPT`                   | S   | E-5a  | S-surface-6 |
 | `IO_IN_REACTIVE`                  | S   | IO-2 / R-io-3 | S-surface-1 |
 | `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | IO-2 / R-io-3 | S-check-1 |
 | `IO_IN_FN`                        | S   | R-io-2 | S-check-1 |

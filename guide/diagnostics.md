@@ -322,6 +322,37 @@ export default component App() {
 An equation that never changes is no snapshot: one that awaits nothing and reads only pure JS imports, components,
 error classes and such equations (a validation schema built at module level, passed to `createForm({ schema })`).
 
+### SNAPSHOT_KEPT
+
+`peek e` reads `e` once. Where the expression around it is kept and read again (an equation, a provision, what a view
+shows, a component's argument) and nothing else in it changes, the `peek` freezes it: if `e` is written, refreshed or
+loads, every reader keeps the first value (E-5a). Drop `peek` to read it live, or, when a frozen copy is what you want,
+name it: `source saved := peek e`. A `peek` next to something that does change (`n * 2 + peek n`) is a sample, read again
+each time the expression recomputes, and is accepted.
+
+```rx before
+export default component App() {
+  source n := 1
+  shown = peek n
+  <p>{shown}</p>
+  <button onClick={() => { n := n + 1 }}>+</button>
+}
+```
+
+```rx after
+export default component App() {
+  source n := 1
+  <p>{n}</p>
+  <button onClick={() => { n := n + 1 }}>+</button>
+}
+```
+
+A module is checked alone by default, so a `peek` of a prop (`peek props.value`) or of a provision (`peek use theme`)
+counts as changing: that module cannot see who applies the component or who provides. `rxc check --whole-program` (and
+`ref/check.ts --whole-program`) checks the loaded modules as the whole program and accepts such a `peek` when no
+application or provision passes anything that changes. It assumes JS applies only the entry's exported components and
+the components passed to it as values; a component a TSX file applies is outside what it sees.
+
 ### DUPLICATE_DECLARATION
 
 A name is declared once in a block (E-7). Rename one.

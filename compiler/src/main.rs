@@ -1,6 +1,6 @@
 //! `rxc`: the crate's command line.
 //!
-//!   rxc check file.rx...   diagnostics, as `ref/check.ts` prints them (`--spa`: see below)
+//!   rxc check file.rx...   diagnostics, as `ref/check.ts` prints them (`--spa`, `--whole-program`: see below)
 //!   rxc check --json file.rx...
 //!                          the same as `{diagnostics: [{file, line, range, code, rule, message}]}`, ranges per CP-8
 //!   rxc project app.rx     TY-1c: the program's TSX projection, each file with its mappings onto the `.rx`
@@ -25,9 +25,11 @@
 //!                          its dependencies by `.rx` path, or `{diagnostics: [...]}` / `{error}`.
 //!   --spa                  (check, compile, app) a client-only build: a reader with no `loading` above it that can
 //!                          have no value yet is an error, as its first load would show nothing (08 CN-3d).
+//!   --whole-program        (check) the modules loaded are the whole program: a kept `peek` of a prop or a provision is
+//!                          decided by every application and provision in them (E-5a); `conform` takes `whole: true`.
 
 use reactivescript::app::{self, read_disk};
-use reactivescript::check::check_modules;
+use reactivescript::check::{check_modules, check_modules_with};
 use reactivescript::emit::{compile_modules, lower_view, Target};
 use reactivescript::parse::parse_stmts;
 use reactivescript::project::{project_modules, unverified, PRELUDE};
@@ -45,7 +47,7 @@ fn abs(f: &str) -> String {
     std::path::absolute(f).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| f.to_string()).replace('\\', "/")
 }
 
-fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool) -> Value {
+fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool, whole: bool) -> Value {
     let read = |p: &str| files.get(p).cloned();
     let set = match load_modules(entry, &read) {
         Ok(s) => s,
@@ -55,7 +57,7 @@ fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool) -> Value
     for p in &set.order {
         asts.insert(p.clone(), set.programs[p].to_json());
     }
-    let checked = check_modules(&set, spa); // 08 CN-3d: a client-only build where the request says so
+    let checked = check_modules_with(&set, spa, whole); // 08 CN-3d: a client-only build where the request says so; E-5a: the whole program
     let mut sigs = Map::new();
     for p in &set.order {
         sigs.insert(p.clone(), json!(print_signature(&checked.sigs[p])));
@@ -174,6 +176,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // 08 CN-3d: a client-only build (dom, not hydratable)
     let spa = args.iter().any(|a| a == "--spa");
+    let whole = args.iter().any(|a| a == "--whole-program"); // E-5a
     let Some(cmd) = args.first() else {
         eprintln!("usage: rxc check|model file.rx... | rxc conform < request.json");
         std::process::exit(2);
@@ -189,7 +192,8 @@ fn main() {
                     let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
                     let entry = r["entry"].as_str().unwrap();
                     let spa = r["spa"].as_bool().unwrap_or(false);
-                    let mut v = std::panic::catch_unwind(|| conform_one(entry, &files, spa)).unwrap_or_else(|e| {
+                    let whole = r["whole"].as_bool().unwrap_or(false);
+                    let mut v = std::panic::catch_unwind(|| conform_one(entry, &files, spa, whole)).unwrap_or_else(|e| {
                         let msg = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
                         json!({ "panic": msg })
                     });
@@ -336,7 +340,7 @@ fn main() {
                         continue;
                     }
                 };
-                let checked = check_modules(&set, spa);
+                let checked = check_modules_with(&set, spa, whole);
                 for d in &checked.diags {
                     bad += 1;
                     if as_json {

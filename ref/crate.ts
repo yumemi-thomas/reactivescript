@@ -8,7 +8,8 @@
 // crate's project.rs — and the files must be the same text, line for line; each of the crate's mappings must join the same
 // text on both sides.
 // With --spa (08 CN-3d): every program is checked as a client-only build, on both sides.
-// Usage: node --experimental-strip-types ref/crate.ts [--lower|--project|--spa] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
+// With --whole-program (E-5a): every program is checked as the whole program, on both sides.
+// Usage: node --experimental-strip-types ref/crate.ts [--lower|--project|--spa|--whole-program] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
 //        DUMP=dir writes the first differing module of a failure, both sides, to dir/{ref,crate}.<target>.js)
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -22,19 +23,20 @@ import { printSignature } from "./src/signature.ts";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lowerMode = process.argv.includes("--lower");
 const projectMode = process.argv.includes("--project");
-const spaMode = process.argv.includes("--spa");   // 08 CN-3d: every program checked as a client-only build, on both sides
+const spaMode = process.argv.includes("--spa");
+const wholeMode = process.argv.includes("--whole-program");   // E-5a: every program checked as the whole program, on both sides   // 08 CN-3d: every program checked as a client-only build, on both sides
 const filter = process.argv.slice(2).find(a => !a.startsWith("--"));
 const verbose = !!process.env.VERBOSE;
-type Req = { id: string; entry: string; files: Record<string, string>; extra?: string[]; spa?: boolean };   // spa: 08 CN-3d
+type Req = { id: string; entry: string; files: Record<string, string>; extra?: string[]; spa?: boolean; whole?: boolean };   // spa: 08 CN-3d
 const reqs: Req[] = [];
 
 /** A program: its entry and every file the loader reads for it (MO-8 `.d.rx`, MO-9 signatures, imported modules). */
-function add(id: string, entry: string, read: (p: string) => string | undefined, extra?: string[], spa?: boolean) {
+function add(id: string, entry: string, read: (p: string) => string | undefined, extra?: string[], spa?: boolean, whole?: boolean) {
   if (filter && !id.includes(filter)) return;
   const files: Record<string, string> = {};
   const rec = (p: string) => { const s = read(p); if (s !== undefined) files[p] = s; return s; };
   try { loadModules(entry, rec); } catch { /* the files read up to the error are what both sides see */ }
-  reqs.push({ id, entry, files, ...(extra ? { extra } : {}), ...(spa || spaMode ? { spa: true } : {}) });
+  reqs.push({ id, entry, files, ...(extra ? { extra } : {}), ...(spa || spaMode ? { spa: true } : {}), ...(whole || wholeMode ? { whole: true } : {}) });
 }
 const disk = (p: string) => existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined;
 
@@ -54,7 +56,8 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
   }
   if (sc.program) add(`${sc.name} Program`, sc.entry, read(sc.program));
   for (const t of sc.tables) if (t.program) add(`${sc.name} ${t.title}`, sc.entry, read(t.program));
-  sc.rejected.forEach((r, i) => add(`${sc.name} ${r.types ? "types" : r.warn ? "warn" : "reject"}(${r.rule}) #${i}`, sc.entry, read(r.program), undefined, r.spa));
+  sc.rejected.forEach((r, i) => add(`${sc.name} ${r.types ? "types" : r.warn ? "warn" : "reject"}(${r.rule}) #${i}`, sc.entry, read(r.program), undefined, r.spa, r.whole));
+  sc.accepted.forEach((a, i) => add(`${sc.name} accept(whole-program) #${i}`, sc.entry, read(a.program), undefined, false, true));
 }
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith(".rx") && !e.name.endsWith(".d.rx") ? [join(d, e.name)] : []);
 for (const f of walk(join(root, "examples")).sort()) add(`examples/${f.slice(join(root, "examples").length + 1)}`, f, disk, lowerMode ? [] : undefined);
@@ -63,7 +66,7 @@ const plain = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => v instance
 function refOf(r: Req) {
   const read = (p: string) => r.files[p];
   let set; try { set = loadModules(r.entry, read); } catch (e) { return { error: (e as Error).message }; }
-  let checked; try { checked = checkModules(set, !!r.spa); } catch (e) { return { throws: (e as Error).message }; }
+  let checked; try { checked = checkModules(set, !!r.spa, !!r.whole); } catch (e) { return { throws: (e as Error).message }; }
   return plain({
     order: set.order,
     asts: Object.fromEntries(set.order.map(p => [p, set.programs.get(p)])),
