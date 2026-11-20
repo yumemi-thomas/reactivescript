@@ -449,12 +449,13 @@ re!(REF_PART, r"^ref\s");
 re!(FN_PART, r"\)\s*=>");
 re!(REF_WORD, r"\bref\s+");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
-re!(ROW_WORD, r"^(holds\b|fails\(([^)]*)\))\s*");
-re!(ANY_ROW_WORD, r"\b(holds|fails\()");
+re!(ROW_WORD, r"^(pending\b|fails\(([^)]*)\))\s*");
+re!(ANY_ROW_WORD, r"\b(pending|fails\()");
+re!(OLD_HOLDS, r"(^|[:,\[{]\s*)holds\b");
 re!(RENDER_TYPE, r"=>\s*View\s*$");
 re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
 re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
-re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\()");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\(|trusted\b)");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
@@ -776,6 +777,10 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             outlet = true;
             continue;
         }
+        if c.keyword("trusted") {
+            // MO-8j: a row taken on trust where nothing verifies it
+            continue;
+        }
         if c.keyword("uses") {
             // MO-12b
             c.ws(false);
@@ -980,12 +985,15 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             let t = code_of(&line0).to_string(); // words in a `// comment` are not rows
             let r1 = REJECTS.find(&t).map(|m| m.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under("].iter().any(|w| t[m.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
+            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted"].iter().any(|w| t[m.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
             let r = [r1, r2, r3].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
                 None => &t[..],
             };
+            if OLD_HOLDS.is_match(head) {
+                return c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)");
+            }
             let head = js_trim(head).to_string();
             let (head, h) = field_rows(&head); // MO-10f
             held = h;
@@ -1017,6 +1025,10 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(false);
             if c.keyword("instantiates") {
                 written = true;
+                continue;
+            }
+            if c.keyword("trusted") {
+                // MO-8j: a row taken on trust where nothing verifies it (rx-tsc --strict, TY-7)
                 continue;
             }
             // MO-11r: one placement vocabulary — `renders` (here), `renders(root, ctx…)`, `renders(later)`; `nests(…)` for the tree
@@ -1172,7 +1184,8 @@ fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
         vec![]
     }
 }
-/// MO-10f: a result's field rows, `{ data: holds fails(Error) T }` — taken out of the type text, by field.
+/// MO-10f: a result's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
+/// are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i).
 fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
     // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
     fn walk(x: &str, prefix: &str, held: &mut Vec<(String, bool, Vec<String>)>) -> String {
@@ -1188,7 +1201,7 @@ fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
                 let (mut holds, mut fails, mut any) = (false, vec![], false);
                 while let Some(m) = ROW_WORD.captures(&rest) {
                     any = true;
-                    if &m[1] == "holds" {
+                    if &m[1] == "pending" {
                         holds = true;
                     } else {
                         fails = m[2].split('|').map(|y| y.trim().to_string()).filter(|y| !y.is_empty()).collect();

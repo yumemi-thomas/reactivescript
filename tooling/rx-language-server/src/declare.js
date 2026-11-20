@@ -3,7 +3,7 @@
 // component, a `JSX.Element` prop is a `View`, a component-typed prop or result is `Component`, a tuple result keeps
 // its `ref` parts, an `Error` subclass is an `error`. What types cannot show is left for a person, as a `TODO` comment
 // on the line it concerns: whether a hook reads a context (`uses(…)`), whether a result's field waits or throws when
-// read (`holds fails(…)`), what a promise rejects with. A fn is `pure` only where Solid's convention says a primitive
+// read (`pending fails(…)`), what a promise rejects with. A fn is `pure` only where Solid's convention says a primitive
 // is (`create*`, `use*`) or a config helper is (`define*`, `*Options`); everything else stays io, the row that cannot be wrong in the unsafe direction (R-io-4).
 // `rx-tsc` then checks the draft against the same types (spec/13 TY-6).
 const path = require("node:path");
@@ -116,7 +116,7 @@ function resultText(ts, checker, t, todos, generic = false) {
   }
   const s = text(ts, checker, t);
   if (/^Promise</.test(checker.typeToString(t))) todos.push("what does its promise reject with? add rejects(<classes>) (default Error)");
-  else if (ownObject(ts, t, checker)) todos.push("is the result a store with fields that wait or throw when read? mark them `holds fails(<classes>)` (MO-10f)");
+  else if (ownObject(ts, t, checker)) todos.push("is the result a store with fields that wait or throw when read? mark them `pending fails(<classes>)` (MO-10f)");
   return s;
 }
 

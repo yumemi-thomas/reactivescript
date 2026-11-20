@@ -3,7 +3,7 @@
 // accessor in the real types, that a component takes the declared props, that a fn's real signature fits the declared
 // one. The crate writes the check (`boundary`); this file type-checks it in memory, beside the `.d.rx`, with the
 // project's compiler options, and places each error on the declaration's line. Rows TypeScript cannot see (`pure`,
-// `uses`, `holds`, `fails`) are not checked here.
+// `uses`, `pending`, `fails`) are not checked here.
 const fs = require("node:fs");
 const path = require("node:path");
 const { boundary } = require("./rxc");

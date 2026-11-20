@@ -203,6 +203,40 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   ones. `rx-declare` drafts it from the types; TypeScript checks the
   arguments as it checks the library's own signature.
 
+- **MO-8i (Where a word goes) — proposed 2026-11-20.** Every word of a
+  `.d.rx` row sits by one rule, and the words are `.rx`'s own wherever
+  `.rx` has the concept:
+
+  | what the word describes | where it goes | words |
+  | --- | --- | --- |
+  | the kind of fn | before `fn` | `pure`, `server`, `client` |
+  | a parameter | before the parameter, as in an `.rx` fn (`fn f(ref n)`) | `ref`, `signal`, `...` (rest); `draft` on a callback's parameter |
+  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor), `pending`, `fails(E)` on a result, a field or a part; `renders` and `catches(E)` on a prop |
+  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `renders`, `renders(root, c…)`, `renders(later)`, `nests(…)`, `outlet`, `shape(…)`, a component's `fails(E)`, `trusted` |
+  | a pin | a comment line | `//@ for <package> <range>` |
+
+  A row word names the same row as the `.rx` word for it: a field that may
+  wait is `pending` (first drafted as `holds`, now refused with the word
+  that replaced it), as an `.rx` value that may wait carries `pending`
+  (CN-4a). `rejects(E)` is what a returned promise rejects with, `fails(E)`
+  what a read or a render throws: the two words keep the two places apart.
+  A member component is named as it is written (`Dialog.Trigger`, MO-11q).
+
+- **MO-8j (Strict declarations) — proposed 2026-11-20.** A row is an
+  assertion (MO-8b); by default the checker takes it on trust. A project may
+  ask that each row be shown instead: `rx-tsc --rx-strict`, or
+  `"reactivescript": { "strict": true }` in the tsconfig. Then every row of a
+  declaration the program imports (`fn`, `component`, `error`, `const`)
+  must be one `rx-verify --record` ran and found to hold (or found to have
+  nothing to run, as a `pure … instantiates` constructor), recorded beside
+  the declaration in `<name>.verified.json` by a hash of the row's text; or
+  the row must say `trusted`, after its signature (MO-8i), so the trust is a
+  word a reviewer reads rather than the default. A row nothing recorded, one
+  recorded as a mismatch or as not checked, and one edited since the record
+  (its hash changed) are `UNVERIFIED_ROW` (13 TY-7), each saying which and
+  what to run. `trusted` changes nothing else: outside strict mode it is
+  read and ignored.
+
 ## MO-9 — A signature read in place of its module
 
 - **MO-9a.** `import … from "./x.rx"` where there is no `x.rx` but there is
@@ -326,15 +360,15 @@ export component Search(props: { start: boolean, q: string }) {
   Solid's batching, and AC-1d cannot say so; the guide teaches it. A plain
   closure passed as a callback option is unchecked, as O-4a's is.
 - **MO-10f (Fields that hold or fail) — proposed 2026-11-18.** A field of
-  a declared result may start with `holds` and `fails(…)`: `useQuery(…): {
-  data: holds fails(Error) T; isFetching: boolean }`. The result is still a
+  a declared result may start with `pending` and `fails(…)`: `useQuery(…): {
+  data: pending fails(Error) T; isFetching: boolean }`. The result is still a
   value whose fields track (MO-10b); a read of that field, `todos.data`, is
   checked as a question's reader is (MO-10d): it carries `pending` (so
   `pending?`, `latest` and `loading` apply, and CN-3d asks for a `loading`
   above it in a client-only build), and it can fail with the named classes
   (R-f-5: an `errored` or a `catch` above it). A part bound from the field
   (`{ data } = useQuery(…)`) is a reader with the same rows. A nested
-  record field has them too, kept by its path (`{ result: { data: holds T }
+  record field has them too, kept by its path (`{ result: { data: pending T }
   }`: `q.result.data`), and a record part bound from the result keeps its
   fields' (`r = q.result`, then `r.data`). This is a store
   whose property read suspends and throws, as `@tanstack/solid-query` 6's
@@ -354,6 +388,13 @@ export component Search(props: { start: boolean, q: string }) {
   prop typed as a function (not a `View`-giving one, MO-11k, nor a
   `Component`) is a handler whatever its name, as an `on*` prop is: its
   closure is imperative scope, and passing it is not a read.
+  `rx-verify` checks the row by running (2026-11-20): it calls the fn with
+  its probe's arguments, each declared callback wrapped in a spy, and asks
+  Solid (`getObserver()`) whether the library called it inside a
+  computation. Called outside tracking, the row holds; called inside one,
+  it is a mismatch (the library reads it reactively: the parameter is
+  `ref`); never called under the probe, it is unverified (the probe's `act`
+  should make the library call it).
   Executable: S-module-12.
 - **MO-10h (Signal parameters) — proposed 2026-11-19.** Some primitives
   take a Solid signal, a getter and a setter, and wrap it
@@ -951,7 +992,7 @@ Executable: S-module-7.
      a production build type-checks, they are not optional. Joining a
      nested route's literal paths happens only in the projection, which is
      never run, and errs strict where a path is not a literal.
-   - *`holds`/`fails(…)` on result fields, nested paths included* (MO-10f)
+   - *`pending`/`fails(…)` on result fields, nested paths included* (MO-10f)
      are kept at field granularity. A store is read field by field, and
      only some fields wait or throw; whole-result rows would refuse its
      plain fields' reads. rx-verify reads every field under a provider and

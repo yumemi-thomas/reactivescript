@@ -1749,3 +1749,20 @@ export pure fn useParams(): any uses(router)
 export pure fn useParams(): any uses(router)
 ```
 
+### UNVERIFIED_ROW
+
+Reported only in strict mode (`rx-tsc --rx-strict`, or `"reactivescript": { "strict": true }` in the tsconfig;
+MO-8j, TY-7). A declaration row is an assertion about a JS library; strict mode asks that running showed it. The row
+was not recorded as holding by `rx-verify --record`: nothing recorded it, it was edited since the record, rx-verify
+found a mismatch, or it could not check it (no probe arguments, no scene). Run `rx-verify --record lib.d.rx` with a
+probe beside it (`lib.probe.mjs`) and fix what it reports; or, for a row you have checked by other means, say so in
+the row with `trusted`, where a reviewer will read it.
+
+```d.rx before
+export pure fn useParams(): any uses(router)
+```
+
+```d.rx after
+export pure fn useParams(): any uses(router) trusted
+```
+

@@ -215,4 +215,42 @@ async function verifyComponentUses({ comps, at, probeMod, resolve }) {
   return out;
 }
 
-module.exports = { verifyPlacement, verifyComponentUses, rowsOf };
+/** MO-10g: a closure passed where a fn's declaration types a parameter as a function (or a record parameter's field) is
+ *  checked as a handler: imperative scope, untracked. Running the fn with the probe's arguments, each such callback is
+ *  wrapped in a spy; the probe's `run(result)` or `act(result)` makes the library call it (a debounce's returned fn, a
+ *  mutation's mutate). A callback the library calls inside a computation (Solid's `getObserver()` is set) is a mismatch:
+ *  its reads would track and its writes land in owned scope. One it calls outside one holds; one it never calls is not
+ *  verified. */
+async function verifyCallbacks({ fns, at, probeMod, resolve, mount }) {
+  const out = [];
+  const s = await import(resolve);
+  for (const f of fns) {
+    const fn = at(f.name); const probe = probeMod?.probes?.[f.name];
+    if (typeof fn !== "function") continue;
+    if (!probe?.args) { out.push({ line: f.line, status: "unverified", what: `${f.name}: callback${f.cbs.length > 1 ? "s" : ""} ${f.cbs.map(c => c.name).join(", ")} not run: give its arguments in a probe` }); continue; }
+    const seen = new Map(f.cbs.map(c => [c.name, { calls: 0, tracked: 0 }]));
+    const spy = (c, g) => typeof g !== "function" ? g : (...a) => { const st = seen.get(c.name); st.calls++; if (s.getObserver?.()) st.tracked++; return g(...a); };
+    const wrapRec = (cs, v) => { if (!v || typeof v !== "object") return v; const o = { ...v }; for (const c of cs) if (c.field in o) o[c.field] = spy(c, o[c.field]); return o; };
+    const args = probe.args().slice();
+    const byIndex = new Map(); for (const c of f.cbs) byIndex.set(c.index, [...byIndex.get(c.index) ?? [], c]);
+    for (const [i, cs] of byIndex) {
+      const direct = cs.find(c => !c.field);
+      if (direct) args[i] = cs[0].ref && typeof args[i] === "function" && args[i].length === 0 ? args[i] : spy(direct, args[i]);
+      else args[i] = cs[0].ref && typeof args[i] === "function" ? (orig => () => wrapRec(cs, orig()))(args[i]) : wrapRec(cs, args[i]);
+    }
+    // under the probe's providers and an errored boundary, as a hook is mounted; then its run and act, and time for what
+    // the library schedules (a fetch's callback, a debounce)
+    const settle = async () => { for (let i = 0; i < 10; i++) { s.flush?.(); await new Promise(r => setTimeout(r, 20)); } };
+    const m = await mount(fn, args, async r => { await settle(); if (probe.run) await probe.run(r); if (probe.act) await probe.act(r); await settle(); });
+    const err = m.renderError ?? m.boundary ?? m.runError;
+    for (const c of f.cbs) {
+      const st = seen.get(c.name);
+      out.push(st.tracked ? { line: f.line, status: "fail", what: `${f.name}: the library calls ${c.name} inside a computation (tracked), but a closure there is checked as a handler (MO-10g): its reads would be tracked by the library and its writes refused by Solid${c.field ? "" : "; declare the parameter `ref` if the library reads it as a value"}` }
+        : st.calls ? { line: f.line, status: "ok", what: `${f.name}: callback ${c.name} holds: the library calls it outside tracking, as a handler` }
+        : { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe${err ? ` (it threw: ${String(err.message ?? err).slice(0, 40)})` : ""}: give an act that makes the library call it` });
+    }
+  }
+  return out;
+}
+
+module.exports = { verifyPlacement, verifyComponentUses, verifyCallbacks, rowsOf };

@@ -112,7 +112,7 @@ does for `.tsrx`. Nothing here is a second type system.
   about the module. A declaration may say less than the types (`any`, an
   omitted parameter type), never something else.
 - **TY-6c.** Rows TypeScript cannot see (`pure`, `uses`, `provides`,
-  `holds`, `fails`) are not checked here. A module with no TypeScript types
+  `pending`, `fails`) are not checked here. A module with no TypeScript types
   of its own (no `.d.ts` beside it, none from its package) is typed by its
   `.d.rx` (TY-4b: `rx-tsc` gives TypeScript the projected `.d.ts` in its
   place, without writing it), and there is nothing to check it against: a
@@ -122,6 +122,20 @@ does for `.tsrx`. Nothing here is a second type system.
   the `.d.rx` with the project's compiler options
   (`tooling/rx-language-server/src/boundary.js`). Nothing is emitted and
   nothing runs.
+
+## TY-7 — Strict declarations (proposed 2026-11-20)
+
+- **TY-7a.** With `--rx-strict` (or `"reactivescript": { "strict": true }`
+  in the tsconfig), `rx-tsc` reads, beside each `.d.rx` the program
+  imports, the record `rx-verify --record` wrote (09 MO-8j). A row is
+  accepted when the record shows it held (`ok`) or had nothing to run
+  (`n/a`), by the hash of its text, or when the row says `trusted`. Any
+  other row is `UNVERIFIED_ROW`, on the row's line: nothing verified it,
+  it changed since the record, rx-verify found a mismatch, or rx-verify
+  could not check it (no probe, no scene).
+- **TY-7b.** TY-6 checks what types can see; TY-7 asks that the rest
+  (`pure`, `uses`, `provides`, `pending`, `fails`, placement, drafts,
+  callbacks) was run, or that someone said in the row they trust it.
 
 ## Found by the type layer (2026-10-25)
 

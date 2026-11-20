@@ -51,7 +51,7 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), [
   "export pure fn useMissing(): number",
   "export error NotFound",
   "export error Plain",
-  "export pure fn useLoad(ref opts: { load: () => Promise<any> }): { data: holds fails(Error) any; size: number }",
+  "export pure fn useLoad(ref opts: { load: () => Promise<any> }): { data: pending fails(Error) any; size: number }",
   "export pure fn useEager(ref opts: { load: () => Promise<any> }): { data: any; size: number }",
   "export pure fn useLater(ref opts: { x: string }): any uses(theme)",
   "export pure fn useWrongly(ref opts: { x: string }): any uses(theme)",
@@ -167,6 +167,50 @@ check("a compound part that fails alone and renders inside its root holds its us
 check("a part declared uses(…) that reads nothing is a mismatch", /kit\.d\.rx:4 MISMATCH\s+Dialog\.Title: declared uses\(dialog\), but rendered with no provider it neither fails nor warns/.test(out2), out2);
 check("the root's provides(…) is checked through its parts", /kit\.d\.rx:2 ok\s+Dialog: provides\(…\) checked through the components that use it/.test(out2), out2);
 check("placement with no scene is not verified, and says so", /unscened\.d\.rx:3 unverified createRoute: where it renders what it is given is not run: give a scene/.test(out2), out2);
+
+// MO-10g: a callback row checked by running — the library calls it outside tracking (a handler), inside a computation
+// (a mismatch: the parameter would be `ref`), or never under the probe (unverified).
+// MO-8j: `--record` writes what running showed; strict mode refuses the rows not recorded as verified, unless `trusted`.
+fs.writeFileSync(path.join(ws, "cb.mjs"), [
+  "import { createMemo } from \"solid-js\";",
+  "export const onTick = cb => { queueMicrotask(() => cb(1)); };",
+  "export const watchIn = cb => { const m = createMemo(() => cb(2)); m(); };",
+  "export const never = cb => {};",
+  "export const later = n => n;",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "cb.probe.mjs"), [
+  "export const probes = {",
+  "  onTick: { args: () => [n => {}] },",
+  "  watchIn: { args: () => [n => n] },",
+  "  never: { args: () => [n => {}] },",
+  "};",
+  "",
+].join("\n"));
+const cbDecl = [
+  "export fn onTick(cb: (n: number) => void): void",
+  "export fn watchIn(cb: (n: number) => number): void",
+  "export fn never(cb: (n: number) => void): void",
+  "export fn later(n: number): number trusted",
+  "",
+].join("\n");
+fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl);
+fs.rmSync(path.join(ws, "cb.verified.json"), { force: true });
+const { checkStrict } = require("../src/strict.js");
+const before = checkStrict(path.join(ws, "cb.d.rx"));
+check("strict: with no record, every row but the trusted one is refused", before.length === 3 && before.every(u => /nothing verified it/.test(u.message)) && !before.some(u => u.name === "later"), before);
+const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "cb.d.rx"], { cwd: ws, encoding: "utf8" });
+const out3 = r3.stdout + r3.stderr;
+if (process.env.VERBOSE) console.log(out3);
+check("callback: called outside tracking holds, as a handler", /cb\.d\.rx:1 ok\s+onTick: callback cb holds/.test(out3), out3);
+check("callback: called inside a computation is a mismatch (MO-10g)", /cb\.d\.rx:2 MISMATCH\s+watchIn: the library calls cb inside a computation/.test(out3), out3);
+check("callback: never called under the probe is unverified", /cb\.d\.rx:3 unverified never: callback cb never called/.test(out3), out3);
+check("--record writes the record beside the declaration", fs.existsSync(path.join(ws, "cb.verified.json")) && /recorded/.test(out3), out3);
+const after = checkStrict(path.join(ws, "cb.d.rx"));
+check("strict: a verified row passes; a mismatched or unverified one is refused, saying why", after.length === 2 && /mismatch/.test(after.find(u => u.name === "watchIn")?.message) && /could not check/.test(after.find(u => u.name === "never")?.message), after);
+fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl.replace("onTick(cb: (n: number) => void)", "onTick(cb: (n: number) => number)"));
+const edited = checkStrict(path.join(ws, "cb.d.rx"));
+check("strict: a row edited since the record is not verified any more", edited.some(u => u.name === "onTick" && /changed since/.test(u.message)), edited);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

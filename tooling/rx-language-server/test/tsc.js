@@ -77,5 +77,14 @@ fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: string): 
 const onlyBad = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: only, encoding: "utf8" });
 check("a .d.rx the tsconfig names, with no .rx module beside it, is checked too (TY-6)", onlyBad.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_MISMATCH: twice: /.test(onlyBad.stdout), { status: onlyBad.status, out: onlyBad.stdout + onlyBad.stderr });
 
+// MO-8j: strict declarations — `--rx-strict` refuses a row rx-verify has not recorded as verified, unless it says `trusted`
+const strictRun = () => spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--rx-strict"], { cwd: only, encoding: "utf8" });
+fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): number\n");
+const unrec = strictRun();
+check("strict: a row nothing verified is refused (UNVERIFIED_ROW)", unrec.status !== 0 && /lib\.d\.rx:1:1 - error UNVERIFIED_ROW: twice: nothing verified it/.test(unrec.stdout), { status: unrec.status, out: unrec.stdout + unrec.stderr });
+fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): number trusted\n");
+const trusted = strictRun();
+check("strict: a row marked trusted passes", trusted.status === 0, { status: trusted.status, out: trusted.stdout + trusted.stderr });
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

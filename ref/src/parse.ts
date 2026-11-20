@@ -165,13 +165,14 @@ export function parseDeclarations(src: string): JsDecl[] {
     while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const sv = c.i; let g = !r && c.keyword("signal"); if (g) { c.ws(); if (!/^[A-Za-z_$]/.test(c.peek())) { c.i = sv; g = false; } } sigs.push(g);   /* MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name) */ const rest = !r && !g && c.eat("...");   /* MO-8h: a rest parameter, `...items: T[]` */ params.push((rest ? "..." : "") + (c.ident() ?? c.fail("param"))); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(/.exec(t); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b/.exec(t); if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
     let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders = false; let rendersRoot = false; const carries: string[] = []; let carrier = false; let under: { parent: string; inside: string } | undefined;
     for (;;) {                                                                             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
       c.ws(false);
       if (c.keyword("instantiates")) { written = true; continue; }
+      if (c.keyword("trusted")) continue;   // MO-8j: a row taken on trust where nothing verifies it (rx-tsc --strict, TY-7)
       // MO-11r: one placement vocabulary — `renders` (here), `renders(root, ctx…)`, `renders(later)`; `nests(…)` for the tree
       if (c.keyword("carries")) c.fail("`carries` is now `renders(later)`: the components travel in the result and a JS component's prop declared `renders` renders them (MO-11r)");
       if (c.keyword("under")) c.fail("`under(parent in component)` is now `nests(component under parent)`, beside `renders(later)` (MO-11r)");
@@ -224,7 +225,8 @@ function callbacks(ptypes: (string | undefined)[]): ([boolean, string[]] | null)
   });
   return out.some(Boolean) ? out : undefined;
 }
-/** MO-10f: a result's field rows, `{ data: holds fails(Error) T }` — taken out of the type text, by field. */
+/** MO-10f: a result's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
+ *  are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i). */
 function fieldRows(t: string): { text: string; held?: [string, boolean, string[]][] } {
   const held: [string, boolean, string[]][] = [];
   // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
@@ -233,13 +235,13 @@ function fieldRows(t: string): { text: string; held?: [string, boolean, string[]
     return `{ ${splitTop(x.slice(1, -1), ",;").map(f => {
       const i = f.indexOf(":"); if (i < 0) return f;
       const key = f.slice(0, i).trim(); let rest = f.slice(i + 1).trim(); let holds = false; let fails: string[] = []; let any = false;
-      for (let m; (m = /^(holds\b|fails\(([^)]*)\))\s*/.exec(rest)); rest = rest.slice(m[0].length)) { any = true; if (m[1] === "holds") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
+      for (let m; (m = /^(pending\b|fails\(([^)]*)\))\s*/.exec(rest)); rest = rest.slice(m[0].length)) { any = true; if (m[1] === "pending") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
       const path = prefix + fieldName(key);
       if (any) held.push([path, holds, fails]);
       return `${key}: ${walk(rest, path + ".")}`;
     }).join("; ")} }`;
   };
-  if (!/\b(holds|fails\()/.test(t)) return { text: t };   // no rows: the type text is kept as written
+  if (!/\b(pending|fails\()/.test(t)) return { text: t };   // no rows: the type text is kept as written
   const text = walk(t, "");
   return held.length ? { text, held } : { text: t };
 }
@@ -317,7 +319,8 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
   let fails: string[] = []; let content: ContentShape | undefined; let uses: string[] | undefined; let provides: string[] | undefined; let outlet = false;
   for (;;) {
     c.ws(false);
-    if (c.keyword("outlet")) { outlet = true; continue; }   // MO-11p: it renders, where it is written, what nests under its component
+    if (c.keyword("outlet")) { outlet = true; continue; }   // MO-11p
+    if (c.keyword("trusted")) continue;   // MO-8j: a row taken on trust where nothing verifies it: it renders, where it is written, what nests under its component
     if (c.keyword("fails")) { c.ws(false); c.expect("("); fails = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); continue; }
     if (c.keyword("uses")) { c.ws(false); uses = [...(uses ?? []), ...contextNames(c)]; continue; }          // MO-12b
     if (c.keyword("provides")) { c.ws(false); provides = [...(provides ?? []), ...contextNames(c)]; continue; }   // MO-12c

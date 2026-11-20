@@ -11,13 +11,13 @@ Rules: MO-10f, MO-10b, MO-10d, MO-12, R-f-5, CN-3d.
 export context queryClient
 export component QueryClientProvider(props: { client: any; children?: View }) provides(queryClient)
 export pure fn makeClient(): any instantiates
-export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<any> }): { data: holds fails(Error) any; isFetching: boolean } uses(queryClient)
+export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<any> }): { data: pending fails(Error) any; isFetching: boolean } uses(queryClient)
 ```
 
 ```rx
 -- module: ./thing.d.rx
 // a result whose rows are on a nested field: `q.result.data`, or `r.data` with `r = q.result`
-export pure fn useThing(): { result: { data: holds fails(Error) any; at: number }; status: string }
+export pure fn useThing(): { result: { data: pending fails(Error) any; at: number }; status: string }
 ```
 
 ```rx
@@ -25,7 +25,7 @@ export pure fn useThing(): { result: { data: holds fails(Error) any; at: number 
 export pure fn fetchTodos(): Promise<string[]>
 ```
 
-`holds` and `fails(…)` on a field of a declared result say what a read of
+`pending` and `fails(…)` on a field of a declared result say what a read of
 that field does: `todos.data` is read as a question's reader is (MO-10d),
 so it may hold, and it can fail with `Error`. The rest of the result is a
 value whose fields track (MO-10b): `todos.isFetching` neither holds nor

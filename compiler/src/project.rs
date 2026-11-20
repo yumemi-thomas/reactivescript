@@ -1248,7 +1248,7 @@ pub(crate) fn accessor_result(ret: Option<&String>, shape: &crate::parse::Shape)
 }
 /// TY-6: the boundary check for a `.d.rx` — its rows as TypeScript types, and the real module's exports assigned to them.
 /// A `ref` parameter or result part is an accessor (`() => T`); a component is a function of its declared props; an error
-/// class a constructor of an `Error`. Rows TypeScript cannot see (`pure`, `uses`, `holds`, `fails`) are not checked here.
+/// class a constructor of an `Error`. Rows TypeScript cannot see (`pure`, `uses`, `pending`, `fails`) are not checked here.
 /// Returns the code and, per check, (its line in the code, the declaration's line, the export's name).
 pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usize, String)>) {
     let own: IndexSet<&str> = decls.iter().filter(|d| matches!(d, JsDecl::Type { .. })).map(|d| d.name()).collect();

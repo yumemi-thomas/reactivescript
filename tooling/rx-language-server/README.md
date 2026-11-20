@@ -71,7 +71,7 @@ component (its JSX props are `View`, its component props `Component`), a tuple k
 subclass is an `error`, a function that hands back a component is a factory. `create*`, `use*`, `define*` and
 `*Options` fns are `pure` (Solid's convention for primitives and config helpers); every other fn stays io. What types
 cannot show is a `// TODO` line above the declaration it concerns: which context a hook reads (`uses(…)`), whether a
-result's fields wait or throw (`holds fails(…)`), what a promise rejects with. `rx-tsc` then checks the draft against
+result's fields wait or throw (`pending fails(…)`), what a promise rejects with. `rx-tsc` then checks the draft against
 the same types (spec/13 TY-6).
 
 Then it runs the module (`--no-run` skips this; run it with `node --conditions=browser`) to settle what running can:
@@ -95,6 +95,14 @@ can check: every declared export exists, a fn is a function, an `error` is an `E
 `uses(…)` that takes no arguments throws when called with no provider (otherwise the row claims a need the hook does
 not have). `rx-tsc` checks what types can (TY-6); this checks what running can.
 
+A parameter declared as a function (a callback, MO-10g) is wrapped in a spy: the row holds if the library calls it
+outside tracking, as a handler, and is a mismatch if it calls it inside a computation.
+
+`rx-verify --record lib.d.rx` also writes `lib.verified.json`: each row's result, by a hash of its text. `rx-tsc
+--rx-strict` (or `"reactivescript": { "strict": true }` in the tsconfig) then refuses every row of an imported
+declaration not recorded as holding, unless the row says `trusted` (`UNVERIFIED_ROW`, MO-8j). Commit the record beside
+the declaration; editing a row invalidates its entry.
+
 What needs the app (a hook's arguments, its providers) comes from a probe, `lib.probe.mjs` beside `lib.d.rx`:
 
 ```js
@@ -114,7 +122,7 @@ export const probes = {
 With it, a `uses(…)` hook with parameters is run with no provider (it, or the probe's `run` on its result, must
 throw; `run` is checked under `provide` too, so a broken probe is reported, not counted), and a hook whose result is a
 declared record is mounted under `provide` (with `@solidjs/universal`, beneath an errored boundary) and each field
-read: a field that holds or fails without `holds`/`fails(…)` is a mismatch, and under `fail`'s arguments a
+read: a field that holds or fails without `pending`/`fails(…)` is a mismatch, and under `fail`'s arguments a
 `fails(C)` field must fail with a `C`. Run it with `node --conditions=browser`, so Solid is its client build. A failure that only says there is no browser
 (a missing `window`) is reported as unverified, never as a mismatch; `--dom` runs with happy-dom's globals. On
 `@tanstack/solid-query` 6 it found that `isFetching` holds on the first load too: the whole result waits.
@@ -179,7 +187,7 @@ cargo build --release --manifest-path ../../compiler/Cargo.toml
 npm install && node test/run.js      # VERBOSE=1 prints each answer
 node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, a .d.rx that disagrees with its types
 node test/declare.js                 # rx-declare: each kind of export drafted as its row, the run pass, and the draft passes rx-tsc
-node test/verify.js                  # rx-verify: uses(…) rows, missing exports, errors, and probes (fields that hold and fail, lazy contexts)
+node test/verify.js                  # rx-verify: uses(…) rows, missing exports, errors, probes, callbacks, --record and strict mode
 ```
 
 `test/run.js` drives the server over LSP on a copy of `examples/shop` (Solid's

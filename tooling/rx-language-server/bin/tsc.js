@@ -12,6 +12,10 @@ const { rxLanguagePlugin, analyses, guideUrl } = require("../src/index.js");
 const { checkBoundaries } = require("../src/boundary.js");
 
 const tsc = require.resolve("typescript/lib/tsc");
+// MO-8j: `--rx-strict` (or `"reactivescript": { "strict": true }` in the tsconfig): every row of a declaration the program
+// imports must be verified by rx-verify (its record beside it) or say `trusted` (UNVERIFIED_ROW, TY-7). Not tsc's flag.
+const strictFlag = process.argv.includes("--rx-strict");
+process.argv = process.argv.filter(a => a !== "--rx-strict");
 require("../src/declarations.js").install();   // TY-4b: a JS module typed only by its .d.rx
 
 process.on("exit", code => {
@@ -43,6 +47,13 @@ process.on("exit", code => {
     errors++;
     codes.add("DECLARATION_VERSION");
     process.stdout.write(`${path.relative(process.cwd(), f)}:${p.line}:1 - error DECLARATION_VERSION: ${p.message} (MO-8f)\n`);
+  }
+  // MO-8j, TY-7: strict declarations
+  const strict = strictFlag || !!(cfg && ts.readConfigFile(cfg, ts.sys.readFile).config?.reactivescript?.strict);
+  if (strict) for (const f of pinned) for (const u of require("../src/strict.js").checkStrict(f)) {
+    errors++;
+    codes.add("UNVERIFIED_ROW");
+    process.stdout.write(`${path.relative(process.cwd(), u.file)}:${u.line}:1 - error UNVERIFIED_ROW: ${u.message} (TY-7)\n`);
   }
   for (const b of checkBoundaries(ts, named, options)) {
     errors++;

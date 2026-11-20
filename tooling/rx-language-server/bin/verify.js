@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `rx-verify <file.d.rx>...`: run a declaration's JS module and check the rows that running can check (09 MO-8f's sibling:
+// `rx-verify [--dom] [--record] <file.d.rx>...`: run a declaration's JS module and check the rows that running can check (09 MO-8f's sibling:
 // TY-6 checks what types can, this checks what running can). For each declared export: it exists, and a fn is a function.
 // For each hook declared `uses(…)` that needs no arguments: called with nothing providing its context, it must throw
 // (Solid's `useContext` finds nothing, and the library refuses), or the row claims a need the hook does not have. The
@@ -13,7 +13,7 @@
 // return children() } })`). With them: a `uses(…)` hook that needs arguments is run with no provider (it, or `run`, must throw);
 // and the hook is mounted (@solidjs/universal) under `provide`, beneath an errored boundary, and every field of its
 // declared result (a record's fields, a tuple's parts, a `ref` result) is read in a render effect: a part that holds
-// (Solid's NotReadyError) or fails without `holds` or `fails(…)` on it is a mismatch, as is a `ref` part that is not an
+// (Solid's NotReadyError) or fails without `pending` or `fails(…)` on it is a mismatch, as is a `ref` part that is not an
 // accessor; under `fail`'s arguments a `fails(C)` field must fail with a C. A `pure` fn (one that makes nothing) is
 // called twice with the same arguments and must answer alike. A component that `provides(c)` is mounted (with the
 // probe's `props`) around a hook of the same file that uses only what it provides, which must then run cleanly.
@@ -38,22 +38,31 @@ function exportsOf(text) {
       const close = matching(l, m.index + m[0].length - 1);
       const params = splitTop(l.slice(m.index + m[0].length, close)).map(p => p.trim()).filter(Boolean);
       const after = l.slice(close + 1).replace(/^\s*:\s*/, "");
-      const ret = after.split(/\s(?=uses\(|provides\(|nests\(|renders\b|instantiates\b|rejects\()/)[0].trim();
+      const ret = after.split(/\s(?=uses\(|provides\(|nests\(|renders\b|instantiates\b|rejects\(|trusted\b)/)[0].trim();
+      // MO-10g: its callbacks, a parameter typed as a function or a function-typed field of a record parameter (`ref` too)
+      const cbs = [];
+      params.forEach((p0, index) => {
+        const c = p0.indexOf(":"); if (c < 0) return; const ty = p0.slice(c + 1).trim().replace(/^ref\s+/, "");
+        const name = p0.slice(0, c).replace(/^(ref|signal)\s+|\?$/g, "").replace(/^\.\.\./, "").trim();
+        if (/^\(.*\)\s*=>/.test(ty)) cbs.push({ index, name, ref: /^ref\s/.test(p0) });
+        else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && /^\(.*\)\s*=>/.test(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0) }); }
+      });
       const fields = ret.startsWith("{") ? fieldsOf(ret) : ret.startsWith("[") ? partsOf(ret) : /^ref\s/.test(ret) ? [{ path: [], holds: false, fails: [], ref: true }] : null;
       const inst = /\binstantiates\b|\brenders\b|\bnests\(|\bprovides\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
-      out.push({ kind: "fn", name: m[2], line: i + 1, pure: !!m[1], inst, required: params.filter(p => !/^(ref\s+)?[\w$]+\?/.test(p)).length, uses: /\buses\(/.test(l), usesNames: names(l, "uses"), holds: /\bholds\b|\bfails\(/.test(l), fields });
+      out.push({ kind: "fn", name: m[2], line: i + 1, pure: !!m[1], inst, required: params.filter(p => !/^(ref\s+)?[\w$]+\?/.test(p)).length, uses: /\buses\(/.test(l), usesNames: names(l, "uses"), holds: /\bpending\b|\bfails\(/.test(l), fields, cbs });
     } else if ((m = /^\s*export\s+component\s+([A-Za-z_$][\w$.]*)/.exec(l))) out.push({ kind: "component", name: m[1], line: i + 1, provides: /\bprovides\(/.test(l), providesNames: names(l, "provides"), usesNames: names(l, "uses") });   // MO-11q: a member, `Dialog.Trigger`
     else if ((m = /^\s*export\s+error\s+([A-Za-z_$][\w$]*)/.exec(l))) out.push({ kind: "error", name: m[1], line: i + 1 });
+    else if ((m = /^\s*export\s+const\s+([A-Za-z_$][\w$]*)/.exec(l))) out.push({ kind: "value", name: m[1], line: i + 1 });   // MO-8g
   });
   return out;
 }
 
 /** The contexts a row names: `uses(a, b)` gives [a, b]. */
 function names(l, word) { const m = new RegExp(`\\b${word}\\(([^)]*)\\)`).exec(l); return m ? m[1].split(",").map(x => x.trim()).filter(Boolean) : []; }
-/** A field's or a part's rows, then its type: `ref holds fails(E) T`. */
+/** A field's or a part's rows, then its type: `ref pending fails(E) T`. */
 function rowsOf(ty) {
   let holds = false, fails = [], ref = false;
-  for (;;) { let k; if ((k = /^ref\s+/.exec(ty))) { ref = true; ty = ty.slice(k[0].length); } else if ((k = /^holds\b\s*/.exec(ty))) { holds = true; ty = ty.slice(k[0].length); } else if ((k = /^fails\(([^)]*)\)\s*/.exec(ty))) { fails = k[1].split(",").map(x => x.trim()).filter(Boolean); ty = ty.slice(k[0].length); } else break; }
+  for (;;) { let k; if ((k = /^ref\s+/.exec(ty))) { ref = true; ty = ty.slice(k[0].length); } else if ((k = /^pending\b\s*/.exec(ty))) { holds = true; ty = ty.slice(k[0].length); } else if ((k = /^fails\(([^)]*)\)\s*/.exec(ty))) { fails = k[1].split(",").map(x => x.trim()).filter(Boolean); ty = ty.slice(k[0].length); } else break; }
   return { holds, fails, ref, ty };
 }
 /** A declared tuple result's parts (MO-10b): `[ref any, (v: any) => void]`, by index. */
@@ -73,7 +82,7 @@ function splitTop(s) {
   for (let j = 0; j < s.length; j++) { const c = s[j]; if ("({[<".includes(c)) d++; else if (")}]>".includes(c) && !(c === ">" && s[j - 1] === "=")) d--; else if ((c === "," || c === ";") && d === 0) { out.push(s.slice(from, j)); from = j + 1; } }
   out.push(s.slice(from)); return out.filter(x => x.trim());
 }
-/** A declared record result's fields, as paths: `{ data: holds fails(Error) any; at: { x: number } }` gives
+/** A declared record result's fields, as paths: `{ data: pending fails(Error) any; at: { x: number } }` gives
  *  [{ path: ["data"], holds: true, fails: ["Error"] }, { path: ["at", "x"], … }]: what each read may do (MO-10f). */
 function fieldsOf(t, pre = []) {
   const body = t.trim().slice(1, matching(t.trim(), 0));
@@ -134,6 +143,7 @@ async function verify(file) {
   for (const x of exportsOf(fs.readFileSync(file, "utf8"))) { if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${x.name}\n`);
     const v = at(x.name);
     if (v === undefined) { out.push({ line: x.line, status: "fail", what: `${x.name}: ${path.basename(js)} exports nothing by that name` }); continue; }
+    if (x.kind === "value") { out.push({ line: x.line, status: "ok", what: `${x.name}: a value, exported` }); continue; }
     if (x.kind === "error") { const ok = typeof v === "function" && v.prototype instanceof Error; out.push({ line: x.line, status: ok ? "ok" : "fail", what: `${x.name}: ${ok ? "an Error subclass" : "declared an error, but is not an Error subclass"}` }); continue; }
     if (typeof v !== "function") { out.push({ line: x.line, status: "fail", what: `${x.name}: declared a ${x.kind}, but is a ${typeof v}` }); continue; }
     const probe = probeMod?.probes?.[x.name];
@@ -168,7 +178,7 @@ async function verify(file) {
       const bad = [];
       for (const f of x.fields) {
         const st = ran.seen.get(f.path.join("."));
-        if (st.pending && !f.holds) bad.push(`${f.path.join(".")} holds (its first read is not ready), and is not declared holds`);
+        if (st.pending && !f.holds) bad.push(`${f.path.join(".")} holds (its first read is not ready), and is not declared pending`);
         if (st.notAccessor) bad.push(`${f.path.join(".") || "the result"} is declared ref, but is not an accessor (a function)`);
         if (st.failed && !f.fails.length) bad.push(`${f.path.join(".")} fails (${String(st.failed?.message ?? st.failed).slice(0, 40)}), and is not declared fails(…)`);
       }
@@ -216,9 +226,13 @@ async function verify(file) {
         : { line: x.line, status: "ok", what: `${x.name}: provides(…) holds: ${hook.name} runs under it` });
       continue;
     }
-    const left = [x.pure && "pure", x.holds && "holds/fails", x.provides && "provides"].filter(Boolean);
-    out.push({ line: x.line, status: left.length ? "unverified" : "ok", what: `${x.name}: a ${x.kind}${left.length ? `; ${left.join(", ")} not run (${x.inst && x.pure ? "it makes something each call: two calls are not alike by design" : "it needs what the app passes: give it in a probe"})` : ""}` });
+    const left = [x.pure && !x.inst && "pure", x.holds && "pending/fails", x.provides && "provides"].filter(Boolean);
+    // a fn that makes something each call is not pure by two calls answering alike: that claim does not apply (n/a)
+    if (!left.length && x.pure && x.inst) { out.push({ line: x.line, status: "na", what: `${x.name}: a fn that makes something each call: two calls are not alike by design` }); continue; }
+    out.push({ line: x.line, status: left.length ? "unverified" : "ok", what: `${x.name}: a ${x.kind}${left.length ? `; ${left.join(", ")} not run (it needs what the app passes: give it in a probe)` : ""}` });
   }
+  // MO-10g: callbacks, by running: a closure at a declared function-typed parameter is checked as a handler
+  out.push(...await require("../src/verify-place.js").verifyCallbacks({ fns: exportsOf(fs.readFileSync(file, "utf8")).filter(x => x.kind === "fn" && x.cbs?.length), at, probeMod, resolve: pathToFileURL(require.resolve("solid-js", { paths: [dir, __dirname] })).href, mount: (fn, args, run) => mount(dir, mod, probeMod, fn, args, [], run) }));
   // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its drafts
   const from = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
   out.push(...await require("../src/verify-place.js").verifyPlacement({ text: fs.readFileSync(file, "utf8"), mod, probeMod, dir, resolve: from }));
@@ -246,7 +260,8 @@ function environmental(e) {
 
 (async () => {
   const dom = process.argv.includes("--dom");
-  const files = process.argv.slice(2).filter(a => a !== "--dom");
+  const record = process.argv.includes("--record");   // MO-8j: write what was verified beside each declaration
+  const files = process.argv.slice(2).filter(a => a !== "--dom" && a !== "--record");
   if (dom) {   // a browser's globals, from happy-dom, resolved from the project: its hooks then run as in a page
     let reg;
     try { reg = require(require.resolve("@happy-dom/global-registrator", { paths: [process.cwd(), __dirname] })); }
@@ -256,10 +271,12 @@ function environmental(e) {
   if (!files.length) { process.stderr.write("usage: rx-verify <file.d.rx>...\n"); process.exit(2); }
   let fails = 0;
   for (const f of files) {
-    for (const r of await verify(f)) {
+    const results = await verify(f);
+    for (const r of results) {
       if (r.status === "fail") fails++;
-      process.stdout.write(`${path.relative(process.cwd(), f)}:${r.line} ${r.status === "ok" ? "ok        " : r.status === "fail" ? "MISMATCH  " : "unverified"} ${r.what}\n`);
+      process.stdout.write(`${path.relative(process.cwd(), f)}:${r.line} ${r.status === "ok" ? "ok        " : r.status === "fail" ? "MISMATCH  " : r.status === "na" ? "n/a       " : "unverified"} ${r.what}\n`);
     }
+    if (record) { const at = require("../src/strict.js").writeRecord(f, results); process.stdout.write(`${path.relative(process.cwd(), at)}: recorded\n`); }
   }
   process.exit(fails ? 1 : 0);
 })();
