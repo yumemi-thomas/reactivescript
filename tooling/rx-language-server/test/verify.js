@@ -140,7 +140,22 @@ fs.writeFileSync(path.join(ws, "store.d.rx"), [
 ].join("\n"));
 fs.writeFileSync(path.join(ws, "unscened.mjs"), router(false));
 fs.writeFileSync(path.join(ws, "unscened.d.rx"), routerDecl);
-const r2 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "nested.d.rx", "flat.d.rx", "store.d.rx", "unscened.d.rx"], { cwd: ws, encoding: "utf8" });
+fs.writeFileSync(path.join(ws, "kit.mjs"), [
+  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "const Ctx = createContext();",
+  "const Trigger = props => { if (!useContext(Ctx)) throw new Error(\"<Dialog.Trigger> outside <Dialog>\"); return props.children; };",
+  "const Title = props => props.children;   // declared uses(dialog), but reads nothing",
+  "export const Dialog = Object.assign(props => createComponent(Ctx, { value: {}, get children() { return props.children; } }), { Trigger, Title });",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "kit.d.rx"), [
+  "export context dialog",
+  "export component Dialog(props: { children?: View }) provides(dialog)",
+  "export component Dialog.Trigger(props: { children?: View }) uses(dialog)",
+  "export component Dialog.Title(props: { children?: View }) uses(dialog)",
+  "",
+].join("\n"));
+const r2 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "nested.d.rx", "flat.d.rx", "store.d.rx", "unscened.d.rx", "kit.d.rx"], { cwd: ws, encoding: "utf8" });
 const out2 = r2.stdout + r2.stderr;
 if (process.env.VERBOSE) console.log(out2);
 check("placement: a child route renders inside its parent's component, at its outlet (nests … under, by a scene)", /nested\.d\.rx:3 ok\s+createRoute: placement holds: Person inside Root, at its outlet/.test(out2), out2);
@@ -148,6 +163,9 @@ check("placement: renders(later) — the carried components render inside the co
 check("placement: a library that renders the child beside its parent is a mismatch", /flat\.d\.rx:3 MISMATCH\s+createRoute: Person renders outside its parent's Root/.test(out2), out2);
 check("draft: a setter that hands its draft holds", /store\.d\.rx:1 ok\s+makeStore: draft holds/.test(out2), out2);
 check("draft: one that hands a copy is a mismatch", /store\.d\.rx:2 MISMATCH\s+copyStore: declared a draft callback, but a write to what it is handed is not kept/.test(out2), out2);
+check("a compound part that fails alone and renders inside its root holds its uses(…) (MO-11q)", /kit\.d\.rx:3 ok\s+Dialog\.Trigger: uses\(…\) holds: it fails alone and renders inside Dialog/.test(out2), out2);
+check("a part declared uses(…) that reads nothing is a mismatch", /kit\.d\.rx:4 MISMATCH\s+Dialog\.Title: declared uses\(dialog\), but rendered with no provider it neither fails nor warns/.test(out2), out2);
+check("the root's provides(…) is checked through its parts", /kit\.d\.rx:2 ok\s+Dialog: provides\(…\) checked through the components that use it/.test(out2), out2);
 check("placement with no scene is not verified, and says so", /unscened\.d\.rx:3 unverified createRoute: where it renders what it is given is not run: give a scene/.test(out2), out2);
 
 console.log(`\n${pass} passed, ${fail} failed`);

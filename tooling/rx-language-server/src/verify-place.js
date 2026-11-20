@@ -73,6 +73,7 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
   const placing = fns.filter(f => f.mode || f.nestsIn || f.nestsUnder);
   const siteComps = comps.filter(c => c.outlet || c.carried.length);
   if (!placing.length && !siteComps.length) return out;
+  if (process.env.RXV_DEBUG) require("node:fs").writeSync(2, "[rx-verify] scene\n");
   if (typeof probeMod?.scene !== "function") {
     for (const f of placing) out.push({ line: f.line, status: "unverified", what: `${f.name}: where it renders what it is given is not run: give a scene in the probe (scene(lib, h))` });
     for (const c of siteComps) out.push({ line: c.line, status: "unverified", what: `${c.name}: ${c.outlet ? "outlet" : "renders"} not run: give a scene in the probe` });
@@ -169,4 +170,49 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
   return out;
 }
 
-module.exports = { verifyPlacement, rowsOf };
+/** Render `view` (the browser build when there is a document, as with --dom; else a universal renderer); what it threw
+ *  or warned while rendering, synchronously. */
+async function renderOnce(view, resolve) {
+  const s = await import(resolve("solid-js"));
+  const warned = [], saved = [console.warn, console.error];
+  console.warn = console.error = (...a) => { warned.push(a.map(String).join(" ")); };
+  let error = null, dispose = () => {};
+  try {
+    const wrapped = () => s.createComponent(s.Errored, { fallback: e => { error ??= typeof e === "function" ? e() : e; return null; }, get children() { return view(); } });
+    if (typeof document !== "undefined" && document.body) { const web = await import(resolve("@solidjs/web")); const el = document.createElement("div"); document.body.appendChild(el); dispose = web.render(wrapped, el); }
+    else { const { createRenderer } = await import(resolve("@solidjs/universal")); const n = { createElement: t => ({ t, c: [] }), createTextNode: x => ({ x }), replaceText: (a, v) => { a.x = v; }, isTextNode: a => "x" in a, setProperty() {}, insertNode: (p, a) => { (p.c ??= []).push(a); a.p = p; }, removeNode: (p, a) => { p.c = (p.c ?? []).filter(y => y !== a); }, getParentNode: a => a.p, getFirstChild: a => a.c?.[0], getNextSibling: () => undefined }; dispose = createRenderer(n).render(wrapped, { t: "root", c: [] }); }
+    // flushed synchronously and disposed before yielding: a context a component reads, it reads as it renders, and a
+    // component left mounted with nothing above it can keep scheduling work (TanStack's Outlet with no router does)
+    for (let i = 0; i < 5; i++) s.flush?.();
+  } catch (e) { error ??= e; }
+  finally { try { dispose(); } catch {} [console.warn, console.error] = saved; }
+  return { error, warned };
+}
+
+/** MO-12b for a component (a kit's compound part, `Dialog.Trigger … uses(dialog)`): rendered alone it must fail or warn,
+ *  and rendered inside a component of the same file that provides what it uses, it must not. Props come from the probe
+ *  (`probes["Dialog.Trigger"].props()`), else none; `probes[Provider].around(children, s)` renders it inside the provider
+ *  where its children prop would not reach (a router renders its routes, not its children). */
+async function verifyComponentUses({ comps, at, probeMod, resolve }) {
+  const out = [];
+  const s = await import(resolve("solid-js"));
+  const propsOf = n => probeMod?.probes?.[n]?.props?.() ?? {};
+  for (const c of comps.filter(c => c.usesNames?.length)) { if (process.env.RXV_DEBUG) require("node:fs").writeSync(2, `[rx-verify] uses of ${c.name}\n`);
+    const C = at(c.name); if (typeof C !== "function") continue;
+    const alone = await renderOnce(() => s.createComponent(C, propsOf(c.name)), resolve);
+    if (!alone.error && !alone.warned.length) { out.push({ line: c.line, status: "fail", what: `${c.name}: declared uses(${c.usesNames.join(", ")}), but rendered with no provider it neither fails nor warns` }); continue; }
+    const prov = comps.find(p => p !== c && p.providesNames?.length && c.usesNames.every(u => p.providesNames.includes(u)) && typeof at(p.name) === "function");
+    if (!prov) { out.push({ line: c.line, status: "ok", what: `${c.name}: uses(…) holds: rendered with no provider it ${alone.error ? "fails" : "warns"} (no provider in this file to render it under)` }); continue; }
+    const P = at(prov.name);
+    // inside it: as its children, or as the probe says (`probes.RouterProvider.around(children, s)`, for a provider that
+    // renders something else than its children: a router renders its routes)
+    const around = probeMod?.probes?.[prov.name]?.around;
+    const part = () => s.createComponent(C, propsOf(c.name));
+    const inside = await renderOnce(() => around ? around(part, s) : s.createComponent(P, Object.defineProperty({ ...propsOf(prov.name) }, "children", { get: part, enumerable: true })), resolve);
+    out.push(inside.error ? { line: c.line, status: "fail", what: `${c.name}: inside ${prov.name}, which declares provides(${prov.providesNames.join(", ")}), it still fails (${String(inside.error.message ?? inside.error).slice(0, 50)})` }
+      : { line: c.line, status: "ok", what: `${c.name}: uses(…) holds: it ${alone.error ? "fails" : "warns"} alone and renders inside ${prov.name}` });
+  }
+  return out;
+}
+
+module.exports = { verifyPlacement, verifyComponentUses, rowsOf };

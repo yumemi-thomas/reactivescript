@@ -17,6 +17,11 @@
 // accessor; under `fail`'s arguments a `fails(C)` field must fail with a C. A `pure` fn (one that makes nothing) is
 // called twice with the same arguments and must answer alike. A component that `provides(c)` is mounted (with the
 // probe's `props`) around a hook of the same file that uses only what it provides, which must then run cleanly.
+// Placement rows (`renders…`, `nests(…)`, `outlet`, a prop's `renders T`) are checked against a scene the probe gives
+// (`scene(lib, h)`), `draft` rows by calling the setter, and a component's `uses(…)` (a kit's compound part) by rendering
+// it alone, where it must fail or warn, and inside a component of the file that provides it (`probes[P].around` when the
+// provider renders something else than its children), where it must not: src/verify-place.js. RXV_DEBUG=1 names each
+// export on stderr as it is checked.
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -37,7 +42,7 @@ function exportsOf(text) {
       const fields = ret.startsWith("{") ? fieldsOf(ret) : ret.startsWith("[") ? partsOf(ret) : /^ref\s/.test(ret) ? [{ path: [], holds: false, fails: [], ref: true }] : null;
       const inst = /\binstantiates\b|\brenders\b|\bnests\(|\bprovides\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
       out.push({ kind: "fn", name: m[2], line: i + 1, pure: !!m[1], inst, required: params.filter(p => !/^(ref\s+)?[\w$]+\?/.test(p)).length, uses: /\buses\(/.test(l), usesNames: names(l, "uses"), holds: /\bholds\b|\bfails\(/.test(l), fields });
-    } else if ((m = /^\s*export\s+component\s+([A-Za-z_$][\w$]*)/.exec(l))) out.push({ kind: "component", name: m[1], line: i + 1, provides: /\bprovides\(/.test(l), providesNames: names(l, "provides") });
+    } else if ((m = /^\s*export\s+component\s+([A-Za-z_$][\w$.]*)/.exec(l))) out.push({ kind: "component", name: m[1], line: i + 1, provides: /\bprovides\(/.test(l), providesNames: names(l, "provides"), usesNames: names(l, "uses") });   // MO-11q: a member, `Dialog.Trigger`
     else if ((m = /^\s*export\s+error\s+([A-Za-z_$][\w$]*)/.exec(l))) out.push({ kind: "error", name: m[1], line: i + 1 });
   });
   return out;
@@ -102,7 +107,12 @@ async function mount(dir, mod, probeMod, hook, args, fields, run, provide = prob
   };
   const errored = () => s.createComponent(s.Errored, { fallback: e0 => { boundary = typeof e0 === "function" ? e0() : e0; return null; }, get children() { return s.createComponent(Probe, {}); } });
   let dispose = () => {}, renderError = null;   // a provider that throws as it mounts (props the probe did not give)
-  try { dispose = R.render(() => provide ? provide(errored, s) : errored(), { t: "root", c: [] }); } catch (e) { renderError = e; return { seen, boundary, runError, renderError }; }
+  // with a document (--dom) the browser build renders, as for a library whose components are DOM (TanStack Router's)
+  const view = () => provide ? provide(errored, s) : errored();
+  try {
+    if (typeof document !== "undefined" && document.body) { const web = await import(from("@solidjs/web")); const el = document.createElement("div"); document.body.appendChild(el); dispose = web.render(view, el); }
+    else dispose = R.render(view, { t: "root", c: [] });
+  } catch (e) { renderError = e; return { seen, boundary, runError, renderError }; }
   for (let i = 0; i < 20; i++) { s.flush(); await new Promise(r => setTimeout(r, 10)); if ([...seen.values()].every(x => x.value || x.failed) || boundary) break; }
   if (run) { try { await run(result); } catch (e) { runError = e; } }
   dispose();
@@ -120,8 +130,9 @@ async function verify(file) {
   const dir = path.dirname(path.resolve(js));
   const { createRoot } = await import(pathToFileURL(require.resolve("solid-js", { paths: [path.dirname(path.resolve(js))] })).href);
   const out = [];
-  for (const x of exportsOf(fs.readFileSync(file, "utf8"))) {
-    const v = mod[x.name];
+  const at = n => n.split(".").reduce((o, k) => o?.[k], mod);   // MO-11q: `Dialog.Trigger` is a member of `Dialog`
+  for (const x of exportsOf(fs.readFileSync(file, "utf8"))) { if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${x.name}\n`);
+    const v = at(x.name);
     if (v === undefined) { out.push({ line: x.line, status: "fail", what: `${x.name}: ${path.basename(js)} exports nothing by that name` }); continue; }
     if (x.kind === "error") { const ok = typeof v === "function" && v.prototype instanceof Error; out.push({ line: x.line, status: ok ? "ok" : "fail", what: `${x.name}: ${ok ? "an Error subclass" : "declared an error, but is not an Error subclass"}` }); continue; }
     if (typeof v !== "function") { out.push({ line: x.line, status: "fail", what: `${x.name}: declared a ${x.kind}, but is a ${typeof v}` }); continue; }
@@ -193,9 +204,12 @@ async function verify(file) {
     if (x.kind === "component" && x.providesNames.length) {
       const all = exportsOf(fs.readFileSync(file, "utf8"));
       const hook = all.find(h => h.kind === "fn" && h.usesNames.length && h.usesNames.every(c => x.providesNames.includes(c)) && (probeMod?.probes?.[h.name]?.args || !h.required) && typeof mod[h.name] === "function");
-      if (!hook) { out.push({ line: x.line, status: "unverified", what: `${x.name}: provides(…) not run: no hook in this file uses only what it provides (with a probe's arguments if it needs any)` }); continue; }
+      const part = !hook && all.find(c => c.kind === "component" && c !== x && c.usesNames?.length && c.usesNames.every(u => x.providesNames.includes(u)));
+      if (part) { out.push({ line: x.line, status: "ok", what: `${x.name}: provides(…) checked through the components that use it (${part.name}, …), rendered inside it below` }); continue; }   // MO-11q: a kit's parts
+      if (!hook) { out.push({ line: x.line, status: "unverified", what: `${x.name}: provides(…) not run: no hook or component in this file uses only what it provides (with a probe's arguments if it needs any)` }); continue; }
       const props = probe?.props?.() ?? {};
-      const wrap = (children, sol) => sol.createComponent(v, Object.defineProperty({ ...props }, "children", { get: () => children(), enumerable: true }));
+      // inside it: as its children, or as the probe says (`around`, for a provider that renders something else, as a router)
+      const wrap = probe?.around ? probe.around : (children, sol) => sol.createComponent(v, Object.defineProperty({ ...props }, "children", { get: () => children(), enumerable: true }));
       const ran = await mount(dir, mod, probeMod, mod[hook.name], probeMod?.probes?.[hook.name]?.args?.() ?? [], [], null, wrap);
       if (ran.renderError) { out.push({ line: x.line, status: "unverified", what: `${x.name}: provides(…) not run: it threw as it mounted (${String(ran.renderError.message ?? ran.renderError).slice(0, 50)}); give its props as the probe's props` }); continue; }
       out.push(ran.boundary && ran.boundary?.name !== "NotReadyError" ? { line: x.line, status: "fail", what: `${x.name}: declared provides(${x.providesNames.join(", ")}), but ${hook.name} under it still fails (${String(ran.boundary.message ?? ran.boundary).slice(0, 60)})` }
@@ -208,6 +222,7 @@ async function verify(file) {
   // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its drafts
   const from = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
   out.push(...await require("../src/verify-place.js").verifyPlacement({ text: fs.readFileSync(file, "utf8"), mod, probeMod, dir, resolve: from }));
+  out.push(...await require("../src/verify-place.js").verifyComponentUses({ comps: exportsOf(fs.readFileSync(file, "utf8")).filter(x => x.kind === "component"), at, probeMod, resolve: from }));
   return out;
 }
 
