@@ -317,7 +317,12 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   as they would in TypeScript, until a project declaration (MO-8k, first)
   says them. Under strict declarations (MO-8j) no generated row is
   verified. `RX_GENERATE=0`, or `rx({ generate: false })` for the plugin,
-  turns it off.
+  turns it off. A draft is per installed copy (revised 2026-11-21 after
+  review): each import is resolved from the module that writes it, and two
+  modules whose imports of one specifier reach two installed copies (two
+  siblings of a workspace, each with its own version) get a draft each,
+  beside each copy; only imports that reach the same copy and subpath
+  share one.
 
 ## MO-9 — A signature read in place of its module
 

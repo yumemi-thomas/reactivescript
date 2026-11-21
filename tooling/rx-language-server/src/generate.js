@@ -28,19 +28,28 @@ const FORMAT = 2;
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
 
-/** The package specifiers the program at `entry` imports, across its `.rx` modules (relative `.rx` imports followed). */
-function packageImports(entry, text) {
-  const specs = new Map();   // spec → the first .rx module that imports it
+/** Every package import of the program at `entry`, across its `.rx` modules (relative `.rx` imports followed): `[spec,
+ *  importer]` for each module that imports it, since two modules of a workspace may resolve one specifier to two
+ *  installed copies. */
+function packageImportSites(entry, text) {
+  const out = [];
   const seen = new Set(); const todo = [path.resolve(entry)];
   while (todo.length) {
     const f = todo.pop(); if (seen.has(f)) continue; seen.add(f);
     let src; try { src = text !== undefined && f === path.resolve(entry) ? text : fs.readFileSync(f, "utf8"); } catch { continue; }
+    const mine = new Set();
     for (const m of src.matchAll(IMPORT)) {
       const spec = m[2];
       if (spec.endsWith(".rx") && (spec.startsWith(".") || spec.startsWith("/"))) todo.push(path.resolve(path.dirname(f), spec.split("?")[0]));
-      else if (isBare(spec) && !specs.has(spec)) specs.set(spec, f);
+      else if (isBare(spec) && !mine.has(spec)) { mine.add(spec); out.push([spec, f]); }
     }
   }
+  return out;
+}
+/** The package specifiers the program at `entry` imports, each with the first `.rx` module that imports it. */
+function packageImports(entry, text) {
+  const specs = new Map();
+  for (const [spec, f] of packageImportSites(entry, text)) if (!specs.has(spec)) specs.set(spec, f);
   return specs;
 }
 
@@ -117,12 +126,17 @@ function parsing(text, file) {
 function ensureDeclarations(entry, options = {}) {   // options.text: the entry's text as an editor has it
   if (process.env.RX_GENERATE === "0" || options.generate === false) return [];
   const out = [];
-  for (const [spec, from] of packageImports(entry, options.text)) {
+  // one draft per installed copy and subpath, as each importer resolves the specifier: deduplicated after resolving
+  const done = new Set();
+  for (const [spec, from] of packageImportSites(entry, options.text)) {
     const found = lookup(from, spec);
     const pkg = pkgOf(spec);
-    if (found && !/[\\/]node_modules[\\/]\.rx-types[\\/]/.test(found)) { out.push({ spec, file: found, status: "declared" }); continue; }
+    if (found && !/[\\/]node_modules[\\/]\.rx-types[\\/]/.test(found)) { const k = `declared\0${path.resolve(found)}`; if (!done.has(k)) { done.add(k); out.push({ spec, file: found, status: "declared" }); } continue; }
     const dir = path.dirname(from);
     const root = rootOf(pkg, dir); if (!root) continue;   // not installed: the bundler reports it
+    const key = `${path.resolve(root, "node_modules", pkg)}\0${spec}`;
+    if (done.has(key)) continue;
+    done.add(key);
     const version = installed(pkg, dir) ?? "0.0.0";
     const home = path.join(root, "node_modules", ".rx-types");
     const file = path.join(home, ...spec.split("/")) + ".d.rx";
@@ -158,4 +172,4 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
   return out;
 }
 
-module.exports = { ensureDeclarations, packageImports, parsing };
+module.exports = { ensureDeclarations, packageImports, packageImportSites, parsing };

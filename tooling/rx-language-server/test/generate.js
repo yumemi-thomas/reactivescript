@@ -144,6 +144,27 @@ check("a project declaration (rx-types/) comes first: nothing is drafted", statu
 // the Vite plugin (compiler/vite.mjs) drafts before it compiles, and the compiled module imports the package as written
 fs.rmSync(path.join(ws, "rx-types"), { recursive: true });
 fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: true });
+// MO-8l: one specifier, two installed copies in a workspace — each sibling's own — gets a draft for each, as each
+// importer resolves it; deduplicating by the import's text drafted one copy and left the other sibling undeclared
+{
+  const wsp = path.join(ws, "workspace"); fs.mkdirSync(wsp, { recursive: true });
+  for (const [side, version, extra] of [["left", "1.0.0", "export declare function one(): number;"], ["right", "2.0.0", "export declare function two(): string;"]]) {
+    const d = path.join(wsp, side, "node_modules", "shared-kit"); fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, "package.json"), JSON.stringify({ name: "shared-kit", version, type: "module", main: "./index.js", types: "./index.d.ts" }));
+    fs.writeFileSync(path.join(d, "index.js"), "export const one = () => 1; export const two = () => \"2\";\n");
+    fs.writeFileSync(path.join(d, "index.d.ts"), extra + "\n");
+    fs.writeFileSync(path.join(wsp, side, "page.rx"), `import { ${side === "left" ? "one" : "two"} } from "shared-kit"\nexport component Page() {\n  <p>{${side === "left" ? "one" : "two"}()}</p>\n}\n`);
+  }
+  fs.symlinkSync(path.join(ws, "node_modules"), path.join(wsp, "node_modules"), "dir");
+  fs.writeFileSync(path.join(wsp, "main.rx"), 'import { Page as L } from "./left/page.rx"\nimport { Page as R } from "./right/page.rx"\nexport default component App() {\n  <L /> <R />\n}\n');
+  const both = ensureDeclarations(path.join(wsp, "main.rx"));
+  const left = path.join(wsp, "left/node_modules/.rx-types/shared-kit.d.rx"), right = path.join(wsp, "right/node_modules/.rx-types/shared-kit.d.rx");
+  const lt = fs.existsSync(left) ? fs.readFileSync(left, "utf8") : "", rt = fs.existsSync(right) ? fs.readFileSync(right, "utf8") : "";
+  check("a specifier two siblings resolve to two installed copies is drafted for each (MO-8l)", both.filter(r => r.spec === "shared-kit" && r.status === "written").length === 2 && /shared-kit@1\.0\.0/.test(lt) && /fn one\(/.test(lt) && /shared-kit@2\.0\.0/.test(rt) && /fn two\(/.test(rt), { both, lt, rt });
+  const again = ensureDeclarations(path.join(wsp, "main.rx"));
+  check("...and each is current on the next run", again.filter(r => r.spec === "shared-kit" && r.status === "current").length === 2, again);
+}
+
 (async () => {
   const { default: rx } = await import(path.join(repo, "compiler/vite.mjs"));
   const plugin = rx();
