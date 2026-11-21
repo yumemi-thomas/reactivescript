@@ -100,6 +100,25 @@ pub fn analyze(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     } else {
         crate::check::check_modules_hosts(&set, params["spa"].as_bool().unwrap_or(false), params["whole"].as_bool().unwrap_or(false), &hosts).diags.iter().map(|d| diagnostic_json(&set, d)).filter(|d| all || d["file"] == json!(file)).collect()
     };
+    // MO-5, per module: a cycle is found where it closes, so its diagnostic sits on the import that closes it — in another
+    // module than the one an editor (or per-module rx-tsc) analyses, which then passed in silence. Each module on the
+    // cycle has it, at its own import that goes on around it.
+    let mut own = own;
+    if !all && !own.iter().any(|d| d["code"] == json!("MODULE_CYCLE")) {
+        for d in set.diags.iter().filter(|d| d.code == "MODULE_CYCLE" && d.file.as_deref() != Some(file.as_str())) {
+            let chain: Vec<&str> = d.msg.split(": modules may not").next().unwrap_or_default().split(" → ").collect();
+            let Some(i) = chain.iter().position(|m| *m == file) else { continue };
+            let Some(next) = chain.get(i + 1) else { continue };
+            let line = set.programs.get(&file).and_then(|p| p.decls.iter().find_map(|x| match x {
+                crate::ast::Decl::Import { resolved: Some(r), line, .. } if r == next => Some(*line as i64),
+                _ => None,
+            }));
+            let Some(line) = line else { continue };
+            let mine = crate::check::Diagnostic { code: d.code.clone(), rule: d.rule.clone(), line, msg: d.msg.clone(), file: Some(file.clone()) };
+            own.push(diagnostic_json(&set, &mine));
+            break;
+        }
+    }
     out["diagnostics"] = json!(own);
     out["modules"] = json!(set.order);
     // MO-8f, MO-8j, TY-6: the declarations this load consumed, each with its importer and the import's text

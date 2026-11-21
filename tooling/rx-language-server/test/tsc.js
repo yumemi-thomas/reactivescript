@@ -189,6 +189,10 @@ fs.writeFileSync(path.join(cyc, "b.rx"), 'import { A } from "./a.rx"\nexport com
 const cycRun = (...args) => { const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), ...args], { cwd: cyc, encoding: "utf8" }); return { status: r.status, out: r.stdout + r.stderr }; };
 const cycPer = cycRun();
 check("two .rx modules that import each other: per module, the write fails", cycPer.status !== 0 && /error (REACTIVE_WRITE_IN_OWNED_SCOPE|MODULE_CYCLE)/.test(cycPer.out), cycPer);
+fs.writeFileSync(path.join(cyc, "a.rx"), 'import { B } from "./b.rx"\nexport component A() { <B /> }\n');
+const cycQuiet = cycRun();
+check("...and two that import each other with nothing else wrong fail per module too (MODULE_CYCLE on each, at its import)", cycQuiet.status !== 0 && /a\.rx:1:1 - error MODULE_CYCLE/.test(cycQuiet.out) && /b\.rx:1:1 - error MODULE_CYCLE/.test(cycQuiet.out), cycQuiet);
+fs.writeFileSync(path.join(cyc, "a.rx"), 'import { B } from "./b.rx"\nexport component A() {\n  source n := 0\n  shown = [1].map(k => { n := k; k })\n  <p>{shown}</p> <B />\n}\n');
 const cycWhole = cycRun("--rx-whole-program");
 check("...and --rx-whole-program checks them too, from a cycle's root (no entry is imported by none)", cycWhole.status !== 0 && /a\.rx:4:3 - error REACTIVE_WRITE_IN_OWNED_SCOPE/.test(cycWhole.out) && /error MODULE_CYCLE/.test(cycWhole.out), cycWhole);
 fs.rmSync(cyc, { recursive: true });
