@@ -81,6 +81,8 @@ process.on("exit", code => {
   const cfg = project ? (ts.sys.directoryExists(project) ? path.join(project, "tsconfig.json") : project) : ts.findConfigFile(process.cwd(), ts.sys.fileExists);
   const parsed = cfg ? ts.parseJsonConfigFileContent(ts.readConfigFile(cfg, ts.sys.readFile).config, ts.sys, path.dirname(cfg), undefined, undefined, undefined, [{ extension: ".rx", isMixedContent: true, scriptKind: ts.ScriptKind.Deferred }]) : null;
   const options = parsed ? parsed.options : {};
+  // TY-1d: what a folder's listing counts for the gate — the files this project's program can hold
+  if (parsed) inputs?.takes([".ts", ".tsx", ".mts", ".cts", ".rx", ...(options.allowJs ? [".js", ".jsx", ".mjs", ".cjs"] : []), ...(options.resolveJsonModule ? [".json"] : [])]);
   // MO-8f, MO-8j, TY-6 cover the declarations the program consumed — as the crate's loader resolved each import, from
   // the module that wrote it (`declarations` in each analysis: the declaration, its importer, the import's text) — and
   // every .d.rx the tsconfig names itself (a package that ships only declarations, or a declaration audited on its

@@ -56,6 +56,15 @@ does for `.tsrx`. Nothing here is a second type system.
   the run read with the hash of what it read, each path it looked for and
   did not find, and each folder it listed, and the check is stale when a
   file's content differs, a missing path appears or a listing changes.
+  A listing counts what a type-check could take, and nothing else
+  (revised 2026-11-22 after review): the folders in it, which a glob may
+  descend into, and the files of the kinds the project's program holds —
+  TypeScript's, `.rx`, JavaScript's under `allowJs`, `.json` under
+  `resolveJsonModule`, and `package.json`. With `"include": ["**/*"]`
+  TypeScript lists every folder of the project, so every name counted
+  made a README beside the sources, or the assets a build wrote under
+  `dist/`, a reason to check again at each build start; a source file
+  added anywhere below still is one (`compiler/test/vite-gate.mjs`).
   A plugin without the hook checks
   only the rebuilds that compile an entry (`compiler/test/vite-watch.mjs`).
   Each check belongs to its project (revised 2026-11-21 after a second

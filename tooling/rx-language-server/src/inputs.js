@@ -4,6 +4,10 @@
 // `stale(inputs)` answers, later and in another process, whether any of them is different now: a file with other
 // content (an older mtime restored by a checkout, two files swapped with mv), one that appeared or vanished, a directory
 // with other names (a file added that an `include` glob would take). Content, not mtimes, decides.
+// A listing counts only the names TypeScript could take (revised 2026-11-22): the folders in it, which a glob may
+// descend into, and the files with an extension the project's program holds (`takes`: TypeScript's, `.rx`, JavaScript's
+// under `allowJs`, `.json` under `resolveJsonModule`, and `package.json`). With `"include": ["**/*"]` every folder is
+// listed, and a README beside the sources, or the assets a build writes under `dist/`, are not inputs of a type-check.
 const fs = require("node:fs");
 const crypto = require("node:crypto");
 const path = require("node:path");
@@ -15,6 +19,7 @@ function record(out) {
   const files = new Map(), absent = new Set(), dirs = new Map(), ignored = new Set([path.resolve(out)]);
   const real = { readFileSync: fs.readFileSync, existsSync: fs.existsSync, statSync: fs.statSync, lstatSync: fs.lstatSync, readdirSync: fs.readdirSync, writeFileSync: fs.writeFileSync };
   const key = p => typeof p === "string" ? path.resolve(p) : null;
+  let takes = null;                                             // the extensions a listing counts; null: every name
   const seen = (p, there) => { const k = key(p); if (!k) return; if (!there) { if (!files.has(k) && !dirs.has(k)) absent.add(k); } else absent.delete(k); };
   fs.readFileSync = function (p, enc) {
     const v = real.readFileSync.apply(fs, arguments);
@@ -29,17 +34,25 @@ function record(out) {
   };
   fs.readdirSync = function (p) {
     const r = real.readdirSync.apply(fs, arguments);
-    const k = key(p); if (k && !dirs.has(k)) { dirs.set(k, hashOf(r.map(e => typeof e === "string" ? e : e.name).sort().join("\0"))); absent.delete(k); }
+    const k = key(p); if (k && !dirs.has(k)) { let typed = null; try { typed = real.readdirSync.call(fs, k, { withFileTypes: true }); } catch {} dirs.set(k, typed ?? r.map(e => typeof e === "string" ? { name: e } : e)); absent.delete(k); }
     return r;
   };
   const keep = ([p]) => !ignored.has(p);
   return {
     /** a file the run reads that is not an input of the check (rx-tsc's --rx-hosts list, removed after the run) */
     ignore(p) { ignored.add(path.resolve(p)); },
-    write() { real.writeFileSync(out, JSON.stringify({ files: Object.fromEntries([...files].filter(keep)), absent: [...absent].filter(p => !files.has(p) && !dirs.has(p) && !ignored.has(p)), dirs: Object.fromEntries([...dirs].filter(keep)) })); },
+    /** the extensions of the files the project's program can hold: a listing counts those, and folders */
+    takes(exts) { takes = [...exts]; },
+    write() { real.writeFileSync(out, JSON.stringify({ files: Object.fromEntries([...files].filter(keep)), absent: [...absent].filter(p => !files.has(p) && !dirs.has(p) && !ignored.has(p)), dirs: Object.fromEntries([...dirs].filter(keep).map(([p, entries]) => [p, listingHash(entries, takes)])), ...(takes ? { takes } : {}) })); },
   };
 }
 
+/** What a folder's listing is, for the gate: every name, or — given the extensions the program can hold — its folders
+ *  (and links, which may be folders) and the files TypeScript could take. */
+function listingHash(entries, takes) {
+  const counted = takes ? entries.filter(e => typeof e.isDirectory !== "function" || e.isDirectory() || e.isSymbolicLink() || e.name === "package.json" || takes.some(x => e.name.endsWith(x))) : entries;
+  return hashOf(counted.map(e => e.name).sort().join("\0"));
+}
 /** A memo of content hashes by what `stat` says (device, inode, size, mtime and ctime — ctime cannot be set back), so a
  *  long-lived process hashes a file again only when it may have changed. */
 const memo = new Map();
@@ -56,7 +69,7 @@ function stale(inputs) {
   if (!inputs || !inputs.files) return true;
   for (const [p, h] of Object.entries(inputs.files)) if (contentHash(p) !== h) return true;
   for (const p of inputs.absent ?? []) if (fs.existsSync(p)) return true;
-  for (const [p, h] of Object.entries(inputs.dirs ?? {})) { let names; try { names = fs.readdirSync(p); } catch { return true; } if (hashOf(names.sort().join("\0")) !== h) return true; }
+  for (const [p, h] of Object.entries(inputs.dirs ?? {})) { let entries; try { entries = fs.readdirSync(p, { withFileTypes: true }); } catch { return true; } if (listingHash(entries, inputs.takes ?? null) !== h) return true; }
   return false;
 }
 module.exports = { record, stale, contentHash };

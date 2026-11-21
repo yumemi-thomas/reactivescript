@@ -145,6 +145,32 @@ for (const [i, [what, files, change, setup]] of gated.entries()) {
   check(`with nothing changed, the next build start passes without checking again (${again} ms, the check took ${first} ms)`, start === null && again * 3 < first, { again, first, start });
 }
 
+// TY-1d (revised 2026-11-22): with `"include": ["**/*"]` TypeScript lists every folder of the project, and a listing
+// counts only what a type-check could take — folders, and files of the program's kinds. A README, or the assets a build
+// writes under dist/, do not make the gate stale; a source file added anywhere below still does
+{
+  const d = project("j", { "tsconfig.json": tsconfig(["**/*"]), "main.rx": app, "src/ok.ts": "export const n: number = 1;\n", "dist/index.html": "<p>old</p>" });
+  const fe = rx();
+  const t0 = Date.now(); const e0 = await compile(fe, path.join(d, "main.rx"), ws); const first = Date.now() - t0;
+  check('a project whose tsconfig includes "**/*" compiles', e0 === null, e0);
+  writeFileSync(path.join(d, "README.md"), "# notes\n"); writeFileSync(path.join(d, "dist/index.html"), "<p>new</p>");
+  writeFileSync(path.join(d, "dist/app-4f2a.css"), "p{}"); writeFileSync(path.join(d, "dist/app-9c1b.js"), "export {}"); writeFileSync(path.join(d, "src/logo.svg"), "<svg/>");
+  const t1 = Date.now(); let start = null; try { fe.buildStart(); } catch (e) { start = e; } const again = Date.now() - t1;
+  check(`a README, and what a build writes under dist/ (html, css, hashed js with no allowJs), leave the gate fresh (${again} ms, the check took ${first} ms)`, start === null && again * 3 < first, { again, first, start });
+  mkdirSync(path.join(d, "src/deep"), { recursive: true }); writeFileSync(path.join(d, "src/deep/late.ts"), 'export const s: string = 1;\n');
+  start = null; try { fe.buildStart(); } catch (e) { start = e; }
+  check("a .ts file added in a new folder below is still checked at the next build start (TS2322)", start && /TS2322/.test(start.message), start ?? "it did not fail");
+}
+{
+  const d = project("k", { "tsconfig.json": tsconfig(["**/*"], { allowJs: true, checkJs: true }), "main.rx": app, "util.js": "/** @type {number} */ export const n = 1;\n" });
+  const fe = rx();
+  const e0 = await compile(fe, path.join(d, "main.rx"), ws);
+  check("the same with allowJs compiles", e0 === null, e0);
+  mkdirSync(path.join(d, "lib"), { recursive: true }); writeFileSync(path.join(d, "lib/bad.js"), '/** @type {number} */ export const n = "bad";\n');
+  let start = null; try { fe.buildStart(); } catch (e) { start = e; }
+  check("under allowJs a .js file is one of the program's: added, it is checked (TS2322)", start && /TS2322/.test(start.message), start ?? "it did not fail");
+}
+
 rmSync(ws, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
