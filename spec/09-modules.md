@@ -253,8 +253,14 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   what to run. `trusted` changes nothing else: outside strict mode it is
   read and ignored. A row is verified only when every claim the parser reads in it
   was run (revised 2026-11-21 after review): the crate lists them for each
-  row (`exists`, `pure`, `uses`, `provides`, `fields`, `fails`,
-  `callbacks`, `draft`, `placement`; `rxc serve`'s `rows` answer), rx-verify
+  row (`exists`, `pure`, `uses`, `provides:<context>`, `fields`, `fails`,
+  `callbacks:<position>`, `draft`, `placement`; `rxc serve`'s `rows`
+  answer). Each context a row provides and each callback position — a
+  function-typed parameter, a record parameter's function-typed field, a
+  component's function-typed prop (`ref: handler (el) => void`) — is a
+  claim of its own (revised 2026-11-21 after a second review): a hook that
+  uses `a` answers `provides(a)`, not `provides(a, b)`, and a component's
+  export being a function answers none of its callbacks. rx-verify
   reads each row whole, as the parser spans it (a claim on a row's later
   line, `}) provides(theme)`, is the row's), and a claim no check answered —
   one rx-verify cannot run, as `forwards` or `joins(…)` — is recorded as not

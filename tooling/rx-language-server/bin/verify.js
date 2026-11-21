@@ -217,20 +217,26 @@ async function verify(file) {
         : { line: x.line, ob: "pure", status: "fail", what: `${x.name}: declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})` });
       continue;
     }
-    // provides(c) (MO-12c): under the component, a hook of the same file that uses only what it provides runs cleanly
+    // provides(c) (MO-12c): under the component, a hook of the same file that uses only what it provides runs cleanly.
+    // Each context is its own claim (RFC 28): a hook that uses `a` alone answers `provides:a`, and `b` stays unverified
     if (x.kind === "component" && x.providesNames.length) {
       const all = exportsOf(text);
-      const hook = all.find(h => h.kind === "fn" && h.usesNames.length && h.usesNames.every(c => x.providesNames.includes(c)) && (probeMod?.probes?.[h.name]?.args || !h.required) && typeof mod[h.name] === "function");
-      const part = !hook && all.find(c => c.kind === "component" && c !== x && c.usesNames?.length && c.usesNames.every(u => x.providesNames.includes(u)));
-      if (part) { out.push({ line: x.line, ob: "provides", status: "ok", what: `${x.name}: provides(…) checked through the components that use it (${part.name}, …), rendered inside it below` }); continue; }   // MO-11q: a kit's parts
-      if (!hook) { out.push({ line: x.line, ob: "provides", status: "unverified", what: `${x.name}: provides(…) not run: no hook or component in this file uses only what it provides (with a probe's arguments if it needs any)` }); continue; }
       const props = probe?.props?.() ?? {};
       // inside it: as its children, or as the probe says (`around`, for a provider that renders something else, as a router)
       const wrap = probe?.around ? probe.around : (children, sol) => sol.createComponent(v, Object.defineProperty({ ...props }, "children", { get: () => children(), enumerable: true }));
-      const ran = await mount(dir, mod, probeMod, mod[hook.name], probeMod?.probes?.[hook.name]?.args?.() ?? [], [], null, wrap);
-      if (ran.renderError) { out.push({ line: x.line, ob: "provides", status: "unverified", what: `${x.name}: provides(…) not run: it threw as it mounted (${String(ran.renderError.message ?? ran.renderError).slice(0, 50)}); give its props as the probe's props` }); continue; }
-      out.push(ran.boundary && ran.boundary?.name !== "NotReadyError" ? { line: x.line, ob: "provides", status: "fail", what: `${x.name}: declared provides(${x.providesNames.join(", ")}), but ${hook.name} under it still fails (${String(ran.boundary.message ?? ran.boundary).slice(0, 60)})` }
-        : { line: x.line, ob: "provides", status: "ok", what: `${x.name}: provides(…) holds: ${hook.name} runs under it` });
+      const runs = new Map();   // a hook mounted once, whatever contexts it answers for
+      for (const c of x.providesNames) {
+        const ob = `provides:${c}`;
+        const hook = all.find(h => h.kind === "fn" && h.usesNames.includes(c) && h.usesNames.every(u => x.providesNames.includes(u)) && (probeMod?.probes?.[h.name]?.args || !h.required) && typeof mod[h.name] === "function");
+        const part = !hook && all.find(p => p.kind === "component" && p !== x && p.usesNames?.includes(c) && p.usesNames.every(u => x.providesNames.includes(u)));
+        if (part) { out.push({ line: x.line, ob, status: "ok", what: `${x.name}: provides(${c}) checked through the components that use it (${part.name}, …), rendered inside it below` }); continue; }   // MO-11q: a kit's parts
+        if (!hook) { out.push({ line: x.line, ob, status: "unverified", what: `${x.name}: provides(${c}) not run: no hook or component in this file uses ${c} and only what ${x.name} provides (with a probe's arguments if it needs any)` }); continue; }
+        if (!runs.has(hook.name)) runs.set(hook.name, await mount(dir, mod, probeMod, mod[hook.name], probeMod?.probes?.[hook.name]?.args?.() ?? [], [], null, wrap));
+        const ran = runs.get(hook.name);
+        if (ran.renderError) { out.push({ line: x.line, ob, status: "unverified", what: `${x.name}: provides(${c}) not run: it threw as it mounted (${String(ran.renderError.message ?? ran.renderError).slice(0, 50)}); give its props as the probe's props` }); continue; }
+        out.push(ran.boundary && ran.boundary?.name !== "NotReadyError" ? { line: x.line, ob, status: "fail", what: `${x.name}: declared provides(${c}), but ${hook.name}, which uses it, still fails under it (${String(ran.boundary.message ?? ran.boundary).slice(0, 60)})` }
+          : { line: x.line, ob, status: "ok", what: `${x.name}: provides(${c}) holds: ${hook.name} runs under it` });
+      }
       continue;
     }
     const left = [x.pure && !x.inst && "pure", x.holds && "pending/fails", x.provides && "provides"].filter(Boolean);
@@ -240,7 +246,7 @@ async function verify(file) {
     for (const o of left) out.push({ line: x.line, ob: o === "pending/fails" ? "fields" : o, status: "unverified", what: `${x.name}: ${o} not run (it needs what the app passes: give it in a probe)` });
   }
   // MO-10g: callbacks, by running: a closure at a declared function-typed parameter is checked as a handler
-  out.push(...(await require("../src/verify-place.js").verifyCallbacks({ fns: exportsOf(text).filter(x => x.kind === "fn" && x.cbs?.length), at, probeMod, resolve: pathToFileURL(require.resolve("solid-js", { paths: [dir, __dirname] })).href, mount: (fn, args, run) => mount(dir, mod, probeMod, fn, args, [], run) })).map(r => ({ ob: "callbacks", ...r })));
+  out.push(...(await require("../src/verify-place.js").verifyCallbacks({ fns: exportsOf(text).filter(x => x.kind === "fn" && x.cbs?.length), at, probeMod, resolve: pathToFileURL(require.resolve("solid-js", { paths: [dir, __dirname] })).href, mount: (fn, args, run) => mount(dir, mod, probeMod, fn, args, [], run) })));   // each tagged with its position, `callbacks:<name>` (RFC 29)
   // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its drafts
   const from = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
   out.push(...(await require("../src/verify-place.js").verifyPlacement({ text, mod, probeMod, dir, resolve: from })).map(r => ({ ob: "placement", ...r })));

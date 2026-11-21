@@ -66,14 +66,17 @@ function unanswered(file, results) {
     const mine = results.filter(r => r.line >= row.line && r.line <= row.end);
     if (mine.some(r => r.ob === undefined)) continue;   // a result with no claim named is about the whole row (a caller of writeRecord that checks rows its own way)
     const got = new Set(mine.flatMap(r => [].concat(r.ob)));
-    for (const ob of row.obligations ?? []) if (!got.has(ob)) out.push({ line: row.line, ob, status: "unverified", what: `${row.name}: ${WHAT[ob] ?? ob} not checked by running${ob === "exists" ? "" : ": give it in a probe, or mark the row `trusted`"}` });
+    for (const ob of row.obligations ?? []) if (!got.has(ob)) { const [kind, at] = ob.split(/:(.*)/s); out.push({ line: row.line, ob, status: "unverified", what: `${row.name}: ${at ? (AT[kind] ?? (x => `${kind} ${x}`))(at) : WHAT[ob] ?? ob} not checked by running${ob === "exists" ? "" : ": give it in a probe, or mark the row `trusted`"}` }); }
   }
   return out;
 }
-const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides(…)", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler, tracked or pure)", draft: "draft", placement: "where it renders what it is given (renders, nests, forwards, joins, outlet)", methods: "methods(…), that its instance's methods make a value once" };
+/** A claim about one position (`provides:theme`, `callbacks:options.onSuccess`, RFC 28/29), in words. */
+const AT = { provides: c => `provides(${c})`, callbacks: c => `callback ${c} (handler, tracked or pure)` };
+const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler, tracked or pure)", draft: "draft", placement: "where it renders what it is given (renders, nests, forwards, joins, outlet)", methods: "methods(…), that its instance's methods make a value once" };
 /** The meaning of a record: what rx-verify checked when it wrote one. A record from a version whose checks differ (2:
- *  each claim the crate reads must be answered) does not count. */
-const RECORD_VERSION = 2;
+ *  each claim the crate reads must be answered; 3: each context provided and each callback position is a claim of its
+ *  own, a component's function-typed props included) does not count. */
+const RECORD_VERSION = 3;
 /** What a record was verified against: the library (an installed package's version, or the JS module's own text beside
  *  the declaration) and the probe file. A record made against other inputs does not count (the library moved under it). */
 function inputsOf(file) {

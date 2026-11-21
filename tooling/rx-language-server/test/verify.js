@@ -84,8 +84,8 @@ check("a tuple's ref part is read as an accessor", /lib\.d\.rx:11 ok\s+usePair: 
 check("a ref part that is not an accessor is a mismatch", /lib\.d\.rx:12 MISMATCH\s+useBadRef: 0 is declared ref, but is not an accessor/.test(out), out);
 check("pure: two calls answering alike is not contradicted, and not verified either", /lib\.d\.rx:13 unverified\s+double: pure not contradicted/.test(out), out);
 check("pure that answers differently is a mismatch", /lib\.d\.rx:14 MISMATCH\s+roll: declared pure, but two calls/.test(out), out);
-check("provides: a hook of the file runs under the component", /lib\.d\.rx:15 ok\s+ThemeProvider: provides\(…\) holds: useTheme runs under it/.test(out), out);
-check("a component that provides nothing is a mismatch", /lib\.d\.rx:16 MISMATCH\s+FakeProvider: declared provides\(theme\), but useTheme under it still fails/.test(out), out);
+check("provides: a hook of the file runs under the component", /lib\.d\.rx:15 ok\s+ThemeProvider: provides\(theme\) holds: useTheme runs under it/.test(out), out);
+check("a component that provides nothing is a mismatch", /lib\.d\.rx:16 MISMATCH\s+FakeProvider: declared provides\(theme\), but useTheme, which uses it, still fails under it/.test(out), out);
 check("mismatches fail the run", r.status === 1, r.status);
 
 // MO-11r, MO-10i: placement rows against a scene, and drafts. A small router that renders a child route at its parent's
@@ -165,7 +165,7 @@ check("draft: a setter that hands its draft holds", /store\.d\.rx:1 ok\s+makeSto
 check("draft: one that hands a copy is a mismatch", /store\.d\.rx:2 MISMATCH\s+copyStore: declared a draft callback, but a write to what it is handed is not kept/.test(out2), out2);
 check("a compound part that fails alone and renders inside its root holds its uses(…) (MO-11q)", /kit\.d\.rx:3 ok\s+Dialog\.Trigger: uses\(…\) holds: it fails alone and renders inside Dialog/.test(out2), out2);
 check("a part declared uses(…) that reads nothing is a mismatch", /kit\.d\.rx:4 MISMATCH\s+Dialog\.Title: declared uses\(dialog\), but rendered with no provider it neither fails nor warns/.test(out2), out2);
-check("the root's provides(…) is checked through its parts", /kit\.d\.rx:2 ok\s+Dialog: provides\(…\) checked through the components that use it/.test(out2), out2);
+check("the root's provides(…) is checked through its parts", /kit\.d\.rx:2 ok\s+Dialog: provides\(dialog\) checked through the components that use it/.test(out2), out2);
 check("placement with no scene is not verified, and says so", /unscened\.d\.rx:3 unverified createRoute: where it renders what it is given is not run: give a scene/.test(out2), out2);
 
 // MO-10g: a callback row checked by running — the library calls it outside tracking (a handler), inside a computation
@@ -275,7 +275,7 @@ const boxRun = decl => {
 };
 const oneLine = boxRun("export context theme\nexport component Box(props: { label: string }) provides(theme)\n");
 const threeLines = boxRun("export context theme\nexport component Box(props: {\n  label: string\n}) provides(theme)\n");
-check("a provides(…) on a row's later line is read: unverified, as on one line", /box\.d\.rx:2 unverified Box: provides\(…\) not run/.test(oneLine.out) && /box\.d\.rx:2 unverified Box: provides\(…\) not run/.test(threeLines.out) && !/ok\s+— Box/.test(threeLines.out), threeLines.out);
+check("a provides(…) on a row's later line is read: unverified, as on one line", /box\.d\.rx:2 unverified Box: provides\(theme\) not run/.test(oneLine.out) && /box\.d\.rx:2 unverified Box: provides\(theme\) not run/.test(threeLines.out) && !/ok\s+— Box/.test(threeLines.out), threeLines.out);
 check("...and strict refuses it either way (no `ok` for a row with a claim nothing ran)", oneLine.strict.some(u => u.name === "Box") && threeLines.strict.some(u => u.name === "Box" && /could not check it/.test(u.message)), threeLines.strict);
 // a claim no check of rx-verify's answers (here `forwards`) is recorded as not verified, not passed over
 fs.writeFileSync(path.join(ws, "fw.mjs"), "export const wrap = c => c;\n");
@@ -290,6 +290,34 @@ const okBefore = checkStrict(path.join(ws, "cb.d.rx")).length;
 delete rec.version; fs.writeFileSync(recFile, JSON.stringify(rec));
 const old = checkStrict(path.join(ws, "cb.d.rx"));
 check("strict: a record from an older rx-verify does not count (its passes may be false)", old.length > okBefore && old.every(u => /older rx-verify|changed since|could not|mismatch/.test(u.message)) && old.some(u => /older rx-verify/.test(u.message)), old);
+
+// RFC 28, 29: each named context and each callback position is a claim of its own. `Both` declares provides(a, b) and
+// provides only `a`, and the file's one hook uses only `a`: `provides(a)` holds, `b` is unverified, and strict refuses the
+// row. `Lone`'s `ref` prop is a handler: that its export is a function says nothing of how it calls it
+fs.writeFileSync(path.join(ws, "both.mjs"), [
+  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "const A = createContext();",
+  "export const useA = () => { const v = useContext(A); if (!v) throw new Error(\"no a\"); return v; };",
+  "export const Both = props => createComponent(A, { value: \"x\", get children() { return props.children; } });",
+  "export const Lone = props => null;",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "both.d.rx"), [
+  "export context a",
+  "export context b",
+  "export pure fn useA(): string uses(a)",
+  "export component Both(props: { children?: View }) provides(a, b)",
+  "export component Lone(props: { ref?: handler (el: number) => void })",
+  "",
+].join("\n"));
+fs.rmSync(path.join(ws, "both.verified.json"), { force: true });
+const both = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "both.d.rx"], { cwd: ws, encoding: "utf8" });
+const bothStrict = checkStrict(path.join(ws, "both.d.rx"));
+check("provides(a, b): a hook that uses only a answers provides(a) alone; b is unverified", /both\.d\.rx:4 ok\s+Both: provides\(a\) holds: useA runs under it/.test(both.stdout) && /both\.d\.rx:4 unverified Both: provides\(b\) not run/.test(both.stdout) && !/provides\(…\) holds/.test(both.stdout), both.stdout + both.stderr);
+check("...and strict refuses the row (no `ok` record for provides(a, b))", bothStrict.some(u => u.name === "Both" && /could not check it/.test(u.message)), bothStrict);
+check("a component's handler prop is a callback claim nothing ran: unverified, and strict refuses it", /both\.d\.rx:5 unverified Lone: callback ref \(handler, tracked or pure\) not checked by running/.test(both.stdout) && bothStrict.some(u => u.name === "Lone" && /could not check it/.test(u.message)), { out: both.stdout, bothStrict });
+const bothRec = JSON.parse(fs.readFileSync(path.join(ws, "both.verified.json"), "utf8"));
+check("...in a version-3 record", bothRec.version === 3 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

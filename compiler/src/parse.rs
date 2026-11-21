@@ -568,8 +568,8 @@ impl JsDecl {
 /// (a function-typed parameter or record field: handler, tracked or pure), `draft`, `placement` (`renders…`, `nests(…)`,
 /// `forwards`, `joins(…)`, `outlet`, a prop that `renders`, a carrier). rx-verify tags each result with the claim it
 /// ran; a claim no result answers is not verified.
-pub fn obligations(d: &JsDecl) -> Vec<&'static str> {
-    let mut out = vec!["exists"];
+pub fn obligations(d: &JsDecl) -> Vec<String> {
+    let mut out: Vec<String> = vec!["exists".into()];
     let fn_typed = |t: &str| {
         let t = js_trim(t);
         let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
@@ -577,52 +577,68 @@ pub fn obligations(d: &JsDecl) -> Vec<&'static str> {
         fn_params_text(t).is_some()
     };
     match d {
-        JsDecl::Fn { pure, instantiates, uses, provides, held, shape, ptypes, renders, renders_root, nests, forwards, joins, carrier, under, drafts, part_drafts, methods, .. } => {
+        JsDecl::Fn { params, pure, instantiates, uses, provides, held, shape, ptypes, renders, renders_root, nests, forwards, joins, carrier, under, drafts, part_drafts, methods, .. } => {
             if *pure && !*instantiates {
-                out.push("pure");
+                out.push("pure".into());
             }
             if !uses.is_empty() {
-                out.push("uses");
+                out.push("uses".into());
             }
-            if !provides.is_empty() {
-                out.push("provides");
+            // RFC 28: each context it provides is a claim of its own: one hook that uses `a` says nothing of `b`
+            for c in provides {
+                out.push(format!("provides:{c}"));
             }
             if !held.is_empty() || shape.has_ref() {
-                out.push("fields");
+                out.push("fields".into());
             }
             if held.iter().any(|h| !h.2.is_empty()) {
-                out.push("fails");
+                out.push("fails".into());
             }
-            let cb = ptypes.iter().flatten().any(|t| {
+            // RFC 29: each callback position is a claim of its own (`callbacks:onChange`, `callbacks:options.onSuccess`), as
+            // rx-verify names what it ran
+            for (i, t) in ptypes.iter().enumerate() {
+                let Some(t) = t else { continue };
                 let t = js_trim(t);
                 let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
-                fn_typed(t) || (t.starts_with('{') && t.ends_with('}') && split_top(&t[1..t.len() - 1], ",;").iter().any(|f| f.find(':').is_some_and(|i| fn_typed(&f[i + 1..]))))
-            });
-            if cb {
-                out.push("callbacks");
+                let name = params.get(i).map(|n| n.trim_start_matches("...").to_string()).unwrap_or_else(|| i.to_string());
+                if fn_typed(t) {
+                    out.push(format!("callbacks:{name}"));
+                } else if t.starts_with('{') && t.ends_with('}') {
+                    for f in split_top(&t[1..t.len() - 1], ",;") {
+                        let Some(at) = f.find(':') else { continue };
+                        if fn_typed(&f[at + 1..]) {
+                            out.push(format!("callbacks:{name}.{}", js_trim(&f[..at]).trim_end_matches('?').trim()));
+                        }
+                    }
+                }
             }
             if !drafts.is_empty() || !part_drafts.is_empty() {
-                out.push("draft");
+                out.push("draft".into());
             }
             if !methods.is_empty() {
-                out.push("methods");
+                out.push("methods".into());
             }
             if *renders || *renders_root || nests.is_some() || *forwards || joins.is_some() || *carrier || under.is_some() || matches!(shape, Shape::Comp) {
-                out.push("placement");
+                out.push("placement".into());
             }
         }
         JsDecl::Comp { props, fails, uses, provides, outlet, .. } => {
             if !uses.is_empty() {
-                out.push("uses");
+                out.push("uses".into());
             }
-            if !provides.is_empty() {
-                out.push("provides");
+            for c in provides {
+                out.push(format!("provides:{c}"));
+            }
+            // RFC 29: a function-typed prop (`ref: handler (el) => void`, `onPick: (id) => void`) is a callback claim, each
+            // prop its own: that the export is a function says nothing of how it calls them
+            for p in props.iter().filter(|p| p.callback || p.pure) {
+                out.push(format!("callbacks:{}", p.name));
             }
             if !fails.is_empty() {
-                out.push("fails");
+                out.push("fails".into());
             }
             if *outlet || props.iter().any(|p| p.carried) {
-                out.push("placement");
+                out.push("placement".into());
             }
         }
         JsDecl::Error { .. } | JsDecl::Value { .. } | JsDecl::Type { .. } | JsDecl::Context { .. } => {}
