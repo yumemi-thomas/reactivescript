@@ -720,6 +720,27 @@ fn reads_outside_peek(n: Node, out: &mut IndexSet<String>) {
 /// RFC 14: the names read outside `peek` at the root of a field or index read (`size.width`, `todos.items[0]`): a
 /// primitive's instance never changes, but what is read through it tracks (MO-10b); a method called on it is not a read
 /// of a field.
+/// RFC 14 (bounded, 2026-11-21): the methods called on a name outside `peek` and closures, `route.addChildren(…)` as
+/// `(route, addChildren)`: what a stable instance keeps stable only when its declaration names the method.
+fn method_calls(e: &Expr, out: &mut Vec<(String, String)>) {
+    match &e.k {
+        ExprKind::Peek(_) | ExprKind::Fn { .. } => {}
+        _ => {
+            if let ExprKind::Call { f, .. } = &e.k {
+                if let ExprKind::Member { o, p, .. } = &f.k {
+                    if let ExprKind::Id(n) = &o.k {
+                        out.push((n.clone(), p.clone()));
+                    }
+                }
+            }
+            for c in children(Node::E(e), false) {
+                if let Node::E(x) = c {
+                    method_calls(x, out);
+                }
+            }
+        }
+    }
+}
 fn rooted_reads(e: &Expr, out: &mut IndexSet<String>) {
     match &e.k {
         ExprKind::Peek(_) | ExprKind::Fn { .. } => {}
@@ -2738,13 +2759,27 @@ impl<'a> Checker<'a> {
             rooted_reads(a, &mut rooted);
             // E-10: an instance a primitive made (its value result) is made once and never changes, when it is passed
             // whole; a field read through it, or a name bound to one, tracks (RFC 14, MO-10b)
-            let constant = |s: SId, n: &String| matches!(self.syms[s].foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value)) | Some(crate::parse::Shape::Comp)) && !self.syms[s].via_field && !rooted.contains(n);
-            let cands: Vec<(String, SId)> = reads.iter().filter_map(|n| self.lookup(env, n).filter(|&s| self.syms[s].kind.reactive() && !constant(s, n)).map(|s| (n.clone(), s))).collect();
+            // a method called on it keeps it stable only when the primitive's declared result names the method as a
+            // function (`createRootRoute(…): { addChildren: (routes: any[]) => any }`): what an undeclared method gives
+            // back the declaration does not say, and may track (RFC 14, bounded 2026-11-21)
+            let mut methods = vec![];
+            method_calls(a, &mut methods);
+            let declared_method = |s: SId, m: &str| matches!(&self.syms[s].foreign, Some(crate::parse::Shape::Fields(fs)) if fs.iter().any(|(k, p)| k == m && *p == crate::parse::Part::Fn));
+            let instance = |s: SId| matches!(self.syms[s].foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value)) | Some(crate::parse::Shape::Comp) | Some(crate::parse::Shape::Fields(_)));
+            let undeclared = |s: SId, n: &String| methods.iter().find(|(r, m)| r == n && !declared_method(s, m)).map(|(_, m)| m.clone());
+            let constant = |s: SId, n: &String| instance(s) && !self.syms[s].via_field && !rooted.contains(n) && undeclared(s, n).is_none();
+            let cands: Vec<(String, SId, Option<String>)> = reads
+                .iter()
+                .filter_map(|n| self.lookup(env, n).filter(|&s| self.syms[s].kind.reactive() && !constant(s, n)).map(|s| (n.clone(), s, (instance(s) && !self.syms[s].via_field && !rooted.contains(n)).then(|| undeclared(s, n)).flatten())))
+                .collect();
             // and an equation that reads nothing that changes
             let mut hit = None;
-            for (n, s) in cands {
+            for (n, s, m) in cands {
                 if !self.constant_eq(s) {
-                    hit = Some(n);
+                    hit = Some(match m {
+                        Some(m) => format!("{n}.{m}(…), a method its declaration does not name (declare it on the result, `{{ {m}: (…) => … }}`, for its value to count as made once)"),
+                        None => n,
+                    });
                     break;
                 }
             }

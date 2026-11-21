@@ -25,9 +25,7 @@ export default component App() {
   d = 0
   x = a<b && c>(d)
   y = a<b ? c : d>(d)
-  e = [0, 2]
-  z = a<e[c-2]>(d)
-  <p>{x ? "both" : "not both"} {y ? "c" : "none"} {z ? "less" : "more"}</p>
+  <p>{x ? "both" : "not both"} {y ? "c" : "none"}</p>
 }
 ```
 
@@ -35,9 +33,27 @@ export default component App() {
 
 | instant | action              | frame           |
 | ------- | ------------------- | --------------- |
-| 0       | mount               | `both c less`        |
-| 1       | handler `a := 5`    | `not both none more` |
+| 0       | mount               | `both c`        |
+| 1       | handler `a := 5`    | `not both none` |
 
-Instant 0: `1 < 2` and `3 > 0`; `1 < e[1]` is `true`, and `true > 0`.
-Instant 1: `5 < 2` is false, and `false > 0` is false. Read as type
-arguments, `x`, `y` and `z` would have been `a` called with `d`.
+Instant 0: `1 < 2` and `3 > 0`. Instant 1: `5 < 2` is false. Read as type
+arguments, `x` and `y` would have been `a` called with `d`.
+
+## Rejected variants
+
+```rx
+-- types: TS2365
+export default component App() {
+  source a := 1
+  e = [0, 2]
+  c = 3
+  d = 0
+  z = a<e[c-2]>(d)
+  <p>{z ? "less" : "more"}</p>
+}
+```
+
+`a<e[c-2]>(d)` is `(a < e[c - 2]) > d` for TypeScript too: it refuses
+comparing the `boolean` with a number (TS2365), where a call of `a` would
+have been TS2349. The compiler reads it the same way (`v$a() <
+v$e()?.[v$c() - 2] > v$d()`), not as `a` called with `e[c-2]` as a type.

@@ -196,6 +196,13 @@ function rootedReads(e: Expr, out: Set<string>): void {
     else if (v && typeof v === "object" && "k" in (v as object)) rootedReads(v as Expr, out);
   }
 }
+/** RFC 14 (bounded, 2026-11-21): the methods called on a name outside `peek` and closures (`route.addChildren(…)`):
+ *  what a stable instance keeps stable only when its declaration names the method. */
+function methodCalls(e: Expr, out: [string, string][]): void {
+  if (e.k === "peek" || e.k === "fn") return;
+  if (e.k === "call" && e.f.k === "member" && e.f.o.k === "id") out.push([e.f.o.name, e.f.p]);
+  for (const x of subExprs(e)) methodCalls(x, out);
+}
 function readsOutsidePeek(e: Expr, out: Set<string>): void {
   if (e.k === "peek") return;
   if (e.k === "fn") return;                                             // a closure literal reads nothing now
@@ -1009,7 +1016,14 @@ class Checker {
       const a = call.args[i]; if (!a || p.ref) return;
       const reads = new Set<string>(); readsOutsidePeek(a, reads);
       const rooted = new Set<string>(); rootedReads(a, rooted);   // RFC 14: the instance passed whole is exempt; a field read through it is not
-      let hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !((s.foreign === "value" || s.foreign === "comp") && !s.viaField && !rooted.has(n)) && !this.constantEq(s); });   // E-10: an instance a primitive made (its value result) is made once and never changes; so does an equation that reads nothing that changes
+      // a method called on it keeps it stable only when the primitive's declared result names the method as a function
+      // (`createRootRoute(…): { addChildren: (routes: any[]) => any }`): what an undeclared method gives back may track
+      const methods: [string, string][] = []; methodCalls(a, methods);
+      const instance = (s: Sym) => s.foreign === "value" || s.foreign === "comp" || (typeof s.foreign === "object" && "fields" in s.foreign);
+      const undeclared = (s: Sym, n: string) => methods.find(([r, m]) => r === n && !(typeof s.foreign === "object" && "fields" in s.foreign && s.foreign.fields.some(([k, p]) => k === m && p === "fn")))?.[1];
+      const exempt = (s: Sym, n: string) => instance(s) && !s.viaField && !rooted.has(n);
+      let hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !(exempt(s, n) && undeclared(s, n) === undefined) && !this.constantEq(s); });   // E-10: an instance a primitive made (its value result) is made once and never changes; so does an equation that reads nothing that changes
+      if (hit) { const s = env.lookup(hit)!; const m = exempt(s, hit) ? undeclared(s, hit) : undefined; if (m !== undefined) hit = `${hit}.${m}(…), a method its declaration does not name (declare it on the result, \`{ ${m}: (…) => … }\`, for its value to count as made once)`; }
       // E-10: a field read through a `for` row (`counter(r.x)`): the row is a constant (RG-2b), but its fields are written
       // by path or reconciled by key while it lives (ST-4a). The row passed whole reads no field; `peek r.x` is meant
       if (!hit) { const row = [...rooted].find(n => !!env.lookup(n)?.rowOf); if (row) hit = `a field of the row ${row}`; }

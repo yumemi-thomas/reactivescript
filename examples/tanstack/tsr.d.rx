@@ -2,8 +2,8 @@
 // A route carries the components it is given (MO-11o): the router renders them under <RouterProvider>, which renders
 // what its `router` prop carries; a child route renders at its parent's <Outlet /> (MO-11p).
 export context router
-export pure fn createRootRoute(options: { component?: Component }): any renders(later)
-export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) nests(component under getParentRoute)
+export pure fn createRootRoute(options: { component?: Component }): { addChildren: (children: any[]) => any } renders(later)
+export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): { addChildren: (children: any[]) => any } renders(later) nests(component under getParentRoute)
 export pure fn createRouter(options: { routeTree: any }): any instantiates
 export component RouterProvider(props: { router: renders any }) provides(router)
 export component Outlet(props: {}) uses(router) outlet

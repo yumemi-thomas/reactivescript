@@ -74,8 +74,8 @@ export default component App() {
 The instance `createWindowSize` made never changes, but its fields track
 (MO-10b): `w` follows `size.width`, so passing it to a value parameter
 reads it once and keeps the first width (E-10). Only the instance passed
-whole is exempt, and a method called on it (`route.addChildren(…)`,
-S-module-22), which reads no field.
+whole is exempt, and a method its declaration names on the result
+(`route.addChildren(…)`, S-module-22), which reads no field.
 
 ```rx
 -- reject: SNAPSHOT_ARGUMENT
