@@ -769,6 +769,28 @@ function parseUnary(c: Cursor): Expr {
 type TyTok = { w: string } | { lit: "num" | "str" } | { p: string };   // a number is a type after `-`, a string is not
 const TY_PUNCT = ["...", "=>", "-?", "+?", "<", ">", "(", ")", "[", "]", "{", "}", ",", ";", ":", "?", "|", "&", ".", "=", "-", "+"];
 const TY_RESERVED = new Set(["extends", "keyof", "typeof", "infer", "readonly", "unique", "new", "abstract", "import", "is", "asserts", "in", "as", "this"]);
+/** R4 (RFC 11): the index just past the string or template literal opening at `s[j]`, with the spans of a template's own
+ *  substitutions in `subs`. A substitution is scanned as code: braces nest, and a string or template inside it is skipped
+ *  whole, so `${"}"}` does not end it. Null when the literal is not closed. */
+export function quotedEnd(s: string, j: number, subs: [number, number][]): number | null {
+  const q = s[j]; j++;
+  while (j < s.length) {
+    if (s[j] === "\\") j += 2;
+    else if (s[j] === q) return j + 1;
+    else if (q === "`" && s[j] === "$" && s[j + 1] === "{") {
+      const start = j + 2; let depth = 1; j = start;
+      while (depth > 0) {
+        if (j >= s.length) return null;
+        const c = s[j];
+        if (c === "{") { depth++; j++; }
+        else if (c === "}") { if (--depth === 0) subs.push([start, j]); j++; }
+        else if (c === '"' || c === "'" || c === "`") { const e = quotedEnd(s, j, []); if (e === null) return null; j = e; }
+        else j++;
+      }
+    } else j++;
+  }
+  return null;
+}
 function tyTokens(s: string): { t: TyTok[]; nl: boolean[] } | null {   // the tokens, and whether a line break comes before each (a member of an object type may end at one)
   const out: TyTok[] = [], nl: boolean[] = []; let j = 0, brk = false;
   const wordCh = (c: string) => /[\w$]/.test(c) || c.charCodeAt(0) >= 0x80;
@@ -777,16 +799,9 @@ function tyTokens(s: string): { t: TyTok[]; nl: boolean[] } | null {   // the to
     if (/\s/.test(ch)) { brk ||= ch === "\n"; j++; continue; }
     nl.push(brk); brk = false;
     if (ch === '"' || ch === "'" || ch === "`") {
-      j++; let depth = 0, sub = 0;
-      while (j < s.length && !(s[j] === ch && depth === 0)) {
-        if (s[j] === "\\") j++;
-        else if (ch === "`" && s[j] === "$" && s[j + 1] === "{") { if (depth === 0) sub = j + 2; depth++; j++; }
-        else if (ch === "`" && depth > 0 && s[j] === "{") depth++;
-        else if (ch === "`" && depth > 0 && s[j] === "}") { depth--; if (depth === 0 && !oneType(s.slice(sub, j))) return null; }   // a template literal type's substitution is a type: `${c+1}` makes the whole a comparison
-        j++;
-      }
-      if (j >= s.length) return null;
-      j++; out.push({ lit: "str" }); continue;
+      const subs: [number, number][] = []; const e = quotedEnd(s, j, subs); if (e === null) return null; j = e;
+      if (subs.some(([a, z]) => !oneType(s.slice(a, z)))) return null;   // a template literal type's substitution is a type: `${c+1}` makes the whole a comparison
+      out.push({ lit: "str" }); continue;
     }
     if (/[0-9]/.test(ch)) { while (j < s.length && /[A-Za-z0-9._]/.test(s[j])) j++; out.push({ lit: "num" }); continue; }
     if (wordCh(ch)) { const k = j; while (j < s.length && wordCh(s[j])) j++; out.push({ w: s.slice(k, j) }); continue; }
@@ -931,6 +946,7 @@ function typeArgsAt(s: string, i: number): { text: string; end: number } | null 
   if (s[i] !== "<") return null; let depth = 0;
   for (let j = i; j < s.length; j++) {
     const ch = s[j];
+    if (ch === '"' || ch === "'" || ch === "`") { const e = quotedEnd(s, j, []); if (e === null) return null; j = e - 1; continue; }   // R4: a string type argument is skipped whole (`f<"}">(x)`)
     if ("<([{".includes(ch)) depth++;
     else if (")]}".includes(ch) || (ch === ">" && s[j - 1] !== "=")) {
       if (--depth === 0) { const text = s.slice(i + 1, j).trim(); return ch === ">" && s[j + 1] === "(" && looksLikeTypes(text) ? { text, end: j + 1 } : null; }

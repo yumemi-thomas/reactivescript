@@ -2,6 +2,7 @@
 // Run by run.ts after the scenarios; exits non-zero on the first failure.
 import { deepStrictEqual } from "node:assert";
 import { packageRelative } from "./src/modules.ts";
+import { looksLikeTypes, parseProgram } from "./src/parse.ts";
 
 const files = (fs: Record<string, string>) => (p: string) => fs[p];
 export const units: [string, () => void][] = [
@@ -31,5 +32,15 @@ export const units: [string, () => void][] = [
     deepStrictEqual(packageRelative("/w/lib/err.d.rx", "/w/app/main.rx", read), "err.d.rx");
     read = files({ "/w/app/package.json": "{}" });
     deepStrictEqual(packageRelative("/w/x/err.d.rx", "/w/app/main.rx", read), undefined);
+  }],
+  ["type_arguments_with_a_brace_in_a_string", () => {   // R4 (RFC 11): the crate's type_arguments_are_parsed_completely cases
+    for (const t of ["`x${\"}\"}`", "`x${'}'}`", "`x${`}`}`", "`x${\"{\"}`", "{ k: `x${\"}\"}` }", "\"}\""]) deepStrictEqual([t, looksLikeTypes(t)], [t, true]);
+    for (const t of ["`x${\"}\" + 1}`", "`x${\"}\"`"]) deepStrictEqual([t, looksLikeTypes(t)], [t, false]);
+  }],
+  ["a_brace_in_a_string_type_argument_keeps_the_call", () => {   // R4
+    for (const [src, targs] of [["x = f<`k${\"}\"}`>(1)\n", "`k${\"}\"}`"], ["x = f<\"}\">(1)\n", "\"}\""], ["x = f<{ a: `${'}'}` }>(1)\n", "{ a: `${'}'}` }"]]) {
+      const json = JSON.stringify(parseProgram(src));
+      if (!json.includes(`"targs":${JSON.stringify(targs)}`)) throw new Error(`${src}: ${json}`);
+    }
   }],
 ];

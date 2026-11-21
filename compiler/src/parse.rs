@@ -791,33 +791,12 @@ fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
         nl.push(brk);
         brk = false;
         if ch == b'"' || ch == b'\'' || ch == b'`' {
-            j += 1;
-            let mut depth = 0;
-            let mut sub = 0;
-            while j < b.len() && !(b[j] == ch && depth == 0) {
-                if b[j] == b'\\' {
-                    j += 1;
-                } else if ch == b'`' && b[j] == b'$' && b.get(j + 1) == Some(&b'{') {
-                    if depth == 0 {
-                        sub = j + 2;
-                    }
-                    depth += 1;
-                    j += 1;
-                } else if ch == b'`' && depth > 0 && b[j] == b'{' {
-                    depth += 1;
-                } else if ch == b'`' && depth > 0 && b[j] == b'}' {
-                    depth -= 1;
-                    // a template literal type's substitution is a type: `${c+1}` makes the whole a comparison
-                    if depth == 0 && !one_type(&s[sub..j]) {
-                        return None;
-                    }
-                }
-                j += 1;
-            }
-            if j >= b.len() {
+            let mut subs = vec![];
+            j = quoted_end(b, j, &mut subs)?;
+            // a template literal type's substitution is a type: `${c+1}` makes the whole a comparison
+            if subs.iter().any(|&(a, z)| !one_type(&s[a..z])) {
                 return None;
             }
-            j += 1;
             out.push(TyTok::Lit(false));
             continue;
         }
@@ -843,6 +822,43 @@ fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
         j += p.len();
     }
     Some((out, nl))
+}
+/// R4 (RFC 11): the index just past the string or template literal opening at `b[j]`, with the spans of a template's own
+/// substitutions in `subs`. A substitution is scanned as code: braces nest, and a string or template inside it is skipped
+/// whole, so `${"}"}` does not end it. None when the literal is not closed.
+pub(crate) fn quoted_end(b: &[u8], j: usize, subs: &mut Vec<(usize, usize)>) -> Option<usize> {
+    let q = b[j];
+    let mut j = j + 1;
+    while j < b.len() {
+        match b[j] {
+            b'\\' => j += 2,
+            c if c == q => return Some(j + 1),
+            b'$' if q == b'`' && b.get(j + 1) == Some(&b'{') => {
+                let start = j + 2;
+                let mut depth = 1;
+                j = start;
+                while depth > 0 {
+                    match *b.get(j)? {
+                        b'{' => {
+                            depth += 1;
+                            j += 1;
+                        }
+                        b'}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                subs.push((start, j));
+                            }
+                            j += 1;
+                        }
+                        b'"' | b'\'' | b'`' => j = quoted_end(b, j, &mut vec![])?,
+                        _ => j += 1,
+                    }
+                }
+            }
+            _ => j += 1,
+        }
+    }
+    None
 }
 /// one type, consumed whole (a template literal type's substitution)
 fn one_type(text: &str) -> bool {
@@ -1329,8 +1345,14 @@ fn type_args_at(s: &str) -> Option<(String, usize)> {
         return None;
     }
     let mut depth = 0i64;
-    for j in 0..b.len() {
+    let mut j = 0;
+    while j < b.len() {
         let ch = b[j];
+        if ch == b'"' || ch == b'\'' || ch == b'`' {
+            // R4: a string type argument is skipped whole (`f<"}">(x)`)
+            j = quoted_end(b, j, &mut vec![])?;
+            continue;
+        }
         if b"<([{".contains(&ch) {
             depth += 1;
         } else if b")]}".contains(&ch) || (ch == b'>' && (j == 0 || b[j - 1] != b'=')) {
@@ -1340,6 +1362,7 @@ fn type_args_at(s: &str) -> Option<(String, usize)> {
                 return if ch == b'>' && b.get(j + 1) == Some(&b'(') && looks_like_types(text) { Some((text.to_string(), j + 1)) } else { None };
             }
         }
+        j += 1;
     }
     None
 }
@@ -3833,11 +3856,22 @@ mod recovering {
             "(x: T) => U", "<T>(x: T) => T", "new () => Foo", "K extends keyof T ? T[K] : never", "T[K]", "typeof foo.bar", "import(\"./x\").Y<Z>", "-1 | 0 | 1",
             "\"a\" | 'b'", "`p-${string}`", "{ [K in keyof T]-?: T[K] }", "{ readonly [k: string]: number }", "{ (x: number): string; new (): Foo; m<T>(a: T): void }",
             "keyof T", "readonly string[]", "unique symbol", "T extends (infer U)[] ? U : never", "(x: unknown) => x is string", "A,", "Array<Array<number>>", "this", "{ +readonly [K in T]+?: 1 }", "{\n  done: number\n  items: string[]\n}", "`x${T}-${number}`", "`a${`b${string}`}`", "`k${{ a: 1 }[\"a\"]}`",
+            // R4: a `}` in a string inside a substitution does not end it
+            "`x${\"}\"}`", "`x${'}'}`", "`x${`}`}`", "`x${\"{\"}`", "{ k: `x${\"}\"}` }", "\"}\"",
         ] {
             assert!(looks_like_types(t), "{t} is a type list");
         }
-        for t in ["b[c+1]", "b && c", "b ? c : d", "b + c", "b - c", "b * c", "b(c)", "b = c", "b, c + 1", "!b", "b.c(d)", "b[c]()", "b[0] + 1", "{ a }", "b c", "", "typeof f(x)", "(b, c)", "b == c", "{ a: 1 b: 2 }", "`x${c+1}`", "`x${c(1)}`", "-\"1\"", "-'1'", "-`1`", "import(1)"] {
+        for t in ["b[c+1]", "b && c", "b ? c : d", "b + c", "b - c", "b * c", "b(c)", "b = c", "b, c + 1", "!b", "b.c(d)", "b[c]()", "b[0] + 1", "{ a }", "b c", "", "typeof f(x)", "(b, c)", "b == c", "{ a: 1 b: 2 }", "`x${c+1}`", "`x${c(1)}`", "-\"1\"", "-'1'", "-`1`", "import(1)", "`x${\"}\" + 1}`", "`x${\"}\"`"] {
             assert!(!looks_like_types(t), "{t} is not");
+        }
+    }
+    #[test]
+    fn a_brace_in_a_string_type_argument_keeps_the_call() {
+        // R4 (RFC 11): `}` inside a string, in a template literal type or as a type argument, is not a closer
+        for (src, targs) in [("x = f<`k${\"}\"}`>(1)\n", "`k${\"}\"}`"), ("x = f<\"}\">(1)\n", "\"}\""), ("x = f<{ a: `${'}'}` }>(1)\n", "{ a: `${'}'}` }")] {
+            let p = parse_program(src).expect("parses");
+            let json = serde_json::to_string(&p.to_json()).unwrap();
+            assert!(json.contains(&format!("\"targs\":{}", serde_json::to_string(targs).unwrap())), "{src}: {json}");
         }
     }
 }
