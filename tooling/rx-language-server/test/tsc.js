@@ -111,6 +111,15 @@ const fromParent = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc
 check("strict: a tsconfig named with -p sets it, run from another folder (UNVERIFIED_ROW)", fromParent.status !== 0 && /UNVERIFIED_ROW: twice: nothing verified it/.test(fromParent.stdout), { status: fromParent.status, out: fromParent.stdout + fromParent.stderr });
 const fromParentDir = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--project", path.relative(ws, only)], { cwd: ws, encoding: "utf8" });
 check("...and -p naming its folder", fromParentDir.status !== 0 && /UNVERIFIED_ROW: twice/.test(fromParentDir.stdout), { status: fromParentDir.status, out: fromParentDir.stdout + fromParentDir.stderr });
+// the setting in a base the tsconfig extends: TypeScript does not merge a key it does not know, rx-tsc follows it
+fs.writeFileSync(path.join(ws, "tsconfig.base.json"), JSON.stringify({ reactivescript: { strict: true } }));
+fs.writeFileSync(onlyCfg, JSON.stringify({ ...JSON.parse(onlyCfgText), extends: "../tsconfig.base.json" }));
+const inherited = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: only, encoding: "utf8" });
+check("strict: set in a tsconfig this one extends (UNVERIFIED_ROW)", inherited.status !== 0 && /UNVERIFIED_ROW: twice/.test(inherited.stdout), { status: inherited.status, out: inherited.stdout + inherited.stderr });
+fs.writeFileSync(onlyCfg, JSON.stringify({ ...JSON.parse(onlyCfgText), extends: ["../tsconfig.base.json"], reactivescript: { strict: false } }));
+const overridden = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: only, encoding: "utf8" });
+check("...and the tsconfig's own setting overrides its base's", overridden.status === 0, { status: overridden.status, out: overridden.stdout + overridden.stderr });
+fs.rmSync(path.join(ws, "tsconfig.base.json"));
 fs.writeFileSync(onlyCfg, onlyCfgText);
 fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): number trusted\n");
 const trusted = strictRun();

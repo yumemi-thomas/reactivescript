@@ -670,11 +670,16 @@ fn strip_draft(t: &str) -> String {
     DRAFT_WORD.replace_all(t, "$1").to_string()
 }
 /// 07 §3: a balanced `<…>` at the start of `s` followed by `(`: its text and the byte length up to the `(`.
-/// 07 §3: whether `text`, between a call's `<` and `>`, can be TypeScript type arguments: no operator a type never has
-/// (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `*`, `/`, `%`, `!`) outside a string literal. `a<b && c>(d)` is comparisons, as
-/// TypeScript reads it.
+/// 07 §3: whether `text`, between a call's `<` and `>`, can be TypeScript type arguments, as TypeScript decides when it
+/// tries them and falls back to comparisons: no operator a type never has (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `*`, `/`,
+/// `%`, `!`, `^`, `~`) outside a string literal; and, outside any bracket, no `+`, no `-` but a negative number's, no
+/// `=` but an arrow's, no `?` but a conditional type's (after `extends`), and no call (`f(x)`: a parenthesized type
+/// follows a keyword or an operator, never a name). `a<b && c>(d)` and `a<b + c>(d)` are comparisons.
 fn looks_like_types(text: &str) -> bool {
+    const TYPE_WORDS: [&str; 12] = ["keyof", "typeof", "readonly", "infer", "extends", "unique", "new", "asserts", "is", "in", "abstract", "import"];
     let b = text.as_bytes();
+    let word_ch = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$' || c >= 0x80;
+    let (mut depth, mut conditional) = (0i32, false);
     let mut j = 0;
     while j < b.len() {
         let ch = b[j];
@@ -690,8 +695,44 @@ fn looks_like_types(text: &str) -> bool {
             continue;
         }
         let two = &b[j..(j + 2).min(b.len())];
-        if [&b"&&"[..], b"||", b"==", b"!=", b"<=", b">="].contains(&two) || b"*/%!".contains(&ch) {
+        if [&b"&&"[..], b"||", b"==", b"!=", b"<=", b">="].contains(&two) || b"*/%!^~".contains(&ch) {
             return false;
+        }
+        if depth == 0 {
+            let before = b[..j].iter().rev().find(|c| !c.is_ascii_whitespace()).copied();
+            let after = b[j + 1..].iter().find(|c| !c.is_ascii_whitespace()).copied();
+            if ch == b'+' {
+                return false;
+            }
+            if ch == b'-' && !(after.is_some_and(|c| c.is_ascii_digit()) && !before.is_some_and(|c| word_ch(c) || c == b')' || c == b']')) {
+                return false;
+            }
+            if ch == b'=' && b.get(j + 1) != Some(&b'>') {
+                return false;
+            }
+            if ch == b'?' && !conditional {
+                return false;
+            }
+            if (ch.is_ascii_alphabetic() || ch == b'_' || ch == b'$') && !(j > 0 && word_ch(b[j - 1])) {
+                let mut k = j;
+                while k < b.len() && word_ch(b[k]) {
+                    k += 1;
+                }
+                let word = &text[j..k];
+                if word == "extends" {
+                    conditional = true;
+                }
+                if b[k..].iter().find(|c| !c.is_ascii_whitespace()) == Some(&b'(') && !TYPE_WORDS.contains(&word) {
+                    return false;
+                }
+                j = k;
+                continue;
+            }
+        }
+        if b"([{".contains(&ch) {
+            depth += 1;
+        } else if b")]}".contains(&ch) {
+            depth -= 1;
         }
         j += 1;
     }

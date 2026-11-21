@@ -3,7 +3,8 @@
 // for ssr by the crate renders on the server build over the Solid release this package names.
 // Usage: node test.mjs
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -11,7 +12,7 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = path.join(here, ".test"); rmSync(tmp, { recursive: true, force: true }); mkdirSync(path.join(tmp, "node_modules/@reactivescript"), { recursive: true });
 symlinkSync(here, path.join(tmp, "node_modules/@reactivescript/runtime"));
-for (const d of ["solid-js", "@solidjs", "seroval"]) symlinkSync(path.join(here, "node_modules", d), path.join(tmp, "node_modules", d));
+for (const d of ["solid-js", "@solidjs", "seroval", "seroval-plugins"]) symlinkSync(path.join(here, "node_modules", d), path.join(tmp, "node_modules", d));
 let fail = 0;
 const check = (name, ok, detail = "") => { if (!ok) fail++; console.log(`${ok ? "✓" : "✗"} ${name}${detail ? `: ${detail}` : ""}`); };
 try {
@@ -26,6 +27,22 @@ try {
   writeFileSync(path.join(tmp, "ssr.mjs"), `import main from "./todo.mjs";\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp(); let html = "";\napp.stream(main(app), { write: s => { html += s; }, end: () => console.log(html) });\n`);
   const html = execFileSync(process.execPath, ["ssr.mjs"], { cwd: tmp }).toString();
   check("todo.rx rendered on the server build", /<main _hk=[^>]*>.*0<!--\/--> left/.test(html), html.slice(0, 120));
+  // the server warns, once, when a stream's first chunk has markup and no hydration key: the compiled modules render
+  // with another copy of Solid than the runtime (a bundler inlined one). Two requests each way: with the one copy
+  // nothing is said; with the compiled module on its own solid-js and @solidjs/web the page has no keys, and the
+  // warning comes once. A second @solidjs/web alone, over the same solid-js, still keys: it is solid-js's copy that counts.
+  const twice = `import main from "./todo.mjs";\nimport { createApp } from "@reactivescript/runtime";\nfor (let i = 0; i < 2; i++) { const app = createApp(); let html = ""; app.stream(main(app), { write: s => { html += s; }, end: () => console.log(/_hk=/.test(html) ? "keyed" : "unkeyed") }); }\n`;
+  const warnings = r => (r.stderr.match(/\[reactivescript\] the server's first chunk has markup but no hydration keys/g) ?? []).length;
+  writeFileSync(path.join(tmp, "twice.mjs"), twice);
+  const one = spawnSync(process.execPath, ["twice.mjs"], { cwd: tmp, encoding: "utf8" });
+  check("one copy of Solid: the stream is keyed and nothing is warned", one.stdout.trim() === "keyed\nkeyed" && warnings(one) === 0, one.stdout + one.stderr);
+  for (const [name, copied, keyed, warned] of [["a second @solidjs/web over the same solid-js still keys: no warning", ["@solidjs/web"], "keyed\nkeyed", 0], ["a second copy of Solid: no keys, and the warning once for the process", ["@solidjs/web", "solid-js"], "unkeyed\nunkeyed", 1]]) {
+    const dup = path.join(tmp, "dup"); rmSync(dup, { recursive: true, force: true }); mkdirSync(path.join(dup, "node_modules/@solidjs"), { recursive: true });
+    for (const d of copied) cpSync(path.join(here, "node_modules", d), path.join(dup, "node_modules", d), { recursive: true, dereference: true });
+    writeFileSync(path.join(dup, "todo.mjs"), Object.values(out.modules)[0].code); writeFileSync(path.join(dup, "twice.mjs"), twice);
+    const r = spawnSync(process.execPath, ["twice.mjs"], { cwd: dup, encoding: "utf8" });
+    check(name, r.stdout.trim() === keyed && warnings(r) === warned && (!warned || /different copies of Solid \(solid-js/.test(r.stderr)), (r.stdout + r.stderr).slice(0, 300));
+  }
   // CP-4d: a ?rx-lib component rendered on the server outside a request throws, unless the host passes the app
   writeFileSync(path.join(tmp, "lib.rx"), "export component Hello() {\n  <b>hi</b>\n}\n");
   const lib = JSON.parse(compile(path.join(tmp, "lib.rx"), "ssr", "@solidjs/web", false, true));

@@ -80,7 +80,33 @@ const sameVersion = ensureDeclarations(path.join(ws, "main.rx"));
 check("redone when the package's types change at the same version", status(sameVersion, "kit-ui") === "written" && /^export fn later\(\): number/m.test(fs.readFileSync(gen, "utf8")), { sameVersion, draft: fs.readFileSync(gen, "utf8") });
 fs.writeFileSync(typesFile, typesBefore);
 ensureDeclarations(path.join(ws, "main.rx"));
-check("no trial file is left beside the draft", !fs.readdirSync(path.dirname(gen)).some(f => /\.trial\.d\.rx$/.test(f)), fs.readdirSync(path.dirname(gen)));
+check("no trial or half-written file is left beside the draft", !fs.readdirSync(path.dirname(gen)).some(f => /\.trial\.d\.rx$|\.tmp$/.test(f)), fs.readdirSync(path.dirname(gen)));
+
+// the types the entry file re-exports change, the entry itself and the version do not: redrafted too
+fs.mkdirSync(path.join(ws, "node_modules/kit-ui/parts"), { recursive: true });
+const partFile = path.join(ws, "node_modules/kit-ui/parts/more.d.ts");
+fs.writeFileSync(partFile, "export declare function part(): number;\n");
+fs.writeFileSync(typesFile, typesBefore + "export * from \"./parts/more\";\n");
+ensureDeclarations(path.join(ws, "main.rx"));
+fs.writeFileSync(partFile, "export declare function part(): number;\nexport declare function partLater(): number;\n");
+const reexported = ensureDeclarations(path.join(ws, "main.rx"));
+check("redone when a file the package's types re-export changes", status(reexported, "kit-ui") === "written" && /^export fn partLater\(\): number/m.test(fs.readFileSync(gen, "utf8")), { reexported, draft: fs.readFileSync(gen, "utf8") });
+check("and kept while they stand", status(ensureDeclarations(path.join(ws, "main.rx")), "kit-ui") === "current", null);
+fs.writeFileSync(typesFile, typesBefore); fs.rmSync(path.join(ws, "node_modules/kit-ui/parts"), { recursive: true });
+ensureDeclarations(path.join(ws, "main.rx"));
+
+// a draft is written under node_modules/.rx-types and nowhere else: an import whose path climbs out of its package
+// would put one beside a source file (read as that module's declaration, MO-8a) or outside the project
+fs.mkdirSync(path.join(ws, "src"), { recursive: true });
+fs.writeFileSync(path.join(ws, "src/local.d.ts"), "export declare function local(): number;\n");
+fs.writeFileSync(path.join(ws, "src/local.js"), "export const local = () => 1;\n");
+fs.writeFileSync(path.join(ws, "climb.rx"), "import { local } from \"kit-ui/../../src/local\"\nimport { up } from \"kit-ui/../../../up\"\nexport default component App() {\n  <p>hi</p>\n}\n");
+fs.writeFileSync(path.join(ws, "../up.d.ts"), "export declare function up(): number;\n");
+const climbed = ensureDeclarations(path.join(ws, "climb.rx"));
+check("an import that climbs out of its package gets no draft, and nothing is written outside .rx-types",
+  climbed.filter(r => /\.\./.test(r.spec)).every(r => r.status === "failed" && /not a package path/.test(r.reason)) && climbed.filter(r => /\.\./.test(r.spec)).length === 2
+  && !fs.existsSync(path.join(ws, "src/local.d.rx")) && !fs.existsSync(path.join(ws, "node_modules/src/local.d.rx")) && !fs.existsSync(path.join(ws, "../up.d.rx")) && !fs.existsSync(path.join(ws, "up.d.rx")), climbed);
+fs.rmSync(path.join(ws, "climb.rx")); fs.rmSync(path.join(ws, "src"), { recursive: true }); fs.rmSync(path.join(ws, "../up.d.ts"));
 
 const pj = path.join(ws, "node_modules/kit-ui/package.json");
 fs.writeFileSync(pj, JSON.stringify({ ...JSON.parse(fs.readFileSync(pj, "utf8")), version: "1.3.0" }));
@@ -151,6 +177,50 @@ fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: tru
   check("RX_TYPECHECK=0 builds without the check", skipped.ok, skipped);
   fs.rmSync(path.join(ws, "tsconfig.json"));
 
+  // TY-1d: the check is once per build, not once per process: a rebuild (`vite build --watch`) that compiles an entry
+  // whose program changed since the last check is checked again
+  {
+    const tp = path.join(ws, "typed"); fs.mkdirSync(path.join(tp, "node_modules/@reactivescript"), { recursive: true });
+    for (const d of fs.readdirSync(path.join(repo, "ref/node_modules")).filter(d => !d.startsWith("."))) fs.symlinkSync(path.join(repo, "ref/node_modules", d), path.join(tp, "node_modules", d), "dir");
+    fs.symlinkSync(path.join(repo, "runtime"), path.join(tp, "node_modules/@reactivescript/runtime"), "dir");
+    fs.symlinkSync(path.join(repo, "tooling/rx-language-server"), path.join(tp, "node_modules/@reactivescript/language-server"), "dir");
+    fs.writeFileSync(path.join(tp, "package.json"), "{}\n");
+    fs.writeFileSync(path.join(tp, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] }, include: ["*.rx"] }));
+    const good = "export default component App() {\n  source n: number := 1\n  <button onClick={() => { n := n + 1 }}>{n}</button>\n}\n";
+    const bad = good.replace("n := n + 1", "n := \"one\"");
+    const saved = { NODE_ENV: process.env.NODE_ENV, RX_GENERATE: process.env.RX_GENERATE }; process.env.NODE_ENV = "production"; process.env.RX_GENERATE = "0";
+    const plugin = rx(); let runs = 0;
+    const once = target => { try { plugin.compile("", { id: path.join(tp, "main.rx"), moduleId: path.join(tp, "main.rx"), root: tp, solid: { generate: target, hydratable: true }, addWatchFile() {} }); return "ok"; } catch (e) { return /type errors \(rx-tsc\)[^]*main\.rx/.test(String(e.message)) ? "type error" : String(e.message); } };
+    const write = text => { fs.writeFileSync(path.join(tp, "main.rx"), text); const t = new Date(Date.now() + 2000 * ++runs); fs.utimesSync(path.join(tp, "main.rx"), t, t); };   // a later save, whatever the clock's grain
+    try {
+      write(good); const first = [once("dom"), once("ssr")];
+      write(bad); const rebuilt = [once("dom"), once("ssr")];
+      write(good); const fixed = [once("dom"), once("ssr")];
+      check("a rebuild in the same process is type-checked again: an edit that breaks a type fails it, the fix builds (TY-1d)",
+        first.join() === "ok,ok" && rebuilt.join() === "type error,type error" && fixed.join() === "ok,ok", { first, rebuilt, fixed });
+    } finally { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+
+  // a build is made from its declarations too: one plugin (a dev server, a watch build) re-checks the program when a
+  // .d.rx it read changes, and when one it looked for appears, as it does for a module; and watches them
+  {
+    const dp = path.join(ws, "declared"); fs.mkdirSync(dp, { recursive: true });
+    fs.writeFileSync(path.join(dp, "lib.js"), "export const twice = n => n * 2;\n");
+    fs.writeFileSync(path.join(dp, "main.rx"), "import { twice } from \"./lib.js\"\nexport default component App() {\n  source n := 1\n  t = twice(n)\n  <p>{t}</p>\n}\n");
+    const saved = process.env.RX_GENERATE; process.env.RX_GENERATE = "0";
+    const plugin = rx(); const watched = new Set(); let saves = 0;
+    const once = () => { try { plugin.compile("", { id: path.join(dp, "main.rx"), moduleId: path.join(dp, "main.rx"), root: dp, solid: { generate: "dom", hydratable: true }, addWatchFile(f) { watched.add(path.basename(f)); } }); return "ok"; } catch (e) { return /IO_IN_REACTIVE/.test(String(e.message)) ? "IO_IN_REACTIVE" : String(e.message); } };
+    const declare = text => { const f = path.join(dp, "lib.d.rx"); fs.writeFileSync(f, text); const t = new Date(Date.now() + 2000 * ++saves); fs.utimesSync(f, t, t); };
+    try {
+      const undeclared = once();
+      declare("export pure fn twice(n: number): number\n"); const declared = once();
+      declare("export fn twice(n: number): number\n"); const io = once();
+      declare("export pure fn twice(n: number): number\n"); const pure = once();
+      check("a declaration that appears, or changes, re-checks the program in the same plugin, and is watched",
+        undeclared === "IO_IN_REACTIVE" && declared === "ok" && io === "IO_IN_REACTIVE" && pure === "ok" && watched.has("lib.d.rx"), { undeclared, declared, io, pure, watched: [...watched] });
+    } finally { if (saved === undefined) delete process.env.RX_GENERATE; else process.env.RX_GENERATE = saved; }
+  }
+
   // E-5a: rx({ wholeProgram: true }) checks a build as the whole program; a module a JS host imports with ?rx-lib is
   // applied from outside
   const wp = path.join(ws, "whole"); fs.mkdirSync(wp, { recursive: true });
@@ -164,8 +234,19 @@ fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: tru
   fs.writeFileSync(path.join(wp, "host.tsx"), "import { Show } from \"./show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
   const hosted = buildWith({ wholeProgram: true });
   check("...unless a JS file imports show.rx with ?rx-lib: JS applies Show, so the peek is refused", !hosted.ok && /SNAPSHOT_KEPT/.test(hosted.error), hosted);
-  // a host found through the project's aliases, as Vite resolves the import, not the import's text joined to its folder
+  // a host is whatever the plugin would compile as a library: other parameters beside rx-lib, a dynamic import in
+  // backticks, a .cts module, a single-file component's script
   fs.rmSync(path.join(wp, "host.tsx"));
+  const spelled = Object.entries({
+    "host.ts": "import { Show } from \"./show.rx?v=1&rx-lib\";\n", "host.mjs": "import { Show } from './show.rx?rx-lib&v=1';\n",
+    "host.js": "const m = await import(`./show.rx?rx-lib`);\n", "host.cts": "const { Show } = require(\"./show.rx?rx-lib\");\n",
+    "host.vue": "<script setup>\nimport { Show } from \"./show.rx?rx-lib\";\n</script>\n",
+  }).map(([f, text]) => { fs.writeFileSync(path.join(wp, f), text); const r = buildWith({ wholeProgram: true }); fs.rmSync(path.join(wp, f)); return [f, !r.ok && /SNAPSHOT_KEPT/.test(r.error)]; });
+  check("...however the import is spelled (more parameters, backticks, require, a .cts or .vue file)", spelled.every(([, refused]) => refused), spelled);
+  fs.writeFileSync(path.join(wp, "nohost.ts"), "// not a library import: ./show.rx?raw, ./show.rxx?rx-lib\nimport text from \"./show.rx?raw\";\n");
+  const notHost = buildWith({ wholeProgram: true }); fs.rmSync(path.join(wp, "nohost.ts"));
+  check("...and an import of the file that is not ?rx-lib is not a host", notHost.ok, notHost);
+  // a host found through the project's aliases, as Vite resolves the import, not the import's text joined to its folder
   fs.mkdirSync(path.join(wp, "pages"), { recursive: true });
   fs.writeFileSync(path.join(wp, "pages/host.tsx"), "import { Show } from \"@/show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
   const warned = []; const w0 = console.warn; console.warn = m => warned.push(m);

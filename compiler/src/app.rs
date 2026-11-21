@@ -24,7 +24,8 @@ pub fn target(name: &str) -> Target {
 }
 
 /// `{entry, css, modules: {path: {code, map, css}}}` (the program's stylesheet, and each module's own; for a library,
-/// `components`: its exported components' names), or `{diagnostics: [...]}` / `{error}`. `entry` is an absolute path.
+/// `components`: its exported components' names), or `{diagnostics: [...]}` / `{error}`; each with `asked`, the files the
+/// program was read from or looked for. `entry` is an absolute path.
 /// `spa`: a client-only build, checked under 08 CN-3d.
 pub fn app(entry: &str, target: Target, module_name: &str, spa: bool) -> Value {
     app_as(entry, target, module_name, spa, false)
@@ -38,11 +39,18 @@ pub fn app_as(entry: &str, target: Target, module_name: &str, spa: bool, library
 pub fn app_whole(entry: &str, target: Target, module_name: &str, spa: bool, library: bool, whole: bool, hosts: &[String]) -> Value {
     // module keys are POSIX paths (`modules::join_path`); Windows takes `D:/a/b.rx` as it takes `D:\a\b.rx`
     let entry = &entry.replace('\\', "/");
-    (|| {
+    // every file the program was read from or looked for (its modules, each declaration and package.json, and where a
+    // declaration would be, MO-8k): what the result depends on, so a bundler knows when it is stale (`asked`)
+    let asked = std::cell::RefCell::new(indexmap::IndexSet::<String>::new());
+    let read_noting = |p: &str| {
+        asked.borrow_mut().insert(p.to_string());
+        read_disk(p)
+    };
+    let mut result = (|| {
         if read_disk(entry).is_none() {
             return Err(json!({ "error": format!("{entry}: no such file") }));
         }
-        let set = load_modules(entry, &read_disk).map_err(|e| {
+        let set = load_modules(entry, &read_noting).map_err(|e| {
             // a parse error is a diagnostic like the checker's, with its code (PARSE, or the habit it names)
             let file = e.2.clone().unwrap_or_else(|| entry.to_string());
             let mut d = crate::serve::parse_error_in(&file, &e, read_disk(&file).as_deref());
@@ -78,5 +86,7 @@ pub fn app_whole(entry: &str, target: Target, module_name: &str, spa: bool, libr
         }
         Ok(result)
     })()
-    .unwrap_or_else(|e| e)
+    .unwrap_or_else(|e| e);
+    result["asked"] = json!(asked.into_inner().into_iter().collect::<Vec<_>>());
+    result
 }

@@ -363,6 +363,11 @@ loads, every reader keeps the first value (E-5a). Drop `peek` to read it live, o
 name it: `source saved := peek e`. A `peek` next to something that does change (`n * 2 + peek n`) is a sample, read again
 each time the expression recomputes, and is accepted.
 
+A name that never changes can still be read through to something that does: a field of a `for` row whose list is
+written (`peek r.x`: the row survives a write to its field, or a keyed reconcile) and a field of the instance a JS
+primitive made (`peek size.width`). Both are refused the same way; the row or the instance itself (`peek r`) is
+constant, and fine.
+
 ```rx before
 export default component App() {
   source n := 1
@@ -385,7 +390,8 @@ counts as changing: that module cannot see who applies the component or who prov
 `ref/check.ts --whole-program`) checks the loaded modules as the whole program and accepts such a `peek` when no
 application or provision passes anything that changes. It assumes JS applies only the entry's exported components, the
 components passed to it as values, and the exported components of a module a JS file imports with `?rx-lib` (name it
-with `--host m.rx`; the Vite plugin's `rx({ wholeProgram: true })` finds them itself, resolving each import with Vite's
+with `--host m.rx`; the Vite plugin's `rx({ wholeProgram: true })` finds them itself, in the project's JS and TS modules
+and `.vue`, `.svelte`, `.astro` and `.mdx` files, resolving each import with Vite's
 own resolver where `@solidjs/vite-plugin` hands it one (`context.resolve`), else through tsconfig.json's `paths` and the
 aliases you give it as `rx({ wholeProgram: true, alias })`, the same object as Vite's `resolve.alias`; an import it
 cannot resolve is reported as a warning). Anything else a TSX file applies is outside what

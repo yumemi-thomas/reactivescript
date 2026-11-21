@@ -51,7 +51,8 @@ The host writes the client's `index.html` around the stream, with
 must be one copy each on the server: as installed packages they are
 external to the server build; a linked checkout of Solid is not, so name
 them in `ssr.external` (otherwise the compiled templates and the runtime
-render with two `@solidjs/web`s, and nothing hydrates). The Vite suite
+render with two copies of Solid, and nothing hydrates: the runtime warns
+once when a stream's first chunk has markup and no hydration key). The Vite suite
 (`compiler/test/vite.mjs router-ssr`) builds and serves it this way.
 
 A JS module's error class declared in its `.d.rx` (`export error NotFound`) crosses to the client as itself when the

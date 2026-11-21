@@ -134,8 +134,15 @@ Function application `f(e…)` covers both language functions and FFI imports;
   called: none is kept. A kept `peek e` whose expression reads nothing else
   that changes freezes it, and if `e` can change — a source written,
   guessed, refreshed or affected; something that awaits; a `ref` parameter;
-  a JS reader or a field declared to hold (MO-10b, MO-10f) — every reader
-  keeps the first value. That is a compile error (`SNAPSHOT_KEPT`, bin S):
+  a JS reader or a field declared to hold (MO-10b, MO-10f); a field read
+  through the instance a declared primitive made (`peek size.width`), or an
+  equation bound to one, since the instance never changes but its fields
+  track (MO-10b); a field read through a `for` row (`peek r.x`) whose list
+  can change, since the row is a constant (RG-2b) whose fields are written
+  by path or reconciled by key (ST-4a) while it lives (both revised
+  2026-11-21 after review; the row itself, `peek r`, and a method called
+  on an instance, which reads no field, stay constant; S-surface-8) —
+  every reader keeps the first value. That is a compile error (`SNAPSHOT_KEPT`, bin S):
   drop the `peek` to read it live, or name the snapshot, `source saved :=
   peek e`. When the rest of the expression changes the `peek` is a sample
   (`n * 2 + peek n`) and is accepted. Writes to a source are always in its
@@ -149,7 +156,11 @@ Function application `f(e…)` covers both language functions and FFI imports;
   components passed to it as values, and the exported components of every
   module a JS host imports with `?rx-lib` (CP-4d; `--host m.rx`, which the
   Vite plugin's `rx({ wholeProgram: true })` finds by scanning the
-  project's JS for such imports, each resolved as the bundle resolves it:
+  project's JS and TS modules and single-file components (`.vue`,
+  `.svelte`, `.astro`, `.mdx`) for such imports, however spelled (an import,
+  a re-export, a dynamic import or a `require`, in any quotes, with
+  `rx-lib` anywhere among the query's parameters: whatever the plugin
+  compiles as a library), each resolved as the bundle resolves it:
   by Vite itself where Solid's plugin hands front ends its resolver
   (`context.resolve`, every plugin's `resolveId`), else relative, through
   the aliases given as `rx({ alias })`, the same object as Vite's

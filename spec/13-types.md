@@ -38,8 +38,16 @@ does for `.tsrx`. Nothing here is a second type system.
   `tsconfig.json`. A production build with no `tsconfig.json` is not a
   TypeScript project and only says its types went unchecked.
   `RX_TYPECHECK=0` builds without the check, for a project that runs it
-  elsewhere. The dev server leaves types to the editor, which runs the
-  same projection.
+  elsewhere. Once per build means each build (revised 2026-11-21 after
+  review; the first version checked once per process, so the rebuilds of
+  `vite build --watch` shipped unchecked): the check runs again when an
+  entry is compiled and a file its programs were made from is newer than
+  the last check, and a build whose check failed fails at each of its
+  entries until one changes. The dev server leaves types to the editor,
+  which runs the same projection. A build is made from its declarations
+  as from its modules: the frontend watches each `.d.rx` the program read
+  and re-checks the program when one changes, or when one appears where
+  the program looked for it (MO-8k, MO-8a), at its next compile.
 
 ## TY-2 — What each form is, as a value
 

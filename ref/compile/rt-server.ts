@@ -110,9 +110,11 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
      *  in it, SF-2b). */
     stream(view: () => unknown, sink0: { write: (s: string) => void; end: () => void }) {
       // the shell carries hydration keys; one with markup and none means the compiled templates read another copy of
-      // @solidjs/web than this runtime renders with (a bundler that inlined one of them): nothing would hydrate
+      // Solid than this runtime renders with (a bundler that inlined one of them): nothing would hydrate. The copy that
+      // matters is solid-js's, which holds the render's hydration context: two @solidjs/web over one solid-js still key
+      // (runtime/test.mjs renders both ways)
       let first = true;
-      const sink = { end: () => sink0.end(), write: (c: string) => { if (first) { first = false; if (!process.env.SV_SCOPE && /<[a-z][^>]*>/i.test(c) && !/\b_hk=/.test(c) && !warnedCopies) { warnedCopies = true; console.warn("[reactivescript] the server's first chunk has markup but no hydration keys, so the client will not hydrate it. One likely cause: the compiled modules and @reactivescript/runtime load different copies of @solidjs/web (keep Solid, the runtime and libraries that render all external to the server build, or all bundled together)"); } } sink0.write(c); } };
+      const sink = { end: () => sink0.end(), write: (c: string) => { if (first) { first = false; if (!process.env.SV_SCOPE && /<[a-z][^>]*>/i.test(c) && !/\b_hk=/.test(c) && !warnedCopies) { warnedCopies = true; console.warn("[reactivescript] the server's first chunk has markup but no hydration keys, so the client will not hydrate it. One likely cause: the compiled modules and @reactivescript/runtime load different copies of Solid (solid-js, and with it @solidjs/web): keep Solid, the runtime and libraries that render all external to the server build, or all bundled together"); } } sink0.write(c); } };
       return provideRequestEvent({ request: opts.request ?? new Request("http://127.0.0.1/"), locals: { [REQUEST_APP]: app } }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
 
     B: {

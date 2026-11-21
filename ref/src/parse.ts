@@ -761,16 +761,34 @@ function parseUnary(c: Cursor): Expr {
 /** 07 §3: type arguments at a call, `f<T>(…)`: a balanced `<…>` written right after the callee (no space) and followed
  *  directly by `(`; else null (`a < b` stays a comparison). The list may span lines, so a formatter that breaks a long
  *  type does not turn the call into comparisons. */
-/** 07 §3: whether `text`, between a call's `<` and `>`, can be TypeScript type arguments: no operator a type never has
- *  (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `*`, `/`, `%`, `!`) outside a string literal. `a<b && c>(d)` is comparisons, as
- *  TypeScript reads it. */
+/** 07 §3: whether `text`, between a call's `<` and `>`, can be TypeScript type arguments, as TypeScript decides when it
+ *  tries them and falls back to comparisons: no operator a type never has (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `*`, `/`,
+ *  `%`, `!`, `^`, `~`) outside a string literal; and, outside any bracket, no `+`, no `-` but a negative number's, no
+ *  `=` but an arrow's, no `?` but a conditional type's (after `extends`), and no call (`f(x)`: a parenthesized type
+ *  follows a keyword or an operator, never a name). `a<b && c>(d)` and `a<b + c>(d)` are comparisons. */
+const TYPE_WORDS = new Set(["keyof", "typeof", "readonly", "infer", "extends", "unique", "new", "asserts", "is", "in", "abstract", "import"]);
 function looksLikeTypes(text: string): boolean {
+  let depth = 0, conditional = false;
   for (let j = 0; j < text.length; j++) {
     const ch = text[j];
     if (ch === '"' || ch === "'" || ch === "`") { for (j++; j < text.length && text[j] !== ch; j++) if (text[j] === "\\") j++; continue; }
     const two = text.slice(j, j + 2);
     if (["&&", "||", "==", "!=", "<=", ">="].includes(two)) return false;
-    if ("*/%!".includes(ch)) return false;
+    if ("*/%!^~".includes(ch)) return false;
+    if (depth === 0) {
+      const before = text.slice(0, j).trimEnd(), after = text.slice(j + 1).trimStart();
+      if (ch === "+") return false;
+      if (ch === "-" && !(/^\d/.test(after) && !/[\w$)\]]$/.test(before))) return false;
+      if (ch === "=" && text[j + 1] !== ">") return false;
+      if (ch === "?" && !conditional) return false;
+      if (/[A-Za-z_$]/.test(ch) && !/[\w$]/.test(text[j - 1] ?? "")) {
+        const word = /^[\w$]+/.exec(text.slice(j))![0];
+        if (word === "extends") conditional = true;
+        if (text.slice(j + word.length).trimStart()[0] === "(" && !TYPE_WORDS.has(word)) return false;
+        j += word.length - 1; continue;
+      }
+    }
+    if ("([{".includes(ch)) depth++; else if (")]}".includes(ch)) depth--;
   }
   return true;
 }

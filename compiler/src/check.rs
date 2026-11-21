@@ -244,6 +244,8 @@ struct Sym<'a> {
     foreign: Option<FShape>,
     /// RFC 14: bound from a field of an instance (`w = size.width`), which tracks (MO-10b)
     via_field: bool,
+    /// E-5a: a `for` row's binding — the list it is a row of
+    row_of: Option<(&'a Expr, EId)>,
     /// MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
     held: Vec<(String, bool, Vec<String>)>,
     /// MO-10g: where a declared JS fn takes callbacks, by parameter
@@ -334,6 +336,7 @@ impl<'a> Sym<'a> {
             decl_env: None,
             foreign: None,
             via_field: false,
+            row_of: None,
             held: vec![],
             cbs: vec![],
             needs: vec![],
@@ -1041,7 +1044,9 @@ fn why_of(what: &str, c: &Ch) -> String {
     if c.yes {
         format!("{} changes", what)
     } else if c.deps.iter().any(|d| d.starts_with("prop|")) {
-        format!("{} is a prop: the parent can change it", what)
+        // `props.value` is the prop; `r.x`, a row of `props.rows`, comes from one
+        let direct = what.split_once('.').is_some_and(|(_, f)| c.deps.iter().any(|d| d.starts_with("prop|") && d.rsplit('|').next() == Some(f)));
+        format!("{} {}: the parent can change it", what, if direct { "is a prop" } else { "comes from a prop" })
     } else if c.deps.iter().any(|d| d.starts_with("ctx|")) {
         format!("{} reads a provision, which can change", what)
     } else {
@@ -2772,14 +2777,51 @@ impl<'a> Checker<'a> {
                     }
                     return;
                 }
-                ExprKind::Member { o, p, .. } => {
-                    if let ExprKind::Id(on) = &o.k {
-                        if let Some(s) = self.lookup(env, on).filter(|&s| self.syms[s].kind == SymKind::Props) {
+                // a method called on a name reads no field of it (E-10's exemption): the name, and the arguments
+                ExprKind::Call { f, args, .. } if matches!(&f.k, ExprKind::Member { o, .. } if matches!(&o.k, ExprKind::Id(on) if !self.lookup(env, on).is_some_and(|s| self.syms[s].kind == SymKind::Props))) => {
+                    if let ExprKind::Member { o, .. } = &f.k {
+                        if let ExprKind::Id(on) = &o.k {
                             if counting {
-                                let key = self.regions[self.syms[s].region].key.clone().unwrap_or_default();
-                                acc.deps.insert(format!("prop|{}|{}", key, p));
+                                let s = self.lookup(env, on);
+                                let c = self.sym_ch(s);
+                                add_ch(acc, &c);
                             }
-                            return;
+                        }
+                    }
+                    for a in args {
+                        self.ch_of(Node::E(a), env, mode, acc, in_peek);
+                    }
+                    return;
+                }
+                ExprKind::Member { .. } | ExprKind::Index { .. } => {
+                    if let ExprKind::Member { o, p, .. } = &e.k {
+                        if let ExprKind::Id(on) = &o.k {
+                            if let Some(s) = self.lookup(env, on).filter(|&s| self.syms[s].kind == SymKind::Props) {
+                                if counting {
+                                    let key = self.regions[self.syms[s].region].key.clone().unwrap_or_default();
+                                    acc.deps.insert(format!("prop|{}|{}", key, p));
+                                }
+                                return;
+                            }
+                        }
+                    }
+                    // a field read through a primitive's instance tracks (MO-10b); one through a row changes when its list
+                    // does: the row is constant (RG-2b), its fields are written by path or reconciled by key (ST-4a)
+                    let mut x = e;
+                    loop {
+                        match &x.k {
+                            ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => x = o,
+                            _ => break,
+                        }
+                    }
+                    if let (true, ExprKind::Id(rn)) = (counting, &x.k) {
+                        if let Some(r) = self.lookup(env, rn) {
+                            if self.syms[r].kind == SymKind::Eq && self.syms[r].foreign.is_some() {
+                                acc.yes = true;
+                            } else if self.syms[r].row_of.is_some() {
+                                let c = self.row_ch(r);
+                                add_ch(acc, &c);
+                            }
                         }
                     }
                 }
@@ -2810,6 +2852,17 @@ impl<'a> Checker<'a> {
         self.ch_memo.insert(s, r.clone());
         r
     }
+    /// E-5a: whether a row's fields can change: whether the list it is a row of does.
+    fn row_ch(&mut self, row: SId) -> Ch {
+        if let Some(m) = self.ch_memo.get(&row) {
+            return m.clone();
+        }
+        self.ch_memo.insert(row, Ch::default());
+        let (e, env) = self.syms[row].row_of.unwrap();
+        let r = self.ch_expr(e, env, ChMode::Out);
+        self.ch_memo.insert(row, r.clone());
+        r
+    }
     fn sym_ch_of(&mut self, s: SId) -> Ch {
         let one = |yes: bool, dep: Option<String>| Ch { yes, deps: dep.into_iter().collect() };
         if let Some(k) = self.syms[s].export_key.clone() {
@@ -2836,7 +2889,7 @@ impl<'a> Checker<'a> {
                     return one(true, None); // a ref parameter: the caller's, reactive
                 }
                 if let Some(f) = &sy.foreign {
-                    return one(f.has_ref() || !sy.held.is_empty(), None); // MO-10b: a value result is made once; a reader, or a field that holds, changes
+                    return one(sy.via_field || f.has_ref() || !sy.held.is_empty(), None); // MO-10b: a value result is made once; a reader, or a field that holds, changes
                 }
                 match sy.carried_expr {
                     Some((e, env)) => self.ch_expr(e, env, ChMode::Out),
@@ -3988,7 +4041,9 @@ impl<'a> Checker<'a> {
                     }
                     let r = self.region(Some(region), "for", false, None);
                     let inner = self.env(Some(env), r);
-                    let s = self.new_sym(Sym::new(SymKind::Value, name, r, self.line));
+                    let mut row = Sym::new(SymKind::Value, name, r, self.line);
+                    row.row_of = Some((xs, env));
+                    let s = self.new_sym(row);
                     self.envs[inner].vars.insert(name.clone(), s);
                     self.block(decls, body, inner, Ctx::reactive());
                 }

@@ -96,7 +96,7 @@ named.
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
 | `SNAPSHOT_INITIALIZER`            | S   | E-4 / DV-6 | S-surface-1 |
-| `SNAPSHOT_KEPT`                   | S   | E-5a  | S-surface-6 |
+| `SNAPSHOT_KEPT`                   | S   | E-5a  | S-surface-6, S-surface-8 |
 | `IO_IN_REACTIVE`                  | S   | IO-2 / R-io-3 | S-surface-1 |
 | `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | IO-2 / R-io-3 | S-check-1 |
 | `IO_IN_FN`                        | S   | R-io-2 | S-check-1 |

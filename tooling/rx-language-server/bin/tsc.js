@@ -53,7 +53,21 @@ process.on("exit", code => {
     process.stdout.write(`${path.relative(process.cwd(), f)}:${p.line}:1 - error DECLARATION_VERSION: ${p.message} (MO-8f)\n`);
   }
   // MO-8j, TY-7: strict declarations
-  const strict = strictFlag || !!(cfg && ts.readConfigFile(cfg, ts.sys.readFile).config?.reactivescript?.strict);
+  // the setting is the tsconfig's own, or the nearest one up its `extends` (TypeScript merges only what it knows, so a
+  // shared base that sets it would otherwise be passed over in silence)
+  const strictOf = (file, seen = new Set()) => {
+    if (!file || seen.has(file)) return undefined; seen.add(file);
+    const config = ts.readConfigFile(file, ts.sys.readFile).config; if (!config) return undefined;
+    if (config.reactivescript?.strict !== undefined) return !!config.reactivescript.strict;
+    for (const ext of [].concat(config.extends ?? []).reverse()) {   // a later entry overrides an earlier one, as tsc's
+      let base;
+      if (ext.startsWith(".") || path.isAbsolute(ext)) { base = path.resolve(path.dirname(file), ext); if (!ts.sys.fileExists(base)) base += ".json"; }
+      else { try { base = require.resolve(ext, { paths: [path.dirname(file)] }); } catch { try { base = require.resolve(ext + ".json", { paths: [path.dirname(file)] }); } catch {} } }
+      const found = strictOf(base, seen); if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  const strict = strictFlag || !!strictOf(cfg);
   if (strict) for (const f of pinned) for (const u of require("../src/strict.js").checkStrict(f)) {
     errors++;
     codes.add("UNVERIFIED_ROW");

@@ -15,7 +15,8 @@
 // (11 CP-4b `module`), not by its place in a program.
 //
 // Types (13 TY-1a): a production build type-checks the project with `rx-tsc` (from @reactivescript/language-server),
-// once, when it compiles its first entry: TypeScript's errors on the `.rx` (a route whose path lacks a param its page
+// once per build, when it compiles its first entry (and again when a rebuild of `vite build --watch` compiles an entry
+// whose program changed since): TypeScript's errors on the `.rx` (a route whose path lacks a param its page
 // needs, MO-11h), TY-6's on the `.d.rx`, fail the build. A check that cannot run fails it too (TY-1d): a tsconfig.json
 // with no @reactivescript/language-server to run rx-tsc, or, when RX_TYPECHECK=1 asked for it, no tsconfig.json; a
 // production build with no tsconfig.json only says the types went unchecked. The dev server leaves types to the
@@ -99,7 +100,11 @@ function entriesOf(file, root) {
 
 /** E-5a, whole program: the `.rx` modules a JS host under `root` imports with `?rx-lib` (CP-4d), whose exported
  *  components JS applies with props the program cannot see. Absolute POSIX paths, the module keys. */
-const RX_LIB_IMPORT = /\bfrom\s*(["'])([^"']+\.rx)\?rx-lib\1|\bimport\s*\(\s*(["'])([^"']+\.rx)\?rx-lib\3/g;
+// an import, a re-export, a dynamic import or a require, in any quotes, whose query has `rx-lib` among its parameters
+// (`./show.rx?rx-lib`, `?v=1&rx-lib`): what the plugin compiles as a library (`lib`, below) is what counts as a host
+const RX_LIB_IMPORT = /(?:\bfrom\s*|\b(?:import|require)\s*\(\s*|\bimport\s*)(["'`])([^"'`?]+\.rx)\?(?:[^"'`#]*&)?rx-lib(?=[&=#"'`])/g;
+// the files a host may be: JS and TS modules, and the single-file components whose script imports as one
+const HOST_FILE = /\.(m?[jt]sx?|c[jt]s|vue|svelte|astro|mdx?)$/;
 const posix = p => p.replace(/\\/g, "/");
 const real = p => { try { return posix(realpathSync(p)); } catch { return posix(p); } };
 
@@ -145,9 +150,9 @@ function hostImports(root) {
       const p = path.join(dir, e.name);
       // a linked folder is walked as the folder it links to (a host may live in one: a workspace package, a shared pages dir)
       if (e.isDirectory() || (e.isSymbolicLink() && (() => { try { return statSync(p).isDirectory(); } catch { return false; } })())) walk(p);
-      else if (/\.(m?[jt]sx?|cjs)$/.test(e.name)) {
+      else if (HOST_FILE.test(e.name)) {
         const t = mtime(p); let s = scans.get(p);
-        if (!s || s.t !== t) { s = { t, specs: [...readFileSync(p, "utf8").matchAll(RX_LIB_IMPORT)].map(m => m[2] ?? m[4]) }; scans.set(p, s); }
+        if (!s || s.t !== t) { s = { t, specs: [...readFileSync(p, "utf8").matchAll(RX_LIB_IMPORT)].map(m => m[2]) }; scans.set(p, s); }
         for (const spec of s.specs) out.push({ p, spec, s });
       }
     }
@@ -202,7 +207,9 @@ async function hostsVia(root, resolve, alias, via) {
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx(options = {}) {
   const flag = process.env.RX_TYPECHECK;
-  let typed = flag === "0" ? true : null;   // whether this process has type-checked (once per build)
+  // TY-1d: when this plugin last type-checked, and what came of it. Once per build: a rebuild (`vite build --watch`)
+  // compiles an entry again because a file of its program changed, and a file newer than the last check asks for another
+  let typedAt = -1, typeOutcome = null;
   const builds = new Map();
   const via = new Map();   // E-5a: what this instance's Vite resolved each ?rx-lib import to (hostsVia)
   let lastRoot;   // the Vite root, for whole-program checking's ?rx-lib hosts   // entry\0target\0moduleName\0spa\0lib → { entry, target, moduleName, spa, lib, out, stamps }
@@ -225,7 +232,10 @@ export default function rx(options = {}) {
     // ?rx-lib as applied from outside; off by default, so a build and the editor (per module) agree
     const out = JSON.parse(options.wholeProgram ? app(entry, target, moduleName, spa, lib, true, hosts) : app(entry, target, moduleName, spa, lib));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
-    const files = out.modules ? Object.keys(out.modules) : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];
+    // what the build was made from: its modules, and every file the crate read or looked for (`asked`: declarations, a
+    // package.json, and where a declaration would be, MO-8k), so an edited or added `.d.rx` makes it stale as an edited
+    // module does; a file that is not there is stamped so, and appearing changes it
+    const files = [...new Set([...(out.modules ? Object.keys(out.modules) : out.diagnostics ? [entry, ...out.diagnostics.map(d => d.file)] : [entry]), ...(out.asked ?? []).map(f => path.resolve(f))])];
     const b = { entry, target, moduleName, spa, lib, out, hosts, stamps: new Map(files.map(f => [f, mtime(f)])) };
     builds.set(key, b);
     return b;
@@ -265,18 +275,26 @@ export default function rx(options = {}) {
       const spa = target === "dom" && solid.hydratable === false;
       const dep = isDep(moduleId);
       const lib = new URLSearchParams(moduleId.split("?")[1] ?? "").has(LIB);
-      if (!typed && !dep && (flag === "1" || process.env.NODE_ENV === "production")) {
-        typed = true;
-        const t = typecheck(file);
-        // TY-1d: a check that was asked for (RX_TYPECHECK=1), or a TypeScript project's production build, fails when it
-        // cannot run; a production build with no tsconfig.json is not a TypeScript project, and only says so
-        const where = path.relative(process.cwd(), file);
-        if (t?.missing === "checker" || (t?.missing === "tsconfig" && flag === "1"))
-          throw new Error(`types not checked: ${t.missing === "checker" ? `no @reactivescript/language-server to run rx-tsc with (install it in the project)` : `no tsconfig.json above ${where}`}; set RX_TYPECHECK=0 to build without checking them (13 TY-1d)`);
-        if (t?.missing) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
-        else if (t) throw new Error(`type errors (rx-tsc):\n${t}`);
+      if (flag !== "0" && !dep && (flag === "1" || process.env.NODE_ENV === "production")) {
+        const changed = () => mtime(file) > typedAt || [...builds.values()].some(b => [...b.stamps.keys()].some(f => mtime(f) > typedAt));
+        if (typedAt < 0 || changed()) {
+          typedAt = Date.now();
+          const t = typecheck(file);
+          // TY-1d: a check that was asked for (RX_TYPECHECK=1), or a TypeScript project's production build, fails when it
+          // cannot run; a production build with no tsconfig.json is not a TypeScript project, and only says so
+          const where = path.relative(process.cwd(), file);
+          typeOutcome = t?.missing === "checker" || (t?.missing === "tsconfig" && flag === "1")
+            ? `types not checked: ${t.missing === "checker" ? `no @reactivescript/language-server to run rx-tsc with (install it in the project)` : `no tsconfig.json above ${where}`}; set RX_TYPECHECK=0 to build without checking them (13 TY-1d)`
+            : t?.missing ? null : t ? `type errors (rx-tsc):\n${t}` : null;
+          if (t?.missing && !typeOutcome) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
+        }
+        if (typeOutcome) throw new Error(typeOutcome);   // each entry of a build that failed its check fails, until a file changes
       }
       const { entry, out } = dep ? containing(file, target, moduleName, spa, path.resolve(root ?? process.cwd()), hosts) : build(file, target, moduleName, spa, lib, hosts);
+      // a declaration the program read is watched as its modules are: fixing a row re-checks the program, also after it
+      // failed. One that is not there yet (rx-types/, beside a JS module) cannot be watched (Vite resolves what a module
+      // watches), but it is stamped: the next compile of the program sees it
+      for (const p of out.asked ?? []) if (p.endsWith(".d.rx") && existsSync(p)) addWatchFile(path.resolve(p));
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];

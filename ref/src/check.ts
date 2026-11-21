@@ -97,6 +97,7 @@ type Sym = {
   ioVia?: string;                      // 12 SF-1: a server fn that is io — the call in its body that makes it so
   serverRejects?: () => Set<string>;   // SF-6b: what a call's promise rejects with — its body's failures, and Error (transit)
   foreign?: Shape;                     // MO-10: a declared JS primitive (a fn) or an instance of one (an equation): what its result is
+  rowOf?: { e: Expr; env: Env };       // E-5a: a `for` row's binding — the list it is a row of
   viaField?: boolean;                  // RFC 14: bound from a field of an instance (`w = size.width`), which tracks (MO-10b)
   reader?: boolean;                    // MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
   cbs?: ([boolean, string[]] | null)[];   // MO-10g: where a declared JS fn takes callbacks
@@ -246,7 +247,8 @@ const keptMsg = (p: Extract<Expr, { k: "peek" }>, why: string) => `\`${show(p)}\
 /** E-5a: why a kept peek's value can change, when this module alone cannot tell that it does not. */
 function whyOf(p: Extract<Expr, { k: "peek" }>, c: Ch): string {
   const what = show(p.e); const d = [...c.deps];
-  return c.yes ? `${what} changes` : d.some(x => x.startsWith("prop|")) ? `${what} is a prop: the parent can change it` : d.some(x => x.startsWith("ctx|")) ? `${what} reads a provision, which can change` : `${what} is imported and can change`;
+  return c.yes ? `${what} changes` : d.some(x => x.startsWith("prop|")) ? `${what} ${d.some(x => x.startsWith("prop|") && what.includes(".") && x.split("|").pop() === what.slice(what.indexOf(".") + 1)) ? "is a prop" : "comes from a prop"}: the parent can change it` :   // `props.value` is the prop; `r.x`, a row of `props.rows`, comes from one
+     d.some(x => x.startsWith("ctx|")) ? `${what} reads a provision, which can change` : `${what} is imported and can change`;
 }
 /** E-5a, the whole-program pass: each prop, provision and export changes when what can reach it does (a least fixpoint);
  *  then each kept peek that waited on them is decided. A component the entry exports, or one passed as a value, is applied by
@@ -1013,11 +1015,30 @@ class Checker {
       case "id": if (counting) this.addCh(acc, this.symCh(env.lookup(e.name))); return acc;
       case "pre": if (counting) this.addCh(acc, this.symCh(env.lookup(e.name))); if (e.init) this.chOf(e.init, env, mode, acc, inPeek); return acc;
       case "use": { const c = env.lookup(e.name); if (counting && c?.kind === "context") { if (/\.d\.rx#/.test(c.ctx!.key)) acc.yes = true; else acc.deps.add(`ctx|${c.ctx!.key}`); } return acc; }   // a JS context's provider is JS
-      case "member": { const o = e.o.k === "id" ? env.lookup(e.o.name) : undefined; if (o?.kind === "props") { if (counting) acc.deps.add(`prop|${o.region.key ?? ""}|${e.p}`); return acc; } break; }
+      case "call":                                                                         // a method called on a name reads no field of it (E-10's exemption): the name, and the arguments
+        if (e.f.k === "member" && e.f.o.k === "id" && env.lookup(e.f.o.name)?.kind !== "props") { if (counting) this.addCh(acc, this.symCh(env.lookup(e.f.o.name))); for (const a of e.args) this.chOf(a, env, mode, acc, inPeek); return acc; }
+        break;
+      case "member": case "index": {
+        const o = e.k === "member" && e.o.k === "id" ? env.lookup(e.o.name) : undefined;
+        if (o?.kind === "props") { if (counting) acc.deps.add(`prop|${o.region.key ?? ""}|${(e as Extract<Expr, { k: "member" }>).p}`); return acc; }
+        // a field read through a primitive's instance tracks (MO-10b); one through a row changes when its list does: the
+        // row is constant (RG-2b), its fields are written by path or reconciled by key (ST-4a)
+        let x: Expr = e; while (x.k === "member" || x.k === "index") x = x.o;
+        const root = counting && x.k === "id" ? env.lookup(x.name) : undefined;
+        if (root?.kind === "eq" && root.foreign) acc.yes = true;
+        else if (root?.rowOf) this.addCh(acc, this.rowCh(root));
+        break;
+      }
       case "await": if (counting) acc.yes = true; break;                                   // it loads: pending, then a value
     }
     for (const x of subExprs(e)) this.chOf(x, env, mode, acc, inPeek);
     return acc;
+  }
+  /** E-5a: whether a row's fields can change: whether the list it is a row of does. */
+  private rowCh(row: Sym): Ch {
+    const m = this.chMemo.get(row); if (m) return m;
+    this.chMemo.set(row, noCh());
+    const r = this.chOf(row.rowOf!.e, row.rowOf!.env, "out"); this.chMemo.set(row, r); return r;
   }
   private addCh(acc: Ch, c: Ch) { if (c.yes) acc.yes = true; for (const d of c.deps) acc.deps.add(d); }
   private symCh(s: Sym | undefined): Ch {
@@ -1035,7 +1056,7 @@ class Checker {
       case "source": return this.changed.has(s) ? ch(true) : s.question && s.expr && s.env ? this.chOf(s.expr, s.env, "out") : ch(false);
       case "eq": {
         if (s.param || s.reader || this.changed.has(s)) return ch(true);                  // a ref parameter: the caller's, reactive
-        if (s.foreign) return ch(s.foreign === "ref" || !!s.held?.length || (typeof s.foreign === "object" && ("items" in s.foreign ? s.foreign.items : s.foreign.fields.map(f => f[1])).includes("ref")));   // MO-10b: a value result is made once; a reader, or a field that holds, changes
+        if (s.foreign) return ch(!!s.viaField || s.foreign === "ref" || !!s.held?.length || (typeof s.foreign === "object" && ("items" in s.foreign ? s.foreign.items : s.foreign.fields.map(f => f[1])).includes("ref")));   // MO-10b: a value result is made once; a reader, or a field that holds, changes
         return s.carriedExpr ? this.chOf(s.carriedExpr.e, s.carriedExpr.env, "out") : ch(true);
       }
       case "fn": return s.fnTail && s.fnEnv ? this.chOf(s.fnTail, s.fnEnv, "out") : ch(false);   // a JS fn is pure (R-io)
@@ -1459,7 +1480,7 @@ class Checker {
           const src = m.xs.k === "id" ? env.lookup(m.xs.name) : undefined;
           if ((src?.mapsRecords) || mapsIntoRecords(m.xs)) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
           const r = this.region(env.region, "for"); const inner = new Env(env, r);
-          inner.vars.set(m.name, { kind: "value", name: m.name, region: r, line: this.line });   // RG-2b: the row binding is a constant
+          inner.vars.set(m.name, { kind: "value", name: m.name, region: r, line: this.line, rowOf: { e: m.xs, env } });   // RG-2b: the row binding is a constant
           this.block(m.decls, m.body, inner, { scope: "reactive" });
           break;
         }

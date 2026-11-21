@@ -231,7 +231,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
 - **MO-8j (Strict declarations) — proposed 2026-11-20.** A row is an
   assertion (MO-8b); by default the checker takes it on trust. A project may
   ask that each row be shown instead: `rx-tsc --rx-strict`, or
-  `"reactivescript": { "strict": true }` in the tsconfig. Then every row of a
+  `"reactivescript": { "strict": true }` in the tsconfig (the one `-p`
+  names, else the nearest; its own setting, else that of the nearest
+  tsconfig it `extends`, which TypeScript does not merge for a key it does
+  not know). Then every row of a
   declaration the program imports (`fn`, `component`, `error`, `const`)
   must be one `rx-verify --record` ran and found to hold (or found to have
   nothing to run, as a `pure … instantiates` constructor), recorded beside
@@ -271,9 +274,17 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   server when a module's imports change, rx-tsc as it analyses. It is
   written to `node_modules/.rx-types/<spec>.d.rx` with a first line
   `//@ generated <package>@<version> (MO-8l, draft <n>, types <hash>)`,
-  the hash of the declaration file TypeScript resolves the import to, with
-  its package.json, so a package that changes at the same version (a linked
-  workspace package) is redrafted too; kept while that
+  the hash of the declaration file TypeScript resolves the import to, of
+  every declaration file that one reaches by relative imports, re-exports
+  and references (an `index.d.ts` is often only `export * from "./parts"`),
+  of the entry file of each package it names, and of its package.json, so a
+  package that changes at the same version (a linked workspace package) is
+  redrafted too. A draft is written whole (to a file of its own, then
+  renamed into place, so a build and the editor never read half of one) and
+  only under `.rx-types/`: an import whose path has a `.` or `..` segment
+  (`kit/../../src/x`) gets none, since its draft would land beside a source
+  file and be read as that module's declaration (MO-8a) (both revised
+  2026-11-21 after review). It is kept while that
   version is installed and the drafting rules are draft `<n>`'s, and
   redrafted when either moves (a draft written under an earlier rule, one
   that guessed `pure`, is redone once though the version stands; one that
