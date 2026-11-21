@@ -165,7 +165,7 @@ check("draft: a setter that hands its draft holds", /store\.d\.rx:1 ok\s+makeSto
 check("draft: one that hands a copy is a mismatch", /store\.d\.rx:2 MISMATCH\s+copyStore: declared a draft callback, but a write to what it is handed is not kept/.test(out2), out2);
 check("a compound part that fails alone and renders inside its root holds its uses(…) (MO-11q)", /kit\.d\.rx:3 ok\s+Dialog\.Trigger: uses\(…\) holds: it fails alone and renders inside Dialog/.test(out2), out2);
 check("a part declared uses(…) that reads nothing is a mismatch", /kit\.d\.rx:4 MISMATCH\s+Dialog\.Title: declared uses\(dialog\), but rendered with no provider it neither fails nor warns/.test(out2), out2);
-check("the root's provides(…) is checked through its parts", /kit\.d\.rx:2 ok\s+Dialog: provides\(dialog\) checked through the components that use it/.test(out2), out2);
+check("the root's provides(…) is checked through a part that uses it alone: it fails without it and renders under it", /kit\.d\.rx:2 ok\s+Dialog: provides\(dialog\) holds: Dialog\.Trigger, which uses it alone, fails without it and renders under it/.test(out2), out2);
 check("placement with no scene is not verified, and says so", /unscened\.d\.rx:3 unverified createRoute: where it renders what it is given is not run: give a scene/.test(out2), out2);
 
 // MO-10g: a callback row checked by running — the library calls it outside tracking (a handler), inside a computation
@@ -315,9 +315,58 @@ const both = spawnSync(process.execPath, ["--conditions=browser", path.join(__di
 const bothStrict = checkStrict(path.join(ws, "both.d.rx"));
 check("provides(a, b): a hook that uses only a answers provides(a) alone; b is unverified", /both\.d\.rx:4 ok\s+Both: provides\(a\) holds: useA runs under it/.test(both.stdout) && /both\.d\.rx:4 unverified Both: provides\(b\) not run/.test(both.stdout) && !/provides\(…\) holds/.test(both.stdout), both.stdout + both.stderr);
 check("...and strict refuses the row (no `ok` record for provides(a, b))", bothStrict.some(u => u.name === "Both" && /could not check it/.test(u.message)), bothStrict);
-check("a component's handler prop is a callback claim nothing ran: unverified, and strict refuses it", /both\.d\.rx:5 unverified Lone: callback ref \(handler, tracked or pure\) not checked by running/.test(both.stdout) && bothStrict.some(u => u.name === "Lone" && /could not check it/.test(u.message)), { out: both.stdout, bothStrict });
+check("a component's handler prop it never calls: unverified, and strict refuses it", /both\.d\.rx:5 unverified Lone: prop ref never called/.test(both.stdout) && bothStrict.some(u => u.name === "Lone" && /could not check it/.test(u.message)), { out: both.stdout, bothStrict });
 const bothRec = JSON.parse(fs.readFileSync(path.join(ws, "both.verified.json"), "utf8"));
-check("...in a version-3 record", bothRec.version === 3 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
+check("...in a version-4 record", bothRec.version === 4 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
+
+// RFC 28 (revised after review): provides(b) is not shown by a hook declared uses(a, b) that reads only a, nor by a part
+// that still fails under the provider; only actual provision verifies it
+fs.writeFileSync(path.join(ws, "prov.mjs"), [
+  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "const A = createContext(); const B = createContext();",
+  "export const useAB = () => { const v = useContext(A); if (!v) throw new Error(\"no a\"); return v; };",
+  "export const Both = props => createComponent(A, { value: \"x\", get children() { return props.children; } });",
+  "export const Part = props => { if (!useContext(B)) throw new Error(\"no b\"); return null; };",
+  "export const OnlyA = props => createComponent(A, { value: \"x\", get children() { return props.children; } });",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "prov.d.rx"), [
+  "export context a",
+  "export context b",
+  "export pure fn useAB(): string uses(a, b)",
+  "export component Both(props: { children?: View }) provides(a, b)",
+  "export component Part(props: {}) uses(b)",
+  "",
+].join("\n"));
+const prov = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "prov.d.rx"], { cwd: ws, encoding: "utf8" });
+check("a hook declared uses(a, b) answers neither provides(a) nor provides(b)", /prov\.d\.rx:4 unverified Both: provides\(a\) not run/.test(prov.stdout) && !/provides\(a\) holds|provides\(b\) holds/.test(prov.stdout), prov.stdout + prov.stderr);
+check("a part that uses b alone and still fails under the component: provides(b) is a mismatch, not ok", /prov\.d\.rx:4 MISMATCH\s+Both: declared provides\(b\), but Part, which uses it, still fails under it/.test(prov.stdout), prov.stdout + prov.stderr);
+
+// RFC 29 (revised after review): a component's function-typed props are run — the probe's props, each wrapped in a spy:
+// a handler called later holds, one called inside a computation is a mismatch, a tracked one called inside one holds,
+// and strict mode then accepts the row without `trusted`
+fs.writeFileSync(path.join(ws, "props.mjs"), [
+  "import { createEffect, createMemo } from \"solid-js\";",
+  "export const Later = props => { queueMicrotask(() => props.onPress()); return null; };",
+  "export const Now = props => { createMemo(() => props.onPress()); return null; };",
+  "export const Each = props => { createEffect(() => props.each(), () => {}); return null; };",
+  "export const Pick = props => { props.pick(1); return null; };",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "props.d.rx"), [
+  "export component Later(props: { onPress: handler () => void })",
+  "export component Now(props: { onPress: handler () => void })",
+  "export component Each(props: { each: tracked () => number })",
+  "export component Pick(props: { pick: (n: number) => number })",
+  "",
+].join("\n"));
+fs.rmSync(path.join(ws, "props.verified.json"), { force: true });
+const pr = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "props.d.rx"], { cwd: ws, encoding: "utf8" });
+check("a handler prop the component calls later holds", /props\.d\.rx:1 ok\s+Later: prop onPress holds/.test(pr.stdout), pr.stdout + pr.stderr);
+check("a handler prop it calls inside a computation is a mismatch", /props\.d\.rx:2 MISMATCH\s+Now: prop onPress is declared handler, but the component calls it inside a computation/.test(pr.stdout), pr.stdout + pr.stderr);
+check("a tracked prop it calls inside one holds; an unmarked one is pure however it is called", /props\.d\.rx:3 ok\s+Each: prop each is tracked, as declared/.test(pr.stdout) && /props\.d\.rx:4 ok\s+Pick: prop pick is pure/.test(pr.stdout), pr.stdout + pr.stderr);
+const prStrict = checkStrict(path.join(ws, "props.d.rx"));
+check("...and strict mode accepts those rows without `trusted`, refusing only the mismatch", !prStrict.some(u => ["Later", "Each", "Pick"].includes(u.name)) && prStrict.some(u => u.name === "Now"), prStrict);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -15,8 +15,9 @@
 // declared result (a record's fields, a tuple's parts, a `ref` result) is read in a render effect: a part that holds
 // (Solid's NotReadyError) or fails without `pending` or `fails(…)` on it is a mismatch, as is a `ref` part that is not an
 // accessor; under `fail`'s arguments a `fails(C)` field must fail with a C. A `pure` fn (one that makes nothing) is
-// called twice with the same arguments and must answer alike. A component that `provides(c)` is mounted (with the
-// probe's `props`) around a hook of the same file that uses only what it provides, which must then run cleanly.
+// called twice with the same arguments and must answer alike. For each `c` a component `provides(c)`, it is mounted
+// (with the probe's `props`) around a hook or a part of the same file that uses `c` alone and fails without it, which
+// must then run cleanly. A component's function-typed props are run with the probe's props, each wrapped in a spy.
 // Placement rows (`renders…`, `nests(…)`, `outlet`, a prop's `renders T`) are checked against a scene the probe gives
 // (`scene(lib, h)`), `draft` rows by calling the setter, and a component's `uses(…)` (a kit's compound part) by rendering
 // it alone, where it must fail or warn, and inside a component of the file that provides it (`probes[P].around` when the
@@ -145,7 +146,11 @@ async function verify(file) {
   // each row as one line, at the line it starts on, as the crate's parser spans it: a claim on a row's later line (a props
   // record broken over lines, then `provides(theme)`) is read as the row's
   const text = require("../src/strict.js").rowText(file);
-  for (const x of exportsOf(text)) { if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${x.name}\n`);
+  const usesHeld = new Set();   // hooks whose uses(…) row held: with no provider they throw or warn (provides(c) needs one)
+  // a provider last, so every hook's uses(…) is known when its provides(c) is checked; the results stay in line order
+  const rows = exportsOf(text), isProv = x => x.kind === "component" && x.providesNames.length;
+  const first = out.length;
+  for (const x of [...rows.filter(x => !isProv(x)), ...rows.filter(isProv)]) { if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${x.name}\n`);
     const v = at(x.name);
     if (v === undefined) { out.push({ line: x.line, ob: "exists", status: "fail", what: `${x.name}: ${path.basename(js)} exports nothing by that name` }); continue; }
     if (x.kind === "value") { out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: a value, exported` }); continue; }
@@ -173,6 +178,7 @@ async function verify(file) {
           : { line: x.line, status: "fail", what: `${x.name}: declared uses(…), but called with no provider it neither throws nor warns: does it read a context?` });
         }
       }
+      if (out.some(r => r.line === x.line && r.ob === "uses" && r.status === "ok")) usesHeld.add(x.name);
       if (!x.fields) continue;
     }
     if (x.kind === "fn" && x.fields && (probe?.args || !x.required)) {
@@ -216,20 +222,29 @@ async function verify(file) {
         : { line: x.line, ob: "pure", status: "fail", what: `${x.name}: declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})` });
       continue;
     }
-    // provides(c) (MO-12c): under the component, a hook of the same file that uses only what it provides runs cleanly.
-    // Each context is its own claim (RFC 28): a hook that uses `a` alone answers `provides:a`, and `b` stays unverified
+    // provides(c) (MO-12c, RFC 28): each context is its own claim, answered only by actual provision: a hook or a part of
+    // the same file that uses `c` and nothing else, shown to fail (or warn) with no provider, runs cleanly under the
+    // component. A hook declared `uses(a, b)` cannot tell which of the two it read, so it answers neither: `b` would be
+    // recorded ok through a hook that reads only `a` (revised after review)
     if (x.kind === "component" && x.providesNames.length) {
       const all = exportsOf(text);
       const props = probe?.props?.() ?? {};
       // inside it: as its children, or as the probe says (`around`, for a provider that renders something else, as a router)
       const wrap = probe?.around ? probe.around : (children, sol) => sol.createComponent(v, Object.defineProperty({ ...props }, "children", { get: () => children(), enumerable: true }));
       const runs = new Map();   // a hook mounted once, whatever contexts it answers for
+      const only = (u, c) => u?.length === 1 && u[0] === c;
       for (const c of x.providesNames) {
         const ob = `provides:${c}`;
-        const hook = all.find(h => h.kind === "fn" && h.usesNames.includes(c) && h.usesNames.every(u => x.providesNames.includes(u)) && (probeMod?.probes?.[h.name]?.args || !h.required) && typeof mod[h.name] === "function");
-        const part = !hook && all.find(p => p.kind === "component" && p !== x && p.usesNames?.includes(c) && p.usesNames.every(u => x.providesNames.includes(u)));
-        if (part) { out.push({ line: x.line, ob, status: "ok", what: `${x.name}: provides(${c}) checked through the components that use it (${part.name}, …), rendered inside it below` }); continue; }   // MO-11q: a kit's parts
-        if (!hook) { out.push({ line: x.line, ob, status: "unverified", what: `${x.name}: provides(${c}) not run: no hook or component in this file uses ${c} and only what ${x.name} provides (with a probe's arguments if it needs any)` }); continue; }
+        const hook = all.find(h => h.kind === "fn" && only(h.usesNames, c) && usesHeld.has(h.name) && (probeMod?.probes?.[h.name]?.args || !h.required) && typeof mod[h.name] === "function");
+        const part = !hook && all.find(p => p.kind === "component" && p !== x && only(p.usesNames, c) && typeof at(p.name) === "function");
+        if (part) {   // MO-11q: a kit's part, rendered alone (it must fail or warn) and inside the component (it must not fail)
+          const r = await require("../src/verify-place.js").partUnder({ part: at(part.name), partProps: probeMod?.probes?.[part.name]?.props?.() ?? {}, wrap, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href });
+          out.push(!r.alone ? { line: x.line, ob, status: "unverified", what: `${x.name}: provides(${c}) not shown: ${part.name}, which uses it, renders with no provider too` }
+            : r.inside ? { line: x.line, ob, status: "fail", what: `${x.name}: declared provides(${c}), but ${part.name}, which uses it, still fails under it (${String(r.inside.message ?? r.inside).slice(0, 60)})` }
+            : { line: x.line, ob, status: "ok", what: `${x.name}: provides(${c}) holds: ${part.name}, which uses it alone, fails without it and renders under it` });
+          continue;
+        }
+        if (!hook) { out.push({ line: x.line, ob, status: "unverified", what: `${x.name}: provides(${c}) not run: no hook or component in this file uses ${c} alone and is shown to fail without it (with a probe's arguments if it needs any)` }); continue; }
         if (!runs.has(hook.name)) runs.set(hook.name, await mount(dir, mod, probeMod, mod[hook.name], probeMod?.probes?.[hook.name]?.args?.() ?? [], [], null, wrap));
         const ran = runs.get(hook.name);
         if (ran.renderError) { out.push({ line: x.line, ob, status: "unverified", what: `${x.name}: provides(${c}) not run: it threw as it mounted (${String(ran.renderError.message ?? ran.renderError).slice(0, 50)}); give its props as the probe's props` }); continue; }
@@ -244,8 +259,18 @@ async function verify(file) {
     out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: a ${x.kind}` });
     for (const o of left) out.push({ line: x.line, ob: o === "pending/fails" ? "fields" : o, status: "unverified", what: `${x.name}: ${o} not run (it needs what the app passes: give it in a probe)` });
   }
+  out.splice(first, out.length - first, ...out.slice(first).map((r, i) => [r, i]).sort((a, b) => a[0].line - b[0].line || a[1] - b[1]).map(([r]) => r));
   // MO-10g: callbacks, by running: a closure at a declared function-typed parameter is checked as a handler
   out.push(...(await require("../src/verify-place.js").verifyCallbacks({ fns: exportsOf(text).filter(x => x.kind === "fn" && x.cbs?.length), at, probeMod, resolve: pathToFileURL(require.resolve("solid-js", { paths: [dir, __dirname] })).href, mount: (fn, args, run) => mount(dir, mod, probeMod, fn, args, [], run) })));   // each tagged with its position, `callbacks:<name>` (RFC 29)
+  // RFC 29: a component's function-typed props, by rendering it (the crate names them: each row's `callbacks:<prop>`)
+  const cbComps = require("../src/strict.js").rowsOf(file).filter(r => r.kind === "component").flatMap(r => {
+    const cbs = (r.obligations ?? []).filter(o => o.startsWith("callbacks:")).map(o => o.slice("callbacks:".length)).map(name => {
+      const m = new RegExp(`(?:^|[{;,\\s])${name.replace(/[$]/g, "\\$")}\\??\\s*:\\s*(handler|tracked)?`).exec(r.text);
+      return { name, handler: m?.[1] === "handler", tracked: m?.[1] === "tracked" };
+    });
+    return cbs.length ? [{ name: r.name, line: r.line, cbs }] : [];
+  });
+  out.push(...(await require("../src/verify-place.js").verifyComponentCallbacks({ comps: cbComps, at, probeMod, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href })));
   // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its drafts
   const from = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
   out.push(...(await require("../src/verify-place.js").verifyPlacement({ text, mod, probeMod, dir, resolve: from })).map(r => ({ ob: "placement", ...r })));

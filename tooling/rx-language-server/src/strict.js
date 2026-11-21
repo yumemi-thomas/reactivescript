@@ -75,8 +75,9 @@ const AT = { provides: c => `provides(${c})`, callbacks: c => `callback ${c} (ha
 const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler, tracked or pure)", draft: "draft", placement: "where it renders what it is given (renders, nests, forwards, joins, outlet)", methods: "methods(…), that its instance's methods make a value once" };
 /** The meaning of a record: what rx-verify checked when it wrote one. A record from a version whose checks differ (2:
  *  each claim the crate reads must be answered; 3: each context provided and each callback position is a claim of its
- *  own, a component's function-typed props included) does not count. */
-const RECORD_VERSION = 3;
+ *  own, a component's function-typed props included; 4: provides(c) only through a hook or part that uses c alone and
+ *  fails without it, and a component's function-typed props are run) does not count. */
+const RECORD_VERSION = 4;
 /** What a record was verified against: the library (an installed package's version, or the JS module's own text beside
  *  the declaration) and the probe file. A record made against other inputs does not count (the library moved under it). */
 function inputsOf(file) {
@@ -136,4 +137,4 @@ function checkStrict(file) {
   return out;
 }
 
-module.exports = { writeRecord, checkStrict, recordOf, rowText, unanswered, RECORD_VERSION };
+module.exports = { writeRecord, checkStrict, recordOf, rowText, rowsOf, unanswered, RECORD_VERSION };

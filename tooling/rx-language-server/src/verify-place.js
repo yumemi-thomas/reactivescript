@@ -262,4 +262,53 @@ async function verifyCallbacks({ fns, at, probeMod, resolve, mount }) {
   return out;
 }
 
-module.exports = { verifyPlacement, verifyComponentUses, verifyCallbacks, rowsOf };
+/** provides(c) through a part (RFC 28): `alone` — rendered with no provider it fails or warns; `inside` — the error it
+ *  still throws under the provider (`wrap(children, solid)`), or null. */
+async function partUnder({ part, partProps, wrap, resolve }) {
+  const s = await import(resolve("solid-js"));
+  const alone = await renderOnce(() => s.createComponent(part, partProps), resolve);
+  const inside = await renderOnce(() => wrap(() => s.createComponent(part, partProps), s), resolve);
+  return { alone: !!(alone.error || alone.warned.length), inside: inside.error ?? null };
+}
+/** RFC 29 (revised after review): a component's function-typed props, each its own claim (`callbacks:onPress`), checked
+ *  by rendering it with the probe's props (`probes.Btn.props()`; a prop the probe does not give is a no-op), each such
+ *  prop wrapped in a spy, then the probe's `act()` and time for what the component schedules. As for a fn's callbacks:
+ *  a `handler` prop called inside a computation is a mismatch and called outside one holds; a `tracked` prop called
+ *  inside one holds; an unmarked one (pure) holds however it is called; one never called is not verified. */
+async function verifyComponentCallbacks({ comps, at, probeMod, resolve }) {
+  const out = [];
+  const s = await import(resolve("solid-js"));
+  for (const c of comps) {
+    const C = at(c.name); if (typeof C !== "function") continue;
+    const probe = probeMod?.probes?.[c.name];
+    const seen = new Map(c.cbs.map(cb => [cb.name, { calls: 0, tracked: 0 }]));
+    const given = probe?.props?.() ?? {};
+    const props = { ...given };
+    for (const cb of c.cbs) { const g = typeof given[cb.name] === "function" ? given[cb.name] : () => undefined; props[cb.name] = (...a) => { const st = seen.get(cb.name); st.calls++; if (s.getObserver?.()) st.tracked++; return g(...a); }; }
+    const warned = [], saved = [console.warn, console.error];
+    console.warn = console.error = (...a) => { warned.push(a.map(String).join(" ")); };
+    let error = null, dispose = () => {};
+    try {
+      // at the root, not under an Errored boundary: a boundary's children run inside its computation, where every call
+      // would look tracked; here the component's body has no observer, and only what it runs in a computation has one
+      const view = () => s.createComponent(C, props);
+      if (typeof document !== "undefined" && document.body) { const web = await import(resolve("@solidjs/web")); const el = document.createElement("div"); document.body.appendChild(el); dispose = web.render(view, el); }
+      else { const { createRenderer } = await import(resolve("@solidjs/universal")); const n = { createElement: t => ({ t, c: [] }), createTextNode: x => ({ x }), replaceText: (a, v) => { a.x = v; }, isTextNode: a => "x" in a, setProperty() {}, insertNode: (p, a) => { (p.c ??= []).push(a); a.p = p; }, removeNode: (p, a) => { p.c = (p.c ?? []).filter(y => y !== a); }, getParentNode: a => a.p, getFirstChild: a => a.c?.[0], getNextSibling: () => undefined }; dispose = createRenderer(n).render(view, { t: "root", c: [] }); }
+      const settle = async () => { for (let i = 0; i < 10; i++) { s.flush?.(); await new Promise(r => setTimeout(r, 20)); } };
+      await settle();
+      if (probe?.act) { await probe.act(); await settle(); }
+    } catch (e) { error ??= e; }
+    finally { try { dispose(); } catch {} [console.warn, console.error] = saved; }
+    for (const cb of c.cbs) {
+      const st = seen.get(cb.name), ob = `callbacks:${cb.name}`;
+      const never = { line: c.line, ob, status: "unverified", what: `${c.name}: prop ${cb.name} never called${error ? ` (it threw: ${String(error.message ?? error).slice(0, 40)})` : ""}: give the probe's props and an act that makes the component call it` };
+      if (cb.tracked) out.push(st.tracked ? { line: c.line, ob, status: "ok", what: `${c.name}: prop ${cb.name} is tracked, as declared: the component calls it inside a computation (MO-10j)` }
+        : st.calls ? { line: c.line, ob, status: "ok", what: `${c.name}: prop ${cb.name} is declared tracked, but the component calls it outside tracking: a handler would do (stricter than needed)` } : never);
+      else if (cb.handler) out.push(st.tracked ? { line: c.line, ob, status: "fail", what: `${c.name}: prop ${cb.name} is declared handler, but the component calls it inside a computation (tracked): a closure there would have its reads tracked and its writes refused by Solid: drop \`handler\`, or declare it \`tracked\` (MO-10j)` }
+        : st.calls ? { line: c.line, ob, status: "ok", what: `${c.name}: prop ${cb.name} holds: the component calls it outside tracking, as a handler` } : never);
+      else out.push(st.calls ? { line: c.line, ob, status: "ok", what: `${c.name}: prop ${cb.name} is pure, as declared; the component calls it ${st.tracked ? "inside" : "outside"} tracking` } : never);
+    }
+  }
+  return out;
+}
+module.exports = { verifyPlacement, verifyComponentUses, verifyCallbacks, rowsOf, partUnder, verifyComponentCallbacks };
