@@ -806,6 +806,37 @@ export default component App() {
 }
 ```
 
+### DRAFT_ESCAPES
+
+A library's draft (MO-10i) is its callback's only while the library's call of it runs: the library may take it back when
+the callback returns, as Solid's store setter does. A closure made inside the callback may run later (a timer, an event,
+a `then`), when writing or reading the draft would touch nothing. Use the draft in the callback itself; copy what a later
+closure needs into a local first.
+
+```rx before
+-- module: ./store.d.rx
+export pure fn makeStore(init: { done: number }): [{ done: number }, (update: (draft state: { done: number }) => void) => void]
+export fn later(f: handler () => void): void
+-- main
+import { makeStore, later } from "./store.js"
+export default component App() {
+  [todos, setTodos] = makeStore({ done: 0 })
+  <button onClick={() => { setTodos((d) => { later(() => { d.done := 1 }) }) }}>{todos.done}</button>
+}
+```
+
+```rx after
+-- module: ./store.d.rx
+export pure fn makeStore(init: { done: number }): [{ done: number }, (update: (draft state: { done: number }) => void) => void]
+export fn later(f: handler () => void): void
+-- main
+import { makeStore, later } from "./store.js"
+export default component App() {
+  [todos, setTodos] = makeStore({ done: 0 })
+  <button onClick={() => { later(() => { setTodos((d) => { d.done := 1 }) }) }}>{todos.done}</button>
+}
+```
+
 ### DRAFT_WRITE_OUTSIDE_DRAFT
 
 A draft block writes only its draft, `d` (ST-3a). Other sources are written by the event that changes them.

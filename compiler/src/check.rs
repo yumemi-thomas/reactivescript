@@ -285,6 +285,8 @@ struct Sym<'a> {
     part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>,
     /// MO-10i: a callback's parameter the library declares a draft: its paths are written
     js_draft: bool,
+    /// MO-10i: the closure whose parameter the draft is (its `fn_stack` id)
+    draft_fn: Option<usize>,
     /// MO-11o: every equation's expression, looked through for what it carries
     carried_expr: Option<(&'a Expr, EId)>,
     /// MO-11j: an exported factory's component — the wrapper whose summary an importer sees
@@ -356,6 +358,7 @@ impl<'a> Sym<'a> {
             drafts: vec![],
             part_drafts: vec![],
             js_draft: false,
+            draft_fn: None,
             carried_expr: None,
             exported_as: None,
             wraps: None,
@@ -1162,6 +1165,9 @@ pub struct Checker<'a> {
     callback_fns: HashSet<*const Expr>,
     /// MO-10i: closures passed where a JS fn's declaration makes their parameters drafts, with those positions
     draft_fns: HashMap<*const Expr, Vec<usize>>,
+    /// MO-10i: the closures being walked (ids, innermost last), and the last id given
+    fn_stack: Vec<usize>,
+    fn_seq: usize,
     /// MO-11k: declared JS components' render props (fields typed as a function giving a View), by region
     render_props: HashMap<RId, HashSet<String>>,
     /// MO-11o: the JS components' props that render what their value carries
@@ -1291,6 +1297,8 @@ impl<'a> Checker<'a> {
             uses: vec![],
             callback_fns: HashSet::new(),
             draft_fns: HashMap::new(),
+            fn_stack: vec![],
+            fn_seq: 0,
             render_props: HashMap::new(),
             carried_props: HashMap::new(),
             carried_pending: vec![],
@@ -3147,6 +3155,28 @@ impl<'a> Checker<'a> {
 
     /// `field`: the member read of an identifier (`props.title`), for the model (CP-6).
     fn expr(&mut self, e: &'a Expr, env: EId, ctx: Ctx, field: Option<&str>) {
+        // MO-10i: the closures being walked, innermost last — a library's draft is its callback's alone
+        if let ExprKind::Fn { .. } = &e.k {
+            self.fn_seq += 1;
+            let id = self.fn_seq;
+            self.fn_stack.push(id);
+            self.expr_k(e, env, ctx, field);
+            self.fn_stack.pop();
+            return;
+        }
+        self.expr_k(e, env, ctx, field)
+    }
+    /// MO-10i (lifetime, 2026-11-21): a library's draft is its callback's while that call runs, and the library may take
+    /// it back when the callback returns; a closure made inside the callback may run later, so a draft it captures is
+    /// refused, as a read or as a write of its paths.
+    fn draft_here(&mut self, s: SId, name: &str) {
+        if let Some(own) = self.syms[s].draft_fn {
+            if self.fn_stack.last() != Some(&own) {
+                self.err("DRAFT_ESCAPES", "MO-10i", format!("{name} is a library's draft, its callback's only while that call runs: a closure made inside the callback may run after the library has taken it back — use {name} in the callback itself, or copy what the closure needs into a local first"));
+            }
+        }
+    }
+    fn expr_k(&mut self, e: &'a Expr, env: EId, ctx: Ctx, field: Option<&str>) {
         match &e.k {
             ExprKind::Lit(_) => {}
             ExprKind::Id(name) if self.value_ids.contains(&(e as *const Expr)) => self.escape_comp(name, env),
@@ -3154,6 +3184,7 @@ impl<'a> Checker<'a> {
                 self.escape_comp(name, env);
                 let s = self.resolve(name, env, ctx);
                 if let Some(s) = s {
+                    self.draft_here(s, name);
                     self.read(s, ctx, false, field);
                     match self.syms[s].kind {
                         // MO-11m: a made component's properties (`Router.paths`) are values
@@ -3399,6 +3430,7 @@ impl<'a> Checker<'a> {
                         // MO-10i
                         let s = self.envs[inner].vars[p.as_str()];
                         self.syms[s].js_draft = true;
+                        self.syms[s].draft_fn = self.fn_stack.last().copied();
                     }
                 }
                 if let Some(ss) = stmts {
@@ -3536,6 +3568,7 @@ impl<'a> Checker<'a> {
                         tsym = self.resolve(&target.name, env, ctx);
                         if op == "write" && !target.path.is_empty() && tsym.is_some_and(|t| self.syms[t].js_draft) {
                             // MO-10i: a path of a library's draft: the library's write, not a source's
+                            self.draft_here(tsym.unwrap(), &target.name);
                             for p in &target.path {
                                 if let PathSeg::Expr(x) = p {
                                     self.expr(x, env, ctx, None);

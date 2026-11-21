@@ -557,8 +557,18 @@ export component Search(props: { start: boolean, q: string }) {
   removed, and TypeScript checks each value written against the draft's
   field. Solid 2's store is a proxy read field by field, so its declared
   first part is a value, not `ref`. A path write takes an updater as a
-  source's write does (W-6): `d.done := v => v + 1` assigns `f(d.done)`.
-  `rx-verify` checks the row by running it: the setter must hand its
+  source's write does (W-6): `d.done := v => v + 1` assigns `f(d.done)`,
+  its place evaluated once (revised 2026-11-21 after review): the object up
+  to the last key, then that key, then the old value read from them and the
+  new one written there, as `x[k] += 1` is, so `d.items[next()] := v => v +
+  1` calls `next` once and updates one element. The draft lives as long as
+  the library's call of the callback (revised 2026-11-21): a library may
+  take it back when the callback returns (a revocable proxy, Solid's
+  setter), so a closure made inside the callback, which may run later,
+  may not capture it, to write a path or to read one (`DRAFT_ESCAPES`);
+  what such a closure needs is copied into a local first. Passing the draft
+  itself to a function the callback calls is that function's contract with
+  the library, as any JS argument is. `rx-verify` checks the row by running it: the setter must hand its
   callback an object, and a write to it must be kept (a library that
   hands a copy is a mismatch). S-module-25; `examples/formisch` runs
   Solid 2's own store this way.

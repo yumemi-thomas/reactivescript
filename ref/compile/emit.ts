@@ -545,7 +545,11 @@ class Gen {
           const v = e(s.e);
           if (ctx.dyn && !s.target.ctx && !env.lookup(s.target.name)) { out.push(`${pad}__rt.dset(${J(s.target.name)}, ${keys}, ${v}, ${s.k === "optimistic"});`); break; }
           { const b = s.target.ctx || s.k !== "write" || !s.target.path.length ? undefined : env.lookup(s.target.name);   // MO-10i: a library's draft, written along its path
-            if (b && b.kind === "val" && !b.w) { const lhs = `${b.js}${s.target.path.map(p => `[${typeof p === "string" ? J(p) : e(p)}]`).join("")}`; out.push(`${pad}${lhs} = ${s.e.k === "fn" && !s.e.stmts && s.e.params.length === 1 ? `(${v})(${lhs})` : v};`); break; } }   // W-6: \`d.n := v => v + 1\` applies it
+            if (b && b.kind === "val" && !b.w) {
+              const segs = s.target.path.map(p => `[${typeof p === "string" ? J(p) : e(p)}]`);
+              // W-6: \`d.n := v => v + 1\` applies it, the place evaluated once (the object up to the last key, then the key)
+              if (s.e.k === "fn" && !s.e.stmts && s.e.params.length === 1) { const last = s.target.path[s.target.path.length - 1]; out.push(`${pad}{\n${pad}  const __o$d = ${b.js}${segs.slice(0, -1).join("")};\n${pad}  const __k$d = ${typeof last === "string" ? J(last) : e(last)};\n${pad}  __o$d[__k$d] = (${v})(__o$d[__k$d]);\n${pad}}`); break; }
+              out.push(`${pad}${b.js}${segs.join("")} = ${v};`); break; } }
           let w: string;
           if (s.target.ctx) w = `__rt.use(${this.ref(s.target.name, env, { imp: false, dyn: ctx.dyn })}, __o).w`;
           else { const b = env.lookup(s.target.name); if (!b?.w) throw new CompileError(`W-1: ${s.target.name} is not a source`); w = b.w; }

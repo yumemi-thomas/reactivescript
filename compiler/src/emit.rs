@@ -1698,12 +1698,24 @@ impl<'p> Gen<'p> {
                     // MO-10i: a library's draft, written along its path
                     if !optimistic && has_path && !target.is_ctx() {
                         if let Some(b) = self.lookup(env, &target.name).filter(|b| b.kind == Kind::Val && b.w.is_none()) {
-                            let E::Arr(segs) = keys else { unreachable!() };
-                            let lhs = segs.into_iter().fold(id(b.js), |o, k| E::Index(Box::new(o), Box::new(k), false));
-                            // W-6: `d.n := v => v + 1` applies it
+                            let E::Arr(mut segs) = keys else { unreachable!() };
+                            // W-6: `d.n := v => v + 1` applies it. The place is evaluated once, as `x[k] += 1` is: the object
+                            // up to the last key, then that key, then the old value read from them and the new one written
+                            // there (`d.items[next()] := v => v + 1` calls `next` once)
                             let updater = matches!(&e.k, ExprKind::Fn { params, stmts: None, .. } if params.len() == 1);
-                            let rhs = if updater { E::Call(Box::new(v), vec![lhs.clone()]) } else { v };
-                            out.push(sexpr(E::Assign("=", Box::new(lhs), Box::new(rhs))));
+                            if updater {
+                                let last = segs.pop().unwrap();
+                                let obj = segs.into_iter().fold(id(b.js), |o, k| E::Index(Box::new(o), Box::new(k), false));
+                                let place = E::Index(Box::new(id("__o$d")), Box::new(id("__k$d")), false);
+                                out.push(S::Block(vec![
+                                    S::Const(Pat::Id("__o$d".into()), obj),
+                                    S::Const(Pat::Id("__k$d".into()), last),
+                                    sexpr(E::Assign("=", Box::new(place.clone()), Box::new(E::Call(Box::new(v), vec![place])))),
+                                ]));
+                                continue;
+                            }
+                            let lhs = segs.into_iter().fold(id(b.js), |o, k| E::Index(Box::new(o), Box::new(k), false));
+                            out.push(sexpr(E::Assign("=", Box::new(lhs), Box::new(v))));
                             continue;
                         }
                     }

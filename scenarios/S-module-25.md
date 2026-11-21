@@ -9,6 +9,7 @@ Rules: MO-10i, W-1, MO-10g, 07 §5.
 // as Solid 2's createStore is declared: its setter takes a callback whose parameter is the store's draft
 export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]
 export fn each(xs: string[], f: (x: { label: string }) => void): void
+export fn later(f: handler () => void): void
 ```
 
 A library may hand a callback a value to change in place: Solid 2's store
@@ -29,6 +30,14 @@ initial literal (`items: []`) would leave TypeScript nothing to infer;
 and since the module imports `createStore` from a declared JS module,
 `[todos, setTodos] = createStore(…)` is that import's call, not Solid's
 habit (`JS_API` is for a name the module does not import).
+
+The draft is the callback's only while the library's call of it runs: a
+library may take it back when the callback returns (Solid's store setter
+does). A closure made inside the callback may run later, so a draft it
+captures — to write a path, or to read one — is refused (`DRAFT_ESCAPES`,
+MO-10i, revised 2026-11-21). An updater's place is evaluated once:
+`d.items[i] := v => v + 1` reads and writes the same element, the object
+and the key computed once each, as `x[k] += 1` is.
 
 ## Program
 
@@ -94,3 +103,30 @@ export default component App() {
 
 `createSignal` is not imported here: a hook's pair is Solid's habit, and
 state is `source n := 0`.
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { later(() => { d.done := 1 }) }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+The closure `later` calls may run after the setter has returned and the
+library has taken its draft back: the write would land on nothing. Write
+the path in the callback itself.
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { later(() => { log(d.done) }) }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+A read through a captured draft is refused too: copy what the closure
+needs into a local first (`let n = d.done`).
