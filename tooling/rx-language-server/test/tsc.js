@@ -162,6 +162,20 @@ const esmBad = esmRun(esmApp.replace("twice(2)", 'twice("2")').replace("half(4)"
 check("...and are typed by it (TS2345 on the .rx, for each)", esmBad.status !== 0 && /main\.rx\(4,\d+\): error TS2345/.test(esmBad.out) && /main\.rx\(5,\d+\): error TS2345/.test(esmBad.out), esmBad);
 fs.rmSync(esm, { recursive: true });
 
+// E-5a (RFC 35): --rx-whole-program covers every module, also two that import each other (no module is imported by
+// none, so a cycle's root is picked), and keeps the loader's own diagnostics (MODULE_CYCLE)
+const cyc = path.join(ws, "cycle"); fs.mkdirSync(cyc, { recursive: true });
+fs.symlinkSync(path.join(ws, "node_modules"), path.join(cyc, "node_modules"), "dir");
+fs.writeFileSync(path.join(cyc, "tsconfig.json"), JSON.stringify({ compilerOptions: JSON.parse(fs.readFileSync(path.join(ws, "tsconfig.json"), "utf8")).compilerOptions, include: ["*.rx"] }));
+fs.writeFileSync(path.join(cyc, "a.rx"), 'import { B } from "./b.rx"\nexport component A() {\n  source n := 0\n  shown = [1].map(k => { n := k; k })\n  <p>{shown}</p> <B />\n}\n');
+fs.writeFileSync(path.join(cyc, "b.rx"), 'import { A } from "./a.rx"\nexport component B() {\n  <i>b</i>\n}\n');
+const cycRun = (...args) => { const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), ...args], { cwd: cyc, encoding: "utf8" }); return { status: r.status, out: r.stdout + r.stderr }; };
+const cycPer = cycRun();
+check("two .rx modules that import each other: per module, the write fails", cycPer.status !== 0 && /error (REACTIVE_WRITE_IN_OWNED_SCOPE|MODULE_CYCLE)/.test(cycPer.out), cycPer);
+const cycWhole = cycRun("--rx-whole-program");
+check("...and --rx-whole-program checks them too, from a cycle's root (no entry is imported by none)", cycWhole.status !== 0 && /a\.rx:4:3 - error REACTIVE_WRITE_IN_OWNED_SCOPE/.test(cycWhole.out) && /error MODULE_CYCLE/.test(cycWhole.out), cycWhole);
+fs.rmSync(cyc, { recursive: true });
+
 // MO-8f, MO-8j, TY-6 follow the declarations the compiler consumed, wherever they are, and only those: an entry that
 // imports `./sub/lib.js`, whose real types say string → string and whose .d.rx says number → number, pinned to a package
 // that is not installed, with no record; the tsconfig names only the entry

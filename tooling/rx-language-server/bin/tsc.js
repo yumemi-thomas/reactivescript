@@ -39,13 +39,21 @@ process.on("exit", code => {
     const imported = new Set(all.flatMap(a => (a.result.modules ?? []).filter(m => path.resolve(m) !== path.resolve(a.file)).map(m => path.resolve(m))));
     const entries = all.filter(a => !imported.has(path.resolve(a.file))).map(a => a.file);
     const byFile = new Map(all.map(a => [path.resolve(a.file), []]));
-    const seen = new Set();
-    for (const e of entries) for (const d of checkProgram(e, { whole: true, hosts: hostList }).diagnostics ?? []) {
-      const f = path.resolve(d.file ?? e), k = `${f}\0${d.code}\0${d.line}\0${d.message}`;
-      if (seen.has(k)) continue; seen.add(k);
-      if (!byFile.has(f)) byFile.set(f, []);
-      byFile.get(f).push(d);
-    }
+    const seen = new Set(), covered = new Set();
+    const program = e => {
+      const r = checkProgram(e, { whole: true, hosts: hostList });
+      covered.add(path.resolve(e)); for (const m of r.modules ?? []) covered.add(path.resolve(m));
+      for (const d of r.diagnostics ?? []) {   // the loader's own (a parse error, MODULE_CYCLE) with the checker's
+        const f = path.resolve(d.file ?? e), k = `${f}\0${d.code}\0${d.line}\0${d.message}`;
+        if (seen.has(k)) continue; seen.add(k);
+        if (!byFile.has(f)) byFile.set(f, []);
+        byFile.get(f).push(d);
+      }
+    };
+    for (const e of entries) program(e);
+    // modules no entry reached — those that import each other with nothing importing them: each cycle from a root of
+    // its own, the first such module in the program's order, until every module is checked
+    for (const a of all) if (!covered.has(path.resolve(a.file))) program(a.file);
     crateDiags = [...byFile].map(([file, diagnostics]) => ({ file, diagnostics }));
   }
   for (const { file, diagnostics } of crateDiags) {
