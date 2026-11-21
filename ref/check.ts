@@ -13,6 +13,7 @@ const args = process.argv.slice(2); const sigOut = args.includes("--signature");
 const hosts = args.flatMap((a, i) => args[i - 1] === "--host" ? [resolve(a)] : []);   // E-5a: modules a JS host imports with ?rx-lib (CP-4d)
 let bad = 0;
 for (const f of args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--host")) {
+  if (!existsSync(resolve(f))) { bad++; console.log(`${f}: error MODULE_NOT_FOUND [MO-6] no module ${f}: the file does not exist or cannot be read`); continue; }   // never an empty program that checks
   try {
     const set = loadModules(resolve(f), p => existsSync(p) ? readFileSync(p, "utf8") : undefined);
     // E-5a: a host is the module whose real path is its own (a key may go through a symlink, a host's path another way)

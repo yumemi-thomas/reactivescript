@@ -282,6 +282,10 @@ fn main() {
                 }
             };
             let module_name = opt("--module-name").unwrap_or_else(|| "@solidjs/web".into());
+            if read_disk(&abs(file)).is_none() {
+                eprintln!("{file}: error MODULE_NOT_FOUND [MO-6] no module {file}: the file does not exist or cannot be read");
+                std::process::exit(1);
+            }
             let set = match load_modules(&abs(file), &read_disk) {
                 Ok(s) => s,
                 Err(e) => {
@@ -333,6 +337,17 @@ fn main() {
             let as_json = cmd == "check" && args.iter().any(|a| a == "--json");
             let mut found: Vec<Value> = vec![];
             for f in args[1..].iter().enumerate().filter(|(i, a)| !a.starts_with("--") && args[*i] != "--host").map(|(_, a)| a) {
+                // a file that is not there is an error, not an empty program that checks
+                if read_disk(&abs(f)).is_none() {
+                    bad += 1;
+                    let msg = format!("no module {f}: the file does not exist or cannot be read");
+                    if as_json {
+                        found.push(json!({ "file": abs(f), "line": 0, "code": "MODULE_NOT_FOUND", "rule": "MO-6", "msg": msg }));
+                    } else {
+                        eprintln!("{f}: error MODULE_NOT_FOUND [MO-6] {msg}");
+                    }
+                    continue;
+                }
                 let set = match load_modules(&abs(f), &read_disk) {
                     Ok(s) => s,
                     Err(e) => {
