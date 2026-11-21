@@ -175,9 +175,10 @@ by default — see the list at the end.
   fields are there as data. It is not the library's instance rebuilt: the
   client's object takes the class's prototype without running its
   constructor, so state the constructor sets up (a private `#field`, a
-  closure, an undeclared property) is not there, and a getter the class
-  defines over a declared field reads as the class does on the client,
-  where it has no instance state of its own. Nothing checks a
+  closure, an undeclared property) is not there; a declared field the
+  class defines as a getter arrives as the value sent, own data that
+  shadows the getter, and any other getter or method runs against the
+  copy's data alone. Nothing checks a
   JS class's fields before it runs (IO-3: the declaration is the trust
   boundary). The copy is made at a boundary the app owns, an awaited
   promise or `sendErrors`, and nowhere else (revised 2026-11-21: the first
