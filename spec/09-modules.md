@@ -251,7 +251,16 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   recorded as a mismatch or as not checked, and one edited since the record
   (its hash changed) are `UNVERIFIED_ROW` (13 TY-7), each saying which and
   what to run. `trusted` changes nothing else: outside strict mode it is
-  read and ignored.
+  read and ignored. A row is verified only when every claim the parser reads in it
+  was run (revised 2026-11-21 after review): the crate lists them for each
+  row (`exists`, `pure`, `uses`, `provides`, `fields`, `fails`,
+  `callbacks`, `draft`, `placement`; `rxc serve`'s `rows` answer), rx-verify
+  reads each row whole, as the parser spans it (a claim on a row's later
+  line, `}) provides(theme)`, is the row's), and a claim no check answered —
+  one rx-verify cannot run, as `forwards` or `joins(…)` — is recorded as not
+  verified, so such a row needs `trusted`. A record carries the version of
+  rx-verify's checks it was made with; one from an earlier version (whose
+  checks could miss a claim) no longer counts and is said to need a rerun.
 - **MO-8k (Where a package's declaration is found) — proposed 2026-11-21.**
   A package import's declaration is the first of these that exists:
   1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or

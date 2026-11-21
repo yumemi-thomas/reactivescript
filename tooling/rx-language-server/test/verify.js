@@ -263,5 +263,33 @@ fs.writeFileSync(path.join(ws, "urls.mjs"), "export const link = to => to + \"!\
 const modMoved = checkStrict(ux);
 check("strict: a record made against another version of the module does not count", modMoved.length === 4 && modMoved.every(u => /module urls\.mjs changed since/.test(u.message)), modMoved);
 
+// MO-8j: rx-verify reads the rows the crate reads, and a record needs every claim answered: a provider whose props record
+// is broken over lines, with `provides(theme)` on the last, and nothing in the file that uses theme, is not verified —
+// on one line or on three, the same
+const boxRun = decl => {
+  fs.writeFileSync(path.join(ws, "box.mjs"), "export const Box = p => p.label;\n");
+  fs.writeFileSync(path.join(ws, "box.d.rx"), decl);
+  fs.rmSync(path.join(ws, "box.verified.json"), { force: true });
+  const r = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "box.d.rx"], { cwd: ws, encoding: "utf8" });
+  return { out: r.stdout + r.stderr, strict: checkStrict(path.join(ws, "box.d.rx")) };
+};
+const oneLine = boxRun("export context theme\nexport component Box(props: { label: string }) provides(theme)\n");
+const threeLines = boxRun("export context theme\nexport component Box(props: {\n  label: string\n}) provides(theme)\n");
+check("a provides(…) on a row's later line is read: unverified, as on one line", /box\.d\.rx:2 unverified Box: provides\(…\) not run/.test(oneLine.out) && /box\.d\.rx:2 unverified Box: provides\(…\) not run/.test(threeLines.out) && !/ok\s+— Box/.test(threeLines.out), threeLines.out);
+check("...and strict refuses it either way (no `ok` for a row with a claim nothing ran)", oneLine.strict.some(u => u.name === "Box") && threeLines.strict.some(u => u.name === "Box" && /could not check it/.test(u.message)), threeLines.strict);
+// a claim no check of rx-verify's answers (here `forwards`) is recorded as not verified, not passed over
+fs.writeFileSync(path.join(ws, "fw.mjs"), "export const wrap = c => c;\n");
+fs.writeFileSync(path.join(ws, "fw.d.rx"), "export fn wrap(c: Component): Component forwards\n");
+const fw = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "fw.d.rx"], { cwd: ws, encoding: "utf8" });
+check("a claim nothing in rx-verify runs is unverified, and strict refuses the row", /fw\.d\.rx:1 unverified wrap: where it renders/.test(fw.stdout) && checkStrict(path.join(ws, "fw.d.rx")).some(u => u.name === "wrap"), fw.stdout + fw.stderr);
+// a record an older rx-verify wrote (no version: its checks missed claims) no longer counts
+const recFile = path.join(ws, "cb.verified.json");
+const rec = JSON.parse(fs.readFileSync(recFile, "utf8"));
+fs.writeFileSync(path.join(ws, "cb.d.rx"), fs.readFileSync(path.join(ws, "cb.d.rx"), "utf8"));
+const okBefore = checkStrict(path.join(ws, "cb.d.rx")).length;
+delete rec.version; fs.writeFileSync(recFile, JSON.stringify(rec));
+const old = checkStrict(path.join(ws, "cb.d.rx"));
+check("strict: a record from an older rx-verify does not count (its passes may be false)", old.length > okBefore && old.every(u => /older rx-verify|changed since|could not|mismatch/.test(u.message)) && old.some(u => /older rx-verify/.test(u.message)), old);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

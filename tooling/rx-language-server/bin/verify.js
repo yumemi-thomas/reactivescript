@@ -143,15 +143,19 @@ async function verify(file) {
   const { createRoot } = await import(pathToFileURL(require.resolve("solid-js", { paths: [path.dirname(path.resolve(js))] })).href);
   const out = [];
   const at = n => n.split(".").reduce((o, k) => o?.[k], mod);   // MO-11q: `Dialog.Trigger` is a member of `Dialog`
-  for (const x of exportsOf(fs.readFileSync(file, "utf8"))) { if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${x.name}\n`);
+  // each row as one line, at the line it starts on, as the crate's parser spans it: a claim on a row's later line (a props
+  // record broken over lines, then `provides(theme)`) is read as the row's
+  const text = require("../src/strict.js").rowText(file);
+  for (const x of exportsOf(text)) { if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${x.name}\n`);
     const v = at(x.name);
-    if (v === undefined) { out.push({ line: x.line, status: "fail", what: `${x.name}: ${path.basename(js)} exports nothing by that name` }); continue; }
-    if (x.kind === "value") { out.push({ line: x.line, status: "ok", what: `${x.name}: a value, exported` }); continue; }
-    if (x.kind === "error") { const ok = typeof v === "function" && v.prototype instanceof Error; out.push({ line: x.line, status: ok ? "ok" : "fail", what: `${x.name}: ${ok ? "an Error subclass" : "declared an error, but is not an Error subclass"}` }); continue; }
-    if (typeof v !== "function") { out.push({ line: x.line, status: "fail", what: `${x.name}: declared a ${x.kind}, but is a ${typeof v}` }); continue; }
+    if (v === undefined) { out.push({ line: x.line, ob: "exists", status: "fail", what: `${x.name}: ${path.basename(js)} exports nothing by that name` }); continue; }
+    if (x.kind === "value") { out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: a value, exported` }); continue; }
+    if (x.kind === "error") { const ok = typeof v === "function" && v.prototype instanceof Error; out.push({ line: x.line, ob: "exists", status: ok ? "ok" : "fail", what: `${x.name}: ${ok ? "an Error subclass" : "declared an error, but is not an Error subclass"}` }); continue; }
+    if (typeof v !== "function") { out.push({ line: x.line, ob: "exists", status: "fail", what: `${x.name}: declared a ${x.kind}, but is a ${typeof v}` }); continue; }
+    out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: exported, a function`, quiet: true });   // what the record needs; the line printed is the check below
     const probe = probeMod?.probes?.[x.name];
     if (x.kind === "fn" && x.uses) {
-      if (x.required && !probe?.args) out.push({ line: x.line, status: "unverified", what: `${x.name}: uses(…) not run, it needs ${x.required} argument${x.required > 1 ? "s" : ""} (give them in a probe)` });
+      if (x.required && !probe?.args) out.push({ line: x.line, ob: "uses", status: "unverified", what: `${x.name}: uses(…) not run, it needs ${x.required} argument${x.required > 1 ? "s" : ""} (give them in a probe)` });
       else {
         let threw = null, dispose = () => {}, result;
         const warned = [];   // a hook that warns, not throws, with no provider (TanStack Router's `useRouter must be used inside a <RouterProvider>`)
@@ -161,12 +165,12 @@ async function verify(file) {
           if (!threw && probe?.run) { try { await probe.run(result); } catch (e) { threw = e; } }   // a hook that reads its context lazily: the probe uses what it gave
           dispose();
         } finally { [console.warn, console.error] = saved; }
-        if (!threw && warned.length) { out.push({ line: x.line, status: "ok", what: `${x.name}: uses(…) holds: with no provider it warns (${warned[0].slice(0, 60)})` }); if (!x.fields) continue; }
+        if (!threw && warned.length) { out.push({ line: x.line, ob: "uses", status: "ok", what: `${x.name}: uses(…) holds: with no provider it warns (${warned[0].slice(0, 60)})` }); if (!x.fields) continue; }
         else {
         // the control: under its providers, the same `run` must not throw, or the probe (not the row) is what failed
         const control = threw && probe?.run && probeMod?.provide ? (await mount(dir, mod, probeMod, v, probe.args?.() ?? [], [], probe.run)).runError : null;
-        if (control) out.push({ line: x.line, status: "unverified", what: `${x.name}: the probe's run throws under its providers too (${String(control.message || control).slice(0, 60)}): fix the probe` });
-        else out.push(threw ? { line: x.line, status: "ok", what: `${x.name}: uses(…) holds: with no provider it throws (${String(threw.message || threw.name || threw).slice(0, 60)})` }
+        if (control) out.push({ line: x.line, ob: "uses", status: "unverified", what: `${x.name}: the probe's run throws under its providers too (${String(control.message || control).slice(0, 60)}): fix the probe` });
+        else out.push(threw ? { line: x.line, ob: "uses", status: "ok", what: `${x.name}: uses(…) holds: with no provider it throws (${String(threw.message || threw.name || threw).slice(0, 60)})` }
           : { line: x.line, status: "fail", what: `${x.name}: declared uses(…), but called with no provider it neither throws nor warns: does it read a context?` });
         }
       }
@@ -177,7 +181,7 @@ async function verify(file) {
       const ran = await mount(dir, mod, probeMod, v, probe?.args?.() ?? [], x.fields);
       // what failed only for want of a browser (no `window` here) is no evidence either way: run with --dom
       const envErr = [ran.boundary, ...x.fields.map(f => ran.seen.get(f.path.join(".")).failed)].find(environmental);
-      if (envErr) { out.push({ line: x.line, status: "unverified", what: `${x.name}: not run: it needs a browser (${String(envErr.message ?? envErr).slice(0, 40)}); run rx-verify with --dom` }); continue; }
+      if (envErr) { out.push({ line: x.line, ob: "fields", status: "unverified", what: `${x.name}: not run: it needs a browser (${String(envErr.message ?? envErr).slice(0, 40)}); run rx-verify with --dom` }); continue; }
       const bad = [];
       for (const f of x.fields) {
         const st = ran.seen.get(f.path.join("."));
@@ -188,16 +192,16 @@ async function verify(file) {
       if (ran.boundary && !fails.length && !(ran.boundary?.name === "NotReadyError")) bad.push(`it fails into the errored boundary (${String(ran.boundary?.message ?? ran.boundary).slice(0, 40)}), and no field is declared fails(…)`);
       const held = x.fields.filter(f => f.holds).map(f => f.path.join("."));
       const heldSeen = held.filter(k => ran.seen.get(k).pending);
-      out.push(bad.length ? { line: x.line, status: "fail", what: `${x.name}: ${bad.join("; ")}` }
+      out.push(bad.length ? { line: x.line, ob: "fields", status: "fail", what: `${x.name}: ${bad.join("; ")}` }
         : { line: x.line, status: "ok", what: `${x.name}: its fields read as declared${heldSeen.length ? ` (${heldSeen.join(", ")} held, then answered)` : ""}` });
       if (fails.length) {
-        if (!probe?.fail) out.push({ line: x.line, status: "unverified", what: `${x.name}: fails(…) not run (give failing arguments as the probe's fail)` });
+        if (!probe?.fail) out.push({ line: x.line, ob: "fails", status: "unverified", what: `${x.name}: fails(…) not run (give failing arguments as the probe's fail)` });
         else {
           const r2 = await mount(dir, mod, probeMod, v, probe.fail(), x.fields);
           const got = r2.boundary ?? fails.map(f => r2.seen.get(f.path.join(".")).failed).find(Boolean);
           const classes = [...new Set(fails.flatMap(f => f.fails))];
           const ok = got && classes.some(c => c === "Error" ? got instanceof Error : typeof mod[c] === "function" && got instanceof mod[c]);
-          out.push(ok ? { line: x.line, status: "ok", what: `${x.name}: under the failing arguments it fails with ${got.constructor?.name ?? "an error"}, as declared` }
+          out.push(ok ? { line: x.line, ob: "fails", status: "ok", what: `${x.name}: under the failing arguments it fails with ${got.constructor?.name ?? "an error"}, as declared` }
             : { line: x.line, status: "fail", what: `${x.name}: under the failing arguments ${got ? `it fails with ${got.constructor?.name}, not ${classes.join(" or ")}` : "nothing fails"}` });
         }
       }
@@ -208,38 +212,42 @@ async function verify(file) {
       let a, b, threw = null;
       createRoot(d => { try { a = v(...(probe?.args?.() ?? [])); b = v(...(probe?.args?.() ?? [])); } catch (e) { threw = e; } d(); });
       try { [a, b] = await Promise.all([a, b]); } catch (e) { threw ??= e; }
-      out.push(threw ? { line: x.line, status: "unverified", what: `${x.name}: pure not run: it threw (${String(threw.message ?? threw).slice(0, 50)})` }
-        : same(a, b) ? { line: x.line, status: "unverified", what: `${x.name}: pure not contradicted: two calls with the same arguments answer alike, which cannot show a fn is pure` }   // RFC 28: running can refute purity, never establish it
-        : { line: x.line, status: "fail", what: `${x.name}: declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})` });
+      out.push(threw ? { line: x.line, ob: "pure", status: "unverified", what: `${x.name}: pure not run: it threw (${String(threw.message ?? threw).slice(0, 50)})` }
+        : same(a, b) ? { line: x.line, ob: "pure", status: "unverified", what: `${x.name}: pure not contradicted: two calls with the same arguments answer alike, which cannot show a fn is pure` }   // RFC 28: running can refute purity, never establish it
+        : { line: x.line, ob: "pure", status: "fail", what: `${x.name}: declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})` });
       continue;
     }
     // provides(c) (MO-12c): under the component, a hook of the same file that uses only what it provides runs cleanly
     if (x.kind === "component" && x.providesNames.length) {
-      const all = exportsOf(fs.readFileSync(file, "utf8"));
+      const all = exportsOf(text);
       const hook = all.find(h => h.kind === "fn" && h.usesNames.length && h.usesNames.every(c => x.providesNames.includes(c)) && (probeMod?.probes?.[h.name]?.args || !h.required) && typeof mod[h.name] === "function");
       const part = !hook && all.find(c => c.kind === "component" && c !== x && c.usesNames?.length && c.usesNames.every(u => x.providesNames.includes(u)));
-      if (part) { out.push({ line: x.line, status: "ok", what: `${x.name}: provides(…) checked through the components that use it (${part.name}, …), rendered inside it below` }); continue; }   // MO-11q: a kit's parts
-      if (!hook) { out.push({ line: x.line, status: "unverified", what: `${x.name}: provides(…) not run: no hook or component in this file uses only what it provides (with a probe's arguments if it needs any)` }); continue; }
+      if (part) { out.push({ line: x.line, ob: "provides", status: "ok", what: `${x.name}: provides(…) checked through the components that use it (${part.name}, …), rendered inside it below` }); continue; }   // MO-11q: a kit's parts
+      if (!hook) { out.push({ line: x.line, ob: "provides", status: "unverified", what: `${x.name}: provides(…) not run: no hook or component in this file uses only what it provides (with a probe's arguments if it needs any)` }); continue; }
       const props = probe?.props?.() ?? {};
       // inside it: as its children, or as the probe says (`around`, for a provider that renders something else, as a router)
       const wrap = probe?.around ? probe.around : (children, sol) => sol.createComponent(v, Object.defineProperty({ ...props }, "children", { get: () => children(), enumerable: true }));
       const ran = await mount(dir, mod, probeMod, mod[hook.name], probeMod?.probes?.[hook.name]?.args?.() ?? [], [], null, wrap);
-      if (ran.renderError) { out.push({ line: x.line, status: "unverified", what: `${x.name}: provides(…) not run: it threw as it mounted (${String(ran.renderError.message ?? ran.renderError).slice(0, 50)}); give its props as the probe's props` }); continue; }
-      out.push(ran.boundary && ran.boundary?.name !== "NotReadyError" ? { line: x.line, status: "fail", what: `${x.name}: declared provides(${x.providesNames.join(", ")}), but ${hook.name} under it still fails (${String(ran.boundary.message ?? ran.boundary).slice(0, 60)})` }
-        : { line: x.line, status: "ok", what: `${x.name}: provides(…) holds: ${hook.name} runs under it` });
+      if (ran.renderError) { out.push({ line: x.line, ob: "provides", status: "unverified", what: `${x.name}: provides(…) not run: it threw as it mounted (${String(ran.renderError.message ?? ran.renderError).slice(0, 50)}); give its props as the probe's props` }); continue; }
+      out.push(ran.boundary && ran.boundary?.name !== "NotReadyError" ? { line: x.line, ob: "provides", status: "fail", what: `${x.name}: declared provides(${x.providesNames.join(", ")}), but ${hook.name} under it still fails (${String(ran.boundary.message ?? ran.boundary).slice(0, 60)})` }
+        : { line: x.line, ob: "provides", status: "ok", what: `${x.name}: provides(…) holds: ${hook.name} runs under it` });
       continue;
     }
     const left = [x.pure && !x.inst && "pure", x.holds && "pending/fails", x.provides && "provides"].filter(Boolean);
     // a fn that makes something each call is not pure by two calls answering alike: that claim does not apply (n/a)
-    if (!left.length && x.pure && x.inst) { out.push({ line: x.line, status: "na", what: `${x.name}: a fn that makes something each call: two calls are not alike by design` }); continue; }
-    out.push({ line: x.line, status: left.length ? "unverified" : "ok", what: `${x.name}: a ${x.kind}${left.length ? `; ${left.join(", ")} not run (it needs what the app passes: give it in a probe)` : ""}` });
+    if (!left.length && x.pure && x.inst) { out.push({ line: x.line, ob: "pure", status: "na", what: `${x.name}: a fn that makes something each call: two calls are not alike by design` }); continue; }
+    out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: a ${x.kind}` });
+    for (const o of left) out.push({ line: x.line, ob: o === "pending/fails" ? "fields" : o, status: "unverified", what: `${x.name}: ${o} not run (it needs what the app passes: give it in a probe)` });
   }
   // MO-10g: callbacks, by running: a closure at a declared function-typed parameter is checked as a handler
-  out.push(...await require("../src/verify-place.js").verifyCallbacks({ fns: exportsOf(fs.readFileSync(file, "utf8")).filter(x => x.kind === "fn" && x.cbs?.length), at, probeMod, resolve: pathToFileURL(require.resolve("solid-js", { paths: [dir, __dirname] })).href, mount: (fn, args, run) => mount(dir, mod, probeMod, fn, args, [], run) }));
+  out.push(...(await require("../src/verify-place.js").verifyCallbacks({ fns: exportsOf(text).filter(x => x.kind === "fn" && x.cbs?.length), at, probeMod, resolve: pathToFileURL(require.resolve("solid-js", { paths: [dir, __dirname] })).href, mount: (fn, args, run) => mount(dir, mod, probeMod, fn, args, [], run) })).map(r => ({ ob: "callbacks", ...r })));
   // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its drafts
   const from = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
-  out.push(...await require("../src/verify-place.js").verifyPlacement({ text: fs.readFileSync(file, "utf8"), mod, probeMod, dir, resolve: from }));
-  out.push(...await require("../src/verify-place.js").verifyComponentUses({ comps: exportsOf(fs.readFileSync(file, "utf8")).filter(x => x.kind === "component"), at, probeMod, resolve: from }));
+  out.push(...(await require("../src/verify-place.js").verifyPlacement({ text, mod, probeMod, dir, resolve: from })).map(r => ({ ob: "placement", ...r })));
+  out.push(...(await require("../src/verify-place.js").verifyComponentUses({ comps: exportsOf(text).filter(x => x.kind === "component"), at, probeMod, resolve: from })).map(r => ({ ob: "uses", ...r })));
+  // MO-8j: a claim the crate reads in a row that no check above answered is not verified (a layout the checks above
+  // misread, or a claim running cannot test): said here, and recorded so
+  out.push(...require("../src/strict.js").unanswered(file, out));
   return out;
 }
 
@@ -277,6 +285,7 @@ function environmental(e) {
     const results = await verify(f);
     for (const r of results) {
       if (r.status === "fail") fails++;
+      if (r.quiet) continue;
       process.stdout.write(`${path.relative(process.cwd(), f)}:${r.line} ${r.status === "ok" ? "ok        " : r.status === "fail" ? "MISMATCH  " : r.status === "na" ? "n/a       " : "unverified"} ${r.what}\n`);
     }
     if (record) { const at = require("../src/strict.js").writeRecord(f, results); process.stdout.write(`${path.relative(process.cwd(), at)}: recorded\n`); }

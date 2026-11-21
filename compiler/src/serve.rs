@@ -120,7 +120,8 @@ pub fn boundary(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value 
 /// `declaration` (`{file, text?}`): the `.d.ts` a `.d.rx` stands for (TY-4b), for a JS module that has no TypeScript types
 /// of its own: what `rx-tsc` gives TypeScript in its place.
 /// MO-8j, TY-7: a declaration file's rows as the parser reads them, for strict declarations: each row's name and kind,
-/// the lines it spans (to the next row), and whether it says `trusted`.
+/// the lines it spans (to the next row), whether it says `trusted`, and what running must show for it to be verified
+/// (`obligations`, `parse::obligations`): rx-verify reads the same rows, and a record needs a result for each.
 pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     use crate::parse::JsDecl;
     let file = params["file"].as_str().unwrap_or_default();
@@ -142,7 +143,7 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
                         JsDecl::Type { .. } => "type",
                         JsDecl::Context { .. } => "context",
                     };
-                    json!({ "name": d.name(), "kind": kind, "line": line, "end": end, "trusted": trusted.iter().any(|t| *t >= line && *t <= end) })
+                    json!({ "name": d.name(), "kind": kind, "line": line, "end": end, "trusted": trusted.iter().any(|t| *t >= line && *t <= end), "obligations": crate::parse::obligations(d) })
                 })
                 .collect();
             json!({ "rows": rows })

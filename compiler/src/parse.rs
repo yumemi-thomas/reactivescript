@@ -562,6 +562,70 @@ impl JsDecl {
     }
 }
 
+/// MO-8j, TY-7: what running must show before a row counts as verified, each a claim the row makes as this parser read
+/// it, however it is laid out: `exists` (the export is there, of its kind), `pure`, `uses`, `provides`, `fields` (a result
+/// part that is `ref`, `pending` or `fails(…)`), `fails` (a field, or a component, that fails with a class), `callbacks`
+/// (a function-typed parameter or record field: handler, tracked or pure), `draft`, `placement` (`renders…`, `nests(…)`,
+/// `forwards`, `joins(…)`, `outlet`, a prop that `renders`, a carrier). rx-verify tags each result with the claim it
+/// ran; a claim no result answers is not verified.
+pub fn obligations(d: &JsDecl) -> Vec<&'static str> {
+    let mut out = vec!["exists"];
+    let fn_typed = |t: &str| {
+        let t = js_trim(t);
+        let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
+        let t = ["handler", "tracked"].iter().find_map(|w| t.strip_prefix(w).filter(|r| r.starts_with(char::is_whitespace)).map(js_trim)).unwrap_or(t);
+        fn_params_text(t).is_some()
+    };
+    match d {
+        JsDecl::Fn { pure, instantiates, uses, provides, held, shape, ptypes, renders, renders_root, nests, forwards, joins, carrier, under, drafts, part_drafts, .. } => {
+            if *pure && !*instantiates {
+                out.push("pure");
+            }
+            if !uses.is_empty() {
+                out.push("uses");
+            }
+            if !provides.is_empty() {
+                out.push("provides");
+            }
+            if !held.is_empty() || shape.has_ref() {
+                out.push("fields");
+            }
+            if held.iter().any(|h| !h.2.is_empty()) {
+                out.push("fails");
+            }
+            let cb = ptypes.iter().flatten().any(|t| {
+                let t = js_trim(t);
+                let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
+                fn_typed(t) || (t.starts_with('{') && t.ends_with('}') && split_top(&t[1..t.len() - 1], ",;").iter().any(|f| f.find(':').is_some_and(|i| fn_typed(&f[i + 1..]))))
+            });
+            if cb {
+                out.push("callbacks");
+            }
+            if !drafts.is_empty() || !part_drafts.is_empty() {
+                out.push("draft");
+            }
+            if *renders || *renders_root || nests.is_some() || *forwards || joins.is_some() || *carrier || under.is_some() || matches!(shape, Shape::Comp) {
+                out.push("placement");
+            }
+        }
+        JsDecl::Comp { props, fails, uses, provides, outlet, .. } => {
+            if !uses.is_empty() {
+                out.push("uses");
+            }
+            if !provides.is_empty() {
+                out.push("provides");
+            }
+            if !fails.is_empty() {
+                out.push("fails");
+            }
+            if *outlet || props.iter().any(|p| p.carried) {
+                out.push("placement");
+            }
+        }
+        JsDecl::Error { .. } | JsDecl::Value { .. } | JsDecl::Type { .. } | JsDecl::Context { .. } => {}
+    }
+    out
+}
 /// MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`).
 /// MO-10i: a function type's parameter list (`(a: A, b: B) => R` → `a: A, b: B`), or None.
 fn fn_params_text(t: &str) -> Option<String> {

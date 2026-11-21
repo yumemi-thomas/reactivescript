@@ -65,10 +65,10 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
       } catch (e) { err = e; }
       dispose();
     });
-    out.push(err ? { line: f.line, status: "unverified", what: `${f.name}: draft not run (${String(err.message ?? err).slice(0, 60)}); give its arguments in a probe` }
-      : !seen || typeof seen !== "object" ? { line: f.line, status: "fail", what: `${f.name}: declared a draft callback, but the callback is handed ${seen === undefined ? "nothing" : typeof seen}, not an object to change (MO-10i)` }
-      : !kept ? { line: f.line, status: "fail", what: `${f.name}: declared a draft callback, but a write to what it is handed is not kept (MO-10i)` }
-      : { line: f.line, status: "ok", what: `${f.name}: draft holds: its callback is handed an object, and a write to it is kept` });
+    out.push(err ? { line: f.line, ob: "draft", status: "unverified", what: `${f.name}: draft not run (${String(err.message ?? err).slice(0, 60)}); give its arguments in a probe` }
+      : !seen || typeof seen !== "object" ? { line: f.line, ob: "draft", status: "fail", what: `${f.name}: declared a draft callback, but the callback is handed ${seen === undefined ? "nothing" : typeof seen}, not an object to change (MO-10i)` }
+      : !kept ? { line: f.line, ob: "draft", status: "fail", what: `${f.name}: declared a draft callback, but a write to what it is handed is not kept (MO-10i)` }
+      : { line: f.line, ob: "draft", status: "ok", what: `${f.name}: draft holds: its callback is handed an object, and a write to it is kept` });
   }
   const placing = fns.filter(f => f.mode || f.nestsIn || f.nestsUnder);
   const siteComps = comps.filter(c => c.outlet || c.carried.length);
