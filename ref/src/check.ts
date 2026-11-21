@@ -182,10 +182,17 @@ function freeNamesStmts(ss: Stmt[], bound0: Set<string>, out: Set<string>): void
 /** RFC 14: the names read outside `peek` at the root of a field or index read (`size.width`, `todos.items[0]`): a
  *  primitive's instance never changes, but what is read through it tracks (MO-10b); a method called on it is not a read
  *  of a field. */
+/** A method callee: `o.p`, or `o["p"]` — a literal key names the method as a dot does (RFC 14, 34). */
+function methodCallee(f: Expr): { o: Expr; p: string } | undefined {
+  if (f.k === "member") return { o: f.o, p: f.p };
+  if (f.k === "index" && !(f.i.k === "lit" && typeof f.i.v === "number")) { const p = litKey(f.i); if (p !== undefined) return { o: f.o, p }; }
+  return undefined;
+}
 function rootedReads(e: Expr, out: Set<string>): void {
   if (e.k === "peek" || e.k === "fn") return;
-  if (e.k === "call" && e.f.k === "member") {                            // a method called on the instance (`route.addChildren(…)`) reads
-    if (e.f.o.k !== "id") rootedReads(e.f.o, out);                       // no field of it; a field on the way does (`a.b.m()` reads b)
+  const mc = e.k === "call" ? methodCallee(e.f) : undefined;
+  if (e.k === "call" && mc) {                                            // a method called on the instance (`route.addChildren(…)`) reads
+    if (mc.o.k !== "id") rootedReads(mc.o, out);                         // no field of it; a field on the way does (`a.b.m()` reads b)
     for (const x of e.args) rootedReads(x, out);
     return;
   }
@@ -203,7 +210,8 @@ function rootedReads(e: Expr, out: Set<string>): void {
  *  what a stable instance keeps stable only when its declaration names the method. */
 function methodCalls(e: Expr, out: [string, string][]): void {
   if (e.k === "peek" || e.k === "fn") return;
-  if (e.k === "call" && e.f.k === "member" && e.f.o.k === "id") out.push([e.f.o.name, e.f.p]);
+  const m = e.k === "call" ? methodCallee(e.f) : undefined;
+  if (m && m.o.k === "id") out.push([m.o.name, m.p]);
   for (const x of subExprs(e)) methodCalls(x, out);
 }
 function readsOutsidePeek(e: Expr, out: Set<string>): void {
@@ -1061,7 +1069,7 @@ class Checker {
       case "pre": if (counting) this.addCh(acc, this.symCh(env.lookup(e.name))); if (e.init) this.chOf(e.init, env, mode, acc, inPeek); return acc;
       case "use": { const c = env.lookup(e.name); if (counting && c?.kind === "context") { if (/\.d\.rx#/.test(c.ctx!.key)) acc.yes = true; else acc.deps.add(`ctx|${c.ctx!.key}`); } return acc; }   // a JS context's provider is JS
       case "call":                                                                         // a method called on a name reads no field of it (E-10's exemption): the name, and the arguments
-        if (e.f.k === "member" && e.f.o.k === "id" && env.lookup(e.f.o.name)?.kind !== "props") { if (counting) { const r = env.lookup(e.f.o.name); if (r?.kind === "eq" && r.foreign !== undefined && !r.methods?.includes(e.f.p)) acc.yes = true;   /* E-10 (bounded): a method a primitive's instance does not declare may answer something that changes */ this.addCh(acc, this.symCh(r)); } for (const a of e.args) this.chOf(a, env, mode, acc, inPeek); return acc; }
+        { const mc = methodCallee(e.f); if (mc && mc.o.k === "id" && env.lookup(mc.o.name)?.kind !== "props") { const on = mc.o.name; if (counting) { const r = env.lookup(on); if (r?.kind === "eq" && r.foreign !== undefined && !r.methods?.includes(mc.p)) acc.yes = true;   /* E-10 (bounded): a method a primitive's instance does not declare may answer something that changes */ this.addCh(acc, this.symCh(r)); } for (const a of e.args) this.chOf(a, env, mode, acc, inPeek); return acc; } }
         break;
       case "member": case "index": {
         const o = e.k === "member" && e.o.k === "id" ? env.lookup(e.o.name) : undefined;

@@ -128,3 +128,42 @@ export default component App() {
   <p>{label}</p>
 }
 ```
+
+```rx
+-- reject: SNAPSHOT_KEPT
+import { createClock } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  c = clock
+  shown = peek c.now()
+  <p>{shown}</p>
+}
+```
+
+An alias of the instance is the instance: its declared methods come with
+it, and `now` is still not one of them.
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  label = createLabel(clock["now"]())
+  <p>{label}</p>
+}
+```
+
+```rx
+-- accept: whole-program
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  label = createLabel(clock["format"]())
+  c = clock
+  shown = peek c.format()
+  <p>{label} {shown}</p>
+}
+```
+
+A literal key names the method as a dot does: `clock["format"]()` is
+`clock.format()`, a declared method, and so is `c.format()` on an alias.

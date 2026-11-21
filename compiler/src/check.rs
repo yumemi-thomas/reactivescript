@@ -732,14 +732,22 @@ fn reads_outside_peek(n: Node, out: &mut IndexSet<String>) {
 /// of a field.
 /// RFC 14 (bounded, 2026-11-21): the methods called on a name outside `peek` and closures, `route.addChildren(…)` as
 /// `(route, addChildren)`: what a stable instance keeps stable only when its declaration names the method.
+/// A method callee: `o.p`, or `o["p"]` — a literal key names the method as a dot does (RFC 14, 34).
+fn method_callee(f: &Expr) -> Option<(&Expr, String)> {
+    match &f.k {
+        ExprKind::Member { o, p, .. } => Some((o, p.clone())),
+        ExprKind::Index { o, i, .. } if !matches!(i.k, ExprKind::Lit(Lit::Num(_))) => lit_key(i).map(|p| (&**o, p)),
+        _ => None,
+    }
+}
 fn method_calls(e: &Expr, out: &mut Vec<(String, String)>) {
     match &e.k {
         ExprKind::Peek(_) | ExprKind::Fn { .. } => {}
         _ => {
             if let ExprKind::Call { f, .. } = &e.k {
-                if let ExprKind::Member { o, p, .. } = &f.k {
+                if let Some((o, p)) = method_callee(f) {
                     if let ExprKind::Id(n) = &o.k {
-                        out.push((n.clone(), p.clone()));
+                        out.push((n.clone(), p));
                     }
                 }
             }
@@ -754,9 +762,9 @@ fn method_calls(e: &Expr, out: &mut Vec<(String, String)>) {
 fn rooted_reads(e: &Expr, out: &mut IndexSet<String>) {
     match &e.k {
         ExprKind::Peek(_) | ExprKind::Fn { .. } => {}
-        ExprKind::Call { f, args, .. } if matches!(f.k, ExprKind::Member { .. }) => {
+        ExprKind::Call { f, args, .. } if method_callee(f).is_some() => {
             // a method called on the instance (`route.addChildren(…)`) reads no field of it; a field on the way does
-            if let ExprKind::Member { o, .. } = &f.k {
+            if let Some((o, _)) = method_callee(f) {
                 if !matches!(o.k, ExprKind::Id(_)) {
                     rooted_reads(o, out);
                 }
@@ -2910,8 +2918,9 @@ impl<'a> Checker<'a> {
                     return;
                 }
                 // a method called on a name reads no field of it (E-10's exemption): the name, and the arguments
-                ExprKind::Call { f, args, .. } if matches!(&f.k, ExprKind::Member { o, .. } if matches!(&o.k, ExprKind::Id(on) if !self.lookup(env, on).is_some_and(|s| self.syms[s].kind == SymKind::Props))) => {
-                    if let ExprKind::Member { o, p, .. } = &f.k {
+                ExprKind::Call { f, args, .. } if method_callee(f).is_some_and(|(o, _)| matches!(&o.k, ExprKind::Id(on) if !self.lookup(env, on).is_some_and(|s| self.syms[s].kind == SymKind::Props))) => {
+                    if let Some((o, p)) = method_callee(f) {
+                        let p = &p;
                         if let ExprKind::Id(on) = &o.k {
                             if counting {
                                 let s = self.lookup(env, on);
