@@ -113,6 +113,9 @@ What the compiler catches:
   `onSuccess: () => { saved := saved + 1 }` may write sources, as an `onClick` may. A function type without the word
   is pure: the library might call it while it computes (a comparator, a mapper), so a statement closure there is
   refused (`REACTIVE_WRITE_IN_OWNED_SCOPE`). The word is the declaration's promise; `rx-verify` checks it by running.
+  The same holds for a JS component's props, whatever their names: `onChange: handler (v: string) => void` takes a
+  writing closure, `onChange: (v: string) => void` does not. Only a prop the declaration leaves untyped (or does not
+  name) is read by its name, an `on…` one as an event handler.
 - **A function the library calls inside its own computation is `tracked`.** TanStack Query runs `queryFn` while it
   computes `data`, so `queryFn: tracked () => Promise<any>`: a closure there is a pure one, as anywhere in reactive
   scope (no writes; its reads are tracked by the library). `rx-verify` tells the three apart by running: a `handler`

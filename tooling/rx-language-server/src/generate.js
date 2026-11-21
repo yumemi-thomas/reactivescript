@@ -16,7 +16,11 @@ const { declare } = require("./declare.js");
 const { installed } = require("./versions.js");
 
 const IMPORT = /^\s*import\b([^"'`;]*?)\bfrom\s*["']([^"']+)["']/gm;
-const GENERATED = /^\/\/@ generated (\S+)@(\S+)/;
+const GENERATED = /^\/\/@ generated (\S+)@(\S+) \(MO-8l, draft (\d+)\)/;
+// The drafting rules a generated file was written under. A draft is kept only while the package's version and this both
+// stand, so a change of rule (2: no fn is guessed `pure`) redrafts what an earlier rule wrote. Bump it with any change to
+// what a draft says.
+const FORMAT = 2;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
@@ -74,7 +78,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     const file = path.join(root, "node_modules", ".rx-types", ...spec.split("/")) + ".d.rx";
     if (found && path.resolve(found) === file) {
       const head = GENERATED.exec(fs.readFileSync(file, "utf8"));
-      if (head && head[1] === pkg && head[2] === version) { out.push({ spec, file, status: "current" }); continue; }
+      if (head && head[1] === pkg && head[2] === version && Number(head[3]) === FORMAT) { out.push({ spec, file, status: "current" }); continue; }
     }
     let text;
     try { text = declare(typescriptFor(dir), spec, dir); }
@@ -82,7 +86,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     fs.mkdirSync(path.dirname(file), { recursive: true });
     text = parsing(text, file);
     fs.writeFileSync(file, [
-      `//@ generated ${pkg}@${version} (MO-8l): drafted from ${spec}'s TypeScript types, the package not run. Its fns are io`,
+      `//@ generated ${pkg}@${version} (MO-8l, draft ${FORMAT}): drafted from ${spec}'s TypeScript types, the package not run. Its fns are io`,
       `// (no draft guesses \`pure\`); a component it is given is checked under a root of its own (MO-11s); a hook's context and`,
       `// a field that waits or throws are not checked. To say them, write rx-types/${spec}.d.rx, which comes first (MO-8k):`,
       `// npx rx-declare ${spec} --out rx-types/${spec}.d.rx (add --run to run the package and find the contexts).`,

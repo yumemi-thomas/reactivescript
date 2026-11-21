@@ -144,7 +144,12 @@ by default — see the list at the end.
   import (`jsClass(NotFound, "people.d.rx#NotFound")`: a package's
   specifier, or the app's `.d.rx` relative to the entry, never a machine
   path), so both builds agree whatever each imports. A rejection of it that
-  a question awaits is sent with that identity. That instance is marked,
+  a question awaits is sent with that identity: the nearest declared class
+  up the instance's prototype chain, whatever order the program declared
+  them in, so a `Child` of a declared `Base` is sent as `Child` when both
+  are declared and as `Base` when only `Base` is; the declared classes above
+  it go with it (`$classes`), so a client boundary typed with `Base` takes a
+  sent `Child`, giving it `Child`'s class where the client declares it. That instance is marked,
   at that boundary, and no other (revised 2026-11-21: the first draft
   marked the class's prototype, so every instance anywhere in the server
   process was sendable once a program had declared it). A library that

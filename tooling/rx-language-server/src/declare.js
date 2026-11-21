@@ -166,7 +166,11 @@ function declare(ts, spec, from, options = {}) {
       const p = ct.getCallSignatures()[0].getParameters()[0];
       const pt = p ? checker.getTypeOfSymbolAtLocation(p, imp) : undefined;
       const props = pt ? checker.getNonNullableType(pt).getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)).map(q => propText(ts, checker, q, imp)) : [];
-      return `export component ${as}(props: { ${props.join("; ")} })`;
+      // MO-10g: a prop's function type is pure unless it says `handler`, whatever its name, so an event-like name is only
+      // a suggestion here, never the word
+      const events = [...new Set(props.map(x => /^(on[A-Z][\w$]*)\??\s*:\s*\(/.exec(x)?.[1]).filter(Boolean))];
+      const row = `export component ${as}(props: { ${props.join("; ")} })`;
+      return events.length ? `// TODO ${as}: ${events.join(", ")}: called later, outside any computation? mark ${events.length > 1 ? "each" : "it"} \`handler (…) => …\`, so a closure there may write sources (MO-10g)\n${row}` : row;
     };
     // MO-11q: a kit's compound parts on one object (`Dialog.Trigger`), the object a component itself or not
     const members = /^[A-Z]/.test(name) ? t.getProperties().filter(q => /^[A-Z]/.test(q.name)).map(q => [q.name, checker.getTypeOfSymbolAtLocation(q, imp)]).filter(([, mt]) => isComponent(ts, checker, mt)) : [];

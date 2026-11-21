@@ -21,13 +21,28 @@ function codeOf(line) {
   }
   return line;
 }
+/** `text` with each run of whitespace outside a string literal made one space, and a string literal kept as written:
+ *  `"a  b"` and `"a b"` are different types. */
+function collapse(text) {
+  let out = "", q = "", gap = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { out += ch; if (ch === "\\" && i + 1 < text.length) out += text[++i]; else if (ch === q) q = ""; continue; }
+    if (/\s/.test(ch)) { gap = true; continue; }
+    if (gap && out) out += " "; gap = false;
+    out += ch;
+    if (ch === '"' || ch === "'" || ch === "`") q = ch;
+  }
+  return out;
+}
 /** A declaration's rows, as the crate's parser reads them, each with its text: every line it spans (a multi-line props
- *  type included), comments dropped outside string literals, whitespace collapsed. Throws on a file that does not parse. */
+ *  type included), comments dropped outside string literals, whitespace collapsed outside them. Throws on a file that
+ *  does not parse. */
 function rowsOf(file) {
   const r = parsed(file);
   if (!r || r.error) throw new Error(`${path.basename(file)}: ${r?.error ?? "cannot read it"}`);
   const lines = fs.readFileSync(file, "utf8").split("\n");
-  return r.rows.filter(x => CHECKED.has(x.kind)).map(x => ({ ...x, text: lines.slice(x.line - 1, x.end).map(codeOf).join(" ").replace(/\s+/g, " ").trim() }));
+  return r.rows.filter(x => CHECKED.has(x.kind)).map(x => ({ ...x, text: collapse(lines.slice(x.line - 1, x.end).map(codeOf).join(" ")).trim() }));
 }
 /** What a record was verified against: the library (an installed package's version, or the JS module's own text beside
  *  the declaration) and the probe file. A record made against other inputs does not count (the library moved under it). */

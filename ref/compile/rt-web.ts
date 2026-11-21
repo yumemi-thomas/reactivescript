@@ -58,11 +58,18 @@ const PANIC = { panic: true } as const;   // R-f-10: statically discharges nothi
 /** SV-5a for a JS module's error class (`export error C` in a `.d.rx`), imported as the class itself: its identity is its
  *  declaration, which the compiler writes (`jsClass(C, "people.d.rx#NotFound")`), the same on the server and the client. */
 const jsClassIds = new WeakMap<object, string>();
+const jsClassById = new Map<string, object>();   // the same, by identity: the class an arriving error is given back
 const isA = (err: unknown, classes: unknown[] | undefined): boolean => !classes || classes.includes(PANIC) || classes.some(c => {
   const k = (c as { cls?: unknown })?.cls ?? c; if (typeof k !== "function") return false;
   if (err instanceof (k as new () => unknown)) return true;
   const id = (c as { $class?: string }).$class ?? jsClassIds.get(k);
-  if (id && err && typeof err === "object" && (err as { $class?: string }).$class === id) { Object.setPrototypeOf(err, (k as { prototype: object }).prototype); return true; }
+  const sent = err && typeof err === "object" ? err as { $class?: string; $classes?: string[] } : undefined;
+  if (id && sent && (sent.$class === id || sent.$classes?.includes(id))) {
+    // given back its own class when this program declares it (a subclass of k), else k: a `Base` boundary catches a `Child`
+    const own = sent.$class !== undefined ? jsClassById.get(sent.$class) as { prototype: object } | undefined : undefined;
+    Object.setPrototypeOf(err, own && (own === k || own.prototype instanceof (k as new () => unknown)) ? own.prototype : (k as { prototype: object }).prototype);
+    return true;
+  }
   return false;
 });
 /** `e catch (x: C) => alt`, reactive: an error boundary around the read whose fallback is the value (Solid: an errored read
@@ -162,7 +169,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     // ---- the scenario harness's view of names (handler rows reach any live binding by name) ----
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); const h = hoistedBy.get(name); if (h && e.get) { hoistedOf.set(e.get, h); hoistedBy.delete(name); } },
     /** SV-5a: a JS module's error class, declared in its `.d.rx`: `id` is that declaration (as rt-server.ts). */
-    jsClass<T>(C: T, id: string): T { if (!jsClassIds.has(C as object)) jsClassIds.set(C as object, id); return C; },
+    jsClass<T>(C: T, id: string): T { if (!jsClassIds.has(C as object)) { jsClassIds.set(C as object, id); if (!jsClassById.has(id)) jsClassById.set(id, C as object); } return C; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) throw new Error(`unbound ${name}`); for (let i = l.length - 1; i >= 0; i--) if (l[i].w) return l[i]; return l[l.length - 1]; },
     dget(name: string, live = false) { const e = app.lookup(name); return e.get ? (live ? e.get() : app.snapshot(e.get)) : e.value; },   // live: inside a probe (R-12), the read itself
     dset(name: string, keys: (string | number)[], v: unknown, guess = false) { const w = app.lookup(name).w; if (!w) throw new Error(`W-1: write to non-source ${name}`); if (guess) w.guess(v, keys); else if (keys.length) w.path(keys, v); else w.set(v); },

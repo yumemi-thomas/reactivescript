@@ -149,7 +149,11 @@ Function application `f(e…)` covers both language functions and FFI imports;
   components passed to it as values, and the exported components of every
   module a JS host imports with `?rx-lib` (CP-4d; `--host m.rx`, which the
   Vite plugin's `rx({ wholeProgram: true })` finds by scanning the
-  project's JS for such imports), whose props can change, and nothing else;
+  project's JS for such imports, each resolved as Vite would: relative,
+  through the aliases given as `rx({ alias })`, the same object as Vite's
+  `resolve.alias`, and tsconfig.json's `paths`; one that names no file is
+  reported, and a change to the hosts re-checks the build), whose props can
+  change, and nothing else;
   a module known only by its signature (MO-9) is not seen. It is opt-in:
   builds and the editor check one module at a time unless asked. (Solid:
   `untrack(data)` in a memo with no other source, or `<Ctx

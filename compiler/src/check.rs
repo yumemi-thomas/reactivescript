@@ -1125,6 +1125,8 @@ pub struct Checker<'a> {
     reached: std::cell::RefCell<HashSet<*const Expr>>,
     /// MO-10g: declared JS components' callback props (fields typed as any other function), by region
     callback_props: HashMap<RId, HashSet<String>>,
+    /// MO-10g: declared JS components' props typed as a function without `handler`: pure, whatever their name
+    pure_props: HashMap<RId, HashSet<String>>,
     /// MO-11k: view lambdas in a render-prop position
     view_fns: HashSet<*const Markup>,
     readers: Vec<ReaderRec<'a>>,
@@ -1244,6 +1246,7 @@ impl<'a> Checker<'a> {
             carried_rendered: HashSet::new(),
             reached: std::cell::RefCell::new(HashSet::new()),
             callback_props: HashMap::new(),
+            pure_props: HashMap::new(),
             view_fns: HashSet::new(),
             readers: vec![],
             load_ons: vec![],
@@ -1845,6 +1848,10 @@ impl<'a> Checker<'a> {
                 let callbacks: HashSet<String> = xprops.iter().filter(|p| p.callback).map(|p| p.name.clone()).collect();
                 if !callbacks.is_empty() {
                     c.callback_props.insert(r, callbacks);
+                }
+                let pures: HashSet<String> = xprops.iter().filter(|p| p.pure).map(|p| p.name.clone()).collect();
+                if !pures.is_empty() {
+                    c.pure_props.insert(r, pures);
                 }
                 // MO-11o: the props that render what their value carries
                 let carried: HashSet<String> = xprops.iter().filter(|p| p.carried).map(|p| p.name.clone()).collect();
@@ -3805,9 +3812,11 @@ impl<'a> Checker<'a> {
                         let reached: Vec<*const Expr> = self.reached.borrow_mut().drain().collect();
                         self.carried_rendered.extend(reached);
                         let args: Vec<&'a Attr> = attrs.iter().enumerate().filter(|(i, _)| !values.iter().any(|(j, _)| j == i)).map(|(_, a)| a).collect();
-                        // MO-10g: a prop the declaration types as a function is a handler
+                        // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure),
+                        // whatever its name; an untyped `on…` prop and `ref` keep SC-4 and 07 §4
                         let cbs = s.and_then(|s| self.syms[s].comp_region).and_then(|r| self.callback_props.get(&r).cloned()).unwrap_or_default();
-                        let handles = |n: &str| is_handler(n) || cbs.contains(n);
+                        let pures = s.and_then(|s| self.syms[s].comp_region).and_then(|r| self.pure_props.get(&r).cloned()).unwrap_or_default();
+                        let handles = |n: &str| n == "ref" || cbs.contains(n) || (!pures.contains(n) && is_handler(n));
                         for a in &args {
                             let h = handles(&a.name);
                             let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };

@@ -146,7 +146,7 @@ export type JsDecl =
   | { kind: "value"; name: string; line: number; type?: string };   // MO-8g: a value the module exports (`export const pageSearch: Schema`)   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
  *  component value (MO-11c: its type is `Component`). */
-export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean; render?: boolean; callback?: boolean; carried?: boolean };   // carried: MO-11o, it renders the components its value carries   // render: MO-11k, a function giving a View; callback: MO-10g, any other function
+export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean; render?: boolean; callback?: boolean; pure?: boolean; carried?: boolean };   // carried: MO-11o, it renders the components its value carries   // render: MO-11k, a function giving a View; callback: MO-10g, any other function
 export function parseDeclarations(src: string): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
   for (;;) {
@@ -345,7 +345,7 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
       let carried = false; if (type && /^renders\s+/.test(type)) { carried = true; type = type.replace(/^renders\s+/, "") || undefined; }   // MO-11o: `router: renders any`
       let tracked = false; if (type && /^tracked\s+/.test(type)) { tracked = true; type = type.replace(/^tracked\s+/, "") || undefined; if (!type || partOf(type) !== "fn") c.fail(`\`tracked\` on prop ${fname}: it goes before a function type, one the library calls inside a computation (MO-10j)`); }
       let handler = false; if (type && /^handler\s+/.test(type)) { handler = true; type = type.replace(/^handler\s+/, "") || undefined; if (!type || partOf(type) !== "fn") c.fail(`\`handler\` on prop ${fname}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`); }
-      props.push({ name: fname, optional, ...(carried ? { carried } : {}), ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && handler && !tracked && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : {}) });
+      props.push({ name: fname, optional, ...(carried ? { carried } : {}), ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && handler && !tracked && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : type && !isComponentType(type) && partOf(type) === "fn" ? { pure: true } : {}) });   // pure: MO-10g, a function type without `handler`: the declaration decides, whatever the prop's name
       c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
     }
     c.ws();

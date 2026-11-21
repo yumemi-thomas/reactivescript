@@ -6,7 +6,7 @@ export pure fn createIntervalCounter(ref timeout: number | false): ref number
 export pure fn createPagination(ref options?: { pages: number }): [ref any, ref number, (page: number) => void]
 // a scheduled callback: made once (instantiates), called later from handlers; the closure it takes is a handler (MO-10g)
 export pure fn debounce(callback: handler (...args: any[]) => void, wait?: number): (...args: any[]) => void instantiates
-export component WindowEventListener(props: { onKeydown?: (e: any) => void })
+export component WindowEventListener(props: { onKeydown?: handler (e: any) => void })
 export component Key(props: { each?: any[]; by: any; fallback?: View; children: (v: any, i: any) => View })
 export pure fn createMousePosition(): { x: number; y: number; isInside: boolean } instantiates
 // takes a Solid signal (MO-10h): the app passes the initial value, the compiler makes the signal; reads and writes go

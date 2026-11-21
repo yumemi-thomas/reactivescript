@@ -227,6 +227,7 @@ const ux = path.join(ws, "urls.d.rx");
 const uxDecl = [
   "export fn link(to: \"https://a.example/one\"): string   // a comment, not the row",
   "export fn word(): \"trusted\"",
+  "export fn spaced(): \"a  b\"",
   "export component Card(props: {",
   "  title: string",
   "})",
@@ -238,24 +239,29 @@ fs.writeFileSync(ux, uxDecl);
 fs.rmSync(path.join(ws, "urls.verified.json"), { force: true });
 const fresh = checkStrict(ux);
 check("strict: a return type that only mentions \"trusted\" is not trust", fresh.some(u => u.name === "word" && /nothing verified it/.test(u.message)), fresh);
-writeRecord(ux, [{ line: 1, status: "ok", what: "link" }, { line: 2, status: "ok", what: "word" }, { line: 4, status: "ok", what: "Card" }]);
+writeRecord(ux, [{ line: 1, status: "ok", what: "link" }, { line: 2, status: "ok", what: "word" }, { line: 3, status: "ok", what: "spaced" }, { line: 5, status: "ok", what: "Card" }]);
 check("strict: recorded rows pass", checkStrict(ux).length === 0, checkStrict(ux));
 fs.writeFileSync(ux, uxDecl.replace("a comment, not the row", "another comment"));
 check("strict: a comment is not part of the row", checkStrict(ux).length === 0, checkStrict(ux));
 fs.writeFileSync(ux, uxDecl.replace("https://a.example/one", "https://a.example/two"));
 const url = checkStrict(ux);
 check("strict: a `//` inside a string literal is part of the row (an edit there loses the record)", url.some(u => u.name === "link" && /changed since/.test(u.message)) && !url.some(u => u.name === "word"), url);
+fs.writeFileSync(ux, uxDecl.replace("\"a  b\"", "\"a b\""));
+const spaces = checkStrict(ux);
+check("strict: whitespace inside a string literal is part of the row (\"a  b\" to \"a b\" loses the record)", spaces.length === 1 && spaces[0].name === "spaced" && /changed since/.test(spaces[0].message), spaces);
+fs.writeFileSync(ux, uxDecl.replace("export fn spaced():", "export   fn spaced():  "));
+check("strict: whitespace outside string literals is not", checkStrict(ux).length === 0, checkStrict(ux));
 fs.writeFileSync(ux, uxDecl.replace("title: string", "title: number"));
 const multi = checkStrict(ux);
 check("strict: a row spans its lines (an edit on a props line loses the record)", multi.some(u => u.name === "Card" && /changed since/.test(u.message)), multi);
 fs.writeFileSync(ux, uxDecl);
 fs.writeFileSync(path.join(ws, "urls.probe.mjs"), "export const probes = { link: { args: () => [\"x\"] } };\n");
 const probeMoved = checkStrict(ux);
-check("strict: a record made with another probe does not count", probeMoved.length === 3 && probeMoved.every(u => /probe changed since/.test(u.message)), probeMoved);
+check("strict: a record made with another probe does not count", probeMoved.length === 4 && probeMoved.every(u => /probe changed since/.test(u.message)), probeMoved);
 fs.writeFileSync(path.join(ws, "urls.probe.mjs"), "export const probes = {};\n");
 fs.writeFileSync(path.join(ws, "urls.mjs"), "export const link = to => to + \"!\"; export const word = () => \"trusted\"; export const Card = p => p.title;\n");
 const modMoved = checkStrict(ux);
-check("strict: a record made against another version of the module does not count", modMoved.length === 3 && modMoved.every(u => /module urls\.mjs changed since/.test(u.message)), modMoved);
+check("strict: a record made against another version of the module does not count", modMoved.length === 4 && modMoved.every(u => /module urls\.mjs changed since/.test(u.message)), modMoved);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

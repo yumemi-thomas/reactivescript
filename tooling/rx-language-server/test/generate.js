@@ -60,7 +60,7 @@ check("RX_GENERATE=0 drafts nothing", off.length === 0 && !fs.existsSync(gen), o
 
 const first = ensureDeclarations(path.join(ws, "main.rx"));
 const text = fs.existsSync(gen) ? fs.readFileSync(gen, "utf8") : "";
-check("a typed package is drafted into node_modules/.rx-types", status(first, "kit-ui") === "written" && /^\/\/@ generated kit-ui@1\.2\.0/.test(text) && /export component Badge\(props: \{ label: string \}\)/.test(text), { first, text });
+check("a typed package is drafted into node_modules/.rx-types", status(first, "kit-ui") === "written" && /^\/\/@ generated kit-ui@1\.2\.0 \(MO-8l, draft \d+\)/.test(text) && /export component Badge\(props: \{ label: string \}\)/.test(text), { first, text });
 const scratch = path.join(ws, "node_modules/.rx-types/scratch.d.rx");
 const kept = require("../src/generate.js").parsing("export pure fn ok(n: number): number\nexport pure fn broken(x: { y: number ): number\nexport component Fine(props: { a: string })\n", scratch);
 check("a row the notation cannot say is left out, the rest kept", /^export pure fn ok/m.test(kept) && /^\/\/ left out, the \.d\.rx notation cannot say it: export pure fn broken/m.test(kept) && /^export component Fine/m.test(kept), kept);
@@ -77,6 +77,14 @@ const pj = path.join(ws, "node_modules/kit-ui/package.json");
 fs.writeFileSync(pj, JSON.stringify({ ...JSON.parse(fs.readFileSync(pj, "utf8")), version: "1.3.0" }));
 const moved = ensureDeclarations(path.join(ws, "main.rx"));
 check("redone when the installed version moves", status(moved, "kit-ui") === "written" && /^\/\/@ generated kit-ui@1\.3\.0/.test(fs.readFileSync(gen, "utf8")), moved);
+
+// a draft written under an earlier rule (it guessed `pure`), at the installed version: redrafted once, then kept
+fs.writeFileSync(gen, "//@ generated kit-ui@1.3.0 (MO-8l): drafted from kit-ui's TypeScript types\nexport component Badge(props: { label: string })\nexport pure fn useCount(): ref number\n");
+const stale = ensureDeclarations(path.join(ws, "main.rx"));
+const redrafted = fs.readFileSync(gen, "utf8");
+check("a draft from an earlier drafting rule is redone, though the version stands", status(stale, "kit-ui") === "written" && /\(MO-8l, draft \d+\)/.test(redrafted) && /^export fn useCount\(\): ref number/m.test(redrafted) && !/^export pure fn/m.test(redrafted), { stale, redrafted });
+const reused = ensureDeclarations(path.join(ws, "main.rx"));
+check("...and the redrafted file is kept on the next run", status(reused, "kit-ui") === "current", reused);
 
 fs.mkdirSync(path.join(ws, "rx-types"), { recursive: true });
 fs.writeFileSync(path.join(ws, "rx-types/kit-ui.d.rx"), "export component Badge(props: { label: string })\nexport pure fn useCount(): ref number\n");
@@ -132,6 +140,30 @@ fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: tru
   fs.writeFileSync(path.join(wp, "host.tsx"), "import { Show } from \"./show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
   const hosted = buildWith({ wholeProgram: true });
   check("...unless a JS file imports show.rx with ?rx-lib: JS applies Show, so the peek is refused", !hosted.ok && /SNAPSHOT_KEPT/.test(hosted.error), hosted);
+  // a host found through the project's aliases, as Vite resolves the import, not the import's text joined to its folder
+  fs.rmSync(path.join(wp, "host.tsx"));
+  fs.mkdirSync(path.join(wp, "pages"), { recursive: true });
+  fs.writeFileSync(path.join(wp, "pages/host.tsx"), "import { Show } from \"@/show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
+  const warned = []; const w0 = console.warn; console.warn = m => warned.push(m);
+  const unaliased = buildWith({ wholeProgram: true });
+  console.warn = w0;
+  check("an aliased ?rx-lib import the plugin cannot resolve is not counted, and the build says so", unaliased.ok && warned.some(m => /@\/show\.rx\?rx-lib, which names no \.rx file here: pass the project's aliases as rx\(\{ alias \}\)/.test(m)), { unaliased, warned });
+  const aliased = buildWith({ wholeProgram: true, alias: { "@": wp } });
+  check("with the alias Vite is given (rx({ alias })), @/show.rx is show.rx: the peek is refused (E-5a)", !aliased.ok && /SNAPSHOT_KEPT/.test(aliased.error), aliased);
+  const arrayAlias = buildWith({ wholeProgram: true, alias: [{ find: /^@\//, replacement: wp + "/" }] });
+  check("...and with Vite's { find, replacement } form", !arrayAlias.ok && /SNAPSHOT_KEPT/.test(arrayAlias.error), arrayAlias);
+  fs.writeFileSync(path.join(wp, "tsconfig.json"), JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@/*": ["./*"] } } }));
+  const tsPaths = buildWith({ wholeProgram: true });
+  check("...and through tsconfig.json's paths", !tsPaths.ok && /SNAPSHOT_KEPT/.test(tsPaths.error), tsPaths);
+  fs.rmSync(path.join(wp, "tsconfig.json"));
+  // one plugin, as a dev server keeps it: a host import that comes or goes makes the cached check stale
+  fs.rmSync(path.join(wp, "pages"), { recursive: true });
+  const kept = (() => { const saved = process.env.RX_GENERATE; process.env.RX_GENERATE = "0"; const plugin = rx({ wholeProgram: true });
+    const run = () => { try { plugin.compile("", { id: path.join(wp, "main.rx"), moduleId: path.join(wp, "main.rx"), root: wp, solid: { generate: "dom", hydratable: true }, addWatchFile() {} }); return "ok"; } catch (e) { return /SNAPSHOT_KEPT/.test(String(e.message)) ? "SNAPSHOT_KEPT" : String(e.message); } };
+    const first = run(); fs.writeFileSync(path.join(wp, "late.tsx"), "import { Show } from \"./show.rx?rx-lib\";\nexport const p = () => <Show value={1} />;\n");
+    const second = run(); fs.rmSync(path.join(wp, "late.tsx")); const third = run();
+    if (saved === undefined) delete process.env.RX_GENERATE; else process.env.RX_GENERATE = saved; return { first, second, third }; })();
+  check("the same plugin re-checks when a JS file starts, then stops, importing a module with ?rx-lib", kept.first === "ok" && kept.second === "SNAPSHOT_KEPT" && kept.third === "ok", kept);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

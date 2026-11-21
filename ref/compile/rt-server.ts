@@ -148,8 +148,16 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
      *  around a library's cache). Declaring a class for typed matching makes no other instance sendable. */
     markSendable(err: unknown): boolean {
       if (!err || typeof err !== "object") return false;
-      for (const [k, i] of jsClassIds) if (err instanceof (k as new () => unknown)) { (err as { $class?: string }).$class = i; markSafeError(err as Error); return true; }
-      return false;
+      // the nearest declared class up its prototype chain names it, whatever order the program registered its classes in;
+      // the declared classes above that one go with it, so a client boundary typed with a base class matches it too
+      const ids: string[] = [];
+      for (let p = Object.getPrototypeOf(err); p && p !== Object.prototype; p = Object.getPrototypeOf(p))
+        for (const [k, i] of jsClassIds) if ((k as { prototype?: unknown }).prototype === p && !ids.includes(i)) ids.push(i);
+      if (!ids.length) return false;
+      (err as { $class?: string }).$class = ids[0];
+      if (ids.length > 1) (err as { $classes?: string[] }).$classes = ids;
+      markSafeError(err as Error);
+      return true;
     },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry

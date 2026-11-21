@@ -235,7 +235,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   declaration the program imports (`fn`, `component`, `error`, `const`)
   must be one `rx-verify --record` ran and found to hold (or found to have
   nothing to run, as a `pure … instantiates` constructor), recorded beside
-  the declaration in `<name>.verified.json` by a hash of the row's text; or
+  the declaration in `<name>.verified.json` by a hash of the row's text
+  (every line it spans, comments left out and whitespace collapsed outside
+  string literals: `"a  b"` and `"a b"` are different rows); or
   the row must say `trusted`, after its signature (MO-8i), so the trust is a
   word a reviewer reads rather than the default. A row nothing recorded, one
   recorded as a mismatch or as not checked, and one edited since the record
@@ -268,8 +270,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   the program is read: the Vite plugin before each build, the language
   server when a module's imports change, rx-tsc as it analyses. It is
   written to `node_modules/.rx-types/<spec>.d.rx` with a first line
-  `//@ generated <package>@<version>`, kept while that version is installed
-  and redrafted when it moves; a package with no types gets none, and a row
+  `//@ generated <package>@<version> (MO-8l, draft <n>)`, kept while that
+  version is installed and the drafting rules are draft `<n>`'s, and
+  redrafted when either moves (a draft written under an earlier rule, one
+  that guessed `pure`, is redone once though the version stands); a package with no types gets none, and a row
   the notation cannot say is left out as a comment, not the whole file.
   The draft is `rx-declare`'s from types alone (the package is not run):
   every fn io (revised 2026-11-21: a name such as `use…` is a convention,
@@ -437,9 +441,15 @@ export component Search(props: { start: boolean, q: string }) {
   not part of the call's value (it runs later, not now). Everywhere else a
   closure made in reactive scope is still pure (SC-3), and a
   statement-bodied one is `REACTIVE_WRITE_IN_OWNED_SCOPE`. On a declared JS
-  component, a prop marked `handler` is a handler whatever its name, as an
-  `on*` prop is: its closure is imperative scope, and passing it is not a
-  read.
+  component, a prop the declaration types as a function is what the
+  declaration says, whatever its name (revised 2026-11-21, after review):
+  marked `handler`, it is a handler (its closure imperative scope, passing
+  it not a read); a function type without the word, plain or `tracked`, is
+  pure, so `onCompare: tracked (v: number) => number` takes no write
+  although its name begins with `on`. The name's reading (SC-4) is kept for
+  a prop the declaration does not type as a function (`onPick: any`) or
+  does not name, for `.rx` components, and for elements; `ref` is a handler
+  on a component as on an element (07 §4). S-module-28.
 
   A function type alone is not a callback (the revision): the same type
   `(a: number, b: number) => number` is a comparator the library calls

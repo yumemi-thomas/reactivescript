@@ -548,6 +548,8 @@ pub struct JsProp {
     pub render: bool,
     /// MO-10g: any other function (a callback, checked as a handler)
     pub callback: bool,
+    /// MO-10g: a function type without `handler`: pure, whatever the prop's name
+    pub pure: bool,
     /// MO-11o: it renders the components its value carries (`router: renders any`)
     pub carried: bool,
 }
@@ -832,7 +834,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             let component = ty.as_deref().is_some_and(is_component_type);
             let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
             let callback = handler && !tracked && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
-            props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, carried });
+            let pure = !callback && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
+            props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, pure, carried });
             // a newline separates fields too, as in TypeScript
             c.ws(false);
             if !c.eat(";") && !c.eat(",") && c.peek() != '\n' {
