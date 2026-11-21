@@ -156,7 +156,8 @@ export default component App() {
 ```
 
 - **A component is a value only where JS takes one:** in a factory's arguments (`component: Home`), or on a JS
-  component's prop typed `Component` (`<Shell header={Title} />`). Anywhere else it is `COMPONENT_AS_VALUE`.
+  component's prop typed `Component` (`<Shell header={Title} />`). Given to any other JS call, it is checked under a root
+  of its own, with nothing above the call credited (MO-11s); applied nowhere else, it is `COMPONENT_AS_VALUE`.
 - **Each component you hand over is checked as if it were applied there:** its failures need an `errored` above
   `<Router />` (or inside the page), the contexts it uses need a `provide` above `<Router />`, and in a client-only
   app its first load needs a `loading` above it.
@@ -219,8 +220,10 @@ Router = createRouter({ routes: [defineRoute({ path: "/people/:id", component: P
 inference put one beside the re-export (`router.d.ts`: `export { createRouter, defineRoute, … } from "@solidjs/router"`).
 Then `rx-tsc` refuses
 `defineRoute({ path: "/people", component: Person })` on that line: `/people` has no `id`. Write
-`defineRoute(…)` inside the `createRouter({ … })` call; bound on its own, a component in it is `COMPONENT_AS_VALUE`. A child
-route doesn't see its parent's params in its type, so declare those optional (`org?: string`).
+`defineRoute(…)` inside the `createRouter({ … })` call: bound on its own, it is not part of a route table the checker can
+see, so its component is checked under a root of its own (MO-11s), with no `errored`, `loading` or `provide` from above
+`<Router />`. Under a router declared `nests(…)` (MO-11i), a child route is typed from its whole path, its parents' joined
+in front, so it sees their params.
 
 ### Typed search params
 

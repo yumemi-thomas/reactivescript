@@ -613,9 +613,12 @@ export default component App() {
   type carries the path's literal type into the component's props (MO-8d),
   and `rx-tsc` refuses `defineRoute({ path: "/people", component: Person })`
   (TS2322) on that line. The checker learns nothing about path syntax. A
-  child route's type does not see its parent's path (the router's own
-  limit), so a page under a parametrised parent declares the parent's
-  params optional (`org?: string`).
+  child route's own type does not see its parent's path (the router's own
+  limit); under a factory declared `nests(…)` (MO-11i) the projection
+  writes each literal path joined with its parents' (each with each, for
+  paths written as alternatives), so `defineRoute` types a child's
+  component from the whole path and it sees its parents' params. Elsewhere
+  a page under a parametrised parent declares them optional (`org?: string`).
 - **MO-11i (Nested values) — proposed 2026-11-18.** `nests(kids in
   inside)` on a fn that hands back a `Component` says how it renders a
   record among its arguments: the component at the record's `inside` field
