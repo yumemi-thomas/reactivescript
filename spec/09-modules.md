@@ -593,7 +593,37 @@ export component Search(props: { start: boolean, q: string }) {
   the library, as any JS argument is. `rx-verify` checks the row by running it: the setter must hand its
   callback an object, and a write to it must be kept (a library that
   hands a copy is a mismatch). S-module-25; `examples/formisch` runs
-  Solid 2's own store this way.
+  Solid 2's own store this way. Which values may be the draft is MO-10k's
+  answer (revised 2026-11-21 after review): `[d]`, `{ d }`, `let [a] = [d]`,
+  `c ? d : x`, `d ?? x`, `keep(d)` for an .rx fn `keep(x) { x }`, are the
+  draft.
+- **MO-10k (What a value may be) — revised 2026-11-21 after review.** The
+  checks that follow a value where it goes — a library's draft (MO-10i), a
+  `renders` value (MO-11l), a result's held fields (MO-10f, R-f-5) and an
+  instance's undeclared methods (E-10, E-5a) — share one answer to "what
+  values may this expression be": each a name and a path below it (a
+  path: a part read out of that name's value, not the value). It follows
+  an alias (an equation's or a local's value); a record or array literal,
+  a static key or whole-number index precisely (`[table, 5][1]` is `5`), a
+  key the checker cannot name as any key, a spread as the spread value's
+  parts; destructuring; `?:`, `??`, `||`, `&&`, `catch` and `peek`; an
+  object rest; what an .rx fn or a closure returns when called (its
+  parameters bound to the arguments, its locals to their values);
+  `filter`'s elements, `map`'s and a method's results (the receiver's
+  elements, what a closure given it returns); an undeclared JS fn's
+  arguments, which it may give back; and what a closure captures, whole,
+  for whoever calls it. A declared JS fn makes a new value (what it keeps
+  of its arguments is the checks' own business at the call), and a name
+  imported from an `.rx` module is decided in its module (an export of a
+  `renders` value is refused there, MO-11l). A held field is touched where
+  a value that may be the result is read through it (`box.q.data`,
+  `get().data`), and every held field is touched where the result is
+  consumed whole — spread, passed to a component or a JS fn, shown,
+  written — while only moving it (an alias, a record or array that holds
+  it, a branch) touches none; the compiled result is read a field at a time
+  where each is read (a getter per field, `__rt.lazy`), so `q = orig;
+  q.isFetching` reads no `data`, as the checker counts it. S-module-11,
+  S-module-16, S-module-20, S-module-25.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 

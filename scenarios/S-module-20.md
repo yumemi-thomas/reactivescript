@@ -167,3 +167,89 @@ export default component App() {
 
 A literal key names the method as a dot does: `clock["format"]()` is
 `clock.format()`, a declared method, and so is `c.format()` on an alias.
+
+An undeclared method keeps its answer unstable however the instance is reached (revised 2026-11-21 after review): a record's field,
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  box = { c: clock }
+  label = createLabel(box.c.now())
+  <p>{label}</p>
+}
+```
+
+an array's element,
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  label = createLabel([clock][0].now())
+  <p>{label}</p>
+}
+```
+
+a branch,
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  k = true
+  label = createLabel((k ? clock : clock).now())
+  <p>{label}</p>
+}
+```
+
+or what a closure returns —
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  get = () => clock
+  label = createLabel(get().now())
+  <p>{label}</p>
+}
+```
+
+and a kept `peek` of it keeps the first answer, the same ways:
+
+```rx
+-- reject: SNAPSHOT_KEPT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  box = { c: clock }
+  label = peek box.c.now()
+  <p>{label}</p>
+}
+```
+
+```rx
+-- reject: SNAPSHOT_KEPT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  label = peek (() => clock)().now()
+  <p>{label}</p>
+}
+```
+
+```rx
+-- accept
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  label = createLabel([clock][0].format())
+  <p>{label}</p>
+}
+```
+
+A declared method through an array's element is still made once.

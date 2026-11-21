@@ -57,7 +57,7 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
   if (sc.program) add(`${sc.name} Program`, sc.entry, read(sc.program));
   for (const t of sc.tables) if (t.program) add(`${sc.name} ${t.title}`, sc.entry, read(t.program));
   sc.rejected.forEach((r, i) => add(`${sc.name} ${r.types ? "types" : r.warn ? "warn" : "reject"}(${r.rule}) #${i}`, sc.entry, read(r.program), undefined, r.spa, r.whole, r.hosts));
-  sc.accepted.forEach((a, i) => add(`${sc.name} accept(whole-program) #${i}`, sc.entry, read(a.program), undefined, false, true));
+  sc.accepted.forEach((a, i) => add(`${sc.name} accept${a.whole ? "(whole-program)" : ""} #${i}`, sc.entry, read(a.program), undefined, false, a.whole));
 }
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith(".rx") && !e.name.endsWith(".d.rx") ? [join(d, e.name)] : []);
 for (const f of walk(join(root, "examples")).sort()) add(`examples/${f.slice(join(root, "examples").length + 1)}`, f, disk, lowerMode ? [] : undefined);

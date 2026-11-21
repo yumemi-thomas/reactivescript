@@ -170,6 +170,172 @@ export default component App() {
 }
 ```
 
+In an array literal, the draft is kept as it is:
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { saved := [d] }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { saved := { d } }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { saved := { x: d } }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+and read back out of one by a static index, it is the draft again.
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { saved := [d][0] }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+Destructuring takes the draft out of the literal it was put in.
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { let [a] = [d]; later(() => { log(a.done) }) }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+A branch of `?:`, `??`, `||` or `&&` may be the draft:
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { saved := true ? d : null }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { saved := d ?? null }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { let a = true ? d : d; later(() => { log(a.done) }) }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+and so may what an .rx fn or a closure returns, given it:
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { saved := keep(d) }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { saved := (() => d)() }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+A closure that captures a local holding the draft whole captures the draft.
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { let a = { x: d }; later(() => { log(a.x.done) }) }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+Which values may be the draft is one analysis, shared with `renders`
+values (MO-11l), held fields (MO-10f) and instances' methods (E-10): through
+an alias, a record or array literal (a static key or index precisely, a
+dynamic one as any key), destructuring, `?:`, `??`, `||`, `&&`, what an .rx
+fn or a closure returns, and what a closure captures (revised 2026-11-21
+after review).
+
+```rx
+-- accept
+import { createStore, later } from "./store.js"
+source saved: any := null
+fn keep(x) { x }
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { let xs = [d.done, 1]; saved := xs[1]; let b = [1, d]; saved := b[0] }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+`xs[1]` and `b[0]` are the literal `1`, not the draft: a static index is
+read precisely. A field read through the draft (`d.done`) is a copy.
+
 ```rx
 -- accept: whole-program
 import { createStore, later } from "./store.js"

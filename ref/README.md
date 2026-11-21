@@ -38,7 +38,9 @@ the module's `.rx` is not there (MO-9, `src/signature.ts`). With
 `--whole-program` the modules loaded are checked as the whole program: a
 kept `peek` of a prop or a provision is decided by every application and
 provision in them (E-5a, `-- whole-program` and `-- accept: whole-program`
-in a scenario).
+in a scenario). A plain `-- accept` block is a program the checker accepts
+per module: the other side of a rejected variant, so a check that grows too
+strict is caught on both sides.
 
 Resolved model (spec/11 CP-6): `src/model.ts`, filled by the checker's walk.
 `node --experimental-strip-types ref/model.ts file.rx…` prints, per module, its

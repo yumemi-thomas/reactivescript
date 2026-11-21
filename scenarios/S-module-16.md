@@ -44,6 +44,14 @@ that `renders` it (MO-11o, the requirements carried to that render), or
 `renders(root, …)` for a root of its own (MO-11n). Reading through it
 (`table.rows`, `cell.column.cell`) is rendering it here.
 
+```rx
+-- module: ./boxed.rx
+import { createTable } from "./table.js"
+import { NameCell } from "./cells.rx"
+table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+export box = { table: table }
+```
+
 ## Program
 
 ```rx
@@ -172,3 +180,137 @@ export default component App() {
   <Grid box={{ table: table }} />
 }
 ```
+
+Every value the prop may be is one it may pass on: a branch of `?:`,
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  c = len(table.rows) > 0
+  <Grid table={c ? table : null} />
+}
+```
+
+of `??`,
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  <Grid table={table ?? null} />
+}
+```
+
+what a closure returns,
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  get = () => table
+  <Grid table={get()} />
+}
+```
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  <Grid table={(() => table)()} />
+}
+```
+
+a field read by a key the checker cannot know (any field),
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  box = { table: table }
+  k = "table"
+  <Grid table={box[k]} />
+}
+```
+
+and a closure that captures it, which the component may call (revised 2026-11-21 after review).
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  f = () => table
+  <Grid table={f} />
+}
+```
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { box } from "./boxed.rx"
+import { accent } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <p>{len(props.table.rows)}</p>
+}
+export default component App() {
+  provide accent = "hot"
+  <Grid table={box.table} />
+}
+```
+
+An export is a way out too: a record exported from the module that bound
+the table (`./boxed.rx`, `export box = { table: table }`) is refused there,
+whatever module would read it.
+
+```rx
+-- accept
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  arr = [table, 5]
+  <p>{len(table.rows)}</p>
+  <Grid table={arr[1]} />
+}
+```
+
+A static index is read precisely: `arr[1]` is `5`, not the table.

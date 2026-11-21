@@ -206,6 +206,18 @@ struct CtxInfo {
     contract: Option<(IndexSet<String>, IndexSet<String>)>,
 }
 
+/// `values_of`: a name, and a path below it (a dynamic key: `None`)
+type Origin = (SId, Vec<Option<String>>);
+/// `values_of`: a name bound for a call being followed — a parameter to its argument, a local to its value; `ov`: how
+/// much of the overlay was in force where `e` is written
+#[derive(Clone)]
+struct VBind<'a> {
+    name: String,
+    e: &'a Expr,
+    env: EId,
+    ov: usize,
+}
+
 struct Sym<'a> {
     kind: SymKind,
     name: String,
@@ -296,6 +308,8 @@ struct Sym<'a> {
     draft_fn: Option<usize>,
     /// MO-11o: every equation's expression, looked through for what it carries
     carried_expr: Option<(&'a Expr, EId)>,
+    /// the expression whose value the name holds — an equation's, a local's (`values_of`)
+    val: Option<(&'a Expr, EId)>,
     /// MO-11j: an exported factory's component — the wrapper whose summary an importer sees
     exported_as: Option<SId>,
     /// MO-11j: on that wrapper, the made component its view applies (`<Router />`)
@@ -370,6 +384,7 @@ impl<'a> Sym<'a> {
             js_draft: false,
             draft_fn: None,
             carried_expr: None,
+            val: None,
             exported_as: None,
             wraps: None,
             factory: None,
@@ -1676,6 +1691,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                     sym.carried_expr = Some((e, env));
+                    sym.val = Some((e, env));
                     if sym.foreign == Some(FShape::Comp) {
                         if let ExprKind::Call { f, args, .. } = &e.k {
                             // MO-11f: the bound name is a component; MO-12c: what it provides to what it renders
@@ -2503,7 +2519,12 @@ impl<'a> Checker<'a> {
                     c.expr(init, env, c2, None);
                 });
             }
-            Decl::Eq { name, e, deferred, key, ty, .. } => {
+            Decl::Eq { name, e, deferred, key, ty, exported, .. } => {
+                // MO-11l (revised 2026-11-21 after review): an export is a way out — a record exported here may be read
+                // in another module and handed to what renders it there
+                if *exported {
+                    self.renders_escape(e, env, &format!("exported as {name}, for another module to place"));
+                }
                 if let Some(&made) = self.envs[env].vars.get(name.as_str()) {
                     // MO-11o: its component values are values, applied where a prop renders them
                     if let Some((args, cenv)) = self.syms[made].carried {
@@ -2801,6 +2822,28 @@ impl<'a> Checker<'a> {
         self.const_eqs.insert(s, Some(ok));
         ok
     }
+    /// E-10, E-5a (bounded, revised 2026-11-21 after review): a method called, outside `peek` and closures, on a value
+    /// `values_of` says may be a primitive's instance that does not declare it — through a record, an array, `?:`, a
+    /// closure's result (`box.c.now()`, `[clock][0].now()`, `get().now()`), not only on the instance's own name.
+    /// The receiver as written, and the method.
+    fn undeclared_method_via(&self, e: &'a Expr, env: EId) -> Option<(String, String)> {
+        match &e.k {
+            ExprKind::Peek(_) | ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return None,
+            ExprKind::Call { f, .. } => {
+                if let Some((o, m)) = method_callee(f) {
+                    let hit = self.values_of(o, env).into_iter().any(|(t, p)| p.is_empty() && self.syms[t].kind == SymKind::Eq && matches!(self.syms[t].foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value)) | Some(crate::parse::Shape::Fields(_))) && !self.syms[t].methods.iter().any(|x| *x == m));
+                    if hit {
+                        return Some((show(o), m));
+                    }
+                }
+            }
+            _ => {}
+        }
+        children(Node::E(e), false).into_iter().find_map(|c| match c {
+            Node::E(x) => self.undeclared_method_via(x, env),
+            _ => None,
+        })
+    }
     fn snapshot_args(&mut self, call: &'a Expr, f: SId, env: EId) {
         let ExprKind::Call { args, .. } = &call.k else { return };
         let params = self.syms[f].params.clone().unwrap_or_default();
@@ -2838,6 +2881,9 @@ impl<'a> Checker<'a> {
                     });
                     break;
                 }
+            }
+            if hit.is_none() {
+                hit = self.undeclared_method_via(a, env).map(|(r, m)| format!("{r}.{m}(…), a method its declaration does not name (declare it, `methods({m})` on the fn that made it, for its value to count as made once)"));
             }
             // E-10: a field read through a `for` row (`counter(r.x)`): the row is a constant (RG-2b), but its fields are
             // written by path or reconciled by key while it lives (ST-4a), so the argument is a snapshot of something that
@@ -2916,6 +2962,11 @@ impl<'a> Checker<'a> {
                         }
                     }
                     return;
+                }
+                // E-10 (bounded, revised 2026-11-21 after review): a method an instance does not declare, called on any
+                // value that may be the instance (a record's field, an array's element, a branch, a closure's result)
+                ExprKind::Call { f, .. } if counting && method_callee(f).is_some_and(|(o, _)| !matches!(o.k, ExprKind::Id(_))) && self.undeclared_method_via(e, env).is_some() => {
+                    acc.yes = true;
                 }
                 // a method called on a name reads no field of it (E-10's exemption): the name, and the arguments
                 ExprKind::Call { f, args, .. } if method_callee(f).is_some_and(|(o, _)| matches!(&o.k, ExprKind::Id(on) if !self.lookup(env, on).is_some_and(|s| self.syms[s].kind == SymKind::Props))) => {
@@ -3270,9 +3321,8 @@ impl<'a> Checker<'a> {
     /// bound, so that result must be rendered there; a value that travels elsewhere — to a component's prop, a provision,
     /// an export, a source, a JS call, or an equation doing one of those — would have them rendered under other
     /// boundaries and providers than the ones they were checked under.
-    fn renders_escape(&mut self, e: &Expr, env: EId, why: &str) {
-        let mut out = vec![];
-        self.placed(e, env, &[], &mut HashSet::new(), &mut out);
+    fn renders_escape(&mut self, e: &'a Expr, env: EId, why: &str) {
+        let out = self.placed(e, env);
         if let Some(&t) = out.iter().find(|&&t| self.syms[t].local_renders) {
             let n = match &e.k {
                 ExprKind::Id(n) => n.clone(),
@@ -3281,76 +3331,326 @@ impl<'a> Checker<'a> {
             self.renders_escape_msg(&n, why);
         }
     }
-    /// MO-11l, MO-11o (placement, revised 2026-11-21 after review): the names a value may be — through an alias, a record
-    /// or array literal that holds one, and a field read back out of such a record (`box = { table }`, then `box.table`).
-    /// A field read through anything else (`table.rows`) is a read of it, not it. In order: the name itself first.
-    fn placed(&self, e: &Expr, env: EId, path: &[String], seen: &mut HashSet<(SId, Vec<String>)>, out: &mut Vec<SId>) {
+    /// The one answer to "what values may this expression hold" (revised 2026-11-21 after review): MO-10i's drafts,
+    /// MO-11l's `renders` values, MO-10f's held fields and E-10's instances all go through it. Each origin is a name and
+    /// a path below it: the expression's value may be that name's value at that path (an empty path: the value itself;
+    /// a longer one: a part of it, read out of it). Followed through an alias (an equation's or a local's value), a
+    /// record or array literal (a static key or index precisely, a dynamic one as any, a spread as the spread value's
+    /// parts), `?:`, `??`, `||`, `&&`, `catch`, `peek`, an object rest, a call of a closure or an .rx fn (what it returns,
+    /// its parameters bound to the arguments, its locals to their values), `filter`/`map` and a method call (the
+    /// receiver's elements), a call of an undeclared JS fn (its arguments, whole), and a closure (what it captures,
+    /// whole). An imported name is an origin of its own: what it holds was decided in its module.
+    fn values_of(&self, e: &'a Expr, env: EId) -> Vec<Origin> {
+        let mut out = vec![];
+        self.vals(e, env, &[], &[], &mut HashSet::new(), &mut out, 0);
+        out
+    }
+    /// The names an expression's value may itself be (origins with an empty path), the expression's own name first.
+    fn placed(&self, e: &'a Expr, env: EId) -> Vec<SId> {
+        let mut out: Vec<SId> = vec![];
+        for (t, p) in self.values_of(e, env) {
+            if p.is_empty() && !out.contains(&t) {
+                out.push(t);
+            }
+        }
+        out
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn vals(&self, e: &'a Expr, env: EId, path: &[Option<String>], ov: &[VBind<'a>], seen: &mut HashSet<(usize, Vec<Option<String>>, usize)>, out: &mut Vec<Origin>, depth: usize) {
+        if depth > 48 || !seen.insert((e as *const Expr as usize, path.to_vec(), ov.len())) {
+            return;
+        }
+        let d = depth + 1;
+        let cons = |k: Option<String>, rest: &[Option<String>]| -> Vec<Option<String>> {
+            let mut q = vec![k];
+            q.extend_from_slice(rest);
+            q
+        };
         match &e.k {
             ExprKind::Id(n) => {
-                let Some(s) = self.lookup(env, n) else { return };
-                if !seen.insert((s, path.to_vec())) {
-                    return;
+                if let Some(b) = ov.iter().rev().find(|b| b.name == *n) {
+                    let (be, benv, bov) = (b.e, b.env, b.ov);
+                    self.vals(be, benv, path, &ov[..bov], seen, out, d);
                 }
-                if path.is_empty() && !out.contains(&s) {
-                    out.push(s);
-                }
-                if self.syms[s].kind == SymKind::Eq {
-                    if let Some((x, xenv)) = self.syms[s].carried_expr {
-                        self.placed(x, xenv, path, seen, out);
+                if let Some(t) = self.lookup(env, n) {
+                    let o = (t, path.to_vec());
+                    if !out.contains(&o) {
+                        out.push(o);
+                    }
+                    if let Some((ve, venv)) = self.syms[t].val {
+                        self.vals(ve, venv, path, &[], seen, out, d);
                     }
                 }
             }
-            ExprKind::Member { o, p, .. } => {
-                let mut q = vec![p.clone()];
-                q.extend_from_slice(path);
-                self.placed(o, env, &q, seen, out);
-            }
-            ExprKind::Index { o, i, .. } => {
-                if let Some(k) = lit_key(i) {
-                    let mut q = vec![k];
-                    q.extend_from_slice(path);
-                    self.placed(o, env, &q, seen, out);
+            ExprKind::Member { o, p, .. } => self.vals(o, env, &cons(Some(p.clone()), path), ov, seen, out, d),
+            ExprKind::Index { o, i, .. } => self.vals(o, env, &cons(lit_key(i), path), ov, seen, out, d),
+            ExprKind::Rec(fields) => match path.first() {
+                None => {
+                    for f in fields {
+                        match f {
+                            Field::Kv { v, .. } => self.vals(v, env, &[], ov, seen, out, d),
+                            Field::Spread(x) => self.vals(x, env, &[None], ov, seen, out, d),
+                        }
+                    }
+                }
+                Some(k) => {
+                    for f in fields {
+                        match f {
+                            Field::Kv { key, v } if k.as_ref().is_none_or(|k| k == key) => self.vals(v, env, &path[1..], ov, seen, out, d),
+                            Field::Kv { .. } => {}
+                            Field::Spread(x) => self.vals(x, env, path, ov, seen, out, d),
+                        }
+                    }
+                }
+            },
+            ExprKind::Arr(items) => {
+                let item = |c: &Self, x: &'a Expr, rest: &[Option<String>], seen: &mut HashSet<(usize, Vec<Option<String>>, usize)>, out: &mut Vec<Origin>| match &x.k {
+                    ExprKind::Spread(inner) => c.vals(inner, env, &cons(None, rest), ov, seen, out, d),
+                    _ => c.vals(x, env, rest, ov, seen, out, d),
+                };
+                match path.first() {
+                    None => {
+                        for x in items {
+                            item(self, x, &[], seen, out);
+                        }
+                    }
+                    Some(Some(k)) => {
+                        let Ok(n) = k.parse::<usize>() else { return }; // `length` and the like: no element
+                        match items.iter().position(|x| matches!(x.k, ExprKind::Spread(_))) {
+                            Some(sp) if sp <= n => {
+                                for x in &items[sp..] {
+                                    item(self, x, &path[1..], seen, out);
+                                }
+                            }
+                            _ => {
+                                if let Some(x) = items.get(n) {
+                                    item(self, x, &path[1..], seen, out);
+                                }
+                            }
+                        }
+                    }
+                    Some(None) => {
+                        for x in items {
+                            item(self, x, &path[1..], seen, out);
+                        }
+                    }
                 }
             }
-            ExprKind::Rec(fields) => {
-                for f in fields {
-                    match f {
-                        Field::Spread(x) => self.placed(x, env, path, seen, out),
-                        Field::Kv { v, .. } if path.is_empty() => self.placed(v, env, &[], seen, out),
-                        Field::Kv { key, v } if *key == path[0] => self.placed(v, env, &path[1..], seen, out),
+            ExprKind::If { t, f, .. } => {
+                self.vals(t, env, path, ov, seen, out, d);
+                self.vals(f, env, path, ov, seen, out, d);
+            }
+            ExprKind::Catch { e: x, alt, .. } => {
+                self.vals(x, env, path, ov, seen, out, d);
+                self.vals(alt, env, path, ov, seen, out, d);
+            }
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => {
+                self.vals(l, env, path, ov, seen, out, d);
+                self.vals(r, env, path, ov, seen, out, d);
+            }
+            ExprKind::Peek(x) | ExprKind::Latest(x) => self.vals(x, env, path, ov, seen, out, d),
+            ExprKind::Spread(x) => self.vals(x, env, &cons(None, path), ov, seen, out, d),
+            ExprKind::Omit { e: x, keys } => match path.first() {
+                Some(Some(k)) if keys.contains(k) => {}
+                None => self.vals(x, env, &[None], ov, seen, out, d),
+                _ => self.vals(x, env, path, ov, seen, out, d),
+            },
+            ExprKind::Fn { params, .. } => {
+                // a closure holds what it captures; whatever it is asked for, it may give that back whole
+                let bound: HashSet<String> = params.iter().cloned().collect();
+                let mut free = IndexSet::new();
+                free_names(e, &HashSet::new(), &mut free);
+                for n in free.iter().filter(|n| !bound.contains(*n)) {
+                    let id = Expr::made(ExprKind::Id(n.clone()));
+                    let mut sub = vec![];
+                    self.vals_id(&id, n, env, ov, seen, &mut sub, d);
+                    for o in sub {
+                        let o = (o.0, if o.1.is_empty() { vec![] } else { o.1 });
+                        if !out.contains(&o) {
+                            out.push(o);
+                        }
+                    }
+                }
+            }
+            ExprKind::Call { f, args, .. } => self.vals_call(f, args, env, path, ov, seen, out, d),
+            _ => {}
+        }
+    }
+    /// `vals` of a name made up on the spot (a closure's capture): the same as `Id`, with no node of its own to mark seen.
+    #[allow(clippy::too_many_arguments)]
+    fn vals_id(&self, _id: &Expr, n: &str, env: EId, ov: &[VBind<'a>], seen: &mut HashSet<(usize, Vec<Option<String>>, usize)>, out: &mut Vec<Origin>, d: usize) {
+        if let Some(b) = ov.iter().rev().find(|b| b.name == n) {
+            let (be, benv, bov) = (b.e, b.env, b.ov);
+            self.vals(be, benv, &[], &ov[..bov], seen, out, d);
+        }
+        if let Some(t) = self.lookup(env, n) {
+            if !out.contains(&(t, vec![])) {
+                out.push((t, vec![]));
+            }
+            if let Some((ve, venv)) = self.syms[t].val {
+                self.vals(ve, venv, &[], &[], seen, out, d);
+            }
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn vals_call(&self, f: &'a Expr, args: &'a [Expr], env: EId, path: &[Option<String>], ov: &[VBind<'a>], seen: &mut HashSet<(usize, Vec<Option<String>>, usize)>, out: &mut Vec<Origin>, d: usize) {
+        // what is called: a closure (here, or a name bound to one), an .rx fn. The overlay in force here stays under the
+        // callee's own bindings: a closure bound in it was written within it, and a name the overlay shadows is also
+        // looked up in scope (`vals` takes both), so nothing it could be is lost
+        let mut callee: Option<(&'a Expr, EId)> = None;
+        let mut rx_fn: Option<SId> = None;
+        match &f.k {
+            ExprKind::Fn { .. } => callee = Some((f, env)),
+            ExprKind::Id(n) => {
+                if let Some(b) = ov.iter().rev().find(|b| b.name == *n).filter(|b| matches!(b.e.k, ExprKind::Fn { .. })) {
+                    callee = Some((b.e, b.env));
+                } else if let Some(t) = self.lookup(env, n) {
+                    match self.syms[t].val {
+                        Some((ve, venv)) if matches!(ve.k, ExprKind::Fn { .. }) => callee = Some((ve, venv)),
+                        _ if self.syms[t].kind == SymKind::Fn && self.syms[t].fn_decl.is_some() => rx_fn = Some(t),
                         _ => {}
                     }
                 }
             }
-            ExprKind::Arr(items) => {
-                for x in items {
-                    self.placed(x, env, if path.is_empty() { &[] } else { &path[1..] }, seen, out);
-                }
-            }
             _ => {}
         }
+        let base = ov.len();
+        let arg = |name: &str, i: usize| args.get(i).map(|a| VBind { name: name.trim_start_matches("...").to_string(), e: a, env, ov: base });
+        if let Some((fe, fenv)) = callee {
+            let ExprKind::Fn { params, body, stmts, .. } = &fe.k else { return };
+            let mut binds: Vec<VBind<'a>> = ov.to_vec();
+            for (i, p) in params.iter().enumerate() {
+                if let Some(b) = arg(p, i) {
+                    binds.push(b);
+                }
+            }
+            match stmts {
+                Some(ss) => self.vals_returns(ss, fenv, path, &mut binds, seen, out, d),
+                None => self.vals(body, fenv, path, &binds, seen, out, d),
+            }
+            return;
+        }
+        if let Some(t) = rx_fn {
+            let Some(Decl::Fn { params, decls, tail, .. }) = self.syms[t].fn_decl else { return };
+            let fenv = self.syms[t].fn_tail.map(|x| x.1).or(self.syms[t].decl_env).unwrap_or(env);
+            let mut binds: Vec<VBind<'a>> = ov.to_vec();
+            for (i, p) in params.iter().enumerate() {
+                if let Some(b) = arg(&p.name, i) {
+                    binds.push(b);
+                }
+            }
+            let at = binds.len();
+            for x in decls {
+                if let Decl::Eq { name, e, .. } = x {
+                    binds.push(VBind { name: name.clone(), e, env: fenv, ov: at });
+                }
+            }
+            self.vals(tail, fenv, path, &binds, seen, out, d);
+            return;
+        }
+        // the builtins: `filter` gives back elements of its list, `map` what its closure returns; the rest a new value
+        if let ExprKind::Id(n) = &f.k {
+            let t = self.lookup(env, n);
+            if t.is_none() && BUILTINS.contains(&n.as_str()) {
+                match n.as_str() {
+                    "filter" => {
+                        if let Some(xs) = args.first() {
+                            let mut q = vec![None];
+                            q.extend_from_slice(path.get(1..).unwrap_or(&[]));
+                            self.vals(xs, env, &q, ov, seen, out, d);
+                        }
+                    }
+                    "map" => {
+                        if let Some(cb) = args.get(1) {
+                            self.vals_call(cb, &args[..1.min(args.len())], env, path.get(1..).unwrap_or(&[]), ov, seen, out, d);
+                        }
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            // a declared JS fn makes a new value (what it keeps of its arguments is MO-11l's and MO-10i's business at the
+            // call); an undeclared one may give back what it is given
+            if let Some(t) = t {
+                let sy = &self.syms[t];
+                if sy.kind == SymKind::Import && sy.undeclared.is_none() || sy.foreign.is_some() || matches!(sy.kind, SymKind::Action | SymKind::Server | SymKind::Comp | SymKind::ErrClass) {
+                    return;
+                }
+            }
+            for a in args {
+                self.vals(a, env, &[], ov, seen, out, d);
+            }
+            return;
+        }
+        // a method call: what it gives back may be elements of its receiver (`xs.find(…)`, `xs.slice()`), or what a
+        // closure it is given returns (`xs.map(x => …)`)
+        if let ExprKind::Member { o, .. } | ExprKind::Index { o, .. } = &f.k {
+            self.vals(o, env, &[None], ov, seen, out, d);
+            for a in args {
+                if matches!(a.k, ExprKind::Fn { .. }) {
+                    self.vals_call(a, &[], env, &[], ov, seen, out, d);
+                }
+            }
+        }
+    }
+    /// what a statement-bodied closure returns, its `let`s bound as it goes
+    #[allow(clippy::too_many_arguments)]
+    fn vals_returns(&self, ss: &'a [Stmt], env: EId, path: &[Option<String>], binds: &mut Vec<VBind<'a>>, seen: &mut HashSet<(usize, Vec<Option<String>>, usize)>, out: &mut Vec<Origin>, d: usize) {
+        let n = binds.len();
+        for st in ss {
+            match &st.k {
+                StmtKind::Let { name, e, .. } => {
+                    let at = binds.len();
+                    binds.push(VBind { name: name.clone(), e, env, ov: at });
+                }
+                StmtKind::Return(Some(e)) => self.vals(e, env, path, binds, seen, out, d),
+                StmtKind::Sif { t, f, .. } => {
+                    self.vals_returns(t, env, path, binds, seen, out, d);
+                    self.vals_returns(f, env, path, binds, seen, out, d);
+                }
+                StmtKind::Action(b) => self.vals_returns(b, env, path, binds, seen, out, d),
+                StmtKind::Try { body, handler, fin, .. } => {
+                    self.vals_returns(body, env, path, binds, seen, out, d);
+                    if let Some(h) = handler {
+                        self.vals_returns(h, env, path, binds, seen, out, d);
+                    }
+                    if let Some(h) = fin {
+                        self.vals_returns(h, env, path, binds, seen, out, d);
+                    }
+                }
+                _ => {}
+            }
+        }
+        binds.truncate(n);
     }
     fn renders_escape_msg(&mut self, n: &str, why: &str) {
         self.err("RENDERS_ESCAPES", "MO-11l", format!("{n} holds components `renders` checked where {n} is bound, and here it is {why}: render it in the view where it is bound, or declare the library `renders(later)` with a prop that `renders` it (MO-11o), or `renders(root, …)` if it mounts them under a root of its own (MO-11n)"));
     }
-    /// MO-10i (lifetime): the draft a value is — a draft's name, or a local bound to one, bare or in a record or array
-    /// literal (a path read through it, `d.done`, is a copy of the callback's own).
-    fn bare_draft(&self, e: &Expr, env: EId) -> Option<String> {
-        match &e.k {
-            ExprKind::Id(n) => self.lookup(env, n).filter(|&t| self.syms[t].js_draft).map(|_| n.clone()),
-            ExprKind::Arr(items) => items.iter().find_map(|x| self.bare_draft(x, env)),
-            ExprKind::Rec(fields) => fields.iter().find_map(|f| match f {
-                Field::Kv { v, .. } => self.bare_draft(v, env),
-                Field::Spread(_) => None,
-            }),
-            _ => None,
-        }
+    /// MO-10i (lifetime, revised 2026-11-21 after review): the draft a value may be, by `values_of` — a draft's name, a
+    /// local bound to one, in a record or array literal, a branch of `?:`, `??`, `||`, `&&`, what a closure or an .rx fn
+    /// called with it returns; a path read through it (`d.done`) is a copy of the callback's own.
+    fn bare_draft(&self, e: &'a Expr, env: EId) -> Option<String> {
+        let t = self.values_of(e, env).into_iter().find(|(t, p)| p.is_empty() && self.syms[*t].js_draft).map(|(t, _)| t)?;
+        Some(match &e.k {
+            ExprKind::Id(n) => n.clone(),
+            _ => self.syms[t].name.clone(),
+        })
     }
+    /// The names a name's value may be (itself first), by `values_of`.
+    fn sym_values(&self, s: SId) -> Vec<Origin> {
+        let mut out = vec![(s, vec![])];
+        if let Some((ve, venv)) = self.syms[s].val {
+            self.vals(ve, venv, &[], &[], &mut HashSet::new(), &mut out, 0);
+        }
+        out
+    }
+    /// MO-10i: a name read here whose value may be a draft another closure owns — the draft itself, or a local holding it
+    /// whole (`let a = [d]`, `let a = c ? d : x`): this closure may run after the library took it back.
     fn draft_here(&mut self, s: SId, name: &str) {
-        if let Some(own) = self.syms[s].draft_fn {
-            if self.fn_stack.last() != Some(&own) {
-                self.err("DRAFT_ESCAPES", "MO-10i", format!("{name} is a library's draft, its callback's only while that call runs: a closure made inside the callback may run after the library has taken it back — use {name} in the callback itself, or copy what the closure needs into a local first"));
-            }
+        let here = self.fn_stack.last().copied();
+        let owner = self.sym_values(s).into_iter().filter(|(_, p)| p.is_empty()).find_map(|(t, _)| self.syms[t].draft_fn.filter(|own| Some(*own) != here));
+        if owner.is_some() {
+            self.err("DRAFT_ESCAPES", "MO-10i", format!("{name} is a library's draft, its callback's only while that call runs: a closure made inside the callback may run after the library has taken it back — use {name} in the callback itself, or copy what the closure needs into a local first"));
         }
     }
     fn expr_k(&mut self, e: &'a Expr, env: EId, ctx: Ctx, field: Option<&str>) {
@@ -3707,6 +4007,7 @@ impl<'a> Checker<'a> {
                     let mut sym = Sym::new(SymKind::Value, name, region, self.line);
                     sym.captures = captures;
                     sym.ret_captures = Some(ret);
+                    sym.val = Some((e, env));
                     // MO-10i: a local bound to a draft is the draft
                     if let ExprKind::Id(n) = &e.k {
                         if let Some(t) = self.lookup(env, n).filter(|&t| self.syms[t].js_draft) {
@@ -4198,8 +4499,7 @@ impl<'a> Checker<'a> {
                         // render checked; its signature says nothing of it, so rendering it here would be unchecked
                         let carried_props = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.carried_props.get(&r).cloned()).unwrap_or_default();
                         for a in attrs.iter().filter(|a| carried_props.contains(&a.name)) {
-                            let mut out = vec![];
-                            self.placed(&a.e, env, &[], &mut HashSet::new(), &mut out);
+                            let out = self.placed(&a.e, env);
                             if let Some(&t) = out.iter().find(|&&t| self.syms[t].from_module.is_some()) {
                                 let from = self.syms[t].from_module.clone().unwrap();
                                 let n = match &a.e.k {
