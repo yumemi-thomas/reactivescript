@@ -143,6 +143,19 @@ does for `.tsrx`. Nothing here is a second type system.
   `.d.rx` (TY-4b: `rx-tsc` gives TypeScript the projected `.d.ts` in its
   place, without writing it), and there is nothing to check it against: a
   hand-written `.d.ts` would be the same assertion, as `pure` is (CN-5).
+- **TY-6e (Which declarations, revised 2026-11-21 after review).** What
+  `rx-tsc` checks is what the compiler consumed: the crate's loader reports
+  each declaration it read with the module that imported it and the
+  import's own text (`rxc serve`'s `analyze` answers `declarations: [{file,
+  importer, spec}]`), and each is checked against the module that import
+  resolves to from its importer — in any folder, and per installed copy
+  where two importers resolve the same declaration to two versions. A
+  `.d.rx` the tsconfig names itself is checked too, against the module
+  beside it (an audit, or a package that ships only declarations). A
+  `.d.rx` that only sits beside a module, imported by nothing and named by
+  nothing, is not the program's and is not checked. The same set is what a
+  version pin (09 MO-8f, resolved from each importer) and strict
+  declarations (MO-8j, TY-7) apply to.
 - **TY-6d.** The crate writes the check (`rxc serve`'s `boundary` request,
   `project.rs` `boundary_file`); `rx-tsc` type-checks it in memory beside
   the `.d.rx` with the project's compiler options
@@ -153,7 +166,7 @@ does for `.tsrx`. Nothing here is a second type system.
 
 - **TY-7a.** With `--rx-strict` (or `"reactivescript": { "strict": true }`
   in the tsconfig), `rx-tsc` reads, beside each `.d.rx` the program
-  imports, the record `rx-verify --record` wrote (09 MO-8j). A row is
+  imports (as the loader resolved it, TY-6e) or the tsconfig names, the record `rx-verify --record` wrote (09 MO-8j). A row is
   accepted when the record shows it held (`ok`) or had nothing to run
   (`n/a`), by the hash of its text, or when the row says `trusted`. Any
   other row is `UNVERIFIED_ROW`, on the row's line: nothing verified it,

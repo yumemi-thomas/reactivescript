@@ -15,12 +15,25 @@ pub struct ModuleSet {
     pub diags: Vec<Diagnostic>,
     /// MO-8, by `.d.rx` path
     pub declarations: IndexMap<String, Vec<JsDecl>>,
+    /// MO-8, TY-6: each declaration the program consumed, with the module that imported it and the import's own text:
+    /// what a version pin, strict mode and the boundary check apply to, resolved as the importer resolves it
+    pub declaration_uses: Vec<DeclarationUse>,
     /// MO-9, by `.rx` path
     pub signatures: IndexMap<String, ModSig>,
     /// each program's text, which its spans index
     pub sources: HashMap<String, String>,
     /// an editor's load (CP-8e): what the parse recovered from, each with its file
     pub parse_errors: Vec<ParseError>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclarationUse {
+    /// the `.d.rx`
+    pub declaration: String,
+    /// the `.rx` module whose import it declares
+    pub importer: String,
+    /// the import's text, `./sub/lib.js` or `@scope/pkg/sub`
+    pub spec: String,
 }
 
 pub fn is_rx(from: &str) -> bool {
@@ -61,6 +74,7 @@ struct Loader<'r> {
     order: Vec<String>,
     diags: Vec<Diagnostic>,
     declarations: IndexMap<String, Vec<JsDecl>>,
+    declaration_uses: Vec<DeclarationUse>,
     signatures: IndexMap<String, ModSig>,
     sources: HashMap<String, String>,
     state: HashMap<String, State>,
@@ -210,6 +224,10 @@ impl Loader<'_> {
                     }
                 }
                 if let Some(ds) = self.declarations.get(&dts) {
+                    let u = DeclarationUse { declaration: dts.clone(), importer: path.to_string(), spec: from.clone() };
+                    if !self.declaration_uses.contains(&u) {
+                        self.declaration_uses.push(u);
+                    }
                     *declared = Some(dts.clone());
                     *declared_errors = Some(ds.iter().filter_map(|x| if let JsDecl::Error { name, .. } = x { Some(name.clone()) } else { None }).collect());
                     let ef: Vec<(String, Vec<String>)> = ds.iter().filter_map(|x| if let JsDecl::Error { name, fields, .. } = x { (!fields.is_empty()).then(|| (name.clone(), fields.clone())) } else { None }).collect();
@@ -279,9 +297,9 @@ pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String
     load(entry, read, true)
 }
 fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
-    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
+    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
+    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
 }
 
 /// E-5a: the module keys that name the hosts (`?rx-lib` imports, CP-4d). A key is the path the program reached the module

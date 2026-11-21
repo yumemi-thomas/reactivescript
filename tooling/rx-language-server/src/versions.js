@@ -24,15 +24,24 @@ function installed(pkg, dir) {
     if (path.dirname(d) === d) return undefined;
   }
 }
-/** Each pin in `file` that the installed package does not satisfy: `{ line, message }`. */
-function checkPins(file) {
+/** Each pin in `file` that the installed package does not satisfy: `{ line, message }`. `from`: the modules whose imports
+ *  consumed the declaration — the package is resolved from each, as its import resolves it (one workspace may install
+ *  two versions); by default, from the declaration's own directory. */
+function checkPins(file, from) {
   const out = [];
+  const dirs = [...new Set((from?.length ? from : [file]).map(f => path.dirname(path.resolve(f))))];
   fs.readFileSync(file, "utf8").split("\n").forEach((l, i) => {
     const m = PIN.exec(l); if (!m) return;
-    const [, pkg, range] = m; const v = installed(pkg, path.dirname(file));
-    if (!v) out.push({ line: i + 1, message: `${pkg} is pinned (${range}) but not installed here` });
-    else if (satisfies(v, range) === null) out.push({ line: i + 1, message: `${range} is not a version range npm reads: write it as npm would (\`^2.0.0\`, \`>=1.0.0 <2.0.0\`)` });
-    else if (!satisfies(v, range)) out.push({ line: i + 1, message: `written for ${pkg} ${range}, but ${v} is installed: check the declaration against this version, then update the pin` });
+    const [, pkg, range] = m;
+    if (satisfies("0.0.0", range) === null) { out.push({ line: i + 1, message: `${range} is not a version range npm reads: write it as npm would (\`^2.0.0\`, \`>=1.0.0 <2.0.0\`)` }); return; }
+    const seen = new Set();
+    for (const dir of dirs) {
+      const v = installed(pkg, dir);
+      const where = dirs.length > 1 ? ` (from ${path.relative(process.cwd(), dir) || "."})` : "";
+      const msg = !v ? `${pkg} is pinned (${range}) but not installed here${where}`
+        : !satisfies(v, range) ? `written for ${pkg} ${range}, but ${v} is installed${where}: check the declaration against this version, then update the pin` : null;
+      if (msg && !seen.has(msg)) { seen.add(msg); out.push({ line: i + 1, message: msg }); }
+    }
   });
   return out;
 }

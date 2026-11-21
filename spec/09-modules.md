@@ -197,6 +197,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   range (`DECLARATION_VERSION`), since rows written for one version may be
   wrong about the next. `rx-declare` writes the pin of the version it drafted
   from. Ranges: an exact version, `^`, `~`, `>=`, `>`, `<=`, `<`, joined by `||`.
+  The installed version is the one each importer's import resolves to
+  (revised 2026-11-21): a declaration consumed from two folders of a
+  workspace is checked against the package as each folder has it, and a
+  declaration consumed from anywhere in the program counts, not only one
+  beside a module (13 TY-6e).
 
 - **MO-8g (Values) — proposed 2026-11-18.** `export const pageSearch:
   Schema` declares a value the module exports (a validator, a config

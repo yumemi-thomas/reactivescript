@@ -95,6 +95,8 @@ pub fn analyze(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
         crate::check::check_modules_with(&set, params["spa"].as_bool().unwrap_or(false), params["whole"].as_bool().unwrap_or(false)).diags.iter().map(|d| diagnostic_json(&set, d)).filter(|d| d["file"] == json!(file)).collect()
     };
     out["diagnostics"] = json!(own);
+    // MO-8f, MO-8j, TY-6: the declarations this load consumed, each with its importer and the import's text
+    out["declarations"] = json!(set.declaration_uses.iter().map(|u| json!({ "file": u.declaration, "importer": u.importer, "spec": u.spec })).collect::<Vec<_>>());
     out
 }
 

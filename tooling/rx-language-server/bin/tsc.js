@@ -40,14 +40,20 @@ process.on("exit", code => {
   const cfg = project ? (ts.sys.directoryExists(project) ? path.join(project, "tsconfig.json") : project) : ts.findConfigFile(process.cwd(), ts.sys.fileExists);
   const parsed = cfg ? ts.parseJsonConfigFileContent(ts.readConfigFile(cfg, ts.sys.readFile).config, ts.sys, path.dirname(cfg), undefined, undefined, undefined, [{ extension: ".rx", isMixedContent: true, scriptKind: ts.ScriptKind.Deferred }]) : null;
   const options = parsed ? parsed.options : {};
-  // the files TY-6 and MO-8f look beside: every .rx module analysed, and every .rx or .d.rx the tsconfig names (a package
-  // that ships only declarations has no .rx module of its own)
-  const named = [...new Set([...analyses().map(a => a.file), ...(parsed?.fileNames ?? []).filter(f => f.endsWith(".rx")).map(f => path.resolve(f))])];
-  // MO-8f: a declaration pinned to the version of the package it was written for
-  const { declarations: declFiles } = require("../src/boundary.js");
+  // MO-8f, MO-8j, TY-6 cover the declarations the program consumed — as the crate's loader resolved each import, from
+  // the module that wrote it (`declarations` in each analysis: the declaration, its importer, the import's text) — and
+  // every .d.rx the tsconfig names itself (a package that ships only declarations, or a declaration audited on its
+  // own). A .d.rx that only sits beside a module, imported by nothing, is not the program's.
+  const uses = [];
+  for (const a of analyses()) for (const u of a.result.declarations ?? []) if (!uses.some(x => x.file === u.file && x.importer === u.importer && x.spec === u.spec)) uses.push(u);
+  const namedDecls = [...new Set((parsed?.fileNames ?? []).filter(f => f.endsWith(".d.rx")).map(f => path.resolve(f)))];
+  const importers = new Map();
+  for (const u of uses) importers.set(path.resolve(u.file), [...(importers.get(path.resolve(u.file)) ?? []), u.importer]);
+  for (const f of namedDecls) if (!importers.has(f)) importers.set(f, []);
+  // MO-8f: a declaration pinned to the version of the package it was written for, as each importer resolves it
   const { checkPins } = require("../src/versions.js");
-  const pinned = new Set([...declFiles(named).map(d => d.file), ...analyses().flatMap(a => (a.result.declarations ?? []))]);
-  for (const f of pinned) for (const p of checkPins(f)) {
+  const pinned = new Set(importers.keys());
+  for (const f of pinned) for (const p of checkPins(f, importers.get(f))) {
     errors++;
     codes.add("DECLARATION_VERSION");
     process.stdout.write(`${path.relative(process.cwd(), f)}:${p.line}:1 - error DECLARATION_VERSION: ${p.message} (MO-8f)\n`);
@@ -73,7 +79,7 @@ process.on("exit", code => {
     codes.add("UNVERIFIED_ROW");
     process.stdout.write(`${path.relative(process.cwd(), u.file)}:${u.line}:1 - error UNVERIFIED_ROW: ${u.message} (TY-7)\n`);
   }
-  for (const b of checkBoundaries(ts, named, options)) {
+  for (const b of checkBoundaries(ts, [], options, { uses, named: namedDecls })) {
     errors++;
     codes.add("DECLARATION_MISMATCH");
     process.stdout.write(`${path.relative(process.cwd(), b.file)}:${b.line}:1 - error DECLARATION_MISMATCH: ${b.name ? `${b.name}: ` : ""}${b.message} (TY-6)\n`);

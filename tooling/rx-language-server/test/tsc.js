@@ -145,6 +145,33 @@ const pkMismatch = pkRun(appRx, { "typed-kit.d.rx": "export pure fn half(n: stri
 check("rx-types: a declaration that disagrees with the package's own types fails, on its line (TY-6)", pkMismatch.status !== 0 && /rx-types[\\/]typed-kit\.d\.rx:1:1 - error DECLARATION_MISMATCH: half: /.test(pkMismatch.out), pkMismatch);
 fs.rmSync(pk, { recursive: true });   // the next checks include the whole workspace
 
+// MO-8f, MO-8j, TY-6 follow the declarations the compiler consumed, wherever they are, and only those: an entry that
+// imports `./sub/lib.js`, whose real types say string → string and whose .d.rx says number → number, pinned to a package
+// that is not installed, with no record; the tsconfig names only the entry
+const nest = path.join(ws, "nested"); fs.mkdirSync(path.join(nest, "sub"), { recursive: true });
+fs.symlinkSync(path.join(ws, "node_modules"), path.join(nest, "node_modules"), "dir");
+fs.writeFileSync(path.join(nest, "tsconfig.json"), JSON.stringify({ compilerOptions: JSON.parse(fs.readFileSync(path.join(ws, "tsconfig.json"), "utf8")).compilerOptions, include: ["main.rx"] }));
+fs.writeFileSync(path.join(nest, "main.rx"), 'import { f } from "./sub/lib.js"\nexport default component App() {\n  a = f(2)\n  <p>{a}</p>\n}\n');
+fs.writeFileSync(path.join(nest, "sub/lib.js"), "export const f = s => s;\n");
+fs.writeFileSync(path.join(nest, "sub/lib.d.ts"), "export declare function f(s: string): string;\n");
+fs.writeFileSync(path.join(nest, "sub/lib.d.rx"), "//@ for not-installed-anywhere ^1.0.0\nexport pure fn f(n: number): number\n");
+const nestRun = (...args) => { const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--noEmit", ...args], { cwd: nest, encoding: "utf8" }); return { status: r.status, out: r.stdout + r.stderr }; };
+const nested = nestRun("--rx-strict");
+check("an imported declaration in another folder is pinned (DECLARATION_VERSION, MO-8f)", nested.status !== 0 && /sub[\\/]lib\.d\.rx:1:1 - error DECLARATION_VERSION: not-installed-anywhere is pinned/.test(nested.out), nested);
+check("...held to strict mode (UNVERIFIED_ROW, MO-8j)", /sub[\\/]lib\.d\.rx:2:1 - error UNVERIFIED_ROW: f: nothing verified it/.test(nested.out), nested);
+check("...and checked against the types its import resolves to (DECLARATION_MISMATCH, TY-6)", /sub[\\/]lib\.d\.rx:2:1 - error DECLARATION_MISMATCH: f: /.test(nested.out), nested);
+// a .d.rx beside the entry that nothing imports and the tsconfig does not name is not the program's
+fs.writeFileSync(path.join(nest, "sub/lib.d.rx"), "export pure fn f(s: string): string trusted\n");
+fs.writeFileSync(path.join(nest, "main.rx"), fs.readFileSync(path.join(nest, "main.rx"), "utf8").replace("f(2)", 'f("x")'));
+fs.writeFileSync(path.join(nest, "spare.js"), "export const g = n => n;\n");
+fs.writeFileSync(path.join(nest, "spare.d.rx"), "//@ for not-installed-anywhere ^1.0.0\nexport pure fn g(n: number): number\n");
+const neighbour = nestRun("--rx-strict");
+check("an unimported declaration beside the entry is not checked (no UNVERIFIED_ROW, no DECLARATION_VERSION)", neighbour.status === 0 && !/spare\.d\.rx/.test(neighbour.out), neighbour);
+fs.writeFileSync(path.join(nest, "tsconfig.json"), JSON.stringify({ compilerOptions: JSON.parse(fs.readFileSync(path.join(ws, "tsconfig.json"), "utf8")).compilerOptions, include: ["main.rx", "spare.d.rx"] }));
+const audited = nestRun("--rx-strict");
+check("...until the tsconfig names it, to audit it", audited.status !== 0 && /spare\.d\.rx:1:1 - error DECLARATION_VERSION/.test(audited.out) && /spare\.d\.rx:2:1 - error UNVERIFIED_ROW/.test(audited.out), audited);
+fs.rmSync(nest, { recursive: true });
+
 // the README's entry, as written: a compiled entry's default export is `main(__rt)` (spec/11 CP-4a)
 const readme = fs.readFileSync(path.join(repo, "README.md"), "utf8").match(/```js\n\/\/ src\/main\.js\n([^]*?)```/)[1].replace("./app.rx", "./main.rx");
 const entry = run({ file: "entry.ts", text: () => readme });
