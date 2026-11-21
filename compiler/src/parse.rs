@@ -752,7 +752,8 @@ fn looks_like_types(text: &str) -> bool {
 #[derive(Debug, Clone, PartialEq)]
 enum TyTok {
     Word(String),
-    Lit,
+    /// a literal: `true` for a number (`-1` is a type, `-"1"` is not)
+    Lit(bool),
     Punct(&'static str),
 }
 /// the tokens, and whether a line break comes before each (a member of an object type may end at one)
@@ -776,14 +777,24 @@ fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
         if ch == b'"' || ch == b'\'' || ch == b'`' {
             j += 1;
             let mut depth = 0;
+            let mut sub = 0;
             while j < b.len() && !(b[j] == ch && depth == 0) {
                 if b[j] == b'\\' {
                     j += 1;
                 } else if ch == b'`' && b[j] == b'$' && b.get(j + 1) == Some(&b'{') {
+                    if depth == 0 {
+                        sub = j + 2;
+                    }
                     depth += 1;
                     j += 1;
+                } else if ch == b'`' && depth > 0 && b[j] == b'{' {
+                    depth += 1;
                 } else if ch == b'`' && depth > 0 && b[j] == b'}' {
                     depth -= 1;
+                    // a template literal type's substitution is a type: `${c+1}` makes the whole a comparison
+                    if depth == 0 && !one_type(&s[sub..j]) {
+                        return None;
+                    }
                 }
                 j += 1;
             }
@@ -791,14 +802,14 @@ fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
                 return None;
             }
             j += 1;
-            out.push(TyTok::Lit);
+            out.push(TyTok::Lit(false));
             continue;
         }
         if ch.is_ascii_digit() {
             while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'.' || b[j] == b'_') {
                 j += 1;
             }
-            out.push(TyTok::Lit);
+            out.push(TyTok::Lit(true));
             continue;
         }
         if word_ch(ch) {
@@ -816,6 +827,12 @@ fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
         j += p.len();
     }
     Some((out, nl))
+}
+/// one type, consumed whole (a template literal type's substitution)
+fn one_type(text: &str) -> bool {
+    let Some((toks, nl)) = ty_tokens(text) else { return false };
+    let mut p = TyP { t: &toks, nl: &nl, i: 0 };
+    p.ty() && p.i == toks.len()
 }
 struct TyP<'t> {
     t: &'t [TyTok],
@@ -1098,13 +1115,13 @@ impl<'t> TyP<'t> {
     }
     fn primary(&mut self) -> bool {
         match self.peek().cloned() {
-            Some(TyTok::Lit) => {
+            Some(TyTok::Lit(_)) => {
                 self.i += 1;
                 true
             }
             Some(TyTok::Punct("-")) => {
                 self.i += 1;
-                if matches!(self.peek(), Some(TyTok::Lit)) {
+                if matches!(self.peek(), Some(TyTok::Lit(true))) {
                     self.i += 1;
                     true
                 } else {
@@ -1137,7 +1154,7 @@ impl<'t> TyP<'t> {
             }
             Some(TyTok::Word(w)) if w == "import" => {
                 self.i += 1;
-                if !(self.eat("(") && matches!(self.peek(), Some(TyTok::Lit))) {
+                if !(self.eat("(") && matches!(self.peek(), Some(TyTok::Lit(false)))) {
                     return false;
                 }
                 self.i += 1;
@@ -1191,7 +1208,7 @@ impl<'t> TyP<'t> {
     }
     fn prop_name(&mut self) -> bool {
         match self.peek() {
-            Some(TyTok::Word(_)) | Some(TyTok::Lit) => {
+            Some(TyTok::Word(_)) | Some(TyTok::Lit(_)) => {
                 self.i += 1;
                 true
             }
@@ -1235,7 +1252,7 @@ impl<'t> TyP<'t> {
         if self.at_word("readonly") && !matches!(self.t.get(self.i + 1), Some(TyTok::Punct(":")) | Some(TyTok::Punct("?")) | Some(TyTok::Punct("(")) | Some(TyTok::Punct(",")) | Some(TyTok::Punct(";")) | Some(TyTok::Punct("}"))) {
             self.i += 1;
         }
-        if (self.at_word("get") || self.at_word("set")) && matches!(self.t.get(self.i + 1), Some(TyTok::Word(_)) | Some(TyTok::Lit) | Some(TyTok::Punct("["))) {
+        if (self.at_word("get") || self.at_word("set")) && matches!(self.t.get(self.i + 1), Some(TyTok::Word(_)) | Some(TyTok::Lit(_)) | Some(TyTok::Punct("["))) {
             self.i += 1;
         }
         if self.eat("[") {
@@ -3799,11 +3816,11 @@ mod recovering {
             "Todos", "string[]", "{ a: string; b?: number }[]", "A | B", "A & { x: 1 }", "Record<string, number>", "Map<K, V[]>", "[a: string, b?: number, ...rest: T[]]",
             "(x: T) => U", "<T>(x: T) => T", "new () => Foo", "K extends keyof T ? T[K] : never", "T[K]", "typeof foo.bar", "import(\"./x\").Y<Z>", "-1 | 0 | 1",
             "\"a\" | 'b'", "`p-${string}`", "{ [K in keyof T]-?: T[K] }", "{ readonly [k: string]: number }", "{ (x: number): string; new (): Foo; m<T>(a: T): void }",
-            "keyof T", "readonly string[]", "unique symbol", "T extends (infer U)[] ? U : never", "(x: unknown) => x is string", "A,", "Array<Array<number>>", "this", "{ +readonly [K in T]+?: 1 }", "{\n  done: number\n  items: string[]\n}",
+            "keyof T", "readonly string[]", "unique symbol", "T extends (infer U)[] ? U : never", "(x: unknown) => x is string", "A,", "Array<Array<number>>", "this", "{ +readonly [K in T]+?: 1 }", "{\n  done: number\n  items: string[]\n}", "`x${T}-${number}`", "`a${`b${string}`}`", "`k${{ a: 1 }[\"a\"]}`",
         ] {
             assert!(looks_like_types(t), "{t} is a type list");
         }
-        for t in ["b[c+1]", "b && c", "b ? c : d", "b + c", "b - c", "b * c", "b(c)", "b = c", "b, c + 1", "!b", "b.c(d)", "b[c]()", "b[0] + 1", "{ a }", "b c", "", "typeof f(x)", "(b, c)", "b == c", "{ a: 1 b: 2 }"] {
+        for t in ["b[c+1]", "b && c", "b ? c : d", "b + c", "b - c", "b * c", "b(c)", "b = c", "b, c + 1", "!b", "b.c(d)", "b[c]()", "b[0] + 1", "{ a }", "b c", "", "typeof f(x)", "(b, c)", "b == c", "{ a: 1 b: 2 }", "`x${c+1}`", "`x${c(1)}`", "-\"1\"", "-'1'", "-`1`", "import(1)"] {
             assert!(!looks_like_types(t), "{t} is not");
         }
     }

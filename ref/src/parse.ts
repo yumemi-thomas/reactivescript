@@ -766,7 +766,7 @@ function parseUnary(c: Cursor): Expr {
  *  that a type grammar consumes completely, as TypeScript decides when it tries them and falls back to comparisons.
  *  `a<b && c>(d)`, `a<b + c>(d)` and `a<b[c+1]>(d)` are comparisons; `f<{ a: string }[]>(x)`, `f<A | B>(x)`,
  *  `f<(x: T) => U>(x)`, `f<K extends keyof T ? T[K] : never>(x)` are calls. (The crate's `looks_like_types`, token for token.) */
-type TyTok = { w: string } | { lit: true } | { p: string };
+type TyTok = { w: string } | { lit: "num" | "str" } | { p: string };   // a number is a type after `-`, a string is not
 const TY_PUNCT = ["...", "=>", "-?", "+?", "<", ">", "(", ")", "[", "]", "{", "}", ",", ";", ":", "?", "|", "&", ".", "=", "-", "+"];
 const TY_RESERVED = new Set(["extends", "keyof", "typeof", "infer", "readonly", "unique", "new", "abstract", "import", "is", "asserts", "in", "as", "this"]);
 function tyTokens(s: string): { t: TyTok[]; nl: boolean[] } | null {   // the tokens, and whether a line break comes before each (a member of an object type may end at one)
@@ -777,29 +777,32 @@ function tyTokens(s: string): { t: TyTok[]; nl: boolean[] } | null {   // the to
     if (/\s/.test(ch)) { brk ||= ch === "\n"; j++; continue; }
     nl.push(brk); brk = false;
     if (ch === '"' || ch === "'" || ch === "`") {
-      j++; let depth = 0;
+      j++; let depth = 0, sub = 0;
       while (j < s.length && !(s[j] === ch && depth === 0)) {
         if (s[j] === "\\") j++;
-        else if (ch === "`" && s[j] === "$" && s[j + 1] === "{") { depth++; j++; }
-        else if (ch === "`" && depth > 0 && s[j] === "}") depth--;
+        else if (ch === "`" && s[j] === "$" && s[j + 1] === "{") { if (depth === 0) sub = j + 2; depth++; j++; }
+        else if (ch === "`" && depth > 0 && s[j] === "{") depth++;
+        else if (ch === "`" && depth > 0 && s[j] === "}") { depth--; if (depth === 0 && !oneType(s.slice(sub, j))) return null; }   // a template literal type's substitution is a type: `${c+1}` makes the whole a comparison
         j++;
       }
       if (j >= s.length) return null;
-      j++; out.push({ lit: true }); continue;
+      j++; out.push({ lit: "str" }); continue;
     }
-    if (/[0-9]/.test(ch)) { while (j < s.length && /[A-Za-z0-9._]/.test(s[j])) j++; out.push({ lit: true }); continue; }
+    if (/[0-9]/.test(ch)) { while (j < s.length && /[A-Za-z0-9._]/.test(s[j])) j++; out.push({ lit: "num" }); continue; }
     if (wordCh(ch)) { const k = j; while (j < s.length && wordCh(s[j])) j++; out.push({ w: s.slice(k, j) }); continue; }
     const p = TY_PUNCT.find(p => s.startsWith(p, j)); if (!p) return null;   // `+`, `-?`, `+?` only as a mapped type's modifiers; elsewhere the grammar refuses them
     out.push({ p }); j += p.length;
   }
   return { t: out, nl };
 }
-export function looksLikeTypes(text: string): boolean {
+export function looksLikeTypes(text: string): boolean { return tyGrammar(text, false); }
+function oneType(text: string): boolean { return tyGrammar(text, true); }   // one type, consumed whole (a template literal type's substitution)
+function tyGrammar(text: string, one: boolean): boolean {
   const tk = tyTokens(text); if (!tk) return false; const { t, nl } = tk;
   let i = 0;
   const isP = (k: number, p: string) => { const x = t[k]; return !!x && "p" in x && x.p === p; };
   const isW = (k: number, w?: string) => { const x = t[k]; return !!x && "w" in x && (w === undefined || x.w === w); };
-  const isLit = (k: number) => { const x = t[k]; return !!x && "lit" in x; };
+  const isLit = (k: number, kind?: "num" | "str") => { const x = t[k]; return !!x && "lit" in x && (kind === undefined || x.lit === kind); };
   const at = (p: string) => isP(i, p), atWord = (w: string) => isW(i, w);
   const eat = (p: string) => at(p) ? (i++, true) : false;
   const eatWord = (w: string) => atWord(w) ? (i++, true) : false;
@@ -877,14 +880,14 @@ export function looksLikeTypes(text: string): boolean {
     const x = t[i]; if (!x) return false;
     if ("lit" in x) { i++; return true; }
     if ("p" in x) {
-      if (x.p === "-") { i++; if (isLit(i)) { i++; return true; } return false; }
+      if (x.p === "-") { i++; if (isLit(i, "num")) { i++; return true; } return false; }
       if (x.p === "(") { i++; return ty() && eat(")"); }
       if (x.p === "[") { i++; return tuple(); }
       if (x.p === "{") { i++; return object(); }
       return false;
     }
     if (x.w === "typeof") { i++; if (!eatWord("import") && !name()) return false; return dotted() && args(); }
-    if (x.w === "import") { i++; if (!(eat("(") && isLit(i))) return false; i++; if (!eat(")")) return false; return dotted() && args(); }
+    if (x.w === "import") { i++; if (!(eat("(") && isLit(i, "str"))) return false; i++; if (!eat(")")) return false; return dotted() && args(); }
     if (!TY_RESERVED.has(x.w) || x.w === "this") { i++; return dotted() && args(); }
     return false;
   };
@@ -922,7 +925,7 @@ export function looksLikeTypes(text: string): boolean {
     if (eat(":")) return ty();
     return false;   // a member with no type is `any` in a declaration but not in an object type literal
   };
-  return list() && i === t.length;
+  return (one ? ty() : list()) && i === t.length;
 }
 function typeArgsAt(s: string, i: number): { text: string; end: number } | null {
   if (s[i] !== "<") return null; let depth = 0;

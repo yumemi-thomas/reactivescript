@@ -129,10 +129,11 @@ list that TypeScript's type grammar consumes completely — references with
 their own arguments, unions and intersections, indexed access, arrays and
 tuples, object types (members ending at `,`, `;` or a line break), function
 and constructor types, conditional types, `keyof`, `typeof`, `infer`,
-literal types and templates. Anything else is comparisons, as TypeScript
+literal types (a `-` only before a number) and template literal types
+(each `${…}` a type itself). Anything else is comparisons, as TypeScript
 falls back to them: `a<b && c>(d)`, `a<b + c>(d)`, `a<b ? c : d>(d)` and
 `a<b[c+1]>(d)` (an index holding an addition is not an indexed access
-type) are all `a < …` compared with `(d)` (S-surface-7). The decision no
+type), ``a<`x${c+1}`>(d)`` and `a<-"1">(d)` are all `a < …` compared with `(d)` (S-surface-7). The decision no
 longer rests on a list of operators a type never has, which could miss an
 expression inside brackets.
 
