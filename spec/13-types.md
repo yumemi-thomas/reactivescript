@@ -122,6 +122,13 @@ does for `.tsrx`. Nothing here is a second type system.
   a library's own `.d.ts` as it does against the projected one (S-module-13).
   `rx-tsc` uses the projected `.d.ts` where a JS module has a `.d.rx` and no
   types of its own (`tooling/rx-language-server/src/declarations.js`).
+  Which `.d.rx` declares a module is one list, read in one order by the
+  checker and the tooling (09 MO-8a; revised 2026-11-22 after review):
+  `./x.js` and `./x.ts` by `x.d.rx`; every other JavaScript or TypeScript
+  module — `./x.mjs`, `./x.cjs`, `./x.jsx`, `./x.tsx`, `./x.mts`,
+  `./x.cts` — by the file's whole name (`x.tsx.d.rx`), then by `x.d.rx`.
+  (The checker read only `x.tsx.d.rx` for `./x.tsx` and the tooling only
+  `x.d.rx`, so each ignored the file the other read.)
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such

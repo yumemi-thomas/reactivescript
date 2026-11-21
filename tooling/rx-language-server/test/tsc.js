@@ -177,6 +177,24 @@ check("old.cjs.d.rx wins over old.d.rx beside it", both.status === 0 && both.out
 const { declarationOf, jsOf } = require("../src/beside.js");
 check("the boundary check and rx-verify pair them alike (old.cjs.d.rx ↔ old.cjs, view.jsx.d.rx ↔ view.jsx, old.d.rx declares nothing then)",
   declarationOf(path.join(esm, "old.cjs")) === path.join(esm, "old.cjs.d.rx") && jsOf(path.join(esm, "old.cjs.d.rx")) === path.join(esm, "old.cjs") && jsOf(path.join(esm, "view.jsx.d.rx")) === path.join(esm, "view.jsx") && jsOf(path.join(esm, "old.d.rx")) === undefined && jsOf(path.join(esm, "lib.d.rx")) === path.join(esm, "lib.mjs"), null);
+// RFC 23 (revised 2026-11-22): a TypeScript module is declared as a JavaScript one is — `./view.tsx` by `view.tsx.d.rx`,
+// then by `view.d.rx` — by the checker and by the tooling alike (the checker read only `view.tsx.d.rx`, the tooling only
+// `view.d.rx`, so each ignored the other's file)
+{
+  const { declarationNames } = require("../src/beside.js");
+  check("a module's declaration names are the crate's, in its order (declaration_names)", JSON.stringify(["x.js", "x.ts", "x.mjs", "x.cjs", "x.jsx", "x.tsx", "x.mts", "x.cts"].map(declarationNames)) === JSON.stringify([["x.d.rx"], ["x.d.rx"], ["x.mjs.d.rx", "x.d.rx"], ["x.cjs.d.rx", "x.d.rx"], ["x.jsx.d.rx", "x.d.rx"], ["x.tsx.d.rx", "x.d.rx"], ["x.mts.d.rx", "x.d.rx"], ["x.cts.d.rx", "x.d.rx"]]), ["x.tsx"].map(declarationNames));
+  for (const f of ["old.d.rx", "old.cjs.d.rx", "view.jsx.d.rx", "view.jsx", "old.cjs", "lib.mjs", "lib.d.rx"]) fs.rmSync(path.join(esm, f), { force: true });
+  fs.writeFileSync(path.join(esm, "calc.tsx"), "export const twice = (n: number) => n * 2;\n");
+  const tsxApp = 'import { twice } from "./calc.tsx"\nexport default component App() {\n  a = twice(2)\n  <p>{a}</p>\n}\n';
+  const undeclared = esmRun(tsxApp);
+  check("with no declaration, ./calc.tsx is io: called in reactive scope it is refused (R-io-4)", undeclared.status !== 0 && /IO_IN_REACTIVE/.test(undeclared.out), undeclared);
+  fs.writeFileSync(path.join(esm, "calc.d.rx"), "export pure fn twice(n: number): number\n");
+  const stem = esmRun(tsxApp);
+  check("calc.d.rx declares ./calc.tsx for the checker, as it does for the tooling", stem.status === 0 && stem.out.trim() === "" && declarationOf(path.join(esm, "calc.tsx")) === path.join(esm, "calc.d.rx") && jsOf(path.join(esm, "calc.d.rx")) === path.join(esm, "calc.tsx"), stem);
+  fs.writeFileSync(path.join(esm, "calc.tsx.d.rx"), "export pure fn twice(n: number): number\n"); fs.writeFileSync(path.join(esm, "calc.d.rx"), "export fn twice(n: number): number\n");
+  const whole = esmRun(tsxApp);
+  check("calc.tsx.d.rx, the file's whole name, wins over calc.d.rx for both", whole.status === 0 && whole.out.trim() === "" && declarationOf(path.join(esm, "calc.tsx")) === path.join(esm, "calc.tsx.d.rx") && jsOf(path.join(esm, "calc.tsx.d.rx")) === path.join(esm, "calc.tsx") && jsOf(path.join(esm, "calc.d.rx")) === undefined, whole);
+}
 fs.rmSync(esm, { recursive: true });
 
 // E-5a (RFC 35): --rx-whole-program covers every module, also two that import each other (no module is imported by

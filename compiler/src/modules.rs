@@ -242,17 +242,18 @@ pub fn package_relative(file: &str, read: &dyn Fn(&str) -> Option<String>) -> St
 }
 static PKG_EXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.(m?js|cjs|jsx|ts|tsx)$").unwrap());
 
-/// MO-8 (revised 2026-11-21 after review): the `.d.rx` that declares a relative JS import, first that exists wins:
-/// `./x.mjs`, `./x.cjs` and `./x.jsx` by `x.mjs.d.rx` (`x.cjs.d.rx`, `x.jsx.d.rx`), the file's whole name, then by
-/// `x.d.rx`; `./x.js` and `./x.ts` by `x.d.rx`; anything else by its name and `.d.rx`. The tooling (rx-tsc's
-/// declarations, the boundary check, verify) reads the same names in the same order. When none exists, the last.
+/// MO-8 (revised 2026-11-22): the `.d.rx` that declares a relative JS import, first that exists wins: `./x.js` and
+/// `./x.ts` by `x.d.rx`; every other JS or TypeScript module — `./x.mjs`, `./x.cjs`, `./x.jsx`, `./x.tsx`, `./x.mts`,
+/// `./x.cts` — by the file's whole name, `x.tsx.d.rx`, then by `x.d.rx`; anything else by its name and `.d.rx`. The
+/// tooling (rx-tsc's declarations, the boundary check, verify: `beside.js`) reads the same names in the same order.
+/// When none exists, the last.
 pub fn beside_declaration(importer: &str, from: &str, read: &dyn Fn(&str) -> Option<String>) -> String {
     let names = declaration_names(from);
     let paths: Vec<String> = names.iter().map(|n| join_path(importer, n)).collect();
     paths.iter().find(|p| read(p).is_some()).cloned().unwrap_or_else(|| paths.last().unwrap().clone())
 }
 pub fn declaration_names(from: &str) -> Vec<String> {
-    for ext in [".mjs", ".cjs", ".jsx"] {
+    for ext in [".mjs", ".cjs", ".jsx", ".tsx", ".mts", ".cts"] {
         if let Some(s) = from.strip_suffix(ext) {
             return vec![format!("{from}.d.rx"), format!("{s}.d.rx")];
         }
@@ -488,5 +489,12 @@ mod tests {
         let read = files(&[("/w/v.jsx.d.rx", "")]);
         assert_eq!(beside_declaration("/w/main.rx", "./v.jsx", &read), "/w/v.jsx.d.rx");
         assert_eq!(beside_declaration("/w/main.rx", "./old.cjs", &read), "/w/old.d.rx");
+        // TypeScript's are JavaScript's (RFC 23): `./x.tsx` as `./x.jsx`, `./x.mts` and `./x.cts` as `./x.mjs` and `./x.cjs`
+        let read = files(&[("/w/x.d.rx", ""), ("/w/y.tsx.d.rx", ""), ("/w/y.d.rx", ""), ("/w/z.d.rx", "")]);
+        assert_eq!(beside_declaration("/w/main.rx", "./x.tsx", &read), "/w/x.d.rx");
+        assert_eq!(beside_declaration("/w/main.rx", "./y.tsx", &read), "/w/y.tsx.d.rx");
+        assert_eq!(beside_declaration("/w/main.rx", "./z.mts", &read), "/w/z.d.rx");
+        assert_eq!(beside_declaration("/w/main.rx", "./z.cts", &read), "/w/z.d.rx");
+        assert_eq!(declaration_names("./x.tsx"), vec!["./x.tsx.d.rx", "./x.d.rx"]);
     }
 }

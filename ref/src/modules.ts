@@ -99,7 +99,7 @@ export function packageRelative(file: string, read: (path: string) => string | u
  *  `./x.cjs` and `./x.jsx` by `x.mjs.d.rx` (`x.cjs.d.rx`, `x.jsx.d.rx`), the file's whole name, then by `x.d.rx`; `./x.js`
  *  and `./x.ts` by `x.d.rx`; anything else by its name and `.d.rx`. When none exists, the last. */
 export function declarationNames(from: string): string[] {
-  const m = /^(.*)\.(mjs|cjs|jsx)$/.exec(from); if (m) return [`${from}.d.rx`, `${m[1]}.d.rx`];
+  const m = /^(.*)\.(mjs|cjs|jsx|tsx|mts|cts)$/.exec(from); if (m) return [`${from}.d.rx`, `${m[1]}.d.rx`];   // TypeScript's are JavaScript's (RFC 23, revised 2026-11-22)
   return [from.replace(/\.(js|ts)$/, "") + ".d.rx"];
 }
 export function besideDeclaration(importer: string, from: string, read: (path: string) => string | undefined): string {

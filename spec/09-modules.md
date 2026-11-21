@@ -149,11 +149,14 @@ export component Save(props: { v: unrendered action go catches(nothing) })
 
 - **MO-8a.** A JS module may have a declaration file beside it: for
   `import … from "./api"`, the file `./api.d.rx` (an extension `.js` or
-  `.ts` on the import is dropped). For `./x.mjs`, `./x.cjs` and `./x.jsx`
-  the file's whole name comes first, `x.cjs.d.rx`, then `x.d.rx` (as
-  TypeScript's `x.d.cts`); the first that exists is the declaration
-  (revised 2026-11-21 after review). rx-tsc, the boundary check (TY-6) and
-  `rx-verify` read the same names in the same order. It declares each export in
+  `.ts` on the import is dropped). For every other JavaScript or
+  TypeScript module — `./x.mjs`, `./x.cjs`, `./x.jsx`, `./x.tsx`,
+  `./x.mts`, `./x.cts` — the file's whole name comes first, `x.cjs.d.rx`,
+  then `x.d.rx` (as TypeScript's `x.d.cts`); the first that exists is the
+  declaration (revised 2026-11-21 after review; TypeScript's extensions
+  added 2026-11-22, when the checker read `x.tsx.d.rx` alone and the
+  tooling `x.d.rx` alone). rx-tsc, the boundary check (TY-6) and
+  `rx-verify` read the same names in the same order (`beside.js`). It declares each export in
   rows, once, in the same notation as an `.rx` signature (MO-3):
 
   ```rx
