@@ -64,7 +64,13 @@ const leaky = Object.assign(new Child("not found", { cause: new Error("db passwo
 const app = createApp({}); app.jsClass(Base, "k.d.rx#Base", ["status"]); app.jsClass(Child, "k.d.rx#Child");
 const text = serialize(app.markSendable(leaky));
 const back = deserialize(text);
-console.log(JSON.stringify({ baseFirst: stamp([B, C], new Child("c")), childFirst: stamp([C, B], new Child("c")), baseOnly: stamp([B], new Child("c")), grand: stamp([B, C], new Grand("g")), plain: stamp([B, C], new Error("p")),
+// a declared field an instance came without: a required one is said once on the server, an optional one (\`code?\`) is not
+const warned = []; const warn = console.warn; console.warn = (...a) => { warned.push(a.join(" ")); };
+const fielded = createApp({}); fielded.jsClass(Base, "k.d.rx#Base", ["status", "code?"]);
+const bare = fielded.markSendable(new Base("no status")); fielded.markSendable(new Base("again"));
+const full = fielded.markSendable(Object.assign(new Base("both"), { status: 500, code: "E" }));
+console.warn = warn;
+console.log(JSON.stringify({ missing: { warned, sent: bare.$class, status: "status" in bare, code: "code" in bare, full: [full.status, full.code] }, baseFirst: stamp([B, C], new Child("c")), childFirst: stamp([C, B], new Child("c")), baseOnly: stamp([B], new Child("c")), grand: stamp([B, C], new Grand("g")), plain: stamp([B, C], new Error("p")),
   wire: { cls: back.$class, all: back.$classes, message: back.message, status: back.status, leaked: /hunter2|authorization|Bearer|stack/.test(text) } }));
 `);
   const cls = JSON.parse(execFileSync(process.execPath, ["classes.mjs"], { cwd: tmp }).toString());
@@ -77,6 +83,8 @@ console.log(JSON.stringify({ baseFirst: stamp([B, C], new Child("c")), childFirs
   check("an undeclared class is not sent", cls.plain.sent === false && cls.plain.cls === undefined, JSON.stringify(cls.plain));
   check("the stamps survive Solid's serializer", cls.wire.cls === "k.d.rx#Child" && JSON.stringify(cls.wire.all) === JSON.stringify(both), JSON.stringify(cls.wire));
   check("only the message and the declared fields cross: no cause, headers or stack", cls.wire.message === "not found" && cls.wire.status === 404 && cls.wire.leaked === false, JSON.stringify(cls.wire));
+  check("a required declared field an instance lacks is said once, naming its declaration; the failure is still sent as its class (SV-5a)", cls.missing.warned.length === 1 && /k\.d\.rx#Base declares the field status/.test(cls.missing.warned[0]) && cls.missing.sent === "k.d.rx#Base" && cls.missing.status === false, JSON.stringify(cls.missing));
+  check("an optional one (`code?`) may be absent in silence, and is sent when it is there", !cls.missing.warned.some(w => /field code/.test(w)) && cls.missing.code === false && JSON.stringify(cls.missing.full) === JSON.stringify([500, "E"]), JSON.stringify(cls.missing));
   writeFileSync(path.join(tmp, "client.mjs"), `import { createApp } from "@reactivescript/runtime";
 import { createRoot, createMemo } from "@solidjs/signals";
 class Base extends Error {} class Child extends Base {}

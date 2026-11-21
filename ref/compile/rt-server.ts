@@ -12,6 +12,7 @@ import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit } from "solid-js";
 import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
 let warnedCopies = false;   // once per process
+const warnedFields = new Set<string>();   // SV-5a: a declared field an instance came without, once per class and field
 import { $TARGET } from "@solidjs/signals";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -141,8 +142,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     prim: (name: string) => primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any })[name] ?? (() => { throw new Error(`./prims has no ${name}`); }),
 
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
-    /** SV-5a: a JS module's error class, declared in its `.d.rx` (`export error C`, or `export error C(status, code)` to
-     *  send those fields too): `id` is that declaration. */
+    /** SV-5a: a JS module's error class, declared in its `.d.rx` (`export error C`, or `export error C(status, code?)` to
+     *  send those fields too; `code?` may be absent from an instance): `id` is that declaration. */
     jsClass<T>(C: T, id: string, fields?: string[]): T {
       if (!jsClassIds.has(C)) { jsClassIds.set(C, id); if (fields?.length) jsClassFields.set(C, fields); }
       return C;
@@ -156,16 +157,30 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       if (!err || typeof err !== "object") return undefined;
       // the nearest declared class up its prototype chain names it, whatever order the program registered its classes in;
       // the declared classes above that one go with it, so a client boundary typed with a base class matches it too
-      const ids: string[] = []; const fields: string[] = [];
+      // a field by its name, with the class that declares it and whether its row lets it be absent (`code?`); the
+      // nearest class's row decides for a field several declare
+      const ids: string[] = []; const fields = new Map<string, { by: string; optional: boolean }>();
       for (let p = Object.getPrototypeOf(err); p && p !== Object.prototype; p = Object.getPrototypeOf(p))
-        for (const [k, i] of jsClassIds) if ((k as { prototype?: unknown }).prototype === p && !ids.includes(i)) { ids.push(i); for (const f of jsClassFields.get(k) ?? []) if (!fields.includes(f)) fields.push(f); }
+        for (const [k, i] of jsClassIds) if ((k as { prototype?: unknown }).prototype === p && !ids.includes(i)) {
+          ids.push(i);
+          for (const f0 of jsClassFields.get(k) ?? []) { const optional = f0.endsWith("?"); const f = optional ? f0.slice(0, -1) : f0; if (!fields.has(f)) fields.set(f, { by: i, optional }); }
+        }
       if (!ids.length) return undefined;
       if ((err as { $class?: string }).$class === ids[0] && SENT.has(err)) return err as Error;   // already the copy
       const e = err as Error & Record<string, unknown>;
       const sent = Object.create(Object.getPrototypeOf(err)) as Error & Record<string, unknown>;
       Object.defineProperty(sent, "message", { value: String(e.message ?? ""), writable: true, configurable: true });
       Object.defineProperty(sent, "name", { value: e.name, writable: true, configurable: true });
-      for (const f of fields) if (f in e && f !== "stack" && f !== "cause") sent[f] = e[f];
+      for (const [f, { by, optional }] of fields) {
+        if (f === "stack" || f === "cause") continue;
+        if (f in e) sent[f] = e[f];
+        // the declaration says every instance has the field and this one does not: the client would read `undefined`
+        // where its type says a value. The failure is still sent, as its class; the server says so, once
+        else if (!optional && !warnedFields.has(`${by}\0${f}`)) {
+          warnedFields.add(`${by}\0${f}`);
+          console.warn(`[reactivescript] ${by} declares the field ${f}, but an instance thrown has none: it is sent without it, and the client reads undefined. Set it where the error is made, or declare it optional, \`${f}?\` (SV-5a)`);
+        }
+      }
       sent.$class = ids[0];
       if (ids.length > 1) sent.$classes = ids;
       SENT.add(sent);

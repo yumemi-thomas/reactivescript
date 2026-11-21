@@ -27,6 +27,13 @@ export interface RxOptions {
    * tsconfig.json's `compilerOptions.paths`, is the fallback.
    */
   alias?: Record<string, string> | RxAlias[];
+  /**
+   * E-5a: folders or files beyond the Vite root (against it) whose JS imports modules of this build with `?rx-lib` when
+   * `wholeProgram` is on: another app's pages, a server's entry. The scan covers the Vite root on its own; a host
+   * anywhere else is not counted unless it is named here. A host there resolves its imports relatively, by its own
+   * project's tsconfig.json `paths`, then as this build does.
+   */
+  hostRoots?: string[];
 }
 
 /** ReactiveScript's front end for `@solidjs/vite-plugin`, which loads it on its own for `.rx` when this package is installed. */

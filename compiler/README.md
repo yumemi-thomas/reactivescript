@@ -70,6 +70,15 @@ SOLID_VITE_PLUGIN=../../solid-vite-plugin node test/vite.mjs   # every example a
 `.rx` (solidjs/solid-vite-plugin#471, released in 3.0.0-next.57). The npm release works: with
 `@solidjs/vite-plugin@3.0.1` installed somewhere, point `SOLID_VITE_PLUGIN` at its package directory.
 
+Two tests need what npm's 3.0.1 does not have yet, front ends given Vite's resolver (`context.resolve`) and called
+at each build's start (`Frontend.buildStart`): the `frontend-resolve` branch of
+`github.com/yumemi-thomas/solid-vite-plugin`, built (`pnpm install && npx rolldown -c`).
+
+```sh
+SOLID_VITE_PLUGIN=<that checkout> node test/vite-hosts.mjs   # whole-program hosts: an alias only Vite knows, a host beyond the root (hostRoots)
+SOLID_VITE_PLUGIN=<that checkout> node test/vite-watch.mjs   # vite build --watch: a .ts-only edit is type-checked, a created .d.rx is read
+```
+
 What happens to a `.rx` module in Vite:
 
 - **Entries find themselves.** JavaScript imports only a program's entry,
@@ -89,6 +98,17 @@ What happens to a `.rx` module in Vite:
 
 The app mounts a program with `createApp` from `@reactivescript/runtime`
 (`../runtime`, CP-4a), as the examples do.
+
+- **Rebuilds are checked.** Under `vite build --watch`, the type-check (13
+  TY-1d) runs again when an entry is compiled after a change, and, where
+  Solid's plugin calls front ends at each build's start, when only a `.ts`
+  module changed. A `.d.rx` created where the program looked for one is
+  read at the program's next compile; nothing watches a path that has no
+  file, so creating it starts no rebuild by itself.
+- **Whole program (opt-in).** `rx({ wholeProgram: true })` counts the JS
+  under the Vite root that imports a module with `?rx-lib` as its hosts
+  (02 E-5a); `hostRoots: ["../site"]` names folders or files beyond the
+  root that hold more.
 
 Not yet: hot updates of `.rx` modules are untested; server rendering in Vite
 needs a request-scoped app for server functions to run in.

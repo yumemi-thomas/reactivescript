@@ -326,7 +326,9 @@ export default component App() {
 ### SNAPSHOT_ARGUMENT
 
 A `fn` that declares state (an effect, a source) reads its value parameters once. Declare the parameter `ref` to pass
-the reactive value itself, or pass `peek(…)` to say a snapshot is meant (E-10).
+the reactive value itself, or pass `peek(…)` to say a snapshot is meant (E-10). A field of a `for` row (`counter(r.x)`)
+counts: the row never changes, its fields do. Pass the row, or `peek r.x`; a seed, `source draft := r.x`, is a snapshot
+by rule and needs neither.
 
 ```rx before
 export default component App() {

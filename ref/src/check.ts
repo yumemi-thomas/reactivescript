@@ -991,7 +991,10 @@ class Checker {
       const a = call.args[i]; if (!a || p.ref) return;
       const reads = new Set<string>(); readsOutsidePeek(a, reads);
       const rooted = new Set<string>(); rootedReads(a, rooted);   // RFC 14: the instance passed whole is exempt; a field read through it is not
-      const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !((s.foreign === "value" || s.foreign === "comp") && !s.viaField && !rooted.has(n)) && !this.constantEq(s); });   // E-10: an instance a primitive made (its value result) is made once and never changes; so does an equation that reads nothing that changes
+      let hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !((s.foreign === "value" || s.foreign === "comp") && !s.viaField && !rooted.has(n)) && !this.constantEq(s); });   // E-10: an instance a primitive made (its value result) is made once and never changes; so does an equation that reads nothing that changes
+      // E-10: a field read through a `for` row (`counter(r.x)`): the row is a constant (RG-2b), but its fields are written
+      // by path or reconciled by key while it lives (ST-4a). The row passed whole reads no field; `peek r.x` is meant
+      if (!hit) { const row = [...rooted].find(n => !!env.lookup(n)?.rowOf); if (row) hit = `a field of the row ${row}`; }
       if (hit) this.err("SNAPSHOT_ARGUMENT", "E-10", `${f.name}(…): the argument for value parameter ${p.name} reads ${hit} and would be snapshotted — declare the parameter \`ref\`, or pass peek(…)`);
     });
   }

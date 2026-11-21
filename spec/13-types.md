@@ -43,11 +43,24 @@ does for `.tsrx`. Nothing here is a second type system.
   `vite build --watch` shipped unchecked): the check runs again when an
   entry is compiled and a file its programs were made from is newer than
   the last check, and a build whose check failed fails at each of its
-  entries until one changes. The dev server leaves types to the editor,
+  entries until one changes. A rebuild that compiles no entry is checked
+  too (revised 2026-11-21 after review; an edit of a `.ts` module alone
+  rebuilt unchecked): where Solid's plugin calls front ends at each
+  build's start (`Frontend.buildStart`), the check runs again there when a
+  file it may read, under the folder of the `tsconfig.json` (a `.ts`,
+  `.tsx` or `.rx` file, a `.d.rx`, a `tsconfig*.json` or `package.json`;
+  `node_modules` aside), is newer than the last check, and a failed check
+  fails that build before it bundles. A plugin without the hook checks
+  only the rebuilds that compile an entry (`compiler/test/vite-watch.mjs`).
+  The dev server leaves types to the editor,
   which runs the same projection. A build is made from its declarations
   as from its modules: the frontend watches each `.d.rx` the program read
-  and re-checks the program when one changes, or when one appears where
-  the program looked for it (MO-8k, MO-8a), at its next compile.
+  and re-checks the program when one changes. One that appears where the
+  program looked for it (MO-8k, MO-8a) is read at the program's next
+  compile, whatever starts it, with no restart, and counts as a change
+  for the next build's type-check; it does not start a compile by itself,
+  because neither Vite's dev server (which resolves what a module watches)
+  nor Rolldown's `vite build --watch` watches a path that has no file.
 
 ## TY-2 — What each form is, as a value
 

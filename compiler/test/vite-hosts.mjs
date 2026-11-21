@@ -44,9 +44,19 @@ function project() {
   return dir;
 }
 
-async function buildWith(pluginDir) {
+/** The same program with its host in another build's root, a sibling folder: found only when `hostRoots` names it. */
+function elsewhere() {
+  const dir = project(); rmSync(path.join(dir, "src/pages"), { recursive: true, force: true });
+  const site = path.join(here, ".out/vite-hosts-site"); rmSync(site, { recursive: true, force: true }); mkdirSync(path.join(site, "pages"), { recursive: true });
+  // its own project's tsconfig names the program's folder: `app/*`
+  writeFileSync(path.join(site, "tsconfig.json"), JSON.stringify({ compilerOptions: { paths: { "app/*": ["../vite-hosts/src/*"] } } }));
+  writeFileSync(path.join(site, "pages/host.tsx"), "import { Show } from \"app/show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
+  return dir;
+}
+
+async function buildWith(pluginDir, options = { wholeProgram: true }, make = project) {
   const solid = (await import(pathToFileURL(path.join(pluginDir, "dist/esm/index.mjs")).href + `?${Math.random()}`)).default;
-  const dir = project();
+  const dir = make();
   const warned = []; const w = console.warn; console.warn = (...a) => { warned.push(a.join(" ")); w(...a); };
   const saved = { RX_TYPECHECK: process.env.RX_TYPECHECK, RX_GENERATE: process.env.RX_GENERATE };
   Object.assign(process.env, { RX_TYPECHECK: "0", RX_GENERATE: "0" });
@@ -54,7 +64,7 @@ async function buildWith(pluginDir) {
     await vite.build({
       root: dir, configFile: false, logLevel: "silent", clearScreen: false,
       resolve: { alias: { "@": path.join(dir, "src") } },
-      plugins: [solid({ frontends: { ".rx": rx({ wholeProgram: true }) } })],
+      plugins: [solid({ frontends: { ".rx": rx(options) } })],
       build: { outDir: "dist", emptyOutDir: true, write: false },
     });
     return { ok: true, warned };
@@ -70,4 +80,11 @@ if (existsSync(path.join(without, "dist/esm/index.mjs"))) {
   const old = await buildWith(without);
   check("without it (npm's 3.0.1), the alias is not seen: the build is accepted, with a warning naming the import", old.ok && old.warned.some(m => /@\/show\.rx\?rx-lib, which names no \.rx file here/.test(m)), old);
 } else console.log("- skipped the plugin without context.resolve: run compiler/test/vite.mjs once to install it");
+// a host in another build's root (a sibling folder, reaching the program through its own tsconfig's paths)
+for (const [name, dir] of [["with context.resolve", withResolve], ...(existsSync(path.join(without, "dist/esm/index.mjs")) ? [["without it", without]] : [])]) {
+  const named = await buildWith(dir, { wholeProgram: true, hostRoots: ["../vite-hosts-site"] }, elsewhere);
+  check(`${name}, a host beyond the root that hostRoots names is counted: the peek is refused (E-5a)`, !named.ok && /SNAPSHOT_KEPT/.test(named.error), named);
+  const unnamed = await buildWith(dir, { wholeProgram: true }, elsewhere);
+  check(`${name}, the scan stops at the Vite root: the same host unnamed is not counted`, unnamed.ok, unnamed);
+}
 process.exit(fail ? 1 : 0);

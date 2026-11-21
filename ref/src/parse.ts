@@ -139,7 +139,7 @@ export function parseProgram(src: string): Program {
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
   | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; forwards?: boolean; joins?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string }; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]> }   // drafts, partDrafts: MO-10i   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
-  | { kind: "error"; name: string; line: number; fields?: string[] }   // fields: SV-5a, what of an instance is sent (`export error HttpError(status, code)`)
+  | { kind: "error"; name: string; line: number; fields?: string[] }   // fields: SV-5a, what of an instance is sent (`export error HttpError(status, code?)`; `code?`: it may be absent)
   | { kind: "type"; name: string; line: number; text?: string }
   | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean }   // outlet: MO-11p   // MO-11a: a Solid component
   | { kind: "context"; name: string; line: number }
@@ -158,7 +158,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     if (c.keyword("error")) {
       c.ws(); const name = c.ident() ?? c.fail("error class name"); c.ws(false);
       let fields: string[] | undefined;   // SV-5a: `(status, code: string)`, the fields of an instance sent to the client; none, name and message only
-      if (c.eat("(")) { const t0 = c.i; let depth = 1; while (!c.eof() && depth) { const ch = c.peek(); if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch)) depth--; c.i++; } fields = splitTop(c.src.slice(t0, c.i - 1), ",").map(f => f.split(":")[0].replace(/\?$/, "").trim()).filter(Boolean); }
+      if (c.eat("(")) { const t0 = c.i; let depth = 1; while (!c.eof() && depth) { const ch = c.peek(); if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch)) depth--; c.i++; } fields = splitTop(c.src.slice(t0, c.i - 1), ",").map(f => f.split(":")[0].replace(/\s+/g, "")).filter(f => f && f !== "?"); }   // an optional field keeps its `?` (`code?`): an instance may come without it
       out.push({ kind: "error", name, line, ...(fields?.length ? { fields } : {}) }); continue;
     }
     if (c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("const name"); c.ws(false); const type = c.eat(":") ? (c.ws(), parseType(c, false, true)) : undefined; out.push({ kind: "value", name, line, ...(type ? { type } : {}) }); continue; }   // MO-8g

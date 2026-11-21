@@ -2705,6 +2705,12 @@ impl<'a> Checker<'a> {
                     break;
                 }
             }
+            // E-10: a field read through a `for` row (`counter(r.x)`): the row is a constant (RG-2b), but its fields are
+            // written by path or reconciled by key while it lives (ST-4a), so the argument is a snapshot of something that
+            // changes. The row passed whole reads no field; `peek r.x` says the snapshot is meant
+            if hit.is_none() {
+                hit = rooted.iter().find(|n| self.lookup(env, n).is_some_and(|s| self.syms[s].row_of.is_some())).map(|n| format!("a field of the row {}", n));
+            }
             if let Some(h) = hit {
                 self.err(
                     "SNAPSHOT_ARGUMENT",

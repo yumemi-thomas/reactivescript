@@ -171,7 +171,12 @@ Function application `f(e…)` covers both language functions and FFI imports;
   the checker may key its module by: hosts and modules are matched by their
   real paths, so a linked root, folder or file is one module, and the scan
   follows linked folders, a relative import resolved from where its file
-  really is, as Node and Vite resolve it),
+  really is, as Node and Vite resolve it; the scan covers the Vite root,
+  and a host beyond it, another app's page or a server's entry, is counted
+  when `rx({ hostRoots: ["../site"] })` names its folder or file, its
+  imports resolved relatively, then by its own project's tsconfig.json
+  `paths`, then as this build does, revised 2026-11-21 after review; a host
+  nowhere named is not seen),
   whose props can change, and nothing else;
   a module known only by its signature (MO-9) is not seen. It is opt-in:
   builds and the editor check one module at a time unless asked. (Solid:
@@ -228,6 +233,13 @@ Function application `f(e…)` covers both language functions and FFI imports;
   (`w = size.width`), since a primitive's fields track (MO-10b), revised
   2026-11-21 after review: only the instance passed whole, or a method
   called on it, which reads no field, is exempt (S-module-20).
+  So is a field read through a `for` row (`counter(r.x)`), revised
+  2026-11-21 after review: the row is a constant (RG-2b), so its name was
+  passed over, but its fields are written by path or reconciled by key
+  while it lives (ST-4a). The row passed whole reads no field. The two
+  snapshots that are meant say so and are no diagnostic: a source's seed
+  (`source draft := r.x`, E-4) and `peek r.x` in the argument
+  (S-surface-9).
   So is an equation that never changes (proposed 2026-11-19): one that
   awaits nothing, reads no context, and reads only pure JS imports,
   components, error classes and such equations — a validation schema built

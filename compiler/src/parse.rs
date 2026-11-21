@@ -1057,7 +1057,8 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
                     }
                     c.i += ch.len_utf8();
                 }
-                fields = split_top(&c.src[t0..c.i - 1], ",").iter().map(|f| f.split(':').next().unwrap_or("").trim().trim_end_matches('?').trim().to_string()).filter(|f| !f.is_empty()).collect();
+                // SV-5a: an optional field keeps its `?` (`code?`): an instance may come without it
+                fields = split_top(&c.src[t0..c.i - 1], ",").iter().map(|f| f.split(':').next().unwrap_or("").chars().filter(|ch| !ch.is_whitespace()).collect::<String>()).filter(|f| !f.is_empty() && f != "?").collect();
             }
             out.push(JsDecl::Error { name, line, fields });
             continue;

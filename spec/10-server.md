@@ -156,7 +156,14 @@ by default — see the list at the end.
   sends the message alone (revised 2026-11-21, after review: Solid
   serializes an error with every field it holds, a library's `cause`, a
   response's headers, the stack, so the library's own instance is never
-  the one sent). The copy is made at a boundary the app owns, an awaited
+  the one sent). A field the declaration names that an instance does not
+  have is not sent, and the client reads `undefined` where the row says a
+  value: the failure is still sent as its class, and the server says so
+  once per class and field, naming the declaration, unless the row marks
+  the field optional, `export error HttpError(status, code?)` (revised
+  2026-11-21 after review: it was left out in silence). Nothing checks a
+  JS class's fields before it runs (IO-3: the declaration is the trust
+  boundary). The copy is made at a boundary the app owns, an awaited
   promise or `sendErrors`, and nowhere else (revised 2026-11-21: the first
   draft marked the class's prototype, so every instance anywhere in the
   server process was sendable once a program had declared it). A library that

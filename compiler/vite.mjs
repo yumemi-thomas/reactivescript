@@ -28,7 +28,8 @@
 //
 // Whole program (02 E-5a, opt-in): `rx({ wholeProgram: true })` checks each build's modules as the whole program, so a
 // kept `peek` of a prop or provision is decided by every application and provision; a module some JS file under the
-// root imports with `?rx-lib` counts as applied from outside. Off by default: the editor checks per module.
+// root imports with `?rx-lib` counts as applied from outside; `rx({ hostRoots: ["../site"] })` names the folders or files
+// beyond the root that hold such hosts (another app's, a server's). Off by default: the editor checks per module.
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -55,14 +56,34 @@ const tagDeps = code => code.replace(/^(import \w+ from ")(\.{1,2}\/[^"?]*\.rx)(
 
 /** TY-1a: `rx-tsc --noEmit` over the project the entry belongs to (its nearest tsconfig.json): null when it passes, the
  *  report when it does not, `{ missing }` ("tsconfig" or "checker") when it cannot run. */
-function typecheck(entry) {
+function projectOf(entry) {
   let dir = path.dirname(entry);
   while (!existsSync(path.join(dir, "tsconfig.json")) && path.dirname(dir) !== dir) dir = path.dirname(dir);
-  if (!existsSync(path.join(dir, "tsconfig.json"))) return { missing: "tsconfig" };
+  return existsSync(path.join(dir, "tsconfig.json")) ? dir : undefined;
+}
+function typecheck(entry) {
+  const dir = projectOf(entry);
+  if (!dir) return { missing: "tsconfig" };
   let bin;
   try { bin = createRequire(path.join(dir, "package.json")).resolve("@reactivescript/language-server/bin/tsc.js"); } catch { return { missing: "checker" }; }
   const r = spawnSync(process.execPath, [bin, "--noEmit", "-p", path.join(dir, "tsconfig.json")], { cwd: dir, encoding: "utf8" });
   return r.status === 0 ? null : (r.stdout + r.stderr).trim() || `rx-tsc exited with ${r.status}`;
+}
+
+// what a type-check reads that a build of `.rx` entries may not: TypeScript and `.rx` sources, declarations, the configs
+const TYPED_FILE = /\.(?:[cm]?tsx?|rx)$|^(?:tsconfig.*|package)\.json$/;
+/** TY-1d: whether a file the project's type-check may read (under the folder of its tsconfig.json, node_modules and
+ *  dot-folders aside) is newer than `since`: an edit of a `.ts` module no `.rx` entry is rebuilt for. */
+function typedSince(entry, since) {
+  const walk = dir => {
+    let entries; try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+    return entries.some(e => {
+      if (e.name === "node_modules" || e.name.startsWith(".")) return false;
+      const p = path.join(dir, e.name);
+      return e.isDirectory() ? walk(p) : TYPED_FILE.test(e.name) && mtime(p) > since;
+    });
+  };
+  return walk(projectOf(entry) ?? path.dirname(entry));
 }
 
 /** MO-8l: draft a declaration for each package the program imports that nothing declares (into node_modules/.rx-types),
@@ -119,6 +140,14 @@ function tsPathsOf(root) {
   const o = cfg?.compilerOptions ?? {}; const base = path.resolve(root, o.baseUrl ?? ".");
   return Object.entries(o.paths ?? {}).map(([k, v]) => ({ k, to: (Array.isArray(v) ? v : [v]).map(x => path.resolve(base, x)) }));
 }
+/** The `paths` a host file is under: the Vite root's tsconfig.json for a file under the root, as the build resolves it;
+ *  for a host elsewhere (`hostRoots`: another app's, a server's), its own project's, the nearest tsconfig.json above it. */
+function tsPathsFor(file, root, memo) {
+  let dir = root;
+  if (path.relative(root, file).startsWith("..")) { dir = path.dirname(file); while (!existsSync(path.join(dir, "tsconfig.json")) && path.dirname(dir) !== dir) dir = path.dirname(dir); }
+  if (!memo.has(dir)) memo.set(dir, tsPathsOf(dir));
+  return memo.get(dir);
+}
 /** The file a JS module's import of `spec` names, as Vite resolves it for these aliases and tsconfig paths, or undefined
  *  when none of them says (a bare package specifier). Its real path, so a link and its target are one module. */
 function resolveHost(spec, importer, aliases, tsPaths) {
@@ -138,9 +167,9 @@ function resolveHost(spec, importer, aliases, tsPaths) {
 }
 const unresolved = new Set();   // ?rx-lib imports already reported as naming no file
 const scans = new Map();   // a JS file → { t: its mtime, specs: the ?rx-lib imports it was read with } (the file's text: shared)
-/** Every `?rx-lib` import of the JS files under `root`, linked folders followed: `{ p, spec, s }`, `s` the file's scan
- *  (kept while its mtime stands). */
-function hostImports(root) {
+/** Every `?rx-lib` import of the JS files under `roots` (folders, or single files), linked folders followed:
+ *  `{ p, spec, s }`, `s` the file's scan (kept while its mtime stands). */
+function hostImports(roots) {
   const out = []; const seen = new Set();   // the real folders walked: a link back up the tree is walked once
   const walk = dir => {
     const r = real(dir); if (seen.has(r)) return; seen.add(r);
@@ -150,16 +179,20 @@ function hostImports(root) {
       const p = path.join(dir, e.name);
       // a linked folder is walked as the folder it links to (a host may live in one: a workspace package, a shared pages dir)
       if (e.isDirectory() || (e.isSymbolicLink() && (() => { try { return statSync(p).isDirectory(); } catch { return false; } })())) walk(p);
-      else if (HOST_FILE.test(e.name)) {
-        const t = mtime(p); let s = scans.get(p);
-        if (!s || s.t !== t) { s = { t, specs: [...readFileSync(p, "utf8").matchAll(RX_LIB_IMPORT)].map(m => m[2]) }; scans.set(p, s); }
-        for (const spec of s.specs) out.push({ p, spec, s });
-      }
+      else if (HOST_FILE.test(e.name)) read(p);
     }
   };
-  walk(root);
+  const read = p => {
+    const t = mtime(p); let s = scans.get(p);
+    if (!s || s.t !== t) { let text = ""; try { text = readFileSync(p, "utf8"); } catch {} s = { t, specs: [...text.matchAll(RX_LIB_IMPORT)].map(m => m[2]) }; scans.set(p, s); }
+    for (const spec of s.specs) out.push({ p, spec, s });
+  };
+  for (const root of roots) { let file = false; try { file = statSync(root).isFile(); } catch {} if (file) { if (!seen.has(real(root))) { seen.add(real(root)); read(root); } } else walk(root); }
   return out;
 }
+/** E-5a: where hosts are looked for: the Vite root, and the folders or files `rx({ hostRoots })` names (against the
+ *  root), for a host this build's root does not hold: another app's page, a server's entry. */
+const scanRoots = (root, more) => [root, ...(more ?? []).map(r => path.resolve(root, r))];
 function warnUnresolved(p, spec) {
   if (unresolved.has(`${p}\0${spec}`)) return;
   unresolved.add(`${p}\0${spec}`);
@@ -178,10 +211,10 @@ function keysOf(f, root) {
   return out;
 }
 /** The hosts, resolved here: relative imports, the `alias` option and tsconfig.json's `paths`. */
-function hostsUnder(root, alias) {
-  const out = new Set(); const aliases = aliasesOf(alias); const tsPaths = tsPathsOf(root);
-  for (const { p, spec } of hostImports(root)) {
-    const f = resolveHost(spec, p, aliases, tsPaths);
+function hostsUnder(root, alias, more) {
+  const out = new Set(); const aliases = aliasesOf(alias); const paths = new Map();
+  for (const { p, spec } of hostImports(scanRoots(root, more))) {
+    const f = resolveHost(spec, p, aliases, tsPathsFor(p, root, paths));
     if (f && existsSync(f)) for (const k of keysOf(f, root)) out.add(k); else warnUnresolved(p, spec);
   }
   return [...out].sort();
@@ -190,15 +223,18 @@ function hostsUnder(root, alias) {
  *  alias only another plugin knows is seen too; an import Vite does not resolve falls back to `hostsUnder`'s reading.
  *  `via` keeps Vite's answers for one plugin instance, by file, its mtime and the import: another Vite configuration in
  *  the same process (another instance) may resolve the same import elsewhere, and asks again. */
-async function hostsVia(root, resolve, alias, via) {
-  const out = new Set(); const aliases = aliasesOf(alias); const tsPaths = tsPathsOf(root);
-  for (const { p, spec, s } of hostImports(root)) {
+async function hostsVia(root, resolve, alias, via, more) {
+  const out = new Set(); const aliases = aliasesOf(alias); const paths = new Map();
+  for (const { p, spec, s } of hostImports(scanRoots(root, more))) {
+    // a host beyond the root (hostRoots) is another project's file: its own tsconfig's `paths` name its imports before
+    // this build's resolver does, whose aliases are this project's
+    const own = path.relative(root, p).startsWith("..") ? resolveHost(spec, p, [], tsPathsFor(p, root, paths)) : undefined;
     const key = `${p}\0${s.t}\0${spec}`;
-    if (!via.has(key)) {
+    if (!(own && existsSync(own)) && !via.has(key)) {
       let id = null; try { id = await resolve(spec, real(p)); } catch {}   // the importer as Vite names it, by its real path
       via.set(key, id && !id.startsWith("\0") ? posix(id.split("?")[0]) : null);
     }
-    const f = via.get(key) ?? resolveHost(spec, p, aliases, tsPaths);
+    const f = own && existsSync(own) ? own : via.get(key) ?? resolveHost(spec, p, aliases, tsPathsFor(p, root, paths));
     if (f && existsSync(f)) for (const k of keysOf(f, root)) out.add(k); else warnUnresolved(p, spec);
   }
   return [...out].sort();
@@ -209,13 +245,25 @@ export default function rx(options = {}) {
   const flag = process.env.RX_TYPECHECK;
   // TY-1d: when this plugin last type-checked, and what came of it. Once per build: a rebuild (`vite build --watch`)
   // compiles an entry again because a file of its program changed, and a file newer than the last check asks for another
-  let typedAt = -1, typeOutcome = null;
+  let typedAt = -1, typeOutcome = null, typedFor;   // typedFor: the entry whose project was checked
+  const typed = () => flag !== "0" && (flag === "1" || process.env.NODE_ENV === "production");
+  function check(file) {
+    typedAt = Date.now(); typedFor = file;
+    const t = typecheck(file);
+    // TY-1d: a check that was asked for (RX_TYPECHECK=1), or a TypeScript project's production build, fails when it
+    // cannot run; a production build with no tsconfig.json is not a TypeScript project, and only says so
+    const where = path.relative(process.cwd(), file);
+    typeOutcome = t?.missing === "checker" || (t?.missing === "tsconfig" && flag === "1")
+      ? `types not checked: ${t.missing === "checker" ? `no @reactivescript/language-server to run rx-tsc with (install it in the project)` : `no tsconfig.json above ${where}`}; set RX_TYPECHECK=0 to build without checking them (13 TY-1d)`
+      : t?.missing ? null : t ? `type errors (rx-tsc):\n${t}` : null;
+    if (t?.missing && !typeOutcome) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
+  }
   const builds = new Map();
   const via = new Map();   // E-5a: what this instance's Vite resolved each ?rx-lib import to (hostsVia)
   let lastRoot;   // the Vite root, for whole-program checking's ?rx-lib hosts   // entry\0target\0moduleName\0spa\0lib → { entry, target, moduleName, spa, lib, out, stamps }
   // E-5a: the hosts a whole-program check counted are part of what it was checked against: a JS file that starts or stops
   // importing a module with ?rx-lib makes the check stale, as an edit of one of its modules does
-  const hostsNow = () => options.wholeProgram ? hostsUnder(lastRoot ?? process.cwd(), options.alias) : [];
+  const hostsNow = () => options.wholeProgram ? hostsUnder(lastRoot ?? process.cwd(), options.alias, options.hostRoots) : [];
   const fresh = (b, hosts = hostsNow()) => [...b.stamps].every(([f, t]) => mtime(f) === t) && b.hosts.join("\0") === hosts.join("\0");
   function build(entry, target, moduleName, spa, lib = false, hosts = hostsNow()) {
     const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${lib}`;
@@ -263,8 +311,18 @@ export default function rx(options = {}) {
       // E-5a: with Solid's plugin handing a resolver (`context.resolve`), the hosts are resolved by Vite, so asynchronously;
       // without it, here (the `alias` option and tsconfig paths), and the compile stays synchronous
       if (options.wholeProgram && typeof context.resolve === "function")
-        return hostsVia(lastRoot ?? process.cwd(), context.resolve, options.alias, via).then(hosts => compileWith(context, hosts));
+        return hostsVia(lastRoot ?? process.cwd(), context.resolve, options.alias, via, options.hostRoots).then(hosts => compileWith(context, hosts));
       return compileWith(context, hostsNow());
+    },
+    // TY-1d: a build starts (Solid's plugin calls this where it has the hook: each `vite build`, each rebuild of
+    // `vite build --watch`, each environment). A rebuild after an edit of a `.ts` module alone compiles no `.rx` entry,
+    // so nothing above would check it: here the project is checked again when a file its check may read is newer than
+    // the last one, and a build whose check failed fails before it bundles. The first build has no entry yet: its first
+    // compile checks.
+    buildStart() {
+      if (!typed() || typedAt < 0) return;
+      if (typedSince(typedFor, typedAt)) check(typedFor);
+      if (typeOutcome) throw new Error(typeOutcome);
     },
   };
   function compileWith({ id, moduleId, root, solid, addWatchFile }, hosts) {
@@ -275,26 +333,18 @@ export default function rx(options = {}) {
       const spa = target === "dom" && solid.hydratable === false;
       const dep = isDep(moduleId);
       const lib = new URLSearchParams(moduleId.split("?")[1] ?? "").has(LIB);
-      if (flag !== "0" && !dep && (flag === "1" || process.env.NODE_ENV === "production")) {
+      if (typed() && !dep) {
         const changed = () => mtime(file) > typedAt || [...builds.values()].some(b => [...b.stamps.keys()].some(f => mtime(f) > typedAt));
-        if (typedAt < 0 || changed()) {
-          typedAt = Date.now();
-          const t = typecheck(file);
-          // TY-1d: a check that was asked for (RX_TYPECHECK=1), or a TypeScript project's production build, fails when it
-          // cannot run; a production build with no tsconfig.json is not a TypeScript project, and only says so
-          const where = path.relative(process.cwd(), file);
-          typeOutcome = t?.missing === "checker" || (t?.missing === "tsconfig" && flag === "1")
-            ? `types not checked: ${t.missing === "checker" ? `no @reactivescript/language-server to run rx-tsc with (install it in the project)` : `no tsconfig.json above ${where}`}; set RX_TYPECHECK=0 to build without checking them (13 TY-1d)`
-            : t?.missing ? null : t ? `type errors (rx-tsc):\n${t}` : null;
-          if (t?.missing && !typeOutcome) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
-        }
-        if (typeOutcome) throw new Error(typeOutcome);   // each entry of a build that failed its check fails, until a file changes
+        if (typedAt < 0 || changed()) check(file);
       }
       const { entry, out } = dep ? containing(file, target, moduleName, spa, path.resolve(root ?? process.cwd()), hosts) : build(file, target, moduleName, spa, lib, hosts);
       // a declaration the program read is watched as its modules are: fixing a row re-checks the program, also after it
-      // failed. One that is not there yet (rx-types/, beside a JS module) cannot be watched (Vite resolves what a module
-      // watches), but it is stamped: the next compile of the program sees it
+      // failed (so before any error below is thrown). One that is not there yet (rx-types/, beside a JS module) cannot be
+      // watched: the dev server resolves what a module watches and refuses a path with no file, and Rolldown's
+      // `vite build --watch` watches none. It is stamped, so the next compile of the program, whatever starts it, reads
+      // the new declaration (MO-8k), and a build's type-check counts it as a change (buildStart)
       for (const p of out.asked ?? []) if (p.endsWith(".d.rx") && existsSync(p)) addWatchFile(path.resolve(p));
+      if (typeOutcome && typed() && !dep) throw new Error(typeOutcome);   // each entry of a build that failed its check fails, until a file changes
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];
