@@ -198,27 +198,32 @@ pub fn declaration_for(from_file: &str, spec: &str, read: &dyn Fn(&str) -> Optio
         .or_else(|| up(&format!("node_modules/@rx-types/{shared}/{sub}.d.rx")))
         .or_else(|| up(&format!("node_modules/.rx-types/{spec}.d.rx")))
 }
-/// SV-5a: `file` named from the nearest folder above it with a package.json, after the package's name: what a declared
+/// SV-5a: `file` named from the nearest folder above it whose package.json has a name, after that name: what a declared
 /// error class is identified by, so a server and a client built from different entries, or in checkouts at different
-/// paths, name it alike. None when no package.json is above it.
+/// paths, name it alike. A package.json with no name (a `{"type":"module"}` scope) names nothing: two such scopes side
+/// by side would both give `err.d.rx`, so it is passed over, and with no named one above, the path is kept from the
+/// outermost package.json's folder, that folder's own name first (`app/a/err.d.rx`, `app/b/err.d.rx`). None when no
+/// package.json is above it.
 pub fn package_relative(file: &str, read: &dyn Fn(&str) -> Option<String>) -> Option<String> {
     let segs: Vec<&str> = file.split('/').collect();
     let lo = if file.starts_with('/') { 1 } else { 0 };
     let mut i = segs.len() as i64 - 1;
+    let mut outermost: Option<usize> = None;
     while i >= lo {
         let dir = segs[..i as usize].join("/");
         let pj = if dir.is_empty() { "package.json".to_string() } else { format!("{dir}/package.json") };
         if let Some(text) = read(&pj) {
             let name = serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string));
-            let rel = segs[i as usize..].join("/");
-            return Some(match name {
-                Some(n) if !n.is_empty() => format!("{n}/{rel}"),
-                _ => rel,
-            });
+            if let Some(n) = name.filter(|n| !n.is_empty()) {
+                return Some(format!("{n}/{}", segs[i as usize..].join("/")));
+            }
+            outermost = Some(i as usize);
         }
         i -= 1;
     }
-    None
+    let at = outermost?;
+    let from = if at as i64 > lo { at - 1 } else { at };
+    Some(segs[from..].join("/"))
 }
 static PKG_EXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.(m?js|cjs|jsx|ts|tsx)$").unwrap());
 
@@ -362,4 +367,31 @@ pub fn hosts_as_keys(set: &ModuleSet, hosts: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn files(fs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |p: &str| fs.iter().find(|(k, _)| *k == p).map(|(_, v)| v.to_string())
+    }
+    #[test]
+    fn unnamed_package_scopes_side_by_side_name_their_classes_apart() {
+        // SV-5a: two `{"type":"module"}` scopes with no name, each declaring `err.d.rx#Gone`
+        let read = files(&[("/w/app/a/package.json", r#"{"type":"module"}"#), ("/w/app/b/package.json", r#"{"type":"module"}"#)]);
+        let a = package_relative("/w/app/a/err.d.rx", &read).unwrap();
+        let b = package_relative("/w/app/b/err.d.rx", &read).unwrap();
+        assert_ne!(a, b);
+        assert_eq!((a.as_str(), b.as_str()), ("a/err.d.rx", "b/err.d.rx"));
+        // under an unnamed project root: kept from the root's folder
+        let read = files(&[("/w/app/package.json", "{}"), ("/w/app/a/package.json", r#"{"type":"module"}"#), ("/w/app/b/package.json", r#"{"type":"module"}"#)]);
+        assert_eq!(package_relative("/w/app/a/err.d.rx", &read).unwrap(), "app/a/err.d.rx");
+        assert_eq!(package_relative("/w/app/b/err.d.rx", &read).unwrap(), "app/b/err.d.rx");
+        // a named package above wins, wherever the unnamed scope is
+        let read = files(&[("/w/app/package.json", r#"{"name":"shop"}"#), ("/w/app/a/package.json", r#"{"type":"module"}"#)]);
+        assert_eq!(package_relative("/w/app/a/err.d.rx", &read).unwrap(), "shop/a/err.d.rx");
+        let read = files(&[("/w/app/package.json", r#"{"name":"shop"}"#)]);
+        assert_eq!(package_relative("/w/app/src/err.d.rx", &read).unwrap(), "shop/src/err.d.rx");
+        assert_eq!(package_relative("/w/x/err.d.rx", &read), None);
+    }
 }
