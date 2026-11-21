@@ -17,6 +17,7 @@ fs.writeFileSync(path.join(ws, "lib.js"), [
   "export const useTheme = () => \"dark\";",
   "export const Card = props => props.children;",
   "export const onIdle = run => run;",
+  "export const watch = opts => opts;",
   "export const List = props => props.items.map(props.children);",
   "",
 ].join("\n"));
@@ -28,6 +29,7 @@ fs.writeFileSync(path.join(ws, "lib.d.ts"), [
   "export declare function useTheme(): string;",
   "export declare function Card(props: { title: string; children?: JSX.Element }): JSX.Element;",
   "export declare function onIdle(run: () => void, delay?: number): void;",
+  "export declare function watch(opts: { onChange?: (v: number) => void; key: string }): void;",
   "export declare function List(props: { items: string[]; children: (item: string, index: number) => JSX.Element }): JSX.Element;",
   "",
 ].join("\n"));
@@ -62,6 +64,7 @@ check("a hook is pure and instantiates, with a TODO for its context", has("expor
 check("a component's JSX children are a View", has("export component Card(props: { title: string; children?: View })"), draft);
 check("a function-typed children prop is a render prop (MO-11k)", has("export component List(props: { items: string[]; children: (item: any, index: any) => View })"), draft);
 check("a callback parameter is a function type; an optional one keeps its `?` (MO-8e)", has("export fn onIdle(run: (...args: any[]) => any, delay?: number): void"), draft);
+check("a function type is drafted pure, with `handler` suggested for one named like an event (MO-10g)", /\/\/ TODO watch: onChange: called later, outside any computation\? mark it `handler/.test(draft) && !/handler \(/.test(draft.split("\n").filter(l => !l.startsWith("//")).join("\n")), draft);
 
 // the run pass (src/declare-run.js): which hook reads which context, which provider provides it
 fs.writeFileSync(path.join(ws, "ctx.mjs"), [

@@ -35,7 +35,10 @@ habit (`JS_API` is for a name the module does not import).
 ```rx
 import { createStore } from "./store.js"
 export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  [todos, setTodos] = createStore<{
+    done: number
+    items: string[]
+  }>({ done: 0, items: [] })
   <button onClick={() => { setTodos((d) => { d.done := v => v + 1; d.items[len(d.items)] := "x" }) }}>add</button>
   <p>{todos.done} {len(todos.items)}</p>
 }

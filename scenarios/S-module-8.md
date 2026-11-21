@@ -10,8 +10,10 @@ Rules: MO-11g, MO-11s, MO-8d, MO-11c, MO-11f, MO-11i, TY-1c.
 // @solidjs/router's RouteParams reads every `:name`; this one reads `:id`, enough for the scenario.)
 export type RouteParams<S> = S extends readonly (infer P)[] ? RouteParams<P> : S extends `${string}:id${string}` ? { id: string } : {}
 export type RouteDefinition = { path?: string | readonly string[]; component?: Component; children?: RouteDefinition[] }
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component nests(children in component)
-export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component nests(children in component) joins(path)
+export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition forwards
+// a helper that takes a route and does not say it hands it on (no `forwards`): it may render or keep the component itself
+export pure fn logged(route: any): any
 ```
 
 ```rx
@@ -128,3 +130,20 @@ see (MO-11g). It says nothing of where it renders `Profile`, so `Profile`
 is checked under a root of its own (MO-11s): the `errored` above
 `<Router />` is not credited, and its fetch's failure escapes. Written
 inside `createRouter({ routes: [defineRoute(…)] })`, it is discharged.
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { createRouter, logged } from "./router.js"
+import { Profile } from "./pages.rx"
+Router = createRouter({ routes: [logged({ path: "/people/:id", component: Profile })] })
+export default component App() {
+  errored fallback(e) { <p>failed</p> } {
+    loading fallback { <p>…</p> } { <Router /> }
+  }
+}
+```
+
+Only a JS call declared `forwards` hands the components in its arguments on
+to the factory (MO-11g): `defineRoute` is, `logged` is not, so it may keep
+or render `Profile` itself. `Profile` is then checked under a root of its
+own (MO-11s), and the `errored` above `<Router />` is not credited.

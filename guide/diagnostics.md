@@ -1173,7 +1173,7 @@ export default component App() {
 ```
 
 Where a library renders the components it is given is said in its `.d.rx`, in one vocabulary (MO-11r): a fn handing
-back a `Component` renders them inside it; `renders` where its result is bound; `renders(root, ctx…)` under a root of its
+back a `Component` renders them inside it; `renders` where its result is bound (only for an API that renders them in that region: a table whose cells the same view renders); `renders(root, ctx…)` under a root of its
 own; `renders(later)` in a value its result carries, rendered by a JS component's prop declared `renders T`; and
 `nests(children in component)` or `nests(component under parent)` say the tree. A component carried by `renders(later)`
 that no `renders` prop reaches would be checked nowhere, so it is refused where it is passed:

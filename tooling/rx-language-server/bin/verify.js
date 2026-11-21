@@ -45,9 +45,10 @@ function exportsOf(text) {
         const c = p0.indexOf(":"); if (c < 0) return; const ty = p0.slice(c + 1).trim().replace(/^ref\s+/, "");
         const name = p0.slice(0, c).replace(/^(ref|signal)\s+|\?$/g, "").replace(/^\.\.\./, "").trim();
         // MO-10j: `tracked` before the function type — the library is expected to call it inside a computation
-        const fnType = t => /^(?:tracked\s+)?\(.*\)\s*=>/.test(t), trackedOf = t => /^tracked\s/.test(t);
-        if (fnType(ty)) cbs.push({ index, name, ref: /^ref\s/.test(p0), tracked: trackedOf(ty) });
-        else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && fnType(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0), tracked: trackedOf(m2[2].trim()) }); }
+        // MO-10g: `handler` before it — the library is expected to call it later, outside any computation
+        const fnType = t => /^(?:(?:tracked|handler)\s+)?\(.*\)\s*=>/.test(t), trackedOf = t => /^tracked\s/.test(t), handlerOf = t => /^handler\s/.test(t);
+        if (fnType(ty)) cbs.push({ index, name, ref: /^ref\s/.test(p0), tracked: trackedOf(ty), handler: handlerOf(ty) });
+        else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && fnType(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0), tracked: trackedOf(m2[2].trim()), handler: handlerOf(m2[2].trim()) }); }
       });
       const fields = ret.startsWith("{") ? fieldsOf(ret) : ret.startsWith("[") ? partsOf(ret) : /^ref\s/.test(ret) ? [{ path: [], holds: false, fails: [], ref: true }] : null;
       const inst = /\binstantiates\b|\brenders\b|\bnests\(|\bprovides\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
@@ -208,7 +209,7 @@ async function verify(file) {
       createRoot(d => { try { a = v(...(probe?.args?.() ?? [])); b = v(...(probe?.args?.() ?? [])); } catch (e) { threw = e; } d(); });
       try { [a, b] = await Promise.all([a, b]); } catch (e) { threw ??= e; }
       out.push(threw ? { line: x.line, status: "unverified", what: `${x.name}: pure not run: it threw (${String(threw.message ?? threw).slice(0, 50)})` }
-        : same(a, b) ? { line: x.line, status: "ok", what: `${x.name}: pure: two calls with the same arguments answer alike` }
+        : same(a, b) ? { line: x.line, status: "unverified", what: `${x.name}: pure not contradicted: two calls with the same arguments answer alike, which cannot show a fn is pure` }   // RFC 28: running can refute purity, never establish it
         : { line: x.line, status: "fail", what: `${x.name}: declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})` });
       continue;
     }

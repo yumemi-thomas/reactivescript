@@ -4,5 +4,5 @@ export context queryClient
 export component QueryClientProvider(props: { client: any; children?: View }) provides(queryClient)
 export pure fn makeClient(): any instantiates
 export pure fn useQuery(ref options: { queryKey: any[]; queryFn: tracked () => Promise<any> }): { data: pending fails(Error) any; isFetching: pending boolean } uses(queryClient)
-export pure fn useMutation(ref options: { mutationFn: (v: any) => Promise<any>; onSuccess?: () => void }): any uses(queryClient)
+export pure fn useMutation(ref options: { mutationFn: (v: any) => Promise<any>; onSuccess?: handler () => void }): any uses(queryClient)
 export pure fn useQueryClient(): any uses(queryClient)

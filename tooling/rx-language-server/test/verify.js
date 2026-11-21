@@ -82,7 +82,7 @@ check("a hook that reads its context only when used: the probe's run finds it", 
 check("a probe whose run throws under its providers too is not evidence", /lib\.d\.rx:10 unverified useWrongly: the probe's run throws under its providers too/.test(out), out);
 check("a tuple's ref part is read as an accessor", /lib\.d\.rx:11 ok\s+usePair: its fields read as declared/.test(out), out);
 check("a ref part that is not an accessor is a mismatch", /lib\.d\.rx:12 MISMATCH\s+useBadRef: 0 is declared ref, but is not an accessor/.test(out), out);
-check("pure: two calls with the probe's arguments answer alike", /lib\.d\.rx:13 ok\s+double: pure/.test(out), out);
+check("pure: two calls answering alike is not contradicted, and not verified either", /lib\.d\.rx:13 unverified\s+double: pure not contradicted/.test(out), out);
 check("pure that answers differently is a mismatch", /lib\.d\.rx:14 MISMATCH\s+roll: declared pure, but two calls/.test(out), out);
 check("provides: a hook of the file runs under the component", /lib\.d\.rx:15 ok\s+ThemeProvider: provides\(…\) holds: useTheme runs under it/.test(out), out);
 check("a component that provides nothing is a mismatch", /lib\.d\.rx:16 MISMATCH\s+FakeProvider: declared provides\(theme\), but useTheme under it still fails/.test(out), out);
@@ -178,6 +178,7 @@ fs.writeFileSync(path.join(ws, "cb.mjs"), [
   "export const never = cb => {};",
   "export const later = n => n;",
   "export const watchTracked = cb => { const m = createMemo(() => cb(2)); m(); };",
+  "export const watchPure = cb => { const m = createMemo(() => cb(2)); m(); };",
   "",
 ].join("\n"));
 fs.writeFileSync(path.join(ws, "cb.probe.mjs"), [
@@ -186,33 +187,36 @@ fs.writeFileSync(path.join(ws, "cb.probe.mjs"), [
   "  watchIn: { args: () => [n => n] },",
   "  never: { args: () => [n => {}] },",
   "  watchTracked: { args: () => [n => n] },",
+  "  watchPure: { args: () => [n => n] },",
   "};",
   "",
 ].join("\n"));
 const cbDecl = [
-  "export fn onTick(cb: (n: number) => void): void",
-  "export fn watchIn(cb: (n: number) => number): void",
+  "export fn onTick(cb: handler (n: number) => void): void",
+  "export fn watchIn(cb: handler (n: number) => number): void",
   "export fn never(cb: (n: number) => void): void",
   "export fn later(n: number): number trusted",
   "export fn watchTracked(cb: tracked (n: number) => number): void",
+  "export fn watchPure(cb: (n: number) => number): void",
   "",
 ].join("\n");
 fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl);
 fs.rmSync(path.join(ws, "cb.verified.json"), { force: true });
 const { checkStrict } = require("../src/strict.js");
 const before = checkStrict(path.join(ws, "cb.d.rx"));
-check("strict: with no record, every row but the trusted one is refused", before.length === 4 && before.every(u => /nothing verified it/.test(u.message)) && !before.some(u => u.name === "later"), before);
+check("strict: with no record, every row but the trusted one is refused", before.length === 5 && before.every(u => /nothing verified it/.test(u.message)) && !before.some(u => u.name === "later"), before);
 const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "cb.d.rx"], { cwd: ws, encoding: "utf8" });
 const out3 = r3.stdout + r3.stderr;
 if (process.env.VERBOSE) console.log(out3);
 check("callback: called outside tracking holds, as a handler", /cb\.d\.rx:1 ok\s+onTick: callback cb holds/.test(out3), out3);
-check("callback: called inside a computation is a mismatch (MO-10g)", /cb\.d\.rx:2 MISMATCH\s+watchIn: the library calls cb inside a computation/.test(out3), out3);
+check("callback: declared handler and called inside a computation is a mismatch (MO-10g)", /cb\.d\.rx:2 MISMATCH\s+watchIn: cb is declared handler, but the library calls it inside a computation/.test(out3), out3);
+check("callback: an unmarked function type is pure, which holds inside a computation too", /cb\.d\.rx:6 ok\s+watchPure: cb is pure, as declared/.test(out3), out3);
 check("callback: declared tracked and called inside a computation holds (MO-10j)", /cb\.d\.rx:5 ok\s+watchTracked: cb is tracked, as declared/.test(out3), out3);
 check("callback: never called under the probe is unverified", /cb\.d\.rx:3 unverified never: callback cb never called/.test(out3), out3);
 check("--record writes the record beside the declaration", fs.existsSync(path.join(ws, "cb.verified.json")) && /recorded/.test(out3), out3);
 const after = checkStrict(path.join(ws, "cb.d.rx"));
 check("strict: a verified row passes; a mismatched or unverified one is refused, saying why", after.length === 2 && /mismatch/.test(after.find(u => u.name === "watchIn")?.message) && /could not check/.test(after.find(u => u.name === "never")?.message), after);
-fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl.replace("onTick(cb: (n: number) => void)", "onTick(cb: (n: number) => number)"));
+fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl.replace("onTick(cb: handler (n: number) => void)", "onTick(cb: handler (n: number) => number)"));
 const edited = checkStrict(path.join(ws, "cb.d.rx"));
 check("strict: a row edited since the record is not verified any more", edited.some(u => u.name === "onTick" && /changed since/.test(u.message)), edited);
 

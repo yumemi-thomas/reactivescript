@@ -189,6 +189,10 @@ function declare(ts, spec, from, options = {}) {
     const generic = !!sig.getTypeParameters()?.length;   // MO-8d: what ranges over type parameters is loosened (TY-6 checks the rest)
     const ps = params.map(p => isRest(p) ? `...${p.name}: any[]` : paramText(ts, checker, p, imp, generic));   // MO-8h: a rest parameter (`pipe(...items)`)
     const todos = [];
+    // MO-10g: a function type is pure unless marked `handler`; one named like an event is likely called later — a
+    // suggestion for a person, not a row (the name is a convention, not a fact)
+    const events = [...ps.join("; ").matchAll(/(?:^|[\s{;,(])(on[A-Z][\w$]*)\??\s*:\s*\(/g)].map(m => m[1]);
+    if (events.length) todos.push(`${[...new Set(events)].join(", ")}: called later, outside any computation? mark ${events.length > 1 ? "each" : "it"} \`handler (…) => …\`, so a closure there may write sources (MO-10g)`);
     const ret = resultText(ts, checker, sig.getReturnType(), todos, generic);
     const primitive = /^(create|use)[A-Z]/.test(name);
     const config = /^define[A-Z]|[a-z]Options$/.test(name);   // a config helper (`defineRoute`, `queryOptions`): pure by convention

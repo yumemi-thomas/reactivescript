@@ -105,13 +105,14 @@ What the compiler catches:
   ```
 
   Compute the new value once and use it: `let next = !isOn; setOn(next); label := next ? "on" : "off"`.
-- **A callback the declaration types as a function is a handler.** With `onSuccess?: () => void` in the declared
-  options, `onSuccess: () => { saved := saved + 1 }` may write sources, as an `onClick` may. A statement closure
-  anywhere the declaration does not say "function" is still refused (`REACTIVE_WRITE_IN_OWNED_SCOPE`).
+- **A callback the library calls later is `handler`.** With `onSuccess?: handler () => void` in the declared options,
+  `onSuccess: () => { saved := saved + 1 }` may write sources, as an `onClick` may. A function type without the word
+  is pure: the library might call it while it computes (a comparator, a mapper), so a statement closure there is
+  refused (`REACTIVE_WRITE_IN_OWNED_SCOPE`). The word is the declaration's promise; `rx-verify` checks it by running.
 - **A function the library calls inside its own computation is `tracked`.** TanStack Query runs `queryFn` while it
   computes `data`, so `queryFn: tracked () => Promise<any>`: a closure there is a pure one, as anywhere in reactive
-  scope (no writes; its reads are tracked by the library). `rx-verify` tells the two apart by running: it reports a
-  callback called inside a computation that is not declared `tracked` (MO-10j).
+  scope (no writes; its reads are tracked by the library). `rx-verify` tells the three apart by running: a `handler`
+  called inside a computation is a mismatch, and it reports which unmarked functions could be either word.
 - **Callbacks you pass are plain functions.** An action passed as `handler` is checked as an action; a plain closure
   is not checked beyond what any closure is.
 - **Without a declaration,** an import is io unless you import it `pure`, and `import pure` of a primitive is
@@ -127,7 +128,7 @@ component (a router's `createRouter`) is declared with `Component` as its result
 // router.d.rx, beside router.js: export { createRouter, useParams, useNavigate } from "@solidjs/router"
 export type RouteDefinition = { path?: string; component?: Component; children?: RouteDefinition[] }
 export context router
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component)
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)
 export pure fn useParams(): Record<string, string> uses(router)
 export pure fn useNavigate(): (to: string) => void uses(router)
 
@@ -205,7 +206,7 @@ type gives each route's component the params its path supplies:
 // router.d.rx: the router's own types, and defineRoute's type parameter, as TypeScript text
 export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
 export type RouteDefinition = import("@solidjs/router").RouteDefinition
-export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition
+export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition forwards
 ```
 
 ```rx

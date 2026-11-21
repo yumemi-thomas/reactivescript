@@ -343,7 +343,7 @@ struct Proj<'a> {
     /// MO-10b: equations bound to such a fn's tuple or record result
     ref_parts: HashMap<String, crate::parse::Shape>,
     /// MO-11i: declared factories that nest, by local name: (kids field, component field)
-    nest_fns: HashMap<String, (String, String)>,
+    nest_fns: HashMap<String, (String, String, String)>,
     prelude: Option<&'a str>,
 }
 
@@ -612,12 +612,13 @@ impl Proj<'_> {
         if let Some(dp) = declared {
             for n in &rest {
                 let x = self.set.declarations.get(dp).and_then(|ds| ds.iter().find(|y| matches!(y, JsDecl::Fn { name, .. } if *name == n.name)));
-                if let Some(x @ JsDecl::Fn { refs, shape, nests, sigs, .. }) = x {
+                if let Some(x @ JsDecl::Fn { refs, shape, nests, sigs, joins, .. }) = x {
                     if refs.iter().any(|r| *r) || sigs.iter().any(|g| *g) || shape.has_ref() {
                         self.ref_fns.insert(n.alias.clone(), x.clone());
                     }
-                    if let Some(ns) = nests {
-                        self.nest_fns.insert(n.alias.clone(), ns.clone());
+                    // MO-11i (revised 2026-11-21): paths are joined only under a factory that says which field holds them
+                    if let (Some(ns), Some(j)) = (nests, joins) {
+                        self.nest_fns.insert(n.alias.clone(), (ns.0.clone(), ns.1.clone(), j.clone()));
                     }
                 }
             }
@@ -795,10 +796,10 @@ impl Proj<'_> {
     }
 
     // ---- expressions: `imp` imperative scope (a real `await`); `me` the equation being defined (its own `pre`) ----
-    /// MO-11i, types only: under a factory that nests, a record's literal path is written joined with its parents' (the
+    /// MO-11i, types only: under a factory that nests and `joins(field)`, a record's literal `field` is written joined with its parents' (the
     /// projection is never run), so a child route's types see its parents' params. `prefix` None: a parent path the
     /// projection cannot read, so nothing below is rewritten.
-    fn nest_arg(&mut self, e: &Expr, prefix: Option<Vec<String>>, n: &(String, String), imp: bool, me: Option<&str>) -> Code {
+    fn nest_arg(&mut self, e: &Expr, prefix: Option<Vec<String>>, n: &(String, String, String), imp: bool, me: Option<&str>) -> Code {
         let Some(prefix) = prefix else { return self.expr(e, imp, me) };
         match &e.k {
             ExprKind::Arr(items) => {
@@ -811,7 +812,7 @@ impl Proj<'_> {
                 fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")
             }
             ExprKind::Rec(fields) => {
-                let path = fields.iter().position(|f| matches!(f, Field::Kv { key, .. } if key == "path"));
+                let path = fields.iter().position(|f| matches!(f, Field::Kv { key, .. } if *key == n.2));
                 // a path is a literal or an array of literals (alternatives); under alternatives, each joined with each
                 let (lits, is_arr): (Option<Vec<String>>, bool) = match path.map(|i| &fields[i]) {
                     Some(Field::Kv { v: Expr { k: ExprKind::Lit(Lit::Str(s)), .. }, .. }) => (Some(vec![s.clone()]), false),

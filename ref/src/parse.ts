@@ -138,7 +138,7 @@ export function parseProgram(src: string): Program {
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
-  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string }; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]> }   // drafts, partDrafts: MO-10i   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; forwards?: boolean; joins?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string }; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]> }   // drafts, partDrafts: MO-10i   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
   | { kind: "error"; name: string; line: number }
   | { kind: "type"; name: string; line: number; text?: string }
   | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean }   // outlet: MO-11p   // MO-11a: a Solid component
@@ -168,14 +168,16 @@ export function parseDeclarations(src: string): JsDecl[] {
     while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const sv = c.i; let g = !r && c.keyword("signal"); if (g) { c.ws(); if (!/^[A-Za-z_$]/.test(c.peek())) { c.i = sv; g = false; } } sigs.push(g);   /* MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name) */ const rest = !r && !g && c.eat("...");   /* MO-8h: a rest parameter, `...items: T[]` */ params.push((rest ? "..." : "") + (c.ident() ?? c.fail("param"))); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b|\bforwards\b|\bjoins\(/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
-    let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders = false; let rendersRoot = false; const carries: string[] = []; let carrier = false; let under: { parent: string; inside: string } | undefined;
+    let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders = false; let forwards = false; let joins: string | undefined; let rendersRoot = false; const carries: string[] = []; let carrier = false; let under: { parent: string; inside: string } | undefined;
     for (;;) {                                                                             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
       c.ws(false);
       if (c.keyword("instantiates")) { written = true; continue; }
       if (c.keyword("trusted")) continue;   // MO-8j: a row taken on trust where nothing verifies it (rx-tsc --strict, TY-7)
+      if (c.keyword("forwards")) { forwards = true; continue; }   // MO-11g: inside a factory's arguments, it hands the components it is given on to the factory
+      if (c.keyword("joins")) { c.ws(false); c.expect("("); c.ws(); joins = c.ident() ?? c.fail("joins(path): the field of a nested record whose literal paths join with its parents'"); c.ws(); c.expect(")"); continue; }   // MO-11i: the projection joins this field's paths
       // MO-11r: one placement vocabulary — `renders` (here), `renders(root, ctx…)`, `renders(later)`; `nests(…)` for the tree
       if (c.keyword("carries")) c.fail("`carries` is now `renders(later)`: the components travel in the result and a JS component's prop declared `renders` renders them (MO-11r)");
       if (c.keyword("under")) c.fail("`under(parent in component)` is now `nests(component under parent)`, beside `renders(later)` (MO-11r)");
@@ -196,6 +198,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     }
     const instantiates = written || refs.some(x => x) || sigs.some(x => x) || carrier || shapeHasRef(shape) || shape === "comp" || !!uses || !!held || renders;   // MO-10a: inferred from a ref on either side; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
     if (nests && shape !== "comp") c.fail(`nests(…) on fn ${name}: only a fn that hands back a Component renders what it is given (MO-11i)`);
+    if (joins && !nests) c.fail(`joins(${joins}) on fn ${name}: it joins paths through the tree nests(children in component) describes: add that (MO-11i)`);
     if (under && !carrier) c.fail(`nests(${under.inside} under ${under.parent}) on fn ${name}: it places what the result carries, which is rendered later — add renders(later) (MO-11r)`);
     if (provides && shape !== "comp") c.fail(`provides(…) on fn ${name}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)`);
     // MO-10i: callbacks whose parameters are a library's drafts (`(update: (draft state: T) => void) => void`), by position;
@@ -203,9 +206,10 @@ export function parseDeclarations(src: string): JsDecl[] {
     const drafts = ptypes.flatMap((t, i) => { const ds = draftParams(t); return ds.length ? [[i, ds] as [number, number[]]] : []; });
     const partDrafts = draftParts(ret);
     for (const t of [...ptypes, ret]) if (t && TRACKED_MISPLACED.test(t)) c.fail(`\`tracked\` on fn ${name}: it goes before a function type, one the library calls inside a computation (MO-10j)`);
-    const cbs = callbacks(ptypes);   // MO-10j: before the word is taken out, so a `tracked` function stays out of them
-    for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripTracked(stripDraft(ptypes[i])); ret = stripTracked(stripDraft(ret));
-    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(cbs ? { cbs } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}) });
+    for (const t of [...ptypes, ret]) if (t && HANDLER_MISPLACED.test(t)) c.fail(`\`handler\` on fn ${name}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`);
+    const cbs = callbacks(ptypes);   // MO-10g: before the word is taken out — only a function type marked `handler` is a callback
+    for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripHandler(stripTracked(stripDraft(ptypes[i]))); ret = stripHandler(stripTracked(stripDraft(ret)));
+    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(joins ? { joins } : {}), ...(forwards ? { forwards } : {}), ...(held ? { held } : {}), ...(cbs ? { cbs } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}) });
   }
 }
 /** `t` with every character inside a string literal, or inside brackets (`()`, `[]`, `{}`, `<>`), replaced by `_`: the
@@ -234,12 +238,14 @@ function codeOf(line: string): string {
   return line;
 }
 /** MO-10g: where a declared fn takes callbacks, by parameter: the whole parameter (`[true, []]`), or the fields of a record
- *  parameter whose types are functions (`[false, ["onSuccess"]]`); null where it takes none. */
+ *  parameter (`[false, ["onSuccess"]]`); null where it takes none. A callback is a function type marked `handler` (revised
+ *  2026-11-21): a function type alone says nothing of when the library calls it, so a closure passed there is pure. */
+const isHandler = (t: string) => /^handler\s+\(/.test(t);
 function callbacks(ptypes: (string | undefined)[]): ([boolean, string[]] | null)[] | undefined {
   const out = ptypes.map((t): [boolean, string[]] | null => {
     if (!t) return null;
-    if (partOf(t) === "fn") return [true, []];
-    if (t.startsWith("{") && t.endsWith("}")) { const fs = splitTop(t.slice(1, -1), ",;").filter(f => f.includes(":") && partOf(f.slice(f.indexOf(":") + 1).trim()) === "fn").map(f => fieldName(f.slice(0, f.indexOf(":")))); return fs.length ? [false, fs] : null; }
+    if (isHandler(t)) return [true, []];
+    if (t.startsWith("{") && t.endsWith("}")) { const fs = splitTop(t.slice(1, -1), ",;").filter(f => f.includes(":") && isHandler(f.slice(f.indexOf(":") + 1).trim())).map(f => fieldName(f.slice(0, f.indexOf(":")))); return fs.length ? [false, fs] : null; }
     return null;
   });
   return out.some(Boolean) ? out : undefined;
@@ -307,6 +313,10 @@ function draftParts(ret: string | undefined): Record<string, [number, number[]][
  *  pure closure (SC-3), not a handler. The word is the .d.rx's, not TypeScript's. */
 const TRACKED_MISPLACED = /\btracked\s+(?!\()/;
 const stripTracked = (t: string | undefined) => t?.replace(/\btracked\s+(?=\()/g, "");
+/** MO-10g: `handler` before a function type — the library calls it later, outside any computation (an event, a mutation's
+ *  `onSuccess`), so a closure passed there is a handler's: imperative scope. The word is the .d.rx's, not TypeScript's. */
+const HANDLER_MISPLACED = /\bhandler\s+(?!\()/;
+const stripHandler = (t: string | undefined) => t?.replace(/\bhandler\s+(?=\()/g, "");
 const stripDraft = (t: string | undefined) => t?.replace(/\bdraft\s+(?=[A-Za-z_$][\w$]*\s*[?:,)])/g, "");
 
 /** MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`. */
@@ -334,7 +344,8 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
       }
       let carried = false; if (type && /^renders\s+/.test(type)) { carried = true; type = type.replace(/^renders\s+/, "") || undefined; }   // MO-11o: `router: renders any`
       let tracked = false; if (type && /^tracked\s+/.test(type)) { tracked = true; type = type.replace(/^tracked\s+/, "") || undefined; if (!type || partOf(type) !== "fn") c.fail(`\`tracked\` on prop ${fname}: it goes before a function type, one the library calls inside a computation (MO-10j)`); }
-      props.push({ name: fname, optional, ...(carried ? { carried } : {}), ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && !tracked && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : {}) });
+      let handler = false; if (type && /^handler\s+/.test(type)) { handler = true; type = type.replace(/^handler\s+/, "") || undefined; if (!type || partOf(type) !== "fn") c.fail(`\`handler\` on prop ${fname}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`); }
+      props.push({ name: fname, optional, ...(carried ? { carried } : {}), ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && handler && !tracked && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : {}) });
       c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
     }
     c.ws();
@@ -742,15 +753,15 @@ function parseUnary(c: Cursor): Expr {
   if (c.startsWith("pending?")) { c.i += 8; c.ws(); return { k: "pending", e: parseUnary(c) }; }
   return parsePostfix(c);
 }
-/** 07 §3: type arguments at a call, `f<T>(…)`: a balanced `<…>` written right after the callee and followed by `(`; else
- *  null (`a < b` stays a comparison). */
+/** 07 §3: type arguments at a call, `f<T>(…)`: a balanced `<…>` written right after the callee (no space) and followed
+ *  directly by `(`; else null (`a < b` stays a comparison). The list may span lines, so a formatter that breaks a long
+ *  type does not turn the call into comparisons. */
 function typeArgsAt(s: string, i: number): { text: string; end: number } | null {
   if (s[i] !== "<") return null; let depth = 0;
   for (let j = i; j < s.length; j++) {
     const ch = s[j];
     if ("<([{".includes(ch)) depth++;
     else if (")]}".includes(ch) || (ch === ">" && s[j - 1] !== "=")) { if (--depth === 0) return ch === ">" && s[j + 1] === "(" ? { text: s.slice(i + 1, j).trim(), end: j + 1 } : null; }
-    else if (ch === "\n") return null;
   }
   return null;
 }

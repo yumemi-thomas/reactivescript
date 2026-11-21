@@ -471,8 +471,9 @@ re!(OLD_HOLDS, r"(^|[:,\[{]\s*)holds\b");
 re!(RENDER_TYPE, r"=>\s*View\s*$");
 re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
 re!(TRACKED_WORD, r"\btracked\s+");
+re!(HANDLER_WORD, r"\bhandler\s+");
 re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
-re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\(|trusted\b)");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\(|trusted\b|forwards\b|joins\()");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
@@ -524,7 +525,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, joins: Option<String>, forwards: bool, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)> },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
@@ -624,6 +625,27 @@ fn draft_parts(ret: Option<&str>) -> Vec<(String, Vec<(usize, Vec<usize>)>)> {
     }
     out
 }
+/// MO-10g: `handler` not followed by a function type (`(`).
+fn handler_misplaced(t: &str) -> bool {
+    HANDLER_WORD.find_iter(t).any(|m| !t[m.end()..].starts_with('('))
+}
+/// MO-10g: the type without the `.d.rx`'s `handler` word.
+fn strip_handler(t: &str) -> String {
+    let mut out = String::new();
+    let mut at = 0;
+    for m in HANDLER_WORD.find_iter(t) {
+        if t[m.end()..].starts_with('(') {
+            out.push_str(&t[at..m.start()]);
+            at = m.end();
+        }
+    }
+    out.push_str(&t[at..]);
+    out
+}
+/// MO-10g: a function type marked `handler` (revised 2026-11-21): only such a type is a callback.
+fn is_handler(t: &str) -> bool {
+    t.strip_prefix("handler").is_some_and(|r| r.starts_with(char::is_whitespace) && js_trim(r).starts_with('('))
+}
 /// MO-10j: `tracked` not followed by a function type (`(`).
 fn tracked_misplaced(t: &str) -> bool {
     TRACKED_WORD.find_iter(t).any(|m| !t[m.end()..].starts_with('('))
@@ -660,8 +682,6 @@ fn type_args_at(s: &str) -> Option<(String, usize)> {
             if depth == 0 {
                 return if ch == b'>' && b.get(j + 1) == Some(&b'(') { Some((s[1..j].trim().to_string(), j + 1)) } else { None };
             }
-        } else if ch == b'\n' {
-            return None;
         }
     }
     None
@@ -797,9 +817,21 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
                     ty = Some(rest.to_string());
                 }
             }
+            // MO-10g: `valueChange: handler (v: number) => void` — called later, outside any computation: a handler
+            let mut handler = false;
+            if let Some(t) = ty.clone() {
+                if let Some(rest) = t.strip_prefix("handler ") {
+                    handler = true;
+                    let rest = js_trim(rest);
+                    if part_of(rest) != Part::Fn {
+                        return c.fail(&format!("`handler` on prop {}: it goes before a function type, one the library calls later, outside any computation (MO-10g)", fname));
+                    }
+                    ty = Some(rest.to_string());
+                }
+            }
             let component = ty.as_deref().is_some_and(is_component_type);
             let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
-            let callback = !tracked && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
+            let callback = handler && !tracked && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
             props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, carried });
             // a newline separates fields too, as in TypeScript
             c.ws(false);
@@ -1041,7 +1073,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
             let m = masked(&t); // nor words in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`)
             let r1 = REJECTS.find(&m).map(|x| x.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&m).map(|x| x.start() + if m[x.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted"].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
+            let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted", "forwards", "joins("].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
             let r = [r1, r2, r3].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
@@ -1076,11 +1108,28 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         let mut carries: Vec<String> = vec![];
         let mut carrier = false;
         let mut under: Option<(String, String)> = None;
+        let mut forwards = false;
+        let mut joins: Option<String> = None;
         loop {
             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
             c.ws(false);
             if c.keyword("instantiates") {
                 written = true;
+                continue;
+            }
+            if c.keyword("forwards") {
+                // MO-11g: inside a factory's arguments, it hands the components it is given on to the factory
+                forwards = true;
+                continue;
+            }
+            if c.keyword("joins") {
+                // MO-11i: the projection joins this field's literal paths with its parents'
+                c.ws(false);
+                c.expect("(")?;
+                c.ws(true);
+                joins = Some(c.ident_or("joins(path): the field of a nested record whose literal paths join with its parents'")?);
+                c.ws(true);
+                c.expect(")")?;
                 continue;
             }
             if c.keyword("trusted") {
@@ -1172,6 +1221,9 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         if nests.is_some() && shape != Some(Shape::Comp) {
             return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
         }
+        if let (Some(j), None) = (&joins, &nests) {
+            return c.fail(&format!("joins({}) on fn {}: it joins paths through the tree nests(children in component) describes: add that (MO-11i)", j, name));
+        }
         if let (Some((parent, inside)), false) = (&under, carrier) {
             return c.fail(&format!("nests({} under {}) on fn {}: it places what the result carries, which is rendered later — add renders(later) (MO-11r)", inside, parent, name));
         }
@@ -1185,13 +1237,18 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
                 return c.fail(&format!("`tracked` on fn {}: it goes before a function type, one the library calls inside a computation (MO-10j)", name));
             }
         }
+        for t in ptypes.iter().flatten().chain(ret.iter()) {
+            if handler_misplaced(t) {
+                return c.fail(&format!("`handler` on fn {}: it goes before a function type, one the library calls later, outside any computation (MO-10g)", name));
+            }
+        }
         let cbs = callbacks(&ptypes);
         // MO-10i: callbacks whose parameters are a library's drafts, by position; the word is the .d.rx's, not TypeScript's
         let drafts: Vec<(usize, Vec<usize>)> = ptypes.iter().enumerate().filter_map(|(i, t)| { let ds = draft_params(t.as_deref()); (!ds.is_empty()).then_some((i, ds)) }).collect();
         let part_drafts = draft_parts(ret.as_deref());
-        let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_tracked(&strip_draft(&t)))).collect();
-        let ret = ret.map(|t| strip_tracked(&strip_draft(&t)));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts });
+        let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))))).collect();
+        let ret = ret.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))));
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, joins, forwards, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts });
     }
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).
@@ -1261,7 +1318,7 @@ fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
         .iter()
         .map(|t| {
             let t = t.as_deref()?;
-            if part_of(t) == Part::Fn {
+            if is_handler(t) {
                 return Some((true, vec![]));
             }
             if t.starts_with('{') && t.ends_with('}') && t.len() >= 2 {
@@ -1269,7 +1326,7 @@ fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
                     .iter()
                     .filter_map(|f| {
                         let i = f.find(':')?;
-                        (part_of(js_trim(&f[i + 1..])) == Part::Fn).then(|| {
+                        is_handler(js_trim(&f[i + 1..])).then(|| {
                             let k = js_trim(&f[..i]);
                             field_name(k)
                         })

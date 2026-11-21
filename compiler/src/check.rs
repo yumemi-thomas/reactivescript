@@ -261,6 +261,8 @@ struct Sym<'a> {
     carries: Vec<String>,
     /// MO-8k: a JS import with no declaration in any of the four places: its specifier
     undeclared: Option<String>,
+    /// MO-11g: a declared JS fn that, inside a factory's arguments, hands the components it is given on to the factory
+    forwards: bool,
     /// MO-11o: a declared fn whose result carries the components in its arguments
     carrier: bool,
     /// MO-11o: on an equation bound to such a call, those arguments and their scope
@@ -336,6 +338,7 @@ impl<'a> Sym<'a> {
             renders_root: false,
             carries: vec![],
             undeclared: None,
+            forwards: false,
             carrier: false,
             carried: None,
             carried_under: None,
@@ -1885,7 +1888,7 @@ impl<'a> Checker<'a> {
                     bind_comp(self, x, alias);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, forwards: xforwards, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -1908,6 +1911,7 @@ impl<'a> Checker<'a> {
                         s.under = xunder.clone();
                         s.drafts = xdrafts.clone();
                         s.part_drafts = xpart_drafts.clone();
+                        s.forwards = *xforwards;
                         s.held = xheld.clone();
                         s.cbs = xcbs.clone();
                         self.bind(env, alias, s);
@@ -1932,6 +1936,7 @@ impl<'a> Checker<'a> {
                     s.cbs = xcbs.clone();
                     s.drafts = xdrafts.clone();
                     s.part_drafts = xpart_drafts.clone();
+                    s.forwards = *xforwards;
                     self.bind(env, alias, s);
                 }
             }
@@ -4204,7 +4209,7 @@ impl<'a> Checker<'a> {
                 }
                 ExprKind::Call { f, args, .. } => {
                     if let ExprKind::Id(g) = &f.k {
-                        if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
+                        if c.lookup(env, g).is_some_and(|t| (c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) && c.syms[t].forwards) {
                             for a in args {
                                 walk(c, a, env, mark, out);
                             }
@@ -4245,7 +4250,7 @@ impl<'a> Checker<'a> {
                 }
                 ExprKind::Call { f, args, .. } => {
                     if let ExprKind::Id(g) = &f.k {
-                        if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
+                        if c.lookup(env, g).is_some_and(|t| (c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) && c.syms[t].forwards) {
                             for a in args {
                                 names_in(c, a, env, out);
                             }
@@ -4390,7 +4395,7 @@ impl<'a> Checker<'a> {
                 ExprKind::Call { f, args, .. } => {
                     // MO-11g: a JS call inside the arguments (`defineRoute({ … })`) hands what it is given on to the factory
                     if let ExprKind::Id(g) = &f.k {
-                        if c.lookup(fenv, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
+                        if c.lookup(fenv, g).is_some_and(|t| (c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) && c.syms[t].forwards) {
                             for a in args {
                                 walk(c, a, fenv, out);
                             }
@@ -4487,7 +4492,7 @@ impl<'a> Checker<'a> {
             match &e.k {
                 ExprKind::Arr(items) => items.iter().filter(|x| !matches!(x.k, ExprKind::Spread(_))).flat_map(|x| walk(c, x, fenv, nests)).collect(),
                 ExprKind::Call { f, args, .. } => match &f.k {
-                    ExprKind::Id(g) if c.lookup(fenv, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) => args.iter().flat_map(|a| walk(c, a, fenv, nests)).collect(),
+                    ExprKind::Id(g) if c.lookup(fenv, g).is_some_and(|t| (c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) && c.syms[t].forwards) => args.iter().flat_map(|a| walk(c, a, fenv, nests)).collect(),
                     _ => vec![],
                 },
                 ExprKind::Rec(fields) => {

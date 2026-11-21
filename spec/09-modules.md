@@ -217,8 +217,8 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | --- | --- | --- |
   | the kind of fn | before `fn` | `pure`, `server`, `client` |
   | a parameter | before the parameter, as in an `.rx` fn (`fn f(ref n)`) | `ref`, `signal`, `...` (rest); `draft` on a callback's parameter |
-  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor), `pending`, `fails(E)` on a result, a field or a part; `renders` and `catches(E)` on a prop; `tracked` on a function type (MO-10j) |
-  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `renders`, `renders(root, c…)`, `renders(later)`, `nests(…)`, `outlet`, `shape(…)`, a component's `fails(E)`, `trusted` |
+  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor), `pending`, `fails(E)` on a result, a field or a part; `renders` and `catches(E)` on a prop; `handler` and `tracked` on a function type (MO-10g, MO-10j) |
+  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `renders`, `renders(root, c…)`, `renders(later)`, `nests(…)`, `joins(field)`, `forwards`, `outlet`, `shape(…)`, a component's `fails(E)`, `trusted` |
   | a pin | a comment line | `//@ for <package> <range>` |
 
   A row word names the same row as the `.rx` word for it: a field that may
@@ -422,26 +422,40 @@ export component Search(props: { start: boolean, q: string }) {
   `data` does; nothing changes at run time. A result with field rows is
   instantiated (MO-10a, inferred). The words are taken out of the type text
   the projection writes (TY-1c). Executable: S-module-11.
-- **MO-10g (Callbacks) — proposed 2026-11-18.** Where a declaration types
-  a parameter of a JS fn, or a field of a record parameter, as a function
-  (`useMutation(ref options: { onSuccess?: () => void })`), the library calls
-  it later, as the DOM calls a handler. A closure passed there literally, in
-  the call's arguments, is checked as a handler's is: its body is imperative
-  scope (W-1, IO-2), so it may write sources and call io. It is not part of
-  the call's value (it runs later, not now). Everywhere else a closure made
-  in reactive scope is still pure (SC-3), and a statement-bodied one is
-  `REACTIVE_WRITE_IN_OWNED_SCOPE`. The declaration is the one statement that
-  makes it a callback, as `pure` is (CN-5). On a declared JS component, a
-  prop typed as a function (not a `View`-giving one, MO-11k, nor a
-  `Component`) is a handler whatever its name, as an `on*` prop is: its
-  closure is imperative scope, and passing it is not a read.
-  `rx-verify` checks the row by running (2026-11-20): it calls the fn with
-  its probe's arguments, each declared callback wrapped in a spy, and asks
-  Solid (`getObserver()`) whether the library called it inside a
-  computation. Called outside tracking, the row holds; called inside one,
-  it is a mismatch (the library reads it reactively: the parameter is
-  `ref`); never called under the probe, it is unverified (the probe's `act`
-  should make the library call it).
+- **MO-10g (Callbacks) — proposed 2026-11-18, revised 2026-11-21.** A
+  declaration marks a function type `handler` where the library calls it
+  later, outside any computation, as the DOM calls an event handler
+  (`useMutation(ref options: { onSuccess?: handler () => void })`,
+  `debounce(callback: handler (...args: any[]) => void)`): a value word,
+  before the type (MO-8i), on a parameter, a field of a record parameter,
+  or a declared JS component's prop. A closure passed there literally, in
+  the call's arguments, is checked as a handler's is: its body is
+  imperative scope (W-1, IO-2), so it may write sources and call io. It is
+  not part of the call's value (it runs later, not now). Everywhere else a
+  closure made in reactive scope is still pure (SC-3), and a
+  statement-bodied one is `REACTIVE_WRITE_IN_OWNED_SCOPE`. On a declared JS
+  component, a prop marked `handler` is a handler whatever its name, as an
+  `on*` prop is: its closure is imperative scope, and passing it is not a
+  read.
+
+  A function type alone is not a callback (the revision): the same type
+  `(a: number, b: number) => number` is a comparator the library calls
+  while it computes, or an event it fires later, and only the declaration
+  can say which. Taking every function type as a handler (the first
+  draft) made a missing word grant a write that Solid refuses at run time,
+  and a declaration drafted from types alone (MO-8l) would have granted it
+  everywhere. So the word grants it; without it the closure is pure, which
+  is safe however the library calls it. `rx-declare` suggests `handler`
+  (a `// TODO`) for a function-typed parameter or field named `on…`.
+
+  `rx-verify` checks the word by running (2026-11-20): it calls the fn
+  with its probe's arguments, each function-typed parameter wrapped in a
+  spy, and asks Solid (`getObserver()`) whether the library called it
+  inside a computation. A `handler` called outside tracking holds; called
+  inside one, it is a mismatch (a closure there would have its reads
+  tracked and its writes refused). An unmarked one is pure, which holds
+  either way; called outside tracking, the report says `handler` would let
+  it write. Never called under the probe, it is unverified.
   Executable: S-module-12.
 - **MO-10j (Tracked callbacks) — proposed 2026-11-20.** Some libraries
   call a function they are given inside a computation of their own, not
@@ -455,9 +469,11 @@ export component Search(props: { start: boolean, q: string }) {
   as any closure made in reactive scope is (SC-3), a pure function, so a
   statement body is `REACTIVE_WRITE_IN_OWNED_SCOPE` and an io call is
   `IO_IN_REACTIVE`. `tracked` before anything but a function type is
-  refused. `rx-verify` checks the word by running (MO-10g): a `tracked`
-  callback called inside a computation holds; an undeclared one called
-  there is a mismatch that names the word.
+  refused. Since MO-10g's revision an unmarked function type is pure too:
+  `tracked` adds what the library does with it (its reads are tracked by
+  the library's computation), which `rx-verify` checks by running: a
+  `tracked` callback called inside a computation holds, and one called only
+  outside tracking is reported (a `handler` would do).
 - **MO-10h (Signal parameters) — proposed 2026-11-19.** Some primitives
   take a Solid signal, a getter and a setter, and wrap it
   (`@solid-primitives/storage`'s `makePersisted`, `utils`' `wrapSetter`).
@@ -602,15 +618,21 @@ export default component App() {
   applies it (as a component value does). Links need
   nothing of the language: the router handles a click on any `<a href>`.
 - **MO-11g (JS calls inside a factory's arguments) — proposed
-  2026-11-18.** A call to a JS fn among a factory's argument literals hands
-  its arguments on to the factory: the components in them are values there
-  too (MO-11c), found through the call's own record and array literals. This
-  is `@solidjs/router`'s `defineRoute({ path, component })`, an identity at
-  run time whose type gives the component its params from its path (MO-8d).
-  Bound on its own (`route = defineRoute({ … })`), the call is not part of
-  any route table the checker can see, so a component in it is
-  `COMPONENT_AS_VALUE`. A JS fn that renders a component itself, somewhere
-  other than the factory's component, escapes the check (DV-24).
+  2026-11-18, revised 2026-11-21.** A call to a JS fn declared `forwards`
+  (a row word after the signature) among a factory's argument literals, or
+  a carrying call's (MO-11o), hands its arguments on to it: the components
+  in them are values there too (MO-11c), found through the call's own
+  record and array literals. This is `@solidjs/router`'s `defineRoute({
+  path, component })`, an identity at run time whose type gives the
+  component its params from its path (MO-8d): `export pure fn
+  defineRoute(…): RouteDefinition forwards`. A JS call without the word may
+  keep or render what it is given itself, so its components take the
+  cautious placement (MO-11s) wherever it is written; that is the revision
+  (the first draft handed every JS call's components on, which credited a
+  factory's boundaries to a helper that renders elsewhere). Bound on its
+  own (`route = defineRoute({ … })`), even a forwarding call is not part of
+  any route table the checker can see, and its components take the
+  cautious placement too.
 - **MO-11h (Typed params) — proposed 2026-11-18.** A page declares the
   params it reads as a prop, `component Person(props: { params: { id:
   string } })`, as any component declares its props; the router passes
@@ -620,8 +642,8 @@ export default component App() {
   and `rx-tsc` refuses `defineRoute({ path: "/people", component: Person })`
   (TS2322) on that line. The checker learns nothing about path syntax. A
   child route's own type does not see its parent's path (the router's own
-  limit); under a factory declared `nests(…)` (MO-11i) the projection
-  writes each literal path joined with its parents' (each with each, for
+  limit); under a factory declared `nests(…)` and `joins(path)` (MO-11i)
+  the projection writes each literal path joined with its parents' (each with each, for
   paths written as alternatives), so `defineRoute` types a child's
   component from the whole path and it sees its parents' params. Elsewhere
   a page under a parametrised parent declares them optional (`org?: string`).
@@ -638,9 +660,13 @@ export default component App() {
   on a fn that hands back no `Component` it is a parse error. The word
   describes the shape of the arguments, not a router: any library that
   nests a tree of components it is given says it the same way.
-  In the projection (TY-1c), which is type-checked and never run, a
-  record's literal `path` under such a fn is written joined with its
-  parents' literal paths (`/org/:org` above `/:id` gives `/org/:org/:id`;
+  `joins(field)` beside it (revised 2026-11-21) says the library joins a
+  nested record's `field` with its parents': a router's rule, which the
+  tree alone does not imply (another library can nest the same tree and
+  read a field named `path` differently), so without it nothing is
+  joined. In the projection (TY-1c), which is type-checked and never run, a
+  record's literal `field` (`joins(path)` for `@solidjs/router`) under such
+  a fn is written joined with its parents' literal ones (`/org/:org` above `/:id` gives `/org/:org/:id`;
   `/` gives the parent's), looking through records with no `path` (the
   config around the table) and JS calls (`defineRoute(…)`), so a nested
   route's component is typed with every param above it. A path written as
@@ -692,7 +718,18 @@ export default component App() {
   the children of that region, which renders the table (DV-24's
   assumption, at the binding). Their failures, contexts and first loads are
   checked above the binding. `renders` implies `instantiates`; a component
-  passed to a fn without it is still `COMPONENT_AS_VALUE`. S-module-16.
+  passed to a fn with no placement word is checked under a root of its own
+  (MO-11s). S-module-16.
+
+  `renders` is a claim about the API, not the call: write it only where the
+  library renders what it is given through something called in the region
+  of the binding (a table whose cells the same view renders). Where the
+  result can be rendered anywhere else (handed to another component,
+  stored, portalled), the binding's region is not where the components
+  render, and its boundaries would be credited wrongly: declare
+  `renders(later)` and the consuming prop's `renders T` (MO-11o), which put
+  the check where they do render, or nothing, which takes the cautious
+  placement (MO-11s). (Revised 2026-11-21.)
 - **MO-11n (Components a library renders under its own root) — proposed
   2026-11-19.** `renders(root)` is `renders` (MO-11l) for a library that
   mounts the components it is given with a root of its own (`render()`,

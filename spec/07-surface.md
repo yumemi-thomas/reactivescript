@@ -117,10 +117,13 @@ imperative scope (SC-3). An arrow's parameter may carry a TypeScript type
 checked in the projection (13 TY-1) and dropped from the JavaScript, for
 a library that types what it passes as `unknown`. `:=` after a name is a
 write, never a type. A call may carry TypeScript type arguments
-(`createStore<Todos>({ items: [] })`, proposed 2026-11-20): written right
-after the callee and followed by `(`, they are TypeScript's alone too,
-for a generic whose argument leaves nothing to infer (`[]` would be
-`never[]`); `a < b` stays a comparison.
+(`createStore<Todos>({ items: [] })`, proposed 2026-11-20): a balanced
+`<…>` written right after the callee, with no space, and followed
+directly by `(`, they are TypeScript's alone too, for a generic whose
+argument leaves nothing to infer (`[]` would be `never[]`). The list may
+span lines (revised 2026-11-21), so a formatter that breaks a long type
+does not change what the call is; `a < b`, with a space, stays a
+comparison.
 
 Added:
 

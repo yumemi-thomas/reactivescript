@@ -9,7 +9,7 @@ Rules: MO-11i, MO-11f, MO-11g, DV-24, RG-7b, R-f-5, SV-7d.
 // `nests(children in component)`: in a route record, the routes under `children` render inside that record's `component`
 export type RouteDefinition = { path?: string; component?: Component; children?: RouteDefinition[] }
 export pure fn createRouter(config: { routes: RouteDefinition[] }): Component nests(children in component)
-export pure fn defineRoute(route: RouteDefinition): RouteDefinition
+export pure fn defineRoute(route: RouteDefinition): RouteDefinition forwards
 ```
 
 ```rx

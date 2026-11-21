@@ -102,6 +102,7 @@ type Sym = {
   held?: [string, boolean, string[]][];   // MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
+  forwards?: boolean;                  // MO-11g: a declared JS fn that, inside a factory's arguments, hands the components it is given on
   undeclared?: string;                 // MO-8k: a JS import with no declaration in any of the four places: its specifier
   carrier?: boolean;                   // MO-11o: a declared fn whose result carries the components in its arguments
   carried?: { args: Expr[]; env: Env; under?: { parent: string; inside: string } };   // MO-11o: on an equation bound to such a call, those arguments; MO-11p: where it renders
@@ -685,8 +686,8 @@ class Checker {
       if (x.kind === "comp") { bindComp(x, alias); continue; }   // MO-11a
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}) });
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.forwards ? { forwards: true } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.kind === "fn" && x.forwards ? { forwards: true } : {}) });
     }
   }
   /** CN-3d: `e` can have no value on the first load: it awaits without a first paint, here or in an equation it reads,
@@ -1510,7 +1511,7 @@ class Checker {
       if (e.k === "id" && /^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp") { if (mark) { this.valueIds.add(e); this.carriedPending.push({ e, name: e.name, line: this.line, by }); } else this.carriedRendered.add(e); out.push(e.name); }
       else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
       else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
-      else if (e.k === "call" && e.f.k === "id") { const g = env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined))) e.args.forEach(walk); }
+      else if (e.k === "call" && e.f.k === "id") { const g = env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined)) && !!g.forwards) e.args.forEach(walk); }
     };
     args.forEach(walk); return out;
   }
@@ -1543,7 +1544,7 @@ class Checker {
       if (e.k === "id" && /^[A-Z]/.test(e.name) && f.env.lookup(e.name)?.kind === "comp") { this.valueIds.add(e); out.push(e.name); }   // a value is applied by its tag, so it is capitalised as one
       else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
       else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
-      else if (e.k === "call" && e.f.k === "id") { const g = f.env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined))) e.args.forEach(walk); }   // MO-11g: a JS call inside the arguments (`defineRoute({ … })`) hands what it is given on to the factory
+      else if (e.k === "call" && e.f.k === "id") { const g = f.env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined)) && !!g.forwards) e.args.forEach(walk); }   // MO-11g: a JS call inside the arguments (`defineRoute({ … })`) hands what it is given on to the factory
     };
     f.args.forEach(walk);
     return f.values = out;
@@ -1582,7 +1583,7 @@ class Checker {
     const walk = (e: Expr): Markup[] => {
       if (isValue(e)) return this.applied([e.name], line);
       if (e.k === "arr") return e.items.flatMap(x => x.k === "spread" ? [] : walk(x));
-      if (e.k === "call") return e.f.k === "id" && (() => { const g = f.env.lookup(e.f.name); return !!g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined)); })() ? e.args.flatMap(walk) : [];
+      if (e.k === "call") return e.f.k === "id" && (() => { const g = f.env.lookup(e.f.name); return !!g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined)) && !!g.forwards; })() ? e.args.flatMap(walk) : [];
       if (e.k !== "rec") return [];
       const kv = (name: string) => e.fields.find(x => !("spread" in x) && x.key === name) as { key: string; v: Expr } | undefined;
       const host = n ? kv(n.inside) : undefined; const kids = n ? kv(n.kids) : undefined;

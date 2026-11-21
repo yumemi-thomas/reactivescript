@@ -133,7 +133,8 @@ read: a field that holds or fails without `pending`/`fails(…)` is a mismatch, 
 (a missing `window`) is reported as unverified, never as a mismatch; `--dom` runs with happy-dom's globals. On
 `@tanstack/solid-query` 6 it found that `isFetching` holds on the first load too: the whole result waits.
 A tuple's parts and a `ref` result are read the same way (a `ref` part must be an accessor). A `pure` fn that makes
-nothing is called twice with the probe's arguments and must answer alike. A component that `provides(c)` is mounted,
+nothing is called twice with the probe's arguments: answering differently is a mismatch, answering alike is reported
+as not contradicted (unverified), since running can show a fn is not pure but never that it is. A component that `provides(c)` is mounted,
 with the probe's `props` (`QueryClientProvider: { props: () => ({ client: makeClient() }) }`), around a hook of the
 same file that uses only what it provides, which must then run cleanly.
 

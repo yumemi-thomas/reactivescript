@@ -248,9 +248,13 @@ async function verifyCallbacks({ fns, at, probeMod, resolve, mount }) {
       if (c.tracked) { out.push(st.tracked ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is tracked, as declared: the library calls it inside a computation (MO-10j)` }
         : st.calls ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is declared tracked, but the library calls it outside tracking: a handler would do (stricter than needed)` }
         : { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe: give an act that makes the library call it` }); continue; }
-      out.push(st.tracked ? { line: f.line, status: "fail", what: `${f.name}: the library calls ${c.name} inside a computation (tracked), but a closure there is checked as a handler (MO-10g): its reads would be tracked by the library and its writes refused by Solid: write \`${c.field ?? c.name.split(".").pop()}: tracked (…) => …\` (MO-10j)` }
-        : st.calls ? { line: f.line, status: "ok", what: `${f.name}: callback ${c.name} holds: the library calls it outside tracking, as a handler` }
-        : { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe${err ? ` (it threw: ${String(err.message ?? err).slice(0, 40)})` : ""}: give an act that makes the library call it` });
+      const never = { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe${err ? ` (it threw: ${String(err.message ?? err).slice(0, 40)})` : ""}: give an act that makes the library call it` };
+      const field = c.field ?? c.name.split(".").pop();
+      if (c.handler) { out.push(st.tracked ? { line: f.line, status: "fail", what: `${f.name}: ${c.name} is declared handler, but the library calls it inside a computation (tracked): a closure there would have its reads tracked by the library and its writes refused by Solid: drop \`handler\`, or write \`${field}: tracked (…) => …\` (MO-10j)` }
+        : st.calls ? { line: f.line, status: "ok", what: `${f.name}: callback ${c.name} holds: the library calls it outside tracking, as a handler` } : never); continue; }
+      // MO-10g (revised): an unmarked function type is pure, which holds however the library calls it
+      out.push(st.tracked ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is pure, as declared; the library calls it inside a computation, which \`tracked\` would say (MO-10j)` }
+        : st.calls ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is pure, as declared; the library calls it outside tracking, so \`handler\` would let a closure there write (MO-10g)` } : never);
     }
   }
   return out;

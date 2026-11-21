@@ -10,7 +10,7 @@ Rules: MO-10b, MO-10g, MO-10a, MO-8, 07 §3.
 export pure fn createWindowSize(): { readonly width: number; readonly height: number } instantiates
 export pure fn createObserver(ref elements: Element[]): readonly [ref any[], (el: Element) => boolean]
 // a scheduled callback: made once, called later from handlers; the closure it takes runs later (MO-10g)
-export pure fn debounce(callback: (...args: any[]) => void, wait?: number): (...args: any[]) => void instantiates
+export pure fn debounce(callback: handler (...args: any[]) => void, wait?: number): (...args: any[]) => void instantiates
 // the same, drafted from a generic signature with its callback loosened to `any`: no longer a callback
 export pure fn loose(callback: any, wait?: number): (...args: any[]) => void instantiates
 ```

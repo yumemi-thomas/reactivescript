@@ -160,7 +160,7 @@ class Proj {
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
   private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
   private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
-  private nestFns = new Map<string, { kids: string; inside: string }>();   // MO-11i: declared factories that nest, by local name
+  private nestFns = new Map<string, { kids: string; inside: string; joins: string }>();   // MO-11i: declared factories that nest, by local name
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
 
   module(p: Program) {
@@ -231,7 +231,7 @@ class Proj {
     const prelude = d.names.filter(n => BUILTINS.has(n.name));
     if (prelude.length) { for (const n of prelude) this.used.add(n.name); }
     const rest = d.names.filter(n => !BUILTINS.has(n.name)); if (!rest.length) return;
-    if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || x.sigs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); if (x?.kind === "fn" && x.nests) this.nestFns.set(n.alias, x.nests); }
+    if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || x.sigs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); if (x?.kind === "fn" && x.nests && x.joins) this.nestFns.set(n.alias, { ...x.nests, joins: x.joins }); }   /* MO-11i (revised 2026-11-21): paths are joined only under a factory that says which field holds them */
     let from = d.from;
     if (!d.resolved && !d.declared) {                                                        // a JS module with no declaration: `any`
       const key = this.modPath(d.from) + ".ts"; let s = this.jsStubs.get(key); if (!s) this.jsStubs.set(key, (s = new Set())); for (const n of rest) s.add(n.name); from = d.from;
@@ -285,16 +285,16 @@ class Proj {
     return s;
   }
 
-  /** MO-11i, types only: under a factory that nests, a record's literal path is written joined with its parents' (the
+  /** MO-11i, types only: under a factory that nests and `joins(field)`, a record's literal `field` is written joined with its parents' (the
    *  projection is never run; a record with no path, such as the config around the table, is looked through), so a child route's types see its parents' params. `prefix` null: a parent path the
    *  projection cannot read, so nothing below is rewritten. */
-  private nestArg(e: Expr, prefix: string[] | null, n: { kids: string; inside: string }, imp: boolean, self?: string): string {
+  private nestArg(e: Expr, prefix: string[] | null, n: { kids: string; inside: string; joins: string }, imp: boolean, self?: string): string {
     const go = (x: Expr) => this.expr(x, imp, self);
     if (prefix === null) return go(e);
     if (e.k === "arr") return `[${e.items.map(x => x.k === "spread" ? go(x) : this.nestArg(x, prefix, n, imp, self)).join(", ")}]`;
     if (e.k === "call") return `${go(e.f)}${e.targs ? `<${e.targs}>` : ""}(${e.args.map(a => this.nestArg(a, prefix, n, imp, self)).join(", ")})`;
     if (e.k !== "rec") return go(e);
-    const pathField = e.fields.find(f => !("spread" in f) && f.key === "path") as { key: string; v: Expr } | undefined;
+    const pathField = e.fields.find(f => !("spread" in f) && f.key === n.joins) as { key: string; v: Expr } | undefined;
     // a path is a literal or an array of literals (alternatives); under alternatives, each joined with each
     const lits = !pathField ? null : pathField.v.k === "lit" && typeof pathField.v.v === "string" ? [pathField.v.v] : pathField.v.k === "arr" && pathField.v.items.length && pathField.v.items.every(x => x.k === "lit" && typeof x.v === "string") ? pathField.v.items.map(x => (x as { v: string }).v) : null;
     const own = pathField ? (lits ? prefix.flatMap(p => lits.map(l => joinPath(p, l))) : null) : prefix;

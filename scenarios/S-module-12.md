@@ -1,4 +1,4 @@
-# S-module-12 — callbacks into JS: a declared function-typed parameter takes an imperative closure
+# S-module-12 — callbacks into JS: a function type declared `handler` takes an imperative closure
 
 Rules: MO-10g, MO-10j, W-2, SC-3, R-io-3, MO-8.
 
@@ -7,16 +7,18 @@ Rules: MO-10g, MO-10j, W-2, SC-3, R-io-3, MO-8.
 ```rx
 -- module: ./query.d.rx
 // a mutation hook whose options carry callbacks, and a helper that takes one directly
-export pure fn useMutation(ref options: { mutationFn: (v: string) => Promise<string>; onSuccess?: () => void; retry: number }): any instantiates
-export pure fn onIdle(run: () => void): any instantiates
+export pure fn useMutation(ref options: { mutationFn: (v: string) => Promise<string>; onSuccess?: handler () => void; retry: number }): any instantiates
+export pure fn onIdle(run: handler () => void): any instantiates
+// a function type with no word: nothing says when the library calls it (a comparator, a mapper), so it is pure
+export pure fn sortWith(cmp: (a: number, b: number) => number): any instantiates
 // a query hook that calls queryFn inside its own computation (MO-10j)
 export pure fn useQuery(ref options: { queryKey: any[]; queryFn: tracked () => Promise<string[]> }): any instantiates
 ```
 
 ```rx
 -- module: ./ui.d.rx
-// a JS component whose prop `valueChange` is a callback (any name, not only on*)
-export component Slider(props: { value: number; valueChange: (v: number) => void; label: string })
+// a JS component whose prop `valueChange` is a callback (any name, not only on*), said with `handler`
+export component Slider(props: { value: number; valueChange: handler (v: number) => void; label: string })
 // a JS component that calls `format` as it renders, tracked (MO-10j)
 export component Gauge(props: { value: number; format: tracked (v: number) => string })
 ```
@@ -29,14 +31,15 @@ export pure fn fetchTodos(): Promise<string[]>
 
 A closure created in reactive scope is a pure function (SC-3), so a
 statement-bodied one is `REACTIVE_WRITE_IN_OWNED_SCOPE` (W-2). Where a
-declaration says a parameter, or a field of a record parameter, is a
-function, the library calls it later, as the DOM calls a handler: a closure
-passed there is checked as a handler's is, in imperative scope (MO-10g). The
-declaration is the statement that it is a callback, so nothing else
-loosens: a statement closure anywhere else is still refused. A function
-type written `tracked` is one the library calls inside a computation of its
-own (MO-10j): a closure there is not a callback but a pure closure, as
-anywhere else in reactive scope.
+declaration marks a parameter's, or a record field's, function type
+`handler`, the library calls it later, outside any computation, as the DOM
+calls an event handler: a closure passed there is checked as a handler's
+is, in imperative scope (MO-10g). The word is the statement; a function
+type alone says nothing of when it is called (a comparator is called while
+the library computes), so without the word a closure stays pure, as
+anywhere else in reactive scope. A function type written `tracked` is one
+the library calls inside a computation of its own (MO-10j): pure as well,
+and saying so for `rx-verify`.
 
 ## Program
 
@@ -91,6 +94,21 @@ export default component App() {
 ```
 
 A closure handed to anything but a declared callback is still pure.
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+import { sortWith } from "./query.js"
+export default component App() {
+  source calls := 0
+  sorted = sortWith((a, b) => { calls := calls + 1; a - b })
+  <p>{calls}</p>
+}
+```
+
+`cmp` is a function type with no `handler`: the library may call it while
+it computes (a comparator does), so the declaration does not let a closure
+write there. A function type alone is not a callback (MO-10g, revised
+2026-11-21).
 
 ```rx
 -- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
