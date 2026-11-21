@@ -1,0 +1,12 @@
+== hidden
+45/45 passed
+== overlap
+✗ two moves of one card answered in order leave it where the second put it
+✗ a card moved right twice ends in Done
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ a later move declined after an earlier one was accepted puts the card where the earlier one put it
+22/26 passed
+== fuzz
+board-vanilla-haiku-6: 1/20 seeds found a hole
+  seed 9 step 43: settled: card: "#4 Delta · 0/1", server "#4 Bravo · 0/1"
+    land fetchCards:done ; add Delta 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:doing ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; add Bravo 3 ; land addCard:todo,Bravo 3 ; add-item docs 4 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add-item ship 5 ; (move failed: locator.click: Timeout 2000ms excee

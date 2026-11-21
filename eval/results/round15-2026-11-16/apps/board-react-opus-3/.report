@@ -1,0 +1,12 @@
+I built the sprint board in React 19 and TypeScript. `./check` is clean and all 26 visible tests pass in 2 of the 15 allowed runs. It keeps the data the server has confirmed separately from a queue of changes still waiting on the server, and draws one from the other. That way, a declined move, rename, add, archive, toggle or item add only undoes itself, even while other changes are still pending. Answers to old or superseded requests are ignored, and each tab starts fresh every time it opens.
+
+The brief doesn't cover a few cases, so I made these calls:
+- **Unloaded columns:** moves into a column that is still loading or has failed are disabled, and so is adding a card while To do is loading.
+- **Moves near a new card:** a card moved to the bottom of To do goes above any card still showing `(adding…)`.
+- **Errors after switching cards:** a rename or item error only shows on the card it belongs to.
+- **Rename input:** it keeps its text after a rename; the brief doesn't say whether it should empty.
+- **Extra retry buttons:** I added `retry-checklist` and `retry-archive`, which the brief doesn't ask for.
+
+The one console message during the tests is a 404 for a missing resource, probably the favicon. I didn't check what it was.
+
+The code is in /tmp/claude-0/runs/r15/board-react-opus-3/src: `App.tsx`, `BoardPage.tsx`, `ArchivePage.tsx`, `board.ts` and `boardState.ts`.

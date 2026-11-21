@@ -9,7 +9,7 @@ export declare function eq<T>(v: T, ok: Async<T> extends true ? "MISSING_AWAIT: 
 export declare function first<T, I>(v: T, init: I): T | I;
 export declare function pre<T>(init?: T): T;
 export declare function pending(v: unknown): boolean;
-/** RG-4b: an object rest, \`{ a, ...rest } = e\` (Solid's \`omit\`). */
+/** RG-4b: an object rest, `{ a, ...rest } = e` (Solid's `omit`). */
 export declare function omit<T, K extends string>(v: T, ...keys: K[]): Omit<T, K>;
 export declare function caught<T, R>(v: T, alt: (e: any) => R): T | R;
 export declare function raise(e: unknown): never;
@@ -20,6 +20,8 @@ export declare function set<T>(target: T): (v: T | ((p: T) => T)) => void;
 export type Widen<T> = 0 extends (1 & T) ? any : [T] extends [null | undefined] ? any : [T] extends [never[]] ? any[] : [T] extends [string] ? string : [T] extends [number] ? number : [T] extends [boolean] ? boolean : T;
 export declare function src<T>(v: T): Widen<T>;
 export declare function typed<T>(v: T): T;
+/** MO-10h: a signal parameter: the compiler makes a Solid signal of the value passed, Solid's own type. */
+export declare function signal<T>(v: T): import("solid-js").Signal<T>;
 type ElemOf<X> = 0 extends (1 & X) ? any : X extends Iterable<infer U> ? U : X extends ArrayLike<infer U> ? U : any;
 export declare function each<X>(xs: X, f: (x: ElemOf<X>) => JSX.Element): JSX.Element;
 /** 12 SF-6a: what crosses the wire — data. `Bad<T>` is true where a function or an instance of a class is in it (`any`: not
@@ -30,6 +32,8 @@ export declare function wire<A extends unknown[], R>(f: (...a: A) => Promise<R>,
 /** 07 §6: a view (`props.children: View`); R-f-10: the class a panic is. */
 export type View = JSX.Element;
 export type Panic = Error;
+/** CP-4a: an entry's default export, a function of the app (`createApp`'s, either build) giving the view `app.mount` takes. */
+export type Main = (app: object) => () => View;
 export interface Ctx<T> { readonly __ctx: T }
 export declare function ctx<T>(d?: T): Ctx<T>;
 export declare function use<T>(c: Ctx<T>): T;

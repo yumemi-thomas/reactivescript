@@ -1,0 +1,8 @@
+I built the issue desk in Foldkit 0.170, and `./check` and all 30 visible tests pass; I used 4 of the 15 runs. Each page is its own module (`src/issues.ts`, `src/help.ts`, `src/settings.ts`) and `src/main.ts` holds the tabs; pages are tagged with an id, so a left page's late answers are dropped, and every request and change carries an id, so stale or out-of-order answers are ignored. Pending assigns, renames, closes, posts, label changes and saves are kept on top of the server's last answer, so a declined change reverts just that change, even with several in flight, and the open count is the length of the open list shown.
+
+Where the brief is silent, I guessed:
+- A close declined after leaving the issues page still puts one back on the count.
+- Clicking the selected row or the current filter does nothing.
+- A related hit opens the help page with the related search's hits instead of searching again.
+- The detail shows an assign error as the bare server message (`declined`).
+- Label text is trimmed; titles and comments are sent as typed.

@@ -1,0 +1,588 @@
+// Sprint board: two tabs, the board and the archive. Every write shows at once in this view;
+// app.ts answers each write with a reply, and a declined write (an ok: false reply) puts
+// the card, title, item or row back where it was and shows its error.
+routes nav
+  tab board "/"
+  tab archive "/archive"
+
+shape Tile
+  uid: string
+  id: number
+  title: string
+  done: number
+  total: number
+  column: string
+  pos: number
+
+shape Item
+  id: number
+  text: string
+  done: bool
+
+shape Archived
+  id: number
+  title: string
+
+shape ColumnLoad
+  ok: bool
+  error: string
+  tiles: Tile[]
+
+shape ChecklistLoad
+  ok: bool
+  error: string
+  cardId: number
+  items: Item[]
+
+shape ArchiveLoad
+  ok: bool
+  error: string
+  rows: Archived[]
+
+shape MoveReply
+  ok: bool
+  error: string
+  visit: number
+  uid: string
+  fromColumn: string
+  fromPos: number
+
+shape RenameReply
+  ok: bool
+  error: string
+  visit: number
+  uid: string
+  oldTitle: string
+
+shape AddReply
+  ok: bool
+  error: string
+  visit: number
+  uid: string
+  id: number
+
+shape ArchiveReply
+  ok: bool
+  error: string
+  visit: number
+  uid: string
+  id: number
+  title: string
+  done: number
+  total: number
+  column: string
+  pos: number
+
+shape ToggleReply
+  ok: bool
+  error: string
+  visit: number
+  uid: string
+  cardId: number
+  itemId: number
+  done: bool
+
+shape ItemReply
+  ok: bool
+  error: string
+  visit: number
+  uid: string
+  cardId: number
+  localId: number
+  id: number
+
+shape RestoreReply
+  ok: bool
+  error: string
+  visit: number
+  id: number
+  title: string
+  index: number
+
+// Positions in a column are 0, 1, 2 ... with no gaps; the list order is not used.
+fn countIn(tiles: Tile[], column: string): number = tiles.filter(t => t.column == column).length
+fn columnOf(tiles: Tile[], uid: string): string = match first(tiles.filter(t => t.uid == uid)) { case some(t) => t.column, case none => "" }
+fn posOf(tiles: Tile[], uid: string): number = match first(tiles.filter(t => t.uid == uid)) { case some(t) => t.pos, case none => 0 }
+fn idOf(tiles: Tile[], uid: string): number = match first(tiles.filter(t => t.uid == uid)) { case some(t) => t.id, case none => 0 }
+fn titleOf(tiles: Tile[], uid: string): string = match first(tiles.filter(t => t.uid == uid)) { case some(t) => t.title, case none => "" }
+fn columnName(c: string): string = c == "todo" ? "To do" : c == "doing" ? "Doing" : "Done"
+fn nextColumn(c: string): string = c == "todo" ? "doing" : "done"
+fn prevColumn(c: string): string = c == "done" ? "doing" : "todo"
+fn cardLabel(t: Tile): string = t.id == 0 ? `${t.title} (adding…)` : `#${t.id} ${t.title} · ${t.done}/${t.total}`
+fn mark(i: Item): string = i.done ? "[x]" : "[ ]"
+fn itemLabel(i: Item): string = i.id < 0 ? `${mark(i)} ${i.text} (adding…)` : `${mark(i)} ${i.text}`
+fn doneOfItem(xs: Item[], id: number): bool = match first(xs.filter(i => i.id == id)) { case some(i) => i.done, case none => false }
+
+// Where a tile sits after its column loses a tile above it, and after a tile lands in its column.
+fn afterLeave(t: Tile, from: string, p: number): number = (t.column == from and t.pos > p) ? t.pos - 1 : t.pos
+fn afterEnter(q: number, t: Tile, dest: string, idx: number): number = (t.column == dest and q >= idx) ? q + 1 : q
+// The tile `uid` moves to position idx of column dest; the others close and open their gaps.
+fn relocate(tiles: Tile[], uid: string, dest: string, idx: number): Tile[] = tiles.map(t => t.uid == uid ? Tile(t, column = dest, pos = idx) : Tile(t, pos = afterEnter(afterLeave(t, columnOf(tiles, uid), posOf(tiles, uid)), t, dest, idx)))
+fn withoutTile(tiles: Tile[], uid: string): Tile[] = tiles.filter(t => t.uid != uid).map(t => Tile(t, pos = afterLeave(t, columnOf(tiles, uid), posOf(tiles, uid))))
+fn insertAt(tiles: Tile[], t: Tile): Tile[] = tiles.map(x => Tile(x, pos = afterEnter(x.pos, x, t.column, t.pos))).concat([t])
+
+
+component BoardContractHaiku5
+  // Loads are newest-wins; writes run one at a time, in order (queue), and each reply settles its card.
+  mutation loadTodo as shape ColumnLoad then copyTodo
+  mutation loadDoing as shape ColumnLoad then copyDoing
+  mutation loadDone as shape ColumnLoad then copyDone
+  mutation moved as shape MoveReply queue then afterMove
+  mutation renamed as shape RenameReply queue then afterRename
+  mutation added as shape AddReply queue then afterAdd
+  mutation archived as shape ArchiveReply queue then afterArchive
+  mutation checklist as shape ChecklistLoad then afterChecklist
+  mutation toggled as shape ToggleReply queue then afterToggle
+  mutation itemAdded as shape ItemReply queue then afterItemAdd
+  mutation loadArch as shape ArchiveLoad then copyArchive
+  mutation restored as shape RestoreReply queue then afterRestore
+
+  state tiles = []
+  state todoState = "loading"
+  state doingState = "loading"
+  state doneState = "loading"
+  state todoErr = ""
+  state doingErr = ""
+  state doneErr = ""
+  state moveError = ""
+  state newCard = ""
+  state addError = ""
+  state selectedUid = ""
+  state renameText = ""
+  state renameErr = ""
+  state archiveErr = ""
+  state items = []
+  state checkState = "idle"
+  state checkErr = ""
+  state itemText = ""
+  state itemError = ""
+  state nextUid = 1
+  state nextLocal = -1
+  state visit = 0
+  state archRows = []
+  state archState = "loading"
+  state archErr = ""
+  state restoreErr = ""
+
+  derive todoCards = sortBy(tiles.filter(t => t.column == "todo"), t => t.pos)
+  derive doingCards = sortBy(tiles.filter(t => t.column == "doing"), t => t.pos)
+  derive doneCards = sortBy(tiles.filter(t => t.column == "done"), t => t.pos)
+  derive doneCount = items.filter(i => i.done).length
+
+  // Leaving a page discards it: its state starts again, and opening it loads again.
+  action clearAll
+    visit = visit + 1
+    tiles = []
+    todoState = "loading"
+    doingState = "loading"
+    doneState = "loading"
+    todoErr = ""
+    doingErr = ""
+    doneErr = ""
+    moveError = ""
+    newCard = ""
+    addError = ""
+    selectedUid = ""
+    renameText = ""
+    renameErr = ""
+    archiveErr = ""
+    items = []
+    checkState = "idle"
+    checkErr = ""
+    itemText = ""
+    itemError = ""
+    archRows = []
+    archState = "loading"
+    archErr = ""
+    restoreErr = ""
+
+  action pick(name: string)
+    clearAll()
+    nav = select(nav, name)
+
+  task boot key=nav.tab
+    change(openPage)
+
+  action openPage
+    if nav.tab == "board"
+      send loadTodo = loadColumn("todo")
+      send loadDoing = loadColumn("doing")
+      send loadDone = loadColumn("done")
+    else
+      send loadArch = loadArchived()
+
+  action retryTodo
+    todoState = "loading"
+    todoErr = ""
+    send loadTodo = loadColumn("todo")
+
+  action retryDoing
+    doingState = "loading"
+    doingErr = ""
+    send loadDoing = loadColumn("doing")
+
+  action retryDone
+    doneState = "loading"
+    doneErr = ""
+    send loadDone = loadColumn("done")
+
+  action copyTodo
+    match loadTodo
+      case some(r)
+        if r.ok
+          tiles = tiles.filter(t => t.column != "todo").concat(r.tiles)
+          todoState = "ready"
+        else
+          todoErr = r.error
+          todoState = "failed"
+      case none
+
+  action copyDoing
+    match loadDoing
+      case some(r)
+        if r.ok
+          tiles = tiles.filter(t => t.column != "doing").concat(r.tiles)
+          doingState = "ready"
+        else
+          doingErr = r.error
+          doingState = "failed"
+      case none
+
+  action copyDone
+    match loadDone
+      case some(r)
+        if r.ok
+          tiles = tiles.filter(t => t.column != "done").concat(r.tiles)
+          doneState = "ready"
+        else
+          doneErr = r.error
+          doneState = "failed"
+      case none
+
+  action move(uid: string, dir: string)
+    let src = columnOf(tiles, uid)
+    let p = posOf(tiles, uid)
+    let dest = dir == "left" ? prevColumn(src) : dir == "right" ? nextColumn(src) : src
+    let idx = dir == "up" ? p - 1 : dir == "down" ? p + 1 : countIn(tiles, dest)
+    let legal = (dir == "left" and src != "todo") or (dir == "right" and src != "done") or (dir == "up" and p > 0) or (dir == "down" and p < countIn(tiles, src) - 1)
+    let full = (dest == "doing" and src != "doing" and countIn(tiles, "doing") >= 3)
+    let id = idOf(tiles, uid)
+    if legal and not full and id != 0
+      moveError = ""
+      tiles = relocate(tiles, uid, dest, idx)
+      send moved = moveCard(visit, uid, id, dest, idx, src, p)
+
+  action afterMove
+    match moved
+      case some(r)
+        if r.visit == visit and not r.ok and idOf(tiles, r.uid) != 0
+          tiles = relocate(tiles, r.uid, r.fromColumn, r.fromPos)
+          moveError = r.error
+      case none
+
+  action setNewCard(v: string)
+    newCard = v
+
+  action addNew
+    if newCard.trim() != ""
+      let tid = `p${nextUid}`
+      let line = newCard.trim()
+      nextUid = nextUid + 1
+      newCard = ""
+      addError = ""
+      tiles = tiles.concat([Tile(uid = tid, id = 0, title = line, done = 0, total = 0, column = "todo", pos = countIn(tiles, "todo"))])
+      send added = addCard(visit, tid, "todo", line)
+
+  action afterAdd
+    match added
+      case some(r)
+        if r.visit == visit
+          if r.ok
+            tiles = tiles.map(x => x.uid == r.uid ? Tile(x, id = r.id) : x)
+          else
+            tiles = withoutTile(tiles, r.uid)
+            addError = r.error
+      case none
+
+  action choose(uid: string)
+    if idOf(tiles, uid) != 0
+      selectedUid = uid
+      renameText = ""
+      renameErr = ""
+      itemText = ""
+      itemError = ""
+      checkState = "loading"
+      checkErr = ""
+      items = []
+      send checklist = loadChecklist(idOf(tiles, uid))
+
+  action afterChecklist
+    match checklist
+      case some(r)
+        if r.cardId == idOf(tiles, selectedUid)
+          if r.ok
+            items = r.items
+            checkState = "ready"
+          else
+            checkErr = r.error
+            checkState = "failed"
+      case none
+
+  action setRename(v: string)
+    renameText = v
+
+  action rename
+    if renameText.trim() != "" and idOf(tiles, selectedUid) != 0
+      let line = renameText.trim()
+      let old = titleOf(tiles, selectedUid)
+      let id = idOf(tiles, selectedUid)
+      renameErr = ""
+      tiles = tiles.map(x => x.uid == selectedUid ? Tile(x, title = line) : x)
+      send renamed = renameCard(visit, selectedUid, id, line, old)
+
+  action afterRename
+    match renamed
+      case some(r)
+        if r.visit == visit and not r.ok
+          tiles = tiles.map(x => x.uid == r.uid ? Tile(x, title = r.oldTitle) : x)
+          renameErr = r.error
+      case none
+
+  action archiveSel
+    match first(tiles.filter(t => t.uid == selectedUid))
+      case some(t)
+        if t.id != 0
+          archiveErr = ""
+          selectedUid = ""
+          items = []
+          checkState = "idle"
+          tiles = withoutTile(tiles, t.uid)
+          send archived = archiveCard(visit, t.uid, t.id, t.title, t.done, t.total, t.column, t.pos)
+      case none
+
+  action afterArchive
+    match archived
+      case some(r)
+        if r.visit == visit and not r.ok
+          tiles = insertAt(tiles, Tile(uid = r.uid, id = r.id, title = r.title, done = r.done, total = r.total, column = r.column, pos = r.pos))
+          archiveErr = r.error
+      case none
+
+  action setItemText(v: string)
+    itemText = v
+
+  action toggle(itemId: number)
+    if checkState == "ready" and itemId > 0
+      let on = not doneOfItem(items, itemId)
+      let id = idOf(tiles, selectedUid)
+      itemError = ""
+      items = items.map(i => i.id == itemId ? Item(i, done = on) : i)
+      tiles = tiles.map(x => x.uid == selectedUid ? Tile(x, done = on ? x.done + 1 : x.done - 1) : x)
+      send toggled = toggleItem(visit, selectedUid, id, itemId, on)
+
+  action afterToggle
+    match toggled
+      case some(r)
+        if r.visit == visit and not r.ok
+          tiles = tiles.map(x => x.uid == r.uid ? Tile(x, done = r.done ? x.done - 1 : x.done + 1) : x)
+          if r.uid == selectedUid
+            items = items.map(i => i.id == r.itemId ? Item(i, done = not r.done) : i)
+            itemError = r.error
+      case none
+
+  action addItemAct
+    if itemText.trim() != "" and checkState == "ready" and idOf(tiles, selectedUid) != 0
+      let line = itemText.trim()
+      let localId = nextLocal
+      let id = idOf(tiles, selectedUid)
+      nextLocal = nextLocal - 1
+      itemText = ""
+      itemError = ""
+      items = items.concat([Item(id = localId, text = line, done = false)])
+      tiles = tiles.map(x => x.uid == selectedUid ? Tile(x, total = x.total + 1) : x)
+      send itemAdded = addItem(visit, selectedUid, id, line, localId)
+
+  action afterItemAdd
+    match itemAdded
+      case some(r)
+        if r.visit == visit
+          if r.ok
+            items = items.map(i => i.id == r.localId ? Item(i, id = r.id) : i)
+          else
+            items = items.filter(i => i.id != r.localId)
+            tiles = tiles.map(x => x.uid == r.uid ? Tile(x, total = x.total - 1) : x)
+            if r.uid == selectedUid
+              itemError = r.error
+      case none
+
+  action copyArchive
+    match loadArch
+      case some(r)
+        if r.ok
+          archRows = r.rows
+          archState = "ready"
+        else
+          archErr = r.error
+          archState = "failed"
+      case none
+
+  action restore(id: number)
+    let i = archRows.map(a => a.id).indexOf(id)
+    match first(archRows.filter(a => a.id == id))
+      case some(a)
+        restoreErr = ""
+        archRows = archRows.filter(x => x.id != id)
+        send restored = restoreCard(visit, id, a.title, i)
+      case none
+
+  action afterRestore
+    match restored
+      case some(r)
+        if r.visit == visit and not r.ok
+          archRows = archRows.slice(0, r.index).concat([Archived(id = r.id, title = r.title)]).concat(archRows.slice(r.index))
+          restoreErr = r.error
+      case none
+
+  view
+    main testId="app" width="100%" height="100%" display="flex" flex-direction="column"
+      column role="tabpanel" id=`panel-${nav.tab}` flex=1 min-height=0
+        if nav.tab == "board"
+          scroll id="board" flex=1 min-height=0 padding=16
+            column gap=16
+              text "Sprint board" role="heading" aria-level=1
+              row gap=12 align-items="flex-start" flex-wrap="wrap"
+                column flex=1 min-width="14rem" gap=8 testId="col-todo"
+                  text (todoState == "ready" ? `To do (${todoCards.length})` : "To do") role="heading" aria-level=2 testId="head-todo"
+                  if todoState == "loading"
+                    text "loading" testId="todo-status"
+                  if todoState == "failed"
+                    text `error: ${todoErr}` testId="todo-error"
+                    button press=retryTodo testId="retry-todo"
+                      text "Retry"
+                  if todoState == "ready"
+                    for t in todoCards key=t.uid
+                      row gap=4 align-items="center"
+                        button press=choose(t.uid) testId="card" flex=1 min-width=0
+                          text cardLabel(t)
+                        if t.id != 0
+                          if t.pos > 0
+                            button press=move(t.uid, "up") testId="up"
+                              text "Up"
+                          if t.pos < todoCards.length - 1
+                            button press=move(t.uid, "down") testId="down"
+                              text "Down"
+                          button press=move(t.uid, "right") testId="right" disabled=(doingCards.length >= 3)
+                            text "Right"
+                  row gap=8 align-items="center"
+                    input value=newCard input=setNewCard submit=addNew placeholder="Card title" aria-label="New card title" testId="new-card" flex=1 min-width=0
+                    button press=addNew disabled=(newCard.trim() == "") testId="add-card"
+                      text "Add"
+                  if addError != ""
+                    text `add error: ${addError}` testId="add-error"
+                column flex=1 min-width="14rem" gap=8 testId="col-doing"
+                  text (doingState == "ready" ? `Doing (${doingCards.length})` : "Doing") role="heading" aria-level=2 testId="head-doing"
+                  if doingState == "loading"
+                    text "loading" testId="doing-status"
+                  if doingState == "failed"
+                    text `error: ${doingErr}` testId="doing-error"
+                    button press=retryDoing testId="retry-doing"
+                      text "Retry"
+                  if doingState == "ready"
+                    for t in doingCards key=t.uid
+                      row gap=4 align-items="center"
+                        button press=choose(t.uid) testId="card" flex=1 min-width=0
+                          text cardLabel(t)
+                        if t.id != 0
+                          button press=move(t.uid, "left") testId="left"
+                            text "Left"
+                          if t.pos > 0
+                            button press=move(t.uid, "up") testId="up"
+                              text "Up"
+                          if t.pos < doingCards.length - 1
+                            button press=move(t.uid, "down") testId="down"
+                              text "Down"
+                          button press=move(t.uid, "right") testId="right"
+                            text "Right"
+                column flex=1 min-width="14rem" gap=8 testId="col-done"
+                  text (doneState == "ready" ? `Done (${doneCards.length})` : "Done") role="heading" aria-level=2 testId="head-done"
+                  if doneState == "loading"
+                    text "loading" testId="done-status"
+                  if doneState == "failed"
+                    text `error: ${doneErr}` testId="done-error"
+                    button press=retryDone testId="retry-done"
+                      text "Retry"
+                  if doneState == "ready"
+                    for t in doneCards key=t.uid
+                      row gap=4 align-items="center"
+                        button press=choose(t.uid) testId="card" flex=1 min-width=0
+                          text cardLabel(t)
+                        if t.id != 0
+                          button press=move(t.uid, "left") testId="left" disabled=(doingCards.length >= 3)
+                            text "Left"
+                          if t.pos > 0
+                            button press=move(t.uid, "up") testId="up"
+                              text "Up"
+                          if t.pos < doneCards.length - 1
+                            button press=move(t.uid, "down") testId="down"
+                              text "Down"
+              if moveError != ""
+                text `move error: ${moveError}` testId="move-error"
+              if archiveErr != ""
+                text `archive error: ${archiveErr}` testId="archive-error"
+              column testId="detail" gap=8 padding=12
+                if selectedUid == ""
+                  text "select a card"
+                else
+                  text `#${idOf(tiles, selectedUid)} ${titleOf(tiles, selectedUid)}` role="heading" aria-level=2
+                  text `in ${columnName(columnOf(tiles, selectedUid))}`
+                  row gap=8 align-items="center"
+                    input value=renameText input=setRename submit=rename placeholder="Card title" aria-label="Card title" testId="title-input" flex=1 min-width=0
+                    button press=rename testId="rename"
+                      text "Rename"
+                  if renameErr != ""
+                    text `rename error: ${renameErr}` testId="rename-error"
+                  button press=archiveSel testId="archive"
+                    text "Archive"
+                  column testId="checklist" gap=6
+                    if checkState == "loading"
+                      text "loading checklist"
+                    else if checkState == "failed"
+                      text `checklist error: ${checkErr}`
+                    else
+                      for i in items key=i.id
+                        row gap=8 align-items="center"
+                          text itemLabel(i) testId="item" flex=1 min-width=0
+                          if i.id > 0
+                            button press=toggle(i.id) testId="toggle"
+                              text "Toggle"
+                      text `${doneCount}/${items.length} done` testId="progress"
+                      row gap=8 align-items="center"
+                        input value=itemText input=setItemText submit=addItemAct placeholder="Add an item" aria-label="New item" testId="item-input" flex=1 min-width=0
+                        button press=addItemAct disabled=(itemText.trim() == "") testId="add-item"
+                          text "Add"
+                  if itemError != ""
+                    text `item error: ${itemError}` testId="item-error"
+        else
+          scroll id="archive" flex=1 min-height=0 padding=16
+            column gap=12
+              text "Archive" role="heading" aria-level=1
+              column testId="archived" gap=8
+                if archState == "loading"
+                  text "loading archive"
+                else if archState == "failed"
+                  text `archive error: ${archErr}`
+                else
+                  if archRows.length == 0
+                    text "Nothing archived."
+                  for a in archRows key=a.id
+                    row gap=8 align-items="center"
+                      text `#${a.id} ${a.title}` testId="archived-card" flex=1 min-width=0
+                      button press=restore(a.id) testId="restore"
+                        text "Restore"
+                if restoreErr != ""
+                  text `restore error: ${restoreErr}` testId="restore-error"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel-board" aria-selected=(nav.tab == "board") press=pick("board") testId="tab-board" flex=1
+          text "Board"
+        button role="tab" aria-controls="panel-archive" aria-selected=(nav.tab == "archive") press=pick("archive") testId="tab-archive" flex=1
+          text "Archive"

@@ -41,7 +41,7 @@ Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | fn (x*) => Expr                 -- pure function value
             | { Decl* ; Expr }                -- reactive block: local declarations, then value
             | throw Expr                      -- R-f-3: the value is the error (E-12)
-            | Expr catch (x [: C|…]) => Expr  -- R-f-4: a failure of those classes becomes a value
+            | await Expr catch (x [: C|…]) => Expr  -- R-f-4: a rejection of those classes becomes the answer
 
 Markup    ::= Element | Control                  -- at block level, control forms are bare
 Element   ::= <tag attr={Expr}*> (Element | text | {Expr} | {Control})* </tag>
@@ -125,6 +125,64 @@ Function application `f(e…)` covers both language functions and FFI imports;
   (SC-2). `peek e` of an equation nothing demands evaluates it from scratch
   (P-3) without making it part of the frame: it stays undemanded for E-8/P-6.
   (Solid: `untrack` on a lazy memo.)
+- **E-5a (A kept peek of what changes).** (Proposed 2026-11-20.) A `peek` is
+  *kept* when the expression it is in is kept and read again: an equation, a
+  provision or a context's default, what a view reads (a `{…}`, an attribute,
+  an `if` condition, a `for` list), a component's argument, a `ref` argument.
+  A source's seed (E-4) and a value argument (E-10) are snapshots by rule, an
+  effect's compute half runs its apply, and a closure reads when it is
+  called: none is kept. A kept `peek e` whose expression reads nothing else
+  that changes freezes it, and if `e` can change — a source written,
+  guessed, refreshed or affected; something that awaits; a `ref` parameter;
+  a JS reader or a field declared to hold (MO-10b, MO-10f); a field read
+  through the instance a declared primitive made (`peek size.width`), or an
+  equation bound to one, since the instance never changes but its fields
+  track (MO-10b); a field read through a `for` row (`peek r.x`) whose list
+  can change, since the row is a constant (RG-2b) whose fields are written
+  by path or reconciled by key (ST-4a) while it lives (both revised
+  2026-11-21 after review; the row itself, `peek r`, and a method called
+  on an instance, which reads no field, stay constant; S-surface-8) —
+  every reader keeps the first value. That is a compile error (`SNAPSHOT_KEPT`, bin S):
+  drop the `peek` to read it live, or name the snapshot, `source saved :=
+  peek e`. When the rest of the expression changes the `peek` is a sample
+  (`n * 2 + peek n`) and is accepted. Writes to a source are always in its
+  own module (MO-2) and a context is read-only beneath its provision (RG-7c),
+  so what only another module can tell is a prop's arguments, a context's
+  provisions and an `.rx` import. Checked one module at a time (the default)
+  each of those can change; checked as the whole program (`--whole-program`)
+  they change when an application, a provision or the export passes
+  something that does (a least fixpoint over all modules). The whole-program
+  check assumes JS applies the entry's exported components, the
+  components passed to it as values, and the exported components of every
+  module a JS host imports with `?rx-lib` (CP-4d; `--host m.rx`, which the
+  Vite plugin's `rx({ wholeProgram: true })` finds by scanning the
+  project's JS and TS modules and single-file components (`.vue`,
+  `.svelte`, `.astro`, `.mdx`) for such imports, however spelled (an import,
+  a re-export, a dynamic import or a `require`, in any quotes, with
+  `rx-lib` anywhere among the query's parameters: whatever the plugin
+  compiles as a library), each resolved as the bundle resolves it:
+  by Vite itself where Solid's plugin hands front ends its resolver
+  (`context.resolve`, every plugin's `resolveId`), else relative, through
+  the aliases given as `rx({ alias })`, the same object as Vite's
+  `resolve.alias`, and tsconfig.json's `paths`; one that names no file is
+  reported, and a change to the hosts re-checks the build; Vite's answers
+  are kept per plugin, since another configuration in the same process may
+  resolve the same import elsewhere, and a host is matched under every name
+  the checker may key its module by: hosts and modules are matched by their
+  real paths, so a linked root, folder or file is one module, and the scan
+  follows linked folders, a relative import resolved from where its file
+  really is, as Node and Vite resolve it; the scan covers the Vite root,
+  and a host beyond it, another app's page or a server's entry, is counted
+  when `rx({ hostRoots: ["../site"] })` names its folder or file, its
+  imports resolved relatively, then by its own project's tsconfig.json
+  `paths`, then as this build does, revised 2026-11-21 after review; a host
+  nowhere named is not seen),
+  whose props can change, and nothing else;
+  a module known only by its signature (MO-9) is not seen. It is opt-in:
+  builds and the editor check one module at a time unless asked. (Solid:
+  `untrack(data)` in a memo with no other source, or `<Ctx
+  value={untrack(data)}>`, which `createContext`'s provider reads once
+  anyway.) S-surface-6.
 - **E-6 (Equality cuts).** An equation whose re-evaluation yields a value equal
   to its previous value has not changed: it is not part of the instant's cone
   from that point on, its dependents are not re-evaluated through it, and
@@ -155,8 +213,8 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **E-12 (Errors are values).** An equation whose evaluation throws has an
   *error value* in the frame. An equation or reader reaching an errored input
   is errored. There is no `try` statement in reactive scope: an error becomes
-  a value through `e catch (x: C) => alt`, or fallback content at an
-  `errored` boundary (03 RG-5, 05); which classes may reach a reader is its
+  fallback content at an `errored` boundary (03 RG-5, 05), and a rejection
+  becomes an answer through `await e catch (x: C) => alt` (04 R-f-4); which classes may reach a reader is its
   `fails` row, and every one must be discharged (04 R-f). (Solid F-12.) An
   error in an apply block is imperative and ordinary.
 - **E-10 (Snapshot arguments).** At an instantiation, a value parameter
@@ -166,7 +224,66 @@ Function application `f(e…)` covers both language functions and FFI imports;
   once" is legitimate. The check lives at the call site because that is where
   both facts are known: the parameter's kind and the argument's reactivity.
   (First drafted as a rejection inside the function body; `ref/` S-region-6
-  showed that rejects `counter(n, 10)`, the legitimate case.)
+  showed that rejects `counter(n, 10)`, the legitimate case.) An equation
+  bound to what a declared primitive made, its value result (09 MO-10b), is
+  made once and never changes, so reading it in an argument loses nothing
+  and is no diagnostic (proposed 2026-11-19: `createRouter({ routeTree:
+  rootRoute.addChildren(…) })`, S-module-22); a reader (`ref`) still is.
+  A method called on the instance keeps that only when the primitive's
+  declaration names the method (revised 2026-11-21 after review:
+  `createRootRoute(…): any renders(later) methods(addChildren)`, 09
+  MO-8i): a method so named makes its value once, from what it is given,
+  which is checked as any argument is. A stable receiver says nothing of
+  what another method gives back, so a method the declaration does not
+  name is read as a call whose answer may change, and the argument is
+  `SNAPSHOT_ARGUMENT` (S-module-22); E-5a reads it the same way, so a kept
+  `peek inst.m()` of an undeclared method is `SNAPSHOT_KEPT` (S-module-20).
+  **What counts as reading through the instance (ruled 2026-11-22).** The
+  instance stays one where the checker knows what is done to it: named,
+  passed whole, a declared method called on its own name (or an alias's).
+  Anything else that reads through a value that *may be* the instance is
+  a read of what may change, and which values may be it is 09 MO-10k's
+  rule, by mention, with no value followed: a field read, an index or a
+  method call on an expression that mentions the instance — a record or
+  an array holding it (`[clock][0].now()`, and `[clock][0].format()` too:
+  the checker does not follow the index to know it is the instance's
+  declared method), what a call given it returns, however it is called
+  (`keep(keep(clock)).now()`, `o.f(clock).now()`, `mk(clock)().now()`,
+  `[].concat([clock])[0].now()`), a parameter of a closure handed it
+  (`map([clock], (c) => c.now())`) — and handing it to a function of
+  `.rx` the checker cannot see into (an `.rx` fn, a prop, a closure held
+  in a record: `o.read(clock)`). A JS fn, or a method of a JS import,
+  takes it whole, which is the exemption. And a closure reads when it is called (E-5a), which is also
+  here: a call of a closure written at the call, or of the closure a
+  name is bound to, reads what its body reads, so `f = () => clock.now()`
+  then `createLabel(f())`, and `f = () => n` for a written source `n`,
+  are snapshots, as `peek f()` kept is `SNAPSHOT_KEPT` (the earlier
+  rule looked at the names an argument reads and took a closure's name
+  for a constant). *Guarantee:* an argument, or a kept `peek`, that the
+  checker takes for made once reads no field of a primitive's instance
+  and calls no method its declaration does not name, through any `.rx`
+  expression; it rests on the declaration's `methods(…)`. S-module-20.
+  The word changes nothing at run time
+  and nothing of the result's shape. The instance is the object passed
+  whole, whether its declared result is a value or a record of parts.
+  So is a field read through such an instance, or an equation bound to one
+  (`w = size.width`), since a primitive's fields track (MO-10b), revised
+  2026-11-21 after review: only the instance passed whole, or a method
+  called on it, which reads no field, is exempt (S-module-20).
+  So is a field read through a `for` row (`counter(r.x)`), revised
+  2026-11-21 after review: the row is a constant (RG-2b), so its name was
+  passed over, but its fields are written by path or reconciled by key
+  while it lives (ST-4a). The row passed whole reads no field. The two
+  snapshots that are meant say so and are no diagnostic: a source's seed
+  (`source draft := r.x`, E-4) and `peek r.x` in the argument
+  (S-surface-9).
+  So is an equation that never changes (proposed 2026-11-19): one that
+  awaits nothing, reads no context, and reads only pure JS imports,
+  components, error classes and such equations — a validation schema built
+  at module level, `schema = object({ email: pipe(string(), isEmail()) })`,
+  passed to `createForm({ schema })`. An `.rx` `fn` may read a source, so a
+  call of one is not constant; a schema that reads a source is still a
+  snapshot (`examples/formisch`).
 
 ### W — Writes
 
@@ -273,6 +390,12 @@ Function application `f(e…)` covers both language functions and FFI imports;
   has settled (§4). An `eᵢ` that derives from a guess or a lane value
   (H-7, H-11) fires with the lane's reveal — now, not at the hold's commit —
   and again when the guess reverts (S-ai-feed instant 4; both runners).
+- **EF-2a (A failure doesn't fire).** [2026-11-19, from Ryan's rule that a failure
+  is shown where it's read] An instant in which some `eᵢ` is an error (E-12) does
+  not run `B`: the failure is shown by the region that reads it (R-f-5), and an
+  apply has nothing to show it with. The next instant in which every `eᵢ` has a
+  value runs `B`, even if the values equal the last ones it received. Lowered as
+  Solid's `createEffect` with an `error` arm that only forgets the last value.
 - **EF-3 (Once, completely).** `B` runs at most once per instant and is never
   interrupted by that instant's settling; its writes begin a new instant.
 - **EF-4 (No inputs).** `effect () B` runs once, in the instant the effect is

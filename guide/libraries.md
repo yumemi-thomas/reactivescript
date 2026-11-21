@@ -6,6 +6,9 @@ at every use; the JavaScript itself is not checked (it's the library's).
 
 ## Declare it
 
+To start from a draft, run `npx rx-declare <package> --out <name>.d.rx` (the language server's package): it writes
+what the package's TypeScript types show and leaves a `// TODO` line for each row only you can decide.
+
 ```rx
 // media.d.rx, beside media.js — or shipped by the package beside the file its import resolves to
 export pure fn createToggle(initial: boolean): [ref boolean, (v: boolean) => void]
@@ -28,8 +31,40 @@ Where the file goes:
 - **Your own JS module:** `./media.js` with `./media.d.rx` beside it.
 - **A package that ships one:** nothing to do. The compiler resolves the import the way a bundler does (`exports`,
   `module`, `main`) and reads the `.d.rx` beside that file (`dist/index.jsx` → `dist/index.d.rx`).
-- **A package that doesn't:** re-export what you use from a local file and declare that:
-  `export { createMediaQuery } from "@solid-primitives/media"` in `./media.js`, then `./media.d.rx` as above.
+- **A package that doesn't:** put it in `rx-types/`, named by the import: `rx-types/@solid-primitives/media.d.rx` for
+  `import { createMediaQuery } from "@solid-primitives/media"` (a subpath is a folder:
+  `rx-types/@kobalte/core/dialog.d.rx`). `npx rx-declare @solid-primitives/media --out rx-types/@solid-primitives/media.d.rx`
+  drafts it. Your import stays as written; nothing re-exports it.
+- **A shared declaration:** an `@rx-types/<scope>__<name>` package (like `@types`), with `index.d.rx` (and
+  `<subpath>.d.rx`).
+- **Nothing written:** the Vite plugin and the editor draft one from the package's types into
+  `node_modules/.rx-types/` (see [Generated declarations](#generated-declarations)).
+
+The first of these that exists is the declaration, in this order: `rx-types/`, the package's own, `@rx-types`,
+generated. So a project file replaces a shipped one that is wrong; pin it (`//@ for <package> <range>`) so it can't go
+stale silently. rx-tsc checks a `rx-types/` file against the package's own types (`DECLARATION_MISMATCH`), and types a
+package that has none from it.
+
+### Generated declarations
+
+A package you import with no declaration anywhere gets one drafted for you. Before a build (and in the editor), the
+plugin reads the package's TypeScript types and writes `node_modules/.rx-types/<package>.d.rx`: its components with
+their props, its functions as io, accessors as `ref`. A draft never guesses that a function is `pure` (a name like
+`useX` is a convention, not a fact), so calling one where a component computes is refused until you say it is, and the
+error says where. It's redrafted when you upgrade
+the package. So `import { Badge } from "some-solid-kit"` just works.
+
+A draft says only what types show:
+
+- a component you hand to one of its functions is checked under a root of its own (MO-11s): give it its own
+  `errored`/`loading` and the contexts it reads;
+- a hook's provider and a field that suspends or throws are **not** checked: as in TypeScript, they fail at run time;
+- a function is io until a person writes `pure` for it.
+
+To say those, write `rx-types/<package>.d.rx` (it wins over the draft): `npx rx-declare <package> --out
+rx-types/<package>.d.rx` starts from the same draft, with a `// TODO` for each guess to confirm (`pure`, `handler`);
+`--run` also runs the package to find which hooks need a provider (it executes the package's code).
+Turn drafting off with `RX_GENERATE=0` or `rx({ generate: false })`.
 
 ## Use it
 
@@ -46,6 +81,12 @@ export component Search(props: { start: boolean, q: string }) {
 }
 ```
 
+A result that is a store whose field waits or throws when read (a query's `data`) says so on that field:
+`export pure fn useQuery(ref options: { … }): { data: pending fails(Error) any; isFetching: boolean }`. A read of
+`todos.data` then needs an `errored` (or a `catch`) above it, and in a client-only build a `loading`, like an `await`.
+Such a result is read a field at a time: pass `todos.data` to a component, not `todos` (`RESULT_AS_VALUE`). The
+field carries what it needs to where it is read; the whole result would be a plain value on the other side.
+
 `isOn`, `query` and `wide` are equations like any other: read them without calling them. They may hold, like a
 value from an `await` (Solid promises nothing about an accessor), so `latest`, `pending?` and `loading` apply.
 
@@ -56,6 +97,7 @@ What the compiler catches:
 | `createToggle(props.start)` | `SNAPSHOT_ARGUMENT`: a value argument is read once; write `peek props.start`, or the library should take `ref` |
 | `x = setOn(true)` | `IO_IN_REACTIVE`: a setter is called from an action or handler |
 | `<p>{createMediaQuery(q)}</p>` | `INSTANTIATION_NOT_BOUND`: bind it, `wide = createMediaQuery(q)` |
+| `<List query={todos} />` for a result with a `pending` or `fails` field | `RESULT_AS_VALUE`: pass the field, `items={todos.data}` |
 
 ## What stays the library's
 
@@ -70,6 +112,17 @@ What the compiler catches:
   ```
 
   Compute the new value once and use it: `let next = !isOn; setOn(next); label := next ? "on" : "off"`.
+- **A callback the library calls later is `handler`.** With `onSuccess?: handler () => void` in the declared options,
+  `onSuccess: () => { saved := saved + 1 }` may write sources, as an `onClick` may. A function type without the word
+  is pure: the library might call it while it computes (a comparator, a mapper), so a statement closure there is
+  refused (`REACTIVE_WRITE_IN_OWNED_SCOPE`). The word is the declaration's promise; `rx-verify` checks it by running.
+  The same holds for a JS component's props, whatever their names: `onChange: handler (v: string) => void` takes a
+  writing closure, `onChange: (v: string) => void` does not. Only a prop the declaration leaves untyped (or does not
+  name) is read by its name, an `on…` one as an event handler.
+- **A function the library calls inside its own computation is `tracked`.** TanStack Query runs `queryFn` while it
+  computes `data`, so `queryFn: tracked () => Promise<any>`: a closure there is a pure one, as anywhere in reactive
+  scope (no writes; its reads are tracked by the library). `rx-verify` tells the three apart by running: a `handler`
+  called inside a computation is a mismatch, and it reports which unmarked functions could be either word.
 - **Callbacks you pass are plain functions.** An action passed as `handler` is checked as an action; a plain closure
   is not checked beyond what any closure is.
 - **Without a declaration,** an import is io unless you import it `pure`, and `import pure` of a primitive is
@@ -84,9 +137,10 @@ component (a router's `createRouter`) is declared with `Component` as its result
 ```rx
 // router.d.rx, beside router.js: export { createRouter, useParams, useNavigate } from "@solidjs/router"
 export type RouteDefinition = { path?: string; component?: Component; children?: RouteDefinition[] }
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component
-export pure fn useParams(): Record<string, string> instantiates
-export pure fn useNavigate(): (to: string) => void instantiates
+export context router
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)
+export pure fn useParams(): Record<string, string> uses(router)
+export pure fn useNavigate(): (to: string) => void uses(router)
 
 // ui.d.rx, beside ui.js
 export component Shell(props: { header?: Component; children?: View })
@@ -113,14 +167,90 @@ export default component App() {
 ```
 
 - **A component is a value only where JS takes one:** in a factory's arguments (`component: Home`), or on a JS
-  component's prop typed `Component` (`<Shell header={Title} />`). Anywhere else it is `COMPONENT_AS_VALUE`.
+  component's prop typed `Component` (`<Shell header={Title} />`). Given to any other JS call, it is checked under a root
+  of its own, with nothing above the call credited (MO-11s); applied nowhere else, it is `COMPONENT_AS_VALUE`.
 - **Each component you hand over is checked as if it were applied there:** its failures need an `errored` above
   `<Router />` (or inside the page), the contexts it uses need a `provide` above `<Router />`, and in a client-only
-  app its first load needs a `loading` above it. A `provide` or `errored` inside a layout route is not counted for
-  the routes it wraps; put it above `<Router />`.
-- **Apply the router in the module that makes it.** `export Router = createRouter(…)` is refused: export the pages
-  and make the router where you use it.
+  app its first load needs a `loading` above it.
+- **Layouts count for their nested routes** when the factory is declared `nests(children in component)`: a route
+  under a record's `children` is checked inside that record's `component`, so an `errored` or `provide` the layout
+  puts above `props.children` covers it. Without the word, put them above `<Router />`.
+- **A router can live in its own module.** `export Router = createRouter(…)` exports it; whoever applies `<Router />`
+  gets its pages' needs through its signature, so the `errored` or `provide` they need goes above `<Router />` there.
+- **Say which context a hook needs.** `export context router` names the library's context; `uses(router)` on a hook
+  makes a call with no router above it `CONTEXT_NOT_FOUND`, instead of a run-time throw, and `provides(router)` on
+  `createRouter` (or on a provider component) says where it comes from. A hook that uses a context is called once, where
+  it is bound, so `instantiates` is implied.
 - **A JS import you apply must be declared.** Without `export component X(…)` in its `.d.rx`, `<X />` is
   `UNKNOWN_COMPONENT`.
 
-Rules: `spec/09-modules.md` MO-10 and MO-11 (and MO-8 for declaration files).
+### Render props
+
+A component that calls its children for each thing it renders (a virtual list, a headless table) declares `children`
+as a function giving a `View`, and `.rx` passes a view lambda as its only child:
+
+```rx
+// virtual.d.rx
+export component VirtualList(props: { items: any[]; height?: number; children: (item: any, index: number) => View })
+```
+
+```rx
+<VirtualList items={rows} height={300}>
+  {view (row, i) {
+    mark = i == picked ? " ✓" : ""
+    <button onClick={() => { picked := i }}>{row}{mark}</button>
+  }}
+</VirtualList>
+```
+
+`row` and `i` are what the component passes on each call. The body is checked as the component's children are: a
+failure in it needs an `errored` above `<VirtualList>`, a context it uses a `provide` above it. With the component's
+`.d.ts`, `rx-tsc` types `row` from `items`.
+
+### Typed params
+
+A page declares the params it reads as a prop, and the route table names it through the router's `defineRoute`, whose
+type gives each route's component the params its path supplies:
+
+```rx
+// router.d.rx: the router's own types, and defineRoute's type parameter, as TypeScript text
+export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
+export type RouteDefinition = import("@solidjs/router").RouteDefinition
+export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition forwards
+```
+
+```rx
+component Person(props: { params: { id: string } }) {
+  person = await fetchPerson(props.params.id)        // id: string, not string | undefined
+  …
+}
+Router = createRouter({ routes: [defineRoute({ path: "/people/:id", component: Person })] })
+```
+
+`rx-tsc` reads a JS module's types from its `.d.ts` when it has one (else from its `.d.rx`), so for the router's own
+inference put one beside the re-export (`router.d.ts`: `export { createRouter, defineRoute, … } from "@solidjs/router"`).
+Then `rx-tsc` refuses
+`defineRoute({ path: "/people", component: Person })` on that line: `/people` has no `id`. Write
+`defineRoute(…)` inside the `createRouter({ … })` call: bound on its own, it is not part of a route table the checker can
+see, so its component is checked under a root of its own (MO-11s), with no `errored`, `loading` or `provide` from above
+`<Router />`. Under a router declared `nests(…)` (MO-11i), a child route is typed from its whole path, its parents' joined
+in front, so it sees their params.
+
+### Typed search params
+
+A page can't import `paths` from the module that makes the router (that module imports the page). Put the route
+definitions in a module of their own and build the typed paths from them:
+
+```rx
+// defs.rx: no pages here
+export people = defineRoute({ path: "/people", search: pageSearch })   // pageSearch: `export const` in a .d.rx
+export paths = pathsOf([people])                                        // router.js: createRouter({ routes }).paths
+
+// pages.rx
+[search, setSearch] = useSearchParams(peek paths.people)                // search.page: number, from the schema
+
+// main.rx
+Router = createRouter({ routes: [{ ...(peek people), component: People }] })
+```
+
+Rules: `spec/09-modules.md` MO-10, MO-11 and MO-12 (and MO-8 for declaration files).

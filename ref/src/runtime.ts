@@ -90,7 +90,7 @@ type CtxBinding = { context: Extract<Decl, { k: "context" }>; home: Region; dflt
 type Binding = Node | { constant: unknown } | CtxBinding | { fn: FnDecl; home: Region } | { comp: CompDecl; home: Region } | { action: ActionDecl; home: Region };   // home: the declaring region — bodies resolve names there (lexical, RG-7a; across modules, MO-6)
 /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
 /** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
-type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[] };
+type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[]; env?: Map<string, unknown> };   // env: the scope a turn of a loop runs in (07 §5), and the blocks inside it; absent: the run's
 type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; caught?: Extract<Expr, { k: "catch" }> | null; result?: unknown; returned?: boolean; settle?: { flight: Flight; name: string } };   // settle: a server function's body — its end settles the call (12 SF-7b)
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
@@ -109,7 +109,7 @@ export class Region {
     this.parent?.children.delete(this);
   }
 }
-type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void; last: unknown[] };
+type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void; last: unknown[]; erred?: boolean };
 type Write = { node: Node; path: (string | number)[]; value: unknown };
 
 // view instances: structure has a committed and an in-flight version (H-2, H-8)
@@ -378,7 +378,9 @@ export class Runtime {
       const settled = e.computes.every(c => !(c.value instanceof PendingVal) && ![...c.taint].some(t => this.openChanges.has(this.find(t))) && !this.laneHeld(c));   // E-12: an error is an answer; D-34: a corrected guess's effects wait for the commit, as its views do
       const differs = (c: Node, i: number) => { if (!e.ran) return true; const d = new Set<Path>(); diffPaths(e.last[i], c.value, "", d); return d.size > 0; };
       const fire = settled && (!e.ran || e.computes.some((c, i) => c.changedSinceCommit && differs(c, i)));   // EF-2: a value differing from the one last received (pending → equal is not a change)
-      if (!fire) continue;
+      if (settled && e.computes.some(c => c.value instanceof ErrVal)) { if (fire) e.erred = true; continue; }   // EF-2a: a failed input doesn't fire the apply; the next answer does
+      if (!fire && !(settled && e.erred)) continue;
+      e.erred = false;
       for (const c of e.computes) c.changedSinceCommit = false;
       e.last = e.computes.map(c => c.value);
       e.cleanup?.(); e.cleanup = undefined; e.ran = true;
@@ -1035,14 +1037,14 @@ export class Runtime {
   }
   private resume(run: Run): unknown {
     return this.untracked(() => {
-      const { region, env } = run;
+      const { region } = run; let env = run.env;                          // the scope of the statement running: the run's, or a loop's turn's (07 §5)
       const prev = this.currentRun; this.currentRun = run;
       /** AC-7: unwind to the nearest `try` with a catch; none → the run ends rejected (an uncaught throw is the action's rejection, DV-2). */
       const raise = (err: unknown): boolean => {
         while (run.frames.length) {
           const f = run.frames.pop()!;
-          if (f.kind === "try" && f.handler && isA(err, f.catchClasses)) { if (f.catchName) env.set(f.catchName, err); run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin }); return true; }   // R-f-6: a typed catch takes its classes; others pass
-          if (f.kind === "try" && f.fin) { run.frames.push({ stmts: f.fin, i: 0, kind: "finally" }); }   // a finally runs on the way out; the error continues after it (approximation: it runs now, then unwinding resumes)
+          if (f.kind === "try" && f.handler && isA(err, f.catchClasses)) { if (f.catchName) (f.env ?? run.env).set(f.catchName, err); run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin, env: f.env }); return true; }   // R-f-6: a typed catch takes its classes; others pass
+          if (f.kind === "try" && f.fin) { run.frames.push({ stmts: f.fin, i: 0, kind: "finally", env: f.env }); }   // a finally runs on the way out; the error continues after it (approximation: it runs now, then unwinding resumes)
         }
         this.endRun(run, true, err); return false;
       };
@@ -1056,14 +1058,15 @@ export class Runtime {
           return true;
         };
         if (run.flight) {                                                  // resuming after `await`
+          env = run.frames[run.frames.length - 1]?.env ?? run.env;
           const f = run.flight; const bind = run.bind, c = run.caught; run.flight = null; run.bind = null; run.caught = null;
           if (!land(bind, c, f.state !== "rejected", f.value)) return undefined;
         }
         while (run.frames.length) {
-          const f = run.frames[run.frames.length - 1];
+          const f = run.frames[run.frames.length - 1]; env = f.env ?? run.env;
           if (f.i >= f.stmts.length) {                                     // a block ended
             run.frames.pop();
-            if ((f.kind === "try" || f.kind === "catch") && f.fin) run.frames.push({ stmts: f.fin, i: 0, kind: "finally" });
+            if ((f.kind === "try" || f.kind === "catch") && f.fin) run.frames.push({ stmts: f.fin, i: 0, kind: "finally", env: f.env });
             continue;
           }
           const s = f.stmts[f.i++];
@@ -1082,8 +1085,9 @@ export class Runtime {
             if (s.k === "let") env.set(s.name, this.ev(s.e, region, env));
             else if (s.k === "expr") run.result = this.ev(s.e, region, env);
             else if (s.k === "return") { run.result = s.e ? this.ev(s.e, region, env) : undefined; run.returned = true; run.frames.length = 0; break; }
-            else if (s.k === "sif") run.frames.push({ stmts: this.ev(s.c, region, env) ? s.t : s.f, i: 0, kind: "block" });
-            else if (s.k === "try") run.frames.push({ stmts: s.body, i: 0, kind: "try", catchName: s.catchName, catchClasses: this.classValues(s.catchClasses, region), handler: s.handler, fin: s.fin });
+            else if (s.k === "sif") run.frames.push({ stmts: this.ev(s.c, region, env) ? s.t : s.f, i: 0, kind: "block", env: f.env });
+            else if (s.k === "for") { const xs = [...(this.ev(s.e, region, env) as Iterable<unknown>)]; for (let j = xs.length - 1; j >= 0; j--) { const turn = new Map(env); turn.set(s.name, xs[j]); run.frames.push({ stmts: s.body, i: 0, kind: "block", env: turn }); } }   // 07 §5: a loop over what `e` holds now — each turn a block with a scope of its own, where its variable is bound
+            else if (s.k === "try") run.frames.push({ stmts: s.body, i: 0, kind: "try", catchName: s.catchName, catchClasses: this.classValues(s.catchClasses, region), handler: s.handler, fin: s.fin, env: f.env });
             else if (s.k === "throw") { if (!raise(this.ev(s.e, region, env))) return undefined; }
             else this.resumeStmtOnly(s, region, env);
           } catch (e) {
@@ -1105,7 +1109,7 @@ export class Runtime {
     else if (s.k === "optimistic") {
       if (!run.action) throw new RuleError("GUESS_OUTSIDE_HOLD", "a guess outside an action body");
       const n = this.nodeNamed(s.target.name, region);
-      if (!n || !(n.question || (n.kind === "eq" && !n.deferred && n.compute))) throw new RuleError("GUESS_NO_QUESTION", `${s.target.name} is not a source with a question (source x = e)`);
+      if (!n || !(n.kind === "source" || n.question || (n.kind === "eq" && !n.deferred && n.compute))) throw new RuleError("W-1", `guess on ${s.target.name}, which is neither a source nor an equation`);
       const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, env)));
       this.pendingGuesses.push({ node: n, path, value: this.ev(s.e, region, env) });
     } else if (s.k === "write") {
@@ -1213,7 +1217,7 @@ export class Runtime {
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };
         }
-        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, /^on[A-Z:]/.test(a.name) ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
+        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, (/^on[A-Z:]/.test(a.name) || a.name === "ref") ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
       }
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };

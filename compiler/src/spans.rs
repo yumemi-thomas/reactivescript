@@ -116,6 +116,11 @@ impl Spans<'_> {
                 self.stmts(t, at);
                 self.stmts(f, at);
             }
+            StmtKind::For { name, e, body } => {
+                self.word_in(at, name, "the bound name");
+                self.expr(e, at);
+                self.stmts(body, at);
+            }
             StmtKind::Try { body, handler, fin, .. } => {
                 self.stmts(body, at);
                 handler.iter().for_each(|h| self.stmts(h, at));
@@ -171,7 +176,7 @@ impl Spans<'_> {
                 sub(o);
                 sub(i);
             }
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 sub(f);
                 args.iter().for_each(&mut sub);
             }
@@ -239,6 +244,16 @@ impl Spans<'_> {
                 self.markups(t, at);
                 self.decls(f_decls, at);
                 self.markups(f, at);
+            }
+            MarkupKind::Mview { prop, params, decls, body } => {
+                if let Some(p) = prop {
+                    self.word_in(at, p, "the render prop");
+                }
+                for p in params {
+                    self.word_in(at, p, "the bound name");
+                }
+                self.decls(decls, at);
+                self.markups(body, at);
             }
             MarkupKind::Mfor { name, xs, decls, body } => {
                 self.word_in(at, name, "the bound name");
@@ -344,6 +359,10 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
                 expr(c, f);
                 t.iter().chain(e).for_each(|s| stmt(s, f));
             }
+            StmtKind::For { e, body, .. } => {
+                expr(e, f);
+                body.iter().for_each(|s| stmt(s, f));
+            }
             StmtKind::Try { body, handler, fin, .. } => body.iter().chain(handler.iter().flatten()).chain(fin.iter().flatten()).for_each(|s| stmt(s, f)),
         }
     }
@@ -360,7 +379,7 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
             ExprKind::Tpl(parts) => sub.extend(parts.iter().filter_map(|p| if let TplPart::Expr(x) = p { Some(x) } else { None })),
             ExprKind::Member { o, .. } => sub.push(o),
             ExprKind::Index { o, i, .. } => sub.extend([&**o, &**i]),
-            ExprKind::Call { f, args } => sub.extend(std::iter::once(&**f).chain(args.iter())),
+            ExprKind::Call { f, args, .. } => sub.extend(std::iter::once(&**f).chain(args.iter())),
             ExprKind::Arr(items) => sub.extend(items.iter()),
             ExprKind::Rec(fields) => sub.extend(fields.iter().map(|x| match x {
                 Field::Kv { v, .. } => v,
@@ -390,6 +409,7 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
             MarkupKind::Text(_) | MarkupKind::Style(_) => (vec![], vec![], vec![]),
             MarkupKind::Mif { c, t, t_decls, f: fm, f_decls } => (t_decls.iter().chain(f_decls).collect(), t.iter().chain(fm).collect(), vec![c]),
             MarkupKind::Mfor { xs, decls, body, .. } => (decls.iter().collect(), body.iter().collect(), vec![xs]),
+            MarkupKind::Mview { decls, body, .. } => (decls.iter().collect(), body.iter().collect(), vec![]),
             MarkupKind::Loading { on, fallback, decls, body } => (decls.iter().collect(), fallback.iter().chain(body).collect(), on.iter().collect()),
             MarkupKind::Errored { fallback, decls, body, .. } => (decls.iter().collect(), fallback.iter().chain(body).collect(), vec![]),
             MarkupKind::Portal { to, decls, body } => (decls.iter().collect(), body.iter().collect(), to.iter().collect()),

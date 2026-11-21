@@ -1,0 +1,9 @@
+I built the issue desk in `/tmp/claude-0/runs/r15/desk9-rx-opus-1/src`. `main.rx` holds the tabs, the open-issue count and what a related hit passes to the help page. `issues.rx` holds the issues data and actions at module level, with the assign, rename, close, post and label writes kept in their own guess lists and laid over the server's answers. `IssuesPage.rx`, `HelpPage.rx` and `SettingsPage.rx` are the three pages. The 30 visible tests pass, and so do 13 extra tests I wrote for declines, errors, retries, the count across pages and two assigns where one is declined; I then put the original `tests/visible.mjs` back.
+
+Things I was unsure about:
+- **Reloading the issues page:** reopening it bumps a counter that the list's question reads, so it loads again.
+- **Detail errors:** each is tagged with its issue's id, so a decline that arrives after you select another issue doesn't show on the wrong one.
+- **Text inputs:** the title is trimmed before a rename and labels are trimmed before adding; comments are sent as typed.
+- **Same tab:** clicking the tab of the page already open does nothing.
+
+The browser logs one 404 for a missing resource in every run; I didn't track down what it is.

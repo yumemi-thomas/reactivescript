@@ -1,0 +1,472 @@
+// Sprint board: two pages behind a tab bar. Each write is shown at once and its reply lands
+// later; the reply's action undoes the change when the server declined it. Replies echo what
+// the undo needs. A page's state is dropped when the page is left (`leave`).
+routes nav
+  tab board "/"
+  tab archive "/archive"
+
+shape Card
+  id: number
+  title: string
+  done: number
+  total: number
+
+shape CardsLoad
+  cards: Card[]
+  error: string
+
+shape Tile
+  id: number
+  title: string
+  column: string
+  done: number
+  total: number
+  adding: bool
+
+shape Item
+  id: number
+  text: string
+  done: bool
+
+shape ItemsLoad
+  items: Item[]
+  error: string
+
+shape Line
+  id: number
+  text: string
+  done: bool
+  adding: bool
+
+shape Archived
+  id: number
+  title: string
+
+shape ArchivedLoad
+  items: Archived[]
+  error: string
+
+shape MoveReply
+  ok: bool
+  error: string
+  id: number
+  fromColumn: string
+  fromIndex: number
+
+shape RetitleReply
+  ok: bool
+  error: string
+  id: number
+  previous: string
+
+shape ArchiveReply
+  ok: bool
+  error: string
+  id: number
+  column: string
+  index: number
+  title: string
+  done: number
+  total: number
+
+shape AddReply
+  ok: bool
+  error: string
+  tmp: number
+  id: number
+
+shape FlipReply
+  ok: bool
+  error: string
+  cardId: number
+  itemId: number
+  done: bool
+
+shape ItemAddReply
+  ok: bool
+  error: string
+  cardId: number
+  tmp: number
+  id: number
+
+shape RestoreReply
+  ok: bool
+  error: string
+  id: number
+  title: string
+  index: number
+
+fn tiles(xs: Card[], col: string): Tile[] = xs.map(c => Tile(id=c.id, title=c.title, column=col, done=c.done, total=c.total, adding=false))
+fn entries(xs: Item[]): Line[] = xs.map(i => Line(id=i.id, text=i.text, done=i.done, adding=false))
+fn countIn(xs: Tile[], col: string): number = xs.filter(c => c.column == col).length
+fn columnOf(xs: Tile[], id: number): string = match first(xs.filter(c => c.id == id)) { case some(c) => c.column, case none => "" }
+fn indexOfCard(xs: Tile[], id: number): number = match first(xs.filter(c => c.id == id)) { case some(c) => xs.filter(d => d.column == c.column).map(d => d.id).indexOf(id), case none => -1 }
+fn titleOf(xs: Tile[], id: number): string = match first(xs.filter(c => c.id == id)) { case some(c) => c.title, case none => "" }
+fn doneOf(xs: Tile[], id: number): number = match first(xs.filter(c => c.id == id)) { case some(c) => c.done, case none => 0 }
+fn totalOf(xs: Tile[], id: number): number = match first(xs.filter(c => c.id == id)) { case some(c) => c.total, case none => 0 }
+fn spot(rest: Tile[], col: string, index: number): number = match first(rest.filter(c => c.column == col).slice(index)) { case some(c) => rest.map(d => d.id).indexOf(c.id), case none => rest.length }
+fn placed(rest: Tile[], t: Tile, col: string, index: number): Tile[] = rest.slice(0, spot(rest, col, index)).concat([t]).concat(rest.slice(spot(rest, col, index)))
+fn place(xs: Tile[], t: Tile, col: string, index: number): Tile[] = placed(xs.filter(c => c.id != t.id), Tile(t, column=col), col, index)
+fn relocate(xs: Tile[], id: number, col: string, index: number): Tile[] = match first(xs.filter(c => c.id == id)) { case some(c) => place(xs, c, col, index), case none => xs }
+fn withTitle(xs: Tile[], id: number, title: string): Tile[] = xs.map(c => c.id == id ? Tile(c, title=title) : c)
+fn bump(xs: Tile[], id: number, d: number): Tile[] = xs.map(c => c.id == id ? Tile(c, done=c.done + d) : c)
+fn bumpTotal(xs: Tile[], id: number, d: number): Tile[] = xs.map(c => c.id == id ? Tile(c, total=c.total + d) : c)
+fn setItem(xs: Line[], id: number, flag: bool): Line[] = xs.map(i => i.id == id ? Line(i, done=flag) : i)
+fn insertArch(xs: Archived[], a: Archived, index: number): Archived[] = xs.slice(0, index).concat([a]).concat(xs.slice(index))
+fn colLabel(c: string): string = c == "todo" ? "To do" : c == "doing" ? "Doing" : "Done"
+fn prevCol(c: string): string = c == "done" ? "doing" : "todo"
+fn nextCol(c: string): string = c == "todo" ? "doing" : "done"
+fn pendingOf(c: string, a: bool, b: bool, d: bool): bool = c == "todo" ? a : c == "doing" ? b : d
+fn errOf(c: string, a: string, b: string, d: string): string = c == "todo" ? a : c == "doing" ? b : d
+fn headOf(c: string, pend: bool, err: string, n: number): string = pend or err != "" ? colLabel(c) : `${colLabel(c)} (${n})`
+
+component SprintBoard
+  resource todoRes = fetchCards("todo") when nav.tab == "board" as shape CardsLoad else empty()
+  resource doingRes = fetchCards("doing") when nav.tab == "board" as shape CardsLoad else empty()
+  resource doneRes = fetchCards("done") when nav.tab == "board" as shape CardsLoad else empty()
+  resource checklistRes = fetchChecklist(sel) when sel != 0 as shape ItemsLoad else empty()
+  resource archRes = fetchArchived() when nav.tab == "archive" as shape ArchivedLoad else empty()
+
+  state cards = []
+  state ready = false
+  state tmp = 0
+  state sel = 0
+  state newCard = ""
+  state titleDraft = ""
+  state itemDraft = ""
+  state moveErr = ""
+  state addErr = ""
+  state renameErr = ""
+  state itemErr = ""
+  state archErr = ""
+  state restoreErr = ""
+  state items = []
+  state itemsFor = 0
+  state arch = []
+  state archReady = false
+
+  mutation movedCard as shape MoveReply queue then movedDone
+  mutation retitled as shape RetitleReply queue then retitledDone
+  mutation archivedCard as shape ArchiveReply queue then archivedDone
+  mutation addedCard as shape AddReply queue then addedDone
+  mutation flipped as shape FlipReply queue then flippedDone
+  mutation itemAdded as shape ItemAddReply queue then itemAddedDone
+  mutation restored as shape RestoreReply queue then restoredDone
+
+  derive colNames = ["todo", "doing", "done"]
+  derive resCards = tiles(todoRes.cards, "todo").concat(tiles(doingRes.cards, "doing")).concat(tiles(doneRes.cards, "done"))
+  derive shown = ready ? cards : resCards
+  derive pendT = pending(todoRes)
+  derive pendD = pending(doingRes)
+  derive pendN = pending(doneRes)
+  derive loaded = not pendT and not pendD and not pendN and todoRes.error == "" and doingRes.error == "" and doneRes.error == ""
+  derive doingCount = countIn(shown, "doing")
+  derive selList = shown.filter(c => c.id == sel and not c.adding)
+  derive itemsShown = itemsFor == sel ? items : entries(checklistRes.items)
+  derive itemsLoading = itemsFor != sel and pending(checklistRes)
+  derive itemsErr = itemsFor != sel ? checklistRes.error : ""
+  derive itemsDone = itemsShown.filter(i => i.done).length
+  derive itemsTotal = itemsShown.length
+  derive archShown = archReady ? arch : archRes.items
+  derive archPend = pending(archRes)
+  derive archErrS = archRes.error
+
+  action leave()
+    ready = false
+    cards = []
+    sel = 0
+    titleDraft = ""
+    itemDraft = ""
+    newCard = ""
+    moveErr = ""
+    addErr = ""
+    renameErr = ""
+    itemErr = ""
+    archErr = ""
+    restoreErr = ""
+    items = []
+    itemsFor = 0
+    arch = []
+    archReady = false
+
+  action pick(name: string)
+    nav = select(nav, name)
+    leave()
+
+  action follow(url: string)
+    nav = go(nav, url)
+    leave()
+
+  action editNew(v: string)
+    newCard = v
+
+  action editTitle(v: string)
+    titleDraft = v
+
+  action editItem(v: string)
+    itemDraft = v
+
+  action openCard(id: number)
+    if id != sel
+      sel = id
+      titleDraft = ""
+      itemDraft = ""
+      renameErr = ""
+      itemErr = ""
+      items = []
+      itemsFor = 0
+
+  action retry(name: string)
+    if name == "todo"
+      refresh todoRes
+    else if name == "doing"
+      refresh doingRes
+    else
+      refresh doneRes
+
+  action moveTo(id: number, col: string, index: number)
+    if loaded
+      moveErr = ""
+      ready = true
+      cards = relocate(shown, id, col, index)
+      send movedCard = moveCard(id, col, index, columnOf(shown, id), indexOfCard(shown, id))
+
+  action movedDone
+    match movedCard
+      case some(r)
+        if not r.ok
+          cards = relocate(shown, r.id, r.fromColumn, r.fromIndex)
+          moveErr = r.error
+      case none
+        moveErr = moveErr
+
+  action addTile
+    if loaded and newCard.trim() != ""
+      addErr = ""
+      ready = true
+      let t = tmp - 1
+      let tx = newCard.trim()
+      tmp = t
+      cards = shown.concat([Tile(id=t, title=tx, column="todo", done=0, total=0, adding=true)])
+      newCard = ""
+      send addedCard = addCard(t, tx)
+
+  action addedDone
+    match addedCard
+      case some(r)
+        if r.ok
+          cards = shown.map(c => c.id == r.tmp ? Tile(c, id=r.id, adding=false) : c)
+        else
+          cards = shown.filter(c => c.id != r.tmp)
+          addErr = r.error
+      case none
+        addErr = addErr
+
+  action renameSel
+    if loaded and sel != 0 and titleDraft.trim() != ""
+      renameErr = ""
+      ready = true
+      cards = withTitle(shown, sel, titleDraft.trim())
+      send retitled = renameCard(sel, titleDraft.trim(), titleOf(shown, sel))
+      titleDraft = ""
+
+  action retitledDone
+    match retitled
+      case some(r)
+        if not r.ok
+          cards = withTitle(shown, r.id, r.previous)
+          renameErr = r.error
+      case none
+        renameErr = renameErr
+
+  action archiveSel
+    if loaded and sel != 0
+      archErr = ""
+      renameErr = ""
+      itemErr = ""
+      ready = true
+      send archivedCard = archiveCard(sel, columnOf(shown, sel), indexOfCard(shown, sel), titleOf(shown, sel), doneOf(shown, sel), totalOf(shown, sel))
+      cards = shown.filter(c => c.id != sel)
+      sel = 0
+      titleDraft = ""
+      items = []
+      itemsFor = 0
+
+  action archivedDone
+    match archivedCard
+      case some(r)
+        if not r.ok
+          cards = place(shown, Tile(id=r.id, title=r.title, column=r.column, done=r.done, total=r.total, adding=false), r.column, r.index)
+          archErr = r.error
+      case none
+        archErr = archErr
+
+  action flipItem(itemId: number, was: bool)
+    if sel != 0 and not itemsLoading
+      itemErr = ""
+      ready = true
+      items = setItem(itemsShown, itemId, not was)
+      itemsFor = sel
+      cards = bump(shown, sel, was ? -1 : 1)
+      send flipped = toggleItem(sel, itemId, not was)
+
+  action flippedDone
+    match flipped
+      case some(r)
+        if not r.ok
+          cards = bump(shown, r.cardId, r.done ? -1 : 1)
+          if r.cardId == sel
+            items = setItem(itemsShown, r.itemId, not r.done)
+            itemErr = r.error
+      case none
+        itemErr = itemErr
+
+  action addItemSel
+    if sel != 0 and itemDraft.trim() != "" and not itemsLoading
+      itemErr = ""
+      ready = true
+      let t = tmp - 1
+      let tx = itemDraft.trim()
+      tmp = t
+      items = itemsShown.concat([Line(id=t, text=tx, done=false, adding=true)])
+      itemsFor = sel
+      itemDraft = ""
+      cards = bumpTotal(shown, sel, 1)
+      send itemAdded = addItem(sel, tx, t)
+
+  action itemAddedDone
+    match itemAdded
+      case some(r)
+        if r.ok
+          if r.cardId == sel
+            items = itemsShown.map(x => x.id == r.tmp ? Line(x, id=r.id, adding=false) : x)
+        else
+          cards = bumpTotal(shown, r.cardId, -1)
+          if r.cardId == sel
+            items = itemsShown.filter(x => x.id != r.tmp)
+            itemErr = r.error
+      case none
+        itemErr = itemErr
+
+  action restore(id: number, title: string, index: number)
+    if not archPend and archErrS == ""
+      restoreErr = ""
+      archReady = true
+      arch = archShown.filter(a => a.id != id)
+      send restored = restoreCard(id, title, index)
+
+  action restoredDone
+    match restored
+      case some(r)
+        if not r.ok
+          arch = insertArch(archShown, Archived(id=r.id, title=r.title), r.index)
+          restoreErr = r.error
+      case none
+        restoreErr = restoreErr
+
+  view
+    main navigationKey=`${top(nav).id}` navigate=follow testId="app" width="100%" height="100%"
+      display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        if nav.tab == "board"
+          scroll flex=1 min-height=0 padding=16 testId="board"
+            column gap=16
+              text "Sprint board" role="heading" aria-level=1
+              row gap=12 align-items="flex-start" flex-wrap="wrap"
+                for name in colNames key=name
+                  column testId=`col-${name}` flex=1 min-width="12rem" gap=8
+                    text headOf(name, pendingOf(name, pendT, pendD, pendN), errOf(name, todoRes.error, doingRes.error, doneRes.error), countIn(shown, name)) role="heading" aria-level=2 testId=`head-${name}`
+                    if pendingOf(name, pendT, pendD, pendN)
+                      text "loading"
+                    else if errOf(name, todoRes.error, doingRes.error, doneRes.error) != ""
+                      text `error: ${errOf(name, todoRes.error, doingRes.error, doneRes.error)}` testId=`err-${name}`
+                      button press=retry(name) testId=`retry-${name}`
+                        text "Retry"
+                    else
+                      for c, i in shown.filter(x => x.column == name) key=c.id
+                        row gap=4 align-items="center"
+                          if c.adding
+                            text `${c.title} (adding…)` testId="card"
+                          else
+                            button press=openCard(c.id) testId="card"
+                              text `#${c.id} ${c.title} · ${c.done}/${c.total}`
+                          if not c.adding and name != "todo"
+                            button testId="left" press=moveTo(c.id, prevCol(name), countIn(shown, prevCol(name))) disabled=(not loaded or (name == "done" and doingCount >= 3))
+                              text "left"
+                          if not c.adding and name != "done"
+                            button testId="right" press=moveTo(c.id, nextCol(name), countIn(shown, nextCol(name))) disabled=(not loaded or (name == "todo" and doingCount >= 3))
+                              text "right"
+                          if not c.adding and i > 0
+                            button testId="up" press=moveTo(c.id, name, i - 1) disabled=(not loaded)
+                              text "up"
+                          if not c.adding and i < countIn(shown, name) - 1
+                            button testId="down" press=moveTo(c.id, name, i + 1) disabled=(not loaded)
+                              text "down"
+                    if name == "todo"
+                      row gap=8 align-items="center"
+                        input value=newCard input=editNew submit=addTile placeholder="New card" aria-label="New card" testId="new-card" flex=1 min-width=0
+                        button press=addTile disabled=(newCard.trim() == "" or not loaded) testId="add-card"
+                          text "Add"
+                      if addErr != ""
+                        text `add error: ${addErr}` testId="add-error"
+              if moveErr != ""
+                text `move error: ${moveErr}` testId="move-error"
+              if archErr != ""
+                text `archive error: ${archErr}` testId="archive-error"
+              column testId="detail" gap=8
+                if selList.length == 0
+                  text "select a card"
+                for c in selList key=c.id
+                  column gap=8
+                    text `#${c.id} ${c.title}` role="heading" aria-level=2
+                    text `in ${colLabel(c.column)}`
+                    row gap=8 align-items="center"
+                      input value=titleDraft input=editTitle submit=renameSel placeholder="Title" aria-label="Title" testId="title-input" flex=1 min-width=0
+                      button press=renameSel testId="rename"
+                        text "Rename"
+                    if renameErr != ""
+                      text `rename error: ${renameErr}` testId="rename-error"
+                    button press=archiveSel testId="archive"
+                      text "Archive"
+                    column testId="checklist" gap=4
+                      if itemsLoading
+                        text "loading checklist"
+                      else if itemsErr != ""
+                        text `checklist error: ${itemsErr}`
+                      else
+                        for it in itemsShown key=it.id
+                          row gap=8 align-items="center"
+                            text (it.adding ? `[ ] ${it.text} (adding…)` : it.done ? `[x] ${it.text}` : `[ ] ${it.text}`) testId="item"
+                            if not it.adding
+                              button press=flipItem(it.id, it.done) testId="toggle"
+                                text "toggle"
+                      if not itemsLoading and itemsErr == ""
+                        text `${itemsDone}/${itemsTotal} done` testId="progress"
+                    if itemErr != ""
+                      text `item error: ${itemErr}` testId="item-error"
+                    row gap=8 align-items="center"
+                      input value=itemDraft input=editItem submit=addItemSel placeholder="Add an item" aria-label="New item" testId="item-input" flex=1 min-width=0
+                      button press=addItemSel disabled=(itemDraft.trim() == "" or itemsLoading) testId="add-item"
+                        text "Add"
+        else
+          scroll flex=1 min-height=0 padding=16 testId="archive"
+            column gap=12
+              text "Archive" role="heading" aria-level=1
+              column testId="archived" gap=4
+                if archPend
+                  text "loading archive"
+                else if archErrS != ""
+                  text `archive error: ${archErrS}`
+                else
+                  for a, i in archShown key=a.id
+                    row gap=8 align-items="center"
+                      text `#${a.id} ${a.title}` testId="archived-card"
+                      button press=restore(a.id, a.title, i) testId="restore"
+                        text "restore"
+              if restoreErr != ""
+                text `restore error: ${restoreErr}` testId="restore-error"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-selected=(nav.tab == "board") press=pick("board") testId="tab-board" flex=1
+          text "Board"
+        button role="tab" aria-selected=(nav.tab == "archive") press=pick("archive") testId="tab-archive" flex=1
+          text "Archive"

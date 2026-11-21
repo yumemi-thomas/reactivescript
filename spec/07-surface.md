@@ -54,6 +54,13 @@ export component Profile(props: { id: number }) { … }
   variable shared across requests. Module state lives as long as the app
   and there is one of it: state for a subtree, a route or an instance
   belongs in a component, shared down through a context (RG-7).
+- **§1a An import for its effect** (proposed 2026-11-19).
+  `import "./styles.css"` or `import "@fontsource/inter"` imports a module
+  for what loading it does: a stylesheet a UI kit ships, a polyfill, a
+  font. It binds nothing, needs no declaration file, and the compiled
+  module imports it as written (a bundler loads the stylesheet). An `.rx`
+  module is imported for what it exports, never this way (`PARSE`).
+  S-module-24; `examples/kobalte`.
 - `export` works on `component`, `fn`, `action`, `error`, `type`, and
   module-level sources and equations (exported as accessors — a module
   boundary is a value boundary, never a write boundary: W-1 holds across
@@ -105,7 +112,30 @@ Removed (unwritable, bin U): assignment and update operators (`=`, `+=`,
 `++`, …), `delete`, `new` on reactive values, `this`, `function`
 expressions, `async`/generators, `?.` on a probe. Arrow functions are
 allowed and are reactive (lifted) in reactive scope, imperative in
-imperative scope (SC-3).
+imperative scope (SC-3). An arrow's parameter may carry a TypeScript type
+(`(v: string) => …`, proposed 2026-11-19): it is TypeScript's alone,
+checked in the projection (13 TY-1) and dropped from the JavaScript, for
+a library that types what it passes as `unknown`. `:=` after a name is a
+write, never a type. A call may carry TypeScript type arguments
+(`createStore<Todos>({ items: [] })`, proposed 2026-11-20): a balanced
+`<…>` written right after the callee, with no space, and followed
+directly by `(`, they are TypeScript's alone too, for a generic whose
+argument leaves nothing to infer (`[]` would be `never[]`). The list may
+span lines (revised 2026-11-21), so a formatter that breaks a long type
+does not change what the call is; `a < b`, with a space, stays a
+comparison. What the brackets hold must be TypeScript type arguments from
+end to end (revised 2026-11-21, after a second review): a comma-separated
+list that TypeScript's type grammar consumes completely — references with
+their own arguments, unions and intersections, indexed access, arrays and
+tuples, object types (members ending at `,`, `;` or a line break), function
+and constructor types, conditional types, `keyof`, `typeof`, `infer`,
+literal types (a `-` only before a number) and template literal types
+(each `${…}` a type itself). Anything else is comparisons, as TypeScript
+falls back to them: `a<b && c>(d)`, `a<b + c>(d)`, `a<b ? c : d>(d)` and
+`a<b[c+1]>(d)` (an index holding an addition is not an indexed access
+type), ``a<`x${c+1}`>(d)`` and `a<-"1">(d)` are all `a < …` compared with `(d)` (S-surface-7). The decision no
+longer rests on a list of operators a type never has, which could miss an
+expression inside brackets.
 
 Added:
 
@@ -128,7 +158,7 @@ Added:
 | `use name` | the nearest provision above (a unary form: `(use x) == y`) | RG-7 |
 | `type T = …` | a TS type declaration, kept as text | — |
 | `throw e` | a failure, in either scope: `x > 0 ? x : throw BadInput(x)` (TC39's throw expression) | R-f-3 |
-| `e catch (x: A \| B) => alt` | `alt` when `e` fails with `A` or `B`; `catch (x) =>` takes every class; looser than `?:` | R-f-4 |
+| `await e catch (x: A \| B) => alt` | `alt` is the answer when the promise rejects with `A` or `B`; `catch (x) =>` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
 
 `await` may appear anywhere in an expression of reactive scope — an
 equation, a reader `{…}`, an attribute or prop, an `if` condition, a `for`
@@ -192,6 +222,15 @@ attributes are equations, children are readers, components are applied as
   only panics (R-f-10) — the root boundary that leaves every failure to the
   panes.
 
+- **`ref` (proposed 2026-11-18).** `<div ref={el => { scroller := el }}>`:
+  Solid calls an element's `ref` once, with the element it made, so its
+  closure is a handler's (imperative scope, SC-4): it may write a source.
+  That is how an element reaches a JS library, through a callback that reads
+  the source (`getScrollElement: () => scroller`, 09 MO-10g). S-module-15.
+  This is an element's attribute only (revised 2026-11-21): a `ref` passed
+  to a component is a prop, which the component calls when it likes, and is
+  read as the component's declaration says (09 MO-10g, S-module-28).
+
 ## 5. Imperative scope (02 SC-2, 06 AC)
 
 Imperative scope is: an `effect`'s apply block, an `action` body, and any
@@ -226,13 +265,28 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   compose (W-6).
 - `let` (or `const`) declares an imperative local; `if (c) { … } else { … }`,
   `return`, `try { … } catch (e) { … } finally { … }`, `throw e` and
-  expression statements are allowed (`for`/`while`: not yet in `ref/`);
+  expression statements are allowed, and the loop `for (const x of e) { …
+  }` (below; `while`: not yet in `ref/`);
   reads of reactive names are snapshots of σ (H-10, SC-2), and a snapshot of
   a failing value throws (R-f-7). A rejected `await` throws at the `await`;
   a catch inside an action is still the action's change (AC-7).
   `catch (e: A | B)` takes those classes and rethrows the rest.
   `let r = await save(x) catch (e: Offline) => null` is the statement form
   of the same: a `try` around the `await` whose catch gives `r` (S-await-1).
+- **The loop** (ruled 2026-11-22). `for (const x of e) { … }` runs its
+  block once for each value `e` holds when the loop starts, `x` a constant
+  of that turn (`let` is read as `const`: a local is never reassigned). It
+  is JavaScript's `for … of`, and compiles to it. Being a statement, its
+  body is the scope it is written in — the same run, the same change, the
+  same `return` — which a closure handed to `forEach` is not: the body may
+  `await` in an action (a hold-safe suspension, AC-1), end the run with
+  `return`, and name what a closure may not capture, a library's draft (09
+  MO-10i: `for (const t of d.items) { t.done := true }`). The run's
+  checks read a loop as a body that may not run, run once, or run again
+  over what its last turn wrote: `for (const x of xs) { total := total +
+  x }` reads `total` after the change wrote it (`STALE_OWN_READ`, AC-1d),
+  and `total := t => t + x` composes (W-6). `for x in e` in a view is the
+  other form (§4), a region per row. S-surface-10.
 - An action catches every failure its body can produce (R-f-6): there is
   no one after the body to catch it.
 - An arrow that guesses, declares `affects`, or both writes and awaits is
@@ -543,7 +597,8 @@ Expr      ::= TSExpr with §3's removals and additions
     `createOptimistic`, which it still lowers to. A guess on state nothing
     will answer reads wrong on its face (`guess saveError := …`: the eval's
     pilot runs wrote that nine times as `optimistic`, `GUESS_NO_QUESTION`).
-    `optimistic` is not reserved: Solid's primitive keeps its name, and the
+    (A guess on a `:=` source became legal on 2026-11-20, decision 21, so
+    that misuse is now a "while it runs" value that reverts.) `optimistic` is not reserved: Solid's primitive keeps its name, and the
     keyword need not. `source` was weighed against `state`
     and `signal` the same day and kept (decision 2): `signal` reads as atomic
     beside stores, and an equation is state too.
@@ -565,3 +620,13 @@ Expr      ::= TSExpr with §3's removals and additions
     object rest `{ a, ...rest } = e` is Solid's `omit(e, "a")`, a live view
     of the other fields (`rest.b` stays `e.b`), and an array rest
     `[x, ...rest] = e` is `e.slice(1)`; in a `let`, each is a copy.
+21. **A guess may sit over a writable** (ruled 2026-11-20): `guess x := v`
+    on a source declared with `:=`, signal or store, and on a source with a
+    question that is also written plainly, by path or whole. The truth is
+    the writable: plain writes land with the action's change, and the guess
+    ends when that change commits, showing them (06 AC-3, S-guess-writable-1
+    to -3). Lowers to an optimistic layer derived from the writable
+    (`createOptimistic(() => truth())`, `createOptimisticStore(() => truth,
+    seed)`). Re-asking after a save (`refresh x`) stays the absolute form;
+    a client-owned source over one fetch, written by the action after the
+    server accepts, is the same layering with the client keeping the truth.

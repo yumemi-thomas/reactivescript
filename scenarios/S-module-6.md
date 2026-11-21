@@ -1,6 +1,6 @@
 # S-module-6 — a router: a component factory, its route table, its hooks, and per-route data
 
-Rules: MO-11d, MO-11e, MO-11f, DV-24, MO-10a, MO-10b, MO-10c, R-f-5, RG-7b, R-io-3.
+Rules: MO-11d, MO-11e, MO-11f, MO-11s, DV-24, MO-10a, MO-10b, MO-10c, R-f-5, RG-7b, R-io-3.
 
 ## Modules
 
@@ -110,30 +110,20 @@ provided, but the checker does not know that: both are checked as children
 of `<Router />`. Providing `theme` above `<Router />` is accepted.
 
 ```rx
--- reject: COMPONENT_AS_VALUE
-import { createRouter } from "@solidjs/router"
-component Home() { <h1>Home</h1> }
-export Router = createRouter({ routes: [{ path: "/", component: Home }] })
-export default component App() {
-  <Router />
-}
-```
-
-A component a factory made is applied in its own module, where the checker
-knows what it was given (MO-11f).
-
-```rx
--- reject: COMPONENT_AS_VALUE
+-- reject: CONTEXT_NOT_FOUND
 import { useParams } from "@solidjs/router"
-component Home() { <h1>Home</h1> }
+import { theme, Swatch } from "./theme.rx"
 export default component App() {
-  params = useParams(Home)
+  provide theme = "dark"
+  params = useParams(Swatch)
   <p>{params.id}</p>
 }
 ```
 
-Only a function declared to hand back a `Component` takes components in its
-arguments.
+A function that is not a factory, and says nothing of where it renders
+what it is given, is assumed to render it under a root of its own (MO-11s):
+`theme`, provided above the call, does not reach `Swatch` there. (That
+`useParams` takes no component at all is a type error, rx-tsc's.)
 
 ```rx
 -- reject: IO_IN_REACTIVE

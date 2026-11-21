@@ -1,0 +1,14 @@
+{
+  "name": "rx-kobalte-example",
+  "private": true,
+  "type": "module",
+  "description": "Kobalte's Dialog (2.0 alpha) from .rx: compound parts as dotted tags (spec/09 MO-11q), the stylesheet imported for its effect (07 §1a). Built and driven by compiler/test/kobalte.mjs.",
+  "dependencies": {
+    "@kobalte/core": "2.0.0-alpha.4",
+    "solid-js": "2.0.2",
+    "@solidjs/web": "2.0.2",
+    "@solidjs/signals": "2.0.2",
+    "vite": "8.1.5",
+    "@solidjs/vite-plugin": "3.0.1"
+  }
+}

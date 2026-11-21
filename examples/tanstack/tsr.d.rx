@@ -1,0 +1,12 @@
+// @tanstack/solid-router 2.0 (rc) in rows. Its hooks read the router's context (they warn, not throw, without one).
+// A route carries the components it is given (MO-11o): the router renders them under <RouterProvider>, which renders
+// what its `router` prop carries; a child route renders at its parent's <Outlet /> (MO-11p).
+export context router
+export pure fn createRootRoute(options: { component?: Component }): any renders(later) methods(addChildren)
+export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) methods(addChildren) nests(component under getParentRoute)
+export pure fn createRouter(options: { routeTree: any }): any instantiates
+export component RouterProvider(props: { router: renders any }) provides(router)
+export component Outlet(props: {}) uses(router) outlet
+export component Link(props: { to: string; params?: any; children?: View }) uses(router)
+export pure fn useParams(opts: { from: string }): ref any uses(router)
+export pure fn useNavigate(): (opts: { to: string; params?: any }) => void uses(router)

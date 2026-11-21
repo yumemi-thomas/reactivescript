@@ -1,0 +1,164 @@
+import { Card } from "./api"
+import {
+  Shown, Placeholder, todoCards, doingCards, doneCards, addingCards, todoTry, doingTry, doneTry,
+  selected, selCard, selCol, items, progress, mint,
+  moveError, addError, archiveError, renameError, itemError,
+  retry, select, move, addNewCard, rename, archive, toggle, addNewItem,
+} from "./board.rx"
+
+// reports how many cards a column shows while it shows them; -1 once it stops
+component Count(props: { n: number; onCount: (n: number) => void }) {
+  effect (props.n) {
+    props.onCount($0)
+    return () => { props.onCount(-1) }
+  }
+  <span hidden></span>
+}
+
+component Column(props: {
+  col: string; label: string; cards: Shown[]; tries: number; adding: Placeholder[];
+  prev: string; next: string; prevN: number; nextN: number; prevOff: boolean; nextOff: boolean;
+  onCount: (n: number) => void; onPick: (id: number) => void; children: View
+}) {
+  <div class="col" data-testid={`col-${props.col}`}>
+    {loading on(props.tries) fallback {
+      <h2 data-testid={`head-${props.col}`}>{props.label}</h2>
+      <p>loading</p>
+    } {
+      {errored fallback(e) {
+        <h2 data-testid={`head-${props.col}`}>{props.label}</h2>
+        <p class="error" role="alert">{`error: ${e.message}`}</p>
+        <button data-testid={`retry-${props.col}`} onClick={() => { retry(props.col) }}>retry</button>
+      } {
+        <h2 data-testid={`head-${props.col}`}>{`${props.label} (${props.cards.length + props.adding.length})`}</h2>
+        <Count n={props.cards.length} onCount={props.onCount} />
+        <ul class="cards">
+          {for c in props.cards {
+            i = props.cards.findIndex(x => x.id == c.id)
+            last = props.cards.length - 1
+            <li class="card-row">
+              <span class="card" data-testid="card" onClick={() => { props.onPick(c.id) }}>{`#${c.id} ${c.title} · ${c.done}/${c.total}`}</span>
+              {if props.prev != "" {
+                <button data-testid="left" aria-label="move left" disabled={props.prevOff}
+                  onClick={() => { if (!props.prevOff) { move(c.id, props.col, props.prev, props.prevN, c.raw) } }}>←</button>
+              }}
+              {if i > 0 {
+                <button data-testid="up" aria-label="move up" onClick={() => { move(c.id, props.col, props.col, i - 1, c.raw) }}>↑</button>
+              }}
+              {if i < last {
+                <button data-testid="down" aria-label="move down" onClick={() => { move(c.id, props.col, props.col, i + 1, c.raw) }}>↓</button>
+              }}
+              {if props.next != "" {
+                <button data-testid="right" aria-label="move right" disabled={props.nextOff}
+                  onClick={() => { if (!props.nextOff) { move(c.id, props.col, props.next, props.nextN, c.raw) } }}>→</button>
+              }}
+            </li>
+          }}
+          {for p in props.adding {
+            <li class="card-row adding">
+              <span class="card" data-testid="card">{`${p.title} (adding…)`}</span>
+            </li>
+          }}
+        </ul>
+      }}
+    }}
+    {props.children}
+  </div>
+}
+
+component Detail(props: { card: Shown; col: string }) {
+  source titleDraft: string := ""
+  source itemDraft: string := ""
+  <div class="detail-card">
+    <h3>{`#${props.card.id} ${props.card.title}`}</h3>
+    <p>{`in ${props.col}`}</p>
+    <div class="row">
+      <input data-testid="title-input" aria-label="new title" value={titleDraft} onInput={(e) => { titleDraft := e.target.value }} />
+      <button data-testid="rename" onClick={() => {
+        let t = titleDraft.trim()
+        if (t != "") { rename(props.card.id, t) }
+      }}>rename</button>{" "}
+      <button data-testid="archive" onClick={() => { archive(props.card.id) }}>archive</button>
+    </div>
+    {if renameError != "" { <p class="error" role="alert">{`rename error: ${renameError}`}</p> }}
+    <div data-testid="checklist">
+      {loading on(props.card.id) fallback { <p>loading checklist</p> } {
+        {errored fallback(e) { <p class="error" role="alert">{`checklist error: ${e.message}`}</p> } {
+          <ul class="items">
+            {for it in items {
+              <li>
+                <span data-testid="item">{`${it.done ? "[x]" : "[ ]"} ${it.text}${it.adding ? " (adding…)" : ""}`}</span>
+                {if !it.adding {
+                  {" "}
+                  <button data-testid="toggle" onClick={() => { toggle(props.card.id, it.id, !it.done, it.done ? -1 : 1) }}>toggle</button>
+                }}
+              </li>
+            }}
+          </ul>
+          <p data-testid="progress">{progress}</p>
+        }}
+      }}
+    </div>
+    <div class="row">
+      <input data-testid="item-input" aria-label="new item" value={itemDraft} onInput={(e) => { itemDraft := e.target.value }} />
+      <button data-testid="add-item" onClick={() => {
+        let t = itemDraft.trim()
+        if (t != "") {
+          let k = mint - 1
+          onFlush(() => { itemDraft := "" })
+          addNewItem(k, props.card.id, t)
+        }
+      }}>add item</button>
+    </div>
+    {if itemError != "" { <p class="error" role="alert">{`item error: ${itemError}`}</p> }}
+  </div>
+}
+
+export component BoardPage() {
+  source cardDraft: string := ""
+  source todoN: number := -1
+  source doingN: number := -1
+  source doneN: number := -1
+  wipFull = doingN >= 3
+  // the selected card, one row: a new selection is a new detail (fresh inputs)
+  picked: Shown[] key id = selCard == null ? [] : [selCard]
+
+  <section class="board">
+    {if moveError != "" { <p class="error" data-testid="move-error" role="alert">{`move error: ${moveError}`}</p> }}
+    {if archiveError != "" { <p class="error" data-testid="archive-error" role="alert">{`archive error: ${archiveError}`}</p> }}
+    <div class="columns" style="display:flex;gap:16px;align-items:flex-start">
+      <Column col="todo" label="To do" cards={todoCards} tries={todoTry} adding={addingCards}
+        prev="" next="doing" prevN={-1} nextN={doingN} prevOff={true} nextOff={doingN < 0 || wipFull}
+        onCount={n => { todoN := n }} onPick={id => { select(id) }}>
+        <div class="row">
+          <input data-testid="new-card" aria-label="new card title" value={cardDraft} onInput={(e) => { cardDraft := e.target.value }} />
+          <button data-testid="add-card" onClick={() => {
+            let t = cardDraft.trim()
+            if (t != "") {
+              let k = mint - 1
+              onFlush(() => { cardDraft := "" })
+              addNewCard(k, t)
+            }
+          }}>add card</button>
+        </div>
+        {if addError != "" { <p class="error" data-testid="add-error" role="alert">{`add error: ${addError}`}</p> }}
+      </Column>
+      <Column col="doing" label="Doing" cards={doingCards} tries={doingTry} adding={[]}
+        prev="todo" next="done" prevN={todoN} nextN={doneN} prevOff={todoN < 0} nextOff={doneN < 0}
+        onCount={n => { doingN := n }} onPick={id => { select(id) }}>
+        {""}
+      </Column>
+      <Column col="done" label="Done" cards={doneCards} tries={doneTry} adding={[]}
+        prev="doing" next="" prevN={doingN} nextN={-1} prevOff={doingN < 0 || wipFull} nextOff={true}
+        onCount={n => { doneN := n }} onPick={id => { select(id) }}>
+        {""}
+      </Column>
+    </div>
+    <aside class="detail" data-testid="detail">
+      {if selCard == null { <p>select a card</p> }}
+      {for s in picked {
+        <Detail card={s} col={selCol} />
+      }}
+    </aside>
+  </section>
+}

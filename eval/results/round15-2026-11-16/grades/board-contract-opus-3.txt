@@ -1,0 +1,18 @@
+== hidden
+✗ add-card with an empty input adds nothing
+✗ two adds show both, each taking its own id
+✗ rename with an empty title-input asks nothing
+✗ add-item with an empty input adds nothing
+41/45 passed
+== overlap
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+22/26 passed
+== fuzz
+board-contract-opus-3: 2/20 seeds found a hole
+  seed 10 step 31: count: card "#1 Alpha · 1/4", progress "2/4 done"
+    tab archive ; tab board ; add Alpha 1 ; land fetchCards:todo ; select #1 ; land fetchArchived: ; land fetchChecklist:1 ; land fetchCards:done ; add Alpha 2 ; land addCard:todo,Alpha 1 ; fail addCard:todo,Alpha 2 ; land fetchCards:doing ; land fetchCards:todo ; add Bravo 3 ; toggle 0 ; add-item ship 4 ; rename Alpha ; toggle 1 ; land renameCard:1,Alpha ; toggle 1 ; land addItem:1,ship 4 ; land 
+  seed 14 step 18: card count: card "#2 Fix login · 1/3", server 1/4 with 2 toggle(s) and 0 item add(s) of it in the air
+    add Bravo 1 ; land fetchCards:todo ; select #2 ; right #1 ; select #2 ; land addCard:todo,Bravo 1 ; fail moveCard:1,doing,0 ; down #2 ; add-item ship 2 ; land fetchCards:doing ; land fetchCards:done ; land fetchChecklist:2 ; toggle 2 ; right #3 ; select #2 ; toggle 0 ; select #4 ; land addItem:2,ship 2

@@ -1,0 +1,18 @@
+== hidden
+45/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ one of two moves declined puts back only its card
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ a move into Doing that fills it while a move out is pending disables the rest
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+18/26 passed
+== fuzz
+board-rx-opus-2: 2/20 seeds found a hole
+  seed 13 step 28: page error: (intermediate value)(intermediate value)(intermediate value)(intermediate value)(intermediate value)?.slice is not a fun
+    add Alpha 1 ; fail fetchCards:todo ; land fetchCards:done ; retry-todo ; land addCard:todo,Alpha 1 ; land fetchCards:todo ; up #2 ; up #1 ; fail fetchCards:doing ; land moveCard:1,todo,0 ; up #10 ; fail moveCard:10,todo,1 ; select #1 ; select #1 ; land fetchChecklist:1 ; land fetchCards:todo ; land moveCard:2,todo,0 ; retry-doing ; fail fetchCards:todo ; select #1 ; land fetchCards:doing ; tab
+  seed 20 step 23: heading: head-doing counts 1, the column shows 2 cards
+    add Bravo 1 ; land fetchCards:doing ; add Bravo 2 ; select #3 ; fail addCard:todo,Bravo 1 ; land fetchChecklist:3 ; land fetchCards:todo ; land fetchCards:done ; toggle 1 ; land addCard:todo,Bravo 2 ; land toggleItem:3,32,false ; fail fetchCards:todo ; retry-todo ; toggle 1 ; rename Delta ; land fetchChecklist:3 ; tab archive ; land fetchCards:doing ; tab board ; add-item docs 3 ; toggle 0 ; s

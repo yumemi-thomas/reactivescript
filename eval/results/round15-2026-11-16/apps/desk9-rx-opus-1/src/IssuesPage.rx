@@ -1,0 +1,154 @@
+import pure { search } from "./api"
+import {
+  filter, selected, issues, detail, heading, comments, shownPosting, shownLabels,
+  rowError, assignError, renameError, closeError, postError, labelError, errFor,
+  setFilter, select, retryDetail, assignTo, closeIt, renameTo, post, addLabelTo, removeLabelFrom
+} from "./issues.rx"
+
+// Reports the number of open rows on screen to the tab; lives inside the list's region.
+component OpenCount(props: { n: number; onCount: (n: number) => void }) {
+  effect (props.n) { props.onCount($0) }
+  <span hidden></span>
+}
+
+component Related(props: { title: string; onOpen: (q: string, id: number) => void }) {
+  hits = await search(props.title)
+  top = hits.slice(0, 3)
+  <div data-testid="related">
+    {loading on(props.title) fallback { <p>finding related help</p> } {
+      {errored fallback(e) { <p>related help failed: {e.message}</p> } {
+        {if top.length == 0 {
+          <p>no related help</p>
+        } else {
+          <div>
+            {for h in top {
+              <button data-testid="related-hit" onClick={() => { props.onOpen(props.title, h.id) }}>{h.name}</button>
+            }}
+          </div>
+        }}
+      }}
+    }}
+  </div>
+}
+
+export component IssuesPage(props: { onCount: (n: number) => void; onOpenHelp: (q: string, id: number) => void }) {
+  source user: string := "guest"
+  source titleText: string := ""
+  source commentText: string := ""
+  source labelText: string := ""
+
+  sel = selected ?? 0
+  assignMsg = errFor(assignError, selected)
+  renameMsg = errFor(renameError, selected)
+  closeMsg = errFor(closeError, selected)
+  postMsg = errFor(postError, selected)
+  labelMsg = errFor(labelError, selected)
+
+  <section>
+    <label>user <input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} /></label>
+    <div>
+      <button data-testid="filter-open" onClick={() => { setFilter("open") }}>open</button>{" "}
+      <button data-testid="filter-closed" onClick={() => { setFilter("closed") }}>closed</button>
+    </div>
+    {if rowError != "" { <p data-testid="row-error">row error: {rowError}</p> }}
+    <div data-testid="list">
+      {loading on(filter) fallback { <p>loading {filter} issues</p> } {
+        {errored fallback(e) { <p>list error: {e.message}</p> } {
+          {if filter == "open" { <OpenCount n={issues.length} onCount={props.onCount} /> }}
+          <ul>
+            {for it in issues {
+              <li>
+                <span data-testid="issue" onClick={() => {
+                  titleText := ""
+                  commentText := ""
+                  labelText := ""
+                  select(it.id)
+                }}>#{it.id} {it.title} ({it.assignee ?? "unassigned"})</span>{" "}
+                <button data-testid="row-assign" onClick={() => { assignTo(it.id, user, true) }}>assign to {user}</button>
+                {if filter == "open" {
+                  {" "}<button data-testid="row-close" onClick={() => { closeIt(it.id, true) }}>close</button>
+                }}
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </div>
+    <div data-testid="detail">
+      {if selected == null {
+        <p>select an issue</p>
+      } else {
+        <div>
+          {loading on(selected) fallback { <p>loading #{sel}</p> } {
+            {errored fallback(e) { <p>detail error: {e.message}</p> } {
+              <h2>#{detail.id} {heading}</h2>
+              <p>{detail.body}</p>
+              <Related title={detail.title} onOpen={props.onOpenHelp} />
+            }}
+          }}
+          <div>
+            <button data-testid="retry" onClick={() => { retryDetail() }}>retry</button>{" "}
+            <button data-testid="assign" onClick={() => { assignTo(sel, user, false) }}>assign to {user}</button>{" "}
+            <button data-testid="close" onClick={() => { closeIt(sel, false) }}>close</button>
+          </div>
+          {if assignMsg != "" { <p>{assignMsg}</p> }}
+          {if closeMsg != "" { <p>close error: {closeMsg}</p> }}
+          <div>
+            <input data-testid="title-input" value={titleText} onInput={(e) => { titleText := e.target.value }} />{" "}
+            <button data-testid="rename" onClick={() => {
+              let t = titleText.trim()
+              if (t == "") return
+              renameTo(sel, t)
+            }}>rename</button>
+          </div>
+          {if renameMsg != "" { <p>rename error: {renameMsg}</p> }}
+          <div data-testid="comments">
+            {loading on(selected) fallback { <p>loading comments</p> } {
+              {errored fallback(e) { <p>comments error: {e.message}</p> } {
+                <ul>
+                  {for c in comments { <li data-testid="comment">{c.author}: {c.text}</li> }}
+                  {for p in shownPosting { <li data-testid="comment">{p.author}: {p.text} (sending…)</li> }}
+                </ul>
+              }}
+            }}
+          </div>
+          <div>
+            <input data-testid="comment-input" value={commentText} onInput={(e) => { commentText := e.target.value }} />{" "}
+            <button data-testid="post" onClick={() => {
+              let t = commentText
+              if (t.trim() == "") return
+              onFlush(() => { commentText := "" })
+              post(sel, user, t)
+            }}>post</button>
+          </div>
+          {if postMsg != "" { <p>post error: {postMsg}</p> }}
+          <div data-testid="labels">
+            {loading on(selected) fallback { <p>loading labels</p> } {
+              {errored fallback(e) { <p>labels error: {e.message}</p> } {
+                <ul>
+                  {for l in shownLabels {
+                    <li>
+                      <span data-testid="label">{l}</span>{" "}
+                      <button data-testid="remove-label" onClick={() => { removeLabelFrom(sel, l) }}>remove {l}</button>
+                    </li>
+                  }}
+                </ul>
+                <div>
+                  <input data-testid="label-input" value={labelText} onInput={(e) => { labelText := e.target.value }} />{" "}
+                  <button data-testid="add-label" onClick={() => {
+                    let l = labelText.trim()
+                    if (l == "") return
+                    if (shownLabels.includes(l)) return
+                    onFlush(() => { labelText := "" })
+                    addLabelTo(sel, l)
+                  }}>add label</button>
+                </div>
+              }}
+            }}
+          </div>
+          {if labelMsg != "" { <p>label error: {labelMsg}</p> }}
+        </div>
+      }}
+    </div>
+  </section>
+}

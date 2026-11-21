@@ -1,0 +1,250 @@
+import pure { fetchIssues, fetchIssue, fetchComments, fetchLabels, search } from "./api"
+import { assign, renameIssue, closeIssue, addComment, addLabel, removeLabel } from "./api"
+import { IssueDetail } from "./api"
+
+// Writes in flight and accepted writes are kept apart from the server's answers, so every view of an
+// issue shows the same layered value, and nothing is lost when a question is asked again.
+type Edit = { id: number; kind: string; value: string }
+type LabelOp = { id: number; kind: string; label: string }
+type Posted = { id: number; author: string; text: string }
+
+error NotFound(id: number) => `issue #${id} not found`
+
+fn needIssue(it: IssueDetail | null, id: number): IssueDetail => it == null ? throw NotFound(id) : it
+
+fn titleOf(ls: Edit[], id: number, base: string): string =>
+  ls.reduce((t, e) => (e.id == id && e.kind == "title" ? e.value : t), base)
+
+fn assigneeOf(ls: Edit[], id: number, base: string | null): string | null =>
+  ls.reduce((a, e) => (e.id == id && e.kind == "assignee" ? e.value : a), base)
+
+fn isClosed(ls: Edit[], id: number): boolean => ls.some(e => e.id == id && e.kind == "closed")
+
+fn applyLabels(base: string[], id: number, ops: LabelOp[]): string[] =>
+  ops.reduce((acc, op) => (op.id != id ? acc : op.kind == "add" ? [...acc, op.label] : acc.filter(l => l != op.label)), base)
+
+// Reports the number of open rows on screen to the tab bar. It lives only while the open list is shown,
+// so the count keeps its last number while the list shows closed issues, loads, fails, or another page is open.
+component OpenCount(props: { n: number; onCount: (n: number) => void }) {
+  effect (props.n) { props.onCount($0) }
+  <span hidden></span>
+}
+
+export component IssuesPage(props: { onCount: (n: number) => void; onOpenHelp: (q: string, id: number) => void }) {
+  source user := "guest"
+  source filterMode := "open"
+  source sel: number := 0
+  source titleDraft := ""
+  source commentDraft := ""
+  source labelDraft := ""
+
+  // accepted client-side changes, and the writes still in flight (guesses: they end with their action)
+  source edits: Edit[] := []
+  source flight: Edit[] = []
+  source labelFlight: LabelOp[] = []
+  source pendingPosts: Posted[] = []
+
+  source rowErr := ""
+  source assignErr := ""
+  source renameErr := ""
+  source closeErr := ""
+  source postErr := ""
+  source labelErr := ""
+
+  serverIssues = await fetchIssues(filterMode)
+  layers = [...edits, ...flight]
+  visibleRows key id = serverIssues.filter(i => filterMode == "closed" || !isClosed(layers, i.id)).map(i => ({ id: i.id, title: titleOf(layers, i.id, i.title), assignee: assigneeOf(layers, i.id, i.assignee) }))
+
+  detailAns = needIssue(await fetchIssue(sel), sel)
+  relHits = await search(detailAns.title)
+  commentsAns = sel == 0 ? [] : await fetchComments(sel)
+  labelsAns = sel == 0 ? [] : await fetchLabels(sel)
+  labelsShown = applyLabels(labelsAns, sel, labelFlight)
+  postsHere = pendingPosts.filter(p => p.id == sel)
+
+  action pick(id: number) {
+    sel := id
+    titleDraft := ""
+    assignErr := ""
+    renameErr := ""
+    closeErr := ""
+    postErr := ""
+    labelErr := ""
+  }
+
+  action doAssign(id: number, who: string, origin: string) {
+    if (origin == "row") { onFlush(() => { rowErr := "" }) } else { onFlush(() => { assignErr := "" }) }
+    try {
+      guess flight := fs => [...fs, { id: id, kind: "assignee", value: who }]
+      await assign(id, who)
+      edits := es => [...es, { id: id, kind: "assignee", value: who }]
+    } catch (e) {
+      if (origin == "row") { rowErr := e.message } else { assignErr := e.message }
+    }
+  }
+
+  action doClose(id: number, origin: string) {
+    if (origin == "row") { onFlush(() => { rowErr := "" }) } else { onFlush(() => { closeErr := "" }) }
+    try {
+      guess flight := fs => [...fs, { id: id, kind: "closed", value: "yes" }]
+      await closeIssue(id)
+      edits := es => [...es, { id: id, kind: "closed", value: "yes" }]
+    } catch (e) {
+      if (origin == "row") { rowErr := e.message } else { closeErr := e.message }
+    }
+  }
+
+  action doRename(id: number, newTitle: string) {
+    onFlush(() => { renameErr := "" })
+    try {
+      guess flight := fs => [...fs, { id: id, kind: "title", value: newTitle }]
+      await renameIssue(id, newTitle)
+      edits := es => [...es, { id: id, kind: "title", value: newTitle }]
+    } catch (e) {
+      renameErr := e.message
+    }
+  }
+
+  action doPost(id: number, author: string, text: string) {
+    onFlush(() => { postErr := "" })
+    try {
+      guess pendingPosts := ps => [...ps, { id: id, author: author, text: text }]
+      await addComment(id, author, text)
+      refresh commentsAns
+    } catch (e) {
+      postErr := e.message
+    }
+  }
+
+  action doLabel(id: number, kind: string, label: string) {
+    onFlush(() => { labelErr := "" })
+    try {
+      guess labelFlight := ls => [...ls, { id: id, kind: kind, label: label }]
+      if (kind == "add") { await addLabel(id, label) } else { await removeLabel(id, label) }
+      refresh labelsAns
+    } catch (e) {
+      labelErr := e.message
+    }
+  }
+
+  <div data-testid="issues-page">
+    <label>Current user <input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} /></label>
+    <div>
+      <button data-testid="filter-open" onClick={() => { filterMode := "open" }}>open</button>{" "}
+      <button data-testid="filter-closed" onClick={() => { filterMode := "closed" }}>closed</button>
+    </div>
+    <div data-testid="list">
+      {loading on(filterMode) fallback { <p>loading {filterMode} issues</p> } {
+        errored fallback(e) { <p>list error: {e.message}</p> } {
+          <div>
+            {if filterMode == "open" { <OpenCount n={visibleRows.length} onCount={props.onCount} /> }}
+            <ul>
+              {for it in visibleRows {
+                <li>
+                  <div data-testid="issue" onClick={() => { pick(it.id) }}>#{it.id} {it.title} ({it.assignee == null ? "unassigned" : it.assignee})</div>
+                  <button data-testid="row-assign" onClick={() => { doAssign(it.id, user, "row") }}>assign to {user}</button>
+                  {if filterMode == "open" {
+                    <button data-testid="row-close" onClick={() => { doClose(it.id, "row") }}>close</button>
+                  }}
+                </li>
+              }}
+            </ul>
+          </div>
+        }
+      }}
+    </div>
+    {if rowErr != "" { <p data-testid="row-error">row error: {rowErr}</p> }}
+
+    <section data-testid="detail">
+      {if sel == 0 {
+        <p>select an issue</p>
+      } else {
+        <div>
+          <button data-testid="retry" onClick={() => { refresh detailAns }}>retry</button>
+          {loading on(sel) fallback { <p>loading #{sel}</p> } {
+            errored fallback(e) { <p>detail error: {e.message}</p> } {
+              <div>
+                <h2>#{sel} {titleOf(layers, sel, detailAns.title)}</h2>
+                <p>{detailAns.body}</p>
+                <div data-testid="related">
+                  {loading fallback { <p>finding related help</p> } {
+                    errored fallback(e) { <p>related help failed: {e.message}</p> } {
+                      {if relHits.length == 0 {
+                        <p>no related help</p>
+                      } else {
+                        <ul>
+                          {for h in relHits.slice(0, 3) {
+                            <li><button data-testid="related-hit" onClick={() => { props.onOpenHelp(detailAns.title, h.id) }}>{h.name}</button></li>
+                          }}
+                        </ul>
+                      }}
+                    }
+                  }}
+                </div>
+              </div>
+            }
+          }}
+
+          <div>
+            <button data-testid="assign" onClick={() => { doAssign(sel, user, "detail") }}>assign to {user}</button>
+            {if assignErr != "" { <p data-testid="assign-error">assign error: {assignErr}</p> }}
+          </div>
+          <div>
+            <input data-testid="title-input" value={titleDraft} onInput={(e) => { titleDraft := e.target.value }} />
+            <button data-testid="rename" onClick={() => { if (titleDraft != "") { doRename(sel, titleDraft) } }}>rename</button>
+            {if renameErr != "" { <p data-testid="rename-error">rename error: {renameErr}</p> }}
+          </div>
+          <div>
+            <button data-testid="close" onClick={() => { doClose(sel, "detail") }}>close</button>
+            {if closeErr != "" { <p data-testid="close-error">close error: {closeErr}</p> }}
+          </div>
+
+          <section data-testid="comments">
+            {loading on(sel) fallback { <p>loading comments</p> } {
+              errored fallback(e) { <p>comments error: {e.message}</p> } {
+                <ul>
+                  {for c in commentsAns { <li data-testid="comment">{c.author}: {c.text}</li> }}
+                  {for p in postsHere { <li data-testid="comment">{p.author}: {p.text} (sending…)</li> }}
+                </ul>
+              }
+            }}
+          </section>
+          <div>
+            <input data-testid="comment-input" value={commentDraft} onInput={(e) => { commentDraft := e.target.value }} />
+            <button data-testid="post" onClick={() => {
+              if (commentDraft != "") {
+                let t = commentDraft
+                onFlush(() => { commentDraft := "" })
+                doPost(sel, user, t)
+              }
+            }}>post</button>
+            {if postErr != "" { <p data-testid="post-error">post error: {postErr}</p> }}
+          </div>
+
+          <section data-testid="labels">
+            {loading on(sel) fallback { <p>loading labels</p> } {
+              errored fallback(e) { <p>labels error: {e.message}</p> } {
+                <div>
+                  <ul>
+                    {for l in labelsShown {
+                      <li><span data-testid="label">{l}</span>{" "}<button data-testid="remove-label" onClick={() => { doLabel(sel, "remove", l) }}>remove {l}</button></li>
+                    }}
+                  </ul>
+                  <input data-testid="label-input" value={labelDraft} onInput={(e) => { labelDraft := e.target.value }} />
+                  <button data-testid="add-label" onClick={() => {
+                    if (labelDraft != "" && !labelsShown.some(x => x == labelDraft)) {
+                      let l = labelDraft
+                      onFlush(() => { labelDraft := "" })
+                      doLabel(sel, "add", l)
+                    }
+                  }}>add label</button>
+                  {if labelErr != "" { <p data-testid="label-error">label error: {labelErr}</p> }}
+                </div>
+              }
+            }}
+          </section>
+        </div>
+      }}
+    </section>
+  </div>
+}

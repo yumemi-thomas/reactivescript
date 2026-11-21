@@ -1,0 +1,6 @@
+I built the issue desk in Foldkit 0.170 across `src/model.ts`, `message.ts`, `command.ts`, `update.ts`, `view.ts` and `main.ts`, which exports `Model`, `init`, `update` and `view`. All 30 visible tests pass, `./check` passes, and I used 5 of the 15 runs.
+
+Things I'm unsure about:
+- Posting a comment and adding a label are ignored until comments or labels have loaded, since the brief doesn't say what to do before then.
+- Rollback on a declined assign, close or label change uses the value captured when the click happened, so overlapping actions on the same issue may roll back imperfectly.
+- The 404 console warning in the test run was not investigated.

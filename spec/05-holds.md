@@ -402,7 +402,7 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   stand. Filed as solidjs/solid#4305; fixed on `next` 2026-10-27 (shows
   in no scenario at `2c9fdd9`).
 - **DV-19 (`latest` of a pending guess after a re-ask) — a Solid bug,
-  ruled not built** (solidjs/solid#4689; ruled in #4695, decision 3:
+  fixed in 2.0.0-rc.22, no longer recorded** (solidjs/solid#4689; ruled in #4695, decision 3:
   D-22 "a slot that is displaying a guess has the guess as its newest
   value", D-34 "the screen, untracked reads and `latest` of the displayed
   slot keep the guess until the commit"). Found by the round 8 fuzzer on
@@ -413,7 +413,8 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   issues` shows the server's rows beside a list with a close in flight.
   S-latest-reask records `2 / 3` for `2 / 2` (and `2 / 4` in its variant)
   on the oracle and the compiled runtime. `untrack` answers the guess
-  throughout.
+  throughout. Built in Solid 2.0.1 (the repin of 2026-11-19): no longer
+  recorded.
 - **DV-20 (a guess read by effects alone reverts under the action's
   refresh) — a Solid bug, reproduced 2026-11-05** (solidjs/solid#4690,
   `ref/oracle/repros/4690-guess-reask-refresh.mjs`). With nothing
@@ -422,7 +423,7 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   action's re-ask answers. D-34 says the guess waits for that answer.
   S-guess-reask-refresh's effect-only variant records it at instants 5
   and 6; a rendered reader of the source holds the effect's view too.
-  Fixed on `next` (Ryan, 2026-11-05); recorded until the repin.
+  Fixed in 2.0.0-rc.22; no longer recorded.
 - **DV-21 (posture is per read) — Solid's ruling, not built** (solidjs/solid#4695,
   decision 1: D-17, D-25; Solid's S-49 and S-50 `it.fails`). Today one probe in a
   pass makes the whole pass a display-ahead reader, and a probe on its last
@@ -435,12 +436,28 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
 - **DV-22 (`pending?` under a new question under a guess) — Solid's ruling,
   not built** (#4695, S-44). An outside input change under a guess reads
   `pending? x` `false` (S-solid-44 instant 3); the ruled verdict is `true`.
-  The screen is the ruled one; `latest x` there is DV-19.
+  The screen is the ruled one. Still recorded on rc.22 (S-solid-44 instant 3).
+  Inside a `loading on(sel)` region whose `on` reads the held input, the
+  same probe reads `false` even where one outside it reads `true`, so
+  `disabled={pending? x}` there does not disable (found by the eval board,
+  2026-11-14: `eval/results/r15prep/repro/pending-probe-inside-held-region.*`,
+  plain Solid in its `.spec.tsx`).
 - **DV-23 (a born-held branch under a display-ahead condition) — Solid's
-  ruling, not built** (#4695, decision 4: D-1; S-46's plain row). A branch a
+  ruling, built in 2.0.0-rc.22, no longer recorded** (#4695, decision 4: D-1; S-46's plain row). A branch a
   probe opens whose content read the held write plainly attaches with its
   slot empty and removes the old arm (S-solid-46 instant 2: `0 d0`); ruled:
   it is born held and the old arm stays until the landing.
+- **DV-25 (a reader out of an error state does not hold the change) — a
+  Solid regression in 2.0.1, reproduced 2026-11-19; still in 2.0.3 (99db9bce4),
+  where S-fail-2's client runners show the ruled frame and its hydrated page does not**
+  (`ref/oracle/repros/dv25-errored-reask.mjs`, plain Solid: rc.21 holds,
+  2.0.1 and 2.0.2 do not). After a source's question fails into a `catch` value or
+  an `errored` fallback, a change that makes it ask again shows at once:
+  the new input beside the old fallback, with the question in flight
+  (S-module-1 instant 3: `#2 nobody Z`; S-fail-2 instant 6: `zzznone`, the
+  recovered readers beside `other`'s old value). H-4 and D-41 rule that
+  the change holds until the question answers, as rc.21 showed; the spec
+  frames stand.
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts
@@ -481,8 +498,9 @@ S-5 (two roots as two branches of one app — MO-1c; DV-17); since #4695
 S-46, S-48, S-49 and S-50. Two of Solid's rows are not ported: S-45 (a
 first answer and an action landing in one tick — a scenario instant carries
 one event) and S-47 (`try/catch` around a reactive read, D-42 — `.rx` has
-no such form: a reactive `catch` (R-f-4) lowers to an error boundary,
-which is a channel, and `try` is imperative only). Divergences found and fixed
+no such form: a reactive failure is taken by an `errored` region, which
+is a channel, a `catch` follows only an `await` (R-f-4), and `try` is
+imperative only). Divergences found and fixed
 by porting are recorded in the rule they changed. Solid's probe columns
 (`latest(x)`, `isPending(x)` beside a screen) are untracked reads; an
 on-screen probe in a held lane of `latest` readers keeps what it showed

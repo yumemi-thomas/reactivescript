@@ -1,0 +1,74 @@
+== hidden
+✗ the archive page loads again each time it opens
+✗ the new-card input starts empty when the board opens again
+✗ an archive that fails shows its error
+✗ a column's retry shows loading, then the cards
+✗ left moves a Doing card to the bottom of To do
+✗ right moves a Doing card to the bottom of Done
+✗ down swaps a card with the one below it
+✗ a declined reorder puts the cards back in their order
+✗ a declined move from Done puts the card back in Done
+✗ a moved card's buttons follow its new place
+✗ the move error is cleared when the next move starts
+✗ a move error stays when another move is accepted
+✗ a move into Doing that brings it to three disables To do's right at once
+✗ a declined move into Doing enables the right buttons again
+✗ a move out of a full Doing enables the right buttons at once
+✗ Doing's own buttons are not limited
+✗ add-card with an empty input adds nothing
+✗ a card being added counts in the heading
+✗ the add error is cleared when the next add starts
+✗ two adds show both, each taking its own id
+✗ a card being added has no move buttons
+✗ an added card can be moved once it has its id
+✗ the detail names the column of a card in Done
+✗ a declined move puts the detail's column back
+✗ selecting another card shows its detail and empties title-input
+✗ rename with an empty title-input asks nothing
+✗ the rename error is cleared when another card is selected
+✗ the rename error is cleared when the next rename starts
+✗ a renamed card keeps its new title when it moves
+✗ archiving a card counts it out of its heading at once
+✗ a declined archive brings the card back in its place
+✗ archiving a card from a full Doing enables To do's right at once
+✗ an empty checklist reads 0/0 done
+✗ toggling a done item un-does it
+✗ an accepted toggle keeps the item, the progress and the card's count
+✗ selecting another card loads its checklist
+✗ the item error is cleared when another card is selected
+✗ the item error is cleared when the next item action starts
+✗ add-item with an empty input adds nothing
+✗ a declined item add puts the card's count back
+✗ an added item can be toggled once it has its id
+✗ an accepted restore keeps the row off, and the board shows the card when it opens again
+3/45 passed
+== overlap
+✗ two moves of one card answered in order leave it where the second put it
+✗ a card moved right twice ends in Done
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ a later move declined after an earlier one was accepted puts the card where the earlier one put it
+✗ one of two moves declined puts back only its card
+✗ a move into To do while a card is being added there keeps both
+✗ a column that reloads while a move into it is out keeps the moved card
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ an add accepted while To do reloads shows the card once
+✗ toggles keep showing while the checklist reloads
+✗ an item added while the checklist reloads shows once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle accepted after another card was selected keeps the first card's count
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ a rename and a move out together, the move declined: the card goes back with its new title
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ archiving a card whose rename is out keeps it off the board when the rename lands
+✗ a declined archive of a card whose rename is out brings it back with the new title
+✗ a declined move out of a full Doing disables To do's right again
+✗ a move into Doing that fills it while a move out is pending disables the rest
+✗ a move accepted after the board was left shows nothing extra on the next visit
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an add accepted after the board was left does not show twice on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+✗ a restore declined after another was accepted brings back only its row
+0/26 passed
+== fuzz
+board-contract-haiku-1: 0/20 seeds found a hole

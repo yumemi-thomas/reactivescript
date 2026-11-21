@@ -1,0 +1,9 @@
+I built the sprint board with tabs, the board and archive pages, and the detail panel. `./check` passes and all 26 visible tests pass; one 404 appears in the console, probably the missing favicon. The board shows the last server data with each pending action applied on top, so a declined action undoes only itself, accepted ones keep the order the user saw, and late answers for a card that is no longer selected (or a page that was left) are ignored.
+
+I was unsure about a few behaviours the brief doesn't settle:
+- **Disabled buttons:** moving into a column that hasn't loaded (or failed) is disabled, and so is `add-card` until To do has loaded.
+- **Checklist:** it loads again each time a card is selected, and I added retry buttons for a failed checklist and a failed archive list.
+- **Errors:** a rename or item error is shown only while its own card is selected.
+- **Rename input:** `title-input` keeps its text after a rename.
+
+The code is in `/tmp/claude-0/runs/r15/board-react-opus-2/src/`: `App.tsx`, `Board.tsx`, `Archive.tsx` and `model.ts`.

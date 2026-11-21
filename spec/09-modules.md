@@ -148,8 +148,15 @@ export component Save(props: { v: unrendered action go catches(nothing) })
 ## MO-8 — Declaration files for JS modules
 
 - **MO-8a.** A JS module may have a declaration file beside it: for
-  `import … from "./api"`, the file `./api.d.rx` (an extension `.js`,
-  `.mjs` or `.ts` on the import is dropped). It declares each export in
+  `import … from "./api"`, the file `./api.d.rx` (an extension `.js` or
+  `.ts` on the import is dropped). For every other JavaScript or
+  TypeScript module — `./x.mjs`, `./x.cjs`, `./x.jsx`, `./x.tsx`,
+  `./x.mts`, `./x.cts` — the file's whole name comes first, `x.cjs.d.rx`,
+  then `x.d.rx` (as TypeScript's `x.d.cts`); the first that exists is the
+  declaration (revised 2026-11-21 after review; TypeScript's extensions
+  added 2026-11-22, when the checker read `x.tsx.d.rx` alone and the
+  tooling `x.d.rx` alone). rx-tsc, the boundary check (TY-6) and
+  `rx-verify` read the same names in the same order (`beside.js`). It declares each export in
   rows, once, in the same notation as an `.rx` signature (MO-3):
 
   ```rx
@@ -176,6 +183,159 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   ES import in the compiled module, for the bundler to resolve; no
   `package.json` `#imports` alias is needed. The one exception is `./api`,
   which is the app's injected API (`createApp({ api })`, CP-4).
+- **MO-8d (Type parameters) — proposed 2026-11-18.** A declared fn may
+  have TypeScript type parameters, `export pure fn defineRoute<const S
+  extends string>(route: { path: S; … })`, and a declared type may too
+  (`export type RouteParams<S> = …`). They are TypeScript's text: the
+  checker reads none of it, and the projection's `.d.ts` carries it as
+  written (TY-1c), so a library's own inference reaches `.rx` code that
+  calls it (S-module-8).
+- **MO-8e (Optional parameters) — proposed 2026-11-18.** A declared fn's
+  parameter may be optional, `export pure fn createDebounced(ref source:
+  string, ms?: number): ref string`. A call may leave it out (a trailing
+  argument only, as in TypeScript); the `.d.ts` written from the
+  declaration and TY-6's boundary check write it `ms?: number`. The
+  checker reads nothing more from it (S-module-13).
+
+- **MO-8f (Pinned to a version) — proposed 2026-11-18.** A declaration may
+  say which version of a package it was written for, on a line of its own:
+  `//@ for @tanstack/solid-query ^6.0.0`. It is a comment to the checker;
+  `rx-tsc` refuses the declaration when the installed package is outside the
+  range (`DECLARATION_VERSION`), since rows written for one version may be
+  wrong about the next. `rx-declare` writes the pin of the version it drafted
+  from. Ranges: an exact version, `^`, `~`, `>=`, `>`, `<=`, `<`, joined by `||`.
+  The installed version is the one each importer's import resolves to
+  (revised 2026-11-21): a declaration consumed from two folders of a
+  workspace is checked against the package as each folder has it, and a
+  declaration consumed from anywhere in the program counts, not only one
+  beside a module (13 TY-6e).
+
+- **MO-8g (Values) — proposed 2026-11-18.** `export const pageSearch:
+  Schema` declares a value the module exports (a validator, a config
+  object, a symbol): imported, it is read as any import is, never io, and
+  projected as `export declare const`. TY-6 checks its type.
+
+- **MO-8h (Rest parameters) — proposed 2026-11-19.** `export pure fn
+  pipe(...items: any[]): any` declares a variadic JS function (valibot's
+  `pipe`, `clsx`): a call passes any number of arguments after the fixed
+  ones. `rx-declare` drafts it from the types; TypeScript checks the
+  arguments as it checks the library's own signature.
+
+- **MO-8i (Where a word goes) — proposed 2026-11-20.** Every word of a
+  `.d.rx` row sits by one rule, and the words are `.rx`'s own wherever
+  `.rx` has the concept:
+
+  | what the word describes | where it goes | words |
+  | --- | --- | --- |
+  | the kind of fn | before `fn` | `pure`, `server`, `client` |
+  | a parameter | before the parameter, as in an `.rx` fn (`fn f(ref n)`) | `ref`, `signal`, `...` (rest); `draft` on a callback's parameter |
+  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor), `pending`, `fails(E)` on a result, a field or a part; `renders` and `catches(E)` on a prop; `handler` and `tracked` on a function type (MO-10g, MO-10j) |
+  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `renders`, `renders(root, c…)`, `renders(later)`, `nests(…)`, `joins(field)`, `forwards`, `outlet`, `shape(…)`, `methods(m, …)` (02 E-10), a component's `fails(E)`, `trusted` |
+  | a pin | a comment line | `//@ for <package> <range>` |
+
+  A row word names the same row as the `.rx` word for it: a field that may
+  wait is `pending` (first drafted as `holds`, now refused with the word
+  that replaced it), as an `.rx` value that may wait carries `pending`
+  (CN-4a). `rejects(E)` is what a returned promise rejects with, `fails(E)`
+  what a read or a render throws: the two words keep the two places apart.
+  A member component is named as it is written (`Dialog.Trigger`, MO-11q).
+
+- **MO-8j (Strict declarations) — proposed 2026-11-20.** A row is an
+  assertion (MO-8b); by default the checker takes it on trust. A project may
+  ask that each row be shown instead: `rx-tsc --rx-strict`, or
+  `"reactivescript": { "strict": true }` in the tsconfig (the one `-p`
+  names, else the nearest; its own setting, else that of the nearest
+  tsconfig it `extends`, which TypeScript does not merge for a key it does
+  not know). Then every row of a
+  declaration the program imports (`fn`, `component`, `error`, `const`)
+  must be one `rx-verify --record` ran and found to hold (or found to have
+  nothing to run, as a `pure … instantiates` constructor), recorded beside
+  the declaration in `<name>.verified.json` by a hash of the row's text
+  (every line it spans, comments left out and whitespace collapsed outside
+  string literals: `"a  b"` and `"a b"` are different rows); or
+  the row must say `trusted`, after its signature (MO-8i), so the trust is a
+  word a reviewer reads rather than the default. A row nothing recorded, one
+  recorded as a mismatch or as not checked, and one edited since the record
+  (its hash changed) are `UNVERIFIED_ROW` (13 TY-7), each saying which and
+  what to run. `trusted` changes nothing else: outside strict mode it is
+  read and ignored. A row is verified only when every claim the parser reads in it
+  was run (revised 2026-11-21 after review): the crate lists them for each
+  row (`exists`, `pure`, `uses`, `provides:<context>`, `fields`, `fails`,
+  `callbacks:<position>`, `draft`, `placement`; `rxc serve`'s `rows`
+  answer). Each context a row provides and each callback position — a
+  function-typed parameter, a record parameter's function-typed field, a
+  component's function-typed prop (`ref: handler (el) => void`) — is a
+  claim of its own (revised 2026-11-21 after a second review): a hook that
+  uses `a` answers `provides(a)`, not `provides(a, b)`, and a component's
+  export being a function answers none of its callbacks. rx-verify
+  reads each row whole, as the parser spans it (a claim on a row's later
+  line, `}) provides(theme)`, is the row's), and a claim no check answered —
+  one rx-verify cannot run, as `forwards` or `joins(…)` — is recorded as not
+  verified, so such a row needs `trusted`. A record carries the version of
+  rx-verify's checks it was made with; one from an earlier version (whose
+  checks could miss a claim) no longer counts and is said to need a rerun.
+- **MO-8k (Where a package's declaration is found) — proposed 2026-11-21.**
+  A package import's declaration is the first of these that exists:
+  1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or
+     one above it (`rx-types/@tanstack/solid-query.d.rx`; a subpath is a
+     folder, `rx-types/@kobalte/core/dialog.d.rx`);
+  2. the package's own, beside the file the import resolves to (MO-10c);
+  3. a shared one, `node_modules/@rx-types/<scope>__<name>/index.d.rx` (a
+     subpath: `<subpath>.d.rx`), named as `@types` packages are;
+  4. a generated one, `node_modules/.rx-types/<spec>.d.rx`, drafted by the
+     tooling from the package's types (MO-8l).
+
+  The project's comes first so that a wrong shipped declaration can be
+  replaced without waiting for the package; MO-8f's pin keeps it from going
+  stale. The compiled import stays `from "<spec>"` (MO-8c). In rx-tsc, a
+  package with no TypeScript types of its own is typed by the declaration
+  (TypeScript's `@types` fallback answers with its projection, TY-4b), and a
+  project declaration is checked against the package's types where it has
+  them (TY-6). With none of the four, the import is what R-io-4 and R-f-8
+  say, and a component from it is `UNKNOWN_COMPONENT`, whose message gives
+  the `rx-types/` path and the `rx-declare` command that drafts it.
+- **MO-8l (Generated declarations) — proposed 2026-11-21.** A package the
+  program imports that has no declaration in the first three places of
+  MO-8k gets one drafted from its TypeScript types, by the tooling, before
+  the program is read: the Vite plugin before each build, the language
+  server when a module's imports change, rx-tsc as it analyses. It is
+  written to `node_modules/.rx-types/<spec>.d.rx` with a first line
+  `//@ generated <package>@<version> (MO-8l, draft <n>, types <hash>)`,
+  the hash of the declaration file TypeScript resolves the import to, of
+  every declaration file that one reaches by relative imports, re-exports
+  and references (an `index.d.ts` is often only `export * from "./parts"`),
+  of the entry file of each package it names, and of its package.json, so a
+  package that changes at the same version (a linked workspace package) is
+  redrafted too. A draft is written whole (to a file of its own, then
+  renamed into place, so a build and the editor never read half of one) and
+  only under `.rx-types/`: an import whose path has a `.` or `..` segment
+  (`kit/../../src/x`) gets none, since its draft would land beside a source
+  file and be read as that module's declaration (MO-8a) (both revised
+  2026-11-21 after review). It is kept while that
+  version is installed and the drafting rules are draft `<n>`'s, and
+  redrafted when either moves (a draft written under an earlier rule, one
+  that guessed `pure`, is redone once though the version stands; one that
+  must be redone and cannot be, its package's types gone, is removed, so
+  the import is undeclared rather than read under an earlier rule); a package with no types gets none, and a row
+  the notation cannot say is left out as a comment, not the whole file.
+  The draft is `rx-declare`'s from types alone (the package is not run):
+  every fn io (revised 2026-11-21: a name such as `use…` is a convention,
+  not a fact, so no draft guesses `pure`, and an import nothing reviewed
+  cannot make the checker accept more; `IO_IN_REACTIVE` on such a call
+  says where to declare it `pure`), `ref` where the types show an
+  accessor, components with their props. What types cannot show is
+  left out: where a component it is given is rendered then takes the
+  cautious reading (MO-11s); a hook's context (`uses`) and a field that
+  waits or throws (`pending`, `fails`) are not checked, and fail at run time
+  as they would in TypeScript, until a project declaration (MO-8k, first)
+  says them. Under strict declarations (MO-8j) no generated row is
+  verified. `RX_GENERATE=0`, or `rx({ generate: false })` for the plugin,
+  turns it off. A draft is per installed copy (revised 2026-11-21 after
+  review): each import is resolved from the module that writes it, and two
+  modules whose imports of one specifier reach two installed copies (two
+  siblings of a workspace, each with its own version) get a draft each,
+  beside each copy; only imports that reach the same copy and subpath
+  share one.
 
 ## MO-9 — A signature read in place of its module
 
@@ -272,15 +432,24 @@ export component Search(props: { start: boolean, q: string }) {
     API that takes an accessor of a store declares `ref`.
   - Only the return and its tuple or object parts are declared; an accessor
     nested deeper is a value.
+  - TypeScript's `readonly` is a modifier, not a shape (proposed
+    2026-11-19): `readonly [ref T, …]` (an `as const` result) is a tuple,
+    and `{ readonly width: number }` has the field `width`. Libraries such
+    as `@solid-primitives` return both; S-module-20.
 - **MO-10c (Where a package's declaration is).** Beside the file the import
   resolves to, as MO-8a's is beside a relative module and a `.d.ts` beside its
   `.js`: `@solid-primitives/media` resolves through the package's `exports`
   with the build's conditions to `dist/index.jsx`, and its declaration is
-  `dist/index.d.rx`. No export condition is needed. A package whose
+  `dist/index.d.rx`. No export condition is needed. A subpath matched by
+  `*` patterns takes the pattern Node takes (`PATTERN_KEY_COMPARE`): the
+  longest part before the `*`, then the longest key, whatever the keys'
+  order (S-module-26). A package whose
   conditions resolve to more than one file ships the declaration beside
   each; the rows of one export are the same in every build.
-  A package that ships none is declared through a local module: `./media.js`
-  re-exports it and `./media.d.rx` beside it declares it (MO-8a, MO-8c).
+  A package that ships none is declared by the project in
+  `rx-types/<spec>.d.rx`, a shared `@rx-types` package or a generated draft
+  (MO-8k); a local module that re-exports it (`./media.js` with
+  `./media.d.rx` beside it, MO-8a) still works.
   Without either, the import is what R-io-4 says, and `import pure` of a
   primitive is unchecked (CN-5): the call is then lifted (E-9) and re-runs,
   rebuilding the primitive, whenever an argument changes.
@@ -295,6 +464,270 @@ export component Search(props: { start: boolean, q: string }) {
   after `setOn(v)` in the same action reads the value before the write, under
   Solid's batching, and AC-1d cannot say so; the guide teaches it. A plain
   closure passed as a callback option is unchecked, as O-4a's is.
+- **MO-10f (Fields that hold or fail) — proposed 2026-11-18.** A field of
+  a declared result may start with `pending` and `fails(…)`: `useQuery(…): {
+  data: pending fails(Error) T; isFetching: boolean }`. The result is still a
+  value whose fields track (MO-10b); a read of that field, `todos.data`, is
+  checked as a question's reader is (MO-10d): it carries `pending` (so
+  `pending?`, `latest` and `loading` apply, and CN-3d asks for a `loading`
+  above it in a client-only build), and it can fail with the named classes
+  (R-f-5: an `errored` or a `catch` above it). A part bound from the field
+  (`{ data } = useQuery(…)`) is a reader with the same rows. A nested
+  record field has them too, kept by its path (`{ result: { data: pending T }
+  }`: `q.result.data`), and a record part bound from the result keeps its
+  fields' (`r = q.result`, then `r.data`). The spelling of the read does
+  not matter: `q["data"]` (a string or whole-number key, or a template with
+  no holes) is `q.data`, and a key the checker cannot name (`q[k]`) may be
+  any field at that depth, so the read has every such field's rows combined,
+  as a part bound from it does (`r = q[k]`). This is a store
+  whose property read suspends and throws, as `@tanstack/solid-query` 6's
+  `data` does; nothing changes at run time. A result with field rows is
+  instantiated (MO-10a, inferred). The words are taken out of the type text
+  the projection writes (TY-1c). Executable: S-module-11.
+
+  **The result is read a field at a time (ruled 2026-11-22).** The check
+  is complete only if every read of a held field is one the checker sees,
+  so the result is not a value the program holds: its name, and a path to
+  a record of held fields (`q.result`), stand only where a field is read
+  from them (the object of `.` or `[…]`), where an equation gives them
+  another name (`q = orig`, `r = q.result`), where the rest of a
+  destructuring names every held field beside it, and where they are
+  compared or tested (`orig == null`, `!orig`, a condition, the left of
+  `&&`). Anywhere else — passed to a component or a call, returned by a
+  closure or a fn, provided, exported, written to a source, spread, put
+  in a record or an array, shown — is `RESULT_AS_VALUE`: on the other
+  side the field would be read as a plain value, under no boundary the
+  check asked for. What travels is the field: `<List items={todos.data}
+  />` carries `data`'s rows to where `List` reads the prop (R-2, R-f-5),
+  as a provision and an export carry theirs. *Guarantee:* in a program
+  the checker accepts, a held field of a declared JS result is read only
+  by a path written from a name bound to that result, and each such read
+  is checked as a question's reader is; the compiled result reads each
+  field where it is read (a getter per field, `__rt.lazy`), so a read of
+  one field is no read of another. It rests on the declaration alone
+  (which fields hold or fail), as every row at the JS boundary does; a
+  row word written where no record field takes it — a tuple's part, a
+  member of a union, a type argument — is refused in the `.d.rx`
+  (`PARSE`), not ignored. No value is followed: the rule is on where a
+  name is written. (The earlier revisions followed the result through
+  aliases, records, closures and calls to find where its fields were
+  read, and counted a result passed whole as a read of every field; each
+  round found another way through, and the server render of an accepted
+  program still threw. S-module-11; `compiler/test/ssr-held.mjs` renders
+  the accepted programs on the server and shows the refused ones were the
+  ones that threw.)
+- **MO-10g (Callbacks) — proposed 2026-11-18, revised 2026-11-21.** A
+  declaration marks a function type `handler` where the library calls it
+  later, outside any computation, as the DOM calls an event handler
+  (`useMutation(ref options: { onSuccess?: handler () => void })`,
+  `debounce(callback: handler (...args: any[]) => void)`): a value word,
+  before the type (MO-8i), on a parameter, a field of a record parameter,
+  or a declared JS component's prop. A closure passed there literally, in
+  the call's arguments, is checked as a handler's is: its body is
+  imperative scope (W-1, IO-2), so it may write sources and call io. It is
+  not part of the call's value (it runs later, not now). Everywhere else a
+  closure made in reactive scope is still pure (SC-3), and a
+  statement-bodied one is `REACTIVE_WRITE_IN_OWNED_SCOPE`. On a declared JS
+  component, a prop the declaration types as a function is what the
+  declaration says, whatever its name (revised 2026-11-21, after review):
+  marked `handler`, it is a handler (its closure imperative scope, passing
+  it not a read); a function type without the word, plain or `tracked`, is
+  pure, so `onCompare: tracked (v: number) => number` takes no write
+  although its name begins with `on`. The name's reading (SC-4) is kept for
+  a prop the declaration does not type as a function (`onPick: any`) or
+  does not name, for `.rx` components, and for elements. `ref` is a handler
+  on an element (07 §4), whatever it is passed; on a component it is a prop
+  as any other (revised 2026-11-21 after review): the component, not the
+  DOM, decides when to call it, so a declared `ref: handler (el) => void`
+  is a handler, `tracked` or an unmarked function type is pure, and a `ref`
+  the declaration does not name is pure. S-module-28.
+
+  A function type alone is not a callback (the revision): the same type
+  `(a: number, b: number) => number` is a comparator the library calls
+  while it computes, or an event it fires later, and only the declaration
+  can say which. Taking every function type as a handler (the first
+  draft) made a missing word grant a write that Solid refuses at run time,
+  and a declaration drafted from types alone (MO-8l) would have granted it
+  everywhere. So the word grants it; without it the closure is pure, which
+  is safe however the library calls it. `rx-declare` suggests `handler`
+  (a `// TODO`) for a function-typed parameter or field named `on…`.
+
+  `rx-verify` checks the word by running (2026-11-20): it calls the fn
+  with its probe's arguments, each function-typed parameter wrapped in a
+  spy, and asks Solid (`getObserver()`) whether the library called it
+  inside a computation. A `handler` called outside tracking holds; called
+  inside one, it is a mismatch (a closure there would have its reads
+  tracked and its writes refused). An unmarked one is pure, which holds
+  either way; called outside tracking, the report says `handler` would let
+  it write. Never called under the probe, it is unverified.
+  Executable: S-module-12.
+- **MO-10j (Tracked callbacks) — proposed 2026-11-20.** Some libraries
+  call a function they are given inside a computation of their own, not
+  later as a handler: TanStack Query's `useQuery` runs `fetch`, and so
+  `queryFn`, in the projection that computes `data`. A closure checked as a
+  handler there would be wrong twice: its reads are tracked by the library,
+  and Solid refuses its writes. The declaration says so with `tracked`
+  before the function type (a value word, MO-8i): `queryFn: tracked () =>
+  Promise<any>`, on a parameter, a field of a record parameter, or a
+  component's prop. A closure passed there is not a callback: it is checked
+  as any closure made in reactive scope is (SC-3), a pure function, so a
+  statement body is `REACTIVE_WRITE_IN_OWNED_SCOPE` and an io call is
+  `IO_IN_REACTIVE`. `tracked` before anything but a function type is
+  refused. Since MO-10g's revision an unmarked function type is pure too:
+  `tracked` adds what the library does with it (its reads are tracked by
+  the library's computation), which `rx-verify` checks by running: a
+  `tracked` callback called inside a computation holds, and one called only
+  outside tracking is reported (a `handler` would do).
+- **MO-10h (Signal parameters) — proposed 2026-11-19.** Some primitives
+  take a Solid signal, a getter and a setter, and wrap it
+  (`@solid-primitives/storage`'s `makePersisted`, `utils`' `wrapSetter`).
+  An `.rx` source is not one, and the program needs none: `signal init: T`
+  on the declared parameter says the library takes a signal, so the
+  program passes the initial value and the compiler makes a Solid signal
+  of it (`__rt.signal(…)`; to TypeScript, Solid's own `Signal<T>`, so TY-6
+  checks it against the library's overloads). The value is read once, as
+  an instantiation's arguments are (E-10: `peek` for a source). Nothing in
+  the program can write the signal made for it except through what the
+  library hands back, which MO-10b already reads: `[theme, setTheme] =
+  makePersisted("light", { name: "theme" })`, a reader and a setter called
+  from handlers. `signal` implies `instantiates`. S-module-21.
+- **MO-10i (A library's drafts) — proposed 2026-11-19.** Some libraries
+  hand a callback a value to change in place: Solid 2's store setter calls
+  it with the store's draft (`setStore(s => { s.done += 1 })`), and the
+  write is the library's, inside its setter. A declaration marks such a
+  callback parameter `draft`: `(update: (draft state: T) => T | void) =>
+  void`, on a fn's parameter or on a function part of its result (the
+  setter of `[store, setStore] = makeStore(…)`). In a closure literal passed
+  there, a path of that parameter is written with `:=`, as an equation
+  writes its own draft (ST-3): `setTodos((d) => { d.done := d.done + 1;
+  d.items[len(d.items)] := text })`, compiled as a plain assignment
+  (`d["done"] = …`). The draft itself is not reassigned; the callback
+  returns the new value instead. Every other path write stays refused
+  (W-1, `WRITE_TO_NON_SOURCE`, with the reason): a parameter the
+  declaration does not mark, a local, a captured `.rx` value, so a source
+  is never changed behind its writes. The trust is the declaration's, as
+  every row at the JS boundary is: TY-6 checks the type with `draft`
+  removed, and TypeScript checks each value written against the draft's
+  field. Solid 2's store is a proxy read field by field, so its declared
+  first part is a value, not `ref`. A path write takes an updater as a
+  source's write does (W-6): `d.done := v => v + 1` assigns `f(d.done)`,
+  its place evaluated once (revised 2026-11-21 after review): the object up
+  to the last key, then that key, then the old value read from them and the
+  new one written there, as `x[k] += 1` is, so `d.items[next()] := v => v +
+  1` calls `next` once and updates one element.
+
+  **A draft is a place, not a value (ruled 2026-11-22).** The draft lives
+  as long as the library's call of the callback: a library may take it
+  back when the callback returns (a revocable proxy; Solid's setter stops
+  taking writes). Three local rules keep it there, with no value followed:
+
+  1. *Its name stands only in its own callback.* A closure made inside
+     the callback may run later, so it may not name the draft, to write a
+     path or to read one (`DRAFT_ESCAPES`). The one exception is a path's
+     updater (`d.n := v => v + d.step`), which is applied where it is
+     written. An `await` ends the library's call, so the callback has
+     none. A loop is the statement `for (const x of xs) { … }` (07 §5),
+     whose body is the callback's own scope; a turn of a loop over a path
+     of the draft is a place of the draft, written by path (`for (const t
+     of d.items) { t.done := true }`).
+  2. *A read of it is a copy.* Wherever a draft — its name, a path below
+     it, what a method called on one answers — is read as a value, the
+     compiled code copies it (`__rt.copy`: arrays, plain objects, Maps and
+     Sets copied through, a cycle once; a primitive, a function, a Date,
+     an instance of a class is itself): `let n = d.done`, `saved := d`,
+     `keep(d.sub)`, `[d]`, a `let` a later closure captures. What goes
+     straight back to the library is not copied — a value written to a
+     path of the draft, the callback's result, an argument of the draft's
+     own method (`d.items.push(d.last)`) — nor what an operator makes a
+     primitive of (arithmetic, a comparison, `!`, a template, a condition,
+     a key, `len(…)`). A local bound to a read is a copy, so its paths are
+     not written (`let a = d; a.done := 1` is `WRITE_TO_NON_SOURCE`).
+  3. *The function that hands the draft is called by its own name, with
+     the callback written in the call.* A name whose declaration has a
+     `draft` callback parameter — the fn, or the setter bound from its
+     result — is not passed, stored or given another name, a result
+     holding one is read a part at a time (`st[1]((d) => …)`), and the
+     argument at the draft's position is a closure literal: so every
+     callback that is ever handed the draft has a parameter the checker
+     knows is one. A change is shared as an action that calls the setter.
+
+  *Guarantee:* in a program the checker accepts, no value `.rx` holds
+  after a draft callback returns is the library's draft or a live part of
+  it, and no `.rx` code names the draft after its callback returned. The
+  first half is by construction (the copy), the second by rules 1 and 3.
+  It rests on the declaration (which parameter is a draft, MO-8j's
+  `rx-verify` runs it) and on what `draft` says the library hands out:
+  plain data — arrays, plain objects, Maps, Sets — which is what a store
+  or a draft library proxies. JS the callback calls with a copy has a
+  copy. `rx-verify` checks the row by running it: the setter must hand
+  its callback an object, and a write to it must be kept (a library that
+  hands a copy is a mismatch). S-module-25; `examples/formisch` runs
+  Solid 2's own store this way, and `compiler/test/drafts.mjs` runs the
+  guarantee against a library that revokes its draft: every read of it,
+  through every way an expression hands a value on and every pair of
+  them, is read after the revocation. (The earlier revisions took a path
+  read for a copy, which a nested proxy is not, and followed the draft
+  through locals, records and calls to refuse a write of it to a source;
+  each round found another carrier. Nothing is followed now, and nothing
+  is refused that only reads.)
+- **MO-10k (Confined values: one rule, no value followed) — ruled
+  2026-11-22.** Four checks keep a value where the checker can see what is
+  done with it: a result with held fields (MO-10f), a library's draft
+  (MO-10i), a value `renders` checked where it is bound (MO-11l, and the
+  values `renders(later)` carries, MO-11o), and the instance a primitive
+  made (E-10, E-5a). Three revisions answered them with one analysis of
+  "what values may this expression hold", followed through aliases,
+  records, calls and closures; each review found a way through it and a
+  program it refused for nothing, because following values through a
+  language with first-class functions and no types here is neither sound
+  nor precise. The stance is 08's (the checks are sound, over-approximate
+  and modular; the JS boundary is the declaration's), so the rules are
+  now ones whose soundness is local:
+
+  - *A place, or a path root, is not a value at all.* A draft and a
+    result with held fields are restricted by where their name is
+    written (MO-10i, MO-10f); a draft's reads are copies. Nothing flows.
+  - *By mention.* For the other two, a value **may be, or hold a part
+    of,** a confined value when its expression mentions that value's
+    name, or a name bound to such an expression: an equation's or a
+    local's value, a destructured part, the list a `for` row or a loop's
+    variable goes through, an effect's `$n`, a parameter of a closure
+    handed it in the same call, a parameter of a fn, an action or a named
+    closure of this module called with it, what such a fn returns. A
+    mention does not count where what is written cannot be handed on: an
+    operand of an operator that makes a primitive (arithmetic, a
+    comparison, `!`, `typeof`), a template, a condition, a key, the
+    argument of `len`, `str`, `sum`, `every` or `indexOf`; and a closure
+    gives what it returns, not what it captures (what it does with a
+    capture is checked where it is written). A call is opaque: its result
+    may be anything it was given. This is a syntactic over-approximation
+    of every way `.rx` hands a value on, so it has no cases to miss
+    inside `.rx`; and it is modular, because a value never reaches where
+    the rule cannot look: each way out of the module or the region (a
+    prop, a provision, an export, a source, a thrown value, a call that
+    may keep it) is where the check refuses it (MO-11l) or stops naming
+    it (MO-11o).
+
+  What it costs is precision, on purpose: a field read out of a
+  `renders` value is the value's (`row.id` may be a component for all the
+  checker knows), until the program makes a primitive of it
+  (`str(row.id)`); `[clock][0].format()` is a read through what may be
+  the instance, though it is the instance's declared method. What it
+  buys is that the guarantees below are properties of the rules, shown by
+  tests that put each value through every way of handing it on and every
+  pair of them into every way out (`a_renders_value_leaves_through_no_way_out`,
+  `a_read_through_what_may_be_an_instance_changes`,
+  `a_result_with_held_fields_is_never_a_value`,
+  `a_draft_is_named_only_in_its_callback`: in the crate and in
+  `ref/units.ts`), not a list of the cases a review found.
+
+  **The JS boundary.** What JS does with a value it is given is the
+  declaration's to say, as everywhere (CN-3b, CN-5): a `pure` fn keeps
+  nothing and hands what it is given back only as its result, so a
+  confined value may be passed to one (its result is confined again); an
+  `io` fn, a method of another value, and anything the checker cannot
+  name may keep it, so a `renders` value is refused there; a draft passed to JS is a copy; a result with held fields is not
+  passed. Nothing about JS is inferred.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 
@@ -378,8 +811,8 @@ export default component App() {
   back a function, which is io (R-io-3) and called from an action or a
   handler. Each is called once, in the component's region (MO-10a), which
   is where Solid's `useContext` finds the router. A hook called with no
-  router above throws at run time; the checker does not know the router's
-  context.
+  router above throws at run time, unless its declaration names the
+  router's context: then it is `CONTEXT_NOT_FOUND` (MO-12).
 - **MO-11e (Route data).** A route's data is an `await` equation over its
   params, in the route's component: `person = await fetchPerson(params.id)`.
   A change of `params.id` is a new question, held as any re-ask is (H-2); a
@@ -396,12 +829,361 @@ export default component App() {
   bound name is a component, applied in a view (`<Router />`) and never read
   as a value. The components in its arguments are values there (MO-11c).
   The checker knows what the call was given only in the module that makes
-  it, so the made component is applied there: `export Router = …` is
-  `COMPONENT_AS_VALUE`; export the components it takes instead. For SV-7d
+  it, so an importer sees the made component through a summary (MO-11j). For SV-7d
   the made component has no element of its own: what it was given is
   checked where it is applied, and counts in the shape of the component that
   applies it (as a component value does). Links need
   nothing of the language: the router handles a click on any `<a href>`.
+- **MO-11g (JS calls inside a factory's arguments) — proposed
+  2026-11-18, revised 2026-11-21.** A call to a JS fn declared `forwards`
+  (a row word after the signature) among a factory's argument literals, or
+  a carrying call's (MO-11o), hands its arguments on to it: the components
+  in them are values there too (MO-11c), found through the call's own
+  record and array literals. This is `@solidjs/router`'s `defineRoute({
+  path, component })`, an identity at run time whose type gives the
+  component its params from its path (MO-8d): `export pure fn
+  defineRoute(…): RouteDefinition forwards`. A JS call without the word may
+  keep or render what it is given itself, so its components take the
+  cautious placement (MO-11s) wherever it is written; that is the revision
+  (the first draft handed every JS call's components on, which credited a
+  factory's boundaries to a helper that renders elsewhere). Bound on its
+  own (`route = defineRoute({ … })`), even a forwarding call is not part of
+  any route table the checker can see, and its components take the
+  cautious placement too.
+- **MO-11h (Typed params) — proposed 2026-11-18.** A page declares the
+  params it reads as a prop, `component Person(props: { params: { id:
+  string } })`, as any component declares its props; the router passes
+  `params` to a route's component. Whether a route's path supplies them is
+  TypeScript's question, asked where the table is written: `defineRoute`'s
+  type carries the path's literal type into the component's props (MO-8d),
+  and `rx-tsc` refuses `defineRoute({ path: "/people", component: Person })`
+  (TS2322) on that line. The checker learns nothing about path syntax. A
+  child route's own type does not see its parent's path (the router's own
+  limit); under a factory declared `nests(…)` and `joins(path)` (MO-11i)
+  the projection writes each literal path joined with its parents' (each with each, for
+  paths written as alternatives), so `defineRoute` types a child's
+  component from the whole path and it sees its parents' params. Elsewhere
+  a page under a parametrised parent declares them optional (`org?: string`).
+- **MO-11i (Nested values) — proposed 2026-11-18.** `nests(kids in
+  inside)` on a fn that hands back a `Component` says how it renders a
+  record among its arguments: the component at the record's `inside` field
+  renders the entries under its `kids` field among its own children. For
+  `@solidjs/router`, `nests(children in component)`: a nested route renders
+  in its parent's `props.children`. The checker applies that record's
+  component value with the nested values as its children, as `<Layout><Page
+  /></Layout>` would be, so a layout's `errored`, `loading` and `provide`
+  above `props.children` reach its routes, and its content model holds them
+  (SV-7d). Sibling records stay siblings. Without the word, DV-24 applies;
+  on a fn that hands back no `Component` it is a parse error. The word
+  describes the shape of the arguments, not a router: any library that
+  nests a tree of components it is given says it the same way.
+  `joins(field)` beside it (revised 2026-11-21) says the library joins a
+  nested record's `field` with its parents': a router's rule, which the
+  tree alone does not imply (another library can nest the same tree and
+  read a field named `path` differently), so without it nothing is
+  joined. In the projection (TY-1c), which is type-checked and never run, a
+  record's literal `field` (`joins(path)` for `@solidjs/router`) under such
+  a fn is written joined with its parents' literal ones (`/org/:org` above `/:id` gives `/org/:org/:id`;
+  `/` gives the parent's), looking through records with no `path` (the
+  config around the table) and JS calls (`defineRoute(…)`), so a nested
+  route's component is typed with every param above it. A path written as
+  alternatives (an array of literals) joins each with each. A path that is
+  neither stops the joining beneath it, which errs strict: the routes
+  below are typed with their own params only, so a page that needs a
+  parent's param is refused, never accepted unchecked. The lowered program
+  passes the paths as written.
+- **MO-11j (An exported factory's component) — proposed 2026-11-18.**
+  `export Router = createRouter({ … })` exports the made component. Its
+  signature (MO-3) is that of a component whose view is `<Router />` in the
+  making module: what the components it was given let out of it, the
+  contexts they need that it does not provide (MO-12c), and their content
+  shape, so `export component Router(props: {}) made fails(Error)
+  uses(./theme.rx#theme) shape(roots h1)`. An importer applies it as any
+  imported component, checked against that signature. The made component is
+  exported as the component it is, not an accessor (CP-4b); `made` in the
+  signature says it is a JS component, so an importer that has only the
+  signature (MO-9) applies it as JSX's `<X />`, with no `children` prop.
+- **MO-11k (Render props) — proposed 2026-11-18.** A declared JS
+  component whose `children` field is typed as a function giving a `View`
+  (`children: (item: T, index: number) => View`) takes a render prop: the
+  library calls it for each thing it renders (a virtual list's rows). In
+  `.rx` it is written as the application's only child, a view lambda:
+  `<VirtualList items={rows}>{view (row, i) { … }}</VirtualList>`. Its
+  parameters are values, what the library passes on each call (as a `for`
+  row's binding is); its body is a reactive block, declarations then a
+  view, owned where the component calls it. The checks treat the body as
+  the application's children (RG-4c, MO-11b): its readers' failures and the
+  contexts it uses are checked above the application, through the
+  component's declared `catches(…)` and `provides(…)`, and its content model
+  where the component places its children (SV-7d). Handlers in it write
+  sources as any handler does. It lowers to an arrow returning the view
+  (`children: (row, i) => …`) and projects to the same arrow, so TypeScript
+  types the parameters from the component's own types (TY-1c). Other
+  children of such a component are `VIEW_FN_EXPECTED`; a view lambda
+  anywhere else is `VIEW_FN_MISPLACED`. A render prop under another name is
+  a named view lambda among the children, `{view header (n) { … }}`: it is
+  that prop (`header={(n) => …}`), checked as the children are; a name the
+  declaration does not type as a function giving a `View` is
+  `VIEW_FN_MISPLACED`. Executable: S-module-14.
+- **MO-11l (Fns that render what they are given) — proposed 2026-11-18.**
+  `renders` on a declared fn that hands back no component (`createTable(ref
+  options: { columns: { cell: Component }[] }): any renders`) says it
+  renders the components in its argument literals, through something the
+  app calls later (`flexRender(cell.column.cell, …)` in its view). They are
+  values there, found as a factory's are (MO-11c, MO-11g), and they are
+  checked as applied, with no arguments, where its result is bound: among
+  the children of that region, which renders the table (DV-24's
+  assumption, at the binding). Their failures, contexts and first loads are
+  checked above the binding. `renders` implies `instantiates`; a component
+  passed to a fn with no placement word is checked under a root of its own
+  (MO-11s). S-module-16.
+
+  `renders` is a claim about the API, not the call: write it only where the
+  library renders what it is given through something called in the region
+  of the binding (a table whose cells the same view renders). Where the
+  result can be rendered anywhere else (handed to another component,
+  stored, portalled), the binding's region is not where the components
+  render, and its boundaries would be credited wrongly: declare
+  `renders(later)` and the consuming prop's `renders T` (MO-11o), which put
+  the check where they do render, or nothing, which takes the cautious
+  placement (MO-11s). (Revised 2026-11-21.)
+
+  **The checker holds the program to it (ruled 2026-11-22).** The bound
+  value, and every value that may hold a part of it (MO-10k, by mention:
+  an alias, a record or an array holding it, a field read out of it, a
+  row of a `for` over it, what a call given it returns, a parameter
+  handed it), is read and rendered in the region it is bound in, and
+  leaves it through none of the ways out:
+
+  | way out | refused where |
+  | --- | --- |
+  | a component's prop — an `.rx` component's or a JS one's, a spread, a closure that returns it | the attribute |
+  | a provision | the `provide` |
+  | an export — the name, a fn or an action that gives it, a source seeded with it | the declaration |
+  | a source: its seed, a write, a guess | the write |
+  | a thrown value (it goes to whichever boundary catches it) | the `throw` |
+  | an argument of a call that may keep it: an action of another module, an `.rx` fn of another module that declares state or can fail, an `io` JS fn, a method of another value, a function the checker cannot name (a prop, a parameter, a part of a record, what a call returns) | the call |
+
+  each `RENDERS_ESCAPES`. A fn, an action or a named closure of this
+  module is seen into instead: its parameter is what it is given, and its
+  body is checked with that (so `action stash(x) { held := x }` is refused
+  at its write when it is called with a row). A `pure` JS fn keeps nothing
+  (`flexRender(cell.column.cell, …)`), nor does a method of a `pure` JS
+  import or of the value itself (`table.setPage(n)`): the result of such a
+  call is a part of the value again. A function the checker cannot name
+  is refused in reactive scope too: `props.report(table.rows)` hands the
+  rows up to whatever applied the component. What is free to leave is a primitive made of it —
+  `str(row.id)`, a template, arithmetic, a comparison, `len(table.rows)`
+  — and a closure that gives nothing back: `onPress={() => {
+  table.nextPage() }}` is an ordinary prop. *Guarantee:* in a program the
+  checker accepts, no `.rx` code outside the region a bare `renders`
+  result is bound in holds that result or a value read out of it, so
+  whatever renders its components is beneath that region, under the
+  boundaries and provisions they were checked under. It rests on the
+  declaration (`renders` is the library's claim that it renders through
+  what the app calls there) and on `pure` at the JS boundary. It is
+  stricter than the earlier revisions on purpose: they let a path read
+  through (`<Rows rows={table.rows} />`, `held := table.rows`, a row of
+  `for t in [table]`), which carries the components as well as the table
+  does. S-module-16.
+- **MO-11n (Components a library renders under its own root) — proposed
+  2026-11-19.** `renders(root)` is `renders` (MO-11l) for a library that
+  mounts the components it is given with a root of its own (`render()`,
+  `createRoot`): a toaster, a modal manager, a widget host. They are found
+  as `renders`'s are, and checked as applied, with no arguments, under a
+  fresh root at the binding, as a program's view is: no `provide`,
+  `errored` or `loading` above the binding reaches them (Solid's
+  `useContext` and boundaries walk owners, and that root has none of the
+  app's). What they need, they provide and catch themselves; otherwise
+  `CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`, or in a client-only build
+  `ASYNC_OUTSIDE_LOADING_BOUNDARY`. A library that carries some of its own
+  JS contexts into that root (it reads them where it is called and provides
+  them there) names them: `renders(root, toastTheme)`. Each is read at the
+  call, as a hook's `uses(…)` (MO-12b), so it must be provided above the
+  binding, and is provided inside the root. Only contexts the same
+  declaration file declares can be named (MO-12a): a library cannot carry
+  the program's contexts by name; one that forwards its whole owner says
+  `renders`. `root` is the only word `renders(…)` takes. S-module-18.
+- **MO-11o (Components that travel in values) — proposed 2026-11-19.** Some
+  libraries take components into values and render them later, from
+  elsewhere: TanStack Router's `createRoute({ component })` makes a route
+  object, `rootRoute.addChildren([…])` a tree, `createRouter({ routeTree })`
+  a router, and `<RouterProvider router={…}>` renders the routes'
+  components. `renders(later)` (MO-11r; first drafted as `carries`) on a declared fn says its result carries the
+  components in its arguments (found as a factory's are, MO-11c, MO-11g;
+  it implies `instantiates`), and a value computed from a carrying value
+  carries them too. `renders` on a declared JS component's prop
+  (`router: renders any`) says the component renders what its value
+  carries: those components are checked as applied there, among its
+  children (MO-11c), so its `provides(…)` reaches them and the boundaries
+  above it hold their failures. A carried component that no `renders` prop
+  reaches is checked nowhere, so it is `COMPONENT_AS_VALUE` where it is
+  passed. A carrying value may be exported (for its type, as
+  `examples/tanstack` registers its router), but a module's signature
+  says nothing of what it carries. So what a `renders` prop is given must
+  be a value whose components the checker can name (ruled 2026-11-22):
+  every name its expression's value may come from (MO-10k, by mention) is
+  followed to the carrying calls it was bound to — through a branch, a
+  call, a closure's result, a row — and a name whose value comes from
+  where the checker cannot look is `RENDERS_ESCAPES` at the prop: a value
+  imported from another `.rx` module or made by its fn, a prop, a
+  parameter, a source, a provision. The carried components are checked in
+  the module that builds them, at its own `renders` props. *Guarantee:*
+  every component an `.rx` program hands a `renders(later)` fn is checked
+  as applied at each `renders` prop the program gives a value that may
+  carry it, or is `COMPONENT_AS_VALUE` if it gives none; no `renders`
+  prop is given a value that may carry components the check did not
+  name. Without MO-11p, a route's nested components are checked as
+  siblings under the provider, which errs strict (a boundary inside the
+  parent's component is not credited to them). S-module-22; `examples/tanstack` runs on `@tanstack/solid-router` 2.0 (rc)
+  in the Vite suite, with TanStack's registered route types checked by the
+  build (a link to no route fails it, TS2820).
+- **MO-11p (Carried values that nest) — proposed 2026-11-19.** A route
+  tree in values says its nesting through each child's link to its parent
+  (`createRoute({ getParentRoute: () => rootRoute, component: Person })`),
+  and a parent's component renders its children at an outlet
+  (`<Outlet />`), not at `props.children`. `nests(inside under parent)`
+  beside `renders(later)` (MO-11r; first drafted as `under(parent in
+  inside)`) says so: its result's `inside`
+  component renders among the children of the component of the value its
+  `parent` field names (a closure returning that value, or the value
+  itself), which is found by the same `inside` field when it has no
+  `under` of its own (the root route). `outlet` on a declared JS component
+  says it renders, where it is written, the children of the component
+  whose view it is in, as `{props.children}` would. So where a `renders`
+  prop renders the tree, a child route's component is applied among its
+  parent's component's children, and its failures and context reads take
+  the parent's `errored`, `loading` and `provide` around the outlet; a
+  sibling's are not credited. A parent whose view has no outlet never
+  renders its children, and nothing they fail with is anyone's, as at
+  run time. A parent not carried in the same tree, or a chain of parents
+  that comes back to a value (a cycle), leaves the value side by side
+  under the provider (MO-11o's strict default). For TanStack Router:
+  `createRoute(…): any renders(later) nests(component under getParentRoute)` and
+  `component Outlet(props: {}) uses(router) outlet`. S-module-23.
+- **MO-11q (Compound components: a JS object's member components) —
+  proposed 2026-11-19.** UI kits export a component's parts on one object
+  (Kobalte's `<Dialog>` with `<Dialog.Trigger>`, `<Dialog.Content>`; Ark's
+  `<Dialog.Root>`), the object a component itself or not. A `.d.rx`
+  declares each member by its written name, `export component
+  Dialog.Trigger(props: { … }) uses(dialog)`, with its own rows;
+  `import { Dialog } from "./kit.js"` binds each declared member as a
+  component named as written (an alias renames the head: `import { Dialog
+  as D }` gives `<D.Trigger>`), and `Dialog` itself as the component it is
+  declared, or else as a value. `<Dialog.Footer>` with no such member is
+  `UNKNOWN_COMPONENT`. The parts read the root's context, so they are
+  declared `uses(…)` and the root `provides(…)` (MO-12): a part outside
+  its root is `CONTEXT_NOT_FOUND`. The compiled view applies the member
+  (`<v$Dialog.Trigger>`), and the projection types it from the library's
+  own types; TY-6 checks each member against the object's property (a
+  declared `Dialog.Root` that Kobalte does not have fails the check).
+  `rx-declare` drafts the members of an exported object of components,
+  and running them settles their rows: a part that throws rendered alone
+  but renders inside its object's root reads a context that root provides.
+  A prop typed with `Component` in a union (`as?: string | Component`, a
+  polymorphic `as`) takes a component value as a `Component` prop does
+  (MO-11c). S-module-24; `examples/kobalte` runs Kobalte 2.0 (alpha) in
+  Chromium (`compiler/test/kobalte.mjs`).
+- **MO-11r (One placement vocabulary) — proposed 2026-11-19.** Where a
+  library renders the components a program gives it is said in one
+  vocabulary, on the declared fn that takes them; each form replaces DV-24's
+  blanket assumption with a narrower, checked one. A component passed to a
+  call with none of them is checked the most cautious way (MO-11s).
+
+  | written | the components are checked | rule |
+  | --- | --- | --- |
+  | (a fn handing back a `Component`) | inside the made component, where it is applied | MO-11f |
+  | `renders` | where the call's result is bound | MO-11l |
+  | `renders(root, ctx…)` | under a root of the library's own, with `ctx…` carried in | MO-11n |
+  | `renders(later)` | where a JS component's prop declared `renders` renders the value carrying them | MO-11o |
+  | `nests(children in component)` | each entry of a record's `children` field among its `component`'s children | MO-11i |
+  | `nests(component under parent)` | each value's `component` among its `parent` value's component's children, at that one's `outlet` | MO-11p |
+
+  One model covers every row (consolidated 2026-11-21 after review). A
+  component a program gives a library is a *value* from the literal it is
+  written in until the place the library renders it, and it is checked
+  once, as applied, at that place, under the boundaries, providers and
+  content model there, and nowhere else:
+
+  1. *Where it is checked* is the row's answer in the table: the made
+     component (a factory), the binding (`renders`), a fresh root with the
+     carried contexts (`renders(root, …)`), or the consuming render — a JS
+     component's prop that `renders` the value (`renders(later)`).
+  2. *The tree* (`nests(…)`) only rearranges the values inside that place:
+     a nested entry is applied among its parent's children (`… in …`) or
+     at the parent component's `outlet` (`… under …`); a parent the
+     checker cannot find leaves the entry a sibling at the same place,
+     crediting nothing of the parent's.
+  3. *Travel.* A value checked at the binding (`renders`) stays there,
+     and so does everything that may hold a part of it: one that leaves
+     is `RENDERS_ESCAPES` (MO-11l, MO-10k). A carried value
+     (`renders(later)`) may travel freely through equations, records and
+     calls within its module; each `renders` prop it reaches is a
+     consuming render, checked there, as often as it is rendered, and a
+     `renders` prop is given only what the checker can name the
+     components of: not a value from another module, a prop, a
+     parameter, a source or a provision (MO-11o).
+  4. *Consumption.* A carried value no `renders` prop reaches is checked
+     nowhere: `COMPONENT_AS_VALUE` where its component is written. A
+     component given to a call with no row takes the cautious placement
+     (MO-11s), a root of its own with nothing carried.
+
+  On the other side, two words say where a JS component renders what it
+  is given: a prop's type `renders T` (the components its value carries)
+  and `outlet` (the children nested under the component whose view it is
+  in, as `{props.children}` would). The tree forms combine with the
+  placement forms they describe (`nests(… in …)` with a factory,
+  `nests(… under …)` with `renders(later)`); either form refuses a value
+  it cannot place by leaving it where its placement puts it, the strict
+  default. The words first drafted for these, `carries` and `under(parent
+  in component)`, are refused with the spelling that replaced them.
+
+  They are checked by running (proposed 2026-11-20): a probe file beside
+  the `.d.rx` may export `scene(lib, h)`, a small app built from the
+  module's exports, instrumented, with `h.component(name)` standing for
+  the program's components. `rx-verify` mounts it and reads where each
+  of those rendered, through a context every recording component
+  provides (so the evidence is Solid's own owner chain): what a factory
+  was given inside the made component, `renders` inside the caller and
+  `renders(root, …)` not, `renders(later)` inside a component whose prop
+  renders it, and each `nests(…)` entry inside its parent's component —
+  at an `outlet` for `nests(… under …)`. A library that renders a child
+  route beside its parent is a mismatch; a row the scene does not reach
+  is reported unverified. `examples/tanstack/tsr.probe.mjs` checks
+  TanStack Router's rows this way. A hook that warns rather than throws
+  with no provider (TanStack's `useRouter`) counts as reading its
+  context, for `rx-declare`'s draft and `rx-verify`'s check alike.
+- **MO-11s (The cautious placement) — proposed 2026-11-21.** A component
+  given to a JS fn that says nothing of where it renders it (a declared fn
+  with no factory result, `renders`, `renders(root, …)` or
+  `renders(later)` row, or a JS import with no declaration at all), as a
+  value among its arguments, their record and array literals and the JS
+  calls among them, is no longer refused (it was `COMPONENT_AS_VALUE`
+  under MO-11r): it is checked as applied under a root of its own, at the
+  call, with nothing above the call credited to it: no `errored`, no
+  `loading`, no `provide`. This is `renders(root)` with no contexts carried,
+  and it is sound whatever the library does: a library that renders the
+  component beneath the call gives it more than was assumed, never less,
+  and one that renders it later, many times or never needs nothing more
+  of an `.rx` component. What it costs is precision: a component that
+  needs a context or a boundary from above is refused
+  (`CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`) until the declaration says
+  where it renders, and the content model (SV-7d) is not checked against
+  a parent it cannot know. A JS component's prop typed as something other
+  than a `Component` still refuses one (MO-11c); a component carried by
+  `renders(later)` that nothing renders is still `COMPONENT_AS_VALUE`
+  (MO-11o), since the declaration said where and nothing did. S-module-27.
+- **MO-11m (A made component's properties) — proposed 2026-11-18.** A
+  factory's component may carry properties (`@solidjs/router`'s `paths`, its
+  typed path builder). `Router.paths` is a value read in the module that
+  made it, and may be exported (`export paths = Router.paths`); with the
+  library's own types, `rx-tsc` checks a link built from it
+  (`paths.people("2")`). The component itself stays a component, applied,
+  never a value. A page's typed search params (`useSearchParams(paths.people)`)
+  cannot take `paths` from the router's module, which imports the pages
+  (MO-5); the route tree's definitions go in a module of their own, with no
+  page imports, and `pathsOf(defs)` builds the typed paths from them; the
+  routing module adds the components to the same definitions. S-module-17.
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check
@@ -414,7 +1196,9 @@ export default component App() {
   not of its parent route's `props.children`, so a `provide` or an
   `errored` in a layout route is not credited to the routes it wraps. A
   layout that provides a context to its pages is refused
-  (`CONTEXT_NOT_FOUND`); provide it above `<Router />`.
+  (`CONTEXT_NOT_FOUND`); provide it above `<Router />`. A factory declared
+  with `nests(…)` (MO-11i) gives that precision back for the records it
+  describes.
 
 ### Design note: why declared components and factories, not a routing form
 
@@ -456,6 +1240,50 @@ against a package that ships its `.d.rx`), and `examples/router/`, built by
 Vite with `@solidjs/router` 2.0.0-next.44 and driven in Chromium
 (`compiler/test/vite.mjs`).
 
+## MO-12 — JS contexts (proposed 2026-11-18; veto here)
+
+A Solid library keeps its session state in a context (`createContext`): its
+hooks read it with `useContext`, and one of its components provides it. A
+hook called where nothing provides it throws at run time. MO-12 lets a
+declaration say so, in the words `.rx` contexts already have (RG-7b), so that
+call is refused where it is written. Nothing is added at run time.
+
+```rx
+// router.d.rx
+export context router
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router)
+export pure fn useParams(): Params uses(router)
+export pure fn useNavigate(): (to: string) => void uses(router)
+export component RouterProvider(props: { children?: View }) provides(router)
+```
+
+- **MO-12a (Declared).** `export context c` in a JS module's `.d.rx` names
+  a context the module's JavaScript owns. It is named only by that file's
+  `uses(…)` and `provides(…)`: it is not importable, and `.rx` cannot `use`
+  or `provide` it. Its key is the declaration file's (`./router.d.rx#router`,
+  MO-7), so every module that imports the library names the same context.
+  A `uses(…)` or `provides(…)` naming a context the file does not declare is
+  `NOT_EXPORTED`.
+- **MO-12b (Uses).** `uses(c)` on a fn says a call reads `c`: each call is a
+  `use` of it where it is called, checked by RG-7b over the static
+  application tree, through signatures across modules (MO-3: the caller's
+  component carries `uses(./router.d.rx#router)`). A fn that uses a context
+  instantiates (MO-10a, inferred): Solid finds a context through the owner
+  a hook runs under, so it is called once, where it is bound. On a declared
+  JS component, `uses(c)` is what the component itself needs from above.
+- **MO-12c (Provides).** `provides(c)` on a declared JS component provides
+  `c` to everything it renders: its children and every prop. On a fn that
+  hands back a `Component` (MO-11f), it is the made component that provides
+  it, to the components the call was given, which MO-11c checks as applied
+  beneath it. On any other fn it is a parse error: nothing it renders could
+  see the provision.
+- **MO-12d (Provider order).** A provider that needs another above it says
+  so with `uses(…)` (`export component DevtoolsProvider(props) uses(queryClient)
+  provides(devtools)`): nested in the wrong order, it is `CONTEXT_NOT_FOUND`
+  like any other use. Nothing new is needed.
+
+Executable: S-module-7.
+
 ---
 
 ## Diagnostics this document adds
@@ -468,6 +1296,11 @@ Vite with `@solidjs/router` 2.0.0-next.44 and driven in Chromium
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a; MO-8b for a declared JS module |
 | `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
 | `UNKNOWN_COMPONENT` for an undeclared JS component, `COMPONENT_AS_VALUE` outside MO-11c's places | S | MO-11a, MO-11c, MO-11f |
+| `CONTEXT_NOT_FOUND` for a JS hook with no provider above; `NOT_EXPORTED` for an undeclared JS context | S | MO-12b, MO-12a |
+| `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k |
+| `RESULT_AS_VALUE` | S | MO-10f: a result with held fields, used as a value |
+| `DRAFT_ESCAPES` | S | MO-10i: a draft named outside its callback's own run, or handed where its parameter is not known |
+| `RENDERS_ESCAPES` | S | MO-11l: a `renders` value, or what may hold a part of it, leaving its region; MO-11o: a `renders` prop given what cannot be named |
 
 ## Implementation
 
@@ -546,19 +1379,106 @@ Vite with `@solidjs/router` 2.0.0-next.44 and driven in Chromium
    - A component is a value only on a `Component` prop of a JS component or
      inside a factory's argument literals; an `.rx` component cannot take
      one (it would need a form to apply a value).
-   - A factory's component is applied only in the module that makes it
-     (MO-11f). Exporting it would need its summary to carry the escaping
-     rows of the components it was given.
+   - A factory's component may be exported: MO-11j (proposed 2026-11-18)
+     summarises it as a component whose view applies it, so its summary
+     carries the escaping rows of the components it was given.
    - DV-24: a component value is checked as applied among the children of
-     the application it reaches. A word that says where the library renders
-     it (a route's `component` inside its parent's `props.children`) would
-     credit layout boundaries and provisions; not added.
-   - The hooks' context is not checked statically (MO-11d). A `uses(…)`
-     word naming a JS context, satisfied by the factory's component, would
-     make `useParams` outside the router a compile error; not added.
-   - `.rx` has no type arguments, so `useParams<{ id: string }>()` cannot be
-     written: a param is the router's `string | undefined` in `rx-tsc`.
-     `defineRoute`'s typed params, or a declaration word for them, are open.
-   - Not covered: TSX importing an `.rx` page (CP-4a's default export, #65),
-     and the router under SSR (`ref/ssr` runs no JS component; a server
-     render needs the router's `url`).
+     the application it reaches. MO-11i (proposed 2026-11-18) adds
+     `nests(children in component)`, which credits a layout's boundaries and
+     provisions to the routes nested in it.
+   - The hooks' context: MO-12 (proposed 2026-11-18) adds `uses(…)` and
+     `provides(…)` for JS contexts, so `useParams` outside the router is a
+     compile error.
+   - Typed params: MO-11g, MO-11h and MO-8d (proposed 2026-11-18) type a
+     page's `props.params` from its route's path through `defineRoute`,
+     with no type arguments in `.rx`. `useParams()` stays the router's
+     `string | undefined`.
+   - TSX importing an `.rx` module's components (#65): 11 CP-4d,
+     `import { PersonCard } from "./pages.rx?rx-lib"`, typed by `rx-tsc`.
+     The router under SSR is: the host gives the app its request (10 SV-4a),
+     and `compiler/test/vite.mjs router-ssr` builds, serves and hydrates it.
+9. **The ecosystem words, taken while prototyping** (2026-11-19; each is
+   a proposal for a maintainer to rule on, recorded with why it was taken).
+   The test applied to each: does it keep every check the language makes
+   (no unchecked escape inside `.rx`, CN-5), and is what it lets in either
+   checked statically, by TypeScript in the build (13 TY-1d), or by running
+   (rx-verify)?
+   - *`nests(…)`, `renders`, `renders(root, …)`, `renders(later)`* (MO-11i, l, n, o, p; one vocabulary, MO-11r)
+     are kept. They describe the shape of a call's arguments and where its
+     components end up, which no type says, and each replaces DV-24's
+     blanket assumption with a narrower, checked one. Without them a
+     library that takes components must be refused (`COMPONENT_AS_VALUE`,
+     kept for every call without a word) or trusted; with them, a layout's
+     boundaries reach its routes and a toaster's root gets nothing it was
+     not given. No library name appears in them.
+   - *Typed params in TypeScript, nested paths joined in the projection*
+     (MO-11h, TY-1d) are kept. The router's own types already compute a
+     path's params; restating them as rows would duplicate and drift. Since
+     a production build type-checks, they are not optional. Joining a
+     nested route's literal paths happens only in the projection, which is
+     never run, and errs strict where a path is not a literal.
+   - *`pending`/`fails(…)` on result fields, nested paths included* (MO-10f)
+     are kept at field granularity. A store is read field by field, and
+     only some fields wait or throw; whole-result rows would refuse its
+     plain fields' reads. rx-verify reads every field under a provider and
+     reports an undeclared hold or failure, which is how `isFetching`'s
+     hold was found.
+   - *A declared function type makes a callback* (MO-10g) is kept, with no
+     word of its own: the declaration already says what the library will do
+     with the argument, and `ref` already marks the parameters a library
+     reads reactively (a computation, never a handler). So a value the
+     library computes during the render must be declared `ref` (the program
+     passes an expression, read as an accessor, MO-10a), never a function
+     type; what is passed there is pure (SC-3). A wrong declaration is
+     TY-6's and rx-verify's to catch, not the program's.
+   - *`view (…) { … }` for render props* (MO-11k) is kept: it is markup,
+     read as children, applied per call, with the parameters the library's
+     own types give TypeScript.
+   - *`ref={el => { … }}` as a handler* (07 §4) is kept, on an element.
+     Solid runs a ref once, before mount, outside tracking; a write there
+     lands as a handler's does, and a reader of the element reads the
+     source. On a component, `ref` is a prop, read as its declaration says
+     (MO-10g): the privilege rests on the DOM's calling convention, which a
+     JS component does not promise.
+   - *The request as a `createApp` option* (SV-4a) is kept: the server entry
+     is the host's (an adapter, a framework), and the runtime is the one
+     place every host already calls once per request.
+   - *Probes beside the declaration* (`lib.probe.mjs`, rx-verify) are kept:
+     they are a declaration's tests, written once by whoever writes the
+     declaration, and shipped with it.
+   - *A declared JS error class's identity is its declaration*
+     (`people.d.rx#NotFound`, SV-5a), written by the compiler, and on the
+     server the class is safe from construction: whoever serializes an
+     instance first (a library's own cache) sends it as itself.
+   - *`signal` parameters* (MO-10h) are kept over a general escape: a
+     primitive that wraps a Solid signal gets one the compiler makes from a
+     plain value, untracked, so `.rx` never holds a writable Solid signal
+     and a reactive argument is refused as a snapshot would be (E-10).
+   - *`renders(later)`, a prop's `renders`, `nests(… under …)` and `outlet`* (MO-11o,
+     MO-11p) are kept for components held in values (TanStack Router's
+     routes). Like `nests`, they say where a library renders what it is
+     given, which no type says; a carried component no `renders` prop
+     reaches is refused rather than trusted, and a route the words cannot
+     place (no carried parent, a cycle) is checked as a sibling under the
+     provider, the strict default.
+   - *A JS host imports `.rx` components with `?rx-lib`* (11 CP-4d) is
+     kept over `.rx` learning a framework's file-route conventions: the
+     framework keeps its own (TypeScript) route files, the `.rx` module is
+     checked as an entry is, and what the host passes in is typed by the
+     module's projection (`rx-tsc`, the build). Module state is per request
+     on the server, through Solid's request event, as in a program's own.
+   - *Member components* (MO-11q) are kept, declared by their written
+     name: a kit's parts are distinct components with distinct rows (each
+     reads the root's context), which one object type could not say, and
+     `rx-declare` settles those rows by running the parts.
+   - *A library's draft* (MO-10i) is allowed, marked in the declaration,
+     not in `.rx`: writing into what a library hands a callback is how its
+     API writes (Solid 2's store setter), and marking it where the trust
+     already sits keeps a `.rx` value from being changed behind its writes.
+     Writing it uses `:=` on a path, as ST-3's own drafts do.
+   - *One placement vocabulary* (MO-11r) replaces five words that answered
+     one question (where does the library render what it is given?):
+     `renders` says where (here, a root of its own, or later through a
+     prop), `nests` says the tree (a children field, or a parent link),
+     and `renders T` on a prop and `outlet` say where a JS component puts
+     them. Each form is still a narrow, checked replacement for DV-24.

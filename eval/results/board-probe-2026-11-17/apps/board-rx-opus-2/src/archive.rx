@@ -1,0 +1,42 @@
+import pure { fetchArchived } from "./api"
+import { restoreCard } from "./api"
+
+// The archive page. Everything here lives as long as one visit of the page: leaving it discards it.
+export component ArchivePage() {
+  // the server's archived cards; a restore guesses the row away and, once accepted, writes the server's answer
+  source archived = await fetchArchived()
+  source restoreError: string := ""
+
+  action restore(id: number) {
+    try {
+      onFlush(() => { restoreError := "" })
+      guess archived := rs => rs.filter(r => r.id != id)
+      let r = await restoreCard(id)
+      archived := rs => rs.filter(a => a.id != r.id)
+    } catch (e) {
+      restoreError := e.message
+      onFlush(() => { restoreError := e.message })
+    }
+  }
+
+  <section class="archive">
+    <h2>Archive</h2>
+    {if restoreError != "" {
+      <p class="error" data-testid="restore-error">restore error: {restoreError}</p>
+    }}
+    <div data-testid="archived">
+      {loading fallback { <p>loading archive</p> } {
+        {errored fallback(e) { <p class="error">archive error: {e.message}</p> } {
+          <ul>
+            {for a in archived {
+              <li>
+                <span data-testid="archived-card">{`#${a.id} ${a.title}`}</span>{" "}
+                <button data-testid="restore" onClick={() => { restore(a.id) }}>restore</button>
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </div>
+  </section>
+}

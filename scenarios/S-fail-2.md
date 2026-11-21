@@ -13,7 +13,7 @@ component Safe(props) {
   errored fallback(e) { <p>unavailable</p> } { {props.children} }
 }
 component Line(props) {
-  <p>{props.text catch (e: Missing) => "-"}</p>
+  errored fallback(e: Missing) { <p>-</p> } { <p>{props.text}</p> }
 }
 component Panel(props) {
   <p>{props.body}</p>
@@ -31,8 +31,8 @@ export default component App() {
 
 Four readers of failing values, each discharged a different way: `{value}`
 is a child of `Safe`, so it is under `Safe`'s boundary — where `Safe` reads
-`props.children`, not where the caller writes them (RG-4c). `Line` catches
-`Missing` itself; the `Error` left over goes out through `Line`'s
+`props.children`, not where the caller writes them (RG-4c). `Line` takes
+`Missing` itself, with a typed boundary; the `Error` left over goes out through `Line`'s
 application, which is inside a `Safe`. `Panel` catches nothing: its prop is
 discharged by the boundary around `<Panel>` at the caller. `other` catches
 every failure of its own flight into a value.
@@ -53,9 +53,19 @@ every failure of its own flight into a value.
 Instant 3: `Missing` is thrown with no await, but `other` re-asks and its
 reader holds the change; the three error fallbacks are staged with it (an
 error is an answer, H-12). Instant 4: the rejection is caught into `none`
-and the frame commits as one. Instants 5–7: behind their fallbacks the
+and the frame commits as one. (The `catch` on `other` follows its `await`, the
+only place a `catch` may stand, R-f-4.) Instants 5–7: behind their fallbacks the
 readers of `value` hold nothing (H-4) and recover with the answer (D-41);
 `other`'s reader holds the change until `q` lands.
+
+## Divergences (DV-25)
+
+- hydrated "Frames" instant 6: `zzznone`
+
+Solid 2.0.1 regressed here (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
+does not hold the change, so the screen shows the new input beside the old fallback while the question is in flight.
+rc.21 held it, as the spec rules; the spec frames stand. On 2.0.3 (99db9bce4) the client runners show the ruled frame
+here; the hydrated page still does not, and S-module-1 and the plain-Solid repro still show the regression.
 
 ## Rejected variants
 
@@ -98,7 +108,7 @@ error Missing(key) => `missing ${key}`
 source key := "a"
 value = key == "" ? throw Missing(key) : await fetch("v:" + key)
 component Line(props) {
-  <p>{props.text catch (e: Missing) => "-"}</p>
+  errored fallback(e: Missing) { <p>-</p> } { <p>{props.text}</p> }
 }
 
 export default component App() {
@@ -106,7 +116,7 @@ export default component App() {
 }
 ```
 
-`Line` discharges `Missing`; the fetch's `Error` passes its catch.
+`Line` discharges `Missing`; the fetch's `Error` passes its boundary.
 
 ```rx
 -- reject: UNCAUGHT_ACTION_FAILURE

@@ -1,0 +1,7 @@
+I built the issue desk in React 19 and TypeScript under `/tmp/claude-0/runs/r15/desk9-react-opus-4/src`. `./check` is clean and `./test` passes all 30 visible tests, using 2 of the 15 runs; the only console error was one 404 for a resource the page requested. Every change shows straight away and is held as a pending layer over the loaded data, so a declined change drops out and its row comes back where it was. Late answers from earlier requests are ignored, and overlapping saves and label changes keep the newest answer.
+
+Where the brief was silent, I made these choices:
+- **Related help** searches the title from the `fetchIssue` answer, not one renamed in the meantime.
+- **Opening a related hit** reuses the hits already found instead of searching again.
+- **Leaving the issues page**: if a close is declined after you leave, the count stays where it was.
+- **Comments in flight**: if you select another issue and come back, the `(sending…)` row is gone until the comments reload.

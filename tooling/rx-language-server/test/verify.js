@@ -1,0 +1,372 @@
+// `rx-verify` (bin/verify.js) on a small module: a hook that really reads a context passes, one that does not is a
+// mismatch, as are an export the module lacks and an "error" that is not an Error subclass.
+//   node test/verify.js
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const repo = path.resolve(__dirname, "../../..");
+const ws = path.join(__dirname, "../.test/verify");
+fs.rmSync(ws, { recursive: true, force: true });
+fs.mkdirSync(ws, { recursive: true });
+fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(ws, "node_modules"), "dir");
+fs.writeFileSync(path.join(ws, "lib.mjs"), [
+  "import { createContext, useContext } from \"solid-js\";",
+  "const Theme = createContext();",
+  "export const useTheme = () => { const t = useContext(Theme); if (!t) throw new Error(\"no theme\"); return t; };",
+  "export const useClock = () => Date.now();",
+  "export class NotFound extends Error {}",
+  "export class Plain {}",
+  "// what a store-backed hook does: a field read waits on an async memo, and throws its error",
+  "export const useLoad = opts => { const d = createMemo(() => opts().load()); return { get data() { return d(); }, get size() { return 1; } }; };",
+  "export const useEager = opts => { const d = createMemo(() => opts().load()); return { get data() { return 1; }, get size() { return d(); } }; };",
+  "export const useLater = opts => { const o = getOwner(); return { run: () => runWithOwner(o, () => { const t = useContext(Theme); if (!t) throw new Error(\"no theme\"); return opts().x + t; }) }; };",
+  "export const useWrongly = opts => ({ run: () => opts().x });",
+  "export { Theme };",
+  "export const usePair = () => { const [g] = createSignal(1); return [g, v => {}]; };",
+  "export const useBadRef = () => [1, () => {}];",
+  "export const double = n => n * 2;",
+  "export const roll = () => Math.random();",
+  "export const ThemeProvider = props => createComponent(Theme, { value: \"x\", get children() { return props.children; } });",
+  "export const FakeProvider = props => props.children;",
+  "",
+].join("\n").replace("import { createContext, useContext }", "import { createContext, useContext, createMemo, getOwner, runWithOwner, createSignal, createComponent }"));
+fs.writeFileSync(path.join(ws, "lib.probe.mjs"), [
+  "import { createComponent } from \"solid-js\";",
+  "import { Theme } from \"./lib.mjs\";",
+  "export const provide = children => createComponent(Theme, { value: \"dark\", get children() { return children(); } });",
+  "export const probes = {",
+  "  useLoad: { args: () => [() => ({ load: async () => [1] })], fail: () => [() => ({ load: async () => { throw new Error(\"down\"); } })] },",
+  "  useEager: { args: () => [() => ({ load: async () => 2 })] },",
+  "  useLater: { args: () => [() => ({ x: \"a\" })], run: r => r.run() },",
+  "  useWrongly: { args: () => [() => ({ x: \"a\" })], run: r => r.nope() },",
+  "  double: { args: () => [3] },",
+  "};",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "lib.d.rx"), [
+  "export context theme",
+  "export pure fn useTheme(): string uses(theme)",
+  "export pure fn useClock(): number uses(theme)",
+  "export pure fn useMissing(): number",
+  "export error NotFound",
+  "export error Plain",
+  "export pure fn useLoad(ref opts: { load: () => Promise<any> }): { data: pending fails(Error) any; size: number }",
+  "export pure fn useEager(ref opts: { load: () => Promise<any> }): { data: any; size: number }",
+  "export pure fn useLater(ref opts: { x: string }): any uses(theme)",
+  "export pure fn useWrongly(ref opts: { x: string }): any uses(theme)",
+  "export pure fn usePair(): [ref number, (v: number) => void]",
+  "export pure fn useBadRef(): [ref number, () => void]",
+  "export pure fn double(n: number): number",
+  "export pure fn roll(): number",
+  "export component ThemeProvider(props: { children?: View }) provides(theme)",
+  "export component FakeProvider(props: { children?: View }) provides(theme)",
+  "",
+].join("\n"));
+
+let pass = 0, fail = 0;
+function check(name, ok, got) {
+  if (ok) pass++; else fail++;
+  console.log(`${ok ? "  ✓" : "  ✗"} ${name}${!ok || process.env.VERBOSE ? `\n      ${JSON.stringify(got).slice(0, 2000)}` : ""}`);
+}
+const r = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "lib.d.rx"], { cwd: ws, encoding: "utf8" });
+const out = r.stdout + r.stderr;
+check("a hook that throws with no provider holds its uses(…)", /lib\.d\.rx:2 ok\s+useTheme: uses\(…\) holds/.test(out), out);
+check("a hook that does not is a mismatch", /lib\.d\.rx:3 MISMATCH\s+useClock: declared uses\(…\), but called with no provider it neither throws nor warns/.test(out), out);
+check("an export the module lacks is a mismatch", /lib\.d\.rx:4 MISMATCH\s+useMissing: lib\.mjs exports nothing by that name/.test(out), out);
+check("an error class is checked to be an Error subclass", /lib\.d\.rx:5 ok\s+NotFound/.test(out) && /lib\.d\.rx:6 MISMATCH\s+Plain: declared an error/.test(out), out);
+check("a probe's fields: a held, failing field read as declared", /lib\.d\.rx:7 ok\s+useLoad: its fields read as declared \(data held, then answered\)/.test(out), out);
+check("a probe's failing arguments fail with the declared class", /lib\.d\.rx:7 ok\s+useLoad: under the failing arguments it fails with Error/.test(out), out);
+check("a field that holds without holds is a mismatch", /lib\.d\.rx:8 MISMATCH\s+useEager: size holds/.test(out), out);
+check("a hook that reads its context only when used: the probe's run finds it", /lib\.d\.rx:9 ok\s+useLater: uses\(…\) holds/.test(out), out);
+check("a probe whose run throws under its providers too is not evidence", /lib\.d\.rx:10 unverified useWrongly: the probe's run throws under its providers too/.test(out), out);
+check("a tuple's ref part is read as an accessor", /lib\.d\.rx:11 ok\s+usePair: its fields read as declared/.test(out), out);
+check("a ref part that is not an accessor is a mismatch", /lib\.d\.rx:12 MISMATCH\s+useBadRef: 0 is declared ref, but is not an accessor/.test(out), out);
+check("pure: two calls answering alike is not contradicted, and not verified either", /lib\.d\.rx:13 unverified\s+double: pure not contradicted/.test(out), out);
+check("pure that answers differently is a mismatch", /lib\.d\.rx:14 MISMATCH\s+roll: declared pure, but two calls/.test(out), out);
+check("provides: a hook of the file runs under the component", /lib\.d\.rx:15 ok\s+ThemeProvider: provides\(theme\) holds: useTheme runs under it/.test(out), out);
+check("a component that provides nothing is a mismatch", /lib\.d\.rx:16 MISMATCH\s+FakeProvider: declared provides\(theme\), but useTheme, which uses it, still fails under it/.test(out), out);
+check("mismatches fail the run", r.status === 1, r.status);
+
+// MO-11r, MO-10i: placement rows against a scene, and drafts. A small router that renders a child route at its parent's
+// outlet; a "flat" one, declared the same, that renders every route side by side; a store whose setter hands its draft,
+// and one that hands a copy.
+const router = (flat) => [
+  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "const Level = createContext();",
+  "export const createRootRoute = o => ({ comp: o.component, children: [] });",
+  "export const createRoute = o => { const r = { comp: o.component, children: [] }; o.getParentRoute().children.push(r); return r; };",
+  flat
+    ? "export const RouterProvider = props => [createComponent(props.router.comp, {}), ...props.router.children.map(c => createComponent(c.comp, {}))];"
+    : "export const RouterProvider = props => createComponent(Level, { value: props.router, get children() { return createComponent(props.router.comp, {}); } });",
+  flat
+    ? "export const Outlet = () => null;"
+    : "export const Outlet = () => { const r = useContext(Level); const c = r.children[0]; return c ? createComponent(Level, { value: c, get children() { return createComponent(c.comp, {}); } }) : null; };",
+  "",
+].join("\n");
+const routerDecl = [
+  "export context router",
+  "export pure fn createRootRoute(options: { component?: Component }): any renders(later)",
+  "export pure fn createRoute(options: { getParentRoute: () => any; component?: Component }): any renders(later) nests(component under getParentRoute)",
+  "export component RouterProvider(props: { router: renders any }) provides(router)",
+  "export component Outlet(props: {}) uses(router) outlet",
+  "",
+].join("\n");
+const scene = [
+  "export const scene = (lib, h) => {",
+  "  const Root = h.component(\"Root\", () => h.s.createComponent(lib.Outlet, {}));",
+  "  const Person = h.component(\"Person\");",
+  "  const root = lib.createRootRoute({ component: Root });",
+  "  lib.createRoute({ getParentRoute: () => root, component: Person });",
+  "  return () => h.s.createComponent(lib.RouterProvider, { router: root });",
+  "};",
+  "",
+].join("\n");
+for (const [name, flat] of [["nested", false], ["flat", true]]) {
+  fs.writeFileSync(path.join(ws, `${name}.mjs`), router(flat));
+  fs.writeFileSync(path.join(ws, `${name}.d.rx`), routerDecl);
+  fs.writeFileSync(path.join(ws, `${name}.probe.mjs`), scene);
+}
+fs.writeFileSync(path.join(ws, "store.mjs"), [
+  "import { createStore } from \"solid-js\";",
+  "export const makeStore = init => createStore(init);",
+  "export const copyStore = init => { const [s, set] = createStore(init); return [s, fn => fn({ ...s })]; };",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "store.d.rx"), [
+  "export pure fn makeStore(init: any): [any, (update: (draft state: any) => any) => void]",
+  "export pure fn copyStore(init: any): [any, (update: (draft state: any) => any) => void]",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "unscened.mjs"), router(false));
+fs.writeFileSync(path.join(ws, "unscened.d.rx"), routerDecl);
+fs.writeFileSync(path.join(ws, "kit.mjs"), [
+  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "const Ctx = createContext();",
+  "const Trigger = props => { if (!useContext(Ctx)) throw new Error(\"<Dialog.Trigger> outside <Dialog>\"); return props.children; };",
+  "const Title = props => props.children;   // declared uses(dialog), but reads nothing",
+  "export const Dialog = Object.assign(props => createComponent(Ctx, { value: {}, get children() { return props.children; } }), { Trigger, Title });",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "kit.d.rx"), [
+  "export context dialog",
+  "export component Dialog(props: { children?: View }) provides(dialog)",
+  "export component Dialog.Trigger(props: { children?: View }) uses(dialog)",
+  "export component Dialog.Title(props: { children?: View }) uses(dialog)",
+  "",
+].join("\n"));
+const r2 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "nested.d.rx", "flat.d.rx", "store.d.rx", "unscened.d.rx", "kit.d.rx"], { cwd: ws, encoding: "utf8" });
+const out2 = r2.stdout + r2.stderr;
+if (process.env.VERBOSE) console.log(out2);
+check("placement: a child route renders inside its parent's component, at its outlet (nests … under, by a scene)", /nested\.d\.rx:3 ok\s+createRoute: placement holds: Person inside Root, at its outlet/.test(out2), out2);
+check("placement: renders(later) — the carried components render inside the component whose prop renders them", /nested\.d\.rx:2 ok\s+createRootRoute: placement holds: Root inside RouterProvider/.test(out2), out2);
+check("placement: a library that renders the child beside its parent is a mismatch", /flat\.d\.rx:3 MISMATCH\s+createRoute: Person renders outside its parent's Root/.test(out2), out2);
+check("draft: a setter that hands its draft holds", /store\.d\.rx:1 ok\s+makeStore: draft holds/.test(out2), out2);
+check("draft: one that hands a copy is a mismatch", /store\.d\.rx:2 MISMATCH\s+copyStore: declared a draft callback, but a write to what it is handed is not kept/.test(out2), out2);
+check("a compound part that fails alone and renders inside its root holds its uses(…) (MO-11q)", /kit\.d\.rx:3 ok\s+Dialog\.Trigger: uses\(…\) holds: it fails alone and renders inside Dialog/.test(out2), out2);
+check("a part declared uses(…) that reads nothing is a mismatch", /kit\.d\.rx:4 MISMATCH\s+Dialog\.Title: declared uses\(dialog\), but rendered with no provider it neither fails nor warns/.test(out2), out2);
+check("the root's provides(…) is checked through a part that uses it alone: it fails without it and renders under it", /kit\.d\.rx:2 ok\s+Dialog: provides\(dialog\) holds: Dialog\.Trigger, which uses it alone, fails without it and renders under it/.test(out2), out2);
+check("placement with no scene is not verified, and says so", /unscened\.d\.rx:3 unverified createRoute: where it renders what it is given is not run: give a scene/.test(out2), out2);
+
+// MO-10g: a callback row checked by running — the library calls it outside tracking (a handler), inside a computation
+// (a mismatch: the parameter would be `ref`), or never under the probe (unverified).
+// MO-8j: `--record` writes what running showed; strict mode refuses the rows not recorded as verified, unless `trusted`.
+fs.writeFileSync(path.join(ws, "cb.mjs"), [
+  "import { createMemo } from \"solid-js\";",
+  "export const onTick = cb => { queueMicrotask(() => cb(1)); };",
+  "export const watchIn = cb => { const m = createMemo(() => cb(2)); m(); };",
+  "export const never = cb => {};",
+  "export const later = n => n;",
+  "export const watchTracked = cb => { const m = createMemo(() => cb(2)); m(); };",
+  "export const watchPure = cb => { const m = createMemo(() => cb(2)); m(); };",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "cb.probe.mjs"), [
+  "export const probes = {",
+  "  onTick: { args: () => [n => {}] },",
+  "  watchIn: { args: () => [n => n] },",
+  "  never: { args: () => [n => {}] },",
+  "  watchTracked: { args: () => [n => n] },",
+  "  watchPure: { args: () => [n => n] },",
+  "};",
+  "",
+].join("\n"));
+const cbDecl = [
+  "export fn onTick(cb: handler (n: number) => void): void",
+  "export fn watchIn(cb: handler (n: number) => number): void",
+  "export fn never(cb: (n: number) => void): void",
+  "export fn later(n: number): number trusted",
+  "export fn watchTracked(cb: tracked (n: number) => number): void",
+  "export fn watchPure(cb: (n: number) => number): void",
+  "",
+].join("\n");
+fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl);
+fs.rmSync(path.join(ws, "cb.verified.json"), { force: true });
+const { checkStrict } = require("../src/strict.js");
+const before = checkStrict(path.join(ws, "cb.d.rx"));
+check("strict: with no record, every row but the trusted one is refused", before.length === 5 && before.every(u => /nothing verified it/.test(u.message)) && !before.some(u => u.name === "later"), before);
+const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "cb.d.rx"], { cwd: ws, encoding: "utf8" });
+const out3 = r3.stdout + r3.stderr;
+if (process.env.VERBOSE) console.log(out3);
+check("callback: called outside tracking holds, as a handler", /cb\.d\.rx:1 ok\s+onTick: callback cb holds/.test(out3), out3);
+check("callback: declared handler and called inside a computation is a mismatch (MO-10g)", /cb\.d\.rx:2 MISMATCH\s+watchIn: cb is declared handler, but the library calls it inside a computation/.test(out3), out3);
+check("callback: an unmarked function type is pure, which holds inside a computation too", /cb\.d\.rx:6 ok\s+watchPure: cb is pure, as declared/.test(out3), out3);
+check("callback: declared tracked and called inside a computation holds (MO-10j)", /cb\.d\.rx:5 ok\s+watchTracked: cb is tracked, as declared/.test(out3), out3);
+check("callback: never called under the probe is unverified", /cb\.d\.rx:3 unverified never: callback cb never called/.test(out3), out3);
+check("--record writes the record beside the declaration", fs.existsSync(path.join(ws, "cb.verified.json")) && /recorded/.test(out3), out3);
+const after = checkStrict(path.join(ws, "cb.d.rx"));
+check("strict: a verified row passes; a mismatched or unverified one is refused, saying why", after.length === 2 && /mismatch/.test(after.find(u => u.name === "watchIn")?.message) && /could not check/.test(after.find(u => u.name === "never")?.message), after);
+fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl.replace("onTick(cb: handler (n: number) => void)", "onTick(cb: handler (n: number) => number)"));
+const edited = checkStrict(path.join(ws, "cb.d.rx"));
+check("strict: a row edited since the record is not verified any more", edited.some(u => u.name === "onTick" && /changed since/.test(u.message)), edited);
+
+// strict mode reads rows through the parser: a `//` inside a string is part of the row, a type that only mentions
+// "trusted" is not trust, a row spans its lines, and a record holds only for the library and probe it was made against
+const { writeRecord } = require("../src/strict.js");
+const ux = path.join(ws, "urls.d.rx");
+const uxDecl = [
+  "export fn link(to: \"https://a.example/one\"): string   // a comment, not the row",
+  "export fn word(): \"trusted\"",
+  "export fn spaced(): \"a  b\"",
+  "export component Card(props: {",
+  "  title: string",
+  "})",
+  "",
+].join("\n");
+fs.writeFileSync(path.join(ws, "urls.mjs"), "export const link = to => to; export const word = () => \"trusted\"; export const Card = p => p.title;\n");
+fs.writeFileSync(path.join(ws, "urls.probe.mjs"), "export const probes = {};\n");
+fs.writeFileSync(ux, uxDecl);
+fs.rmSync(path.join(ws, "urls.verified.json"), { force: true });
+const fresh = checkStrict(ux);
+check("strict: a return type that only mentions \"trusted\" is not trust", fresh.some(u => u.name === "word" && /nothing verified it/.test(u.message)), fresh);
+writeRecord(ux, [{ line: 1, status: "ok", what: "link" }, { line: 2, status: "ok", what: "word" }, { line: 3, status: "ok", what: "spaced" }, { line: 5, status: "ok", what: "Card" }]);
+check("strict: recorded rows pass", checkStrict(ux).length === 0, checkStrict(ux));
+fs.writeFileSync(ux, uxDecl.replace("a comment, not the row", "another comment"));
+check("strict: a comment is not part of the row", checkStrict(ux).length === 0, checkStrict(ux));
+fs.writeFileSync(ux, uxDecl.replace("https://a.example/one", "https://a.example/two"));
+const url = checkStrict(ux);
+check("strict: a `//` inside a string literal is part of the row (an edit there loses the record)", url.some(u => u.name === "link" && /changed since/.test(u.message)) && !url.some(u => u.name === "word"), url);
+fs.writeFileSync(ux, uxDecl.replace("\"a  b\"", "\"a b\""));
+const spaces = checkStrict(ux);
+check("strict: whitespace inside a string literal is part of the row (\"a  b\" to \"a b\" loses the record)", spaces.length === 1 && spaces[0].name === "spaced" && /changed since/.test(spaces[0].message), spaces);
+fs.writeFileSync(ux, uxDecl.replace("export fn spaced():", "export   fn spaced():  "));
+check("strict: whitespace outside string literals is not", checkStrict(ux).length === 0, checkStrict(ux));
+fs.writeFileSync(ux, uxDecl.replace("title: string", "title: number"));
+const multi = checkStrict(ux);
+check("strict: a row spans its lines (an edit on a props line loses the record)", multi.some(u => u.name === "Card" && /changed since/.test(u.message)), multi);
+fs.writeFileSync(ux, uxDecl);
+fs.writeFileSync(path.join(ws, "urls.probe.mjs"), "export const probes = { link: { args: () => [\"x\"] } };\n");
+const probeMoved = checkStrict(ux);
+check("strict: a record made with another probe does not count", probeMoved.length === 4 && probeMoved.every(u => /probe changed since/.test(u.message)), probeMoved);
+fs.writeFileSync(path.join(ws, "urls.probe.mjs"), "export const probes = {};\n");
+fs.writeFileSync(path.join(ws, "urls.mjs"), "export const link = to => to + \"!\"; export const word = () => \"trusted\"; export const Card = p => p.title;\n");
+const modMoved = checkStrict(ux);
+check("strict: a record made against another version of the module does not count", modMoved.length === 4 && modMoved.every(u => /module urls\.mjs changed since/.test(u.message)), modMoved);
+
+// MO-8j: rx-verify reads the rows the crate reads, and a record needs every claim answered: a provider whose props record
+// is broken over lines, with `provides(theme)` on the last, and nothing in the file that uses theme, is not verified —
+// on one line or on three, the same
+const boxRun = decl => {
+  fs.writeFileSync(path.join(ws, "box.mjs"), "export const Box = p => p.label;\n");
+  fs.writeFileSync(path.join(ws, "box.d.rx"), decl);
+  fs.rmSync(path.join(ws, "box.verified.json"), { force: true });
+  const r = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "box.d.rx"], { cwd: ws, encoding: "utf8" });
+  return { out: r.stdout + r.stderr, strict: checkStrict(path.join(ws, "box.d.rx")) };
+};
+const oneLine = boxRun("export context theme\nexport component Box(props: { label: string }) provides(theme)\n");
+const threeLines = boxRun("export context theme\nexport component Box(props: {\n  label: string\n}) provides(theme)\n");
+check("a provides(…) on a row's later line is read: unverified, as on one line", /box\.d\.rx:2 unverified Box: provides\(theme\) not run/.test(oneLine.out) && /box\.d\.rx:2 unverified Box: provides\(theme\) not run/.test(threeLines.out) && !/ok\s+— Box/.test(threeLines.out), threeLines.out);
+check("...and strict refuses it either way (no `ok` for a row with a claim nothing ran)", oneLine.strict.some(u => u.name === "Box") && threeLines.strict.some(u => u.name === "Box" && /could not check it/.test(u.message)), threeLines.strict);
+// a claim no check of rx-verify's answers (here `forwards`) is recorded as not verified, not passed over
+fs.writeFileSync(path.join(ws, "fw.mjs"), "export const wrap = c => c;\n");
+fs.writeFileSync(path.join(ws, "fw.d.rx"), "export fn wrap(c: Component): Component forwards\n");
+const fw = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "fw.d.rx"], { cwd: ws, encoding: "utf8" });
+check("a claim nothing in rx-verify runs is unverified, and strict refuses the row", /fw\.d\.rx:1 unverified wrap: where it renders/.test(fw.stdout) && checkStrict(path.join(ws, "fw.d.rx")).some(u => u.name === "wrap"), fw.stdout + fw.stderr);
+// a record an older rx-verify wrote (no version: its checks missed claims) no longer counts
+const recFile = path.join(ws, "cb.verified.json");
+const rec = JSON.parse(fs.readFileSync(recFile, "utf8"));
+fs.writeFileSync(path.join(ws, "cb.d.rx"), fs.readFileSync(path.join(ws, "cb.d.rx"), "utf8"));
+const okBefore = checkStrict(path.join(ws, "cb.d.rx")).length;
+delete rec.version; fs.writeFileSync(recFile, JSON.stringify(rec));
+const old = checkStrict(path.join(ws, "cb.d.rx"));
+check("strict: a record from an older rx-verify does not count (its passes may be false)", old.length > okBefore && old.every(u => /older rx-verify|changed since|could not|mismatch/.test(u.message)) && old.some(u => /older rx-verify/.test(u.message)), old);
+
+// RFC 28, 29: each named context and each callback position is a claim of its own. `Both` declares provides(a, b) and
+// provides only `a`, and the file's one hook uses only `a`: `provides(a)` holds, `b` is unverified, and strict refuses the
+// row. `Lone`'s `ref` prop is a handler: that its export is a function says nothing of how it calls it
+fs.writeFileSync(path.join(ws, "both.mjs"), [
+  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "const A = createContext();",
+  "export const useA = () => { const v = useContext(A); if (!v) throw new Error(\"no a\"); return v; };",
+  "export const Both = props => createComponent(A, { value: \"x\", get children() { return props.children; } });",
+  "export const Lone = props => null;",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "both.d.rx"), [
+  "export context a",
+  "export context b",
+  "export pure fn useA(): string uses(a)",
+  "export component Both(props: { children?: View }) provides(a, b)",
+  "export component Lone(props: { ref?: handler (el: number) => void })",
+  "",
+].join("\n"));
+fs.rmSync(path.join(ws, "both.verified.json"), { force: true });
+const both = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "both.d.rx"], { cwd: ws, encoding: "utf8" });
+const bothStrict = checkStrict(path.join(ws, "both.d.rx"));
+check("provides(a, b): a hook that uses only a answers provides(a) alone; b is unverified", /both\.d\.rx:4 ok\s+Both: provides\(a\) holds: useA runs under it/.test(both.stdout) && /both\.d\.rx:4 unverified Both: provides\(b\) not run/.test(both.stdout) && !/provides\(…\) holds/.test(both.stdout), both.stdout + both.stderr);
+check("...and strict refuses the row (no `ok` record for provides(a, b))", bothStrict.some(u => u.name === "Both" && /could not check it/.test(u.message)), bothStrict);
+check("a component's handler prop it never calls: unverified, and strict refuses it", /both\.d\.rx:5 unverified Lone: prop ref never called/.test(both.stdout) && bothStrict.some(u => u.name === "Lone" && /could not check it/.test(u.message)), { out: both.stdout, bothStrict });
+const bothRec = JSON.parse(fs.readFileSync(path.join(ws, "both.verified.json"), "utf8"));
+check("...in a version-4 record", bothRec.version === 4 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
+
+// RFC 28 (revised after review): provides(b) is not shown by a hook declared uses(a, b) that reads only a, nor by a part
+// that still fails under the provider; only actual provision verifies it
+fs.writeFileSync(path.join(ws, "prov.mjs"), [
+  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "const A = createContext(); const B = createContext();",
+  "export const useAB = () => { const v = useContext(A); if (!v) throw new Error(\"no a\"); return v; };",
+  "export const Both = props => createComponent(A, { value: \"x\", get children() { return props.children; } });",
+  "export const Part = props => { if (!useContext(B)) throw new Error(\"no b\"); return null; };",
+  "export const OnlyA = props => createComponent(A, { value: \"x\", get children() { return props.children; } });",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "prov.d.rx"), [
+  "export context a",
+  "export context b",
+  "export pure fn useAB(): string uses(a, b)",
+  "export component Both(props: { children?: View }) provides(a, b)",
+  "export component Part(props: {}) uses(b)",
+  "",
+].join("\n"));
+const prov = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "prov.d.rx"], { cwd: ws, encoding: "utf8" });
+check("a hook declared uses(a, b) answers neither provides(a) nor provides(b)", /prov\.d\.rx:4 unverified Both: provides\(a\) not run/.test(prov.stdout) && !/provides\(a\) holds|provides\(b\) holds/.test(prov.stdout), prov.stdout + prov.stderr);
+check("a part that uses b alone and still fails under the component: provides(b) is a mismatch, not ok", /prov\.d\.rx:4 MISMATCH\s+Both: declared provides\(b\), but Part, which uses it, still fails under it/.test(prov.stdout), prov.stdout + prov.stderr);
+
+// RFC 29 (revised after review): a component's function-typed props are run — the probe's props, each wrapped in a spy:
+// a handler called later holds, one called inside a computation is a mismatch, a tracked one called inside one holds,
+// and strict mode then accepts the row without `trusted`
+fs.writeFileSync(path.join(ws, "props.mjs"), [
+  "import { createEffect, createMemo } from \"solid-js\";",
+  "export const Later = props => { queueMicrotask(() => props.onPress()); return null; };",
+  "export const Now = props => { createMemo(() => props.onPress()); return null; };",
+  "export const Each = props => { createEffect(() => props.each(), () => {}); return null; };",
+  "export const Pick = props => { props.pick(1); return null; };",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "props.d.rx"), [
+  "export component Later(props: { onPress: handler () => void })",
+  "export component Now(props: { onPress: handler () => void })",
+  "export component Each(props: { each: tracked () => number })",
+  "export component Pick(props: { pick: (n: number) => number })",
+  "",
+].join("\n"));
+fs.rmSync(path.join(ws, "props.verified.json"), { force: true });
+const pr = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "props.d.rx"], { cwd: ws, encoding: "utf8" });
+check("a handler prop the component calls later holds", /props\.d\.rx:1 ok\s+Later: prop onPress holds/.test(pr.stdout), pr.stdout + pr.stderr);
+check("a handler prop it calls inside a computation is a mismatch", /props\.d\.rx:2 MISMATCH\s+Now: prop onPress is declared handler, but the component calls it inside a computation/.test(pr.stdout), pr.stdout + pr.stderr);
+check("a tracked prop it calls inside one holds; an unmarked one is pure however it is called", /props\.d\.rx:3 ok\s+Each: prop each is tracked, as declared/.test(pr.stdout) && /props\.d\.rx:4 ok\s+Pick: prop pick is pure/.test(pr.stdout), pr.stdout + pr.stderr);
+const prStrict = checkStrict(path.join(ws, "props.d.rx"));
+check("...and strict mode accepts those rows without `trusted`, refusing only the mismatch", !prStrict.some(u => ["Later", "Each", "Pick"].includes(u.name)) && prStrict.some(u => u.name === "Now"), prStrict);
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

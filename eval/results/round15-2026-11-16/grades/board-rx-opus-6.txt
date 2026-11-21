@@ -1,0 +1,26 @@
+== hidden
+✗ two adds show both, each taking its own id
+✗ a renamed card keeps its new title when it moves
+43/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ one of two moves declined puts back only its card
+✗ an add accepted while To do reloads shows the card once
+✗ a move into Doing that fills it while a move out is pending disables the rest
+22/26 passed
+== fuzz
+board-rx-opus-6: 7/20 seeds found a hole
+  seed 3 step 12: duplicate card: "Alpha 2 (adding…)" shows 1 time(s) with 0 add(s) of it in the air, beside its added card
+    add Bravo 1 ; land addCard:todo,Bravo 1 ; add Alpha 2 ; add Alpha 3 ; add Delta 4 ; add Delta 5 ; land addCard:todo,Alpha 3 ; add Alpha 6 ; add Delta 7 ; add Delta 8 ; land addCard:todo,Alpha 2 ; land fetchCards:todo
+  seed 6 step 34: page error: NotReadyError
+    add Bravo 1 ; fail fetchCards:done ; land addCard:todo,Bravo 1 ; land fetchCards:doing ; land fetchCards:todo ; retry-done ; right #3 ; land fetchCards:done ; down #3 ; tab archive ; tab board ; tab archive ; land fetchCards:todo ; land moveCard:3,doing,1 ; tab board ; tab archive ; tab board ; add Alpha 2 ; tab archive ; land fetchCards:done ; tab board ; land fetchCards:doing ; land fetchCar
+  seed 8 step 36: page error: NotReadyError
+    land fetchCards:doing ; right #3 ; select #4 ; fail fetchCards:done ; left #3 ; add Alpha 1 ; land fetchCards:todo ; tab archive ; tab board ; add Bravo 2 ; land fetchCards:todo ; down #1 ; down #2 ; up #2 ; land fetchChecklist:4 ; up #1 ; land fetchCards:done ; select #5 ; land moveCard:1,todo,1 ; fail addCard:todo,Bravo 2 ; land fetchChecklist:5 ; land addCard:todo,Alpha 1 ; toggle 1 ; selec
+  seed 10 step 32: duplicate card: "Alpha 6 (adding…)" shows 1 time(s) with 0 add(s) of it in the air, beside its added card
+    tab archive ; tab board ; add Alpha 1 ; land fetchCards:todo ; select #1 ; land fetchArchived: ; land fetchChecklist:1 ; land fetchCards:done ; add Alpha 2 ; land addCard:todo,Alpha 1 ; fail addCard:todo,Alpha 2 ; land fetchCards:doing ; select #1 ; toggle 0 ; rename Delta ; land toggleItem:1,11,true ; land renameCard:1,Delta ; select #3 ; add Alpha 3 ; tab archive ; tab board ; add Alpha 4 ; 
+  seed 14 step 20: count: card "#4 Deploy · 0/1", progress "2/4 done"
+    add Bravo 1 ; land fetchCards:todo ; select #2 ; up #2 ; select #2 ; land addCard:todo,Bravo 1 ; land fetchChecklist:2 ; down #1 ; add-item ship 2 ; land fetchCards:doing ; land fetchCards:done ; land moveCard:2,todo,0 ; toggle 2 ; right #3 ; select #1 ; rename Alpha ; select #4 ; land toggleItem:2,23,true ; land moveCard:3,done,1 ; land fetchChecklist:4
+  seed 15 step 42: page error: NotReadyError
+    land fetchCards:doing ; select #4 ; left #3 ; land fetchCards:done ; land fetchChecklist:4 ; land fetchCards:todo ; add-item qa 1 ; land addItem:4,qa 1 ; select #3 ; land fetchChecklist:3 ; rename Bravo ; rename Alpha ; rename Alpha ; land renameCard:3,Bravo ; rename Bravo ; select #5 ; land renameCard:3,Alpha ; up #4 ; left #5 ; rename Alpha ; land renameCard:5,Alpha ; land renameCard:3,Bravo
+  seed 17 step 34: count: card "#2 Fix login · 1/3", progress "0/3 done"
+    add Bravo 1 ; land fetchCards:todo ; land fetchCards:done ; add Alpha 2 ; land fetchCards:doing ; right #3 ; right #4 ; right #2 ; land addCard:todo,Bravo 1 ; land moveCard:3,done,1 ; select #2 ; select #4 ; land addCard:todo,Alpha 2 ; land moveCard:2,doing,0 ; land fetchChecklist:4 ; add-item docs 3 ; land moveCard:4,done,2 ; rename Alpha ; add-item docs 4 ; select #3 ; left #5 ; select #11 ;

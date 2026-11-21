@@ -1,0 +1,14 @@
+== hidden
+45/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ toggles keep showing while the checklist reloads
+24/26 passed
+== fuzz
+board-xstate-haiku-4: 3/20 seeds found a hole
+  seed 8 step 35: duplicate card: #5 shows in todo and doing
+    land fetchCards:doing ; up #4 ; select #3 ; fail moveCard:4,doing,0 ; up #4 ; rename Alpha ; land fetchCards:todo ; rename Delta ; land fetchChecklist:3 ; up #2 ; land moveCard:2,todo,0 ; toggle 1 ; archive #3 ; right #2 ; land moveCard:4,doing,0 ; left #4 ; add Delta 1 ; fail moveCard:4,todo,1 ; left #2 ; select #1 ; archive #1 ; land fetchCards:done ; add Bravo 2 ; select #4 ; fail fetchChec
+  seed 11 step 37: settled: doing: shows [4], server [3,4] (order not checked)
+    add Bravo 1 ; tab archive ; tab board ; add Bravo 2 ; tab archive ; tab board ; add Alpha 3 ; land fetchCards:doing ; select #4 ; down #3 ; rename Alpha ; up #3 ; add-item ship 4 ; land moveCard:3,doing,1 ; add Delta 5 ; land renameCard:4,Alpha ; fail fetchCards:todo ; retry-todo ; down #3 ; select #3 ; land fetchChecklist:4 ; up #3 ; land fetchCards:done ; rename Alpha ; down #3 ; land fetchA
+  seed 20 step 13: duplicate card: #5 shows in todo and done
+    add Bravo 1 ; land fetchCards:doing ; add Bravo 2 ; select #3 ; land fetchCards:doing ; land fetchChecklist:3 ; land fetchCards:todo ; land fetchCards:done ; add-item qa 3 ; left #5 ; left #5 ; select #1 ; land fetchCards:done

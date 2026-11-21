@@ -1,0 +1,25 @@
+import { BoardPage } from "./BoardPage.rx"
+import { ArchivePage } from "./ArchivePage.rx"
+import { openBoard } from "./board.rx"
+import { openArchive } from "./archive.rx"
+
+export default component App() {
+  source tab: string := "board"
+  <main class="app">
+    <nav class="tabs" role="tablist">
+      <button data-testid="tab-board" role="tab" aria-selected={tab == "board"} onClick={() => {
+        if (tab != "board") {
+          tab := "board"
+          openBoard()
+        }
+      }}>Board</button>{" "}
+      <button data-testid="tab-archive" role="tab" aria-selected={tab == "archive"} onClick={() => {
+        if (tab != "archive") {
+          tab := "archive"
+          openArchive()
+        }
+      }}>Archive</button>
+    </nav>
+    {if tab == "board" { <BoardPage /> } else { <ArchivePage /> }}
+  </main>
+}

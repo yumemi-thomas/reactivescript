@@ -1,0 +1,22 @@
+:root { font-family: system-ui, sans-serif; color: #1d1d1f; background: #f5f5f7; }
+body { margin: 0; }
+.app { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tab { padding: 6px 14px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
+.tab.active { background: #1d1d1f; color: #fff; border-color: #1d1d1f; }
+.layout { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+.columns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.column, .detail, .archive-page { background: #fff; border-radius: 8px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.column h2, .detail h2 { font-size: 1rem; margin: 0 0 8px; }
+.cards, .items, .list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.card-row { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid #e3e3e3; border-radius: 6px; }
+.card-row.selected { border-color: #0071e3; }
+.card-row.pending, .row.pending { opacity: .6; }
+.card { text-align: left; background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
+.moves { display: flex; gap: 4px; }
+.moves button { font-size: .75rem; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.add-card, .add-item, .rename { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.error { color: #b00020; }
+.muted { color: #6e6e73; }
+@media (max-width: 800px) { .layout, .columns { grid-template-columns: 1fr; } }

@@ -1,0 +1,9 @@
+I built the sprint board in Foldkit, split across `src/main.ts` (exports `Model`, `init`, `update`, `view`), `domain.ts`, `board.ts`, `model.ts`, `message.ts`, `command.ts`, `view.ts` and `styles.ts`. `./check` passes and `./test` passes 26/26. The board keeps the server's confirmed state plus a list of changes still waiting on an answer, and draws the screen from both. So a declined change undoes only itself, even when other moves, renames, toggles or adds are still in flight. Replies that arrive late, for a page you have left or a card you no longer have selected, are ignored.
+
+Choices the brief left open:
+- **Disabled controls:** add-card, add-item and moves into a column that hasn't loaded are disabled until it loads.
+- **Rename box:** `title-input` keeps its text after a rename; the brief says to empty the other inputs but not this one.
+- **Errors after switching cards:** a rename or item error that arrives after you select another card is not shown.
+- **Extras:** I added retry buttons for a failed checklist and a failed archive list.
+
+The test run logs one 404 for a missing resource; I didn't track it down (my guess is the favicon), and no test fails because of it.

@@ -1,0 +1,312 @@
+// Sprint board: two pages behind a tab row. Each read (a column, the open card's checklist,
+// the archive) is overlaid by app.ts with the writes still out, so a declined write goes back
+// by itself, and an accepted one stays until the server's answer shows it.
+
+routes nav
+  tab board "/"
+  tab archive "/archive"
+
+shape BoardCard
+  id: number
+  title: string
+  done: number
+  total: number
+
+shape CheckItem
+  id: number
+  text: string
+  done: bool
+
+shape Archived
+  id: number
+  title: string
+
+shape Titled
+  id: number
+  title: string
+
+shape Moved
+  id: number
+  column: string
+  index: number
+
+shape Toggled
+  id: number
+  done: bool
+
+shape IdOnly
+  id: number
+
+component SprintBoard
+  state visit = 1
+  state selected = 0
+  state picks = 0
+  state newCard = ""
+  state renameDraft = ""
+  state itemDraft = ""
+  state itemKind = ""
+  state addOn = false
+  state moveOn = false
+  state archiveOn = false
+  state renameOn = false
+  state itemOn = false
+  state restoreOn = false
+  derive onBoard = nav.tab == "board"
+  derive onArchive = nav.tab == "archive"
+  resource colTodo = loadColumn("todo", visit) when onBoard as shape BoardCard[] else empty()
+  resource colDoing = loadColumn("doing", visit) when onBoard as shape BoardCard[] else empty()
+  resource colDone = loadColumn("done", visit) when onBoard as shape BoardCard[] else empty()
+  resource checklist = loadChecklist(selected, picks, visit) when selected != 0 as shape CheckItem[] else empty()
+  resource archivedList = loadArchived(visit) when onArchive as shape Archived[] else empty()
+  mutation moved as shape Moved queue refreshes colTodo, colDoing, colDone
+  mutation renamed as shape Titled queue refreshes colTodo, colDoing, colDone
+  mutation added as shape Titled queue refreshes colTodo
+  mutation archiving as shape IdOnly queue refreshes colTodo, colDoing, colDone
+  mutation toggled as shape Toggled queue refreshes colTodo, colDoing, colDone, checklist
+  mutation itemAdded as shape CheckItem queue refreshes colTodo, colDoing, colDone, checklist
+  mutation restored as shape IdOnly queue refreshes archivedList
+
+  derive moveFail = match failure(moved) { case some(f) => `move error: ${f.message}`, case none => "" }
+  derive addFail = match failure(added) { case some(f) => `add error: ${f.message}`, case none => "" }
+  derive renameFail = match failure(renamed) { case some(f) => `rename error: ${f.message}`, case none => "" }
+  derive archiveFail = match failure(archiving) { case some(f) => `archive error: ${f.message}`, case none => "" }
+  derive toggleFail = match failure(toggled) { case some(f) => `item error: ${f.message}`, case none => "" }
+  derive addItemFail = match failure(itemAdded) { case some(f) => `item error: ${f.message}`, case none => "" }
+  derive itemFail = itemKind == "toggle" ? toggleFail : addItemFail
+  derive restoreFail = match failure(restored) { case some(f) => `restore error: ${f.message}`, case none => "" }
+  derive errTodo = match failure(colTodo) { case some(f) => `error: ${f.message}`, case none => "" }
+  derive errDoing = match failure(colDoing) { case some(f) => `error: ${f.message}`, case none => "" }
+  derive errDone = match failure(colDone) { case some(f) => `error: ${f.message}`, case none => "" }
+  derive archErr = match failure(archivedList) { case some(f) => `archive error: ${f.message}`, case none => "" }
+  derive checkErr = match failure(checklist) { case some(f) => `checklist error: ${f.message}`, case none => "" }
+  derive selCard = first(colTodo.concat(colDoing).concat(colDone).filter(c => c.id == selected))
+  derive selFound = match selCard { case some(_) => true, case none => false }
+  derive selTitle = match selCard { case some(c) => c.title, case none => "" }
+  derive selTotal = match selCard { case some(c) => c.total, case none => 0 }
+  derive selCol = colTodo.filter(c => c.id == selected).length > 0 ? "To do" : colDoing.filter(c => c.id == selected).length > 0 ? "Doing" : "Done"
+  derive checkDone = checklist.filter(i => i.done).length
+
+  action openTab(name: string)
+    if nav.tab != name
+      visit = visit + 1
+      selected = 0
+      newCard = ""
+      renameDraft = ""
+      itemDraft = ""
+      itemKind = ""
+      addOn = false
+      moveOn = false
+      archiveOn = false
+      renameOn = false
+      itemOn = false
+      restoreOn = false
+    nav = select(nav, name)
+  action choose(id: number)
+    selected = id
+    picks = picks + 1
+    renameDraft = ""
+    renameOn = false
+    itemOn = false
+  action editNew(v: string)
+    newCard = v
+  action addCard
+    let t = newCard.trim()
+    if t != ""
+      newCard = ""
+      addOn = true
+      send added = addOp("todo", t, visit)
+  action move(id: number, src: string, dst: string, at: number, title: string, doneCount: number, totalCount: number)
+    moveOn = true
+    send moved = moveOp(id, src, dst, at, title, doneCount, totalCount, visit)
+  action editRename(v: string)
+    renameDraft = v
+  action rename
+    let t = renameDraft.trim()
+    if t != "" and selected != 0
+      renameOn = true
+      send renamed = renameOp(selected, t, visit)
+  action archive
+    let id = selected
+    if id != 0
+      archiveOn = true
+      selected = 0
+      send archiving = archiveOp(id, visit)
+  action toggle(itemId: number, isDone: bool)
+    itemOn = true
+    itemKind = "toggle"
+    send toggled = toggleOp(selected, itemId, isDone, checklist.filter(i => (i.id == itemId ? isDone : i.done)).length, visit)
+  action editItem(v: string)
+    itemDraft = v
+  action addItem
+    let t = itemDraft.trim()
+    if t != "" and selected != 0
+      itemOn = true
+      itemKind = "add"
+      itemDraft = ""
+      send itemAdded = addItemOp(selected, t, selTotal + 1, visit)
+  action restore(id: number)
+    restoreOn = true
+    send restored = restoreOp(id, visit)
+  action retryTodo
+    refresh colTodo
+  action retryDoing
+    refresh colDoing
+  action retryDone
+    refresh colDone
+
+  view
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%" display="flex" flex-direction="column"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="page" flex=1 min-height=0 display="flex" flex-direction="column"
+          if e.name == "board"
+            header display="flex" align-items="center"
+              text "Sprint board" role="heading" aria-level=1 flex=1
+            scroll id="page" flex=1 min-height=0 padding=16
+              column gap=16
+                if archiveOn and archiveFail != ""
+                  text archiveFail testId="archive-error" color="-exact-system-red"
+                row gap=12 align-items="flex-start"
+                  column testId="col-todo" flex=1 min-width=0 gap=8
+                    text (current(colTodo) ? `To do (${colTodo.length})` : "To do") role="heading" aria-level=2 font="-exact-headline" testId="head-todo"
+                    if pending(colTodo) and not current(colTodo)
+                      text "loading" color="-exact-secondary-label"
+                    else if failed(colTodo)
+                      text errTodo color="-exact-system-red"
+                      button press=retryTodo testId="retry-todo"
+                        text "Retry"
+                    else
+                      for c, i in colTodo key=(c.id == 0 ? `new-${c.title}` : `${c.id}`)
+                        row gap=6 align-items="center"
+                          if c.id == 0
+                            text `${c.title} (adding…)` testId="card" flex=1 min-width=0
+                          else
+                            button press=choose(c.id) testId="card" flex=1 min-width=0
+                              text `#${c.id} ${c.title} · ${c.done}/${c.total}`
+                            button press=move(c.id, "todo", "doing", colDoing.length, c.title, c.done, c.total) disabled=(colDoing.length >= 3) testId="right" aria-label="right"
+                              text "Right"
+                            if i > 0
+                              button press=move(c.id, "todo", "todo", i - 1, c.title, c.done, c.total) testId="up" aria-label="up"
+                                text "Up"
+                            if i < colTodo.length - 1
+                              button press=move(c.id, "todo", "todo", i + 1, c.title, c.done, c.total) testId="down" aria-label="down"
+                                text "Down"
+                    row gap=8 align-items="center"
+                      input value=newCard input=editNew placeholder="New card" aria-label="New card" testId="new-card" flex=1 min-width=0
+                      button press=addCard disabled=(newCard.trim() == "") testId="add-card"
+                        text "Add"
+                    if addOn and addFail != ""
+                      text addFail testId="add-error" color="-exact-system-red"
+                    if moveOn and moveFail != ""
+                      text moveFail testId="move-error" color="-exact-system-red"
+                  column testId="col-doing" flex=1 min-width=0 gap=8
+                    text (current(colDoing) ? `Doing (${colDoing.length})` : "Doing") role="heading" aria-level=2 font="-exact-headline" testId="head-doing"
+                    if pending(colDoing) and not current(colDoing)
+                      text "loading" color="-exact-secondary-label"
+                    else if failed(colDoing)
+                      text errDoing color="-exact-system-red"
+                      button press=retryDoing testId="retry-doing"
+                        text "Retry"
+                    else
+                      for c, i in colDoing key=(c.id == 0 ? `new-${c.title}` : `${c.id}`)
+                        row gap=6 align-items="center"
+                          if c.id == 0
+                            text `${c.title} (adding…)` testId="card" flex=1 min-width=0
+                          else
+                            button press=choose(c.id) testId="card" flex=1 min-width=0
+                              text `#${c.id} ${c.title} · ${c.done}/${c.total}`
+                            button press=move(c.id, "doing", "todo", colTodo.length, c.title, c.done, c.total) testId="left" aria-label="left"
+                              text "Left"
+                            button press=move(c.id, "doing", "done", colDone.length, c.title, c.done, c.total) testId="right" aria-label="right"
+                              text "Right"
+                            if i > 0
+                              button press=move(c.id, "doing", "doing", i - 1, c.title, c.done, c.total) testId="up" aria-label="up"
+                                text "Up"
+                            if i < colDoing.length - 1
+                              button press=move(c.id, "doing", "doing", i + 1, c.title, c.done, c.total) testId="down" aria-label="down"
+                                text "Down"
+                  column testId="col-done" flex=1 min-width=0 gap=8
+                    text (current(colDone) ? `Done (${colDone.length})` : "Done") role="heading" aria-level=2 font="-exact-headline" testId="head-done"
+                    if pending(colDone) and not current(colDone)
+                      text "loading" color="-exact-secondary-label"
+                    else if failed(colDone)
+                      text errDone color="-exact-system-red"
+                      button press=retryDone testId="retry-done"
+                        text "Retry"
+                    else
+                      for c, i in colDone key=(c.id == 0 ? `new-${c.title}` : `${c.id}`)
+                        row gap=6 align-items="center"
+                          if c.id == 0
+                            text `${c.title} (adding…)` testId="card" flex=1 min-width=0
+                          else
+                            button press=choose(c.id) testId="card" flex=1 min-width=0
+                              text `#${c.id} ${c.title} · ${c.done}/${c.total}`
+                            button press=move(c.id, "done", "doing", colDoing.length, c.title, c.done, c.total) disabled=(colDoing.length >= 3) testId="left" aria-label="left"
+                              text "Left"
+                            if i > 0
+                              button press=move(c.id, "done", "done", i - 1, c.title, c.done, c.total) testId="up" aria-label="up"
+                                text "Up"
+                            if i < colDone.length - 1
+                              button press=move(c.id, "done", "done", i + 1, c.title, c.done, c.total) testId="down" aria-label="down"
+                                text "Down"
+                column testId="detail" gap=8
+                  if selected == 0
+                    text "select a card" color="-exact-secondary-label"
+                  else if selFound
+                    text `#${selected} ${selTitle}` role="heading" aria-level=2 font="-exact-headline"
+                    text `in ${selCol}` color="-exact-secondary-label"
+                    row gap=8 align-items="center"
+                      input value=renameDraft input=editRename placeholder="Title" aria-label="Title" testId="title-input" flex=1 min-width=0
+                      button press=rename testId="rename"
+                        text "Rename"
+                    if renameOn and renameFail != ""
+                      text renameFail testId="rename-error" color="-exact-system-red"
+                    button press=archive testId="archive" buttonStyle="bordered"
+                      text "Archive"
+                    column testId="checklist" gap=6
+                      if pending(checklist) and not current(checklist)
+                        text "loading checklist" color="-exact-secondary-label"
+                      else if failed(checklist)
+                        text checkErr color="-exact-system-red"
+                      else
+                        for it, j in checklist key=(it.id == 0 ? `new-${it.text}` : `${it.id}`)
+                          row gap=8 align-items="center"
+                            text (it.id == 0 ? `[ ] ${it.text} (adding…)` : it.done ? `[x] ${it.text}` : `[ ] ${it.text}`) testId="item" flex=1 min-width=0
+                            if it.id != 0
+                              button press=toggle(it.id, not it.done) testId="toggle" aria-label="toggle"
+                                text "Toggle"
+                        text `${checkDone}/${checklist.length} done` testId="progress" color="-exact-secondary-label"
+                    row gap=8 align-items="center"
+                      input value=itemDraft input=editItem placeholder="Add an item" aria-label="New item" testId="item-input" flex=1 min-width=0
+                      button press=addItem disabled=(itemDraft.trim() == "") testId="add-item"
+                        text "Add"
+                    if itemOn and itemFail != ""
+                      text itemFail testId="item-error" color="-exact-system-red"
+                  else
+                    text "loading card" color="-exact-secondary-label"
+            row role="tablist" testId="tabs" gap=0
+              button role="tab" aria-selected=(nav.tab == "board") press=openTab("board") testId="tab-board" flex=1
+                text "Board"
+              button role="tab" aria-selected=(nav.tab == "archive") press=openTab("archive") testId="tab-archive" flex=1
+                text "Archive"
+          else if e.name == "archive"
+            header display="flex" align-items="center"
+              text "Archive" role="heading" aria-level=1 flex=1
+            scroll id="page" flex=1 min-height=0 padding=16
+              column gap=8 testId="archived"
+                if pending(archivedList) and not current(archivedList)
+                  text "loading archive" color="-exact-secondary-label"
+                else if failed(archivedList)
+                  text archErr color="-exact-system-red"
+                else
+                  for a in archivedList key=a.id
+                    row gap=8 align-items="center"
+                      text `#${a.id} ${a.title}` testId="archived-card" flex=1 min-width=0
+                      button press=restore(a.id) testId="restore" aria-label="restore"
+                        text "Restore"
+                if restoreOn and restoreFail != ""
+                  text restoreFail testId="restore-error" color="-exact-system-red"
+            row role="tablist" testId="tabs" gap=0
+              button role="tab" aria-selected=(nav.tab == "board") press=openTab("board") testId="tab-board" flex=1
+                text "Board"
+              button role="tab" aria-selected=(nav.tab == "archive") press=openTab("archive") testId="tab-archive" flex=1
+                text "Archive"

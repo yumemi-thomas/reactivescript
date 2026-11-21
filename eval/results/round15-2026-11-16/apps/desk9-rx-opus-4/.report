@@ -1,0 +1,6 @@
+I built the issue desk in ReactiveScript, with the entry in `src/main.rx`. The issues data and all its write actions live in the module `src/issues.rx`, and the pages are in `src/IssuesPage.rx`, `src/HelpPage.rx` and `src/SettingsPage.rx`. The checker passes and all 30 visible tests pass, plus 16 extra tests I added for rejected writes, overlapping writes, retries and the tab count; I then put `tests/visible.mjs` back as it was. I used 5 of the 15 runs.
+
+Things I was unsure about:
+- **Clicking the tab of the page already open** does nothing. I couldn't tell from the brief whether it should reset that page.
+- **The rename input** is not emptied after a rename, because the brief only says that for the comment and label inputs.
+- **The count when a close fails while you're on another page**: the count stays at the lowered number, since the brief says the count doesn't change while another page is open.

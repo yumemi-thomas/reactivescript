@@ -1,0 +1,6 @@
+I built the issue desk in XState v5 and it passes `./check` and all 30 visible tests. I used 6 of the 15 runs. An app machine (`src/appMachine.ts`) has one state per tab, and each state starts its page's machine, so leaving a page stops it and drops its requests. The open-issue count lives in the app machine, so it survives page switches. Reads run as `fromPromise` actors started by the machine states, so a newer request (another selection, filter or query) makes the app ignore the older answer. Each write (assign, rename, close, post, labels, save) runs as its own small machine (`src/requests.ts`) and is shown on top of the server's data until it answers, so a declined one rolls back without undoing others still in flight.
+
+Things I was unsure about:
+- **A page's writes stop when you leave it.** If you close an issue and switch tabs before the server answers, a decline is never seen, so the tab count stays one lower until the issues page loads again.
+- **Clicks that change nothing are ignored.** Clicking the tab already open, the selected issue, the selected help hit or the current filter does nothing. The one exception is clicking the current filter after the list failed, which loads it again.
+- **Opening a related hit fills in at once.** The help page shows the related search's hits straight away and also searches again, as if the title had been typed.

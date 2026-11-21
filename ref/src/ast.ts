@@ -15,10 +15,10 @@ export type Expr =
   | { k: "tpl"; parts: (string | Expr)[] }                      // template literal
   | { k: "member"; o: Expr; p: string; opt?: boolean }          // opt: `?.`
   | { k: "index"; o: Expr; i: Expr; opt?: boolean }
-  | { k: "call"; f: Expr; args: Expr[] }
+  | { k: "call"; f: Expr; args: Expr[]; targs?: string }   // targs: TypeScript type arguments written at the call (`makeStore<Todos>(…)`, 07 §3), types only
   | { k: "arr"; items: Expr[] }
   | { k: "rec"; fields: ({ key: string; v: Expr } | { spread: Expr })[] }
-  | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[] }   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
+  | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[]; ptypes?: (string | undefined)[] }   // ptypes: a parameter's TypeScript type (07 §3), types only   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
   | { k: "draft"; seed: Expr; body: Stmt[] }                  // ST-3: the only writes in reactive scope, to `d`
   | { k: "use"; name: string }                                 // RG-7b: the nearest provision above
   | { k: "spread"; e: Expr }                                   // only inside an array literal
@@ -39,6 +39,7 @@ export type Stmt =
   | { k: "affects"; name: string }                              // AC-5
   | { k: "action"; body: Stmt[] }                               // AC-1 inline
   | { k: "sif"; c: Expr; t: Stmt[]; f: Stmt[] }                 // imperative `if`
+  | { k: "for"; name: string; e: Expr; body: Stmt[] }           // 07 §5: `for (const x of e) { … }`, a loop of imperative scope
   | { k: "return"; e?: Expr }
   | { k: "try"; body: Stmt[]; catchName?: string; catchClasses?: string[]; handler?: Stmt[]; fin?: Stmt[] }   // AC-7: traditional try/catch/finally in imperative scope
   | { k: "throw"; e: Expr };
@@ -47,12 +48,12 @@ export type Param = { name: string; ref: boolean; type?: string };   // E-9; typ
 export type Decl =
   | { k: "source"; name: string; init: Expr; line: number; question?: boolean; type?: string; exported?: boolean; key?: string }   // question: `source x = e` (ST-5)
   | { k: "eq"; name: string; e: Expr; line: number; deferred?: boolean; key?: string; type?: string; exported?: boolean }   // deferred: declared lag (V-16, D-40); key: ST-4
-  | { k: "import"; names: { name: string; alias: string }[]; from: string; pure: boolean; side?: "server" | "client"; line: number; fails?: string[]; resolved?: string; declared?: string; declaredErrors?: string[]; declaredPure?: string[]; declaredSide?: Record<string, "server" | "client"> }   // R-io-4: io unless `pure`; R-f-8: `fails A | B` narrows its rejections; resolved: an `.rx` import's module key (MO-1, set by the loader); declared: a JS import's declaration file (MO-8)
+  | { k: "import"; names: { name: string; alias: string }[]; from: string; pure: boolean; side?: "server" | "client"; line: number; fails?: string[]; resolved?: string; declared?: string; declaredErrors?: string[]; declaredErrorFields?: Record<string, string[]>; declaredPure?: string[]; declaredSide?: Record<string, "server" | "client"> }   // R-io-4: io unless `pure`; R-f-8: `fails A | B` narrows its rejections; resolved: an `.rx` import's module key (MO-1, set by the loader); declared: a JS import's declaration file (MO-8)
   | { k: "error"; name: string; params: string[]; ptypes?: (string | undefined)[]; msg?: Expr; line: number; exported?: boolean }             // R-f-1: `error NotFound(id) => message`
   | { k: "typedecl"; name: string; line: number; text?: string; exported?: boolean }                                                           // `type T = …`: text only
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
   | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number; ret?: string; exported?: boolean }       // body: decls then a value
-  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; exported?: boolean; isDefault?: boolean }  // body: decls then a view; isDefault: `export default component App` — the app's entry (MO-1c)
+  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; noProps?: boolean; exported?: boolean; isDefault?: boolean }  // body: decls then a view; noProps: `component C()` (RG-4b); isDefault: `export default component App` — the app's entry (MO-1c)
   | { k: "action"; name: string; params: string[]; ptypes?: (string | undefined)[]; body: Stmt[]; line: number; exported?: boolean }                   // AC-1
   | { k: "server"; name: string; params: string[]; ptypes?: (string | undefined)[]; ret?: string; body: Stmt[]; line: number; exported?: boolean }   // 12 SF-1: `server fn f(a) { … }` — the body runs on the server; it is io when its body is
   | { k: "provide"; name: string; e: Expr; line: number }                                        // RG-7a: `name` resolves to a context declaration
@@ -65,6 +66,7 @@ export type Markup = (
   | { k: "style"; css: string }                                                   // 07 §6b CSS-1: a scoped stylesheet, raw text
   | { k: "mif"; c: Expr; t: Markup[]; tDecls: Decl[]; f: Markup[]; fDecls: Decl[] }
   | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] }
+  | { k: "mview"; prop?: string; params: string[]; decls: Decl[]; body: Markup[] }   // MO-11k: `view (a, b) { … }` (children) or `view renderItem (a) { … }`, a JS component's render prop
   | { k: "loading"; on?: Expr; fallback: Markup[]; decls: Decl[]; body: Markup[] }    // H-5/H-6
   | { k: "errored"; fallback: Markup[]; decls: Decl[]; body: Markup[]; errName?: string; classes?: string[] }   // H-12; errName: `fallback(e)`; classes: `fallback(e: A | B)` (R-f-4), absent: every failure
   | { k: "portal"; to?: Expr; decls: Decl[]; body: Markup[] }                     // RG-8: rendered at the end of the document (or `to(e)`), owned here

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Changed**
+
+- `catch` follows only an `await`: `await f(x) catch (e) => alt` makes a matching rejection the answer. A `catch` after
+  anything else is the new compile error `CATCH_NOT_ON_AWAIT` (R-f-4). Show a failed value with an `errored` region
+  where it is read; in a handler or action, read it inside `try { … } catch (e) { … }`; write validation as a value
+  (`""` or a message), not a thrown class.
+
 **Fixed**
 
 - `affects` on a keyed or structured source that takes a guess threw `INVALID_AFFECTS_TARGET` in a dev build, so the
@@ -11,6 +18,17 @@
   row, so a row's readers re-run only when its own leaves change (#51).
 - The guide's action example (`guide/async.md` §3) lost an error thrown before the first `await`: the `onFlush` clear
   ran after the catch. The catch now writes the error through `onFlush` as well (#52).
+- A `catch` expression read with no observer (a component `fn` called from a handler or an action) built a fresh error
+  boundary, which had no value while a `refresh` was out, so the click threw `NotReadyError` and was lost. It is now a
+  snapshot: the committed value, or the alternative on a matching failure (R-8, S-catch-snapshot).
+
+**New**
+
+- `ARGUMENT_COUNT` (AC-1f): a call of an action declared in the module with another number of arguments than its
+  parameters is refused.
+- `props` in a component declared without props (`component C()`) is `UNBOUND` (RG-4b); it read `undefined`.
+- `guide/async.md`: "One store over the server"; the `GUESS_WHILE_LOADING` advice says what holds when a selection
+  changes while a guess is out (05 DV-22).
 
 ## 0.3.1
 

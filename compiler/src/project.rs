@@ -10,7 +10,7 @@ use crate::signature::{ExportSig, ModSig};
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 /// The helpers every projection imports (`__`), and the prelude's names (`len`, `map`, …): `ref/types/project.ts`'s PRELUDE.
@@ -179,7 +179,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), nest_fns: HashMap::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -188,7 +188,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
         out.push(Projected { path: format!("{rx}.d.ts"), code: signature_stub(sig), lines: vec![], rx: rx.strip_suffix(".rx").map(|s| format!("{s}.d.rx")).unwrap_or(rx.clone()), mappings: vec![], ranges: vec![] });
     }
     for (dts, decls) in &set.declarations {
-        let path = dts.strip_suffix(".d.rx").map(|s| format!("{s}.d.ts")).unwrap_or(dts.clone());
+        let path = types_path_of(dts).unwrap_or_else(|| dts.strip_suffix(".d.rx").map(|s| format!("{s}.d.ts")).unwrap_or(dts.clone()));
         out.push(Projected { path, code: declaration_file(decls), lines: vec![], rx: dts.clone(), mappings: vec![], ranges: vec![] });
     }
     for (m, names) in js_stubs {
@@ -225,7 +225,7 @@ fn signature_stub(sig: &ModSig) -> String {
         .join("\n")
 }
 /// MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module.
-fn declaration_file(decls: &[JsDecl]) -> String {
+pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
     let own: IndexSet<&str> = decls.iter().filter(|d| matches!(d, JsDecl::Type { .. })).map(|d| d.name()).collect();
     let mut head: Vec<String> = vec![];
     if decls.iter().any(|d| matches!(d, JsDecl::Comp { .. } | JsDecl::Fn { shape: crate::parse::Shape::Comp, .. })) {
@@ -237,21 +237,58 @@ fn declaration_file(decls: &[JsDecl]) -> String {
             head.push("type Component<P = any> = (props: P) => View;".into());
         }
     }
+    let fn_of = |props: &[crate::parse::JsProp]| -> String {
+        let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
+        format!("(props: {{ {} }}) => View", fs.join(" "))
+    };
+    // MO-11q: `Dialog.Root` and its siblings are members of one exported object (itself a component when it is declared one)
+    let mut members: IndexMap<String, Vec<&JsDecl>> = IndexMap::new();
+    for d in decls {
+        if let JsDecl::Comp { name, .. } = d {
+            if let Some((h, _)) = name.split_once('.') {
+                members.entry(h.to_string()).or_default().push(d);
+            }
+        }
+    }
+    let object_of = |h: &str| -> String {
+        let ms: Vec<String> = members[h]
+            .iter()
+            .map(|m| match m {
+                JsDecl::Comp { name, props, .. } => format!("{}: {};", &name[h.len() + 1..], fn_of(props)),
+                _ => unreachable!(),
+            })
+            .collect();
+        format!("{{ {} }}", ms.join(" "))
+    };
+    let objects: Vec<String> = members.keys().filter(|h| !decls.iter().any(|d| matches!(d, JsDecl::Comp { name, .. } if name == *h))).map(|h| format!("export declare const {h}: {};", object_of(h))).collect();
     head.into_iter()
-        .chain(decls.iter().map(|d| match d {
+        .chain(objects)
+        .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. }) && !matches!(d, JsDecl::Comp { name, .. } if name.contains('.'))).map(|d| match d {
+            JsDecl::Comp { name, props, .. } if members.contains_key(name) => format!("export declare const {name}: ({}) & {};", fn_of(props), object_of(name)),
             JsDecl::Comp { name, props, .. } => {
                 let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
                 format!("export declare function {name}(props: {{ {} }}): View;", fs.join(" "))
             }
             JsDecl::Type { text, .. } => format!("export {text}"),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
-            JsDecl::Fn { name, params, ptypes, ret, .. } => {
-                let ps = params.iter().enumerate().map(|(i, n)| match ptypes.get(i).and_then(|t| t.as_ref()) {
-                    Some(t) => format!("{n}: {t}"),
-                    None => n.clone(),
+            JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, opts, sigs, .. } => {
+                // MO-10a: a `ref` parameter is an accessor in JS; MO-8e: an optional one is `?`; MO-10h: a `signal` one a pair
+                let ps = params.iter().enumerate().map(|(i, n)| {
+                    let o = if opts.get(i).copied().unwrap_or(false) { "?" } else { "" };
+                    if sigs.get(i).copied().unwrap_or(false) {
+                        return format!("{n}{o}: import(\"solid-js\").Signal<{}>", ptypes.get(i).and_then(|t| t.as_deref()).unwrap_or("any"));
+                    }
+                    match (refs.get(i).copied().unwrap_or(false), ptypes.get(i).and_then(|t| t.as_ref())) {
+                        (true, t) => format!("{n}{o}: (() => {})", t.map(String::as_str).unwrap_or("any")),
+                        (false, Some(t)) => format!("{n}{o}: {t}"),
+                        (false, None) if !o.is_empty() => format!("{n}?: any"),
+                        (false, None) => n.clone(),
+                    }
                 });
-                format!("export declare function {name}({}): {};", ps.collect::<Vec<_>>().join(", "), ret.as_deref().unwrap_or("any"))
+                format!("export declare function {name}{}({}): {};", tparams.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), accessor_result(ret.as_ref(), shape))
             }
+            JsDecl::Context { .. } => unreachable!(), // MO-12a: filtered above
+            JsDecl::Value { name, ty, .. } => format!("export declare const {name}: {};", ty.as_deref().unwrap_or("any")), // MO-8g
         }))
         .collect::<Vec<_>>()
         .join("\n")
@@ -301,6 +338,12 @@ struct Proj<'a> {
     used: IndexSet<String>,
     /// names the module declares (they shadow the prelude)
     declared: HashSet<String>,
+    /// MO-10: declared JS fns with a `ref` parameter or result, by local name
+    ref_fns: HashMap<String, JsDecl>,
+    /// MO-10b: equations bound to such a fn's tuple or record result
+    ref_parts: HashMap<String, crate::parse::Shape>,
+    /// MO-11i: declared factories that nest, by local name: (kids field, component field)
+    nest_fns: HashMap<String, (String, String, String)>,
     prelude: Option<&'a str>,
 }
 
@@ -362,6 +405,10 @@ impl Proj<'_> {
             self.w.emit(Code::of("export const __view = ("), p.view[0].line.unwrap_or(1));
             self.markup(&p.view, "  ");
             self.w.emit(Code::of(");"), p.view[p.view.len() - 1].line.unwrap_or(1));
+        }
+        if let Some(Decl::Component { line, .. }) = p.decls.iter().find(|d| matches!(d, Decl::Component { is_default: true, .. })) {
+            // CP-4a: what JS imports from an entry
+            self.w.emit(Code::of("declare const __main: __.Main; export default __main;"), *line);
         }
         let body = std::mem::replace(&mut self.w, saved);
         let prelude: Vec<String> = self.used.iter().filter(|n| !self.declared.contains(*n)).cloned().collect();
@@ -510,7 +557,19 @@ impl Proj<'_> {
                 Decl::Eq { name, e, line, ty, .. } => {
                     let nm = self.name(name, sp, &mut at);
                     let a = self.ann(ty, sp, &mut at);
-                    let v = Code::of("__.eq(").c(self.expr(e, false, Some(name))).t(", true)");   // R-1: no promise without `await`
+                    // MO-10b: a `ref` result is read as its value
+                    let x = match &e.k {
+                        ExprKind::Call { f, .. } => match &f.k {
+                            ExprKind::Id(g) => self.ref_fns.get(g).and_then(|d| if let JsDecl::Fn { shape, .. } = d { Some(shape.clone()) } else { None }),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(sh @ (crate::parse::Shape::Items(_) | crate::parse::Shape::Fields(_))) = &x {
+                        self.ref_parts.insert(name.clone(), sh.clone());
+                    }
+                    let whole = matches!(x, Some(crate::parse::Shape::Part(crate::parse::Part::Ref)));
+                    let v = Code::of("__.eq(").c(self.expr(e, false, Some(name))).t(if whole { "(), true)" } else { ", true)" });   // R-1: no promise without `await`
                     self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp), *line);
                 }
                 Decl::Provide { name, e, line, .. } => {
@@ -549,6 +608,20 @@ impl Proj<'_> {
         let rest: Vec<&ImportName> = names.iter().filter(|n| !builtin(&n.name)).collect();
         if rest.is_empty() {
             return;
+        }
+        if let Some(dp) = declared {
+            for n in &rest {
+                let x = self.set.declarations.get(dp).and_then(|ds| ds.iter().find(|y| matches!(y, JsDecl::Fn { name, .. } if *name == n.name)));
+                if let Some(x @ JsDecl::Fn { refs, shape, nests, sigs, joins, .. }) = x {
+                    if refs.iter().any(|r| *r) || sigs.iter().any(|g| *g) || shape.has_ref() {
+                        self.ref_fns.insert(n.alias.clone(), x.clone());
+                    }
+                    // MO-11i (revised 2026-11-21): paths are joined only under a factory that says which field holds them
+                    if let (Some(ns), Some(j)) = (nests, joins) {
+                        self.nest_fns.insert(n.alias.clone(), (ns.0.clone(), ns.1.clone(), j.clone()));
+                    }
+                }
+            }
         }
         if resolved.is_none() && declared.is_none() {
             // a JS module with no declaration: `any`
@@ -687,6 +760,13 @@ impl Proj<'_> {
                     self.stmts(f, &format!("{ind}  "));
                     self.w.emit(Code::of(&format!("{ind}}}")), 0);
                 }
+                StmtKind::For { name, e, body } => {
+                    let nm = self.name(name, sp, &mut at);
+                    let v = self.expr(e, true, None);
+                    self.w.emit(Code::of(&format!("{ind}for (const ")).c(nm).t(" of ").c(v).t(") {"), 0);
+                    self.stmts(body, &format!("{ind}  "));
+                    self.w.emit(Code::of(&format!("{ind}}}")), 0);
+                }
                 StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
                     self.w.emit(Code::of(&format!("{ind}try {{")), 0);
                     self.stmts(body, &format!("{ind}  "));
@@ -723,6 +803,54 @@ impl Proj<'_> {
     }
 
     // ---- expressions: `imp` imperative scope (a real `await`); `me` the equation being defined (its own `pre`) ----
+    /// MO-11i, types only: under a factory that nests and `joins(field)`, a record's literal `field` is written joined with its parents' (the
+    /// projection is never run), so a child route's types see its parents' params. `prefix` None: a parent path the
+    /// projection cannot read, so nothing below is rewritten.
+    fn nest_arg(&mut self, e: &Expr, prefix: Option<Vec<String>>, n: &(String, String, String), imp: bool, me: Option<&str>) -> Code {
+        let Some(prefix) = prefix else { return self.expr(e, imp, me) };
+        match &e.k {
+            ExprKind::Arr(items) => {
+                let a = items.iter().map(|x| if matches!(x.k, ExprKind::Spread(_)) { self.expr(x, imp, me) } else { self.nest_arg(x, Some(prefix.clone()), n, imp, me) }).collect();
+                Code::of("[").c(Code::join(a, ", ")).t("]")
+            }
+            ExprKind::Call { f, args, targs } => {
+                let fc = self.expr(f, imp, me);
+                let a = args.iter().map(|x| self.nest_arg(x, Some(prefix.clone()), n, imp, me)).collect();
+                fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")
+            }
+            ExprKind::Rec(fields) => {
+                let path = fields.iter().position(|f| matches!(f, Field::Kv { key, .. } if *key == n.2));
+                // a path is a literal or an array of literals (alternatives); under alternatives, each joined with each
+                let (lits, is_arr): (Option<Vec<String>>, bool) = match path.map(|i| &fields[i]) {
+                    Some(Field::Kv { v: Expr { k: ExprKind::Lit(Lit::Str(s)), .. }, .. }) => (Some(vec![s.clone()]), false),
+                    Some(Field::Kv { v: Expr { k: ExprKind::Arr(items), .. }, .. })
+                        if !items.is_empty() && items.iter().all(|x| matches!(x.k, ExprKind::Lit(Lit::Str(_)))) =>
+                    {
+                        (Some(items.iter().map(|x| if let ExprKind::Lit(Lit::Str(s)) = &x.k { s.clone() } else { unreachable!() }).collect()), true)
+                    }
+                    _ => (None, false),
+                };
+                let own: Option<Vec<String>> = match (path, lits) {
+                    (None, _) => Some(prefix.clone()),
+                    (Some(_), Some(ls)) => Some(prefix.iter().flat_map(|p| ls.iter().map(move |l| join_route_path(p, l))).collect()),
+                    (Some(_), None) => None,
+                };
+                let written = |o: &Vec<String>| if o.len() == 1 && !is_arr { js_str(&o[0]) } else { format!("[{}]", o.iter().map(|x| js_str(x)).collect::<Vec<_>>().join(", ")) };
+                let fs = fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| match f {
+                        Field::Spread(x) => Code::of("...").c(self.expr(x, imp, me)),
+                        Field::Kv { key, .. } if Some(i) == path && own.is_some() => Code::of(&js_str(key)).t(": ").t(&written(own.as_ref().unwrap())),
+                        Field::Kv { key, v } if *key == n.0 || path.is_none() => Code::of(&js_str(key)).t(": ").c(self.nest_arg(v, own.clone(), n, imp, me)),
+                        Field::Kv { key, v } => Code::of(&js_str(key)).t(": ").c(self.expr(v, imp, me)),
+                    })
+                    .collect();
+                Code::of("({ ").c(Code::join(fs, ", ")).t(" })")
+            }
+            _ => self.expr(e, imp, me),
+        }
+    }
     fn expr(&mut self, e: &Expr, imp: bool, me: Option<&str>) -> Code {
         self.expr_text(e, imp, me).from(e.span)
     }
@@ -793,14 +921,42 @@ impl Proj<'_> {
                 // `.p` with its dot, so that a position just after the dot (what is being typed) is mapped too
                 let dot = format!(".{p}");
                 let at = (!sp.is_none() && sp.text(self.src).ends_with(dot.as_str())).then(|| sp.end as usize - dot.len());
-                go!(o).t(if *opt { "?" } else { "" }).at(&dot, at)
+                let call = match &o.k {
+                    ExprKind::Id(on) => matches!(self.ref_parts.get(on), Some(crate::parse::Shape::Fields(fs)) if fs.iter().any(|f| &f.0 == p && f.1 == crate::parse::Part::Ref)),
+                    _ => false,
+                };
+                go!(o).t(if *opt { "?" } else { "" }).at(&dot, at).t(if call { "()" } else { "" }) // MO-10b
             }
-            ExprKind::Index { o, i, opt } => go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]"),
+            ExprKind::Index { o, i, opt } => {
+                let call = match (&o.k, &i.k) {
+                    (ExprKind::Id(on), ExprKind::Lit(Lit::Num(v))) => matches!(self.ref_parts.get(on), Some(crate::parse::Shape::Items(items)) if *v >= 0.0 && v.fract() == 0.0 && items.get(*v as usize) == Some(&crate::parse::Part::Ref)),
+                    _ => false,
+                };
+                go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]").t(if call { "()" } else { "" }) // MO-10b
+            }
             ExprKind::StyleMap { css, .. } => Code::of(&class_map(css)),
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, targs } if matches!(&f.k, ExprKind::Id(g) if self.nest_fns.contains_key(g)) => {
+                // MO-11i: a nested route typed with its parents' path
+                let ExprKind::Id(g) = &f.k else { unreachable!() };
+                let ns = self.nest_fns[g].clone();
                 let fc = go!(f);
-                let a = args.iter().map(|a| go!(a)).collect();
-                fc.t("(").c(Code::join(a, ", ")).t(")")
+                let a = args.iter().map(|a| self.nest_arg(a, Some(vec![String::new()]), &ns, imp, me)).collect();
+                fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")
+            }
+            ExprKind::Call { f, args, targs } => {
+                // MO-10a: a `ref` argument is an accessor
+                let sigs: Vec<bool> = match &f.k {
+                    ExprKind::Id(g) => self.ref_fns.get(g).map(|d| if let JsDecl::Fn { sigs, .. } = d { sigs.clone() } else { vec![] }).unwrap_or_default(),
+                    _ => vec![],
+                };
+                let refs: Vec<bool> = match &f.k {
+                    ExprKind::Id(g) => self.ref_fns.get(g).map(|d| if let JsDecl::Fn { refs, .. } = d { refs.clone() } else { vec![] }).unwrap_or_default(),
+                    _ => vec![],
+                };
+                let fc = go!(f);
+                // MO-10a: a `ref` argument is an accessor; MO-10h: a `signal` one a signal of the value
+                let a = args.iter().enumerate().map(|(i, a)| if refs.get(i).copied().unwrap_or(false) { Code::of("() => (").c(go!(a)).t(")") } else if sigs.get(i).copied().unwrap_or(false) { Code::of("__.signal(").c(go!(a)).t(")") } else { go!(a) }).collect();
+                fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")   // 07 §3: type arguments, as written
             }
             ExprKind::Arr(items) => {
                 let a = items.iter().map(|a| go!(a)).collect();
@@ -821,9 +977,9 @@ impl Proj<'_> {
                 let ks: String = keys.iter().map(|k| format!(", {}", js_str(k))).collect();
                 Code::of("__.omit(").c(go!(x)).t(&ks).t(")")
             }
-            ExprKind::Fn { params, body, stmts } => {
+            ExprKind::Fn { params, body, stmts, ptypes } => {
                 let mut from = sp.start as usize;
-                let ps = Code::join(params.iter().map(|p| self.name(p, sp, &mut from)).collect(), ", ");
+                let ps = self.params(params, ptypes, sp, &mut from);   // 07 §3: a parameter's type
                 let Some(ss) = stmts else {
                     return Code::of("((").c(ps).t(") => ").c(self.expr(body, imp, me)).t(")");
                 };
@@ -926,6 +1082,40 @@ impl Proj<'_> {
                     }
                 }
                 let open = Code::of(&format!("{ind}<")).at(tag, tag_at).c(a);
+                // MO-11k: named render props are attributes
+                let named: Vec<&Markup> = children.iter().filter(|c| matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
+                if !named.is_empty() {
+                    self.w.emit(open, line);
+                    let i4 = format!("{ind}    ");
+                    for v in &named {
+                        let MarkupKind::Mview { prop: Some(p), params, decls, body } = &v.kind else { continue };
+                        let vl = v.line.unwrap_or(line);
+                        let vsp = v.span;
+                        let mut from = vsp.start as usize;
+                        let mut c = Code::of(&format!("{ind}  {p}={{(("));
+                        for (i, q) in params.iter().enumerate() {
+                            if i > 0 {
+                                c = c.t(", ");
+                            }
+                            let nm = self.name(q, vsp, &mut from);
+                            c = c.c(nm);
+                        }
+                        self.w.emit(c.t(") => ("), vl);
+                        self.region(decls, body, &i4, vl);
+                        self.w.emit(Code::of(&format!("{ind}  ))}}")), vl);
+                    }
+                    let kids: Vec<&Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
+                    if kids.is_empty() {
+                        self.w.emit(Code::of(&format!("{ind}/>")), line);
+                        return;
+                    }
+                    self.w.emit(Code::of(&format!("{ind}>")), line);
+                    for c in kids {
+                        self.child(c, &i2);
+                    }
+                    self.w.emit(Code::of(&format!("{ind}</{tag}>")), line);
+                    return;
+                }
                 if children.is_empty() {
                     self.w.emit(open.t(" />"), line);
                     return;
@@ -944,6 +1134,21 @@ impl Proj<'_> {
                 self.w.emit(Code::of(&format!("{ind}) : (")), line);
                 self.region(f_decls, f, &i2, line);
                 self.w.emit(Code::of(&format!("{ind})}}")), line);
+            }
+            MarkupKind::Mview { params, decls, body, .. } => {
+                // MO-11k: the render prop, as the function the component's types expect
+                let mut from = sp.start as usize;
+                let mut c = Code::of(&format!("{ind}{{(("));
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        c = c.t(", ");
+                    }
+                    let nm = self.name(p, sp, &mut from);
+                    c = c.c(nm);
+                }
+                self.w.emit(c.t(") => ("), line);
+                self.region(decls, body, &i2, line);
+                self.w.emit(Code::of(&format!("{ind}))}}")), line);
             }
             MarkupKind::Mfor { name, xs, decls, body } => {
                 let mut from = sp.start as usize;
@@ -1015,4 +1220,160 @@ fn class_map(css: &str) -> String {
     }
     let fields: Vec<String> = r.class_map.into_iter().map(|c| format!("{}: \"\" as string", js_str(&c.class_name))).collect();
     format!("({{ {} }} as const)", fields.join(", "))
+}
+
+/// MO-10b: a declared result's type as JS has it: a `ref` result, or a `ref` part of a tuple or record, is an accessor.
+pub(crate) fn accessor_result(ret: Option<&String>, shape: &crate::parse::Shape) -> String {
+    use crate::parse::{Part, Shape};
+    let accessor = |t: &str| format!("(() => {})", t);
+    let Some(r) = ret else { return "any".into() };
+    match shape {
+        Shape::Part(Part::Ref) => accessor(r),
+        // MO-10b: an `as const` tuple
+        _ if r.starts_with("readonly ") && r["readonly ".len()..].trim_start().starts_with('[') => {
+            format!("readonly {}", accessor_result(Some(&r["readonly ".len()..].trim_start().to_string()), shape))
+        }
+        Shape::Items(items) if items.contains(&Part::Ref) && r.starts_with('[') && r.ends_with(']') => {
+            let xs = crate::parse::split_top(&r[1..r.len() - 1], ",");
+            format!("[{}]", xs.iter().enumerate().map(|(i, x)| if items.get(i) == Some(&Part::Ref) { accessor(x.trim()) } else { x.trim().to_string() }).collect::<Vec<_>>().join(", "))
+        }
+        Shape::Fields(fields) if fields.iter().any(|f| f.1 == Part::Ref) && r.starts_with('{') && r.ends_with('}') => {
+            let xs = crate::parse::split_top(&r[1..r.len() - 1], ",;");
+            format!(
+                "{{ {} }}",
+                xs.iter()
+                    .map(|x| match x.find(':') {
+                        Some(i) => {
+                            let k = x[..i].trim();
+                            let name = k.strip_prefix("readonly ").map(str::trim).unwrap_or(k).trim_end_matches('?');
+                            let ref_part = fields.iter().any(|f| f.0 == name && f.1 == Part::Ref);
+                            format!("{}: {};", k, if ref_part { accessor(x[i + 1..].trim()) } else { x[i + 1..].trim().to_string() })
+                        }
+                        None => format!("{};", x.trim()),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        }
+        _ => r.clone(),
+    }
+}
+/// TY-6: the boundary check for a `.d.rx` — its rows as TypeScript types, and the real module's exports assigned to them.
+/// A `ref` parameter or result part is an accessor (`() => T`); a component is a function of its declared props; an error
+/// class a constructor of an `Error`. Rows TypeScript cannot see (`pure`, `uses`, `pending`, `fails`) are not checked here.
+/// Returns the code and, per check, (its line in the code, the declaration's line, the export's name).
+pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usize, String)>) {
+    let own: IndexSet<&str> = decls.iter().filter(|d| matches!(d, JsDecl::Type { .. })).map(|d| d.name()).collect();
+    let mut out: Vec<String> = vec![format!("import * as __real from {};", serde_json::to_string(module).unwrap_or_default())];
+    if !own.contains("View") {
+        out.push("type View = import(\"@solidjs/web\").JSX.Element;".into());
+    }
+    if !own.contains("Component") {
+        out.push("type Component<P = any> = (props: P) => View;".into());
+    }
+    for d in decls {
+        if let JsDecl::Type { text, .. } = d {
+            out.push(text.clone());
+        }
+    }
+    let accessor = |t: &str| format!("(() => {})", t);
+    let result = accessor_result;
+    let mut checks = vec![];
+    for d in decls {
+        let (name, line, ty) = match d {
+            JsDecl::Fn { name, line, params, ptypes, refs, ret, shape, tparams, opts, sigs, .. } => {
+                let ps: Vec<String> = params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        let t = ptypes.get(i).and_then(|t| t.clone()).unwrap_or_else(|| "any".into());
+                        // MO-10h: a `signal` parameter is a getter and a setter
+                        let t = if sigs.get(i).copied().unwrap_or(false) { format!("import(\"solid-js\").Signal<{}>", t) } else if refs.get(i).copied().unwrap_or(false) { accessor(&t) } else { t };
+                        format!("{}{}: {}", n, if opts.get(i).copied().unwrap_or(false) { "?" } else { "" }, t)
+                    })
+                    .collect();
+                (name, *line, format!("{}({}) => {}", tparams.as_deref().unwrap_or(""), ps.join(", "), result(ret.as_ref(), shape)))
+            }
+            JsDecl::Comp { name, line, props, .. } => {
+                let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
+                (name, *line, format!("(props: {{ {} }}) => any", fs.join(" ")))
+            }
+            JsDecl::Error { name, line, .. } => (name, *line, "abstract new (...args: any[]) => Error".into()),
+            JsDecl::Value { name, line, ty } => (name, *line, ty.clone().unwrap_or_else(|| "any".into())),
+            JsDecl::Type { .. } | JsDecl::Context { .. } => continue,
+        };
+        let key = name.replace('.', "$$"); // MO-11q: a member (`Dialog.Trigger`), read as a property of its object
+        out.push(format!("type __decl_{} = {};", key, ty));
+        out.push(format!("const __check_{}: __decl_{} = __real.{};", key, key, name));
+        checks.push((out.len(), line, name.clone()));
+    }
+    (out.join("\n") + "\n", checks)
+}
+
+/// MO-11i: a route path under its parent's: `/org/:org` and `/:id` give `/org/:org/:id`; `/` under anything is the parent.
+fn join_route_path(parent: &str, child: &str) -> String {
+    if parent.is_empty() || parent == "/" {
+        return child.to_string();
+    }
+    if child == "/" || child.is_empty() {
+        return parent.to_string();
+    }
+    format!("{}{}", parent.trim_end_matches('/'), if child.starts_with('/') { child.to_string() } else { format!("/{}", child) })
+}
+
+/// MO-8k: a package's declaration that is not beside the package's file (the project's `rx-types/`, a shared `@rx-types`
+/// package, a generated `.rx-types/` draft) is projected where TypeScript looks for a package's types when it ships none:
+/// `node_modules/@types/<scope>__<name>/<subpath or index>.d.ts`.
+pub fn types_path_of(dts: &str) -> Option<String> {
+    let stem = dts.strip_suffix(".d.rx")?;
+    let (root, spec) = if let Some(i) = stem.find("node_modules/.rx-types/") {
+        (&stem[..i], &stem[i + "node_modules/.rx-types/".len()..])
+    } else if let Some(i) = stem.find("node_modules/@rx-types/") {
+        let rest = &stem[i + "node_modules/@rx-types/".len()..];
+        let (m, sub) = rest.split_once('/')?;
+        return Some(format!("{}node_modules/@types/{m}/{sub}.d.ts", &stem[..i]));
+    } else if stem.starts_with("rx-types/") {
+        ("", &stem["rx-types/".len()..])
+    } else if let Some(i) = stem.find("/rx-types/") {
+        (&stem[..i + 1], &stem[i + "/rx-types/".len()..])
+    } else {
+        return None;
+    };
+    let seg: Vec<&str> = spec.split('/').collect();
+    let n = if spec.starts_with('@') { 2 } else { 1 };
+    if seg.len() < n {
+        return None;
+    }
+    let m = seg[..n].join("/").trim_start_matches('@').replacen('/', "__", 1);
+    let sub = if seg.len() > n { seg[n..].join("/") } else { "index".to_string() };
+    Some(format!("{root}node_modules/@types/{m}/{sub}.d.ts"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::load_modules;
+    use std::collections::HashMap;
+
+    #[test]
+    fn an_entry_default_is_the_apps_main_and_its_component_keeps_its_mappings() {
+        let files: HashMap<&str, &str> = [
+            ("app/main.rx", "import { Badge } from \"./badge.rx\"\nexport default component App() {\n  source n := 0\n  <Badge n={n} />\n}\n"),
+            ("app/badge.rx", "export component Badge(props: { n: number }) {\n  <b>{props.n}</b>\n}\n"),
+        ]
+        .into_iter()
+        .collect();
+        let set = load_modules("app/main.rx", &|p| files.get(p).map(|s| s.to_string())).expect("loads");
+        let out = project_modules(&set);
+        let main = out.iter().find(|p| p.rx == "app/main.rx").unwrap();
+        assert!(main.code.ends_with("\ndeclare const __main: __.Main; export default __main;"), "{}", main.code);
+        assert_eq!(main.code.matches("export default").count(), 1);
+        assert_eq!(main.lines.len(), main.code.lines().count());
+        let at = main.code.find("export function App(").unwrap() + "export function ".len();
+        let src = files["app/main.rx"].find("App").unwrap();
+        assert!(main.mappings.iter().any(|m| m.gen as usize == at && m.src as usize == src && m.len == 3));
+        let dep = out.iter().find(|p| p.rx == "app/badge.rx").unwrap();
+        assert!(!dep.code.contains("export default"), "{}", dep.code);
+        assert!(PRELUDE.contains("export type Main = (app: object) => () => View;"));
+    }
 }

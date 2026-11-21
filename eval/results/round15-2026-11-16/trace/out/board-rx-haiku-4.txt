@@ -1,0 +1,12 @@
+  Retro accepted: HELD (screen as before: todo ["#1 Write spec · 0/2","#2 Fix login · 1/3","Plan sprint (adding…)","Retro (adding…)"] doing ["#3 Review PR · 2/2","#4 Deploy · 0/1"] done ["#5 Kickoff · 3/3"] | To do (4) Doing (2) Done (1))
+  To do re-asked: HELD (screen as before: todo ["#1 Write spec · 0/2","#2 Fix login · 1/3","Plan sprint (adding…)","Retro (adding…)"] doing ["#3 Review PR · 2/2","#4 Deploy · 0/1"] done ["#5 Kickoff · 3/3"] | To do (4) Doing (2) Done (1))
+  settled: todo ["#1 Write spec · 0/2","#2 Fix login · 1/3","#8 Retro · 0/0","#7 Plan sprint · 0/0"] doing ["#3 Review PR · 2/2","#4 Deploy · 0/1"] done ["#5 Kickoff · 3/3"] | To do (4) Doing (2) Done (1)
+✓ HOLD two adds show both, each taking its own id
+✗ HOLD one of two moves declined puts back only its card
+    locator.click: Timeout 30000ms exceeded.
+✗ HOLD a move into Doing that fills it while a move out is pending disables the rest
+    locator.click: Timeout 30000ms exceeded.
+✗ HOLD an earlier move declined while a later move of the card is out leaves it where the later one put it
+    locator.click: Timeout 30000ms exceeded.
+
+1/4 passed

@@ -25,7 +25,7 @@ does (`export action select(id) { selected := id }`, or an action passed as a pr
 
 ```rx
 source count: number := 0                  // state; written only with `:=` in imperative code
-source user = await fetchUser(id)          // state with a question: re-asked when `id` changes, can take a guess
+source user = await fetchUser(id)          // state with a question: re-asked when `id` changes
 double = count * 2                         // an equation: always equal to its right side, never written
 label = `${user.name} (${count})`
 rows key id = items                        // a keyed collection (rows keep identity by `id`)
@@ -54,7 +54,7 @@ values. Arrays and strings have their usual methods: `xs.filter(f)`, `xs.map(f)`
 | `pending? x` | `true` while `x` is being re-asked or written by an action in flight |
 | `latest x` | the value `x` is moving toward (what was typed, before the answer lands) |
 | `peek(x)` | `x` read once, without depending on it |
-| `e catch (err) => alt` | `alt` when `e` fails |
+| `await e catch (err) => alt` | `alt` is the answer when the `await` rejects (only after an `await`) |
 | `c ? a : throw NotFound(id)` | a failure as a value of an arm |
 | `use name` / `provide name = e` | context: the nearest provision above, read-only (provide actions to let readers write) |
 
@@ -100,8 +100,9 @@ effect (count) { log($0) }   // runs after `count` changes; `$0` is its value (a
 
 - A write is `x := v`, `x.field := v`, `xs[i].done := v`, or functional `x := old => …` (applied to the slot as it
   stands at the write).
-- `let`/`const` (destructuring too: `let { a, b } = pair` takes snapshots), `if`, `try`/`catch`/`finally`, `return`, `throw` work as in TypeScript (no `for`/`while` loops:
-  use array methods).
+- `let`/`const` (destructuring too: `let { a, b } = pair` takes snapshots), `if`, `try`/`catch`/`finally`, `return`,
+  `throw` and the loop `for (const x of xs) { … }` work as in TypeScript (no `while`). In a loop that writes a
+  source, write functionally (`total := t => t + x`): a second turn reads what the first wrote.
 - Browser and JS globals (`console`, `document`, `window`) are not in scope. `log(…)` prints; anything else from
   JS comes in through an import from a `.js` module.
 - Reading a source gives its value at the start of the run: after `x := v`, `x` still reads the old value. Keep the

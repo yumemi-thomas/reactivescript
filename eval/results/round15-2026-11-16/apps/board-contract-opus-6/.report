@@ -1,0 +1,6 @@
+I built the sprint board in `/tmp/claude-0/runs/r15/board-contract-opus-6/app.contract` and `/tmp/claude-0/runs/r15/board-contract-opus-6/app.ts`, and all 26 visible tests pass (2 of the 15 runs used). There are two route-based tabs that reset everything when you leave a page, three columns that load and retry on their own, and the detail panel with its checklist. Every write shows straight away through the data module's `overlay`, and each write returns a reply carrying the server's message, so a declined move, rename, archive, add, toggle or restore goes back and shows its `… error: <message>`.
+
+Things I was unsure about:
+- **"Has nowhere to go":** I hid `down` on a card whose only neighbour below is a card still being added.
+- **Clearing inputs:** I left `title-input` filled after a rename, because the brief only says to empty the add inputs.
+- **Re-reads:** after each reply the affected columns are re-read, so the screen ends up matching the server. Some error displays are still edge cases: when several writes run at once and one fails while another is still out, the board can be briefly off until those re-reads arrive.

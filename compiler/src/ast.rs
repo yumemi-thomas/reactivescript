@@ -80,11 +80,13 @@ pub enum ExprKind {
     Tpl(Vec<TplPart>),
     Member { o: Box<Expr>, p: String, opt: bool },
     Index { o: Box<Expr>, i: Box<Expr>, opt: bool },
-    Call { f: Box<Expr>, args: Vec<Expr> },
+    /// targs: TypeScript type arguments written at the call (`makeStore<Todos>(…)`, 07 §3), types only
+    Call { f: Box<Expr>, args: Vec<Expr>, targs: Option<String> },
     Arr(Vec<Expr>),
     Rec(Vec<Field>),
     /// `stmts`: a statement-bodied arrow (imperative scope, 07 §5)
-    Fn { params: Vec<String>, body: Box<Expr>, stmts: Option<Vec<Stmt>> },
+    /// ptypes: a parameter's TypeScript type (07 §3), types only
+    Fn { params: Vec<String>, body: Box<Expr>, stmts: Option<Vec<Stmt>>, ptypes: Vec<Option<String>> },
     /// ST-3
     Draft { seed: Box<Expr>, body: Vec<Stmt> },
     /// RG-7b
@@ -138,6 +140,8 @@ pub enum StmtKind {
     Affects(String),
     Action(Vec<Stmt>),
     Sif { c: Expr, t: Vec<Stmt>, f: Vec<Stmt> },
+    /// 07 §5: `for (const x of e) { … }`, a loop of imperative scope
+    For { name: String, e: Expr, body: Vec<Stmt> },
     Return(Option<Expr>),
     Try { body: Vec<Stmt>, catch_name: Option<String>, catch_classes: Option<Vec<String>>, handler: Option<Vec<Stmt>>, fin: Option<Vec<Stmt>> },
     Throw(Expr),
@@ -158,6 +162,7 @@ impl StmtKind {
             StmtKind::Affects(_) => "affects",
             StmtKind::Action(_) => "action",
             StmtKind::Sif { .. } => "sif",
+            StmtKind::For { .. } => "for",
             StmtKind::Return(_) => "return",
             StmtKind::Try { .. } => "try",
             StmtKind::Throw(_) => "throw",
@@ -209,6 +214,8 @@ pub enum Decl {
         /// a JS import's declaration file (MO-8)
         declared: Option<String>,
         declared_errors: Option<Vec<String>>,
+        /// SV-5a: the declared error classes' sent fields, by class (only those that list some)
+        declared_error_fields: Option<Vec<(String, Vec<String>)>>,
         declared_pure: Option<Vec<String>>,
         declared_side: Option<Vec<(String, Side)>>,
     },
@@ -216,7 +223,7 @@ pub enum Decl {
     TypeDecl { name: String, line: usize, span: Span, text: String, exported: bool },
     Effect { inputs: Vec<Expr>, body: Vec<Stmt>, line: usize, span: Span },
     Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, span: Span, ret: Option<String>, exported: bool },
-    Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, exported: bool, is_default: bool },
+    Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, no_props: bool, exported: bool, is_default: bool },
     Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Server { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Provide { name: String, e: Expr, line: usize, span: Span },
@@ -335,6 +342,8 @@ pub enum MarkupKind {
     Style(String),
     Mif { c: Expr, t: Vec<Markup>, t_decls: Vec<Decl>, f: Vec<Markup>, f_decls: Vec<Decl> },
     Mfor { name: String, xs: Expr, decls: Vec<Decl>, body: Vec<Markup> },
+    /// MO-11k: `view (a, b) { … }`, a JS component's render prop
+    Mview { prop: Option<String>, params: Vec<String>, decls: Vec<Decl>, body: Vec<Markup> },
     /// H-5/H-6
     Loading { on: Option<Expr>, fallback: Vec<Markup>, decls: Vec<Decl>, body: Vec<Markup> },
     /// H-12, R-f-4
@@ -451,7 +460,7 @@ impl Expr {
             ]),
             ExprKind::Member { o, p, opt } => obj(vec![("k", k), ("o", b(o)), ("p", s(p)), ("opt", flag(*opt))]),
             ExprKind::Index { o, i, opt } => obj(vec![("k", k), ("o", b(o)), ("i", b(i)), ("opt", flag(*opt))]),
-            ExprKind::Call { f, args } => obj(vec![("k", k), ("f", b(f)), ("args", Some(Value::Array(args.iter().map(|a| a.to_json()).collect())))]),
+            ExprKind::Call { f, args, targs } => obj(vec![("k", k), ("f", b(f)), ("args", Some(Value::Array(args.iter().map(|a| a.to_json()).collect()))), ("targs", targs.as_ref().map(|t| Value::String(t.clone())))]),
             ExprKind::Arr(items) => obj(vec![("k", k), ("items", Some(Value::Array(items.iter().map(|a| a.to_json()).collect())))]),
             ExprKind::Rec(fields) => obj(vec![
                 ("k", k),
@@ -468,7 +477,7 @@ impl Expr {
                     )),
                 ),
             ]),
-            ExprKind::Fn { params, body, stmts } => obj(vec![("k", k), ("params", Some(strs(params))), ("body", b(body)), ("stmts", stmts.as_ref().map(|ss| stmts_json(ss)))]),
+            ExprKind::Fn { params, body, stmts, ptypes } => obj(vec![("k", k), ("params", Some(strs(params))), ("body", b(body)), ("stmts", stmts.as_ref().map(|ss| stmts_json(ss))), ("ptypes", ptypes.iter().any(|t| t.is_some()).then(|| ostrs(ptypes)))]),
             ExprKind::Draft { seed, body } => obj(vec![("k", k), ("seed", b(seed)), ("body", Some(stmts_json(body)))]),
             ExprKind::Use(n) => obj(vec![("k", k), ("name", s(n))]),
             ExprKind::Catch { e, name, classes, alt } => obj(vec![("k", k), ("e", b(e)), ("name", os(name)), ("classes", classes.as_ref().map(|c| strs(c))), ("alt", b(alt))]),
@@ -498,6 +507,7 @@ impl Stmt {
             StmtKind::Refresh(n) | StmtKind::Affects(n) => obj(vec![("k", k), ("name", s(n))]),
             StmtKind::Action(body) => obj(vec![("k", k), ("body", Some(stmts_json(body)))]),
             StmtKind::Sif { c, t, f } => obj(vec![("k", k), ("c", Some(c.to_json())), ("t", Some(stmts_json(t))), ("f", Some(stmts_json(f)))]),
+            StmtKind::For { name, e, body } => obj(vec![("k", k), ("name", s(name)), ("e", Some(e.to_json())), ("body", Some(stmts_json(body)))]),
             StmtKind::Return(e) => obj(vec![("k", k), ("e", e.as_ref().map(|e| e.to_json()))]),
             StmtKind::Try { body, catch_name, catch_classes, handler, fin } => obj(vec![
                 ("k", k),
@@ -540,7 +550,7 @@ impl Decl {
                 ("type", os(ty)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_pure, declared_side, .. } => obj(vec![
+            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, .. } => obj(vec![
                 ("k", s("import")),
                 ("names", Some(Value::Array(names.iter().map(|n| obj(vec![("name", s(&n.name)), ("alias", s(&n.alias))])).collect()))),
                 ("from", s(from)),
@@ -551,6 +561,16 @@ impl Decl {
                 ("resolved", os(resolved)),
                 ("declared", os(declared)),
                 ("declaredErrors", declared_errors.as_ref().map(|f| strs(f))),
+                (
+                    "declaredErrorFields",
+                    declared_error_fields.as_ref().map(|xs| {
+                        let mut m = Map::new();
+                        for (k, v) in xs {
+                            m.insert(k.clone(), Value::Array(v.iter().map(|x| Value::String(x.clone())).collect()));
+                        }
+                        Value::Object(m)
+                    }),
+                ),
                 ("declaredPure", declared_pure.as_ref().map(|f| strs(f))),
                 (
                     "declaredSide",
@@ -584,7 +604,7 @@ impl Decl {
                 ("ret", os(ret)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Component { name, props, decls, view, line, props_type, exported, is_default, .. } => obj(vec![
+            Decl::Component { name, props, decls, view, line, props_type, no_props, exported, is_default, .. } => obj(vec![
                 ("k", s("component")),
                 ("name", s(name)),
                 ("props", s(props)),
@@ -592,6 +612,7 @@ impl Decl {
                 ("view", Some(markups_json(view))),
                 ("line", num(*line)),
                 ("propsType", os(props_type)),
+                ("noProps", flag(*no_props)),
                 ("exported", flag(*exported)),
                 ("isDefault", flag(*is_default)),
             ]),
@@ -645,6 +666,7 @@ impl Markup {
             MarkupKind::Text(x) => obj(vec![("k", s("text")), ("s", s(x)), ("line", line)]),
             MarkupKind::Style(css) => obj(vec![("k", s("style")), ("css", s(css)), ("line", line)]),
             MarkupKind::Mif { c, t, t_decls, f, f_decls } => obj(vec![("k", s("mif")), ("c", Some(c.to_json())), ("t", ms(t)), ("tDecls", ds(t_decls)), ("f", ms(f)), ("fDecls", ds(f_decls)), ("line", line)]),
+            MarkupKind::Mview { prop, params, decls, body } => obj(vec![("k", s("mview")), ("prop", prop.as_ref().map(|p| Value::String(p.clone()))), ("params", Some(Value::Array(params.iter().map(|p| Value::String(p.clone())).collect()))), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),
             MarkupKind::Mfor { name, xs, decls, body } => obj(vec![("k", s("mfor")), ("name", s(name)), ("xs", Some(xs.to_json())), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),
             MarkupKind::Loading { on, fallback, decls, body } => obj(vec![("k", s("loading")), ("on", on.as_ref().map(|e| e.to_json())), ("fallback", ms(fallback)), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),
             MarkupKind::Errored { fallback, decls, body, err_name, classes } => obj(vec![

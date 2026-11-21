@@ -1,0 +1,285 @@
+import { Card } from "./api"
+import {
+  todo, doing, done, todoKey, doingKey, doneKey, tmpSeq,
+  selected, checklist, archived, selCol, selIndex, selCard, label,
+  moveError, addError, archiveError, renameError, itemError, restoreError,
+  openBoard, openArchive, retryCol, bumpTmp, select,
+  move, addNewCard, archive, rename, toggle, addNewItem, restore, retryArchive
+} from "./board.rx"
+
+fn cardText(c: Card): string => `#${c.id} ${c.title} · ${c.done}/${c.total}`
+fn nextCol(col: string): string => col == "todo" ? "doing" : "done"
+fn prevCol(col: string): string => col == "done" ? "doing" : "todo"
+
+// reports how many cards a column shows, from inside the column's region (guesses included)
+component Count(props: { n: number; onCount: (n: number) => void }) {
+  effect (props.n) { props.onCount($0) }
+}
+
+// full: Doing shows its limit; leftN / rightN: how many cards the neighbouring columns show (-1: not shown)
+component Column(props: { col: string; rows: Card[]; k: number; full: boolean; leftN: number; rightN: number; onCount: (n: number) => void; onSelect: (id: number) => void }) {
+  <style>
+    .col { background: #f4f5f7; border-radius: 8px; padding: 8px 10px; min-width: 220px; }
+    h2 { font-size: 15px; margin: 4px 0 8px; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li { background: #fff; border: 1px solid #dfe1e6; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; }
+    li.selected { border-color: #0c66e4; }
+    .card-text { cursor: pointer; display: block; margin-bottom: 4px; }
+    .pending { color: #6b778c; font-style: italic; }
+    .moves button { margin-right: 4px; }
+    .muted { color: #6b778c; }
+    .error { color: #c9372c; }
+  </style>
+  <section class="col" data-testid={`col-${props.col}`}>
+    {loading on(props.k) fallback {
+      <h2 data-testid={`head-${props.col}`}>{label(props.col)}</h2>
+      <p class="muted">loading</p>
+      <Count n={-1} onCount={n => { props.onCount(n) }} />
+    } {
+      {errored fallback(e) {
+        <h2 data-testid={`head-${props.col}`}>{label(props.col)}</h2>
+        <p class="error">error: {e.message}</p>
+        <Count n={-1} onCount={n => { props.onCount(n) }} />
+        <button data-testid={`retry-${props.col}`} onClick={() => { retryCol(props.col) }}>retry</button>
+      } {
+        <h2 data-testid={`head-${props.col}`}>{`${label(props.col)} (${props.rows.length})`}</h2>
+        <Count n={props.rows.filter(r => r.id > 0).length} onCount={n => { props.onCount(n) }} />
+        <ul class="cards">
+          {for c in props.rows {
+            i = props.rows.findIndex(r => r.id == c.id)
+            isTop = i <= 0
+            isBottom = i >= props.rows.length - 1 || props.rows[i + 1].id < 0
+            <li class={selected == c.id ? "card selected" : "card"}>
+              {if c.id < 0 {
+                <span data-testid="card" class="pending">{`${c.title} (adding…)`}</span>
+              } else {
+                <span data-testid="card" class="card-text" onClick={() => { props.onSelect(c.id) }}>{cardText(c)}</span>
+                <span class="moves">
+                  {if props.col != "todo" {
+                    <button data-testid="left" title="move left"
+                      disabled={props.leftN < 0 || (props.col == "done" && props.full)}
+                      onClick={() => {
+                        let n = props.leftN
+                        if (n >= 0 && !(props.col == "done" && props.full)) { move(c.id, props.col, prevCol(props.col), n, c) }
+                      }}>←</button>
+                  }}
+                  {if props.col != "done" {
+                    <button data-testid="right" title="move right"
+                      disabled={props.rightN < 0 || (props.col == "todo" && props.full)}
+                      onClick={() => {
+                        let n = props.rightN
+                        if (n >= 0 && !(props.col == "todo" && props.full)) { move(c.id, props.col, nextCol(props.col), n, c) }
+                      }}>→</button>
+                  }}
+                  {if !isTop {
+                    <button data-testid="up" title="move up"
+                      onClick={() => {
+                        let at = props.rows.findIndex(r => r.id == c.id)
+                        if (at > 0) { move(c.id, props.col, props.col, at - 1, c) }
+                      }}>↑</button>
+                  }}
+                  {if !isBottom {
+                    <button data-testid="down" title="move down"
+                      onClick={() => {
+                        let at = props.rows.findIndex(r => r.id == c.id)
+                        if (at >= 0 && at < props.rows.length - 1) { move(c.id, props.col, props.col, at + 1, c) }
+                      }}>↓</button>
+                  }}
+                </span>
+              }}
+            </li>
+          }}
+        </ul>
+      }}
+    }}
+  </section>
+}
+
+component Detail() {
+  source titleDraft: string := ""
+  source itemDraft: string := ""
+  // a newly selected card starts with empty inputs
+  effect (selected) {
+    titleDraft := ""
+    itemDraft := ""
+  }
+
+  doneCount = checklist.filter(it => it.done).length
+  <style>
+    .detail { border-left: 1px solid #dfe1e6; padding: 0 16px; min-width: 260px; }
+    h2 { font-size: 17px; margin: 4px 0; }
+    ul { list-style: none; padding: 0; }
+    li { margin: 4px 0; }
+    .row { display: flex; gap: 6px; margin: 8px 0; }
+    .pending { color: #6b778c; font-style: italic; }
+    .muted { color: #6b778c; }
+    .error { color: #c9372c; }
+  </style>
+  <aside class="detail" data-testid="detail">
+    {if selected <= 0 {
+      <p class="muted">select a card</p>
+    } else {
+      <h2>{`#${selected} ${selCard.title}`}</h2>
+      <p>{`in ${label(selCol)}`}</p>
+      <div class="row">
+        <input data-testid="title-input" placeholder="new title" value={titleDraft}
+          onInput={(e) => { titleDraft := e.target.value }} />
+        <button data-testid="rename" onClick={() => {
+          let t = titleDraft.trim()
+          if (t != "") { rename(selected, t, selCol, selIndex) }
+        }}>rename</button>
+      </div>
+      {if renameError != "" { <p class="error">rename error: {renameError}</p> }}
+      <button data-testid="archive" onClick={() => { archive(selected, selCol) }}>archive</button>
+
+      <div class="checklist" data-testid="checklist">
+        {loading on(selected) fallback { <p class="muted">loading checklist</p> } {
+          {errored fallback(e) { <p class="error">checklist error: {e.message}</p> } {
+            <ul>
+              {for it in checklist {
+                <li>
+                  {if it.id < 0 {
+                    <span data-testid="item" class="pending">{`[ ] ${it.text} (adding…)`}</span>
+                  } else {
+                    <span data-testid="item">{`${it.done ? "[x]" : "[ ]"} ${it.text}`}</span>{" "}
+                    <button data-testid="toggle" onClick={() => {
+                      let j = checklist.findIndex(x => x.id == it.id)
+                      toggle(selected, it.id, !it.done, j, selCol, selIndex, selCard.done)
+                    }}>toggle</button>
+                  }}
+                </li>
+              }}
+            </ul>
+            <p data-testid="progress">{`${doneCount}/${checklist.length} done`}</p>
+            <div class="row">
+              <input data-testid="item-input" placeholder="new item" value={itemDraft}
+                onInput={(e) => { itemDraft := e.target.value }} />
+              <button data-testid="add-item" onClick={() => {
+                let t = itemDraft.trim()
+                if (t != "") {
+                  let tmp = tmpSeq
+                  onFlush(() => {
+                    itemDraft := ""
+                    bumpTmp()
+                  })
+                  addNewItem(selected, t, tmp, selCol, selIndex, selCard.total)
+                }
+              }}>add item</button>
+            </div>
+          }}
+        }}
+        {if itemError != "" { <p class="error">item error: {itemError}</p> }}
+      </div>
+    }}
+  </aside>
+}
+
+component Board() {
+  source newTitle: string := ""
+  // how many cards each column shows, reported from inside its region (-1 while it shows none)
+  source todoN: number := -1
+  source doingN: number := -1
+  source doneN: number := -1
+  <style>
+    .board { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+    .columns { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+    .row { display: flex; gap: 6px; margin: 8px 0; }
+    .error { color: #c9372c; }
+  </style>
+
+  <div class="board">
+    <div class="columns">
+      <div class="colwrap">
+        <Column col="todo" rows={todo} k={todoKey} full={doingN >= 3} leftN={-1} rightN={doingN}
+          onCount={n => { todoN := n }} onSelect={id => { select(id) }} />
+        <div class="row">
+          <input data-testid="new-card" placeholder="new card" value={newTitle}
+            onInput={(e) => { newTitle := e.target.value }} />
+          <button data-testid="add-card" disabled={todoN < 0} onClick={() => {
+            let t = newTitle.trim()
+            if (t != "") {
+              let tmp = tmpSeq
+              onFlush(() => {
+                newTitle := ""
+                bumpTmp()
+              })
+              addNewCard(t, tmp)
+            }
+          }}>add</button>
+        </div>
+        {if addError != "" { <p class="error" data-testid="add-error">add error: {addError}</p> }}
+      </div>
+      <div class="colwrap">
+        <Column col="doing" rows={doing} k={doingKey} full={doingN >= 3} leftN={todoN} rightN={doneN}
+          onCount={n => { doingN := n }} onSelect={id => { select(id) }} />
+      </div>
+      <div class="colwrap">
+        <Column col="done" rows={done} k={doneKey} full={doingN >= 3} leftN={doingN} rightN={-1}
+          onCount={n => { doneN := n }} onSelect={id => { select(id) }} />
+      </div>
+    </div>
+    {if moveError != "" { <p class="error" data-testid="move-error">move error: {moveError}</p> }}
+    {if archiveError != "" { <p class="error" data-testid="archive-error">archive error: {archiveError}</p> }}
+    <Detail />
+  </div>
+}
+
+component Archive() {
+  <style>
+    ul { list-style: none; padding: 0; }
+    li { margin: 6px 0; }
+    .muted { color: #6b778c; }
+    .error { color: #c9372c; }
+  </style>
+  <section class="archive">
+    <div data-testid="archived">
+      {loading fallback { <p class="muted">loading archive</p> } {
+        {errored fallback(e) {
+          <p class="error">archive error: {e.message}</p>
+          <button data-testid="retry-archive" onClick={() => { retryArchive() }}>retry</button>
+        } {
+          <ul>
+            {for a in archived {
+              <li>
+                <span data-testid="archived-card">{`#${a.id} ${a.title}`}</span>{" "}
+                <button data-testid="restore" onClick={() => { restore(a.id) }}>restore</button>
+              </li>
+            }}
+          </ul>
+          {if archived.length == 0 { <p class="muted">nothing archived</p> }}
+        }}
+      }}
+    </div>
+    {if restoreError != "" { <p class="error" data-testid="restore-error">restore error: {restoreError}</p> }}
+  </section>
+}
+
+export default component App() {
+  source page: string := "board"
+  <style>
+    .app { font-family: system-ui, sans-serif; padding: 16px; color: #172b4d; }
+    .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+    .tab { padding: 6px 14px; border: 1px solid #dfe1e6; border-radius: 6px; background: #fff; cursor: pointer; }
+    .tab.on { background: #0c66e4; color: #fff; border-color: #0c66e4; }
+  </style>
+  <main class="app">
+    <nav class="tabs">
+      <button data-testid="tab-board" class={page == "board" ? "tab on" : "tab"}
+        onClick={() => {
+          // the tab moves now; the board's new visit may wait for a write still out on its data
+          if (page != "board") {
+            openBoard()
+            onFlush(() => { page := "board" })
+          }
+        }}>Board</button>
+      <button data-testid="tab-archive" class={page == "archive" ? "tab on" : "tab"}
+        onClick={() => {
+          if (page != "archive") {
+            openArchive()
+            onFlush(() => { page := "archive" })
+          }
+        }}>Archive</button>
+    </nav>
+    {if page == "board" { <Board /> } else { <Archive /> }}
+  </main>
+}

@@ -1,0 +1,8 @@
+== hidden
+77/77 passed
+== overlap
+38/38 passed
+== fuzz
+desk9-rx-opus-1: 1/20 seeds found a hole
+  seed 14 step 34: row title: #4 shows "Typo in footer", server "Bravo"
+    filter closed ; filter open ; land fetchIssues:open ; land fetchIssues:closed ; row-assign 0 ; select #1 ; land fetchIssue:1 ; land fetchLabels:1 ; close ; row-assign 1 ; fail fetchComments:1 ; assign ; fail closeIssue:1 ; land assign:4,guest ; row-close 1 ; land search:Login fails ; land fetchIssues:open ; assign ; select #4 ; land closeIssue:3 ; land fetchIssue:4 ; land search:Typo in footer

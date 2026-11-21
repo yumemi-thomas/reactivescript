@@ -1,0 +1,14 @@
+import { Board } from "./board.rx"
+import { Archive } from "./archive.rx"
+
+// The two pages behind a row of tabs. Only the open page is mounted, so leaving a page discards it.
+export default component App() {
+  source tab := "board"
+  <main>
+    <nav>
+      <button data-testid="tab-board" onClick={() => { tab := "board" }}>Board</button>{" "}
+      <button data-testid="tab-archive" onClick={() => { tab := "archive" }}>Archive</button>
+    </nav>
+    {if tab == "board" { <Board /> } else { <Archive /> }}
+  </main>
+}

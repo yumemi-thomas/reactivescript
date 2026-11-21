@@ -5,17 +5,17 @@
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
-import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
+import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
-import { unwrapServer } from "../src/check.ts";
+import { unwrapServer, litKey } from "../src/check.ts";
 import { isPrims } from "../src/prims.ts";
-import type { Shape } from "../src/parse.ts";
+import type { Shape, JsDecl } from "../src/parse.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string };   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; sigs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]> };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 class Env {
   vars = new Map<string, Bind>(); parent: Env | null;
@@ -27,22 +27,23 @@ class Env {
 type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean };
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);
-const isHandler = (a: string) => /^on[A-Z:]/.test(a);
+const isHandler = (a: string) => /^on[A-Z:]/.test(a) || a === "ref";   // `ref`: called once with the element
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
 const mg = (n: string) => `v$${n}`;
 const cm = (n: string) => `V$${n}`;   // a component: an uppercase JSX tag
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 
 // ---------------------------------------------------------------- usage analysis (the oracle's walkers, at compile time)
-type Usage = { optimistic: Set<string>; paths: Set<string>; prevOf: Set<string> };
+type Usage = { optimistic: Set<string>; paths: Set<string>; prevOf: Set<string>; plain: Set<string> };
 function usage(p: Program | Program[], extra: Stmt[][] = []): Usage {
-  const u: Usage = { optimistic: new Set(), paths: new Set(), prevOf: new Set() };
+  const u: Usage = { optimistic: new Set(), paths: new Set(), prevOf: new Set(), plain: new Set() };
   const seen = new WeakSet<object>();
   const walk = (x: unknown, selfName?: string): void => {
     if (!x || typeof x !== "object" || seen.has(x as object)) return; seen.add(x as object);
     if (Array.isArray(x)) { x.forEach(y => walk(y, selfName)); return; }
     const o = x as Record<string, any>;
     if (o.k === "optimistic") u.optimistic.add(o.target.name);
+    if (o.k === "write" && !o.target.ctx) u.plain.add(o.target.name);
     if ((o.k === "write" || o.k === "optimistic") && o.target.path.length) u.paths.add(o.target.name);
     if (o.k === "pending" && (o.e.k === "member" || o.e.k === "index")) { let y = o.e; while (y.k === "member" || y.k === "index") y = y.o; if (y.k === "id") u.paths.add(y.name); }
     if (o.k === "pre" && o.name !== selfName) u.prevOf.add(o.name);
@@ -81,7 +82,7 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
-      const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n);
+      const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n) || madeComponent(p, n, set.declarations);   // MO-11j
       const body = g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`).join(", ")} }`);
       files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function module(__rt) {\n  const __B = __rt.B;\n${body}\n}\n`);
     }
@@ -105,6 +106,7 @@ class Gen {
     for (const d of decls) if (d.k === "server" || (d.k === "eq" && unwrapServer(d.e))) this.serverNames.set(d.name, `sf$${d.name}`);
     // a package's JS (\`@solidjs/web/server-functions\`): a real import at module level, where a hoisted server fn's wrappers are
     for (const d of decls) if (d.k === "import" && !d.resolved && !d.from.startsWith(".")) {
+      if (!d.names.length) { this.top.push(`import ${J(d.from)};`); continue; }   // 07 §1a: for its effect
       const names = d.names.filter(n => !BUILTINS.has(n.name) && n.name !== "log");
       if (names.length) this.top.push(`import { ${names.map(n => `${n.name} as w$${n.alias}`).join(", ")} } from ${J(d.from)};`);
     }
@@ -159,7 +161,7 @@ class Gen {
     const sig = this.mods!.set.programs.has(path) ? undefined : this.mods!.set.signatures?.get(path)?.exports.get(name);
     if (sig) switch (sig.kind) {                                                             // MO-9: the kind is the signature's
       case "fn": return { kind: sig.instantiating || sig.params.some(p => p.ref) ? "ifn" : "fn", js: mg(alias), fn: { k: "fn", name, params: sig.params, decls: [], tail: { k: "lit", v: undefined } } as unknown as FnDecl };
-      case "comp": return { kind: "comp", js: cm(alias) };
+      case "comp": return sig.sig.made ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "comp", js: cm(alias) };   // MO-11j: a made component is a JS component
       case "action": return { kind: "act", js: mg(alias) };
       case "source": case "eq": return { kind: "acc", js: mg(alias) };
       default: return { kind: "val", js: mg(alias) };
@@ -171,7 +173,8 @@ class Gen {
       case "fn": return { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js, fn: d };
       case "component": return { kind: "comp", js: cm(alias) };
       case "action": return { kind: "act", js };
-      case "source": case "eq": return { kind: "acc", js };
+      case "eq": if (madeComponent(this.mods!.set.programs.get(path)!, name, this.mods!.set.declarations)) return { kind: "comp", js: cm(alias), shape: "comp" }; return { kind: "acc", js };   // MO-11j: a JS component, applied as JSX's <X />
+      case "source": return { kind: "acc", js };
       default: return { kind: "val", js };
     }
   }
@@ -209,7 +212,7 @@ class Gen {
           return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${tree(m.children)}</${m.tag}>`;
         }
         case "mif": return `{(<>${tree(m.t)}</>)}{(<>${tree(m.f)}</>)}`;
-        case "mfor": return `{(<>${tree(m.body)}</>)}`;
+        case "mfor": case "mview": return `{(<>${tree(m.body)}</>)}`;
         case "loading": case "errored": return `{(<>${tree(m.fallback)}</>)}{(<>${tree(m.body)}</>)}`;
       }
     }).join("");
@@ -235,7 +238,7 @@ class Gen {
     // names first: hoisted functions and components; every other declaration is a const
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
-      if (d.k === "import") for (const { name, alias } of d.names) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value" } : x?.kind === "comp" ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client" }); }   // MO-10a; MO-11a: a JS component is a JSX tag
+      if (d.k === "import") for (const { name, alias } of d.names) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; const dr = x?.kind === "fn" ? { ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}) } : {};   /* MO-10i */ env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], sigs: x.sigs ?? [], shape: x.shape ?? "value", ...dr } : x?.kind === "comp" ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client", ...dr }); }   // MO-10a; MO-11a: a JS component is a JSX tag
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
@@ -243,10 +246,10 @@ class Gen {
       if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
       if (d.k === "eq" && unwrapServer(d.e)) { env.vars.set(d.name, { kind: "val", js: mg(d.name) }); continue; }   // SF-1d: a server fn, not an accessor
-      if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; if (jf?.kind === "jfn" && jf.shape === "comp") { env.vars.set(d.name, { kind: "comp", js: cm(d.name), inst: cm(d.name), shape: "comp" }); continue; } env.vars.set(d.name, { kind: "acc", js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}) }); }
+      if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; if (jf?.kind === "jfn" && jf.shape === "comp") { env.vars.set(d.name, { kind: "comp", js: cm(d.name), inst: cm(d.name), shape: "comp" }); continue; } env.vars.set(d.name, { kind: "acc", js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}), ...this.draftsOfBinding(d.e, env) }); }
     }
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
-      const v = !d.from.startsWith(".") && !BUILTINS.has(name) && name !== "log" ? `w$${alias}` : name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
+      const v = !d.from.startsWith(".") && !BUILTINS.has(name) && name !== "log" ? (d.declaredErrors?.includes(name) ? `__rt.jsClass(w$${alias}, ${J(`${d.from}#${name}`)}${d.declaredErrorFields?.[name] ? `, ${J(d.declaredErrorFields[name])}` : ""})` : `w$${alias}`) /* SV-5a: a declared JS error class, by its declaration's identity */ : name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       const js = env.lookup(alias)?.kind === "comp" ? cm(alias) : mg(alias);
       out.push(`${pad}const ${js} = ${v};\n${pad}__rt.reg(${J(alias)}, { value: ${js} });`);
@@ -298,7 +301,7 @@ class Gen {
       return `${hoisted}${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
     }
     const b = env.vars.get((d as { name: string }).name)!;
-    const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad) : d.k === "eq" && d.e.k !== "draft" ? this.hoist(d.name, d.e, env, pad) : "";
+    const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad) : d.k === "eq" && d.e.k !== "draft" ? [this.hoist(d.name, d.e, env, pad), this.hoistCatches(d.name, d.e, env, pad)].filter(Boolean).join("\n") : "";
     if (hoist) return hoist + "\n" + this.value1(d, env, ind, b);
     return this.value1(d, env, ind, b);
   }
@@ -315,6 +318,19 @@ class Gen {
       return `${pad}const ${v} = __rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${this.clientCall(h.node.e, env) ? `__rt.clientQuestion(${lv})` : lv});${name ? `\n${pad}__rt.hoisted(${J(name)}, ${v});` : ""}`;
     }).join("\n");
   }
+  /** R-f-4: each catch inside an equation gets one boundary, made once beside it (awaits.ts `innerCatches`). */
+  private hoistedCatch = new Map<Expr, string>();
+  private hoistCatches(name: string, e: Expr, env: Env, pad: string): string {
+    return innerCatches(e).map(h => {
+      const v = `c$${name}$${this.hoistSeq++}`;
+      const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
+      const c = h.node; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
+      const body = this.expr(c.e, env, { imp: false });
+      const out = `${pad}const ${v} = __rt.catchMemo(() => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});`;
+      this.hoistedCatch.set(c, v);
+      return out;
+    }).join("\n");
+  }
   private hoistAll(es: Expr[], env: Env, pad: string): string[] { return es.map(x => this.hoist(null, x, env, pad, false)).filter(Boolean); }
   /** An equation a guess sits over (AC-3): not deferred, not a draft, not a wrapped server fn. */
   private guessedEq(d: Extract<Decl, { k: "eq" }>): boolean { return this.u.optimistic.has(d.name) && !d.deferred && d.e.k !== "draft" && !unwrapServer(d.e); }
@@ -322,15 +338,15 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     const prev = b.prev ? `\n${pad}const ${b.prev} = __rt.pre(${b.js});` : "";
     if (d.k === "source") {
-      if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })}));\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })})${this.u.optimistic.has(d.name) ? ", true" : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
       const lv = this.loadingValue(d.init, env);
-      const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name)} }`;
+      const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name)}, record: ${d.init.k === "rec"}, plain: ${this.u.plain.has(d.name)} }`;
       return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
     }
     if (d.k !== "eq") throw new CompileError("unreachable");
     if (this.guessedEq(d)) {                                                                   // AC-3 over an equation: createOptimistic(fn) / createOptimisticStore(fn, seed) — derived, its setter only guesses
       const lv = this.loadingValue(d.e, env);
-      const mode = `{ optimistic: true, structured: ${this.u.paths.has(d.name) || !!d.key}, derived: true }`;
+      const mode = `{ optimistic: true, structured: ${this.u.paths.has(d.name) || !!d.key}, derived: true, record: ${d.e.k === "rec"} }`;
       return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
     }
     const reg = `\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js} });${prev}`;
@@ -341,10 +357,12 @@ class Gen {
     }
     if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn") return `${pad}const ${b.js} = ${this.instantiate(d.e, env)};${reg}`;   // RG-6
     const fx = this.foreign(d, env, b, pad); if (fx !== null) return b.kind === "comp" ? `${fx}\n${pad}__rt.reg(${J(d.name)}, { value: ${b.js} });` : `${fx}${reg}`;
-    if (d.key) return `${pad}const ${b.js} = __rt.keyed(${J(d.name)}, ${J(d.key)}, () => ${this.expr(d.e, env, { imp: false, tail: true })});${reg}`;
+    if (d.key) return `${pad}const ${b.js} = __rt.keyed(${J(d.name)}, ${J(d.key)}, () => ${this.expr(d.e, env, { imp: false, tail: true })}, ${d.e.k === "rec"});${reg}`;
     if (d.e.k === "catch" && !d.deferred) {                                                    // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
       const c = d.e; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
-      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${this.expr(c.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchMemo(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});${reg}`;
+      const x = this.expr(c.e, env, { imp: false, tail: true, self: d.name }); const m = `(__e) => __rt.isA(__e, ${this.classes(c.classes, env)})`, a = `(${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })}`;
+      const body = c.e.k === "await" ? `__rt.settle(${x}, ${m}, ${a})` : x;                       // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary
+      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${body}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchMemo(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});${reg}`;
     }
     const fn = d.deferred ? "deferred" : "memo";
     return `${pad}const ${b.js} = __rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)});${reg}`;
@@ -393,13 +411,15 @@ class Gen {
     if (e.k === "call" && e.f.k === "id") {
       const f = env.lookup(e.f.name); if (f?.kind !== "jfn") return null;
       const args = e.args.map((a, i) => {
+        if (f.sigs?.[i]) return `__rt.signal(__rt.untrack(() => ${this.expr(a, env, { imp: false })}))`;   // MO-10h: a signal of the value, read once
         if (!f.refs![i]) return `__rt.untrack(() => ${this.expr(a, env, { imp: false })})`;
         if (a.k === "id") { const ab = env.lookup(a.name); if (ab && (ab.kind === "acc" || ab.kind === "src")) return ab.js; }
         return `__rt.memo(null, () => ${this.expr(a, env, { imp: false })})`;
       });
       const r = b.inst!; const sh = f.shape!;
       if (sh === "comp") return `${pad}const ${b.js} = ${f.js}(${args.join(", ")});`;                 // MO-11f: the component the factory hands back
-      const whole = typeof sh === "string" ? part(r, sh) : `__rt.memo(null, () => ${"items" in sh ? `[${sh.items.map((p, i) => p === "ref" ? `${r}[${i}]()` : `${r}[${i}]`).join(", ")}]` : `({ ${sh.fields.map(([k, p]) => `${J(k)}: ${p === "ref" ? `${r}[${J(k)}]()` : `${r}[${J(k)}]`}`).join(", ")} })`})`;
+      // R-f-5, MO-10f (revised 2026-11-21 after review): the result as a value whose parts are read where they are read
+      const whole = typeof sh === "string" ? part(r, sh) : "items" in sh ? `__rt.lazy(${r}, [${sh.items.map((_, i) => i).join(", ")}], [${sh.items.flatMap((p, i) => p === "ref" ? [i] : []).join(", ")}])` : `__rt.lazy(${r}, [${sh.fields.map(([k]) => J(k)).join(", ")}], [${sh.fields.flatMap(([k, p]) => p === "ref" ? [J(k)] : []).join(", ")}])`;
       return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${whole};`;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {
@@ -426,9 +446,52 @@ class Gen {
   }
 
   // ---- expressions ----
+  /** MO-10i: expressions written where a read of a draft needs no copy: handed straight back to the library (a value
+   *  written to a draft's path, the callback's result, an argument of a draft's own method), or consumed by an operator
+   *  that makes a primitive of them. */
+  private raw = new Set<Expr>();
+  /** MO-10i: closures written where a JS fn hands their parameters a draft, with those positions. */
+  private draftClosures = new Map<Expr, number[]>();
+  /** MO-10i: what an equation's binding keeps of a result's draft parts: a call's result's, an alias's, or the callbacks
+   *  of a function part bound to a name. */
+  private draftsOfBinding(e: Expr, env: Env): Pick<Bind, "drafts" | "partDrafts"> {
+    if (e.k === "call" && e.f.k === "id") { const pd = env.lookup(e.f.name)?.partDrafts; return pd ? { partDrafts: pd } : {}; }
+    if (e.k === "id") { const pd = env.lookup(e.name)?.partDrafts; return pd ? { partDrafts: pd } : {}; }
+    if (e.k === "member" || e.k === "index") { const d = this.partDraftsOf(e, env); return d ? { drafts: d } : {}; }
+    return {};
+  }
+  /** MO-10i: the draft a read goes through: the draft's name, a path below it, or what a method called on one gives. */
+  private draftChain(e: Expr, env: Env): boolean {
+    if (e.k === "id") return !!env.lookup(e.name)?.draft;
+    if (e.k === "member" || e.k === "index") return this.draftChain(e.o, env);
+    if (e.k === "call") return (e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env);
+    return false;
+  }
+  /** MO-10i: a place of a draft: its name, or a path below it (no call). */
+  private draftPlace(e: Expr, env: Env): boolean {
+    if (e.k === "id") return !!env.lookup(e.name)?.draft;
+    return (e.k === "member" || e.k === "index") && this.draftPlace(e.o, env);
+  }
+  /** MO-10i: the draft callbacks of a function part read off a result, `st[1]` or `st.set`. */
+  private partDraftsOf(f: Expr, env: Env): [number, number[]][] | undefined {
+    if (f.k !== "member" && f.k !== "index") return undefined;
+    const key = f.k === "member" ? f.p : litKey(f.i);
+    if (f.o.k !== "id" || key === undefined) return undefined;
+    const pd = env.lookup(f.o.name)?.partDrafts;
+    return pd && Object.prototype.hasOwnProperty.call(pd, key) ? pd[key] : undefined;
+  }
+  /** An expression's value. MO-10i (ruled 2026-11-22): a library's draft is a place, not a value, so a read of one — its
+   *  name, a path below it, what a method called on it gives — is a copy (`__rt.copy`), wherever its value could be kept:
+   *  what `.rx` holds of a draft is never the library's own object. Not where it is handed straight back to the library,
+   *  or consumed by an operator that makes a primitive of it (`raw`). */
   expr(e: Expr, env: Env, ctx: Ctx): string {
+    const x = this.expr0(e, env, ctx);
+    return !this.raw.has(e) && this.draftChain(e, env) ? `__rt.copy(${x})` : x;
+  }
+  private expr0(e: Expr, env: Env, ctx: Ctx): string {
     const sub: Ctx = { ...ctx, tail: false };
     const go = (x: Expr) => this.expr(x, env, sub);
+    const rawGo = (x: Expr) => { this.raw.add(x); return go(x); };
     switch (e.k) {
       case "lit": return J(e.v);
       case "id": return this.ref(e.name, env, ctx);
@@ -447,38 +510,47 @@ class Gen {
       }
       case "latest": return `__rt.latest(() => ${this.expr(e.e, env, { ...ctx, imp: false })})`;   // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
       case "pending": return `__rt.isPending(() => ${go(e.e)})`;
-      case "if": return `(${go(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
+      case "if": return `(${rawGo(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
       case "throw": return `__rt.throw(${go(e.e)})`;                                          // R-f-3
       case "catch": {                                                                           // R-f-4: over a sync value, or the tail await's promise/stream
+        if (!ctx.imp && this.hoistedCatch.has(e)) return `${this.hoistedCatch.get(e)}()`;
         if (ctx.imp && this.hasAwait(e.e)) throw new CompileError("`await … catch` inside an expression of imperative scope (AWAIT_IN_EXPRESSION, AC-1)");
         const inner = new Env(env); if (e.name) inner.vars.set(e.name, { kind: "val", js: mg(e.name) });
         return `__rt.${ctx.imp ? "tryCatch" : "catchRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
       }
-      case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
-      case "member": return `${go(e.o)}?.${e.p}`;
-      case "index": return `${go(e.o)}?.[${go(e.i)}]`;
+      case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${rawGo(p)})`).join(" + ") || '""'})`;
+      case "member": return `${rawGo(e.o)}?.${e.p}`;
+      case "index": return `${rawGo(e.o)}?.[${rawGo(e.i)}]`;                                 // a key is a primitive
       case "stylemap": return this.classMap(e.css, e.line);                                  // 07 CSS-5
       case "call": {
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until") && e.args[0]?.k === "fn") { const p = e.args[0]; return `__rt.until(() => ${this.expr(p.body, env, { imp: false, dyn: ctx.dyn })})`; }   // AC-6: Solid's until; the predicate is reactive scope
         if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env.lookup(e.f.name)) return `__rt.${e.f.name}(${e.args.map(go).join(", ")})`;   // EF-7, EF-8: Solid's own
-        if (e.f.k === "member") return `${go(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
+        // MO-10i: the closures this call hands a library's draft
+        for (const [i, ps] of e.f.k === "id" ? env.lookup(e.f.name)?.drafts ?? [] : this.partDraftsOf(e.f, env) ?? []) { const a = e.args[i]; if (a?.k === "fn") this.draftClosures.set(a, ps); }
+        // a method of a draft is the library's own: what it is given goes straight back to it; a builtin that answers a
+        // primitive keeps nothing
+        if (((e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env)) || (e.f.k === "id" && ["len", "str", "sum", "every", "indexOf"].includes(e.f.name) && !env.lookup(e.f.name))) for (const a of e.args) this.raw.add(a);
+        this.raw.add(e.f);
+        if (e.f.k === "member") return `${rawGo(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
         return `${go(e.f)}(${e.args.map(go).join(", ")})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "fn": {
         const inner = this.params(env, e.params); const ps = e.params.map(mg).join(", ");
+        { const ds = this.draftClosures.get(e); if (ds) { for (const j of ds) { const p = e.params[j]; if (p !== undefined) inner.vars.set(p, { kind: "val", js: mg(p), draft: true }); } this.raw.add(e.body); } }   // MO-10i: the parameters a library hands its draft; what the callback gives back is the library's
         if (e.stmts && inferredAction(e.stmts)) return `(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
         if (e.stmts) { const async = this.hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
         return `(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`;
       }
       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
+        if (e.op !== "??" && e.op !== "||" && e.op !== "&&") { this.raw.add(e.l); this.raw.add(e.r); }   // MO-10i: an operator that makes a primitive keeps nothing of what it reads
         if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
         if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
         return `(${go(e.l)} ${e.op} ${go(e.r)})`;
       }
-      case "un": return `(${e.op}${go(e.e)})`;
+      case "un": return `(${e.op}${rawGo(e.e)})`;
       case "draft": throw new CompileError("a draft is an equation's whole expression");
       case "spread": throw new CompileError("spread outside an array literal");
       case "omit": return `__rt.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;   // RG-4b: Solid's live view
@@ -517,13 +589,21 @@ class Gen {
       }
       switch (s.k) {
         case "let": out.push(`${pad}let ${mg(s.name)} = ${e(s.e)};`); env.vars.set(s.name, { kind: "val", js: mg(s.name) }); break;
-        case "expr": out.push(`${pad}${returnLast && i === ss.length - 1 ? "return " : ""}${e(s.e)};`); break;
-        case "return": out.push(`${pad}return${s.e ? " " + e(s.e) : ""};`); break;
+        case "expr": this.raw.add(s.e); out.push(`${pad}${returnLast && i === ss.length - 1 ? "return " : ""}${e(s.e)};`); break;   // MO-10i: its value is dropped, or is the callback's result
+        case "return": if (s.e) this.raw.add(s.e); out.push(`${pad}return${s.e ? " " + e(s.e) : ""};`); break;   // MO-10i: a draft is named only in its own callback, whose result is the library's
         case "throw": out.push(`${pad}throw ${e(s.e)};`); break;
         case "write": case "optimistic": {
+          for (const p of s.target.path) if (typeof p !== "string") this.raw.add(p);          // a key is a primitive
           const keys = `[${s.target.path.map(p => typeof p === "string" ? J(p) : e(p)).join(", ")}]`;
+          if (s.k === "write" && s.target.path.length && !s.target.ctx && env.lookup(s.target.name)?.draft) this.raw.add(s.e);   // MO-10i: a value written to a path of a draft goes straight back to the library
           const v = e(s.e);
           if (ctx.dyn && !s.target.ctx && !env.lookup(s.target.name)) { out.push(`${pad}__rt.dset(${J(s.target.name)}, ${keys}, ${v}, ${s.k === "optimistic"});`); break; }
+          { const b = s.target.ctx || s.k !== "write" || !s.target.path.length ? undefined : env.lookup(s.target.name);   // MO-10i: a library's draft, written along its path
+            if (b && b.kind === "val" && !b.w) {
+              const segs = s.target.path.map(p => `[${typeof p === "string" ? J(p) : e(p)}]`);
+              // W-6: \`d.n := v => v + 1\` applies it, the place evaluated once (the object up to the last key, then the key)
+              if (s.e.k === "fn" && !s.e.stmts && s.e.params.length === 1) { const last = s.target.path[s.target.path.length - 1]; out.push(`${pad}{\n${pad}  const __o$d = ${b.js}${segs.slice(0, -1).join("")};\n${pad}  const __k$d = ${typeof last === "string" ? J(last) : e(last)};\n${pad}  __o$d[__k$d] = (${v})(__o$d[__k$d]);\n${pad}}`); break; }
+              out.push(`${pad}${b.js}${segs.join("")} = ${v};`); break; } }
           let w: string;
           if (s.target.ctx) w = `__rt.use(${this.ref(s.target.name, env, { imp: false, dyn: ctx.dyn })}, __o).w`;
           else { const b = env.lookup(s.target.name); if (!b?.w) throw new CompileError(`W-1: ${s.target.name} is not a source`); w = b.w; }
@@ -533,7 +613,12 @@ class Gen {
         case "refresh": { const b = env.lookup(s.name); out.push(`${pad}__rt.refresh(${J(s.name)}, ${b ? b.js : `__rt.lookup(${J(s.name)}).get`});`); break; }
         case "affects": { const b = env.lookup(s.name); out.push(`${pad}__rt.affects(${b ? b.js : `__rt.lookup(${J(s.name)}).get`});`); break; }
         case "action": out.push(`${pad}__rt.action(function* () {\n${this.stmts(s.body, env, { imp: true, gen: true, dyn: ctx.dyn }, ind + 1)}\n${pad}})();`); break;
-        case "sif": out.push(`${pad}if (${e(s.c)}) {\n${this.stmts(s.t, env, ctx, ind + 1)}\n${pad}} else {\n${this.stmts(s.f, env, ctx, ind + 1)}\n${pad}}`); break;
+        case "for": {                                                                        // 07 §5: a loop of imperative scope; its variable is a constant of each turn
+          const place = this.draftPlace(s.e, env); if (place) this.raw.add(s.e);              // MO-10i: a turn of a loop over a path of a draft is a place of that draft
+          const x = e(s.e); const inner = new Env(env); inner.vars.set(s.name, { kind: "val", js: mg(s.name), ...(place ? { draft: true } : {}) });
+          out.push(`${pad}for (const ${mg(s.name)} of ${x}) {\n${this.stmts(s.body, inner, ctx, ind + 1)}\n${pad}}`); break;
+        }
+        case "sif": this.raw.add(s.c); out.push(`${pad}if (${e(s.c)}) {\n${this.stmts(s.t, env, ctx, ind + 1)}\n${pad}} else {\n${this.stmts(s.f, env, ctx, ind + 1)}\n${pad}}`); break;
         case "try": {
           let t = `${pad}try {\n${this.stmts(s.body, env, ctx, ind + 1)}\n${pad}}`;
           if (s.handler) { const h = new Env(env); if (s.catchName) h.vars.set(s.catchName, { kind: "val", js: mg(s.catchName) }); const v = s.catchName ? mg(s.catchName) : "__e"; t += ` catch (${v}) {\n${s.catchClasses ? `${pad}  if (!__rt.isA(${v}, ${this.classes(s.catchClasses, env)})) throw ${v};   // R-f-6: a typed catch rethrows other classes\n` : ""}${this.stmts(s.handler, h, ctx, ind + 1)}\n${pad}}`; }
@@ -567,9 +652,13 @@ class Gen {
       case "el": {
         if (m.tag === "") return this.markup(m.children, env, ind);
         if (/^[A-Z]/.test(m.tag)) {
-          const b = env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
+          const dot = m.tag.indexOf("."); const head = dot > 0 && !env.lookup(m.tag) ? env.lookup(m.tag.slice(0, dot)) : undefined;   // MO-11q: `<Dialog.Root>`, a member of a declared JS object
+          const b = head ? { kind: "comp" as const, js: `${head.js}${m.tag.slice(dot)}`, shape: "comp" as const } : env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
           const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
-          return m.children.length ? `<${b.js}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : b.shape === "comp" ? `<${b.js}${attrs} />` : `<${b.js}${attrs} children={[]} />`;   // MO-11: a JS component gets JSX's own <X />
+          const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
+          const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
+          const props = attrs + named.map(v => ` ${v.prop}={${this.regionFn(v.decls, v.body, env, ind + 1, v.params.map(mg).join(", "), e => { for (const p of v.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}`).join("");
+          return kids.length ? `<${b.js}${props}>${kids.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : b.shape === "comp" ? `<${b.js}${props} />` : `<${b.js}${props} children={[]} />`;   // MO-11: a JS component gets JSX's own <X />
         }
         let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");
         if (this.styleHash && !m.attrs.some(a => a.name === "class")) attrs += ` class=${J(this.styleHash)}`;   // CSS-2: every HTML element of the view
@@ -579,6 +668,10 @@ class Gen {
         const narrowed = m.c.k === "id" ? env.lookup(m.c.name) : undefined;
         const t = this.regionFn(m.tDecls, m.t, env, ind + 1, "__item", e => { if (m.c.k === "id" && narrowed && (narrowed.kind === "acc" || narrowed.kind === "src")) { e.vars.set(m.c.name, { kind: "acc", js: `n$${m.c.name}`, w: narrowed.w }); return `${pad}  const n$${m.c.name} = __item;\n`; } return ""; });
         return `<Show when={${this.expr(m.c, env, re)}} fallback={(${this.regionFn(m.fDecls, m.f, env, ind + 1)})()}>{${t}}</Show>`;
+      }
+      case "mview": {                                                                         // MO-11k: the render prop, an arrow over the view
+        const body = this.regionFn(m.decls, m.body, env, ind + 1, m.params.map(mg).join(", "), e => { for (const p of m.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; });
+        return `{${body}}`;
       }
       case "mfor": {
         const body = this.regionFn(m.decls, m.body, env, ind + 1, mg(m.name), e => { e.vars.set(m.name, { kind: "val", js: mg(m.name) }); return ""; });
@@ -600,4 +693,12 @@ class Gen {
       }
     }
   }
+}
+
+/** MO-11f, MO-11j: an equation bound from a declared factory's call is a component (`Router = createRouter(…)`). */
+export function madeComponent(p: Program, name: string, declarations?: Map<string, JsDecl[]>): boolean {
+  const d = p.decls.find(x => x.k === "eq" && x.name === name); if (!d || d.k !== "eq" || d.e.k !== "call" || d.e.f.k !== "id") return false;
+  const g = d.e.f.name;
+  for (const i of p.decls) if (i.k === "import" && i.declared) { const n = i.names.find(x => x.alias === g); if (n) return declarations?.get(i.declared)?.some(x => x.kind === "fn" && x.name === n.name && x.shape === "comp") ?? false; }
+  return false;
 }

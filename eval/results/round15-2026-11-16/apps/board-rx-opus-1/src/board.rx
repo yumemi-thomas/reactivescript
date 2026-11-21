@@ -1,0 +1,234 @@
+// The board's data: the server's answers per column, the writes in flight laid over them, and the actions.
+// It lives in the module because a write outlives the visit that made it; `visit` is the page's visit.
+import pure { fetchCards, fetchChecklist } from "./api"
+import { moveCard, renameCard, addCard, archiveCard, toggleItem, addItem } from "./api"
+import { Card, Item } from "./api"
+
+export type Shown = { id: number; title: string; done: number; total: number; raw: Card }
+export type Move = { id: number; to: string; index: number; card: Card }
+export type Placeholder = { id: number; title: string }
+export type Rename = { id: number; title: string }
+export type Toggle = { cardId: number; itemId: number; done: boolean; delta: number }
+export type NewItem = { id: number; cardId: number; text: string }
+export type Row = { id: number; text: string; done: boolean; adding: boolean }
+
+// the visit (the app opens on the board) and each column's retries
+export source visit: number := 0
+export source todoTry: number := 0
+export source doingTry: number := 0
+export source doneTry: number := 0
+
+// 1. the server's truth, 2. the client's layer over it (written with the server's answers)
+source todo: Card[] = visit >= 0 ? await fetchCards("todo") : []
+source doing: Card[] = visit >= 0 ? await fetchCards("doing") : []
+source done: Card[] = visit >= 0 ? await fetchCards("done") : []
+
+export source selected: number | null := null
+source checklist: Item[] = selected == null ? [] : await fetchChecklist(selected)
+
+// 3. writes in flight, each with a constant question
+source moving: Move[] = []
+source archiving: number[] = []
+source renaming: Rename[] = []
+source toggling: Toggle[] = []
+source addingItems: NewItem[] = []
+export source addingCards: Placeholder[] = []
+
+// client-minted keys for rows the server has not answered yet
+export source mint: number := 0
+
+export source moveError: string := ""
+export source addError: string := ""
+export source archiveError: string := ""
+export source renameError: string := ""
+export source itemError: string := ""
+
+fn without(rs: Card[], id: number): Card[] => rs.filter(r => r.id != id)
+fn insertAt(rs: Card[], i: number, c: Card): Card[] => [...rs.slice(0, i), c, ...rs.slice(i)]
+fn moved(rs: Card[], col: string, id: number, to: string, index: number, c: Card): Card[] =>
+  to == col ? insertAt(without(rs, id), index, c) : without(rs, id)
+fn place(rs: Card[], col: string, ms: Move[], gone: number[]): Card[] =>
+  ms.reduce((acc, m) => moved(acc, col, m.id, m.to, m.index, acc.find(r => r.id == m.id) ?? m.card), rs.filter(r => !gone.includes(r.id)))
+fn titleOf(rs: Rename[], id: number, t: string): string => rs.reduce((n, r) => r.id == id ? r.title : n, t)
+fn deltaOf(ts: Toggle[], id: number): number => ts.reduce((n, t) => t.cardId == id ? n + t.delta : n, 0)
+fn extraOf(xs: NewItem[], id: number): number => xs.filter(x => x.cardId == id).length
+fn dress(c: Card, rs: Rename[], ts: Toggle[], xs: NewItem[]): Shown =>
+  ({ id: c.id, title: titleOf(rs, c.id, c.title), done: c.done + deltaOf(ts, c.id), total: c.total + extraOf(xs, c.id), raw: c })
+fn retitled(rs: Card[], id: number, t: string): Card[] => rs.map(r => r.id == id ? { ...r, title: t } : r)
+fn counted(rs: Card[], id: number, dd: number, dt: number): Card[] =>
+  rs.map(r => r.id == id ? { ...r, done: r.done + dd, total: r.total + dt } : r)
+fn holds(rs: Card[], id: number): boolean => rs.some(r => r.id == id)
+fn findShown(rs: Shown[], id: number | null): Shown | null => rs.find(r => r.id == id) ?? null
+fn doneOf(ts: Toggle[], itemId: number, d: boolean): boolean => ts.reduce((v, t) => t.itemId == itemId ? t.done : v, d)
+
+// what every view reads
+export todoCards: Shown[] key id = place(todo, "todo", moving, archiving).map(c => dress(c, renaming, toggling, addingItems))
+export doingCards: Shown[] key id = place(doing, "doing", moving, archiving).map(c => dress(c, renaming, toggling, addingItems))
+export doneCards: Shown[] key id = place(done, "done", moving, archiving).map(c => dress(c, renaming, toggling, addingItems))
+
+selTodo = selected == null ? null : findShown((todoCards catch (e) => []), selected)
+selDoing = selected == null || selTodo != null ? null : findShown((doingCards catch (e) => []), selected)
+selDone = selected == null || selTodo != null || selDoing != null ? null : findShown((doneCards catch (e) => []), selected)
+export selCard: Shown | null = selTodo ?? selDoing ?? selDone
+export selCol: string = selTodo != null ? "To do" : selDoing != null ? "Doing" : selDone != null ? "Done" : ""
+
+export items: Row[] key id = [
+  ...checklist.map(it => ({ id: it.id, text: it.text, done: doneOf(toggling, it.id, it.done), adding: false })),
+  ...addingItems.filter(a => a.cardId == selected).map(a => ({ id: a.id, text: a.text, done: false, adding: true })),
+]
+export progress: string = `${items.filter(i => i.done).length}/${items.length} done`
+
+// opening the page: it starts as the app starts
+export action openBoard() {
+  visit := visit + 1
+  selected := null
+  moveError := ""
+  addError := ""
+  archiveError := ""
+  renameError := ""
+  itemError := ""
+}
+
+export action retry(col: string) {
+  if (col == "todo") {
+    todoTry := todoTry + 1
+    refresh todo
+  } else if (col == "doing") {
+    doingTry := doingTry + 1
+    refresh doing
+  } else {
+    doneTry := doneTry + 1
+    refresh done
+  }
+}
+
+export action select(id: number) {
+  if (id != selected) {
+    selected := id
+    onFlush(() => {
+      renameError := ""
+      itemError := ""
+    })
+  }
+}
+
+export action move(id: number, from: string, to: string, index: number, card: Card) {
+  onFlush(() => { moveError := "" })
+  try {
+    guess moving := ms => [...ms, { id: id, to: to, index: index, card: card }]
+    await moveCard(id, to, index)
+    let fromRows: Card[] = (from == "todo" ? todo : from == "doing" ? doing : done) catch (x) => []
+    let cur = fromRows.find(r => r.id == id) ?? card
+    if (from == "todo" || to == "todo") {
+      todo := rs => moved(rs, "todo", id, to, index, cur)
+    }
+    if (from == "doing" || to == "doing") {
+      doing := rs => moved(rs, "doing", id, to, index, cur)
+    }
+    if (from == "done" || to == "done") {
+      done := rs => moved(rs, "done", id, to, index, cur)
+    }
+  } catch (e) {
+    moveError := e.message
+    onFlush(() => { moveError := e.message })
+  }
+}
+
+export action addNewCard(key: number, title: string) {
+  onFlush(() => {
+    addError := ""
+    mint := m => m < key ? m : key
+  })
+  try {
+    guess addingCards := ps => [...ps, { id: key, title: title }]
+    let r = await addCard("todo", title)
+    let ready = todo.length >= 0 catch (x) => false
+    if (ready) {
+      todo := rs => holds(rs, r.id) ? rs : [...rs, { id: r.id, title: r.title, done: 0, total: 0 }]
+    }
+  } catch (e) {
+    addError := e.message
+    onFlush(() => { addError := e.message })
+  }
+}
+
+export action rename(id: number, title: string) {
+  onFlush(() => { renameError := "" })
+  try {
+    guess renaming := rs => [...rs, { id: id, title: title }]
+    let r = await renameCard(id, title)
+    let inTodo = holds(todo, id) catch (x) => false
+    let inDoing = holds(doing, id) catch (x) => false
+    let inDone = holds(done, id) catch (x) => false
+    if (inTodo) { todo := rs => retitled(rs, id, r.title) }
+    if (inDoing) { doing := rs => retitled(rs, id, r.title) }
+    if (inDone) { done := rs => retitled(rs, id, r.title) }
+  } catch (e) {
+    renameError := e.message
+    onFlush(() => { renameError := e.message })
+  }
+}
+
+export action archive(id: number) {
+  onFlush(() => {
+    archiveError := ""
+    renameError := ""
+    itemError := ""
+    selected := null
+  })
+  try {
+    guess archiving := xs => [...xs, id]
+    await archiveCard(id)
+    let inTodo = holds(todo, id) catch (x) => false
+    let inDoing = holds(doing, id) catch (x) => false
+    let inDone = holds(done, id) catch (x) => false
+    if (inTodo) { todo := rs => without(rs, id) }
+    if (inDoing) { doing := rs => without(rs, id) }
+    if (inDone) { done := rs => without(rs, id) }
+  } catch (e) {
+    archiveError := e.message
+    onFlush(() => { archiveError := e.message })
+  }
+}
+
+export action toggle(cardId: number, itemId: number, next: boolean, delta: number) {
+  onFlush(() => { itemError := "" })
+  try {
+    guess toggling := ts => [...ts, { cardId: cardId, itemId: itemId, done: next, delta: delta }]
+    let r = await toggleItem(cardId, itemId, next)
+    let dd = r.done == next ? delta : 0
+    let inTodo = holds(todo, cardId) catch (x) => false
+    let inDoing = holds(doing, cardId) catch (x) => false
+    let inDone = holds(done, cardId) catch (x) => false
+    if (inTodo) { todo := rs => counted(rs, cardId, dd, 0) }
+    if (inDoing) { doing := rs => counted(rs, cardId, dd, 0) }
+    if (inDone) { done := rs => counted(rs, cardId, dd, 0) }
+    let shown = selected == cardId && (checklist.some(i => i.id == itemId) catch (x) => false)
+    if (shown) { checklist := xs => xs.map(i => i.id == itemId ? { ...i, done: r.done } : i) }
+  } catch (e) {
+    itemError := e.message
+    onFlush(() => { itemError := e.message })
+  }
+}
+
+export action addNewItem(key: number, cardId: number, text: string) {
+  onFlush(() => {
+    itemError := ""
+    mint := m => m < key ? m : key
+  })
+  try {
+    guess addingItems := xs => [...xs, { id: key, cardId: cardId, text: text }]
+    let it = await addItem(cardId, text)
+    let inTodo = holds(todo, cardId) catch (x) => false
+    let inDoing = holds(doing, cardId) catch (x) => false
+    let inDone = holds(done, cardId) catch (x) => false
+    if (inTodo) { todo := rs => counted(rs, cardId, it.done ? 1 : 0, 1) }
+    if (inDoing) { doing := rs => counted(rs, cardId, it.done ? 1 : 0, 1) }
+    if (inDone) { done := rs => counted(rs, cardId, it.done ? 1 : 0, 1) }
+    let shown = selected == cardId && (checklist.length >= 0 catch (x) => false)
+    if (shown) { checklist := xs => xs.some(i => i.id == it.id) ? xs : [...xs, it] }
+  } catch (e) {
+    itemError := e.message
+    onFlush(() => { itemError := e.message })
+  }
+}

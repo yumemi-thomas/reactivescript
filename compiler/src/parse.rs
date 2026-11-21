@@ -38,7 +38,6 @@ re!(STYLE, r"^<style([^A-Za-z0-9_]|$)");
 re!(SERVER_FN_EXPR, r"^server\s+fn\s*\(");
 re!(NUMBER, r"^\d[\d_]*(\.\d+)?");
 re!(REJECTS, r"(^|[^A-Za-z0-9_])rejects\(");
-re!(LINE_COMMENT, r"//.*$");
 
 static KEYWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
@@ -74,12 +73,16 @@ pub struct Cursor<'a> {
     pub errors: Vec<ParseError>,
     /// a destructuring `let` (07 §5) is several statements: the rest of them, after the first
     pub pending: Vec<Stmt>,
+    /// MO-8j: the lines of a declaration file where a row says `trusted` (as the parser read it, not a text search)
+    pub trusted: Vec<usize>,
     /// `$$n`: the bound value of a destructuring whose right side is not a name (RG-4b)
     pub temps: usize,
+    /// the names this module imports so far (a hook's pair is a habit only when it is not one of them)
+    pub imported: std::collections::HashSet<String>,
 }
 impl<'a> Cursor<'a> {
     pub fn new(src: &'a str) -> Self {
-        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], temps: 0 }
+        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], trusted: vec![], temps: 0, imported: std::collections::HashSet::new() }
     }
     /// What `fail` would return, recorded instead (`recover`).
     fn note(&mut self, msg: &str) {
@@ -208,6 +211,20 @@ fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
         let ch = c.peek();
         if depth == 0 && (c.starts_with("//") || c.starts_with("=>") || c.starts_with(":=") || ch == '=' || ch == ',' || ch == ')' || ch == ';' || ch == '\n' || (brace_stops && ch == '{')) {
             break;
+        }
+        if ch == '"' || ch == '\'' || ch == '`' {
+            // a string literal type is one token: a `//`, `,` or `)` inside it does not end the type
+            c.bump();
+            while !c.eof() && c.peek() != ch && c.peek() != '\n' {
+                if c.peek() == '\\' {
+                    c.bump();
+                }
+                c.bump();
+            }
+            if !c.eof() && c.peek() == ch {
+                c.bump();
+            }
+            continue;
         }
         if "([{<".contains(ch) {
             depth += 1;
@@ -425,7 +442,7 @@ impl Shape {
         }
     }
 }
-fn split_top(s: &str, seps: &str) -> Vec<String> {
+pub(crate) fn split_top(s: &str, seps: &str) -> Vec<String> {
     let cs: Vec<char> = s.chars().collect();
     let mut out = vec![];
     let mut depth: i64 = 0;
@@ -448,6 +465,17 @@ re!(REF_PART, r"^ref\s");
 re!(FN_PART, r"\)\s*=>");
 re!(REF_WORD, r"\bref\s+");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
+re!(ROW_WORD, r"^(pending\b|fails\(([^)]*)\))\s*");
+re!(ANY_ROW_WORD, r"\b(pending|fails\()");
+// MO-10f: a row word written before a type where no record field took it (a tuple's part, a member of a union, a type argument)
+re!(STRAY_ROW_WORD, r#"\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']"#);
+re!(OLD_HOLDS, r"(^|[:,\[{]\s*)holds\b");
+re!(RENDER_TYPE, r"=>\s*View\s*$");
+re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
+re!(TRACKED_WORD, r"\btracked\s+");
+re!(HANDLER_WORD, r"\bhandler\s+");
+re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\(|trusted\b|forwards\b|joins\(|methods\()");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
@@ -457,7 +485,19 @@ fn part_of(t: &str) -> Part {
         Part::Value
     }
 }
+/// A declared field's name: `readonly width?` is `width` (the modifier and the `?` are TypeScript's, not the name's).
+fn field_name(k: &str) -> String {
+    let k = js_trim(k);
+    let k = k.strip_prefix("readonly ").map(js_trim).unwrap_or(k);
+    k.strip_suffix('?').unwrap_or(k).to_string()
+}
 fn shape_of(t: &str) -> Shape {
+    // MO-10b: a read-only tuple is a tuple (`as const` results)
+    if let Some(rest) = t.strip_prefix("readonly ") {
+        if rest.trim_start().starts_with('[') {
+            return shape_of(rest.trim_start());
+        }
+    }
     if t.starts_with('[') && t.ends_with(']') && t.len() >= 2 {
         return Shape::Items(split_top(&t[1..t.len() - 1], ",").iter().map(|x| part_of(x)).collect());
     }
@@ -471,7 +511,7 @@ fn shape_of(t: &str) -> Shape {
                         None => (&f[..f.len().saturating_sub(1)], &f[..]),
                     };
                     let k = js_trim(k);
-                    (k.strip_suffix('?').unwrap_or(k).to_string(), part_of(js_trim(v)))
+                    (field_name(k), part_of(js_trim(v)))
                 })
                 .collect(),
         );
@@ -487,11 +527,16 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool },
-    Error { name: String, line: usize },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, joins: Option<String>, forwards: bool, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, methods: Vec<String> },
+    /// SV-5a: `fields`, what of an instance is sent to the client (`export error HttpError(status, code)`); none, name and message only
+    Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
-    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape> },
+    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, outlet: bool },
+    /// MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
+    Context { name: String, line: usize },
+    /// MO-8g: a value the module exports (`export const pageSearch: Schema`)
+    Value { name: String, line: usize, ty: Option<String> },
 }
 /// MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it (`None` in the list:
 /// every class), and whether it takes a component value (MO-11c: its type is `Component`).
@@ -502,17 +547,838 @@ pub struct JsProp {
     pub ty: Option<String>,
     pub catches: Option<Option<Vec<String>>>,
     pub component: bool,
+    /// MO-11k: a function giving a View (a render prop)
+    pub render: bool,
+    /// MO-10g: any other function (a callback, checked as a handler)
+    pub callback: bool,
+    /// MO-10g: a function type without `handler`: pure, whatever the prop's name
+    pub pure: bool,
+    /// MO-11o: it renders the components its value carries (`router: renders any`)
+    pub carried: bool,
 }
 impl JsDecl {
     pub fn name(&self) -> &str {
         match self {
-            JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } | JsDecl::Comp { name, .. } => name,
+            JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } | JsDecl::Comp { name, .. } | JsDecl::Context { name, .. } | JsDecl::Value { name, .. } => name,
         }
     }
 }
 
+/// MO-8j, TY-7: what running must show before a row counts as verified, each a claim the row makes as this parser read
+/// it, however it is laid out: `exists` (the export is there, of its kind), `pure`, `uses`, `provides`, `fields` (a result
+/// part that is `ref`, `pending` or `fails(…)`), `fails` (a field, or a component, that fails with a class), `callbacks`
+/// (a function-typed parameter or record field: handler, tracked or pure), `draft`, `placement` (`renders…`, `nests(…)`,
+/// `forwards`, `joins(…)`, `outlet`, a prop that `renders`, a carrier). rx-verify tags each result with the claim it
+/// ran; a claim no result answers is not verified.
+pub fn obligations(d: &JsDecl) -> Vec<String> {
+    let mut out: Vec<String> = vec!["exists".into()];
+    let fn_typed = |t: &str| {
+        let t = js_trim(t);
+        let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
+        let t = ["handler", "tracked"].iter().find_map(|w| t.strip_prefix(w).filter(|r| r.starts_with(char::is_whitespace)).map(js_trim)).unwrap_or(t);
+        fn_params_text(t).is_some()
+    };
+    match d {
+        JsDecl::Fn { params, pure, instantiates, uses, provides, held, shape, ptypes, renders, renders_root, nests, forwards, joins, carrier, under, drafts, part_drafts, methods, .. } => {
+            if *pure && !*instantiates {
+                out.push("pure".into());
+            }
+            if !uses.is_empty() {
+                out.push("uses".into());
+            }
+            // RFC 28: each context it provides is a claim of its own: one hook that uses `a` says nothing of `b`
+            for c in provides {
+                out.push(format!("provides:{c}"));
+            }
+            if !held.is_empty() || shape.has_ref() {
+                out.push("fields".into());
+            }
+            if held.iter().any(|h| !h.2.is_empty()) {
+                out.push("fails".into());
+            }
+            // RFC 29: each callback position is a claim of its own (`callbacks:onChange`, `callbacks:options.onSuccess`), as
+            // rx-verify names what it ran
+            for (i, t) in ptypes.iter().enumerate() {
+                let Some(t) = t else { continue };
+                let t = js_trim(t);
+                let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
+                let name = params.get(i).map(|n| n.trim_start_matches("...").to_string()).unwrap_or_else(|| i.to_string());
+                if fn_typed(t) {
+                    out.push(format!("callbacks:{name}"));
+                } else if t.starts_with('{') && t.ends_with('}') {
+                    for f in split_top(&t[1..t.len() - 1], ",;") {
+                        let Some(at) = f.find(':') else { continue };
+                        if fn_typed(&f[at + 1..]) {
+                            out.push(format!("callbacks:{name}.{}", js_trim(&f[..at]).trim_end_matches('?').trim()));
+                        }
+                    }
+                }
+            }
+            if !drafts.is_empty() || !part_drafts.is_empty() {
+                out.push("draft".into());
+            }
+            if !methods.is_empty() {
+                out.push("methods".into());
+            }
+            if *renders || *renders_root || nests.is_some() || *forwards || joins.is_some() || *carrier || under.is_some() || matches!(shape, Shape::Comp) {
+                out.push("placement".into());
+            }
+        }
+        JsDecl::Comp { props, fails, uses, provides, outlet, .. } => {
+            if !uses.is_empty() {
+                out.push("uses".into());
+            }
+            for c in provides {
+                out.push(format!("provides:{c}"));
+            }
+            // RFC 29: a function-typed prop (`ref: handler (el) => void`, `onPick: (id) => void`) is a callback claim, each
+            // prop its own: that the export is a function says nothing of how it calls them
+            for p in props.iter().filter(|p| p.callback || p.pure) {
+                out.push(format!("callbacks:{}", p.name));
+            }
+            if !fails.is_empty() {
+                out.push("fails".into());
+            }
+            if *outlet || props.iter().any(|p| p.carried) {
+                out.push("placement".into());
+            }
+        }
+        JsDecl::Error { .. } | JsDecl::Value { .. } | JsDecl::Type { .. } | JsDecl::Context { .. } => {}
+    }
+    out
+}
 /// MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`).
+/// MO-10i: a function type's parameter list (`(a: A, b: B) => R` → `a: A, b: B`), or None.
+fn fn_params_text(t: &str) -> Option<String> {
+    let t = t.trim();
+    if !t.starts_with('(') {
+        return None;
+    }
+    let cs: Vec<char> = t.chars().collect();
+    let mut depth = 0i64;
+    for i in 0..cs.len() {
+        let ch = cs[i];
+        if "([{<".contains(ch) {
+            depth += 1;
+        } else if ")]}".contains(ch) || (ch == '>' && i > 0 && cs[i - 1] != '=') {
+            depth -= 1;
+            if depth == 0 {
+                let rest: String = cs[i + 1..].iter().collect();
+                return if rest.trim_start().starts_with("=>") { Some(cs[1..i].iter().collect()) } else { None };
+            }
+        }
+    }
+    None
+}
+/// MO-10i: the positions of a function type's parameters written `draft` (`(draft state: T) => void` → [0]).
+fn draft_params(t: Option<&str>) -> Vec<usize> {
+    let Some(ps) = t.and_then(fn_params_text) else { return vec![] };
+    split_top(&ps, ",").iter().enumerate().filter(|(_, p)| DRAFT_PARAM.is_match(p)).map(|(i, _)| i).collect()
+}
+/// MO-10i: for a function type, its callback parameters' draft positions.
+fn drafts_of_fn(t: &str) -> Vec<(usize, Vec<usize>)> {
+    let Some(ps) = fn_params_text(t) else { return vec![] };
+    split_top(&ps, ",")
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| {
+            let ds = match p.find(':') {
+                Some(c) => draft_params(Some(p[c + 1..].trim())),
+                None => vec![],
+            };
+            (!ds.is_empty()).then_some((i, ds))
+        })
+        .collect()
+}
+/// MO-10i: a result's function parts that take draft callbacks, by tuple index or field name.
+fn draft_parts(ret: Option<&str>) -> Vec<(String, Vec<(usize, Vec<usize>)>)> {
+    let Some(t) = ret.map(str::trim) else { return vec![] };
+    let mut out = vec![];
+    if t.starts_with('[') && t.ends_with(']') {
+        for (i, x) in split_top(&t[1..t.len() - 1], ",").iter().enumerate() {
+            let d = drafts_of_fn(x);
+            if !d.is_empty() {
+                out.push((i.to_string(), d));
+            }
+        }
+    } else if t.starts_with('{') && t.ends_with('}') {
+        for f in split_top(&t[1..t.len() - 1], ",;") {
+            if let Some(c) = f.find(':') {
+                let d = drafts_of_fn(f[c + 1..].trim());
+                if !d.is_empty() {
+                    out.push((field_name(&f[..c]), d));
+                }
+            }
+        }
+    }
+    out
+}
+/// MO-10g: `handler` not followed by a function type (`(`).
+fn handler_misplaced(t: &str) -> bool {
+    HANDLER_WORD.find_iter(t).any(|m| !t[m.end()..].starts_with('('))
+}
+/// MO-10g: the type without the `.d.rx`'s `handler` word.
+fn strip_handler(t: &str) -> String {
+    let mut out = String::new();
+    let mut at = 0;
+    for m in HANDLER_WORD.find_iter(t) {
+        if t[m.end()..].starts_with('(') {
+            out.push_str(&t[at..m.start()]);
+            at = m.end();
+        }
+    }
+    out.push_str(&t[at..]);
+    out
+}
+/// MO-10g: a function type marked `handler` (revised 2026-11-21): only such a type is a callback.
+fn is_handler(t: &str) -> bool {
+    t.strip_prefix("handler").is_some_and(|r| r.starts_with(char::is_whitespace) && js_trim(r).starts_with('('))
+}
+/// MO-10j: `tracked` not followed by a function type (`(`).
+fn tracked_misplaced(t: &str) -> bool {
+    TRACKED_WORD.find_iter(t).any(|m| !t[m.end()..].starts_with('('))
+}
+/// MO-10j: the type without the `.d.rx`'s `tracked` word.
+fn strip_tracked(t: &str) -> String {
+    let mut out = String::new();
+    let mut at = 0;
+    for m in TRACKED_WORD.find_iter(t) {
+        if t[m.end()..].starts_with('(') {
+            out.push_str(&t[at..m.start()]);
+            at = m.end();
+        }
+    }
+    out.push_str(&t[at..]);
+    out
+}
+fn strip_draft(t: &str) -> String {
+    DRAFT_WORD.replace_all(t, "$1").to_string()
+}
+/// 07 §3: a balanced `<…>` at the start of `s` followed by `(`: its text and the byte length up to the `(`.
+/// 07 §3: whether `text`, between a call's `<` and `>`, is TypeScript type arguments: a comma-separated list of types
+/// that a type grammar consumes completely, as TypeScript decides when it tries them and falls back to comparisons.
+/// `a<b && c>(d)`, `a<b + c>(d)` and `a<b[c+1]>(d)` are comparisons; `f<{ a: string }[]>(x)`, `f<A | B>(x)`,
+/// `f<(x: T) => U>(x)`, `f<K extends keyof T ? T[K] : never>(x)` are calls.
+fn looks_like_types(text: &str) -> bool {
+    let Some((toks, nl)) = ty_tokens(text) else { return false };
+    let mut p = TyP { t: &toks, nl: &nl, i: 0 };
+    if !p.list() {
+        return false;
+    }
+    p.i == toks.len()
+}
+#[derive(Debug, Clone, PartialEq)]
+enum TyTok {
+    Word(String),
+    /// a literal: `true` for a number (`-1` is a type, `-"1"` is not)
+    Lit(bool),
+    Punct(&'static str),
+}
+/// the tokens, and whether a line break comes before each (a member of an object type may end at one)
+fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
+    const PUNCT: [&str; 22] = ["...", "=>", "-?", "+?", "<", ">", "(", ")", "[", "]", "{", "}", ",", ";", ":", "?", "|", "&", ".", "=", "-", "+"];
+    let b = s.as_bytes();
+    let mut out = vec![];
+    let mut nl = vec![];
+    let mut brk = false;
+    let mut j = 0;
+    let word_ch = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$' || c >= 0x80;
+    while j < b.len() {
+        let ch = b[j];
+        if ch.is_ascii_whitespace() {
+            brk |= ch == b'\n';
+            j += 1;
+            continue;
+        }
+        nl.push(brk);
+        brk = false;
+        if ch == b'"' || ch == b'\'' || ch == b'`' {
+            let mut subs = vec![];
+            j = quoted_end(b, j, &mut subs)?;
+            // a template literal type's substitution is a type: `${c+1}` makes the whole a comparison
+            if subs.iter().any(|&(a, z)| !one_type(&s[a..z])) {
+                return None;
+            }
+            out.push(TyTok::Lit(false));
+            continue;
+        }
+        if ch.is_ascii_digit() {
+            while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'.' || b[j] == b'_') {
+                j += 1;
+            }
+            out.push(TyTok::Lit(true));
+            continue;
+        }
+        if word_ch(ch) {
+            let k = j;
+            while j < b.len() && word_ch(b[j]) {
+                j += 1;
+            }
+            out.push(TyTok::Word(s[k..j].to_string()));
+            continue;
+        }
+        let rest = &s[j..];
+        let p = PUNCT.iter().find(|p| rest.starts_with(**p))?;
+        // `+`, `-?`, `+?` only as a mapped type's modifiers; elsewhere the grammar refuses them
+        out.push(TyTok::Punct(p));
+        j += p.len();
+    }
+    Some((out, nl))
+}
+/// R4 (RFC 11): the index just past the string or template literal opening at `b[j]`, with the spans of a template's own
+/// substitutions in `subs`. A substitution is scanned as code: braces nest, and a string or template inside it is skipped
+/// whole, so `${"}"}` does not end it. None when the literal is not closed.
+pub(crate) fn quoted_end(b: &[u8], j: usize, subs: &mut Vec<(usize, usize)>) -> Option<usize> {
+    let q = b[j];
+    let mut j = j + 1;
+    while j < b.len() {
+        match b[j] {
+            b'\\' => j += 2,
+            c if c == q => return Some(j + 1),
+            b'$' if q == b'`' && b.get(j + 1) == Some(&b'{') => {
+                let start = j + 2;
+                let mut depth = 1;
+                j = start;
+                while depth > 0 {
+                    match *b.get(j)? {
+                        b'{' => {
+                            depth += 1;
+                            j += 1;
+                        }
+                        b'}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                subs.push((start, j));
+                            }
+                            j += 1;
+                        }
+                        b'"' | b'\'' | b'`' => j = quoted_end(b, j, &mut vec![])?,
+                        _ => j += 1,
+                    }
+                }
+            }
+            _ => j += 1,
+        }
+    }
+    None
+}
+/// one type, consumed whole (a template literal type's substitution)
+fn one_type(text: &str) -> bool {
+    let Some((toks, nl)) = ty_tokens(text) else { return false };
+    let mut p = TyP { t: &toks, nl: &nl, i: 0 };
+    p.ty() && p.i == toks.len()
+}
+struct TyP<'t> {
+    t: &'t [TyTok],
+    nl: &'t [bool],
+    i: usize,
+}
+const TY_RESERVED: [&str; 14] = ["extends", "keyof", "typeof", "infer", "readonly", "unique", "new", "abstract", "import", "is", "asserts", "in", "as", "this"];
+impl<'t> TyP<'t> {
+    fn peek(&self) -> Option<&TyTok> {
+        self.t.get(self.i)
+    }
+    fn at(&self, p: &str) -> bool {
+        matches!(self.peek(), Some(TyTok::Punct(q)) if *q == p)
+    }
+    fn at_word(&self, w: &str) -> bool {
+        matches!(self.peek(), Some(TyTok::Word(x)) if x == w)
+    }
+    fn eat(&mut self, p: &str) -> bool {
+        if self.at(p) {
+            self.i += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn eat_word(&mut self, w: &str) -> bool {
+        if self.at_word(w) {
+            self.i += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn name(&mut self) -> bool {
+        if let Some(TyTok::Word(_)) = self.peek() {
+            self.i += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn list(&mut self) -> bool {
+        loop {
+            if !self.ty() {
+                return false;
+            }
+            if !self.eat(",") {
+                return true;
+            }
+            if self.i == self.t.len() {
+                return true; // a trailing comma
+            }
+        }
+    }
+    fn ty(&mut self) -> bool {
+        if self.fn_type() {
+            return true;
+        }
+        if !self.union() {
+            return false;
+        }
+        if self.eat_word("extends") {
+            // a conditional type: `A extends B ? C : D`
+            if !self.union() {
+                return false;
+            }
+            return self.eat("?") && self.ty() && self.eat(":") && self.ty();
+        }
+        true
+    }
+    /// `(…) => T`, `<T>(…) => T`, `new (…) => T`, `abstract new (…) => T`; a parenthesized type is not one
+    fn fn_type(&mut self) -> bool {
+        let start = self.i;
+        self.eat_word("abstract");
+        let ctor = self.eat_word("new");
+        if self.at("<") {
+            self.i += 1;
+            if !self.type_params() {
+                self.i = start;
+                return false;
+            }
+        }
+        if !self.at("(") {
+            self.i = start;
+            return false;
+        }
+        // a parenthesized type unless the matching `)` is followed by `=>`
+        let mut depth = 0;
+        let mut k = self.i;
+        while k < self.t.len() {
+            match &self.t[k] {
+                TyTok::Punct("(") | TyTok::Punct("[") | TyTok::Punct("{") => depth += 1,
+                TyTok::Punct(")") | TyTok::Punct("]") | TyTok::Punct("}") => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            k += 1;
+        }
+        if !matches!(self.t.get(k + 1), Some(TyTok::Punct("=>"))) {
+            if ctor {
+                return false;
+            }
+            self.i = start;
+            return false;
+        }
+        self.i += 1;
+        if !self.params(")") {
+            return false;
+        }
+        if !self.eat("=>") {
+            return false;
+        }
+        self.ret()
+    }
+    /// a return type: a type, or a predicate `x is T` / `asserts x [is T]`
+    fn ret(&mut self) -> bool {
+        let save = self.i;
+        if self.eat_word("asserts") && (self.name()) {
+            if self.eat_word("is") {
+                return self.ty();
+            }
+            return true;
+        }
+        self.i = save;
+        if self.name() && self.eat_word("is") {
+            return self.ty();
+        }
+        self.i = save;
+        self.ty()
+    }
+    /// `T extends U = V, …>` after the `<`
+    fn type_params(&mut self) -> bool {
+        loop {
+            self.eat_word("const");
+            self.eat_word("in");
+            self.eat_word("out");
+            if !self.name() {
+                return false;
+            }
+            if self.eat_word("extends") && !self.ty() {
+                return false;
+            }
+            if self.eat("=") && !self.ty() {
+                return false;
+            }
+            if self.eat(">") {
+                return true;
+            }
+            if !self.eat(",") {
+                return false;
+            }
+            if self.eat(">") {
+                return true;
+            }
+        }
+    }
+    /// parameters up to `close`: `...name?: T`, a binding pattern, `this: T`
+    fn params(&mut self, close: &str) -> bool {
+        loop {
+            if self.eat(close) {
+                return true;
+            }
+            self.eat("...");
+            if self.at("{") || self.at("[") {
+                if !self.skip_balanced() {
+                    return false;
+                }
+            } else if !self.name() {
+                return false;
+            }
+            self.eat("?");
+            if self.eat(":") && !self.ty() {
+                return false;
+            }
+            if self.eat("=") {
+                return false; // no initializer in a type
+            }
+            if self.eat(close) {
+                return true;
+            }
+            if !self.eat(",") {
+                return false;
+            }
+        }
+    }
+    fn skip_balanced(&mut self) -> bool {
+        let mut depth = 0;
+        while let Some(t) = self.peek() {
+            match t {
+                TyTok::Punct("(") | TyTok::Punct("[") | TyTok::Punct("{") => depth += 1,
+                TyTok::Punct(")") | TyTok::Punct("]") | TyTok::Punct("}") => {
+                    depth -= 1;
+                    if depth == 0 {
+                        self.i += 1;
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+            self.i += 1;
+        }
+        false
+    }
+    fn union(&mut self) -> bool {
+        self.eat("|");
+        loop {
+            if !self.intersection() {
+                return false;
+            }
+            if !self.eat("|") {
+                return true;
+            }
+        }
+    }
+    fn intersection(&mut self) -> bool {
+        self.eat("&");
+        loop {
+            if !self.operator() {
+                return false;
+            }
+            if !self.eat("&") {
+                return true;
+            }
+        }
+    }
+    fn operator(&mut self) -> bool {
+        if self.eat_word("keyof") || self.eat_word("unique") || self.eat_word("readonly") {
+            return self.operator();
+        }
+        if self.eat_word("infer") {
+            if !self.name() {
+                return false;
+            }
+            let save = self.i;
+            // `infer U extends T` — the constraint, unless it begins a conditional type's `extends`
+            if self.eat_word("extends") {
+                if !(self.operator() && !self.at("?")) {
+                    self.i = save;
+                }
+            }
+            return true;
+        }
+        self.postfix()
+    }
+    fn postfix(&mut self) -> bool {
+        if !self.primary() {
+            return false;
+        }
+        while self.at("[") {
+            self.i += 1;
+            if self.eat("]") {
+                continue;
+            }
+            if !(self.ty() && self.eat("]")) {
+                return false;
+            }
+        }
+        true
+    }
+    fn args(&mut self) -> bool {
+        // after a name: `<T, U>`
+        if !self.eat("<") {
+            return true;
+        }
+        loop {
+            if !self.ty() {
+                return false;
+            }
+            if self.eat(">") {
+                return true;
+            }
+            if !self.eat(",") {
+                return false;
+            }
+        }
+    }
+    fn primary(&mut self) -> bool {
+        match self.peek().cloned() {
+            Some(TyTok::Lit(_)) => {
+                self.i += 1;
+                true
+            }
+            Some(TyTok::Punct("-")) => {
+                self.i += 1;
+                if matches!(self.peek(), Some(TyTok::Lit(true))) {
+                    self.i += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            Some(TyTok::Punct("(")) => {
+                self.i += 1;
+                self.ty() && self.eat(")")
+            }
+            Some(TyTok::Punct("[")) => {
+                self.i += 1;
+                self.tuple()
+            }
+            Some(TyTok::Punct("{")) => {
+                self.i += 1;
+                self.object()
+            }
+            Some(TyTok::Word(w)) if w == "typeof" => {
+                self.i += 1;
+                if !self.eat_word("import") && !self.name() {
+                    return false;
+                }
+                while self.eat(".") {
+                    if !self.name() {
+                        return false;
+                    }
+                }
+                self.args()
+            }
+            Some(TyTok::Word(w)) if w == "import" => {
+                self.i += 1;
+                if !(self.eat("(") && matches!(self.peek(), Some(TyTok::Lit(false)))) {
+                    return false;
+                }
+                self.i += 1;
+                if !self.eat(")") {
+                    return false;
+                }
+                while self.eat(".") {
+                    if !self.name() {
+                        return false;
+                    }
+                }
+                self.args()
+            }
+            Some(TyTok::Word(w)) if !TY_RESERVED.contains(&w.as_str()) || w == "this" => {
+                self.i += 1;
+                while self.eat(".") {
+                    if !self.name() {
+                        return false;
+                    }
+                }
+                self.args()
+            }
+            _ => false,
+        }
+    }
+    fn tuple(&mut self) -> bool {
+        loop {
+            if self.eat("]") {
+                return true;
+            }
+            self.eat("...");
+            // a labelled element, `name?: T`
+            let save = self.i;
+            if self.name() {
+                self.eat("?");
+                if !self.eat(":") {
+                    self.i = save;
+                }
+            }
+            if !self.ty() {
+                return false;
+            }
+            self.eat("?");
+            if self.eat("]") {
+                return true;
+            }
+            if !self.eat(",") {
+                return false;
+            }
+        }
+    }
+    fn prop_name(&mut self) -> bool {
+        match self.peek() {
+            Some(TyTok::Word(_)) | Some(TyTok::Lit(_)) => {
+                self.i += 1;
+                true
+            }
+            _ => false,
+        }
+    }
+    fn object(&mut self) -> bool {
+        loop {
+            if self.eat("}") {
+                return true;
+            }
+            if !self.member() {
+                return false;
+            }
+            if self.eat("}") {
+                return true;
+            }
+            if !(self.eat(",") || self.eat(";") || self.nl.get(self.i) == Some(&true)) {
+                return false;
+            }
+        }
+    }
+    fn member(&mut self) -> bool {
+        // a call or construct signature: `(…): T`, `<T>(…): T`, `new (…): T`
+        let save = self.i;
+        let ctor = self.at_word("new") && matches!(self.t.get(self.i + 1), Some(TyTok::Punct("(")) | Some(TyTok::Punct("<")));
+        if ctor {
+            self.i += 1;
+        }
+        if self.at("(") || self.at("<") {
+            if self.eat("<") && !self.type_params() {
+                return false;
+            }
+            return self.eat("(") && self.params(")") && (!self.eat(":") || self.ret());
+        }
+        self.i = save;
+        // modifiers: `readonly`, `+readonly`, `-readonly`, `get`/`set` accessors
+        if (self.at("-") || self.at("+")) && matches!(self.t.get(self.i + 1), Some(TyTok::Word(w)) if w == "readonly") {
+            self.i += 1;
+        }
+        if self.at_word("readonly") && !matches!(self.t.get(self.i + 1), Some(TyTok::Punct(":")) | Some(TyTok::Punct("?")) | Some(TyTok::Punct("(")) | Some(TyTok::Punct(",")) | Some(TyTok::Punct(";")) | Some(TyTok::Punct("}"))) {
+            self.i += 1;
+        }
+        if (self.at_word("get") || self.at_word("set")) && matches!(self.t.get(self.i + 1), Some(TyTok::Word(_)) | Some(TyTok::Lit(_)) | Some(TyTok::Punct("["))) {
+            self.i += 1;
+        }
+        if self.eat("[") {
+            // an index signature `[k: string]: T`, a mapped type `[K in T as U]-?: V`, or a computed name `[Symbol.iterator]`
+            let save = self.i;
+            if self.name() && self.eat(":") {
+                if !(self.ty() && self.eat("]")) {
+                    return false;
+                }
+            } else {
+                self.i = save;
+                if self.name() && self.eat_word("in") {
+                    if !self.ty() {
+                        return false;
+                    }
+                    if self.eat_word("as") && !self.ty() {
+                        return false;
+                    }
+                    if !self.eat("]") {
+                        return false;
+                    }
+                } else {
+                    self.i = save;
+                    if !self.name() {
+                        return false;
+                    }
+                    while self.eat(".") {
+                        if !self.name() {
+                            return false;
+                        }
+                    }
+                    if !self.eat("]") {
+                        return false;
+                    }
+                }
+            }
+        } else if !self.prop_name() {
+            return false;
+        }
+        let _ = self.eat("?") || self.eat("-?") || self.eat("+?");
+        if self.at("(") || self.at("<") {
+            // a method
+            if self.eat("<") && !self.type_params() {
+                return false;
+            }
+            return self.eat("(") && self.params(")") && (!self.eat(":") || self.ret());
+        }
+        if self.eat(":") {
+            return self.ty();
+        }
+        // a member with no type is `any` in a declaration but not in an object type literal
+        false
+    }
+}
+fn type_args_at(s: &str) -> Option<(String, usize)> {
+    let b = s.as_bytes();
+    if b.first() != Some(&b'<') {
+        return None;
+    }
+    let mut depth = 0i64;
+    let mut j = 0;
+    while j < b.len() {
+        let ch = b[j];
+        if ch == b'"' || ch == b'\'' || ch == b'`' {
+            // R4: a string type argument is skipped whole (`f<"}">(x)`)
+            j = quoted_end(b, j, &mut vec![])?;
+            continue;
+        }
+        if b"<([{".contains(&ch) {
+            depth += 1;
+        } else if b")]}".contains(&ch) || (ch == b'>' && (j == 0 || b[j - 1] != b'=')) {
+            depth -= 1;
+            if depth == 0 {
+                let text = s[1..j].trim();
+                return if ch == b'>' && b.get(j + 1) == Some(&b'(') && looks_like_types(text) { Some((text.to_string(), j + 1)) } else { None };
+            }
+        }
+        j += 1;
+    }
+    None
+}
 fn is_component_type(t: &str) -> bool {
+    // MO-11c: `string | Component` (a polymorphic `as`), `Component | undefined`
+    let alts = split_top(t, "|");
+    if alts.len() > 1 {
+        return alts.iter().any(|a| is_component_type(a));
+    }
+    // MO-11m: `Component & { paths: … }`, a component with properties
+    let parts = split_top(t, "&");
+    if parts.len() > 1 {
+        return is_component_type(&parts[0]);
+    }
     match t.strip_prefix("Component") {
         Some(r) => {
             let r = r.trim_start();
@@ -543,7 +1409,13 @@ fn is_component_type(t: &str) -> bool {
 /// MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`.
 fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
     c.ws(true);
-    let name = c.ident_or("component name")?;
+    let mut name = c.ident_or("component name")?;
+    while c.peek() == '.' {
+        // MO-11q: a member component, `component Dialog.Root(…)`
+        c.i += 1;
+        name.push('.');
+        name.push_str(&c.ident_or("a member component's name: `component Dialog.Root(…)`")?);
+    }
     c.ws(true);
     c.expect("(")?;
     c.ws(true);
@@ -606,8 +1478,44 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
                 let t = js_trim(&c.src[t0..c.i]);
                 ty = (!t.is_empty()).then(|| t.to_string());
             }
+            // MO-11o: `router: renders any`
+            let mut carried = false;
+            if let Some(t) = ty.clone() {
+                if let Some(rest) = t.strip_prefix("renders ") {
+                    carried = true;
+                    let rest = js_trim(rest);
+                    ty = (!rest.is_empty()).then(|| rest.to_string());
+                }
+            }
+            // MO-10j: `onTick: tracked (n: number) => void` — called inside a computation, so not a handler
+            let mut tracked = false;
+            if let Some(t) = ty.clone() {
+                if let Some(rest) = t.strip_prefix("tracked ") {
+                    tracked = true;
+                    let rest = js_trim(rest);
+                    if part_of(rest) != Part::Fn {
+                        return c.fail(&format!("`tracked` on prop {}: it goes before a function type, one the library calls inside a computation (MO-10j)", fname));
+                    }
+                    ty = Some(rest.to_string());
+                }
+            }
+            // MO-10g: `valueChange: handler (v: number) => void` — called later, outside any computation: a handler
+            let mut handler = false;
+            if let Some(t) = ty.clone() {
+                if let Some(rest) = t.strip_prefix("handler ") {
+                    handler = true;
+                    let rest = js_trim(rest);
+                    if part_of(rest) != Part::Fn {
+                        return c.fail(&format!("`handler` on prop {}: it goes before a function type, one the library calls later, outside any computation (MO-10g)", fname));
+                    }
+                    ty = Some(rest.to_string());
+                }
+            }
             let component = ty.as_deref().is_some_and(is_component_type);
-            props.push(JsProp { name: fname, optional, ty, catches, component });
+            let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
+            let callback = handler && !tracked && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
+            let pure = !callback && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
+            props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, pure, carried });
             // a newline separates fields too, as in TypeScript
             c.ws(false);
             if !c.eat(";") && !c.eat(",") && c.peek() != '\n' {
@@ -621,8 +1529,33 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
     c.expect(")")?;
     let mut fails = vec![];
     let mut content = None;
+    let (mut uses, mut provides) = (vec![], vec![]);
+    let mut outlet = false;
     loop {
         c.ws(false);
+        if c.keyword("outlet") {
+            // MO-11p: it renders, where it is written, what nests under its component
+            outlet = true;
+            continue;
+        }
+        if c.keyword("trusted") {
+            // MO-8j: a row taken on trust where nothing verifies it
+            let l = c.line();
+            c.trusted.push(l);
+            continue;
+        }
+        if c.keyword("uses") {
+            // MO-12b
+            c.ws(false);
+            uses.extend(context_names(c)?);
+            continue;
+        }
+        if c.keyword("provides") {
+            // MO-12c
+            c.ws(false);
+            provides.extend(context_names(c)?);
+            continue;
+        }
         if c.keyword("fails") {
             c.ws(false);
             c.expect("(")?;
@@ -648,17 +1581,42 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         }
         break;
     }
-    Ok(JsDecl::Comp { name, line, props, fails, content })
+    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides, outlet })
 }
-pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
-    let mut c = Cursor::new(src);
+/// MO-12: `(router, theme)` — contexts the same declaration file declares.
+fn context_names(c: &mut Cursor) -> R<Vec<String>> {
+    c.expect("(")?;
     let mut out = vec![];
     loop {
         c.ws(true);
-        if c.eof() {
+        if c.eat(")") {
             return Ok(out);
         }
+        out.push(c.ident_or("a context name")?);
+        c.ws(true);
+        if !c.eat(",") {
+            c.ws(true);
+            c.expect(")")?;
+            return Ok(out);
+        }
+    }
+}
+pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
+    parse_declaration_rows(src).map(|r| r.0)
+}
+/// MO-8j: a declaration file's rows as the parser reads them — each declaration, the line its row starts on, and the lines
+/// where a row says `trusted` — for strict declarations (TY-7), which hash and trust rows by the parser, not by a text search.
+pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usize>)> {
+    let mut c = Cursor::new(src);
+    let mut out = vec![];
+    let mut starts = vec![];
+    loop {
+        c.ws(true);
+        if c.eof() {
+            return Ok((out, starts, c.trusted));
+        }
         let line = c.line();
+        starts.push(line);
         if !c.keyword("export") {
             return c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export component …`, `export error …`, `export type …`");
         }
@@ -668,6 +1626,8 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             let _ = c.keyword("type") || c.keyword("interface");
             c.ws(true);
             let name = c.ident_or("type name")?;
+            c.ws(true);
+            type_params(&mut c);
             c.ws(true);
             if c.eat("=") {
                 c.ws(true);
@@ -693,7 +1653,45 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         if c.keyword("error") {
             c.ws(true);
             let name = c.ident_or("error class name")?;
-            out.push(JsDecl::Error { name, line });
+            c.ws(false);
+            let mut fields = vec![];
+            if c.eat("(") {
+                let t0 = c.i;
+                let mut depth = 1;
+                while !c.eof() && depth > 0 {
+                    let ch = c.peek();
+                    if "([{<".contains(ch) {
+                        depth += 1;
+                    } else if ")]}>".contains(ch) {
+                        depth -= 1;
+                    }
+                    c.i += ch.len_utf8();
+                }
+                // SV-5a: an optional field keeps its `?` (`code?`): an instance may come without it
+                fields = split_top(&c.src[t0..c.i - 1], ",").iter().map(|f| f.split(':').next().unwrap_or("").chars().filter(|ch| !ch.is_whitespace()).collect::<String>()).filter(|f| !f.is_empty() && f != "?").collect();
+            }
+            out.push(JsDecl::Error { name, line, fields });
+            continue;
+        }
+        if c.keyword("const") {
+            // MO-8g
+            c.ws(true);
+            let name = c.ident_or("const name")?;
+            c.ws(false);
+            let ty = if c.eat(":") {
+                c.ws(true);
+                Some(parse_type(&mut c, false, true)?)
+            } else {
+                None
+            };
+            out.push(JsDecl::Value { name, line, ty });
+            continue;
+        }
+        if c.keyword("context") {
+            // MO-12a
+            c.ws(true);
+            let name = c.ident_or("context name")?;
+            out.push(JsDecl::Context { name, line });
             continue;
         }
         if c.keyword("component") {
@@ -716,18 +1714,37 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         c.ws(true);
         let name = c.ident_or("fn name")?;
         c.ws(true);
+        let tparams = type_params(&mut c); // MO-8d: `fn f<const S extends string>(…)`, TypeScript's, for TY
+        c.ws(true);
         c.expect("(")?;
         c.ws(true);
         let mut params = vec![];
         let mut ptypes = vec![];
         let mut refs = vec![];
+        let mut sigs = vec![];
+        let mut opts = vec![];
         while !c.starts_with(")") {
             let r = c.keyword("ref"); // MO-10a: a ref parameter takes an accessor
             if r {
                 c.ws(true);
             }
             refs.push(r);
-            params.push(c.ident_or("param")?);
+            // MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name)
+            let sv = c.i;
+            let mut g = !r && c.keyword("signal");
+            if g {
+                c.ws(true);
+                if !(c.peek().is_ascii_alphabetic() || c.peek() == '_' || c.peek() == '$') {
+                    c.i = sv;
+                    g = false;
+                }
+            }
+            sigs.push(g);
+            let rest = !r && !g && c.eat("..."); // MO-8h: a rest parameter, `...items: T[]`
+            let n = c.ident_or("param")?;
+            params.push(if rest { format!("...{}", n) } else { n });
+            c.ws(false);
+            opts.push(c.eat("?")); // MO-8e: a caller may leave it out
             c.ws(false);
             ptypes.push(if c.peek() == ':' {
                 c.bump();
@@ -747,28 +1764,36 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         c.ws(false);
         let mut ret = None;
         let mut shape = None;
+        let mut held = vec![];
         if c.peek() == ':' {
             c.bump();
             c.ws(true);
-            let t = c.rest().split('\n').next().unwrap_or("").to_string();
-            let r1 = REJECTS.find(&t).map(|m| m.end() - "rejects(".len());
-            let r2 = INSTANTIATES.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r = match (r1, r2) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
+            let line0 = c.rest().split('\n').next().unwrap_or("").to_string();
+            let t = code_of(&line0).to_string(); // words in a `// comment` are not rows
+            let m = masked(&t); // nor words in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`)
+            let r1 = REJECTS.find(&m).map(|x| x.end() - "rejects(".len());
+            let r2 = INSTANTIATES.find(&m).map(|x| x.start() + if m[x.start()..].starts_with("instantiates") { 0 } else { 1 });
+            let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted", "forwards", "joins(", "methods("].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
+            let r = [r1, r2, r3].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
                 None => &t[..],
             };
-            let head = LINE_COMMENT.replace(head, "");
-            let head = js_trim(&head).to_string();
+            if OLD_HOLDS.is_match(head) {
+                return c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)");
+            }
+            let head = js_trim(head).to_string();
+            let (head, h) = field_rows(&head); // MO-10f
+            held = h;
+            if STRAY_ROW_WORD.is_match(&masked_strings(&head)) {
+                return c.fail("`pending` and `fails(…)` are written on a field of a result that is a record, `{ data: pending fails(Error) T }` (MO-10f): the read of that field is what holds or fails. A tuple's part that holds is an accessor, `ref T`; a result that may be absent, or one inside another type, has no field the checker could follow");
+            }
             if !head.is_empty() {
                 shape = Some(shape_of(&head)); // MO-10b: `ref T` is an accessor, read as T
             }
             let stripped = REF_WORD.replace_all(&head, "").to_string();
             ret = if stripped.is_empty() { None } else { Some(stripped) };
-            c.i += r.unwrap_or(t.len());
+            c.i += r.unwrap_or(line0.len());
         } else {
             c.i = save;
         }
@@ -781,12 +1806,350 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             c.expect(")")?;
         }
-        c.ws(false);
-        let written = c.keyword("instantiates");
-        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp); // MO-10a; MO-11f: a component handed back
+        let (mut written, mut uses, mut provides, mut nests, mut renders) = (false, vec![], vec![], None, false);
+        let mut renders_root = false;
+        let mut carries: Vec<String> = vec![];
+        let mut carrier = false;
+        let mut under: Option<(String, String)> = None;
+        let mut forwards = false;
+        let mut methods: Vec<String> = vec![];
+        let mut joins: Option<String> = None;
+        loop {
+            // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
+            c.ws(false);
+            if c.keyword("instantiates") {
+                written = true;
+                continue;
+            }
+            if c.keyword("forwards") {
+                // MO-11g: inside a factory's arguments, it hands the components it is given on to the factory
+                forwards = true;
+                continue;
+            }
+            if c.keyword("methods") {
+                // E-10 (RFC 14, bounded): the methods of its instance that make a value once from what they are given
+                c.ws(false);
+                c.expect("(")?;
+                loop {
+                    c.ws(true);
+                    methods.push(c.ident_or("methods(name, …): the methods of the instance it makes")?);
+                    c.ws(true);
+                    if !c.eat(",") {
+                        break;
+                    }
+                }
+                c.expect(")")?;
+                continue;
+            }
+            if c.keyword("joins") {
+                // MO-11i: the projection joins this field's literal paths with its parents'
+                c.ws(false);
+                c.expect("(")?;
+                c.ws(true);
+                joins = Some(c.ident_or("joins(path): the field of a nested record whose literal paths join with its parents'")?);
+                c.ws(true);
+                c.expect(")")?;
+                continue;
+            }
+            if c.keyword("trusted") {
+                // MO-8j: a row taken on trust where nothing verifies it (rx-tsc --strict, TY-7)
+                let l = c.line();
+                c.trusted.push(l);
+                continue;
+            }
+            // MO-11r: one placement vocabulary — `renders` (here), `renders(root, ctx…)`, `renders(later)`; `nests(…)` for the tree
+            if c.keyword("carries") {
+                return c.fail("`carries` is now `renders(later)`: the components travel in the result and a JS component's prop declared `renders` renders them (MO-11r)");
+            }
+            if c.keyword("under") {
+                return c.fail("`under(parent in component)` is now `nests(component under parent)`, beside `renders(later)` (MO-11r)");
+            }
+            if c.keyword("renders") {
+                c.ws(false);
+                if c.peek() != '(' {
+                    // MO-11l: here, where its result is bound
+                    renders = true;
+                    continue;
+                }
+                c.i += 1;
+                c.ws(true);
+                if c.keyword("later") {
+                    // MO-11o: the components travel in its result
+                    c.ws(true);
+                    c.expect(")")?;
+                    carrier = true;
+                    continue;
+                }
+                if !c.keyword("root") {
+                    return c.fail("renders(root, …) or renders(later): where the library renders the components it is given (MO-11r)");
+                }
+                // MO-11n: renders(root)
+                renders = true;
+                c.ws(true);
+                while c.eat(",") {
+                    // MO-11n: the contexts it carries into its root; it reads them where it is called
+                    c.ws(true);
+                    let n = c.ident_or("renders(root, ctx): a context the library carries into its root")?;
+                    carries.push(n.clone());
+                    uses.push(n);
+                    c.ws(true);
+                }
+                c.expect(")")?;
+                renders_root = true;
+                continue;
+            }
+            if c.keyword("uses") {
+                c.ws(false);
+                uses.extend(context_names(&mut c)?);
+                continue;
+            }
+            if c.keyword("provides") {
+                c.ws(false);
+                provides.extend(context_names(&mut c)?);
+                continue;
+            }
+            if c.keyword("nests") {
+                c.ws(false);
+                c.expect("(")?;
+                c.ws(true);
+                let first = c.ident_or("nests(children in component) or nests(component under parent): a field of the record (MO-11r)")?;
+                c.ws(true);
+                if c.keyword("in") {
+                    // MO-11i: a children field
+                    c.ws(true);
+                    let inside = c.ident_or("nests(children in component): the field that holds the component")?;
+                    c.ws(true);
+                    c.expect(")")?;
+                    nests = Some((first, inside));
+                    continue;
+                }
+                if c.keyword("under") {
+                    // MO-11p: a parent link
+                    c.ws(true);
+                    let parent = c.ident_or("nests(component under parent): the field that names the parent value")?;
+                    c.ws(true);
+                    c.expect(")")?;
+                    under = Some((parent, first));
+                    continue;
+                }
+                return c.fail("nests(children in component) or nests(component under parent) (MO-11r)");
+            }
+            break;
+        }
+        let instantiates = written || refs.iter().any(|x| *x) || sigs.iter().any(|x| *x) || carrier || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        if nests.is_some() && shape != Some(Shape::Comp) {
+            return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
+        }
+        if let (Some(j), None) = (&joins, &nests) {
+            return c.fail(&format!("joins({}) on fn {}: it joins paths through the tree nests(children in component) describes: add that (MO-11i)", j, name));
+        }
+        if let (Some((parent, inside)), false) = (&under, carrier) {
+            return c.fail(&format!("nests({} under {}) on fn {}: it places what the result carries, which is rendered later — add renders(later) (MO-11r)", inside, parent, name));
+        }
+        if !provides.is_empty() && shape != Some(Shape::Comp) {
+            return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
+        }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates });
+        // MO-10j: `tracked` goes before a function type; the callbacks are found before the word is taken out
+        for t in ptypes.iter().flatten().chain(ret.iter()) {
+            if tracked_misplaced(t) {
+                return c.fail(&format!("`tracked` on fn {}: it goes before a function type, one the library calls inside a computation (MO-10j)", name));
+            }
+        }
+        for t in ptypes.iter().flatten().chain(ret.iter()) {
+            if handler_misplaced(t) {
+                return c.fail(&format!("`handler` on fn {}: it goes before a function type, one the library calls later, outside any computation (MO-10g)", name));
+            }
+        }
+        let cbs = callbacks(&ptypes);
+        // MO-10i: callbacks whose parameters are a library's drafts, by position; the word is the .d.rx's, not TypeScript's
+        let drafts: Vec<(usize, Vec<usize>)> = ptypes.iter().enumerate().filter_map(|(i, t)| { let ds = draft_params(t.as_deref()); (!ds.is_empty()).then_some((i, ds)) }).collect();
+        let part_drafts = draft_parts(ret.as_deref());
+        let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))))).collect();
+        let ret = ret.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))));
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, joins, forwards, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts, methods });
     }
+}
+/// A declaration line without its `// comment` (not a `//` inside a string literal type).
+/// `t` with every byte inside a string literal, or inside brackets (`()`, `[]`, `{}`, `<>`), replaced by `_`: the same
+/// byte offsets, with only the row's top level left to search for row words.
+fn masked(t: &str) -> String {
+    let b = t.as_bytes();
+    let mut out = b.to_vec();
+    let (mut q, mut depth) = (0u8, 0i32);
+    let mut i = 0;
+    while i < b.len() {
+        let ch = b[i];
+        if q != 0 {
+            out[i] = b'_';
+            if ch == b'\\' && i + 1 < b.len() {
+                out[i + 1] = b'_';
+                i += 1;
+            } else if ch == q {
+                q = 0;
+            }
+        } else if ch == b'"' || ch == b'\'' || ch == b'`' {
+            q = ch;
+            out[i] = b'_';
+        } else if matches!(ch, b'(' | b'[' | b'{' | b'<') {
+            if depth > 0 {
+                out[i] = b'_';
+            }
+            depth += 1;
+        } else if matches!(ch, b')' | b']' | b'}') || (ch == b'>' && (i == 0 || b[i - 1] != b'=')) {
+            depth = (depth - 1).max(0);
+            if depth > 0 {
+                out[i] = b'_';
+            }
+        } else if depth > 0 {
+            out[i] = b'_';
+        }
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| t.to_string())
+}
+
+/// A type text with what its string literals hold blanked, so a word inside one is not read as a row.
+fn masked_strings(t: &str) -> String {
+    let b = t.as_bytes();
+    let mut out = b.to_vec();
+    let mut q = 0u8;
+    let mut i = 0;
+    while i < b.len() {
+        let ch = b[i];
+        if q != 0 {
+            out[i] = b'_';
+            if ch == b'\\' && i + 1 < b.len() {
+                out[i + 1] = b'_';
+                i += 1;
+            } else if ch == q {
+                q = 0;
+            }
+        } else if ch == b'"' || ch == b'\'' || ch == b'`' {
+            q = ch;
+            out[i] = b'_';
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+fn code_of(line: &str) -> &str {
+    let b = line.as_bytes();
+    let mut q = 0u8;
+    let mut i = 0;
+    while i < b.len() {
+        let ch = b[i];
+        if q != 0 {
+            if ch == b'\\' {
+                i += 1;
+            } else if ch == q {
+                q = 0;
+            }
+        } else if ch == b'"' || ch == b'\'' || ch == b'`' {
+            q = ch;
+        } else if ch == b'/' && b.get(i + 1) == Some(&b'/') {
+            return &line[..i];
+        }
+        i += 1;
+    }
+    line
+}
+/// MO-10g: where a declared fn takes callbacks, by parameter: the whole parameter (`(true, [])`), or the fields of a record
+/// parameter whose types are functions (`(false, ["onSuccess"])`); `None` where it takes none. Empty when it takes none at all.
+fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
+    let out: Vec<Option<(bool, Vec<String>)>> = ptypes
+        .iter()
+        .map(|t| {
+            let t = t.as_deref()?;
+            if is_handler(t) {
+                return Some((true, vec![]));
+            }
+            if t.starts_with('{') && t.ends_with('}') && t.len() >= 2 {
+                let fs: Vec<String> = split_top(&t[1..t.len() - 1], ",;")
+                    .iter()
+                    .filter_map(|f| {
+                        let i = f.find(':')?;
+                        is_handler(js_trim(&f[i + 1..])).then(|| {
+                            let k = js_trim(&f[..i]);
+                            field_name(k)
+                        })
+                    })
+                    .collect();
+                return if fs.is_empty() { None } else { Some((false, fs)) };
+            }
+            None
+        })
+        .collect();
+    if out.iter().any(|x| x.is_some()) {
+        out
+    } else {
+        vec![]
+    }
+}
+/// MO-10f: a result's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
+/// are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i).
+fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
+    // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
+    fn walk(x: &str, prefix: &str, held: &mut Vec<(String, bool, Vec<String>)>) -> String {
+        if !(x.starts_with('{') && x.ends_with('}') && x.len() >= 2) {
+            return x.to_string();
+        }
+        let fs: Vec<String> = split_top(&x[1..x.len() - 1], ",;")
+            .iter()
+            .map(|f| {
+                let Some(i) = f.find(':') else { return f.clone() };
+                let key = js_trim(&f[..i]).to_string();
+                let mut rest = js_trim(&f[i + 1..]).to_string();
+                let (mut holds, mut fails, mut any) = (false, vec![], false);
+                while let Some(m) = ROW_WORD.captures(&rest) {
+                    any = true;
+                    if &m[1] == "pending" {
+                        holds = true;
+                    } else {
+                        fails = m[2].split('|').map(|y| y.trim().to_string()).filter(|y| !y.is_empty()).collect();
+                    }
+                    rest = rest[m[0].len()..].to_string();
+                }
+                let path = format!("{}{}", prefix, field_name(&key));
+                if any {
+                    held.push((path.clone(), holds, fails));
+                }
+                format!("{}: {}", key, walk(&rest, &format!("{}.", path), held))
+            })
+            .collect();
+        format!("{{ {} }}", fs.join("; "))
+    }
+    if !ANY_ROW_WORD.is_match(t) {
+        return (t.to_string(), vec![]); // no rows: the type text is kept as written
+    }
+    let mut held = vec![];
+    let text = walk(t, "", &mut held);
+    if held.is_empty() {
+        (t.to_string(), held)
+    } else {
+        (text, held)
+    }
+}
+/// MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it).
+fn type_params(c: &mut Cursor) -> Option<String> {
+    if c.peek() != '<' {
+        return None;
+    }
+    let t0 = c.i;
+    let mut depth = 0;
+    loop {
+        let ch = c.peek();
+        if ch == '<' {
+            depth += 1;
+        } else if ch == '>' && !c.src[..c.i].ends_with('=') {
+            depth -= 1;
+        }
+        c.bump();
+        if c.eof() || depth == 0 {
+            break;
+        }
+    }
+    Some(c.src[t0..c.i].to_string())
 }
 
 fn params_typed(c: &mut Cursor) -> R<(Vec<String>, Vec<Option<String>>)> {
@@ -936,7 +2299,7 @@ fn expand_pattern(pat: &Pat, base: Expr, out: &mut Vec<(String, Expr, usize, Spa
             }
             if let Some(r) = rest {
                 let f = syn(ExprKind::Member { o: Box::new(base.clone()), p: "slice".into(), opt: false });
-                expand_pattern(r, syn(ExprKind::Call { f: Box::new(f), args: vec![syn(ExprKind::Lit(Lit::Num(items.len() as f64)))] }), out, snap);
+                expand_pattern(r, syn(ExprKind::Call { f: Box::new(f), args: vec![syn(ExprKind::Lit(Lit::Num(items.len() as f64)))], targs: None }), out, snap);
             }
         }
     }
@@ -992,8 +2355,12 @@ fn parse_destructuring_decl(c: &mut Cursor) -> R<Vec<Decl>> {
     c.expect("=")?;
     c.ws(true);
     // `[n, setN] = createSignal(0)`: JS_API's hint
-    if JS_APIS.find(c.src[c.i..].split('\n').next().unwrap_or("")).is_some_and(|m| m.start() == 0) {
-        return c.fail("a hook's pair is not .rx");
+    // — unless the module imports that name from a declared JS module (`[todos, setTodos] = createStore(…)`, MO-10i)
+    let line0 = c.src[c.i..].split('\n').next().unwrap_or("");
+    if let Some(m) = JS_APIS.captures(line0) {
+        if m.get(0).is_some_and(|x| x.start() == 0) && !c.imported.contains(&m[1]) {
+            return c.fail("a hook's pair is not .rx");
+        }
     }
     let mut base = parse_expr(c)?;
     let mut out = vec![];
@@ -1051,6 +2418,17 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
     }
     if c.keyword("import") {
         c.ws(true);
+        if c.peek() == '"' || c.peek() == '\'' {
+            // 07 §1a: `import "./styles.css"`, for its effect (a stylesheet, a polyfill)
+            let from = match parse_primary(c)?.k {
+                ExprKind::Lit(Lit::Str(s)) => s,
+                _ => return c.fail("module path"),
+            };
+            if from.ends_with(".rx") {
+                return c.fail(&format!("import \"{}\": an .rx module is imported for what it exports, `import {{ … }} from \"{}\"`", from, from));
+            }
+            return Ok(Decl::Import { names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None });
+        }
         let side = if IMPORT_SIDE.is_match(c.rest()) {
             if c.keyword("server") {
                 Some(Side::Server)
@@ -1076,6 +2454,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
                     alias = c.ident_or("alias")?;
                     c.ws(true);
                 }
+                c.imported.insert(alias.clone());
                 names.push(ImportName { name, alias });
                 if !c.eat(",") {
                     break;
@@ -1085,6 +2464,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             c.expect("}")?;
         } else {
             let name = c.ident_or("import name")?;
+            c.imported.insert(name.clone());
             names.push(ImportName { name: "default".into(), alias: name });
         }
         c.ws(true);
@@ -1098,7 +2478,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         };
         let save = c.i;
         c.ws(false);
-        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, declared: None, declared_errors: None, declared_pure: None, declared_side: None };
+        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None };
         if c.keyword("fails") {
             c.ws(true);
             let fails = parse_classes(c)?.unwrap_or_else(|| vec!["Error".to_string()]);
@@ -1326,6 +2706,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.ws(true);
         // RG-4b: `component C({ a, b })` — each name a projection of props
         let sig = if c.peek() == '{' { Some(parse_pattern(c)?) } else { None };
+        let no_props = sig.is_none() && c.peek() == ')'; // `component C()`: no props (RG-4b)
         let props = if sig.is_some() || c.peek() == ')' { "props".to_string() } else { c.ident_or("props name")? };
         let props_type = opt_type(c, false)?;
         c.ws(true);
@@ -1339,7 +2720,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             let pre: Vec<Decl> = names.into_iter().map(|(name, e, line, span)| Decl::Eq { name, e, line, span, deferred: false, key: None, ty: None, exported: false }).collect();
             decls.splice(0..0, pre);
         }
-        return Ok(Decl::Component { name, props, decls, view, line, span: Span::NONE, props_type, exported: false, is_default: false });
+        return Ok(Decl::Component { name, props, decls, view, line, span: Span::NONE, props_type, no_props, exported: false, is_default: false });
     }
     let save = c.i;
     let name = c.ident();
@@ -1541,6 +2922,28 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
         }
         return Ok(st(start, StmtKind::Sif { c: cond, t, f }, c));
     }
+    // 07 §5: `for (const x of e) { … }` — a loop over what `e` holds now, its body imperative scope
+    if c.keyword("for") {
+        c.ws(true);
+        c.expect("(")?;
+        c.ws(true);
+        if !(c.keyword("const") || c.keyword("let")) {
+            return c.fail("`for (const x of e) { … }`: the loop of imperative scope binds one name per turn");
+        }
+        c.ws(true);
+        let name = c.ident_or("loop variable")?;
+        c.ws(true);
+        if !c.keyword("of") {
+            return c.fail("`of`: the loop of imperative scope is `for (const x of e) { … }`");
+        }
+        c.ws(true);
+        let e = parse_expr(c)?;
+        c.ws(true);
+        c.expect(")")?;
+        c.ws(true);
+        let body = parse_block(c)?;
+        return Ok(st(start, StmtKind::For { name, e, body }, c));
+    }
     // write?  target := expr
     let save = c.i;
     let mut name = c.ident();
@@ -1640,6 +3043,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
         // 07 §3: TS arrow functions, verbatim — `x => e`, `(a, b) => e`
         let save = c.i;
         let mut params = vec![];
+        let mut ptypes: Vec<Option<String>> = vec![];
         let mut ok = false;
         if c.peek() == '(' {
             c.bump();
@@ -1654,6 +3058,22 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
                     }
                 }
                 c.ws(true);
+                // 07 §3: `(v: string) => …`, the type is TypeScript's
+                if c.starts_with(":") && !c.starts_with(":=") {
+                    // `:=` is a write, not a type; a type that does not parse is not an arrow's parameter
+                    c.bump();
+                    c.ws(true);
+                    match parse_type(c, false, false) {
+                        Ok(t) if !t.trim().is_empty() => ptypes.push(Some(t.trim().to_string())),
+                        _ => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    c.ws(true);
+                } else {
+                    ptypes.push(None);
+                }
                 if !c.eat(",") {
                     break;
                 }
@@ -1679,13 +3099,13 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
                 let at = c.i;
                 if let Ok(stmts) = parse_block(c) {
                     if stmts.iter().any(|st| !matches!(&st.k, StmtKind::Expr(Expr { k: ExprKind::Id(_), .. }))) {
-                        return Ok(ex(start, ExprKind::Fn { params, body: Box::new(Expr::made(ExprKind::Lit(Lit::Undefined))), stmts: Some(stmts) }, c));
+                        return Ok(ex(start, ExprKind::Fn { params, body: Box::new(Expr::made(ExprKind::Lit(Lit::Undefined))), stmts: Some(stmts), ptypes: ptypes.clone() }, c));
                     }
                 }
                 c.i = at;
             }
             let body = parse_expr(c)?;
-            return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None }, c));
+            return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None, ptypes }, c));
         }
         c.i = save;
     }
@@ -1707,7 +3127,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
         c.expect("=>")?;
         c.ws(true);
         let body = parse_expr(c)?;
-        return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None }, c));
+        return Ok(ex(start, ExprKind::Fn { ptypes: vec![None; params.len()], params, body: Box::new(body), stmts: None }, c));
     }
     let cond = parse_bin(c, 0)?;
     c.ws(false);
@@ -1807,6 +3227,7 @@ fn parse_unary(c: &mut Cursor) -> R<Expr> {
 fn parse_postfix(c: &mut Cursor) -> R<Expr> {
     let mut e = parse_primary(c)?;
     let start = e.span.start as usize;
+    let mut targs: Option<String> = None;
     loop {
         if c.eat("?.") {
             if c.peek() == '[' {
@@ -1830,6 +3251,16 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
             c.ws(true);
             c.expect("]")?;
             e = Expr::new(ExprKind::Index { o: Box::new(e), i: Box::new(i), opt: false }, Span::new(start, c.i));
+        } else if c.peek() == '<' && matches!(e.k, ExprKind::Id(_) | ExprKind::Member { .. }) {
+            // 07 §3: type arguments at a call, `f<T>(…)`; else `a < b` stays a comparison
+            match type_args_at(&c.src[c.i..]) {
+                Some((text, len)) => {
+                    c.i += len;
+                    targs = Some(text);
+                    continue;
+                }
+                None => return Ok(e),
+            }
         } else if c.peek() == '(' {
             c.bump();
             c.ws(true);
@@ -1843,7 +3274,7 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
                 c.ws(true);
             }
             c.expect(")")?;
-            e = Expr::new(ExprKind::Call { f: Box::new(e), args }, Span::new(start, c.i));
+            e = Expr::new(ExprKind::Call { f: Box::new(e), args, targs: targs.take() }, Span::new(start, c.i));
         } else {
             return Ok(e);
         }
@@ -2254,6 +3685,50 @@ fn parse_control(c: &mut Cursor) -> R<Option<Markup>> {
         let (decls, body) = parse_block_body(c)?;
         return Ok(mk(MarkupKind::Errored { fallback, decls, body, err_name, classes }));
     }
+    {
+        // MO-11k: `view (a, b) { … }`, only with names in the parentheses and a block after them
+        let save = c.i;
+        if c.keyword("view") {
+            c.ws(true);
+            // a named render prop
+            let mut prop = None;
+            if !c.starts_with("(") {
+                if let Some(n) = c.ident() {
+                    if !KEYWORDS.contains(n.as_str()) {
+                        prop = Some(n);
+                        c.ws(true);
+                    }
+                }
+            }
+            let mut params = vec![];
+            let mut ok = c.eat("(");
+            while ok {
+                c.ws(true);
+                if c.eat(")") {
+                    break;
+                }
+                match c.ident() {
+                    Some(n) if !KEYWORDS.contains(n.as_str()) => params.push(n),
+                    _ => {
+                        ok = false;
+                        break;
+                    }
+                }
+                c.ws(true);
+                if !c.eat(",") && !c.starts_with(")") {
+                    ok = false;
+                }
+            }
+            if ok {
+                c.ws(true);
+                if c.eat("{") {
+                    let (decls, body) = parse_block_body(c)?;
+                    return Ok(mk(MarkupKind::Mview { prop, params, decls, body }));
+                }
+            }
+        }
+        c.i = save;
+    }
     if c.keyword("for") {
         c.ws(true);
         let name = c.ident_or("for name")?;
@@ -2423,5 +3898,31 @@ mod recovering {
         let src = "type Pick = (id: number) => void\ncomponent Row(props: { id: number; onPick: (id: number) => void; onDrop: Pick }) {\n  source n: number := peek(props.id)\n  <li onClick={() => { props.onPick(n) }}>{n}</li>\n}\nfn twice(x: number): number => x * 2\nexport default component App() {\n  <Row id={twice(1)} onPick={id => { log(id) }} onDrop={id => { log(id) }} />\n}\n";
         let p = parse_program(src).expect("parses");
         assert_eq!(names(&p), ["Pick", "Row", "twice", "App"]);
+    }
+    #[test]
+    fn type_arguments_are_parsed_completely() {
+        // 07 §3: what TypeScript reads as type arguments is a call; anything else stays comparisons
+        for t in [
+            "Todos", "string[]", "{ a: string; b?: number }[]", "A | B", "A & { x: 1 }", "Record<string, number>", "Map<K, V[]>", "[a: string, b?: number, ...rest: T[]]",
+            "(x: T) => U", "<T>(x: T) => T", "new () => Foo", "K extends keyof T ? T[K] : never", "T[K]", "typeof foo.bar", "import(\"./x\").Y<Z>", "-1 | 0 | 1",
+            "\"a\" | 'b'", "`p-${string}`", "{ [K in keyof T]-?: T[K] }", "{ readonly [k: string]: number }", "{ (x: number): string; new (): Foo; m<T>(a: T): void }",
+            "keyof T", "readonly string[]", "unique symbol", "T extends (infer U)[] ? U : never", "(x: unknown) => x is string", "A,", "Array<Array<number>>", "this", "{ +readonly [K in T]+?: 1 }", "{\n  done: number\n  items: string[]\n}", "`x${T}-${number}`", "`a${`b${string}`}`", "`k${{ a: 1 }[\"a\"]}`",
+            // R4: a `}` in a string inside a substitution does not end it
+            "`x${\"}\"}`", "`x${'}'}`", "`x${`}`}`", "`x${\"{\"}`", "{ k: `x${\"}\"}` }", "\"}\"",
+        ] {
+            assert!(looks_like_types(t), "{t} is a type list");
+        }
+        for t in ["b[c+1]", "b && c", "b ? c : d", "b + c", "b - c", "b * c", "b(c)", "b = c", "b, c + 1", "!b", "b.c(d)", "b[c]()", "b[0] + 1", "{ a }", "b c", "", "typeof f(x)", "(b, c)", "b == c", "{ a: 1 b: 2 }", "`x${c+1}`", "`x${c(1)}`", "-\"1\"", "-'1'", "-`1`", "import(1)", "`x${\"}\" + 1}`", "`x${\"}\"`"] {
+            assert!(!looks_like_types(t), "{t} is not");
+        }
+    }
+    #[test]
+    fn a_brace_in_a_string_type_argument_keeps_the_call() {
+        // R4 (RFC 11): `}` inside a string, in a template literal type or as a type argument, is not a closer
+        for (src, targs) in [("x = f<`k${\"}\"}`>(1)\n", "`k${\"}\"}`"), ("x = f<\"}\">(1)\n", "\"}\""), ("x = f<{ a: `${'}'}` }>(1)\n", "{ a: `${'}'}` }")] {
+            let p = parse_program(src).expect("parses");
+            let json = serde_json::to_string(&p.to_json()).unwrap();
+            assert!(json.contains(&format!("\"targs\":{}", serde_json::to_string(targs).unwrap())), "{src}: {json}");
+        }
     }
 }

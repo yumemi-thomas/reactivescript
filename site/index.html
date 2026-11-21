@@ -131,7 +131,7 @@
   &lt;/section&gt;
 }</code></pre>
   <p>There's a <code>loading</code> boundary but no <code>errored</code> one, so the checker says what's missing and how to fix it:</p>
-<pre class="err"><code>profile.rx:10:7 - error UNHANDLED_FAILURE: a reader of user.name (in &lt;Profile&gt;) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) =&gt; …` (R-f-5)</code></pre>
+<pre class="err"><code>profile.rx:10:7 - error UNHANDLED_FAILURE: a reader of user.name (in &lt;Profile&gt;) can fail with Error and no catch or errored boundary above it discharges Error — show it where it is read: `errored fallback(e) { … } { … }` around the reader (or `await … catch (e) =&gt; …` at the await, to make the rejection an answer) (R-f-5)</code></pre>
 
   <h2>A like button, the first time you write it</h2>
   <p>Show the new count at once, send it, and let the server's answer replace the guess. That's <code>guess</code>, which lowers to Solid's <code>createOptimistic</code>. This is how most people write it first:</p>
@@ -150,7 +150,7 @@
   &lt;button onClick={() =&gt; { send() }}&gt;♥ {likes}&lt;/button&gt;
 }</code></pre>
   <p>It has three bugs, and two only show when the network is slow or a request fails. The checker finds all three:</p>
-<pre class="err"><code>like.rx:13:3 - error UNHANDLED_FAILURE: a reader of likes (in &lt;Like&gt;) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) =&gt; …` (R-f-5)
+<pre class="err"><code>like.rx:13:3 - error UNHANDLED_FAILURE: a reader of likes (in &lt;Like&gt;) can fail with Error and no catch or errored boundary above it discharges Error — show it where it is read: `errored fallback(e) { … } { … }` around the reader (or `await … catch (e) =&gt; …` at the await, to make the rejection an answer) (R-f-5)
 like.rx:7:3 - error UNCAUGHT_ACTION_FAILURE: action send can fail with Error and does not catch it: a handler cannot (it does not await the action) — `try { … } catch (e) { … }` in the body (R-f-6)
 like.rx:13:3 - error GUESS_WHILE_LOADING: &lt;button&gt; onClick starts `send`, which can run `guess likes` while likes is loading a new question (its question reads what the click reads): the guess composes on the previous answer, and the new answer replaces it, so the change disappears while it is out (D-34) — put the element inside the `loading` region whose content reads likes, or give it `disabled={pending? likes}`, or keep the pending change in a source of its own until it lands (AC-3a)</code></pre>
   <p>The last one is the subtle one. Click while the count is still reloading and your +1 lands on the old answer, then vanishes when the new one arrives. Each error names the fix, and the fixed version passes:</p>

@@ -1,0 +1,16 @@
+== hidden
+✗ base: a declined post removes the row and shows the message
+✗ base: help: selecting after a failure shows loading…, not the old failure
+✗ a declined add removes the label and shows the message
+✗ a declined remove puts the label back where it was and shows the message
+73/77 passed
+== overlap
+✗ base: a post declined while an assignment is out leaves the assignment
+✗ a label added on one issue does not show on another
+✗ a label change declined while a rename is out leaves the rename
+✗ rows: a row action that answers after the issues page was left changes nothing on its return
+34/38 passed
+== fuzz
+desk9-rx-haiku-1: 1/20 seeds found a hole
+  seed 10 step 33: closed row shown: #2 is closed on the server
+    focus ; focus ; filter closed ; fail fetchIssues:open ; focus ; land fetchIssues:closed ; row-assign 0 ; land assign:2,guest ; land fetchIssues:closed ; row-assign 0 ; land assign:2,guest ; select #2 ; land fetchIssues:closed ; land fetchIssue:2 ; close ; close ; assign ; tab help ; land closeIssue:2 ; land search:Old bug ; tab issues ; tab help ; tab issues ; filter closed ; land fetchIssues:

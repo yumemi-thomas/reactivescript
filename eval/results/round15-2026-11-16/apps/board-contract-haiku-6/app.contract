@@ -1,0 +1,582 @@
+// Sprint board: the view. app.ts answers each source with exactly its declared shape.
+// Every write is optimistic: the board changes at once, and a declined write (a reply
+// with ok false) puts it back where it was and shows its error.
+
+shape Shown
+  id: number
+  title: string
+  done: number
+  total: number
+  adding: bool
+
+shape Lanes
+  todo: Shown[]
+  doing: Shown[]
+  done: Shown[]
+
+shape Item
+  id: number
+  text: string
+  done: bool
+  adding: bool
+
+shape Archived
+  id: number
+  title: string
+
+shape CardRow
+  id: number
+  title: string
+  done: number
+  total: number
+
+shape CardsReply
+  ok: bool
+  error: string
+  cards: CardRow[]
+
+shape MoveReply
+  ok: bool
+  error: string
+  card: Shown
+  fromCol: string
+  fromPos: number
+  session: number
+
+shape RenameReply
+  ok: bool
+  error: string
+  id: number
+  prev: string
+  session: number
+
+shape AddCardReply
+  ok: bool
+  error: string
+  tempId: number
+  id: number
+  session: number
+
+shape ArchiveReply
+  ok: bool
+  error: string
+  card: Shown
+  fromCol: string
+  fromPos: number
+  session: number
+
+shape ItemRow
+  id: number
+  text: string
+  done: bool
+
+shape ChecklistReply
+  ok: bool
+  error: string
+  items: ItemRow[]
+
+shape ToggleReply
+  ok: bool
+  error: string
+  cardId: number
+  itemId: number
+  done: bool
+  session: number
+
+shape AddItemReply
+  ok: bool
+  error: string
+  cardId: number
+  tempId: number
+  id: number
+  session: number
+
+shape ArchivedReply
+  ok: bool
+  error: string
+  items: Archived[]
+
+shape RestoreReply
+  ok: bool
+  error: string
+  row: Archived
+  pos: number
+  session: number
+
+fn dropCard(xs: Shown[], id: number): Shown[] = xs.filter(c => c.id != id)
+
+fn insertCard(xs: Shown[], c: Shown, pos: number): Shown[] = xs.slice(0, pos).concat([c]).concat(xs.slice(pos))
+
+fn insertRow(xs: Archived[], r: Archived, pos: number): Archived[] = xs.slice(0, pos).concat([r]).concat(xs.slice(pos))
+
+fn withoutCard(b: Lanes, id: number): Lanes = Lanes(todo = dropCard(b.todo, id), doing = dropCard(b.doing, id), done = dropCard(b.done, id))
+
+fn placeCard(b: Lanes, c: Shown, col: string, pos: number): Lanes = Lanes(todo = col == "todo" ? insertCard(dropCard(b.todo, c.id), c, pos) : dropCard(b.todo, c.id), doing = col == "doing" ? insertCard(dropCard(b.doing, c.id), c, pos) : dropCard(b.doing, c.id), done = col == "done" ? insertCard(dropCard(b.done, c.id), c, pos) : dropCard(b.done, c.id))
+
+fn renameIn(b: Lanes, id: number, t: string): Lanes = Lanes(todo = b.todo.map(c => c.id == id ? Shown(c, title = t) : c), doing = b.doing.map(c => c.id == id ? Shown(c, title = t) : c), done = b.done.map(c => c.id == id ? Shown(c, title = t) : c))
+
+fn bumpCounts(b: Lanes, id: number, dDone: number, dTotal: number): Lanes = Lanes(todo = b.todo.map(c => c.id == id ? Shown(c, done = c.done + dDone, total = c.total + dTotal) : c), doing = b.doing.map(c => c.id == id ? Shown(c, done = c.done + dDone, total = c.total + dTotal) : c), done = b.done.map(c => c.id == id ? Shown(c, done = c.done + dDone, total = c.total + dTotal) : c))
+
+component SprintBoard
+  state page = "board"
+  state session = 0
+  state lanes = Lanes(todo = [], doing = [], done = [])
+  state okTodo = false
+  state okDoing = false
+  state okDone = false
+  state errTodo = ""
+  state errDoing = ""
+  state errDone = ""
+  state selected = 0
+  state tempSeq = 0
+  state newCard = ""
+  state addErr = ""
+  state moveErr = ""
+  state renameDraft = ""
+  state renameErr = ""
+  state boardArchiveErr = ""
+  state items: Item[] = []
+  state ckLoaded = false
+  state ckErr = ""
+  state itemDraft = ""
+  state itemErr = ""
+  state archivedRows: Archived[] = []
+  state archLoaded = false
+  state archiveListErr = ""
+  state restoreErr = ""
+
+  derive selList = lanes.todo.filter(c => c.id == selected).concat(lanes.doing.filter(c => c.id == selected)).concat(lanes.done.filter(c => c.id == selected))
+  derive selCard = first(selList)
+  derive selTitle = match first(selList) { case some(c) => c.title, case none => "" }
+  derive selKey = lanes.todo.filter(c => c.id == selected).length > 0 ? "todo" : lanes.doing.filter(c => c.id == selected).length > 0 ? "doing" : "done"
+  derive selColName = selKey == "todo" ? "To do" : selKey == "doing" ? "Doing" : "Done"
+  derive selAt = selKey == "todo" ? lanes.todo.map(c => c.id).indexOf(selected) : selKey == "doing" ? lanes.doing.map(c => c.id).indexOf(selected) : lanes.done.map(c => c.id).indexOf(selected)
+  derive itemsDone = items.filter(i => i.done).length
+
+  mutation loadTodo as shape CardsReply then gotTodo
+  mutation loadDoing as shape CardsReply then gotDoing
+  mutation loadDone as shape CardsReply then gotDone
+  mutation moved as shape MoveReply queue then afterMove
+  mutation renamed as shape RenameReply queue then afterRename
+  mutation addedCard as shape AddCardReply queue then afterAdd
+  mutation archived as shape ArchiveReply queue then afterArchive
+  mutation loadChecklist as shape ChecklistReply then gotChecklist
+  mutation toggled as shape ToggleReply queue then afterToggle
+  mutation addedItem as shape AddItemReply queue then afterAddItem
+  mutation loadArchive as shape ArchivedReply then gotArchive
+  mutation restored as shape RestoreReply queue then afterRestore
+
+  task boot mount
+    after(1, openBoard)
+
+  action openBoard
+    let s = session + 1
+    session = s
+    page = "board"
+    lanes = Lanes(todo = [], doing = [], done = [])
+    okTodo = false
+    okDoing = false
+    okDone = false
+    errTodo = ""
+    errDoing = ""
+    errDone = ""
+    selected = 0
+    newCard = ""
+    addErr = ""
+    moveErr = ""
+    renameDraft = ""
+    renameErr = ""
+    boardArchiveErr = ""
+    items = []
+    ckLoaded = false
+    ckErr = ""
+    itemDraft = ""
+    itemErr = ""
+    send loadTodo = fetchCards("todo")
+    send loadDoing = fetchCards("doing")
+    send loadDone = fetchCards("done")
+
+  action showArchive
+    let s = session + 1
+    session = s
+    page = "archive"
+    archivedRows = []
+    archLoaded = false
+    archiveListErr = ""
+    restoreErr = ""
+    send loadArchive = fetchArchived()
+
+  action reloadTodo
+    okTodo = false
+    errTodo = ""
+    send loadTodo = fetchCards("todo")
+
+  action reloadDoing
+    okDoing = false
+    errDoing = ""
+    send loadDoing = fetchCards("doing")
+
+  action reloadDone
+    okDone = false
+    errDone = ""
+    send loadDone = fetchCards("done")
+
+  action gotTodo
+    match loadTodo
+      case some(r)
+        if r.ok
+          lanes = Lanes(lanes, todo = r.cards.map(c => Shown(id = c.id, title = c.title, done = c.done, total = c.total, adding = false)))
+          okTodo = true
+          errTodo = ""
+        else
+          okTodo = false
+          errTodo = r.error
+      case none
+        okTodo = false
+
+  action gotDoing
+    match loadDoing
+      case some(r)
+        if r.ok
+          lanes = Lanes(lanes, doing = r.cards.map(c => Shown(id = c.id, title = c.title, done = c.done, total = c.total, adding = false)))
+          okDoing = true
+          errDoing = ""
+        else
+          okDoing = false
+          errDoing = r.error
+      case none
+        okDoing = false
+
+  action gotDone
+    match loadDone
+      case some(r)
+        if r.ok
+          lanes = Lanes(lanes, done = r.cards.map(c => Shown(id = c.id, title = c.title, done = c.done, total = c.total, adding = false)))
+          okDone = true
+          errDone = ""
+        else
+          okDone = false
+          errDone = r.error
+      case none
+        okDone = false
+
+  action editNew(t: string)
+    newCard = t
+
+  action addCardNow
+    let t = newCard.trim()
+    if t != ""
+      let n = tempSeq + 1
+      tempSeq = n
+      addErr = ""
+      newCard = ""
+      lanes = Lanes(lanes, todo = lanes.todo.concat([Shown(id = 0 - n, title = t, done = 0, total = 0, adding = true)]))
+      send addedCard = addCard(0 - n, t, session)
+
+  action afterAdd
+    match addedCard
+      case some(r)
+        if r.session == session
+          if r.ok
+            lanes = Lanes(lanes, todo = lanes.todo.map(c => c.id == r.tempId ? Shown(c, id = r.id, adding = false) : c))
+          else
+            lanes = Lanes(lanes, todo = lanes.todo.filter(c => c.id != r.tempId))
+            addErr = r.error
+      case none
+        addErr = ""
+
+  action moveCardTo(c: Shown, fromCol: string, fromPos: number, toCol: string, toPos: number)
+    moveErr = ""
+    lanes = placeCard(lanes, c, toCol, toPos)
+    send moved = moveCard(c, fromCol, fromPos, toCol, toPos, session)
+
+  action afterMove
+    match moved
+      case some(r)
+        if r.session == session
+          if not r.ok
+            lanes = placeCard(lanes, r.card, r.fromCol, r.fromPos)
+            moveErr = r.error
+      case none
+        moveErr = ""
+
+  action selectCard(id: number)
+    selected = id
+    renameDraft = ""
+    renameErr = ""
+    itemDraft = ""
+    itemErr = ""
+    ckLoaded = false
+    ckErr = ""
+    items = []
+    send loadChecklist = fetchChecklist(id)
+
+  action editRename(t: string)
+    renameDraft = t
+
+  action rename
+    let t = renameDraft.trim()
+    if selected != 0 and t != ""
+      renameErr = ""
+      lanes = renameIn(lanes, selected, t)
+      send renamed = renameCard(selected, t, selTitle, session)
+
+  action afterRename
+    match renamed
+      case some(r)
+        if r.session == session
+          if not r.ok
+            lanes = renameIn(lanes, r.id, r.prev)
+            renameErr = r.error
+      case none
+        renameErr = ""
+
+  action archiveSel
+    boardArchiveErr = ""
+    match selCard
+      case some(c)
+        selected = 0
+        lanes = withoutCard(lanes, c.id)
+        send archived = archiveCard(c, selKey, selAt, session)
+      case none
+        boardArchiveErr = ""
+
+  action afterArchive
+    match archived
+      case some(r)
+        if r.session == session
+          if not r.ok
+            lanes = placeCard(lanes, r.card, r.fromCol, r.fromPos)
+            boardArchiveErr = r.error
+      case none
+        boardArchiveErr = ""
+
+  action gotChecklist
+    match loadChecklist
+      case some(r)
+        if r.ok
+          items = r.items.map(i => Item(id = i.id, text = i.text, done = i.done, adding = false))
+          ckLoaded = true
+          ckErr = ""
+        else
+          ckLoaded = false
+          ckErr = r.error
+      case none
+        ckErr = ""
+
+  action flip(i: Item)
+    itemErr = ""
+    let nowDone = not i.done
+    items = items.map(x => x.id == i.id ? Item(x, done = nowDone) : x)
+    lanes = bumpCounts(lanes, selected, nowDone ? 1 : -1, 0)
+    send toggled = toggleItem(selected, i.id, nowDone, session)
+
+  action afterToggle
+    match toggled
+      case some(r)
+        if r.session == session
+          if not r.ok
+            if r.cardId == selected
+              items = items.map(x => x.id == r.itemId ? Item(x, done = not r.done) : x)
+            lanes = bumpCounts(lanes, r.cardId, r.done ? -1 : 1, 0)
+            itemErr = r.error
+      case none
+        itemErr = ""
+
+  action editItem(t: string)
+    itemDraft = t
+
+  action addItemNow
+    let t = itemDraft.trim()
+    if selected != 0 and t != "" and ckLoaded
+      let n = tempSeq + 1
+      tempSeq = n
+      itemErr = ""
+      itemDraft = ""
+      items = items.concat([Item(id = 0 - n, text = t, done = false, adding = true)])
+      lanes = bumpCounts(lanes, selected, 0, 1)
+      send addedItem = addItem(selected, t, 0 - n, session)
+
+  action afterAddItem
+    match addedItem
+      case some(r)
+        if r.session == session
+          if r.ok
+            items = items.map(x => x.id == r.tempId ? Item(x, id = r.id, adding = false) : x)
+          else
+            items = items.filter(x => x.id != r.tempId)
+            lanes = bumpCounts(lanes, r.cardId, 0, -1)
+            itemErr = r.error
+      case none
+        itemErr = ""
+
+  action gotArchive
+    match loadArchive
+      case some(r)
+        if r.ok
+          archivedRows = r.items
+          archLoaded = true
+          archiveListErr = ""
+        else
+          archLoaded = false
+          archiveListErr = r.error
+      case none
+        archiveListErr = ""
+
+  action restoreRow(a: Archived, pos: number)
+    restoreErr = ""
+    archivedRows = archivedRows.filter(x => x.id != a.id)
+    send restored = restoreCard(a, pos, session)
+
+  action afterRestore
+    match restored
+      case some(r)
+        if r.session == session
+          if not r.ok
+            archivedRows = insertRow(archivedRows, r.row, r.pos)
+            restoreErr = r.error
+      case none
+        restoreErr = ""
+
+  view
+    main testId="root" width="100%" height="100%"
+      column flex=1 min-height=0 gap=12 padding=16
+        text "Sprint board" role="heading" aria-level=1
+        row role="tablist" gap=8
+          button role="tab" aria-selected=(page == "board") press=openBoard testId="tab-board"
+            text "Board"
+          button role="tab" aria-selected=(page == "archive") press=showArchive testId="tab-archive"
+            text "Archive"
+        if page == "board"
+          scroll id="board" flex=1 min-height=0
+            column gap=12
+              if boardArchiveErr != ""
+                text `archive error: ${boardArchiveErr}` testId="archive-error"
+              if moveErr != ""
+                text `move error: ${moveErr}` testId="move-error"
+              row gap=12 align-items="flex-start"
+                column id="col-todo" testId="col-todo" flex=1 min-width=0 gap=8
+                  text (okTodo ? `To do (${lanes.todo.length})` : "To do") role="heading" aria-level=2 testId="head-todo"
+                  if errTodo != ""
+                    text `error: ${errTodo}`
+                    button press=reloadTodo testId="retry-todo"
+                      text "Retry"
+                  else if not okTodo
+                    text "loading"
+                  else
+                    for c, i in lanes.todo key=c.id
+                      row gap=4 align-items="center"
+                        if c.adding
+                          text `${c.title} (adding…)` testId="card" flex=1
+                        else
+                          button press=selectCard(c.id) testId="card" flex=1
+                            text `#${c.id} ${c.title} · ${c.done}/${c.total}`
+                          if i > 0
+                            button press=moveCardTo(c, "todo", i, "todo", i - 1) testId="up"
+                              text "up"
+                          if i < lanes.todo.length - 1
+                            button press=moveCardTo(c, "todo", i, "todo", i + 1) testId="down"
+                              text "down"
+                          button press=moveCardTo(c, "todo", i, "doing", lanes.doing.length) disabled=(lanes.doing.length >= 3) testId="right"
+                            text "right"
+                  row gap=8
+                    input value=newCard input=editNew submit=addCardNow testId="new-card" placeholder="New card" aria-label="New card" flex=1 min-width=0
+                    button press=addCardNow testId="add-card"
+                      text "Add"
+                  if addErr != ""
+                    text `add error: ${addErr}` testId="add-error"
+                column id="col-doing" testId="col-doing" flex=1 min-width=0 gap=8
+                  text (okDoing ? `Doing (${lanes.doing.length})` : "Doing") role="heading" aria-level=2 testId="head-doing"
+                  if errDoing != ""
+                    text `error: ${errDoing}`
+                    button press=reloadDoing testId="retry-doing"
+                      text "Retry"
+                  else if not okDoing
+                    text "loading"
+                  else
+                    for c, i in lanes.doing key=c.id
+                      row gap=4 align-items="center"
+                        if c.adding
+                          text `${c.title} (adding…)` testId="card" flex=1
+                        else
+                          button press=selectCard(c.id) testId="card" flex=1
+                            text `#${c.id} ${c.title} · ${c.done}/${c.total}`
+                          button press=moveCardTo(c, "doing", i, "todo", lanes.todo.length) testId="left"
+                            text "left"
+                          if i > 0
+                            button press=moveCardTo(c, "doing", i, "doing", i - 1) testId="up"
+                              text "up"
+                          if i < lanes.doing.length - 1
+                            button press=moveCardTo(c, "doing", i, "doing", i + 1) testId="down"
+                              text "down"
+                          button press=moveCardTo(c, "doing", i, "done", lanes.done.length) testId="right"
+                            text "right"
+                column id="col-done" testId="col-done" flex=1 min-width=0 gap=8
+                  text (okDone ? `Done (${lanes.done.length})` : "Done") role="heading" aria-level=2 testId="head-done"
+                  if errDone != ""
+                    text `error: ${errDone}`
+                    button press=reloadDone testId="retry-done"
+                      text "Retry"
+                  else if not okDone
+                    text "loading"
+                  else
+                    for c, i in lanes.done key=c.id
+                      row gap=4 align-items="center"
+                        button press=selectCard(c.id) testId="card" flex=1
+                          text `#${c.id} ${c.title} · ${c.done}/${c.total}`
+                        button press=moveCardTo(c, "done", i, "doing", lanes.doing.length) disabled=(lanes.doing.length >= 3) testId="left"
+                          text "left"
+                        if i > 0
+                          button press=moveCardTo(c, "done", i, "done", i - 1) testId="up"
+                            text "up"
+                        if i < lanes.done.length - 1
+                          button press=moveCardTo(c, "done", i, "done", i + 1) testId="down"
+                            text "down"
+              column id="detail" testId="detail" gap=8
+                match selCard
+                  case some(c)
+                    text `#${c.id} ${c.title}` role="heading" aria-level=2
+                    text `in ${selColName}`
+                    row gap=8
+                      input value=renameDraft input=editRename submit=rename testId="title-input" aria-label="Title" flex=1 min-width=0
+                      button press=rename testId="rename"
+                        text "Rename"
+                    if renameErr != ""
+                      text `rename error: ${renameErr}`
+                    button press=archiveSel testId="archive"
+                      text "Archive"
+                    column testId="checklist" gap=6
+                      if ckErr != ""
+                        text `checklist error: ${ckErr}`
+                      else if not ckLoaded
+                        text "loading checklist"
+                      else
+                        for i in items key=i.id
+                          row gap=8 align-items="center"
+                            text (i.adding ? `[ ] ${i.text} (adding…)` : (i.done ? `[x] ${i.text}` : `[ ] ${i.text}`)) testId="item" flex=1
+                            if not i.adding
+                              button press=flip(i) testId="toggle"
+                                text "toggle"
+                        text `${itemsDone}/${items.length} done` testId="progress"
+                        row gap=8
+                          input value=itemDraft input=editItem submit=addItemNow testId="item-input" aria-label="New item" placeholder="Add an item" flex=1 min-width=0
+                          button press=addItemNow testId="add-item"
+                            text "Add item"
+                        if itemErr != ""
+                          text `item error: ${itemErr}` testId="item-error"
+                  case none
+                    text "select a card"
+        else
+          column id="archived" testId="archived" gap=8
+            if archiveListErr != ""
+              text `archive error: ${archiveListErr}`
+            else if not archLoaded
+              text "loading archive"
+            else
+              for a, i in archivedRows key=a.id
+                row gap=8 align-items="center"
+                  text `#${a.id} ${a.title}` testId="archived-card" flex=1
+                  button press=restoreRow(a, i) testId="restore"
+                    text "restore"
+            if restoreErr != ""
+              text `restore error: ${restoreErr}` testId="restore-error"

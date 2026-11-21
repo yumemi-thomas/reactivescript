@@ -1,0 +1,8 @@
+I built the sprint board in XState v5, and both `./check` and `./test` pass (26/26 visible tests, using 4 of the 15 runs). An app machine opens one page at a time and runs that page's machine only while the page is open, so leaving a page throws it away. The board machine (`src/boardMachine.ts`) loads the three columns and the selected card's checklist side by side, and sends every change to the server through its own small request actor (`src/requests.ts`). Changes are kept in order and redrawn on top of what the server last sent (`src/boardModel.ts`), so when the server declines one, only that change is undone and anything made after it stays.
+
+Where the brief was silent, I made these choices:
+- **Hidden errors:** a rename or item error for a card that is no longer selected is not shown.
+- **Blocked actions:** moves into a column that hasn't loaded are disabled, and so is adding a card or item before its list has loaded.
+- **Added buttons:** I gave a failed checklist and a failed archive list a retry button, which the brief doesn't ask for.
+
+Two things I'm unsure about. When a declined move comes back, later pending moves are redrawn at the positions they were sent with, which can briefly differ from where the server put them. In development `StrictMode`, the first loads are requested twice because of how @xstate/react restarts actors, but the production build does not do this.

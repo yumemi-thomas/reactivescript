@@ -121,6 +121,14 @@ by default — see the list at the end.
   exists at JS module scope. (S-server-1: a second request, in flight at
   the same time, keeps its own shell while the first one's questions land.)
 
+- **SV-4a (The request) — proposed 2026-11-19.** The host gives the app
+  its request (the runtime's `createApp({ request })`), and the render runs
+  in Solid's request event for it, so a JS library that locates a server
+  render by that event sees the request being served: `@solidjs/router`
+  matches the page's URL from it (`compiler/test/ssr-router.mjs`). A
+  program's own code does not read the request; what it needs from it, a
+  route's params, comes through the library.
+
 ## SV-5 — What crosses: failures sent, panics redacted (ruled)
 
 - **SV-5a.** A failure whose class is declared — `error C(…)` in a `.rx`
@@ -130,7 +138,73 @@ by default — see the list at the end.
   so a typed boundary or catch decides the same on both sides (S-server-1:
   the `NotFound` boundary takes the `NotFound` the server sent). A class is
   identified by its declaration, not its name: two modules that each
-  declare `NotFound` declare two classes (as two contexts, MO-7).
+  declare `NotFound` declare two classes (as two contexts, MO-7). A JS module's
+  class (`export error C` in its `.d.rx`) is the JS class itself, on both
+  sides, identified by its declaration: the compiler writes it at the
+  import (`jsClass(NotFound, "app/people.d.rx#NotFound")`). That identity
+  is read from the declaration's own place and nothing else (ruled
+  2026-11-22): a package's specifier; or, for the app's own `.d.rx`, the
+  nearest `package.json` above it that has a name, then the path below it
+  (`shop/src/err.d.rx#Gone`; a `package.json` with no name, a
+  `{"type":"module"}` scope, is passed over); with no named one above, the
+  path below the nearest `package.json` above it (`err.d.rx#Gone`,
+  `lib/err.d.rx#Gone`); with none above at all, the file's own name. A
+  folder's own name, or any folder above the package, is never part of
+  it, so it holds no machine path and is the same in every checkout, on
+  every machine and from every entry: the earlier revisions took the
+  folder of the nearest `package.json` above the *entry* for the root of
+  an unnamed project, so a class in a nested unnamed scope was
+  `web/err.d.rx#Gone` from one entry and `err.d.rx#Gone` from another,
+  and two classes could be named alike in one build. An unnamed package
+  has nothing to tell its classes from another unnamed one's, and the
+  compiler does not guess: two declarations that would name a class
+  alike in one program are refused where they are loaded
+  (`DUPLICATE_WIRE_ID`, naming both and the fix, a `"name"` in the
+  `package.json` above one of them). So in an accepted program every
+  declared class has an identity of its own, and both builds agree on
+  it. A rejection of it that
+  a question awaits is sent with that identity: the nearest declared class
+  up the instance's prototype chain, whatever order the program declared
+  them in, so a `Child` of a declared `Base` is sent as `Child` when both
+  are declared and as `Base` when only `Base` is; the declared classes above
+  it go with it (`$classes`), so a client boundary typed with `Base` takes a
+  sent `Child`, giving it `Child`'s class where the client declares it. What is sent is a copy of the instance, of its
+  class (so `instanceof` and a typed boundary still hold on the server):
+  its message, its identity, and the fields its declaration names,
+  `export error HttpError(status, code)`; a bare `export error NotFound`
+  sends the message alone (revised 2026-11-21, after review: Solid
+  serializes an error with every field it holds, a library's `cause`, a
+  response's headers, the stack, so the library's own instance is never
+  the one sent). A field the declaration names that an instance does not
+  have is not sent, and the client reads `undefined` where the row says a
+  value: the failure is still sent as its class, and the server says so
+  once per class and field, naming the declaration, unless the row marks
+  the field optional, `export error HttpError(status, code?)` (revised
+  2026-11-21 after review: it was left out in silence). Each field is copied
+  as the copy's own data property, the value the instance read (revised
+  2026-11-21 after review: a class whose field is a getter, `get status()
+  { return 404 }`, made the copy refuse the assignment). What the client
+  gets back is guaranteed in these terms only: a typed boundary or catch
+  matches it by the identities sent (`$class`, `$classes`), `instanceof`
+  holds for the client's own declared class, and the message and declared
+  fields are there as data. It is not the library's instance rebuilt: the
+  client's object takes the class's prototype without running its
+  constructor, so state the constructor sets up (a private `#field`, a
+  closure, an undeclared property) is not there; a declared field the
+  class defines as a getter arrives as the value sent, own data that
+  shadows the getter, and any other getter or method runs against the
+  copy's data alone. Nothing checks a
+  JS class's fields before it runs (IO-3: the declaration is the trust
+  boundary). The copy is made at a boundary the app owns, an awaited
+  promise or `sendErrors`, and nowhere else (revised 2026-11-21: the first
+  draft marked the class's prototype, so every instance anywhere in the
+  server process was sendable once a program had declared it). A library that
+  serializes a rejection itself, before the program awaits it
+  (`@solidjs/router`'s `query` cache), is given one more boundary, an
+  adapter around the function it caches: `query(sendErrors(fetchPerson),
+  "person")`, from `@reactivescript/runtime`. It marks a rejection or
+  throw of a class the request's app declares, during that app's request
+  only; elsewhere, and on the client, it changes nothing.
 - **SV-5b.** Anything else that reaches a boundary is sent as the generic
   error: an `Error` whose message is Solid's `Internal Server Error`. That
   is every panic (R-f-3), and a rejection of an undeclared class — a JS

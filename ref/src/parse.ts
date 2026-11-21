@@ -40,6 +40,7 @@ export function viewStart(src: string): number { parseProgram(src); return viewA
 class Cursor {
   i = 0;
   pendingStmts: Stmt[] = [];           // a destructuring `let` (07 §5) is several statements: the rest of them, after the first
+  imported = new Set<string>();        // the names this module imports so far (a hook's pair is a habit only when it is not one of them)
   temps = 0;                           // `$$n`: the bound value of a destructuring whose right side is not a name (RG-4b)
   src: string;
   constructor(src: string) { this.src = src; }
@@ -97,6 +98,9 @@ function parseType(c: Cursor, braceStops = false, arrows = false): string {
     if (depth === 0) {
       if (c.startsWith("//") || c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
     }
+    if (ch === '"' || ch === "'" || ch === "`") {   // a string literal type is one token: a `//`, `,` or `)` inside it does not end the type
+      c.i++; while (!c.eof() && c.peek() !== ch && c.peek() !== "\n") { if (c.peek() === "\\") c.i++; c.i++; } if (!c.eof() && c.peek() === ch) c.i++; continue;
+    }
     if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
     else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
     c.i++;
@@ -134,13 +138,15 @@ export function parseProgram(src: string): Program {
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
-  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean }   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
-  | { kind: "error"; name: string; line: number }
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; forwards?: boolean; joins?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string }; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; methods?: string[] }   // methods: E-10 (RFC 14, bounded)   // drafts, partDrafts: MO-10i   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
+  | { kind: "error"; name: string; line: number; fields?: string[] }   // fields: SV-5a, what of an instance is sent (`export error HttpError(status, code?)`; `code?`: it may be absent)
   | { kind: "type"; name: string; line: number; text?: string }
-  | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape };   // MO-11a: a Solid component
+  | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean }   // outlet: MO-11p   // MO-11a: a Solid component
+  | { kind: "context"; name: string; line: number }
+  | { kind: "value"; name: string; line: number; type?: string };   // MO-8g: a value the module exports (`export const pageSearch: Schema`)   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
  *  component value (MO-11c: its type is `Component`). */
-export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean };
+export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean; render?: boolean; callback?: boolean; pure?: boolean; carried?: boolean };   // carried: MO-11o, it renders the components its value carries   // render: MO-11k, a function giving a View; callback: MO-10g, any other function
 export function parseDeclarations(src: string): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
   for (;;) {
@@ -148,35 +154,193 @@ export function parseDeclarations(src: string): JsDecl[] {
     const line = c.line;
     if (!c.keyword("export")) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export component …`, `export error …`, `export type …`");
     c.ws();
-    if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
-    if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
+    if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
+    if (c.keyword("error")) {
+      c.ws(); const name = c.ident() ?? c.fail("error class name"); c.ws(false);
+      let fields: string[] | undefined;   // SV-5a: `(status, code: string)`, the fields of an instance sent to the client; none, name and message only
+      if (c.eat("(")) { const t0 = c.i; let depth = 1; while (!c.eof() && depth) { const ch = c.peek(); if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch)) depth--; c.i++; } fields = splitTop(c.src.slice(t0, c.i - 1), ",").map(f => f.split(":")[0].replace(/\s+/g, "")).filter(f => f && f !== "?"); }   // an optional field keeps its `?` (`code?`): an instance may come without it
+      out.push({ kind: "error", name, line, ...(fields?.length ? { fields } : {}) }); continue;
+    }
+    if (c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("const name"); c.ws(false); const type = c.eat(":") ? (c.ws(), parseType(c, false, true)) : undefined; out.push({ kind: "value", name, line, ...(type ? { type } : {}) }); continue; }   // MO-8g
+    if (c.keyword("context")) { c.ws(); const name = c.ident() ?? c.fail("context name"); out.push({ kind: "context", name, line }); continue; }   // MO-12a
     if (c.keyword("component")) { out.push(parseJsComponent(c, line)); continue; }
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();
     if (!c.keyword("fn")) c.fail("fn");
-    c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
-    const params: string[] = []; const ptypes: (string | undefined)[] = []; const refs: boolean[] = [];
-    while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); params.push(c.ident() ?? c.fail("param")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
+    c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); const tparams = typeParams(c); c.ws(); c.expect("("); c.ws();   // MO-8d: `fn f<const S extends string>(…)`, TypeScript's, for TY
+    const params: string[] = []; const ptypes: (string | undefined)[] = []; const refs: boolean[] = []; const sigs: boolean[] = [];
+    const opts: boolean[] = [];
+    while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const sv = c.i; let g = !r && c.keyword("signal"); if (g) { c.ws(); if (!/^[A-Za-z_$]/.test(c.peek())) { c.i = sv; g = false; } } sigs.push(g);   /* MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name) */ const rest = !r && !g && c.eat("...");   /* MO-8h: a rest parameter, `...items: T[]` */ params.push((rest ? "..." : "") + (c.ident() ?? c.fail("param"))); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
-    const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(|\binstantiates\b/.exec(t); const raw = (r ? t.slice(0, r.index) : t).replace(/\/\/.*$/, "").trim(); shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : t.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined;
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b|\bforwards\b|\bjoins\(|\bmethods\(/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; if (/\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']/.test(maskedStrings(raw))) c.fail("`pending` and `fails(…)` are written on a field of a result that is a record, `{ data: pending fails(Error) T }` (MO-10f): the read of that field is what holds or fails. A tuple's part that holds is an accessor, `ref T`; a result that may be absent, or one inside another type, has no field the checker could follow"); shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
-    c.ws(false); const written = c.keyword("instantiates");
-    const instantiates = written || refs.some(x => x) || shapeHasRef(shape) || shape === "comp";   // MO-10a: inferred from a ref on either side; MO-11f: a component handed back
-    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}) });
+    let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders = false; let forwards = false; let joins: string | undefined; let rendersRoot = false; const carries: string[] = []; let carrier = false; let under: { parent: string; inside: string } | undefined; const methods: string[] = [];
+    for (;;) {                                                                             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
+      c.ws(false);
+      if (c.keyword("instantiates")) { written = true; continue; }
+      if (c.keyword("trusted")) continue;   // MO-8j: a row taken on trust where nothing verifies it (rx-tsc --strict, TY-7)
+      if (c.keyword("forwards")) { forwards = true; continue; }
+      if (c.keyword("methods")) { c.ws(false); c.expect("("); for (;;) { c.ws(); methods.push(c.ident() ?? c.fail("methods(name, …): the methods of the instance it makes")); c.ws(); if (!c.eat(",")) break; } c.expect(")"); continue; }   // E-10 (RFC 14, bounded): the methods of its instance that make a value once   // MO-11g: inside a factory's arguments, it hands the components it is given on to the factory
+      if (c.keyword("joins")) { c.ws(false); c.expect("("); c.ws(); joins = c.ident() ?? c.fail("joins(path): the field of a nested record whose literal paths join with its parents'"); c.ws(); c.expect(")"); continue; }   // MO-11i: the projection joins this field's paths
+      // MO-11r: one placement vocabulary — `renders` (here), `renders(root, ctx…)`, `renders(later)`; `nests(…)` for the tree
+      if (c.keyword("carries")) c.fail("`carries` is now `renders(later)`: the components travel in the result and a JS component's prop declared `renders` renders them (MO-11r)");
+      if (c.keyword("under")) c.fail("`under(parent in component)` is now `nests(component under parent)`, beside `renders(later)` (MO-11r)");
+      if (c.keyword("renders")) { c.ws(false);
+        if (c.peek() !== "(") { renders = true; continue; }   // MO-11l: here, where its result is bound
+        c.i++; c.ws();
+        if (c.keyword("later")) { c.ws(); c.expect(")"); carrier = true; continue; }   // MO-11o: the components travel in its result
+        if (!c.keyword("root")) c.fail("renders(root, …) or renders(later): where the library renders the components it is given (MO-11r)");
+        renders = true; c.ws(); while (c.eat(",")) { c.ws(); carries.push(c.ident() ?? c.fail("renders(root, ctx): a context the library carries into its root")); c.ws(); } c.expect(")"); rendersRoot = true; if (carries.length) uses = [...(uses ?? []), ...carries];   /* MO-11n: what it carries, it reads where it is called */
+        continue; }   // MO-11n: renders(root)                                 // MO-11l: renders the components in its arguments where its result is bound
+      if (c.keyword("uses")) { c.ws(false); uses = [...(uses ?? []), ...contextNames(c)]; continue; }
+      if (c.keyword("provides")) { c.ws(false); provides = [...(provides ?? []), ...contextNames(c)]; continue; }
+      if (c.keyword("nests")) { c.ws(false); c.expect("("); c.ws(); const first = c.ident() ?? c.fail("nests(children in component) or nests(component under parent): a field of the record (MO-11r)"); c.ws();
+        if (c.keyword("in")) { c.ws(); const inside = c.ident() ?? c.fail("nests(children in component): the field that holds the component"); c.ws(); c.expect(")"); nests = { kids: first, inside }; continue; }   // MO-11i: a children field
+        if (c.keyword("under")) { c.ws(); const parent = c.ident() ?? c.fail("nests(component under parent): the field that names the parent value"); c.ws(); c.expect(")"); under = { parent, inside: first }; continue; }   // MO-11p: a parent link
+        c.fail("nests(children in component) or nests(component under parent) (MO-11r)"); }
+      break;
+    }
+    const instantiates = written || refs.some(x => x) || sigs.some(x => x) || carrier || shapeHasRef(shape) || shape === "comp" || !!uses || !!held || renders;   // MO-10a: inferred from a ref on either side; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+    if (nests && shape !== "comp") c.fail(`nests(…) on fn ${name}: only a fn that hands back a Component renders what it is given (MO-11i)`);
+    if (joins && !nests) c.fail(`joins(${joins}) on fn ${name}: it joins paths through the tree nests(children in component) describes: add that (MO-11i)`);
+    if (under && !carrier) c.fail(`nests(${under.inside} under ${under.parent}) on fn ${name}: it places what the result carries, which is rendered later — add renders(later) (MO-11r)`);
+    if (provides && shape !== "comp") c.fail(`provides(…) on fn ${name}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)`);
+    // MO-10i: callbacks whose parameters are a library's drafts (`(update: (draft state: T) => void) => void`), by position;
+    // the word is the .d.rx's, not TypeScript's
+    const drafts = ptypes.flatMap((t, i) => { const ds = draftParams(t); return ds.length ? [[i, ds] as [number, number[]]] : []; });
+    const partDrafts = draftParts(ret);
+    for (const t of [...ptypes, ret]) if (t && TRACKED_MISPLACED.test(t)) c.fail(`\`tracked\` on fn ${name}: it goes before a function type, one the library calls inside a computation (MO-10j)`);
+    for (const t of [...ptypes, ret]) if (t && HANDLER_MISPLACED.test(t)) c.fail(`\`handler\` on fn ${name}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`);
+    const cbs = callbacks(ptypes);   // MO-10g: before the word is taken out — only a function type marked `handler` is a callback
+    for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripHandler(stripTracked(stripDraft(ptypes[i]))); ret = stripHandler(stripTracked(stripDraft(ret)));
+    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(joins ? { joins } : {}), ...(forwards ? { forwards } : {}), ...(held ? { held } : {}), ...(cbs ? { cbs } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}), ...(methods.length ? { methods } : {}) });
   }
+}
+/** `t` with every character inside a string literal, or inside brackets (`()`, `[]`, `{}`, `<>`), replaced by `_`: the
+ *  same offsets, with only the row's top level left to search for row words. The crate's `masked`, step for step. */
+function masked(t: string): string {
+  const out = t.split(""); let q = "", depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (q) { out[i] = "_"; if (ch === "\\" && i + 1 < t.length) { out[i + 1] = "_"; i++; } else if (ch === q) q = ""; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") { q = ch; out[i] = "_"; continue; }
+    if ("([{<".includes(ch)) { if (depth > 0) out[i] = "_"; depth++; continue; }
+    if (")]}".includes(ch) || (ch === ">" && t[i - 1] !== "=")) { depth = Math.max(0, depth - 1); if (depth > 0) out[i] = "_"; continue; }
+    if (depth > 0) out[i] = "_";
+  }
+  return out.join("");
+}
+/** A declaration line without its `// comment` (not a `//` inside a string literal type): words in a comment are not rows. */
+function codeOf(line: string): string {
+  let q = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === "\\") i++; else if (ch === q) q = ""; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") { q = ch; continue; }
+    if (ch === "/" && line[i + 1] === "/") return line.slice(0, i);
+  }
+  return line;
+}
+/** MO-10g: where a declared fn takes callbacks, by parameter: the whole parameter (`[true, []]`), or the fields of a record
+ *  parameter (`[false, ["onSuccess"]]`); null where it takes none. A callback is a function type marked `handler` (revised
+ *  2026-11-21): a function type alone says nothing of when the library calls it, so a closure passed there is pure. */
+const isHandler = (t: string) => /^handler\s+\(/.test(t);
+function callbacks(ptypes: (string | undefined)[]): ([boolean, string[]] | null)[] | undefined {
+  const out = ptypes.map((t): [boolean, string[]] | null => {
+    if (!t) return null;
+    if (isHandler(t)) return [true, []];
+    if (t.startsWith("{") && t.endsWith("}")) { const fs = splitTop(t.slice(1, -1), ",;").filter(f => f.includes(":") && isHandler(f.slice(f.indexOf(":") + 1).trim())).map(f => fieldName(f.slice(0, f.indexOf(":")))); return fs.length ? [false, fs] : null; }
+    return null;
+  });
+  return out.some(Boolean) ? out : undefined;
+}
+/** A type text with what its string literals hold blanked, so a word inside one is not read as a row. */
+function maskedStrings(t: string): string {
+  let out = ""; let q = "";
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (q) { out += "_"; if (ch === "\\" && i + 1 < t.length) { out += "_"; i++; } else if (ch === q) q = ""; }
+    else if (ch === '"' || ch === "'" || ch === "`") { q = ch; out += "_"; }
+    else out += ch;
+  }
+  return out;
+}
+/** MO-10f: a result's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
+ *  are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i). */
+function fieldRows(t: string): { text: string; held?: [string, boolean, string[]][] } {
+  const held: [string, boolean, string[]][] = [];
+  // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
+  const walk = (x: string, prefix: string): string => {
+    if (!(x.startsWith("{") && x.endsWith("}"))) return x;
+    return `{ ${splitTop(x.slice(1, -1), ",;").map(f => {
+      const i = f.indexOf(":"); if (i < 0) return f;
+      const key = f.slice(0, i).trim(); let rest = f.slice(i + 1).trim(); let holds = false; let fails: string[] = []; let any = false;
+      for (let m; (m = /^(pending\b|fails\(([^)]*)\))\s*/.exec(rest)); rest = rest.slice(m[0].length)) { any = true; if (m[1] === "pending") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
+      const path = prefix + fieldName(key);
+      if (any) held.push([path, holds, fails]);
+      return `${key}: ${walk(rest, path + ".")}`;
+    }).join("; ")} }`;
+  };
+  if (!/\b(pending|fails\()/.test(t)) return { text: t };   // no rows: the type text is kept as written
+  const text = walk(t, "");
+  return held.length ? { text, held } : { text: t };
+}
+/** MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it). */
+function typeParams(c: Cursor): string | undefined {
+  if (c.peek() !== "<") return undefined;
+  const t0 = c.i; let depth = 0;
+  do { const ch = c.peek(); if (ch === "<") depth++; else if (ch === ">" && c.src[c.i - 1] !== "=") depth--; c.i++; } while (!c.eof() && depth);
+  return c.src.slice(t0, c.i);
 }
 
 /** MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`). */
 function isComponentType(t: string): boolean {
+  const alts = splitTop(t, "|"); if (alts.length > 1) return alts.some(a => isComponentType(a));   // MO-11c: `string | Component` (a polymorphic `as`), `Component | undefined`
+  const parts = splitTop(t, "&"); if (parts.length > 1) return isComponentType(parts[0]);   // MO-11m: `Component & { paths: … }`, a component with properties
   const m = /^Component\s*/.exec(t); if (!m) return false; const r = t.slice(m[0].length); if (!r) return true; if (r[0] !== "<") return false;
   let depth = 0; for (let i = 0; i < r.length; i++) { if (r[i] === "<") depth++; else if (r[i] === ">" && r[i - 1] !== "=" && --depth === 0) return i === r.length - 1; }
   return false;
 }
+/** MO-10i: a function type's parameter list (`(a: A, b: B) => R` → `a: A, b: B`), or null. */
+function fnParamsText(t: string): string | null {
+  t = t.trim(); if (!t.startsWith("(")) return null; let depth = 0;
+  for (let i = 0; i < t.length; i++) { const ch = t[i]; if ("([{<".includes(ch)) depth++; else if (")]}".includes(ch) || (ch === ">" && t[i - 1] !== "=")) { if (--depth === 0) return /^\s*=>/.test(t.slice(i + 1)) ? t.slice(1, i) : null; } }
+  return null;
+}
+/** MO-10i: the positions of a function type's parameters written `draft` (`(draft state: T) => void` → [0]). */
+function draftParams(t: string | undefined): number[] {
+  const ps = t === undefined ? null : fnParamsText(t); if (ps === null) return [];
+  return splitTop(ps, ",").flatMap((p, i) => /^draft\s+[A-Za-z_$]/.test(p) ? [i] : []);
+}
+/** MO-10i: for a function type, its callback parameters' draft positions. */
+function draftsOfFn(t: string): [number, number[]][] {
+  const ps = fnParamsText(t); if (ps === null) return [];
+  return splitTop(ps, ",").flatMap((p, i) => { const c = p.indexOf(":"); const ds = c < 0 ? [] : draftParams(p.slice(c + 1).trim()); return ds.length ? [[i, ds] as [number, number[]]] : []; });
+}
+/** MO-10i: a result's function parts that take draft callbacks (`[ref T, (update: (draft s: T) => void) => void]`), by tuple index or field name. */
+function draftParts(ret: string | undefined): Record<string, [number, number[]][]> | undefined {
+  if (!ret) return undefined; const t = ret.trim(); const out: Record<string, [number, number[]][]> = {};
+  if (t.startsWith("[") && t.endsWith("]")) splitTop(t.slice(1, -1), ",").forEach((x, i) => { const d = draftsOfFn(x); if (d.length) out[String(i)] = d; });
+  else if (t.startsWith("{") && t.endsWith("}")) for (const f of splitTop(t.slice(1, -1), ",;")) { const c = f.indexOf(":"); if (c < 0) continue; const d = draftsOfFn(f.slice(c + 1).trim()); if (d.length) out[fieldName(f.slice(0, c))] = d; }
+  return Object.keys(out).length ? out : undefined;
+}
+/** MO-10j: `tracked` before a function type — the library calls it inside a computation, so a closure passed there is a
+ *  pure closure (SC-3), not a handler. The word is the .d.rx's, not TypeScript's. */
+const TRACKED_MISPLACED = /\btracked\s+(?!\()/;
+const stripTracked = (t: string | undefined) => t?.replace(/\btracked\s+(?=\()/g, "");
+/** MO-10g: `handler` before a function type — the library calls it later, outside any computation (an event, a mutation's
+ *  `onSuccess`), so a closure passed there is a handler's: imperative scope. The word is the .d.rx's, not TypeScript's. */
+const HANDLER_MISPLACED = /\bhandler\s+(?!\()/;
+const stripHandler = (t: string | undefined) => t?.replace(/\bhandler\s+(?=\()/g, "");
+const stripDraft = (t: string | undefined) => t?.replace(/\bdraft\s+(?=[A-Za-z_$][\w$]*\s*[?:,)])/g, "");
+
 /** MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`. */
 function parseJsComponent(c: Cursor, line: number): JsDecl {
-  c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();
+  c.ws(); let name = c.ident() ?? c.fail("component name");
+  while (c.peek() === ".") { c.i++; name += "." + (c.ident() ?? c.fail("a member component's name: `component Dialog.Root(…)`")); }   // MO-11q
+  c.ws(); c.expect("("); c.ws();
   const props: JsProp[] = [];
   if (!c.startsWith(")")) {
     if (c.ident() !== "props") c.fail("a component's props: `(props: { … })`"); c.ws(); c.expect(":"); c.ws(); c.expect("{");
@@ -195,27 +359,39 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
         }
         type = c.src.slice(t0, c.i).trim() || undefined;
       }
-      props.push({ name: fname, optional, ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type) });
+      let carried = false; if (type && /^renders\s+/.test(type)) { carried = true; type = type.replace(/^renders\s+/, "") || undefined; }   // MO-11o: `router: renders any`
+      let tracked = false; if (type && /^tracked\s+/.test(type)) { tracked = true; type = type.replace(/^tracked\s+/, "") || undefined; if (!type || partOf(type) !== "fn") c.fail(`\`tracked\` on prop ${fname}: it goes before a function type, one the library calls inside a computation (MO-10j)`); }
+      let handler = false; if (type && /^handler\s+/.test(type)) { handler = true; type = type.replace(/^handler\s+/, "") || undefined; if (!type || partOf(type) !== "fn") c.fail(`\`handler\` on prop ${fname}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`); }
+      props.push({ name: fname, optional, ...(carried ? { carried } : {}), ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && handler && !tracked && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : type && !isComponentType(type) && partOf(type) === "fn" ? { pure: true } : {}) });   // pure: MO-10g, a function type without `handler`: the declaration decides, whatever the prop's name
       c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
     }
     c.ws();
   }
   c.expect(")");
-  let fails: string[] = []; let content: ContentShape | undefined;
+  let fails: string[] = []; let content: ContentShape | undefined; let uses: string[] | undefined; let provides: string[] | undefined; let outlet = false;
   for (;;) {
     c.ws(false);
+    if (c.keyword("outlet")) { outlet = true; continue; }   // MO-11p
+    if (c.keyword("trusted")) continue;   // MO-8j: a row taken on trust where nothing verifies it: it renders, where it is written, what nests under its component
     if (c.keyword("fails")) { c.ws(false); c.expect("("); fails = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); continue; }
+    if (c.keyword("uses")) { c.ws(false); uses = [...(uses ?? []), ...contextNames(c)]; continue; }          // MO-12b
+    if (c.keyword("provides")) { c.ws(false); provides = [...(provides ?? []), ...contextNames(c)]; continue; }   // MO-12c
     if (c.keyword("shape")) { c.ws(false); c.expect("("); const t0 = c.i; while (!c.eof() && c.peek() !== ")") c.i++; const t = c.src.slice(t0, c.i); c.expect(")"); try { content = contentShapeOf(t); } catch (e) { c.fail((e as Error).message); } continue; }
     break;
   }
-  return { kind: "comp", name, line, props, fails, ...(content ? { content } : {}) };
+  return { kind: "comp", name, line, props, fails, ...(content ? { content } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(outlet ? { outlet } : {}) };
+}
+/** MO-12: `(router, theme)` — contexts the same declaration file declares. */
+function contextNames(c: Cursor): string[] {
+  c.expect("("); const out: string[] = [];
+  for (;;) { c.ws(); if (c.eat(")")) return out; out.push(c.ident() ?? c.fail("a context name")); c.ws(); if (!c.eat(",")) { c.ws(); c.expect(")"); return out; } }
 }
 
 /** MO-10b: what a primitive's result is — a reader (`ref T`, an accessor), an io function, a value; or a tuple or record of
  *  those (only the result and its parts are declared). */
 export type Part = "ref" | "fn" | "value";
 export type Shape = Part | "comp" | { items: Part[] } | { fields: [string, Part][] };   // "comp": the whole result is a component (MO-11f)
-function splitTop(s: string, seps: string): string[] {
+export function splitTop(s: string, seps: string): string[] {
   const out: string[] = []; let depth = 0, from = 0;
   for (let i = 0; i < s.length; i++) { const ch = s[i]; if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch) && !(ch === ">" && s[i - 1] === "=")) depth--; else if (depth === 0 && seps.includes(ch)) { out.push(s.slice(from, i)); from = i + 1; } }
   out.push(s.slice(from)); return out.map(x => x.trim()).filter(x => x);
@@ -225,9 +401,12 @@ function partOf(t: string): Part {
   if (t.startsWith("(") && /\)\s*=>/.test(t)) return "fn";
   return "value";
 }
+/** A declared field's name: `readonly width?` is `width` (the modifier and the `?` are TypeScript's, not the name's). */
+function fieldName(k: string): string { return k.trim().replace(/^readonly\s+/, "").replace(/\?$/, ""); }
 function shapeOf(t: string): Shape {
+  if (/^readonly\s+\[/.test(t)) return shapeOf(t.replace(/^readonly\s+/, ""));   // MO-10b: a read-only tuple is a tuple (`as const` results)
   if (t.startsWith("[") && t.endsWith("]")) return { items: splitTop(t.slice(1, -1), ",").map(partOf) };
-  if (t.startsWith("{") && t.endsWith("}")) return { fields: splitTop(t.slice(1, -1), ",;").map(f => { const i = f.indexOf(":"); return [f.slice(0, i).trim().replace(/\?$/, ""), partOf(f.slice(i + 1).trim())] as [string, Part]; }) };
+  if (t.startsWith("{") && t.endsWith("}")) return { fields: splitTop(t.slice(1, -1), ",;").map(f => { const i = f.indexOf(":"); return [fieldName(f.slice(0, i)), partOf(f.slice(i + 1).trim())] as [string, Part]; }) };
   if (isComponentType(t)) return "comp";
   return partOf(t);
 }
@@ -298,7 +477,7 @@ function destructuringAhead(c: Cursor): boolean {
 function parseDestructuringDecl(c: Cursor): Decl[] {
   const line = c.line;
   const pat = parsePattern(c); c.ws(); c.expect("="); c.ws();
-  if (JS_APIS.exec(c.src.slice(c.i).split("\n", 1)[0])?.index === 0) c.fail("a hook's pair is not .rx");   // `[n, setN] = createSignal(0)`: JS_API's hint
+  { const m = JS_APIS.exec(c.src.slice(c.i).split("\n", 1)[0]); if (m?.index === 0 && !c.imported.has(m[1])) c.fail("a hook's pair is not .rx"); }   // `[n, setN] = createSignal(0)`: JS_API's hint — unless the module imports that name from a declared JS module (`[todos, setTodos] = createStore(…)`, MO-10i)
   let base = parseExpr(c);
   const out: Decl[] = [];
   if (!isPath(base)) { const t = `$$${++c.temps}`; out.push({ k: "eq", name: t, e: base, line }); base = { k: "id", name: t }; }
@@ -316,11 +495,16 @@ function parseDecl(c: Cursor): Decl {
     if (c.keyword("default")) { c.ws(); const d = parseDecl(c); if (d.k !== "component") c.fail("export default: only a component is a module's default export (the app's entry, MO-1c)"); d.exported = true; d.isDefault = true; return d; }
     const d = parseDecl(c); if (d.k === "import" || d.k === "effect" || d.k === "provide") c.fail("export of a non-declaration"); (d as { exported?: boolean }).exported = true; return d; }
   if (c.keyword("import")) {                                           // 07 §1: `import pure? { a, b as c } from "m"` / `import X from "m"`
-    c.ws(); const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
+    c.ws();
+    if (c.peek() === '"' || c.peek() === "'") {                                         // 07 §1a: `import "./styles.css"`, for its effect (a stylesheet, a polyfill)
+      const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
+      if (/\.rx$/.test(from.v)) c.fail(`import ${JSON.stringify(from.v)}: an .rx module is imported for what it exports, \`import { … } from ${JSON.stringify(from.v)}\``);
+      return { k: "import", names: [], from: from.v, pure: false, line };
+    } const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
     const pure = c.keyword("pure"); c.ws();
     const names: { name: string; alias: string }[] = [];
-    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
-    else { const name = c.ident() ?? c.fail("import name"); names.push({ name: "default", alias: name }); }
+    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); c.imported.add(alias); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
+    else { const name = c.ident() ?? c.fail("import name"); names.push({ name: "default", alias: name }); c.imported.add(name); }
     c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
     const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
     const save = c.i; c.ws(false);
@@ -403,10 +587,11 @@ function parseDecl(c: Cursor): Decl {
   if (c.keyword("component")) {
     c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();
     const sig = c.peek() === "{" ? parsePattern(c) : null;           // RG-4b: `component C({ a, b })` — each name a projection of props
+    const noneDeclared = !sig && c.peek() === ")";
     const props = sig || c.peek() === ")" ? "props" : (c.ident() ?? c.fail("props name")); const propsType = optType(c); c.ws(); c.expect(")"); c.ws(); c.expect("{");   // `component C()`: no props (found by S-ai2-tracker)
     const { decls, body } = parseBlockBody(c);
     if (sig) { const names: { name: string; e: Expr; line: number }[] = []; expandPattern(sig, { k: "id", name: props }, names); decls.unshift(...names.map(n => ({ k: "eq" as const, name: n.name, e: n.e, line: n.line }))); }
-    return { k: "component", name, props, decls, view: body, line, propsType };
+    return { k: "component", name, props, decls, view: body, line, propsType, ...(!sig && props === "props" && noneDeclared ? { noProps: true } : {}) };
   }
   const save = c.i;
   const name = c.ident();
@@ -479,6 +664,14 @@ function parseStmt(c: Cursor): Stmt {
     if (c.keyword("else")) { c.ws(); f = c.peek() === "{" ? parseBlock(c) : [parseStmt(c), ...c.pendingStmts.splice(0)]; }
     return { k: "sif", c: cond, t, f };
   }
+  if (c.keyword("for")) {                                              // 07 §5: `for (const x of e) { … }` — a loop over what `e` holds now, its body imperative scope
+    c.ws(); c.expect("("); c.ws();
+    if (!(c.keyword("const") || c.keyword("let"))) c.fail("`for (const x of e) { … }`: the loop of imperative scope binds one name per turn");
+    c.ws(); const name = c.ident() ?? c.fail("loop variable"); c.ws();
+    if (!c.keyword("of")) c.fail("`of`: the loop of imperative scope is `for (const x of e) { … }`");
+    c.ws(); const e = parseExpr(c); c.ws(); c.expect(")"); c.ws();
+    return { k: "for", name, e, body: parseBlock(c) };
+  }
   // write?  target := expr
   const save = c.i;
   let name = c.ident();
@@ -521,17 +714,17 @@ function parseExprNoCatch(c: Cursor): Expr {
     return { k: "draft", seed, body: parseBlock(c) };
   }
   {                                                                   // 07 §3: TS arrow functions, verbatim — `x => e`, `(a, b) => e`
-    const save = c.i; const params: string[] = []; let ok = false;
-    if (c.peek() === "(") { c.i++; c.ws(); ok = true; while (!c.startsWith(")")) { const id = c.ident(); if (!id) { ok = false; break; } params.push(id); c.ws(); if (!c.eat(",")) break; c.ws(); } if (ok && c.eat(")")) { c.ws(false); ok = c.startsWith("=>"); } else ok = false; }
+    const save = c.i; const params: string[] = []; const ptypes: (string | undefined)[] = []; let ok = false;
+    if (c.peek() === "(") { c.i++; c.ws(); ok = true; while (!c.startsWith(")")) { const id = c.ident(); if (!id) { ok = false; break; } params.push(id); c.ws(); if (c.startsWith(":") && !c.startsWith(":=")) { c.i++; c.ws(); let t: string; try { t = parseType(c).trim(); } catch (e) { if (!(e instanceof ParseError)) throw e; ok = false; break; } if (!t) { ok = false; break; } ptypes.push(t); c.ws(); } else ptypes.push(undefined); /* `:=` is a write, not a type */ if (!c.eat(",")) break; c.ws(); } if (ok && c.eat(")")) { c.ws(false); ok = c.startsWith("=>"); } else ok = false; }
     else { const id = c.ident(); if (id && !KEYWORDS.has(id)) { params.push(id); c.ws(false); ok = c.startsWith("=>"); } }
     if (ok) {
       c.expect("=>"); c.ws();
       if (c.peek() === "{") {                                        // `=> { … }`: a statement body (imperative scope) unless it reads as a record literal
         const at = c.i;
-        try { const stmts = parseBlock(c); if (stmts.some(st => !(st.k === "expr" && st.e.k === "id"))) return { k: "fn", params, body: { k: "lit", v: undefined }, stmts }; } catch (e) { if (!(e instanceof ParseError)) throw e; }
+        try { const stmts = parseBlock(c); if (stmts.some(st => !(st.k === "expr" && st.e.k === "id"))) return { k: "fn", params, body: { k: "lit", v: undefined }, stmts, ...(ptypes.some(Boolean) ? { ptypes } : {}) }; } catch (e) { if (!(e instanceof ParseError)) throw e; }
         c.i = at;
       }
-      return { k: "fn", params, body: parseExpr(c) };
+      return { k: "fn", params, body: parseExpr(c), ...(ptypes.some(Boolean) ? { ptypes } : {}) };   // 07 §3: `(v: string) => …`, the type is TypeScript's
     }
     c.i = save;
   }
@@ -585,16 +778,212 @@ function parseUnary(c: Cursor): Expr {
   if (c.startsWith("pending?")) { c.i += 8; c.ws(); return { k: "pending", e: parseUnary(c) }; }
   return parsePostfix(c);
 }
+/** 07 §3: type arguments at a call, `f<T>(…)`: a balanced `<…>` written right after the callee (no space) and followed
+ *  directly by `(`; else null (`a < b` stays a comparison). The list may span lines, so a formatter that breaks a long
+ *  type does not turn the call into comparisons. */
+/** 07 §3: whether `text`, between a call's `<` and `>`, is TypeScript type arguments: a comma-separated list of types
+ *  that a type grammar consumes completely, as TypeScript decides when it tries them and falls back to comparisons.
+ *  `a<b && c>(d)`, `a<b + c>(d)` and `a<b[c+1]>(d)` are comparisons; `f<{ a: string }[]>(x)`, `f<A | B>(x)`,
+ *  `f<(x: T) => U>(x)`, `f<K extends keyof T ? T[K] : never>(x)` are calls. (The crate's `looks_like_types`, token for token.) */
+type TyTok = { w: string } | { lit: "num" | "str" } | { p: string };   // a number is a type after `-`, a string is not
+const TY_PUNCT = ["...", "=>", "-?", "+?", "<", ">", "(", ")", "[", "]", "{", "}", ",", ";", ":", "?", "|", "&", ".", "=", "-", "+"];
+const TY_RESERVED = new Set(["extends", "keyof", "typeof", "infer", "readonly", "unique", "new", "abstract", "import", "is", "asserts", "in", "as", "this"]);
+/** R4 (RFC 11): the index just past the string or template literal opening at `s[j]`, with the spans of a template's own
+ *  substitutions in `subs`. A substitution is scanned as code: braces nest, and a string or template inside it is skipped
+ *  whole, so `${"}"}` does not end it. Null when the literal is not closed. */
+export function quotedEnd(s: string, j: number, subs: [number, number][]): number | null {
+  const q = s[j]; j++;
+  while (j < s.length) {
+    if (s[j] === "\\") j += 2;
+    else if (s[j] === q) return j + 1;
+    else if (q === "`" && s[j] === "$" && s[j + 1] === "{") {
+      const start = j + 2; let depth = 1; j = start;
+      while (depth > 0) {
+        if (j >= s.length) return null;
+        const c = s[j];
+        if (c === "{") { depth++; j++; }
+        else if (c === "}") { if (--depth === 0) subs.push([start, j]); j++; }
+        else if (c === '"' || c === "'" || c === "`") { const e = quotedEnd(s, j, []); if (e === null) return null; j = e; }
+        else j++;
+      }
+    } else j++;
+  }
+  return null;
+}
+function tyTokens(s: string): { t: TyTok[]; nl: boolean[] } | null {   // the tokens, and whether a line break comes before each (a member of an object type may end at one)
+  const out: TyTok[] = [], nl: boolean[] = []; let j = 0, brk = false;
+  const wordCh = (c: string) => /[\w$]/.test(c) || c.charCodeAt(0) >= 0x80;
+  while (j < s.length) {
+    const ch = s[j];
+    if (/\s/.test(ch)) { brk ||= ch === "\n"; j++; continue; }
+    nl.push(brk); brk = false;
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const subs: [number, number][] = []; const e = quotedEnd(s, j, subs); if (e === null) return null; j = e;
+      if (subs.some(([a, z]) => !oneType(s.slice(a, z)))) return null;   // a template literal type's substitution is a type: `${c+1}` makes the whole a comparison
+      out.push({ lit: "str" }); continue;
+    }
+    if (/[0-9]/.test(ch)) { while (j < s.length && /[A-Za-z0-9._]/.test(s[j])) j++; out.push({ lit: "num" }); continue; }
+    if (wordCh(ch)) { const k = j; while (j < s.length && wordCh(s[j])) j++; out.push({ w: s.slice(k, j) }); continue; }
+    const p = TY_PUNCT.find(p => s.startsWith(p, j)); if (!p) return null;   // `+`, `-?`, `+?` only as a mapped type's modifiers; elsewhere the grammar refuses them
+    out.push({ p }); j += p.length;
+  }
+  return { t: out, nl };
+}
+export function looksLikeTypes(text: string): boolean { return tyGrammar(text, false); }
+function oneType(text: string): boolean { return tyGrammar(text, true); }   // one type, consumed whole (a template literal type's substitution)
+function tyGrammar(text: string, one: boolean): boolean {
+  const tk = tyTokens(text); if (!tk) return false; const { t, nl } = tk;
+  let i = 0;
+  const isP = (k: number, p: string) => { const x = t[k]; return !!x && "p" in x && x.p === p; };
+  const isW = (k: number, w?: string) => { const x = t[k]; return !!x && "w" in x && (w === undefined || x.w === w); };
+  const isLit = (k: number, kind?: "num" | "str") => { const x = t[k]; return !!x && "lit" in x && (kind === undefined || x.lit === kind); };
+  const at = (p: string) => isP(i, p), atWord = (w: string) => isW(i, w);
+  const eat = (p: string) => at(p) ? (i++, true) : false;
+  const eatWord = (w: string) => atWord(w) ? (i++, true) : false;
+  const name = () => isW(i) ? (i++, true) : false;
+  const OPEN = ["(", "[", "{"], CLOSE = [")", "]", "}"];
+  const list = (): boolean => { for (;;) { if (!ty()) return false; if (!eat(",")) return true; if (i === t.length) return true; } };
+  const ty = (): boolean => {
+    if (fnType()) return true;
+    if (!union()) return false;
+    if (eatWord("extends")) { if (!union()) return false; return eat("?") && ty() && eat(":") && ty(); }   // a conditional type
+    return true;
+  };
+  const fnType = (): boolean => {   // `(…) => T`, `<T>(…) => T`, `new (…) => T`; a parenthesized type is not one
+    const start = i; eatWord("abstract"); const ctor = eatWord("new");
+    if (at("<")) { i++; if (!typeParams()) { i = start; return false; } }
+    if (!at("(")) { i = start; return false; }
+    let depth = 0, k = i;
+    for (; k < t.length; k++) { const x = t[k]; if ("p" in x && OPEN.includes(x.p)) depth++; else if ("p" in x && CLOSE.includes(x.p)) { if (--depth === 0) break; } }
+    if (!isP(k + 1, "=>")) { if (ctor) return false; i = start; return false; }
+    i++; if (!params(")")) return false; if (!eat("=>")) return false; return ret();
+  };
+  const ret = (): boolean => {   // a type, or a predicate `x is T` / `asserts x [is T]`
+    const save = i;
+    if (eatWord("asserts") && name()) { if (eatWord("is")) return ty(); return true; }
+    i = save; if (name() && eatWord("is")) return ty();
+    i = save; return ty();
+  };
+  const typeParams = (): boolean => {
+    for (;;) {
+      eatWord("const"); eatWord("in"); eatWord("out");
+      if (!name()) return false;
+      if (eatWord("extends") && !ty()) return false;
+      if (eat("=") && !ty()) return false;
+      if (eat(">")) return true; if (!eat(",")) return false; if (eat(">")) return true;
+    }
+  };
+  const params = (close: string): boolean => {
+    for (;;) {
+      if (eat(close)) return true;
+      eat("...");
+      if (at("{") || at("[")) { if (!skipBalanced()) return false; } else if (!name()) return false;
+      eat("?");
+      if (eat(":") && !ty()) return false;
+      if (eat("=")) return false;   // no initializer in a type
+      if (eat(close)) return true; if (!eat(",")) return false;
+    }
+  };
+  const skipBalanced = (): boolean => {
+    let depth = 0;
+    for (; i < t.length; i++) { const x = t[i]; if ("p" in x && OPEN.includes(x.p)) depth++; else if ("p" in x && CLOSE.includes(x.p)) { if (--depth === 0) { i++; return true; } } }
+    return false;
+  };
+  const union = (): boolean => { eat("|"); for (;;) { if (!intersection()) return false; if (!eat("|")) return true; } };
+  const intersection = (): boolean => { eat("&"); for (;;) { if (!operator()) return false; if (!eat("&")) return true; } };
+  const operator = (): boolean => {
+    if (eatWord("keyof") || eatWord("unique") || eatWord("readonly")) return operator();
+    if (eatWord("infer")) {
+      if (!name()) return false;
+      const save = i; if (eatWord("extends")) { if (!(operator() && !at("?"))) i = save; }   // `infer U extends T`, unless it begins a conditional type's `extends`
+      return true;
+    }
+    return postfix();
+  };
+  const postfix = (): boolean => {
+    if (!primary()) return false;
+    while (at("[")) { i++; if (eat("]")) continue; if (!(ty() && eat("]"))) return false; }
+    return true;
+  };
+  const args = (): boolean => {   // after a name: `<T, U>`
+    if (!eat("<")) return true;
+    for (;;) { if (!ty()) return false; if (eat(">")) return true; if (!eat(",")) return false; }
+  };
+  const dotted = (): boolean => { while (eat(".")) if (!name()) return false; return true; };
+  const primary = (): boolean => {
+    const x = t[i]; if (!x) return false;
+    if ("lit" in x) { i++; return true; }
+    if ("p" in x) {
+      if (x.p === "-") { i++; if (isLit(i, "num")) { i++; return true; } return false; }
+      if (x.p === "(") { i++; return ty() && eat(")"); }
+      if (x.p === "[") { i++; return tuple(); }
+      if (x.p === "{") { i++; return object(); }
+      return false;
+    }
+    if (x.w === "typeof") { i++; if (!eatWord("import") && !name()) return false; return dotted() && args(); }
+    if (x.w === "import") { i++; if (!(eat("(") && isLit(i, "str"))) return false; i++; if (!eat(")")) return false; return dotted() && args(); }
+    if (!TY_RESERVED.has(x.w) || x.w === "this") { i++; return dotted() && args(); }
+    return false;
+  };
+  const tuple = (): boolean => {
+    for (;;) {
+      if (eat("]")) return true;
+      eat("...");
+      const save = i; if (name()) { eat("?"); if (!eat(":")) i = save; }   // a labelled element, `name?: T`
+      if (!ty()) return false;
+      eat("?");
+      if (eat("]")) return true; if (!eat(",")) return false;
+    }
+  };
+  const propName = (): boolean => (isW(i) || isLit(i)) ? (i++, true) : false;
+  const object = (): boolean => {
+    for (;;) { if (eat("}")) return true; if (!member()) return false; if (eat("}")) return true; if (!(eat(",") || eat(";") || nl[i])) return false; }
+  };
+  const member = (): boolean => {
+    const save = i;   // a call or construct signature: `(…): T`, `<T>(…): T`, `new (…): T`
+    if (atWord("new") && (isP(i + 1, "(") || isP(i + 1, "<"))) i++;
+    if (at("(") || at("<")) { if (eat("<") && !typeParams()) return false; return eat("(") && params(")") && (!eat(":") || ret()); }
+    i = save;
+    if ((at("-") || at("+")) && isW(i + 1, "readonly")) i++;   // modifiers: `readonly`, `+readonly`, `-readonly`, `get`/`set` accessors
+    if (atWord("readonly") && !(isP(i + 1, ":") || isP(i + 1, "?") || isP(i + 1, "(") || isP(i + 1, ",") || isP(i + 1, ";") || isP(i + 1, "}"))) i++;
+    if ((atWord("get") || atWord("set")) && (isW(i + 1) || isLit(i + 1) || isP(i + 1, "["))) i++;
+    if (eat("[")) {   // an index signature `[k: string]: T`, a mapped type `[K in T as U]-?: V`, or a computed name `[Symbol.iterator]`
+      const s2 = i;
+      if (name() && eat(":")) { if (!(ty() && eat("]"))) return false; }
+      else { i = s2;
+        if (name() && eatWord("in")) { if (!ty()) return false; if (eatWord("as") && !ty()) return false; if (!eat("]")) return false; }
+        else { i = s2; if (!name()) return false; if (!dotted()) return false; if (!eat("]")) return false; } }
+    } else if (!propName()) return false;
+    void (eat("?") || eat("-?") || eat("+?"));
+    if (at("(") || at("<")) { if (eat("<") && !typeParams()) return false; return eat("(") && params(")") && (!eat(":") || ret()); }   // a method
+    if (eat(":")) return ty();
+    return false;   // a member with no type is `any` in a declaration but not in an object type literal
+  };
+  return (one ? ty() : list()) && i === t.length;
+}
+function typeArgsAt(s: string, i: number): { text: string; end: number } | null {
+  if (s[i] !== "<") return null; let depth = 0;
+  for (let j = i; j < s.length; j++) {
+    const ch = s[j];
+    if (ch === '"' || ch === "'" || ch === "`") { const e = quotedEnd(s, j, []); if (e === null) return null; j = e - 1; continue; }   // R4: a string type argument is skipped whole (`f<"}">(x)`)
+    if ("<([{".includes(ch)) depth++;
+    else if (")]}".includes(ch) || (ch === ">" && s[j - 1] !== "=")) {
+      if (--depth === 0) { const text = s.slice(i + 1, j).trim(); return ch === ">" && s[j + 1] === "(" && looksLikeTypes(text) ? { text, end: j + 1 } : null; }
+    }
+  }
+  return null;
+}
 function parsePostfix(c: Cursor): Expr {
-  let e = parsePrimary(c);
+  let e = parsePrimary(c); let targs: string | undefined;
   for (;;) {
+    if (c.peek() === "<" && (e.k === "id" || e.k === "member")) { const t = typeArgsAt(c.src, c.i); if (!t) return e; c.i = t.end; targs = t.text; continue; }
     if (c.eat("?.")) { if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i, opt: true }; } else e = { k: "member", o: e, p: c.ident() ?? c.fail("member"), opt: true }; }
     else if (c.eat(".")) e = { k: "member", o: e, p: c.ident() ?? c.fail("member") };
     else if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i }; }
     else if (c.peek() === "(") {
       c.i++; c.ws(); const args: Expr[] = [];
       while (!c.startsWith(")")) { args.push(parseExpr(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
-      c.expect(")"); e = { k: "call", f: e, args };
+      c.expect(")"); e = { k: "call", f: e, args, ...(targs ? { targs } : {}) }; targs = undefined;
     } else return e;
   }
 }
@@ -735,6 +1124,16 @@ function parseControl(c: Cursor): Markup | null {
       const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
       const { decls, body } = parseBlockBody(c);
       return { k: "errored", fallback, decls, body, errName, classes };
+  }
+  {                                                                                          // MO-11k: `view (a, b) { … }`, only with names in the parentheses and a block after them
+    const save = c.i;
+    if (c.keyword("view")) {
+      c.ws(); let prop: string | undefined; if (!c.startsWith("(")) { const n = c.ident(); if (n && !KEYWORDS.has(n)) { prop = n; c.ws(); } }   // a named render prop
+      const params: string[] = []; let ok = c.eat("(");
+      while (ok) { c.ws(); if (c.eat(")")) break; const n = c.ident(); if (!n || KEYWORDS.has(n)) { ok = false; break; } params.push(n); c.ws(); if (!c.eat(",") && !c.startsWith(")")) ok = false; }
+      if (ok) { c.ws(); if (c.eat("{")) { const { decls, body } = parseBlockBody(c); return { k: "mview", ...(prop ? { prop } : {}), params, decls, body }; } }
+    }
+    c.i = save;
   }
   if (c.keyword("for")) {
       c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();

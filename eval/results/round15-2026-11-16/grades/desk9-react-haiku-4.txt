@@ -1,0 +1,11 @@
+== hidden
+77/77 passed
+== overlap
+✗ base: comments that load while a post is out keep the post
+✗ base: settings: a later save failing while an earlier one is out shows its error and then the earlier result
+✗ labels that load while an add is out keep the add
+35/38 passed
+== fuzz
+desk9-react-haiku-4: 1/20 seeds found a hole
+  seed 2 step 37: at rest: comments: #2 shows [], server [guest: fixed? | guest: fixed?]
+    filter closed ; land fetchIssues:closed ; row-assign 0 ; select #2 ; land fetchIssue:2 ; assign ; rename Delta ; fail renameIssue:2,Delta ; fail fetchIssues:open ; close ; focus ; land fetchLabels:2 ; fail search:Old bug ; land closeIssue:2 ; fail fetchComments:2 ; row-assign 0 ; select #2 ; post fixed? ; select #2 ; post fixed? ; select #2 ; close ; land closeIssue:2 ; rename Alpha ; rename B

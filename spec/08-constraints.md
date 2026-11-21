@@ -33,6 +33,7 @@ runtime check.
 | an unkeyed `for` over records whose values change | ST-4b | static shape check |
 | exported rows: a component's props and an exported equation carry their rows in their types | RG-4, R-14 | emitted in `.d.rx`; checked at the import (CN-4) |
 | every failure a reader can see is discharged above it; an action catches what its body can fail with | R-f-5, R-f-6 | the `fails` row over the static application tree (CN-6) |
+| a value that must stay where the checker can see what is done with it: a JS result's held fields, a library's draft, a `renders` value, a primitive's instance | 09 MO-10f, MO-10i, MO-11l, MO-11o; E-10, E-5a | rules on where a name is written, and "may hold" by mention (CN-7); no value is followed |
 
 ## CN-3 — Soundness and the static graph
 
@@ -87,7 +88,10 @@ runtime check.
   turns it on from Solid's options (`generate: "dom"`, `hydratable:
   false`). (Ryan, 2026-10-30: "The problem with topmost in csr on initial
   load is you see nothing"; "Answer after first paint is fine.. its just a
-  transition as normal".) Checked by `rxc`, not yet by `ref/`.
+  transition as normal".) Checked by `rxc` and by `ref/` (`checkModules(set,
+  true)`): a scenario's rejected variant with a `-- spa` line is checked as a
+  client-only build (S-module-11), and `ref/crate.ts --spa` compares the two
+  on every program.
 - **CN-3e (An outside read holds a `loading on`) — Ryan, 2026-10-30.** A
   `loading on(k)` region re-arms when `k` changes, to show its fallback
   while what it waits on loads again. A reader outside that region of a
@@ -104,7 +108,7 @@ runtime check.
   another component is left to Solid's run-time report. The fix is
   structural: move the read under the region, or read `latest x` outside
   it. Both show a guess the screen shows until its hold commits (H-11,
-  S-latest-reask; on Solid rc.21 `latest` does not yet, DV-19). (Ryan: "if you can make a reasonable static check we should do it";
+  S-latest-reask; Solid's `latest` does so from rc.22, DV-19 fixed). (Ryan: "if you can make a reasonable static check we should do it";
   found by the round 9 eval, where a tab count's effect outside the list's
   `loading on(filter)` froze the old list on a filter switch in 39 of 82
   `.rx` apps.) Checked by `rxc` and `ref/`.
@@ -147,6 +151,41 @@ runtime check.
   provision's failures at every `use`. An `await` whose promise cannot be
   traced to an import fails with `Error`.
 
+## CN-7 — Values that stay where they are checked (ruled 2026-11-22)
+
+- **CN-7a (No value is followed).** Four checks need a value not to get
+  somewhere the checker cannot see: a JS result whose fields hold or fail
+  (the field must be read where a boundary is asked for), a library's
+  draft (it is the callback's only while the library's call runs), a
+  value `renders` checked where it is bound (its components must render
+  there), a primitive's instance (it is made once only while nothing is
+  read through it). `.rx` has first-class functions and the checker
+  reads no types, so "which values may this expression be" has no answer
+  that is both sound and precise, and an analysis that follows values
+  through aliases, records, calls and closures is a list of the ways
+  someone thought of. The checks are therefore stated so that soundness
+  is local (09 MO-10k):
+  - a result with held fields and a draft are not values at all: the
+    rule is on where their name is written, and a draft's reads are
+    copies by compilation;
+  - a `renders` value and an instance are confined *by mention*: a value
+    may hold a part of one when its expression mentions its name, unless
+    what is written makes a primitive; every way out of the region or
+    the module is where the check refuses it or stops naming it.
+- **CN-7b (Stricter, on purpose, and said).** This is CN-3a's stance, an
+  over-approximation that rejects some fine programs and never admits a
+  wrong one: a path read out of a `renders` value is confined with it,
+  and a result with held fields cannot be passed to a child (its field
+  can). The way round is in the language, not an escape: make a
+  primitive (`str(row.id)`), pass the field, share a change as an action,
+  loop with the statement.
+- **CN-7c (The boundary).** What JS does with a value it is given is its
+  declaration's to say (CN-3b, CN-5): `pure` keeps nothing, `io` may keep
+  anything, `draft` and the field rows are trusted as written and checked
+  by running (`rx-verify`, 09 MO-8j). The checks are sound for `.rx` over
+  those declarations, and silent about what undeclared JS does on its
+  own side.
+
 ## CN-5 — The escape
 
 One word: **`pure`**, at the JS boundary (R-io-4) — the author asserts a
@@ -169,6 +208,7 @@ and no `dynamic` marker: the static graph's checks are sound over `.rx`
 | `NOT_AN_ERROR_CLASS` (new) | S | R-f-1 |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY` | R; S in a client-only build | CN-3c: a runtime report, not a constraint; CN-3d: a first load nothing holds in a client-only build |
 | `LOADING_ON_OUTSIDE_HOLD` | S | CN-3e: a reader outside a `loading on(k)` region of what it waits on |
+| `RESULT_AS_VALUE` (new), `DRAFT_ESCAPES`, `RENDERS_ESCAPES` | S | CN-7; 09 MO-10f, MO-10i, MO-11l, MO-11o |
 
 ---
 

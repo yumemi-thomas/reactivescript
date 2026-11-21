@@ -1,0 +1,23 @@
+import { archivedShown, restoreError, restore } from "./archive.rx"
+
+export component ArchivePage() {
+  <section class="archive">
+    {if restoreError != "" {
+      <p class="error" data-testid="restore-error" role="alert">{`restore error: ${restoreError}`}</p>
+    }}
+    <div data-testid="archived">
+      {loading fallback { <p>loading archive</p> } {
+        {errored fallback(e) { <p class="error" role="alert">{`archive error: ${e.message}`}</p> } {
+          <ul>
+            {for a in archivedShown {
+              <li>
+                <span data-testid="archived-card">{`#${a.id} ${a.title}`}</span>{" "}
+                <button data-testid="restore" onClick={() => { restore(a.id) }}>restore</button>
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </div>
+  </section>
+}

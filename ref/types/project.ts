@@ -8,13 +8,13 @@
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
 import type { ModuleSet } from "../src/modules.ts";
-import type { JsDecl } from "../src/parse.ts";
+import { splitTop, shapeHasRef, type JsDecl, type Shape } from "../src/parse.ts";
 import type { ModSig } from "../src/check.ts";
 
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until", "onSettled", "onFlush"]);
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
-const isHandler = (a: string) => /^on[A-Z:]/.test(a);
+const isHandler = (a: string) => /^on[A-Z:]/.test(a) || a === "ref";
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
 /** A written type, without its row words (`pending T` → `T`, 04 CN-4a) or a context's `source` (RG-7c). */
 const typeText = (t?: string) => t?.replace(ROW_WORDS, "").replace(/^source\s+/, "").trim() || undefined;
@@ -43,6 +43,8 @@ export declare function set<T>(target: T): (v: T | ((p: T) => T)) => void;
 export type Widen<T> = 0 extends (1 & T) ? any : [T] extends [null | undefined] ? any : [T] extends [never[]] ? any[] : [T] extends [string] ? string : [T] extends [number] ? number : [T] extends [boolean] ? boolean : T;
 export declare function src<T>(v: T): Widen<T>;
 export declare function typed<T>(v: T): T;
+/** MO-10h: a signal parameter: the compiler makes a Solid signal of the value passed, Solid's own type. */
+export declare function signal<T>(v: T): import("solid-js").Signal<T>;
 type ElemOf<X> = 0 extends (1 & X) ? any : X extends Iterable<infer U> ? U : X extends ArrayLike<infer U> ? U : any;
 export declare function each<X>(xs: X, f: (x: ElemOf<X>) => JSX.Element): JSX.Element;
 /** 12 SF-6a: what crosses the wire — data. \`Bad<T>\` is true where a function or an instance of a class is in it (\`any\`: not
@@ -53,6 +55,8 @@ export declare function wire<A extends unknown[], R>(f: (...a: A) => Promise<R>,
 /** 07 §6: a view (\`props.children: View\`); R-f-10: the class a panic is. */
 export type View = JSX.Element;
 export type Panic = Error;
+/** CP-4a: an entry's default export, a function of the app (\`createApp\`'s, either build) giving the view \`app.mount\` takes. */
+export type Main = (app: object) => () => View;
 export interface Ctx<T> { readonly __ctx: T }
 export declare function ctx<T>(d?: T): Ctx<T>;
 export declare function use<T>(c: Ctx<T>): T;
@@ -95,26 +99,58 @@ export function projectModules(set: ModuleSet): Projected[] {
     out.push({ path: projectedPath(path), code: w.out.join("\n"), lines: w.lines, rx: path });
   }
   for (const [rx, sig] of set.signatures ?? []) out.push({ path: `${rx}.d.ts`, code: signatureStub(sig), lines: [], rx: rx.replace(/\.rx$/, ".d.rx") });   // TY-4c
-  for (const [dts, decls] of set.declarations ?? []) out.push({ path: dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationFile(decls), lines: [], rx: dts });
+  for (const [dts, decls] of set.declarations ?? []) out.push({ path: typesPathOf(dts) ?? dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationFile(decls), lines: [], rx: dts });
   for (const [mod, names] of jsStubs) out.push({ path: mod, code: [...names].map(n => n === "default" ? "declare const __d: any; export default __d;" : `export declare const ${n}: any;`).join("\n"), lines: [], rx: mod });
   return out;
 }
 
+/** MO-8k: a package's declaration that is not beside the package's file (the project's `rx-types/`, a shared `@rx-types`
+ *  package, a generated `.rx-types/` draft) is projected where TypeScript looks for a package's types when it ships none:
+ *  `node_modules/@types/<scope>__<name>/<subpath or index>.d.ts`. */
+export function typesPathOf(dts: string): string | undefined {
+  let root: string, spec: string;
+  let m = /^(.*?)node_modules\/\.rx-types\/(.+)\.d\.rx$/.exec(dts);
+  if (m) { root = m[1]; spec = m[2]; }
+  else if ((m = /^(.*?)node_modules\/@rx-types\/([^/]+)\/(.+)\.d\.rx$/.exec(dts))) return `${m[1]}node_modules/@types/${m[2]}/${m[3]}.d.ts`;
+  else if ((m = /^(.*?\/|)rx-types\/(.+)\.d\.rx$/.exec(dts))) { root = m[1]; spec = m[2]; }
+  else return undefined;
+  const seg = spec.split("/"); const n = spec.startsWith("@") ? 2 : 1;
+  return `${root}node_modules/@types/${seg.slice(0, n).join("/").replace(/^@/, "").replace("/", "__")}/${seg.slice(n).join("/") || "index"}.d.ts`;
+}
 /** TY-4c: an `.rx` module read by its signature (MO-9) is typed by the \`.d.ts\` TypeScript emits from its projection (TY-1c);
  *  ref/ ships none, so its exports are \`any\` here. */
 function signatureStub(sig: ModSig): string {
   return [...sig.exports].map(([n, x]) => x.kind === "type" ? `export type ${n} = any;` : x.kind === "comp" ? `export declare function ${n}(props: any): any;` : `export declare const ${n}: any;`).join("\n");
 }
 /** MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module. */
+/** MO-10b: a declared result's type as JS has it: a `ref` result, or a `ref` part of a tuple or record, is an accessor. */
+export function accessorResult(ret: string | undefined, shape: Shape | undefined): string {
+  if (!ret) return "any";
+  const acc = (t: string) => `(() => ${t})`;
+  if (shape === "ref") return acc(ret);
+  if (/^readonly\s+\[/.test(ret)) return `readonly ${accessorResult(ret.replace(/^readonly\s+/, ""), shape)}`;   // MO-10b: an `as const` tuple
+  if (shape && typeof shape === "object" && "items" in shape && shape.items.includes("ref") && ret.startsWith("[") && ret.endsWith("]"))
+    return `[${splitTop(ret.slice(1, -1), ",").map((x, i) => shape.items[i] === "ref" ? acc(x.trim()) : x.trim()).join(", ")}]`;
+  if (shape && typeof shape === "object" && "fields" in shape && shape.fields.some(f => f[1] === "ref") && ret.startsWith("{") && ret.endsWith("}"))
+    return `{ ${splitTop(ret.slice(1, -1), ",;").map(x => { const i = x.indexOf(":"); if (i < 0) return `${x.trim()};`; const k = x.slice(0, i).trim(); const r = shape.fields.some(f => f[0] === k.replace(/^readonly\s+/, "").replace(/\?$/, "") && f[1] === "ref"); return `${k}: ${r ? acc(x.slice(i + 1).trim()) : x.slice(i + 1).trim()};`; }).join(" ")} }`;
+  return ret;
+}
 function declarationFile(decls: JsDecl[]): string {
   const own = new Set(decls.filter(d => d.kind === "type").map(d => d.name));
   const head = decls.some(d => d.kind === "comp" || (d.kind === "fn" && d.shape === "comp")) ? [...own.has("View") ? [] : ["type View = import(\"@solidjs/web/jsx-runtime\").JSX.Element;"], ...own.has("Component") ? [] : ["type Component<P = any> = (props: P) => View;"]] : [];   // MO-11a: a field's types
-  return [...head, ...decls.map(d => {
+  const fnOf = (d: Extract<JsDecl, { kind: "comp" }>) => `(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }) => View`;
+  // MO-11q: `Dialog.Root` and its siblings are members of one exported object (itself a component when it is declared one)
+  const members = new Map<string, Extract<JsDecl, { kind: "comp" }>[]>();
+  for (const d of decls) if (d.kind === "comp" && d.name.includes(".")) { const h = d.name.slice(0, d.name.indexOf(".")); members.set(h, [...members.get(h) ?? [], d]); }
+  const objectOf = (h: string) => `{ ${members.get(h)!.map(m => `${m.name.slice(h.length + 1)}: ${fnOf(m)};`).join(" ")} }`;
+  const objects = [...members.keys()].filter(h => !decls.some(d => d.kind === "comp" && d.name === h)).map(h => `export declare const ${h}: ${objectOf(h)};`);
+  return [...head, ...objects, ...decls.filter(d => d.kind !== "context" && !(d.kind === "comp" && d.name.includes("."))).map(d => {   // MO-12a: a JS context has no TypeScript of its own
     if (d.kind === "type") return `export ${d.text ?? `type ${d.name} = any`}`;
-    if (d.kind === "comp") return `export declare function ${d.name}(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }): View;`;
+    if (d.kind === "comp") return members.has(d.name) ? `export declare const ${d.name}: (${fnOf(d)}) & ${objectOf(d.name)};` : `export declare function ${d.name}(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }): View;`;
+    if (d.kind === "value") return `export declare const ${d.name}: ${d.type ?? "any"};`;   // MO-8g
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
-    const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
-    return `export declare function ${d.name}(${ps}): ${d.ret ?? "any"};`;
+    const ps = d.params.map((n, i) => { const o = d.opts?.[i] ? "?" : ""; return d.sigs?.[i] ? `${n}${o}: import("solid-js").Signal<${d.ptypes?.[i] ?? "any"}>` : d.refs?.[i] ? `${n}${o}: (() => ${d.ptypes?.[i] ?? "any"})` : d.ptypes?.[i] ? `${n}${o}: ${d.ptypes[i]}` : o ? `${n}?: any` : n; }).join(", ");   // MO-8e: an optional parameter   // MO-10a: a `ref` parameter is an accessor in JS
+    return `export declare function ${d.name}${d.tparams ?? ""}(${ps}): ${accessorResult(d.ret, d.shape)};`;
   })].join("\n") + "\n";
 }
 
@@ -122,12 +158,17 @@ class Proj {
   w: W; set: ModuleSet; path: string; jsStubs: Map<string, Set<string>>;
   private used = new Set<string>();                         // prelude names the module reads
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
+  private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
+  private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
+  private nestFns = new Map<string, { kids: string; inside: string; joins: string }>();   // MO-11i: declared factories that nest, by local name
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
 
   module(p: Program) {
     const body = new W(); const saved = this.w; this.w = body;
     this.decls(p.decls, "", true);
     if (p.view.length) { this.w.emit(`export const __view = (`, p.view[0].line ?? 1); this.markup(p.view, "  "); this.w.emit(`);`, p.view[p.view.length - 1].line ?? 1); }
+    const main = p.decls.find(d => d.k === "component" && d.isDefault);
+    if (main) this.w.emit(`declare const __main: __.Main; export default __main;`, main.line);   // CP-4a: what JS imports from an entry
     this.w = saved;
     const prelude = [...this.used].filter(n => !this.declared.has(n));
     const types = ["View", "Panic"].filter(n => !this.declared.has(n));
@@ -170,7 +211,11 @@ class Proj {
     }
     for (const d of this.order(ds)) {
       if (d.k === "source") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${typeText(d.type) ? `__.typed<${typeText(d.type)}>(${this.expr(d.init, false)})` : `__.src(${this.expr(d.init, false)})`};`, d.line);
-      if (d.k === "eq") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}, true);`, d.line);   // R-1: no promise without `await`
+      if (d.k === "eq") {
+        const x = d.e.k === "call" && d.e.f.k === "id" ? this.refFns.get(d.e.f.name) : undefined;   // MO-10b: a `ref` result is read as its value
+        if (x && typeof x.shape === "object") this.refParts.set(d.name, x.shape);
+        this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}${x?.shape === "ref" ? "()" : ""}, true);`, d.line);   // R-1: no promise without `await`
+      }
       if (d.k === "provide") this.w.emit(`${ind}__.provide(${d.name}, ${this.expr(d.e, false)});`, d.line);
     }
     for (const d of ds) if (d.k === "effect") {
@@ -186,6 +231,7 @@ class Proj {
     const prelude = d.names.filter(n => BUILTINS.has(n.name));
     if (prelude.length) { for (const n of prelude) this.used.add(n.name); }
     const rest = d.names.filter(n => !BUILTINS.has(n.name)); if (!rest.length) return;
+    if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || x.sigs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); if (x?.kind === "fn" && x.nests && x.joins) this.nestFns.set(n.alias, { ...x.nests, joins: x.joins }); }   /* MO-11i (revised 2026-11-21): paths are joined only under a factory that says which field holds them */
     let from = d.from;
     if (!d.resolved && !d.declared) {                                                        // a JS module with no declaration: `any`
       const key = this.modPath(d.from) + ".ts"; let s = this.jsStubs.get(key); if (!s) this.jsStubs.set(key, (s = new Set())); for (const n of rest) s.add(n.name); from = d.from;
@@ -223,6 +269,7 @@ class Proj {
         case "write": case "optimistic": this.w.emit(`${ind}__.set(${this.target(s.target)})(${e(s.e)});`, 0); break;
         case "refresh": case "affects": this.w.emit(`${ind}void ${s.name};`, 0); break;
         case "action": this.w.emit(`${ind}void (async () => {`, 0); this.stmts(s.body, ind + "  "); this.w.emit(`${ind}})();`, 0); break;
+        case "for": this.w.emit(`${ind}for (const ${s.name} of ${e(s.e)}) {`, 0); this.stmts(s.body, ind + "  "); this.w.emit(`${ind}}`, 0); break;
         case "sif": this.w.emit(`${ind}if (${e(s.c)}) {`, 0); this.stmts(s.t, ind + "  "); this.w.emit(`${ind}} else {`, 0); this.stmts(s.f, ind + "  "); this.w.emit(`${ind}}`, 0); break;
         case "try": {
           this.w.emit(`${ind}try {`, 0); this.stmts(s.body, ind + "  ");
@@ -237,6 +284,23 @@ class Proj {
     let s = t.ctx ? `__.use(${t.name})` : t.name;
     for (const p of t.path) s += typeof p === "string" ? `.${p}` : `[${this.expr(p, true)}]`;
     return s;
+  }
+
+  /** MO-11i, types only: under a factory that nests and `joins(field)`, a record's literal `field` is written joined with its parents' (the
+   *  projection is never run; a record with no path, such as the config around the table, is looked through), so a child route's types see its parents' params. `prefix` null: a parent path the
+   *  projection cannot read, so nothing below is rewritten. */
+  private nestArg(e: Expr, prefix: string[] | null, n: { kids: string; inside: string; joins: string }, imp: boolean, self?: string): string {
+    const go = (x: Expr) => this.expr(x, imp, self);
+    if (prefix === null) return go(e);
+    if (e.k === "arr") return `[${e.items.map(x => x.k === "spread" ? go(x) : this.nestArg(x, prefix, n, imp, self)).join(", ")}]`;
+    if (e.k === "call") return `${go(e.f)}${e.targs ? `<${e.targs}>` : ""}(${e.args.map(a => this.nestArg(a, prefix, n, imp, self)).join(", ")})`;
+    if (e.k !== "rec") return go(e);
+    const pathField = e.fields.find(f => !("spread" in f) && f.key === n.joins) as { key: string; v: Expr } | undefined;
+    // a path is a literal or an array of literals (alternatives); under alternatives, each joined with each
+    const lits = !pathField ? null : pathField.v.k === "lit" && typeof pathField.v.v === "string" ? [pathField.v.v] : pathField.v.k === "arr" && pathField.v.items.length && pathField.v.items.every(x => x.k === "lit" && typeof x.v === "string") ? pathField.v.items.map(x => (x as { v: string }).v) : null;
+    const own = pathField ? (lits ? prefix.flatMap(p => lits.map(l => joinPath(p, l))) : null) : prefix;
+    const written = (o: string[]) => o.length === 1 && !(pathField!.v.k === "arr") ? J(o[0]) : `[${o.map(J).join(", ")}]`;
+    return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : f === pathField && own !== null ? `${J(f.key)}: ${written(own)}` : f.key === n.kids || !pathField ? `${J(f.key)}: ${this.nestArg(f.v, own, n, imp, self)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
   }
 
   // ---- expressions: `imp` imperative scope (a real `await`); `self` the equation being defined (its own `pre`) ----
@@ -257,16 +321,21 @@ class Proj {
       case "throw": return `__.raise(${go(e.e)})`;
       case "catch": return `__.caught(${go(e.e)}, (${e.name ?? "__e"}: ${e.classes ? e.classes.join(" | ") : "Error"}) => ${go(e.alt)})`;
       case "tpl": return "`" + e.parts.map(p => typeof p === "string" ? p.replace(/[`\\]|\$\{/g, m => "\\" + m) : "${" + go(p) + "}").join("") + "`";
-      case "member": return `${go(e.o)}${e.opt ? "?." : "."}${e.p}`;
-      case "index": return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]`;
+      case "member": { const s = e.o.k === "id" ? this.refParts.get(e.o.name) : undefined; return `${go(e.o)}${e.opt ? "?." : "."}${e.p}${s && typeof s === "object" && "fields" in s && s.fields.some(f => f[0] === e.p && f[1] === "ref") ? "()" : ""}`; }   // MO-10b
+      case "index": { const s = e.o.k === "id" ? this.refParts.get(e.o.name) : undefined; return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]${s && typeof s === "object" && "items" in s && e.i.k === "lit" && typeof e.i.v === "number" && s.items[e.i.v] === "ref" ? "()" : ""}`; }   // MO-10b
       case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it
-      case "call": return `${go(e.f)}(${e.args.map(go).join(", ")})`;
+      case "call": {
+        const nests = e.f.k === "id" ? this.nestFns.get(e.f.name) : undefined;
+        const ta = e.targs ? `<${e.targs}>` : "";   // 07 §3: type arguments, as written
+        if (nests) return `${go(e.f)}${ta}(${e.args.map(a => this.nestArg(a, [""], nests, imp, self)).join(", ")})`;   // MO-11i: a nested route typed with its parents' path
+        const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}${ta}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : x?.sigs?.[i] ? `__.signal(${go(a)})` : go(a)).join(", ")})`;   // MO-10a: a `ref` argument is an accessor; MO-10h: a `signal` one a signal of the value
+      }
       case "arr": return `[${e.items.map(go).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "spread": return `...${go(e.e)}`;
       case "omit": return `__.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;
       case "fn": {
-        const ps = e.params.join(", ");
+        const ps = e.params.map((n, i) => `${n}${e.ptypes?.[i] ? `: ${e.ptypes[i]}` : ""}`).join(", ");   // 07 §3: a parameter's type
         if (!e.stmts) return `((${ps}) => ${this.expr(e.body, imp, self)})`;
         const w = new W(); const saved = this.w; this.w = w; this.stmts(e.stmts, "  "); this.w = saved;
         return `(${hasAwait(e.stmts) ? "async " : ""}(${ps}) => {\n${w.out.join("\n")}\n})`;
@@ -303,6 +372,14 @@ class Proj {
       case "el": {
         if (m.tag === "") { this.w.emit(`${ind}<>`, line); for (const c of m.children) this.child(c, ind + "  "); this.w.emit(`${ind}</>`, line); return; }
         const attrs = m.attrs.map(a => a.name === "..." ? ` {...${this.expr(a.e, false)}}` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : ` ${a.name}={${this.expr(a.e, isHandler(a.name))}}`).join("");
+        const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
+        const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
+        if (named.length) {
+          this.w.emit(`${ind}<${m.tag}${attrs}`, line);
+          for (const v of named) { this.w.emit(`${ind}  ${v.prop}={((${v.params.join(", ")}) => (`, v.line ?? line); this.region(v.decls, v.body, ind + "    ", v.line ?? line); this.w.emit(`${ind}  ))}`, v.line ?? line); }
+          if (!kids.length) { this.w.emit(`${ind}/>`, line); return; }
+          this.w.emit(`${ind}>`, line); for (const c of kids) this.child(c, ind + "  "); this.w.emit(`${ind}</${m.tag}>`, line); return;
+        }
         if (!m.children.length) { this.w.emit(`${ind}<${m.tag}${attrs} />`, line); return; }
         this.w.emit(`${ind}<${m.tag}${attrs}>`, line); for (const c of m.children) this.child(c, ind + "  "); this.w.emit(`${ind}</${m.tag}>`, line);
         void VOID_TAGS; return;
@@ -310,6 +387,9 @@ class Proj {
       case "mif": {
         this.w.emit(`${ind}{${this.expr(m.c, false)} ? (`, line); this.region(m.tDecls, m.t, ind + "  ", line);
         this.w.emit(`${ind}) : (`, line); this.region(m.fDecls, m.f, ind + "  ", line); this.w.emit(`${ind})}`, line); return;
+      }
+      case "mview": {                                                                           // MO-11k: the render prop, as the function the component's types expect
+        this.w.emit(`${ind}{((${m.params.join(", ")}) => (`, line); this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind}))}`, line); return;
       }
       case "mfor": {
         this.w.emit(`${ind}{__.each(${this.expr(m.xs, false)}, (${m.name}) => (`, line); this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind}))}`, line); return;
@@ -339,4 +419,11 @@ function freeIds(e: unknown, out = new Set<string>()): Set<string> {
   if (o.k === "pre") return out;                        // the previous instant's value: no ordering edge
   for (const [k, v] of Object.entries(o)) if (k !== "k") freeIds(v, out);
   return out;
+}
+
+/** MO-11i: a route path under its parent's: `/org/:org` and `/:id` give `/org/:org/:id`; `/` under anything is the parent. */
+function joinPath(parent: string, child: string): string {
+  if (!parent || parent === "/") return child;
+  if (child === "/" || child === "") return parent;
+  return parent.replace(/\/+$/, "") + (child.startsWith("/") ? child : "/" + child);
 }

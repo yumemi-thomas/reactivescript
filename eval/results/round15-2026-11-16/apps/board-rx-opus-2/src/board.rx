@@ -1,0 +1,308 @@
+import pure { fetchCards, fetchChecklist } from "./api"
+import { moveCard, renameCard, addCard, archiveCard, toggleItem, addItem, Card, Item } from "./api"
+import { Column } from "./column.rx"
+
+type Rename = { id: number; title: string }
+type Toggle = { card: number; item: number; done: boolean }
+type NewItem = { card: number; text: string }
+type Shown = { id: number; text: string; done: boolean; adding: boolean }
+type Checklist = { card: number; items: Item[] }
+
+fn titleOf(rs: Rename[], id: number, title: string): string => rs.reduce((t, r) => r.id == id ? r.title : t, title)
+fn doneOf(ts: Toggle[], item: number, done: boolean): boolean => ts.reduce((d, t) => t.item == item ? t.done : d, done)
+fn doneDelta(ts: Toggle[], card: number): number => ts.reduce((n, t) => t.card == card ? (t.done ? n + 1 : n - 1) : n, 0)
+fn addsFor(as: NewItem[], card: number): number => as.filter(a => a.card == card).length
+
+// The board as shown: the server's cards with the writes in flight laid over them.
+fn shape(rs: Card[], ren: Rename[], tog: Toggle[], adds: NewItem[], rem: number[]): Card[] =>
+  rs.filter(c => !rem.includes(c.id)).map(c => ({
+    id: c.id,
+    title: titleOf(ren, c.id, c.title),
+    done: c.done + doneDelta(tog, c.id),
+    total: c.total + addsFor(adds, c.id)
+  }))
+
+fn swap(rs: Card[], a: number, b: number): Card[] =>
+  rs.map(c => c.id == a ? (rs.find(r => r.id == b) ?? c) : c.id == b ? (rs.find(r => r.id == a) ?? c) : c)
+fn placed(rs: Card[], card: Card, index: number): Card[] => [...rs.filter(c => c.id != card.id).slice(0, index), card, ...rs.filter(c => c.id != card.id).slice(index)]
+fn without(rs: Card[], id: number): Card[] => rs.filter(c => c.id != id)
+fn withTitle(rs: Card[], id: number, title: string): Card[] => rs.map(c => c.id == id ? { id: c.id, title: title, done: c.done, total: c.total } : c)
+fn withCounts(rs: Card[], id: number, dDone: number, dTotal: number): Card[] =>
+  rs.map(c => c.id == id ? { id: c.id, title: c.title, done: c.done + dDone, total: c.total + dTotal } : c)
+
+fn findIn(rs: Card[] | null, id: number): Card | null => rs == null ? null : (rs.find(c => c.id == id) ?? null)
+fn countOf(rs: Card[] | null): number => rs == null ? -1 : rs.length
+fn labelOf(col: string): string => col == "todo" ? "To do" : col == "doing" ? "Doing" : "Done"
+
+export component Board() {
+  // retries: each one re-arms its column's loading boundary
+  source kTodo: number := 0
+  source kDoing: number := 0
+  source kDone: number := 0
+
+  // 1. the server's answers, one store per column
+  source todoAns: Card[] key id = await fetchCards("todo")
+  source doingAns: Card[] key id = await fetchCards("doing")
+  source doneAns: Card[] key id = await fetchCards("done")
+
+  // writes in flight, laid over every view
+  source renaming: Rename[] = []
+  source toggling: Toggle[] = []
+  source itemAdds: NewItem[] = []
+  source removing: number[] = []
+  source adding: string[] = []
+
+  todo key id = shape(todoAns, renaming, toggling, itemAdds, removing)
+  doing key id = shape(doingAns, renaming, toggling, itemAdds, removing)
+  done key id = shape(doneAns, renaming, toggling, itemAdds, removing)
+
+  // what each column shows right now (null while it loads or failed), reported by the column
+  source vTodo: Card[] | null := null
+  source vDoing: Card[] | null := null
+  source vDone: Card[] | null := null
+  nTodo = countOf(vTodo)
+  nDoing = countOf(vDoing)
+  nDone = countOf(vDone)
+  wipFull = nDoing < 0 || nDoing >= 3
+
+  // selection and the detail
+  source selected: number := 0
+  inTodo = findIn(vTodo, selected)
+  inDoing = findIn(vDoing, selected)
+  inDone = findIn(vDone, selected)
+  selCol = selected == 0 ? "" : inTodo != null ? "todo" : inDoing != null ? "doing" : inDone != null ? "done" : ""
+  sel = inTodo ?? inDoing ?? inDone
+
+  source checklist: Checklist = selected == 0 ? { card: 0, items: [] } : { card: selected, items: await fetchChecklist(selected) }
+  shownItems: Shown[] = [
+    ...checklist.items.map(i => ({ id: i.id, text: i.text, done: doneOf(toggling, i.id, i.done), adding: false })),
+    ...itemAdds.filter(a => a.card == checklist.card).map(a => ({ id: 0, text: a.text, done: false, adding: true }))
+  ]
+  doneItems = shownItems.filter(i => i.done).length
+
+  // inputs and messages
+  source newTitle: string := ""
+  source titleDraft: string := ""
+  source itemDraft: string := ""
+  source moveError: string := ""
+  source addError: string := ""
+  source archiveError: string := ""
+  source renameError: string := ""
+  source itemError: string := ""
+
+  action pick(id: number) {
+    if (id != selected) {
+      selected := id
+      titleDraft := ""
+      itemDraft := ""
+      onFlush(() => {
+        renameError := ""
+        itemError := ""
+      })
+    }
+  }
+
+  action moveIt(id: number, from: string, to: string, index: number, card: Card, other: number) {
+    onFlush(() => { moveError := "" })
+    try {
+      if (from == to) {
+        if (from == "todo") { guess todoAns := rs => swap(rs, id, other) }
+        else if (from == "doing") { guess doingAns := rs => swap(rs, id, other) }
+        else { guess doneAns := rs => swap(rs, id, other) }
+      } else {
+        if (from == "todo") { guess todoAns := rs => without(rs, id) }
+        else if (from == "doing") { guess doingAns := rs => without(rs, id) }
+        else { guess doneAns := rs => without(rs, id) }
+        if (to == "todo") { guess todoAns := rs => [...without(rs, id), card] }
+        else if (to == "doing") { guess doingAns := rs => [...without(rs, id), card] }
+        else { guess doneAns := rs => [...without(rs, id), card] }
+      }
+      let m = await moveCard(id, to, index)
+      // the server's answer is where the card now is: write it into the answers it changed
+      if (from == "todo" && to != "todo") { todoAns := rs => without(rs, id) }
+      else if (from == "doing" && to != "doing") { doingAns := rs => without(rs, id) }
+      else if (from == "done" && to != "done") { doneAns := rs => without(rs, id) }
+      if (to == "todo") { todoAns := rs => placed(rs, card, m.index) }
+      else if (to == "doing") { doingAns := rs => placed(rs, card, m.index) }
+      else { doneAns := rs => placed(rs, card, m.index) }
+    } catch (e) {
+      moveError := "move error: " + e.message
+      onFlush(() => { moveError := "move error: " + e.message })
+    }
+  }
+
+  action addNew(title: string) {
+    onFlush(() => { addError := "" })
+    try {
+      guess adding := as => [...as, title]
+      let c = await addCard("todo", title)
+      todoAns := rs => [...without(rs, c.id), { id: c.id, title: c.title, done: 0, total: 0 }]
+    } catch (e) {
+      addError := "add error: " + e.message
+      onFlush(() => { addError := "add error: " + e.message })
+    }
+  }
+
+  action renameIt(id: number, col: string, title: string) {
+    onFlush(() => { renameError := "" })
+    try {
+      guess renaming := rs => [...rs, { id: id, title: title }]
+      let r = await renameCard(id, title)
+      if (col == "todo") { todoAns := rs => withTitle(rs, id, r.title) }
+      else if (col == "doing") { doingAns := rs => withTitle(rs, id, r.title) }
+      else { doneAns := rs => withTitle(rs, id, r.title) }
+    } catch (e) {
+      renameError := "rename error: " + e.message
+      onFlush(() => { renameError := "rename error: " + e.message })
+    }
+  }
+
+  action archiveIt(id: number, col: string) {
+    onFlush(() => {
+      archiveError := ""
+      selected := 0
+      titleDraft := ""
+      itemDraft := ""
+      renameError := ""
+      itemError := ""
+    })
+    try {
+      guess removing := rs => [...rs, id]
+      await archiveCard(id)
+      if (col == "todo") { todoAns := rs => without(rs, id) }
+      else if (col == "doing") { doingAns := rs => without(rs, id) }
+      else { doneAns := rs => without(rs, id) }
+    } catch (e) {
+      archiveError := "archive error: " + e.message
+      onFlush(() => { archiveError := "archive error: " + e.message })
+    }
+  }
+
+  action toggleIt(cardId: number, col: string, itemId: number, next: boolean) {
+    onFlush(() => { itemError := "" })
+    try {
+      guess toggling := ts => [...ts, { card: cardId, item: itemId, done: next }]
+      let r = await toggleItem(cardId, itemId, next)
+      let d = next ? 1 : -1
+      checklist := cl => cl.card == cardId ? { card: cl.card, items: cl.items.map(i => i.id == itemId ? { id: i.id, text: i.text, done: r.done } : i) } : cl
+      if (col == "todo") { todoAns := rs => withCounts(rs, cardId, d, 0) }
+      else if (col == "doing") { doingAns := rs => withCounts(rs, cardId, d, 0) }
+      else { doneAns := rs => withCounts(rs, cardId, d, 0) }
+    } catch (e) {
+      itemError := "item error: " + e.message
+      onFlush(() => { itemError := "item error: " + e.message })
+    }
+  }
+
+  action addItemIt(cardId: number, col: string, text: string) {
+    onFlush(() => { itemError := "" })
+    try {
+      guess itemAdds := as => [...as, { card: cardId, text: text }]
+      let it = await addItem(cardId, text)
+      checklist := cl => cl.card == cardId ? { card: cl.card, items: [...cl.items, it] } : cl
+      if (col == "todo") { todoAns := rs => withCounts(rs, cardId, 0, 1) }
+      else if (col == "doing") { doingAns := rs => withCounts(rs, cardId, 0, 1) }
+      else { doneAns := rs => withCounts(rs, cardId, 0, 1) }
+    } catch (e) {
+      itemError := "item error: " + e.message
+      onFlush(() => { itemError := "item error: " + e.message })
+    }
+  }
+
+  <style>
+    .board { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+    .lane { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 6px; }
+    .detail { margin-top: 16px; border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
+    .err { color: #b00020; }
+    .add { display: flex; gap: 6px; }
+    ul { list-style: none; padding: 0; }
+    li { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
+  </style>
+  <section>
+    {if moveError != "" { <p class="err" data-testid="move-error">{moveError}</p> }}
+    {if archiveError != "" { <p class="err" data-testid="archive-error">{archiveError}</p> }}
+    <div class="board">
+      <div class="lane">
+        <Column col="todo" label="To do" k={kTodo} rows={todo} raw={todoAns} adding={adding} selected={selected}
+          leftN={-1} rightN={nDoing} leftOff={true} rightOff={wipFull}
+          onRetry={() => { kTodo := kTodo + 1; refresh todoAns }}
+          onSelect={id => { pick(id) }}
+          onShown={rs => { vTodo := rs }}
+          onMove={(id, to, index, card, other) => { moveIt(id, "todo", to, index, card, other) }} />
+        <div class="add">
+          <input data-testid="new-card" placeholder="new card" value={newTitle} onInput={(e) => { newTitle := e.target.value }} />
+          <button data-testid="add-card" disabled={nTodo < 0} onClick={() => {
+            let t = newTitle.trim()
+            if (t != "") {
+              onFlush(() => { newTitle := "" })
+              addNew(t)
+            }
+          }}>add</button>
+        </div>
+        {if addError != "" { <p class="err" data-testid="add-error">{addError}</p> }}
+      </div>
+      <div class="lane">
+        <Column col="doing" label="Doing" k={kDoing} rows={doing} raw={doingAns} adding={[]} selected={selected}
+          leftN={nTodo} rightN={nDone} leftOff={nTodo < 0} rightOff={nDone < 0}
+          onRetry={() => { kDoing := kDoing + 1; refresh doingAns }}
+          onSelect={id => { pick(id) }}
+          onShown={rs => { vDoing := rs }}
+          onMove={(id, to, index, card, other) => { moveIt(id, "doing", to, index, card, other) }} />
+      </div>
+      <div class="lane">
+        <Column col="done" label="Done" k={kDone} rows={done} raw={doneAns} adding={[]} selected={selected}
+          leftN={nDoing} rightN={-1} leftOff={wipFull} rightOff={true}
+          onRetry={() => { kDone := kDone + 1; refresh doneAns }}
+          onSelect={id => { pick(id) }}
+          onShown={rs => { vDone := rs }}
+          onMove={(id, to, index, card, other) => { moveIt(id, "done", to, index, card, other) }} />
+      </div>
+    </div>
+
+    <div class="detail" data-testid="detail">
+      {if sel == null {
+        <p>select a card</p>
+      } else {
+        <h3>#{sel.id} {sel.title}</h3>
+        <p>in {labelOf(selCol)}</p>
+        <div class="add">
+          <input data-testid="title-input" placeholder="new title" value={titleDraft} onInput={(e) => { titleDraft := e.target.value }} />
+          <button data-testid="rename" onClick={() => {
+            let t = titleDraft.trim()
+            if (t != "") { renameIt(sel.id, selCol, t) }
+          }}>rename</button>
+          <button data-testid="archive" onClick={() => { archiveIt(sel.id, selCol) }}>archive</button>
+        </div>
+        {if renameError != "" { <p class="err">{renameError}</p> }}
+        {if itemError != "" { <p class="err">{itemError}</p> }}
+        <div data-testid="checklist">
+          {loading on(selected) fallback { <p>loading checklist</p> } {
+            {errored fallback(e) { <p class="err">checklist error: {e.message}</p> } {
+              <ul>
+                {for it in shownItems {
+                  <li>
+                    <span data-testid="item">{it.done ? "[x]" : "[ ]"} {it.text}{it.adding ? " (adding…)" : ""}</span>
+                    {if !it.adding {
+                      <button data-testid="toggle" onClick={() => { toggleIt(sel.id, selCol, it.id, !it.done) }}>toggle</button>
+                    }}
+                  </li>
+                }}
+              </ul>
+              <p data-testid="progress">{doneItems}/{shownItems.length} done</p>
+              <div class="add">
+                <input data-testid="item-input" placeholder="new item" value={itemDraft} onInput={(e) => { itemDraft := e.target.value }} />
+                <button data-testid="add-item" onClick={() => {
+                  let t = itemDraft.trim()
+                  if (t != "") {
+                    onFlush(() => { itemDraft := "" })
+                    addItemIt(sel.id, selCol, t)
+                  }
+                }}>add item</button>
+              </div>
+            }}
+          }}
+        </div>
+      }}
+    </div>
+  </section>
+}

@@ -1,0 +1,38 @@
+# The tree-sitter grammar (tooling/tree-sitter-rx): src/ is generated but committed, since Zed compiles src/parser.c
+# as it is, so check it is what grammar.js generates; then the corpus, and every tracked .rx file with no ERROR or
+# MISSING node.
+name: tree-sitter
+
+on:
+  push:
+    branches: [main]
+    paths: ["tooling/tree-sitter-rx/**", "**/*.rx", ".github/workflows/tree-sitter.yml"]
+  pull_request:
+    paths: ["tooling/tree-sitter-rx/**", "**/*.rx", ".github/workflows/tree-sitter.yml"]
+  workflow_dispatch:
+
+jobs:
+  grammar:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tooling/tree-sitter-rx
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1   # as editor.yml
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - name: src/ is what grammar.js generates
+        run: |
+          pnpm run generate
+          git diff --exit-code -- src/
+      - name: Corpus
+        run: pnpm test
+      - name: Every tracked .rx file
+        run: pnpm run parse:repo
+      - name: Queries
+        run: pnpm run query -- ../../examples/*.rx > /dev/null

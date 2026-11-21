@@ -1,0 +1,24 @@
+:root { font-family: system-ui, sans-serif; color: #1d232b; background: #f4f5f7; }
+body { margin: 0; }
+.app { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tab { padding: 6px 14px; border: 1px solid #c5cbd3; background: #fff; border-radius: 6px; cursor: pointer; }
+.tab.active { background: #1d232b; color: #fff; }
+.board { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+.columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.column, .detail, .archive-page { background: #fff; border: 1px solid #dde1e6; border-radius: 8px; padding: 12px; }
+.column h2, .detail h2 { font-size: 1rem; margin: 0 0 8px; }
+.cards, .items, .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.card-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px; border: 1px solid #e3e6ea; border-radius: 6px; }
+.card-row.selected { border-color: #2f6fde; box-shadow: 0 0 0 1px #2f6fde; }
+.card-row.adding { opacity: 0.6; }
+.card { cursor: pointer; flex-basis: 100%; }
+.moves { display: flex; gap: 4px; flex-wrap: wrap; }
+.card-row button, .item-row button, .row button { font-size: 0.75rem; }
+.item-row, .row { display: flex; gap: 8px; align-items: center; }
+.muted { color: #6b7480; margin: 4px 0; }
+.error { color: #b3261e; margin: 4px 0; }
+.add-card, .inline { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.add-card input, .inline input { flex: 1; min-width: 0; padding: 4px 6px; }
+.danger { margin-top: 8px; color: #b3261e; }
+@media (max-width: 800px) { .board, .columns { grid-template-columns: 1fr; } }

@@ -4,9 +4,10 @@ import { Runtime, RuleError, CheckError } from "./runtime.ts";
 
 type Row = { instant: number; action: string; frame: string; effects: string[] };
 type Table = { title: string; program: string | null; rows: Row[] };
-type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean; types?: boolean };   // types: refused by the type layer (TY, types/run.ts)
+type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean; types?: boolean; spa?: boolean; whole?: boolean; hosts?: string[] };   // whole: checked as the whole program (E-5a), a `-- whole-program` line   // spa: checked as a client-only build (08 CN-3d), a `-- spa` line   // types: refused by the type layer (TY, types/run.ts)
 export type Divergence = { table: string; instant: number; frame: string; effects?: string[]; runner: "oracle" | "server" | "hydrated"; ruled?: true };   // effects: the effect log Solid gives at that instant, when it differs too   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
 export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[]; divergences: Divergence[];
+  accepted: { program: string; whole: boolean }[];   // `-- accept: whole-program` blocks: programs the checker accepts only so (E-5a); `-- accept`: per module
   entry: string; modules: Map<string, string>;
   server: Row[];     // 10: `## Server frames` — what a browser shows from the server's stream (ref/ssr/run.ts only)
   before: Row[];
@@ -62,7 +63,7 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
     });
   };
   let program = ""; let entry = "main.rx"; const modules = new Map<string, string>();
-  const tables: Table[] = []; const rejected: Rejected[] = []; const divergences: Divergence[] = []; let server: Row[] = []; let before: Row[] = []; let css: string | null = null;
+  const tables: Table[] = []; const rejected: Rejected[] = []; const accepted: Scenario["accepted"] = []; const divergences: Divergence[] = []; let server: Row[] = []; let before: Row[] = []; let css: string | null = null;
   for (const s of sections) {
     if (s.title === "Program") { const f = /^file:\s*(\S+)/m.exec(s.body); if (f) entry = resolvePath(baseDir, f[1]); program = f ? readFileSync(entry, "utf8") : (fence(s.body) ?? ""); }   // `file: ../examples/x.rx`: a real program
     else if (s.title === "Modules") {
@@ -82,13 +83,15 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
     else if (s.title.startsWith("Rejected")) {
       for (const m of s.body.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) {
         const [first, ...rest] = m[1].split("\n");
+        if (/--\s*accept:\s*whole-program/.test(first)) { accepted.push({ program: rest.filter(l => !l.trim().startsWith("--")).join("\n"), whole: true }); continue; }
+        if (/--\s*accept\s*$/.test(first)) { accepted.push({ program: rest.filter(l => !l.trim().startsWith("--")).join("\n"), whole: false }); continue; }   // a program the checker accepts, per module (a regression's other side)
         const r = /--\s*(reject|warn|types):\s*([\w-]+)/.exec(first);
         if (r) rejected.push({ rule: r[2], warn: r[1] === "warn", types: r[1] === "types", program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
-          handlers: rest.map(l => /--\s*handler:\s*(.*)/.exec(l)?.[1]).filter((x): x is string => !!x) });
+          handlers: rest.map(l => /--\s*handler:\s*(.*)/.exec(l)?.[1]).filter((x): x is string => !!x), ...(rest.some(l => /^\s*--\s*spa\s*$/.test(l)) ? { spa: true } : {}), ...(rest.some(l => /^\s*--\s*whole-program\s*$/.test(l)) ? { whole: true } : {}), ...(rest.some(l => /^\s*--\s*host:/.test(l)) ? { hosts: rest.flatMap(l => { const m = /^\s*--\s*host:\s*(\S+)/.exec(l); return m ? [m[1]] : []; }) } : {}) });   // host: a module a JS host imports with ?rx-lib (CP-4d)
       }
     }
   }
-  return { name, program, tables, rejected, divergences, entry, modules, server, before, css };
+  return { name, program, tables, rejected, divergences, accepted, entry, modules, server, before, css };
 }
 
 export type Result = { ok: boolean; lines: string[] };
@@ -137,8 +140,19 @@ export function runScenario(sc: Scenario): Result {
     }
     if (pending.length) { ok = false; lines.push(`  ✗ ${t.title}: ${pending.length} unlisted chained instant(s): ${pending.map(p => p.frame).join(" | ")}`); }
   }
+  for (const ac of sc.accepted) {                                       // E-5a: accepted when checked as the whole program; `-- accept`: per module
+    const how = ac.whole ? "whole program" : "per module";
+    let d; try { d = checkModules(moduleSet(sc, ac.program), false, ac.whole).diags; } catch (e) { ok = false; lines.push(`  ✗ accepted(${how}): ${(e as Error).message}`); continue; }
+    if (!d.length) lines.push(`  ✓ accepted(${how})`); else { ok = false; lines.push(`  ✗ accepted(${how}): got ${d.map(x => `${x.code} line ${x.line}`).join(", ")}`); }
+  }
   for (const rj of sc.rejected) {
     if (rj.types) continue;                                              // TY: the type layer's, over the projection (types/run.ts)
+    if (rj.spa || rj.whole) {                                            // CN-3d: the checker, as a client-only build; E-5a: as the whole program
+      const ms = moduleSet(sc, rj.program); const d = checkModules(ms, !!rj.spa, !!rj.whole, (rj.hosts ?? []).map(h => joinPath(ms.entry, h))).diags; const hit = d.find(x => x.rule === rj.rule || x.code === rj.rule);
+      const how = rj.spa ? "client-only" : "whole program";
+      if (hit) lines.push(`  ✓ rejected(${rj.rule}, ${how}): ${hit.code} (${hit.rule}) line ${hit.line}: ${hit.msg}`); else { ok = false; lines.push(`  ✗ rejected(${rj.rule}, ${how}): got ${d.map(x => x.code).join(", ") || "accepted"}`); }
+      continue;
+    }
     if (rj.warn) {
       try {
         const rt = new Runtime(moduleSet(sc, rj.program)); rt.step([]);

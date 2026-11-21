@@ -19,7 +19,7 @@
 export type ReadMode = "tracked" | "snapshot" | "pre";
 export type Read = { sym: number; mode: ReadMode; field?: string; probe?: "latest" | "pending" };
 export type Write = { sym: number; op: "write" | "optimistic" | "refresh" | "affects"; path?: true };
-export type RegionKind = "program" | "component" | "imported" | "fn" | "then" | "else" | "for" | "loading" | "portal" | "errored" | "children";
+export type RegionKind = "program" | "component" | "imported" | "fn" | "then" | "else" | "for" | "loading" | "portal" | "errored" | "children" | "root";
 export type CompKind = "memo" | "deferred" | "keyed" | "question" | "seed" | "reader" | "prop" | "handler" | "effect" | "apply" | "action" | "server" | "fn" | "provide" | "default";
 export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string };
 export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string };

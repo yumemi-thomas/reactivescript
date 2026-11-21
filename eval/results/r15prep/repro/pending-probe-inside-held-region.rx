@@ -1,0 +1,33 @@
+// H-11 says: a guess on `list` (whose question reads `sel`) holds a later `sel := 1`, and while it does
+// `pending? list` is true. Observed: the probe stays false, so `disabled={pending? list}` (AC-3a's repair) never
+// disables, and a second click guesses on a value that is loading a new question.
+// Observed (probe-rx): after "select 1" the probe outside the region reads "pending: yes", the same probe in the
+// toggles' disabled={pending? list} inside `loading on(sel)` stays false: [false, false]. Board seed 14.
+// Verdict (2026-11-14): Solid's, not the .rx lowering — plain Solid does the same (pending-probe-inside-held-region.spec.tsx);
+// recorded under spec/05 DV-22 (H-11's ruled `true`, not built). The guide's AC-3a text now says what holds in this case.
+import pure { fetchChecklist } from "./api"
+import { toggleItem } from "./api"
+export default component App() {
+  source sel: number := 2
+  list key id = await fetchChecklist(sel)
+  action flip(item: number, to: boolean) {
+    try {
+      let j = list.findIndex(it => it.id == item)
+      guess list[j].done := to
+      await toggleItem(sel, item, to)
+    } catch (e) {
+      log(e.message)
+    }
+  }
+  <div>
+    <button data-testid="sel1" onClick={() => { sel := 1 }}>sel 1</button>
+    <p data-testid="probe">pending: {pending? list ? "yes" : "no"} sel: {sel}</p>
+    {loading on(sel) fallback { <p>loading</p> } {
+      {errored fallback(e) { <p>err</p> } {
+        {for it in list {
+          <button data-testid="toggle" disabled={pending? list} onClick={() => { flip(it.id, !it.done) }}>{it.text}:{it.done ? "x" : "_"}</button>
+        }}
+      }}
+    }}
+  </div>
+}

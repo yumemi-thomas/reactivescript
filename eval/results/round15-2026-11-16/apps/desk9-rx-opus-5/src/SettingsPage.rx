@@ -1,0 +1,57 @@
+import pure { loadSettings } from "./api"
+import { saveSettings, Settings } from "./api"
+
+component Form(props: { initial: Settings; onSave: (s: Settings) => void }) {
+  source name := peek(props.initial.name)
+  source theme := peek(props.initial.theme)
+  source density := peek(props.initial.density)
+  nameError = name.length == 0 ? "Display name is required" : name.length > 20 ? `Display name must be at most 20 characters, not ${name.length}` : ""
+
+  <div>
+    <input data-testid="name" value={name} onInput={(e) => { name := e.target.value }} />{" "}
+    <span data-testid="name-count">{name.length}/20</span>
+    {if nameError != "" { <p data-testid="name-error">{nameError}</p> }}
+    <div>
+      <button data-testid="theme-light" onClick={() => { theme := "light" }}>light</button>{" "}
+      <button data-testid="theme-dark" onClick={() => { theme := "dark" }}>dark</button>{" "}
+      <button data-testid="density-toggle" onClick={() => { density := density == "compact" ? "comfortable" : "compact" }}>density</button>
+    </div>
+    <p data-testid="preview">Preview: {theme} / {density}</p>
+    <button data-testid="save" onClick={() => {
+      if (nameError == "") { props.onSave({ name: name, theme: theme, density: density }) }
+    }}>save</button>
+  </div>
+}
+
+export component SettingsPage() {
+  source saved: Settings = await loadSettings()
+  source saveError: string := ""
+
+  action save(next: Settings) {
+    guess saved := next
+    onFlush(() => { saveError := "" })
+    affects saved
+    try {
+      let answer = await saveSettings(next)
+      saved := answer
+    } catch (e) {
+      saveError := e.message
+      onFlush(() => { saveError := e.message })
+    }
+  }
+
+  <section>
+    {loading fallback { <p data-testid="load">Loading settings…</p> } {
+      {errored fallback(e) {
+        <div data-testid="load">
+          Could not load settings: {e.message}{" "}
+          <button data-testid="retry-load" onClick={() => { refresh saved }}>retry</button>
+        </div>
+      } {
+        <p data-testid="saved">Saved: {saved.name} · {saved.theme} · {saved.density}{pending? saved ? " (saving…)" : ""}</p>
+        {if saveError != "" { <p data-testid="save-error">Save failed: {saveError}</p> }}
+        <Form initial={saved} onSave={(s) => { save(s) }} />
+      }}
+    }}
+  </section>
+}

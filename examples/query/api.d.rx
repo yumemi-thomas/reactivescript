@@ -1,0 +1,2 @@
+export pure fn fetchTodos(): Promise<string[]>
+export fn addTodo(text: string): Promise<string>

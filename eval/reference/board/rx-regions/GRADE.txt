@@ -1,0 +1,14 @@
+== hidden
+✗ two adds show both, each taking its own id
+44/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ a move into To do while a card is being added there keeps both
+✗ an add accepted while To do reloads shows the card once
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ a move into Doing that fills it while a move out is pending disables the rest
+21/26 passed
+== fuzz
+board-rx14: 1/20 seeds found a hole
+  seed 12 step 30: two views: card "#5 Alpha · 3/3", detail "#5 Kickoffin Doing rename archiverename error: declinedloading checklist"
+    land fetchCards:todo ; select #1 ; add Bravo 1 ; select #2 ; land fetchChecklist:1 ; down #2 ; up #2 ; down #1 ; land fetchCards:doing ; fail addCard:todo,Bravo 1 ; land fetchCards:done ; right #4 ; land moveCard:2,todo,2 ; select #2 ; left #5 ; land fetchCards:doing ; land moveCard:1,todo,1 ; select #5 ; land moveCard:2,todo,1 ; fail fetchCards:doing ; land fetchCards:done ; left #4 ; land mo

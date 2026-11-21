@@ -1,0 +1,153 @@
+import pure { search } from "./api"
+import {
+  filter, selected, rows, detail, heading, comments, sending, shownLabels,
+  assignErr, renameErr, closeErr, postErr, labelErr, rowError, errText,
+  setFilter, select, setCount, assignFromDetail, assignFromRow, renameFromDetail,
+  closeFromDetail, closeFromRow, postComment, addLabelTo, removeLabelFrom
+} from "./issues.rx"
+
+// Reports the number of open rows on screen to the tab; lives inside the list's region.
+component OpenCount(props: { n: number; open: boolean }) {
+  effect (props.n, props.open) {
+    if ($1) { setCount($0) }
+  }
+  <span hidden></span>
+}
+
+component Related(props: { title: string; onOpen: (q: string, id: number) => void }) {
+  hits = await search(props.title)
+  top key id = hits.slice(0, 3)
+  <div data-testid="related">
+    {loading on(props.title) fallback { <p>finding related help</p> } {
+      errored fallback(e) { <p>related help failed: {e.message}</p> } {
+        if hits.length == 0 {
+          <p>no related help</p>
+        } else {
+          <div>
+            {for h in top {
+              <button data-testid="related-hit" onClick={() => { props.onOpen(props.title, h.id) }}>{h.name}</button>
+            }}
+          </div>
+        }
+      }
+    }}
+  </div>
+}
+
+export component IssuesPage(props: { onOpenHelp: (q: string, id: number) => void }) {
+  source user := "guest"
+  source titleDraft := ""
+  source commentDraft := ""
+  source labelDraft := ""
+
+  <section>
+    <label>user{" "}<input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} /></label>
+    <div>
+      <button data-testid="filter-open" onClick={() => { setFilter("open") }}>open</button>{" "}
+      <button data-testid="filter-closed" onClick={() => { setFilter("closed") }}>closed</button>
+    </div>
+    {if rowError != "" { <p data-testid="row-error">row error: {rowError}</p> }}
+    <div data-testid="list">
+      {loading on(filter) fallback { <p>loading {filter} issues</p> } {
+        errored fallback(e) { <p>list error: {e.message}</p> } {
+          <OpenCount n={rows.length} open={filter == "open"} />
+          <ul>
+            {for it in rows {
+              <li>
+                <span data-testid="issue" onClick={() => {
+                  titleDraft := ""
+                  commentDraft := ""
+                  labelDraft := ""
+                  select(it.id)
+                }}>#{it.id} {it.title} ({it.assignee ?? "unassigned"})</span>{" "}
+                <button data-testid="row-assign" onClick={() => { assignFromRow(it.id, user) }}>assign to {user}</button>
+                {if filter == "open" {
+                  {" "}<button data-testid="row-close" onClick={() => { closeFromRow(it.id) }}>close</button>
+                }}
+              </li>
+            }}
+          </ul>
+        }
+      }}
+    </div>
+    <div data-testid="detail">
+      {if selected == null {
+        <p>select an issue</p>
+      } else {
+        id = selected ?? 0
+        <div>
+          {loading on(selected) fallback { <p>loading #{id}</p> } {
+            errored fallback(e) { <p>detail error: {e.message}</p> } {
+              <h2>#{id} {heading}</h2>
+              <p>{detail?.body ?? ""}</p>
+              <Related title={detail?.title ?? ""} onOpen={(q, hit) => { props.onOpenHelp(q, hit) }} />
+            }
+          }}
+          <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+          <div>
+            <button data-testid="assign" onClick={() => { assignFromDetail(id, user) }}>assign to {user}</button>
+            {if errText(assignErr, id) != "" { <p>{errText(assignErr, id)}</p> }}
+          </div>
+          <div>
+            <input data-testid="title-input" value={titleDraft} onInput={(e) => { titleDraft := e.target.value }} />{" "}
+            <button data-testid="rename" onClick={() => {
+              let t = titleDraft
+              if (t.trim() != "") { renameFromDetail(id, t) }
+            }}>rename</button>
+            {if errText(renameErr, id) != "" { <p>rename error: {errText(renameErr, id)}</p> }}
+          </div>
+          <div>
+            <button data-testid="close" onClick={() => { closeFromDetail(id) }}>close</button>
+            {if errText(closeErr, id) != "" { <p>close error: {errText(closeErr, id)}</p> }}
+          </div>
+          <div data-testid="comments">
+            {loading on(selected) fallback { <p>loading comments</p> } {
+              errored fallback(e) { <p>comments error: {e.message}</p> } {
+                <ul>
+                  {for c in comments {
+                    <li data-testid="comment">{c.author}: {c.text}</li>
+                  }}
+                  {for p in sending {
+                    <li data-testid="comment">{p.author}: {p.text} (sending…)</li>
+                  }}
+                </ul>
+              }
+            }}
+          </div>
+          <div>
+            <input data-testid="comment-input" value={commentDraft} onInput={(e) => { commentDraft := e.target.value }} />{" "}
+            <button data-testid="post" onClick={() => {
+              let t = commentDraft
+              let u = user
+              if (t.trim() != "") {
+                onFlush(() => { commentDraft := "" })
+                postComment(id, u, t)
+              }
+            }}>post</button>
+            {if errText(postErr, id) != "" { <p>post error: {errText(postErr, id)}</p> }}
+          </div>
+          <div data-testid="labels">
+            {loading on(selected) fallback { <p>loading labels</p> } {
+              errored fallback(e) { <p>labels error: {e.message}</p> } {
+                <ul>
+                  {for l in shownLabels {
+                    <li><span data-testid="label">{l}</span>{" "}<button data-testid="remove-label" onClick={() => { removeLabelFrom(id, l) }}>remove {l}</button></li>
+                  }}
+                </ul>
+                <input data-testid="label-input" value={labelDraft} onInput={(e) => { labelDraft := e.target.value }} />{" "}
+                <button data-testid="add-label" onClick={() => {
+                  let l = labelDraft.trim()
+                  if (l != "" && !shownLabels.includes(l)) {
+                    onFlush(() => { labelDraft := "" })
+                    addLabelTo(id, l)
+                  }
+                }}>add label</button>
+              }
+            }}
+          </div>
+          {if errText(labelErr, id) != "" { <p>label error: {errText(labelErr, id)}</p> }}
+        </div>
+      }}
+    </div>
+  </section>
+}

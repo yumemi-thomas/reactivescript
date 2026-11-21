@@ -1,0 +1,54 @@
+import pure { search, fetchItem } from "./api"
+
+export component HelpPage(props: { q: string; id: number | null }) {
+  source query := peek(props.q)
+  source picked: number | null := peek(props.id)
+  hits = query.length < 2 ? [] : await search(query)
+  shown key id = hits
+  item = picked == null ? null : await fetchItem(picked)
+
+  <section>
+    <input data-testid="query" value={latest query} onInput={(e) => { query := e.target.value }} />
+    <div data-testid="results">
+      {if query == "" {
+        <span></span>
+      } else if query.length < 2 {
+        <p>too short: {query}</p>
+      } else {
+        loading fallback { <p>searching…</p> } {
+          errored fallback(e) {
+            {if pending? hits { <p>searching…</p> }}
+            <p>search failed: {e.message}</p>
+          } {
+            {if pending? hits { <p>searching…</p> }}
+            <p>{hits.length} results for {query}</p>
+            <ul>
+              {for h in shown {
+                <li data-testid="hit" onClick={() => { picked := h.id }}>{h.id == picked ? "> " : ""}{h.name}</li>
+              }}
+            </ul>
+          }
+        }
+      }}
+    </div>
+    <div data-testid="item">
+      {if picked == null {
+        <p>pick a result</p>
+      } else {
+        loading on(picked) fallback { <p>loading…</p> } {
+          errored fallback(e) {
+            <p>failed: {e.message}</p>
+            <button data-testid="retry-item" onClick={() => { refresh item }}>retry</button>
+          } {
+            if item == null {
+              <p>item {picked} not found</p>
+            } else {
+              <h3>{item.name}</h3>
+              <p>{item.blurb}</p>
+            }
+          }
+        }
+      }}
+    </div>
+  </section>
+}

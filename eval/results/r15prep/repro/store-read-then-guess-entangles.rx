@@ -1,0 +1,35 @@
+// D-33 (#4788, by design in Solid): action 4 reads board rows that action 3 guessed (the filter) and then guesses beside it,
+// so the two frames entangle: 3 declined stays in Done until 4 ends. Moving the read to the handler (pass n in) frees it.
+// Not a bug; a guide gap. Run: probe-rx.mjs <desk with this as src/main.rx> store-read-then-guess-entangles.steps.mjs
+import pure { fetchCards } from "./api"
+import { moveCard, Card } from "./api"
+fn rowsOf(cs: Card[] | null, col: string): Row[] =>
+  cs == null ? [] : cs.map((c, i) => ({ id: c.id, title: c.title, col: col, pos: i }))
+type Row = { id: number; title: string; col: string; pos: number }
+export default component App() {
+  source ans = await fetchCards("doing") -> null
+  source ans2 = await fetchCards("done") -> null
+  board key id = [...rowsOf(ans catch (e) => null, "doing"), ...rowsOf(ans2 catch (e) => null, "done")]
+  action move(id: number) {
+    try {
+      let i = board.findIndex(r => r.id == id)
+      let n = board.filter(r => r.col == "done").length
+      guess board[i].col := "done"
+      guess board[i].pos := 9
+      await moveCard(id, "done", n)
+    } catch (e) {
+      log(e.message)
+    }
+  }
+  errored fallback(e) { <p>err</p> } {
+  <ul>
+    {for r in board.filter(r => r.col == "doing") {
+      <li><span data-testid="card">#{r.id} {r.col}</span> <button data-testid="right" onClick={() => { move(r.id) }}>right</button></li>
+    }}
+    |
+    {for r in board.filter(r => r.col == "done") {
+      <li><span data-testid="card">#{r.id} {r.col}</span> <button data-testid="right" onClick={() => { move(r.id) }}>right</button></li>
+    }}
+  </ul>
+  }
+}

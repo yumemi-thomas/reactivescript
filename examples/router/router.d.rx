@@ -1,6 +1,11 @@
-// The router's factory and hooks, in rows (MO-11). Types for rx-tsc come from @solidjs/router's own .d.ts.
-export type Params = Record<string, string>
-export type RouteDefinition = { path?: string; component?: Component; children?: RouteDefinition[] }
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component
-export pure fn useParams(): Params instantiates
-export pure fn useNavigate(): (to: string) => void instantiates
+//@ for @solidjs/router ^2.0.0
+// The router's factory, route helper and hooks, in rows (MO-11, MO-12). Types are @solidjs/router's own, as TypeScript text.
+export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
+export type RouteDefinition = import("@solidjs/router").RouteDefinition
+export context router                                                                  // MO-12a: the router's own context
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)   // MO-12c, MO-11i
+export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition forwards   // MO-8d, MO-11g
+export pure fn useParams(): Record<string, string | undefined> uses(router)            // MO-12b: refused where no router is above
+export pure fn useNavigate(): (to: string) => void uses(router)
+// the data layer: a form action's settled submissions (a result or an error) as values
+export pure fn useSubmissions(action: any): { input: any; result?: any; error: any }[] uses(router)

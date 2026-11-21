@@ -26,6 +26,66 @@ does for `.tsrx`. Nothing here is a second type system.
   JavaScript (11, CP-1a) and hands it to TypeScript; an editor uses the
   same projection. The crate emits it with mappings onto the `.rx` (11
   CP-8c: `rxc project`), the same text as `ref/`'s.
+- **TY-1d (Types in the build) — proposed 2026-11-19.** A production
+  build type-checks: the Vite frontend runs `rx-tsc` over the project's
+  `tsconfig.json` once per build, and a type error fails the build on its
+  `.rx` line, as a checker error does. So what only TypeScript can check
+  (a route whose path lacks a param its page needs, MO-11h; a `.d.rx`
+  that disagrees with its module, TY-6) cannot ship by being left out of a
+  CI step. A check that cannot run fails the build too (revised
+  2026-11-21): a project with a `tsconfig.json` and no language server to
+  run `rx-tsc` with, or, when `RX_TYPECHECK=1` asked for the check, no
+  `tsconfig.json`. A production build with no `tsconfig.json` is not a
+  TypeScript project and only says its types went unchecked.
+  `RX_TYPECHECK=0` builds without the check, for a project that runs it
+  elsewhere. Once per build means each build (revised 2026-11-21 after
+  review; the first version checked once per process, so the rebuilds of
+  `vite build --watch` shipped unchecked): the check runs again when an
+  entry is compiled and the last check is stale, and a build whose check
+  failed fails at each of its entries until one changes. A rebuild that
+  compiles no entry is checked too (revised 2026-11-21 after review; an
+  edit of a `.ts` module alone rebuilt unchecked): where Solid's plugin
+  calls front ends at each build's start (`Frontend.buildStart`), the
+  check runs again there when the last one is stale, and a failed check
+  fails that build before it bundles. A check is stale when anything it
+  read is different now, by content (revised 2026-11-21 after review,
+  three times; mtimes and a walk of the folder missed a file restored
+  with an older mtime, two files swapped with `mv`, a file saved while
+  the check ran, a `checkJs` file, an `include` outside the tsconfig's
+  folder and an imported `.json`): `rx-tsc --rx-inputs` records each file
+  the run read with the hash of what it read, each path it looked for and
+  did not find, and each folder it listed, and the check is stale when a
+  file's content differs, a missing path appears or a listing changes.
+  A listing counts what a type-check could take, and nothing else
+  (revised 2026-11-22 after review): the folders in it, which a glob may
+  descend into, and the files of the kinds the project's program holds —
+  TypeScript's, `.rx`, JavaScript's under `allowJs`, `.json` under
+  `resolveJsonModule`, and `package.json`. With `"include": ["**/*"]`
+  TypeScript lists every folder of the project, so every name counted
+  made a README beside the sources, or the assets a build wrote under
+  `dist/`, a reason to check again at each build start; a source file
+  added anywhere below still is one (`compiler/test/vite-gate.mjs`).
+  A plugin without the hook checks
+  only the rebuilds that compile an entry (`compiler/test/vite-watch.mjs`).
+  Each check belongs to its project (revised 2026-11-21 after a second
+  review): a build whose entries sit under two `tsconfig.json` files runs
+  one check for each, keyed by the tsconfig's real path, and each fails
+  only its own entries and is re-checked on its own files; one project
+  passing does not stand for another. A `wholeProgram` build (E-5a) runs
+  `rx-tsc --rx-whole-program --rx-hosts …` with the hosts the build
+  found, so the gate reads the crate's rows from each program's entry as
+  the build does (a kept `peek` the whole program shows never changes is
+  not refused by the gate alone), while TypeScript's errors fail it as
+  before (`compiler/test/vite-gate.mjs`).
+  The dev server leaves types to the editor,
+  which runs the same projection. A build is made from its declarations
+  as from its modules: the frontend watches each `.d.rx` the program read
+  and re-checks the program when one changes. One that appears where the
+  program looked for it (MO-8k, MO-8a) is read at the program's next
+  compile, whatever starts it, with no restart, and counts as a change
+  for the next build's type-check; it does not start a compile by itself,
+  because neither Vite's dev server (which resolves what a module watches)
+  nor Rolldown's `vite build --watch` watches a path that has no file.
 
 ## TY-2 — What each form is, as a value
 
@@ -63,7 +123,21 @@ does for `.tsrx`. Nothing here is a second type system.
 - **TY-4b.** A `.d.rx` is its JS module's `.d.ts`: each function's
   parameter types and return type (`export pure fn f(id: number): Promise<User>`),
   its `export type`s, and its error classes (MO-8). A JS module with no
-  declaration file is `any`.
+  declaration file is `any`. A `ref` parameter or result is written as JS
+  has it, an accessor (`() => T`), and the projection writes the calls the
+  same way (proposed 2026-11-18): a `ref` argument is `() => (e)`, and a
+  `ref` result, or a tuple or record part of one, is read with a call, so
+  the binding has its value's type. The projection then type-checks against
+  a library's own `.d.ts` as it does against the projected one (S-module-13).
+  `rx-tsc` uses the projected `.d.ts` where a JS module has a `.d.rx` and no
+  types of its own (`tooling/rx-language-server/src/declarations.js`).
+  Which `.d.rx` declares a module is one list, read in one order by the
+  checker and the tooling (09 MO-8a; revised 2026-11-22 after review):
+  `./x.js` and `./x.ts` by `x.d.rx`; every other JavaScript or TypeScript
+  module — `./x.mjs`, `./x.cjs`, `./x.jsx`, `./x.tsx`, `./x.mts`,
+  `./x.cts` — by the file's whole name (`x.tsx.d.rx`), then by `x.d.rx`.
+  (The checker read only `x.tsx.d.rx` for `./x.tsx` and the tooling only
+  `x.d.rx`, so each ignored the file the other read.)
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such
@@ -79,6 +153,60 @@ does for `.tsrx`. Nothing here is a second type system.
   whose type is `e`'s and which refuses a promise or an async iterable on
   any branch: `MISSING_AWAIT`. Where the type is `any` the check is silent
   (04 R-1a). (Ruled 2026-10-28; S-types-1.)
+
+## TY-6 — A declaration is checked against its module's types (proposed 2026-11-18)
+
+- **TY-6a.** The checker trusts a `.d.rx` (09 MO-8b). `rx-tsc` checks, for
+  every `.d.rx` that declares a JS module beside it, what TypeScript can:
+  each declared export is the module's real export, assigned to the
+  declaration's own type. A `ref` parameter or result part is an accessor
+  (`() => T`), a component a function of its declared props, an error class
+  a constructor of an `Error`. A missing export, a `ref` the real function
+  does not take, a prop type the real component does not accept, or a
+  result the real function does not give is `DECLARATION_MISMATCH`, on the
+  declaration's line, with TypeScript's reason.
+- **TY-6b.** The direction is the boundary's: the real export must fit the
+  declared one, so `.rx` code checked against the declaration is right
+  about the module. A declaration may say less than the types (`any`, an
+  omitted parameter type), never something else.
+- **TY-6c.** Rows TypeScript cannot see (`pure`, `uses`, `provides`,
+  `pending`, `fails`) are not checked here. A module with no TypeScript types
+  of its own (no `.d.ts` beside it, none from its package) is typed by its
+  `.d.rx` (TY-4b: `rx-tsc` gives TypeScript the projected `.d.ts` in its
+  place, without writing it), and there is nothing to check it against: a
+  hand-written `.d.ts` would be the same assertion, as `pure` is (CN-5).
+- **TY-6e (Which declarations, revised 2026-11-21 after review).** What
+  `rx-tsc` checks is what the compiler consumed: the crate's loader reports
+  each declaration it read with the module that imported it and the
+  import's own text (`rxc serve`'s `analyze` answers `declarations: [{file,
+  importer, spec}]`), and each is checked against the module that import
+  resolves to from its importer — in any folder, and per installed copy
+  where two importers resolve the same declaration to two versions. A
+  `.d.rx` the tsconfig names itself is checked too, against the module
+  beside it (an audit, or a package that ships only declarations). A
+  `.d.rx` that only sits beside a module, imported by nothing and named by
+  nothing, is not the program's and is not checked. The same set is what a
+  version pin (09 MO-8f, resolved from each importer) and strict
+  declarations (MO-8j, TY-7) apply to.
+- **TY-6d.** The crate writes the check (`rxc serve`'s `boundary` request,
+  `project.rs` `boundary_file`); `rx-tsc` type-checks it in memory beside
+  the `.d.rx` with the project's compiler options
+  (`tooling/rx-language-server/src/boundary.js`). Nothing is emitted and
+  nothing runs.
+
+## TY-7 — Strict declarations (proposed 2026-11-20)
+
+- **TY-7a.** With `--rx-strict` (or `"reactivescript": { "strict": true }`
+  in the tsconfig), `rx-tsc` reads, beside each `.d.rx` the program
+  imports (as the loader resolved it, TY-6e) or the tsconfig names, the record `rx-verify --record` wrote (09 MO-8j). A row is
+  accepted when the record shows it held (`ok`) or had nothing to run
+  (`n/a`), by the hash of its text, or when the row says `trusted`. Any
+  other row is `UNVERIFIED_ROW`, on the row's line: nothing verified it,
+  it changed since the record, rx-verify found a mismatch, or rx-verify
+  could not check it (no probe, no scene).
+- **TY-7b.** TY-6 checks what types can see; TY-7 asks that the rest
+  (`pure`, `uses`, `provides`, `pending`, `fails`, placement, drafts,
+  callbacks) was run, or that someone said in the row they trust it.
 
 ## Found by the type layer (2026-10-25)
 

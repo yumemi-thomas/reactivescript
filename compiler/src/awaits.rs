@@ -90,6 +90,7 @@ pub fn view_readers(ms: &[Markup]) -> Vec<&Expr> {
             }
             MarkupKind::Mif { c, .. } => out.push(c),
             MarkupKind::Mfor { xs, .. } => out.push(xs),
+            MarkupKind::Mview { .. } => {}
             MarkupKind::Loading { on, fallback, .. } => {
                 out.extend(on.iter());
                 out.extend(view_readers(fallback));
@@ -101,8 +102,72 @@ pub fn view_readers(ms: &[Markup]) -> Vec<&Expr> {
     out
 }
 
-/// `/^on[A-Z:]/`
+/// `/^on[A-Z:]/`, or `ref` (called once with the element, 07 §4)
 pub fn is_handler(name: &str) -> bool {
     let b = name.as_bytes();
-    b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':')
+    name == "ref" || (b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':'))
+}
+
+/// R-f-4 inside an equation: each `x catch alt` that is not the equation's result and holds no `await` — hoisted into one
+/// boundary of its own, made once beside the equation, instead of a new boundary on every run of the equation's memo.
+/// Its guards are the conditions under which the equation reaches it. Closures and drafts keep theirs.
+pub fn inner_catches(root: &Expr) -> Vec<Hoisted<'_>> {
+    let mut out = vec![];
+    walk_catch(Node::E(root), true, &[], &mut out);
+    out
+}
+
+fn walk_catch<'a>(n: Node<'a>, root: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>) {
+    let g0 = |e| Guard { e, neg: false, nullish: false };
+    if let Node::E(x) = n {
+        match &x.k {
+            ExprKind::Catch { e, alt, .. } => {
+                if root {
+                    walk_catch(Node::E(e), false, g, out);
+                    walk_catch(Node::E(alt), false, g, out);
+                } else if !has_await(x) {
+                    out.push(Hoisted { node: x, guards: g.to_vec() });
+                }
+                return;
+            }
+            ExprKind::If { c, t, f } => {
+                walk_catch(Node::E(c), false, g, out);
+                walk_catch(Node::E(t), false, &with(g, g0(c)), out);
+                walk_catch(Node::E(f), false, &with(g, Guard { e: c, neg: true, nullish: false }), out);
+                return;
+            }
+            ExprKind::Bin { op, l, r } => {
+                walk_catch(Node::E(l), false, g, out);
+                match op.as_str() {
+                    "&&" => walk_catch(Node::E(r), false, &with(g, g0(l)), out),
+                    "||" => walk_catch(Node::E(r), false, &with(g, Guard { e: l, neg: true, nullish: false }), out),
+                    "??" => walk_catch(Node::E(r), false, &with(g, Guard { e: l, neg: false, nullish: true }), out),
+                    _ => walk_catch(Node::E(r), false, g, out),
+                }
+                return;
+            }
+            ExprKind::Fn { .. } | ExprKind::Draft { .. } | ExprKind::Await { .. } | ExprKind::Pre { .. } => return,
+            _ => {}
+        }
+    }
+    for c in children(n, false) {
+        walk_catch(c, false, g, out);
+    }
+}
+
+fn has_await(x: &Expr) -> bool {
+    let mut hit = false;
+    fn go(n: Node<'_>, hit: &mut bool) {
+        if *hit { return; }
+        if let Node::E(x) = n {
+            match &x.k {
+                ExprKind::Await { .. } | ExprKind::Pre { .. } => { *hit = true; return; }
+                ExprKind::Fn { .. } => return,
+                _ => {}
+            }
+        }
+        for c in children(n, false) { go(c, hit); }
+    }
+    go(Node::E(x), &mut hit);
+    hit
 }

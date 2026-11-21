@@ -1,0 +1,31 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "rx",
+      "camelcase": "Rx",
+      "title": "ReactiveScript",
+      "scope": "source.rx",
+      "file-types": ["rx"],
+      "highlights": "queries/highlights.scm",
+      "injections": "queries/injections.scm",
+      "injection-regex": "^(rx|reactivescript)$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "ReactiveScript (.rx) grammar for tree-sitter",
+    "links": {
+      "repository": "https://github.com/solidjs/reactivescript"
+    }
+  },
+  "bindings": {
+    "c": false,
+    "go": false,
+    "node": false,
+    "python": false,
+    "rust": false,
+    "swift": false
+  }
+}

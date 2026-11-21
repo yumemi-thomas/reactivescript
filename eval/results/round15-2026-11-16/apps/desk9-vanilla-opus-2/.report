@@ -1,0 +1,6 @@
+I built the issue desk in plain TypeScript across `src/main.ts`, `src/dom.ts`, `src/issues.ts`, `src/help.ts` and `src/settings.ts`, and `./check` and all 30 visible tests pass (2 of my 15 runs used). Optimistic changes sit on top of the server data and are rolled back if the server declines. Answers that arrive late are dropped once the page, filter, selected issue or query has moved on, and the open-issue count is kept across pages.
+
+Three things in the brief were ambiguous, so I guessed:
+- **Late failures:** if an older request fails after a newer one of the same kind has started, I still show its error.
+- **Answers after leaving a page:** they are ignored, including a declined close, so the count does not go back up in that case.
+- **Blank input:** whitespace-only input counts as empty. A blank user means `assign` and `post` do nothing, and a whitespace-only display name gets the "required" error.

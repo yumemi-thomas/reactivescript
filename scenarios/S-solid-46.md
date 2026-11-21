@@ -75,10 +75,3 @@ export default component App() {
 | 3       | resolve detail "d1" | `1 d1 1`          |
 
 S-solid-31's form: the fresh boundary catches the born-held read.
-
-## Divergences (DV-23)
-
-- oracle "Frames" instant 2: `0 d0`
-
-Solid's S-46 plain row is ruled, not built (#4695, decision 4): today the
-branch attaches with its slot empty. The variants match.

@@ -1,0 +1,23 @@
+import { Board } from "./board.rx"
+import { ArchivePage } from "./archive.rx"
+
+export default component App() {
+  source tab: string := "board"
+  <style>
+    nav { display: flex; gap: 8px; margin-bottom: 16px; }
+    nav button { padding: 6px 14px; border: 1px solid #bbb; background: #f4f4f4; border-radius: 6px; cursor: pointer; }
+    nav button.on { background: #222; color: #fff; border-color: #222; }
+    main { font-family: system-ui, sans-serif; padding: 16px; }
+  </style>
+  <main>
+    <nav>
+      <button data-testid="tab-board" class={tab == "board" ? "on" : ""} onClick={() => { tab := "board" }}>Board</button>
+      <button data-testid="tab-archive" class={tab == "archive" ? "on" : ""} onClick={() => { tab := "archive" }}>Archive</button>
+    </nav>
+    {if tab == "board" {
+      <Board />
+    } else {
+      <ArchivePage />
+    }}
+  </main>
+}

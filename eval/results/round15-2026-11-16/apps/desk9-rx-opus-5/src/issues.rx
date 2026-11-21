@@ -1,0 +1,186 @@
+// The issues page's data and writes. They live in the module because a write can outlive the page
+// that started it (its guess, its re-ask and its error); the page reads them and calls the actions.
+import pure { fetchIssues, fetchIssue, fetchComments, fetchLabels } from "./api"
+import { assign, renameIssue, closeIssue, addComment, addLabel, removeLabel, Issue, IssueDetail, Comment } from "./api"
+
+export type Err = { id: number; msg: string }
+
+// The visit: what the page asks for, and its inputs. The app opens on this page, so the visit starts at 0.
+export source visit: number := 0
+export source filter: string := "open"
+export source selected: number | null := null
+
+// The open-issue count shown on the tab. It outlives the page; -1 until the open issues have loaded once.
+export source openCount: number := -1
+
+// 1. The server's answers.
+server = visit >= 0 ? await fetchIssues(filter) : []
+export detailAns = selected == null ? null : await fetchIssue(selected)
+export commentsAns = selected == null ? [] : await fetchComments(selected)
+export labelsAns = selected == null ? [] : await fetchLabels(selected)
+
+// 2. Writes in flight, laid over the answers (constant questions, so a guess never holds a selection).
+source assigning: { id: number; user: string }[] = []
+source renaming: { id: number; title: string }[] = []
+source closing: number[] = []
+source posting: { issue: number; author: string; text: string }[] = []
+source labelAdding: { issue: number; label: string }[] = []
+source labelRemoving: { issue: number; label: string }[] = []
+
+// Errors: plain sources, they outlive the action that set them.
+export source assignErr: Err := { id: -1, msg: "" }
+export source renameErr: Err := { id: -1, msg: "" }
+export source closeErr: Err := { id: -1, msg: "" }
+export source postErr: Err := { id: -1, msg: "" }
+export source labelErr: Err := { id: -1, msg: "" }
+export source rowErr: string := ""
+
+fn assigneeOf(as: { id: number; user: string }[], id: number, a: string | null): string | null =>
+  as.reduce((n, r) => r.id == id ? r.user : n, a)
+fn titleOf(rs: { id: number; title: string }[], id: number, t: string): string =>
+  rs.reduce((n, r) => r.id == id ? r.title : n, t)
+
+// 3. What the screen reads.
+export rows key id = server.filter(i => !(filter == "open" && closing.includes(i.id))).map(i => ({ id: i.id, title: titleOf(renaming, i.id, i.title), assignee: assigneeOf(assigning, i.id, i.assignee) }))
+
+export heading = detailAns == null ? "" : titleOf(renaming, detailAns.id, detailAns.title)
+
+export shownPosting = posting.filter(p => p.issue == selected)
+
+fn removingHas(rs: { issue: number; label: string }[], issue: number | null, l: string): boolean =>
+  rs.some(r => r.issue == issue && r.label == l)
+
+keptLabels = labelsAns.filter(l => !removingHas(labelRemoving, selected, l))
+addedLabels = labelAdding.filter(a => a.issue == selected && !labelsAns.includes(a.label) && !removingHas(labelRemoving, selected, a.label)).map(a => a.label)
+export shownLabels = [...keptLabels, ...addedLabels]
+
+// The visit's own writes.
+export action openPage() {
+  let v = visit + 1
+  visit := v
+  filter := "open"
+  selected := null
+  onFlush(() => {
+    assignErr := { id: -1, msg: "" }
+    renameErr := { id: -1, msg: "" }
+    closeErr := { id: -1, msg: "" }
+    postErr := { id: -1, msg: "" }
+    labelErr := { id: -1, msg: "" }
+    rowErr := ""
+  })
+}
+
+export action setFilter(f: string) {
+  filter := f
+}
+
+export action selectIssue(id: number) {
+  selected := id
+  onFlush(() => {
+    assignErr := { id: -1, msg: "" }
+    renameErr := { id: -1, msg: "" }
+    closeErr := { id: -1, msg: "" }
+    postErr := { id: -1, msg: "" }
+    labelErr := { id: -1, msg: "" }
+  })
+}
+
+export action setOpenCount(n: number) {
+  openCount := n
+}
+
+export action retryDetail() {
+  refresh detailAns
+}
+
+// Writes.
+export action assignIssue(id: number, user: string, fromRow: boolean) {
+  guess assigning := as => [...as, { id: id, user: user }]
+  if (fromRow) {
+    onFlush(() => { rowErr := "" })
+  } else {
+    onFlush(() => { assignErr := { id: -1, msg: "" } })
+  }
+  try {
+    await assign(id, user)
+    refresh server
+  } catch (e) {
+    if (fromRow) {
+      rowErr := e.message
+      onFlush(() => { rowErr := e.message })
+    } else {
+      assignErr := { id: id, msg: e.message }
+      onFlush(() => { assignErr := { id: id, msg: e.message } })
+    }
+  }
+}
+
+export action rename(id: number, title: string) {
+  guess renaming := rs => [...rs, { id: id, title: title }]
+  onFlush(() => { renameErr := { id: -1, msg: "" } })
+  try {
+    await renameIssue(id, title)
+    refresh server
+    refresh detailAns
+  } catch (e) {
+    renameErr := { id: id, msg: e.message }
+    onFlush(() => { renameErr := { id: id, msg: e.message } })
+  }
+}
+
+export action close(id: number, fromRow: boolean) {
+  guess closing := cs => [...cs, id]
+  if (fromRow) {
+    onFlush(() => { rowErr := "" })
+  } else {
+    onFlush(() => { closeErr := { id: -1, msg: "" } })
+  }
+  try {
+    await closeIssue(id)
+    refresh server
+  } catch (e) {
+    if (fromRow) {
+      rowErr := e.message
+      onFlush(() => { rowErr := e.message })
+    } else {
+      closeErr := { id: id, msg: e.message }
+      onFlush(() => { closeErr := { id: id, msg: e.message } })
+    }
+  }
+}
+
+export action post(id: number, author: string, text: string) {
+  guess posting := ps => [...ps, { issue: id, author: author, text: text }]
+  onFlush(() => { postErr := { id: -1, msg: "" } })
+  try {
+    await addComment(id, author, text)
+    refresh commentsAns
+  } catch (e) {
+    postErr := { id: id, msg: e.message }
+    onFlush(() => { postErr := { id: id, msg: e.message } })
+  }
+}
+
+export action addIssueLabel(id: number, label: string) {
+  guess labelAdding := ls => [...ls, { issue: id, label: label }]
+  onFlush(() => { labelErr := { id: -1, msg: "" } })
+  try {
+    await addLabel(id, label)
+    refresh labelsAns
+  } catch (e) {
+    labelErr := { id: id, msg: e.message }
+    onFlush(() => { labelErr := { id: id, msg: e.message } })
+  }
+}
+
+export action removeIssueLabel(id: number, label: string) {
+  guess labelRemoving := ls => [...ls, { issue: id, label: label }]
+  onFlush(() => { labelErr := { id: -1, msg: "" } })
+  try {
+    await removeLabel(id, label)
+    refresh labelsAns
+  } catch (e) {
+    labelErr := { id: id, msg: e.message }
+    onFlush(() => { labelErr := { id: id, msg: e.message } })
+  }
+}

@@ -1,0 +1,312 @@
+// Sprint board: a board page (three columns, a detail with a checklist) and an archive page,
+// behind a row of tabs. Every write shows at once through app.ts's `overlay` and goes back by
+// itself when the server declines it; the view only says what is shown.
+routes nav
+  tab board "/"
+  tab archive "/archive"
+
+shape Card
+  id: number
+  title: string
+  done: number
+  total: number
+
+shape Item
+  id: number
+  text: string
+  done: bool
+
+shape Archived
+  id: number
+  title: string
+
+shape Moved
+  id: number
+  column: string
+  index: number
+
+shape Titled
+  id: number
+  title: string
+
+shape Ack
+  id: number
+
+shape Toggled
+  id: number
+  done: bool
+
+fn columnName(col: string): string = col == "todo" ? "To do" : col == "doing" ? "Doing" : "Done"
+fn cardText(c: Card): string = c.id < 0 ? `${c.title} (adding…)` : `#${c.id} ${c.title} · ${c.done}/${c.total}`
+fn itemText(i: Item): string = `${i.done ? "[x]" : "[ ]"} ${i.text}${i.id < 0 ? " (adding…)" : ""}`
+fn errorOf(f: option<Failure>): string = match f { case some(x) => x.reason != "" ? x.reason : x.message, case none => "" }
+fn has(cards: Card[], id: number): bool = cards.filter(c => c.id == id).length > 0
+fn cardsOf(col: string, a: Card[], b: Card[], c: Card[]): Card[] = col == "todo" ? a : col == "doing" ? b : c
+fn flagOf(col: string, a: bool, b: bool, c: bool): bool = col == "todo" ? a : col == "doing" ? b : c
+fn textOf(col: string, a: string, b: string, c: string): string = col == "todo" ? a : col == "doing" ? b : c
+fn nextIsCard(cards: Card[], i: number): bool = match cards.at(i + 1) { case some(n) => n.id > 0, case none => false }
+
+component SprintBoard
+  state selected = 0
+  state newCard = ""
+  state newTitle = ""
+  state newItem = ""
+  state renameFor = 0
+  state itemFor = 0
+  state itemKind = ""
+  // Each visit to a page is a fresh start: a reply to a write made on an earlier visit shows no error.
+  state visit = 0
+  state moveVisit = -1
+  state addVisit = -1
+  state archiveVisit = -1
+  state restoreVisit = -1
+
+  resource todo = fetchCards("todo") when nav.tab == "board" as shape Card[] else empty()
+  resource doing = fetchCards("doing") when nav.tab == "board" as shape Card[] else empty()
+  resource done = fetchCards("done") when nav.tab == "board" as shape Card[] else empty()
+  resource checklist = fetchChecklist(selected) when nav.tab == "board" and selected > 0 as shape Item[] else empty()
+  resource archived = fetchArchived() when nav.tab == "archive" as shape Archived[] else empty()
+
+  mutation moved as shape Moved parallel refreshes todo, doing, done
+  mutation added as shape Titled parallel refreshes todo, doing, done
+  mutation renamed as shape Titled parallel refreshes todo, doing, done
+  mutation archivedCard as shape Ack parallel refreshes todo, doing, done
+  mutation toggled as shape Toggled parallel refreshes checklist, todo, doing, done
+  mutation itemAdded as shape Item parallel refreshes checklist, todo, doing, done
+  mutation restored as shape Ack parallel refreshes archived
+
+  derive todoReady = current(todo) and not failed(todo)
+  derive doingReady = current(doing) and not failed(doing)
+  derive doneReady = current(done) and not failed(done)
+  derive full = doingReady and doing.length >= 3
+  derive selectedCol = has(todo, selected) ? "todo" : has(doing, selected) ? "doing" : has(done, selected) ? "done" : ""
+  derive selectedCard = first(todo.concat(doing).concat(done).filter(c => c.id == selected))
+  derive moveError = moveVisit == visit ? errorOf(failure(moved)) : ""
+  derive addError = addVisit == visit ? errorOf(failure(added)) : ""
+  derive archiveError = archiveVisit == visit ? errorOf(failure(archivedCard)) : ""
+  derive renameError = renameFor == selected ? errorOf(failure(renamed)) : ""
+  derive itemError = itemFor != selected ? "" : itemKind == "toggle" ? errorOf(failure(toggled)) : itemKind == "add" ? errorOf(failure(itemAdded)) : ""
+  derive restoreError = restoreVisit == visit ? errorOf(failure(restored)) : ""
+  derive doneCount = checklist.filter(i => i.done).length
+
+  // Opening a page starts it afresh: nothing selected, empty fields, no old errors.
+  action pick(name: string)
+    if name != nav.tab
+      nav = select(nav, name)
+      startPage()
+  // The browser's Back and Forward, and a link, arrive here: a change of page starts it afresh too.
+  action follow(url: string)
+    let n = go(nav, url)
+    nav = n
+    if n.tab != nav.tab
+      startPage()
+  action startPage
+    visit = visit + 1
+    selected = 0
+    newCard = ""
+    newTitle = ""
+    newItem = ""
+    renameFor = 0
+    itemFor = 0
+    itemKind = ""
+    moved = none
+    added = none
+    renamed = none
+    archivedCard = none
+    toggled = none
+    itemAdded = none
+    restored = none
+
+  action retry(col: string)
+    if col == "todo"
+      refresh todo
+    else if col == "doing"
+      refresh doing
+    else
+      refresh done
+
+  action move(c: Card, to: string, index: number)
+    send moved = moveCard(c.id, to, index, c.title, c.done, c.total)
+    moveVisit = visit
+
+  action editNewCard(v: string)
+    newCard = v
+  action addCard
+    if newCard.trim() != ""
+      send added = addCard("todo", newCard.trim())
+      addVisit = visit
+      newCard = ""
+
+  action choose(id: number)
+    if id > 0 and id != selected
+      selected = id
+      newTitle = ""
+      newItem = ""
+      renameFor = 0
+      itemFor = 0
+      itemKind = ""
+      renamed = none
+      toggled = none
+      itemAdded = none
+
+  action editTitle(v: string)
+    newTitle = v
+  action rename
+    if newTitle.trim() != "" and selected > 0
+      send renamed = renameCard(selected, newTitle.trim())
+      renameFor = selected
+      newTitle = ""
+
+  action archive
+    if selected > 0
+      send archivedCard = archiveCard(selected)
+      archiveVisit = visit
+      selected = 0
+      newTitle = ""
+      newItem = ""
+      renameFor = 0
+      itemFor = 0
+      itemKind = ""
+
+  action toggle(i: Item)
+    if i.id > 0 and selected > 0
+      send toggled = toggleItem(selected, i.id, not i.done)
+      itemFor = selected
+      itemKind = "toggle"
+
+  action editItem(v: string)
+    newItem = v
+  action addItem
+    if newItem.trim() != "" and selected > 0
+      send itemAdded = addItem(selected, newItem.trim())
+      itemFor = selected
+      itemKind = "add"
+      newItem = ""
+
+  action restore(id: number)
+    send restored = restoreCard(id)
+    restoreVisit = visit
+
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      display="flex" flex-direction="column"
+      row role="tablist" gap=8 padding="8px 16px" testId="tabs"
+        button role="tab" aria-controls="panel-board" aria-selected=(nav.tab == "board") press=pick("board")
+          buttonStyle=(nav.tab == "board" ? "filled" : "bordered") testId="tab-board"
+          text "Board"
+        button role="tab" aria-controls="panel-archive" aria-selected=(nav.tab == "archive") press=pick("archive")
+          buttonStyle=(nav.tab == "archive" ? "filled" : "bordered") testId="tab-archive"
+          text "Archive"
+      if nav.tab == "board"
+        scroll id="board" flex=1 min-height=0
+          column id="panel-board" role="tabpanel" gap=16 padding=16
+            text "Sprint board" role="heading" aria-level=1 font="-exact-title1"
+            if moveError != ""
+              text `move error: ${moveError}` color="-exact-system-red" testId="move-error"
+            if archiveError != ""
+              text `archive error: ${archiveError}` color="-exact-system-red" testId="archive-error"
+            row gap=12 flex-wrap="wrap" align-items="flex-start"
+              for col in ["todo", "doing", "done"] key=col
+                column flex=1 min-width=240 gap=8 padding=12 border-radius=12
+                  background-color="-exact-secondary-background" testId=`col-${col}`
+                  text (flagOf(col, todoReady, doingReady, doneReady) ? `${columnName(col)} (${cardsOf(col, todo, doing, done).length})` : columnName(col))
+                    role="heading" aria-level=2 font="-exact-headline" testId=`head-${col}`
+                  if flagOf(col, failed(todo), failed(doing), failed(done))
+                    text `error: ${textOf(col, errorOf(failure(todo)), errorOf(failure(doing)), errorOf(failure(done)))}`
+                      color="-exact-system-red" testId=`error-${col}`
+                    button press=retry(col) buttonStyle="bordered" testId=`retry-${col}`
+                      text "Retry"
+                  else if not flagOf(col, todoReady, doingReady, doneReady)
+                    text "loading" color="-exact-secondary-label" testId=`loading-${col}`
+                  else
+                    if cardsOf(col, todo, doing, done).length == 0
+                      text "No cards" color="-exact-secondary-label"
+                    for c, i in cardsOf(col, todo, doing, done) key=c.id
+                      row gap=6 align-items="center" flex-wrap="wrap"
+                        box press=choose(c.id) role="button" tabindex=0 flex=1 min-width=120 padding=8 border-radius=8
+                          aria-pressed=(c.id == selected)
+                          background-color=(c.id == selected ? "-exact-tertiary-fill" : "-exact-background")
+                          testId="card"
+                          text cardText(c) color=(c.id < 0 ? "-exact-secondary-label" : "-exact-label")
+                        if c.id > 0
+                          row gap=4
+                            if col != "todo"
+                              button press=move(c, col == "done" ? "doing" : "todo", col == "done" ? doing.length : todo.length)
+                                disabled=(col == "done" and full) aria-label=`Move #${c.id} left` testId="left"
+                                text "Left"
+                            if col != "done"
+                              button press=move(c, col == "todo" ? "doing" : "done", col == "todo" ? doing.length : done.length)
+                                disabled=(col == "todo" and full) aria-label=`Move #${c.id} right` testId="right"
+                                text "Right"
+                            if i > 0
+                              button press=move(c, col, i - 1) aria-label=`Move #${c.id} up` testId="up"
+                                text "Up"
+                            if nextIsCard(cardsOf(col, todo, doing, done), i)
+                              button press=move(c, col, i + 1) aria-label=`Move #${c.id} down` testId="down"
+                                text "Down"
+                  if col == "todo"
+                    row gap=8 align-items="center"
+                      input value=newCard input=editNewCard submit=addCard placeholder="New card"
+                        aria-label="New card title" flex=1 min-width=0 testId="new-card"
+                      button press=addCard disabled=(newCard.trim() == "") buttonStyle="filled" testId="add-card"
+                        text "Add"
+                    if addError != ""
+                      text `add error: ${addError}` color="-exact-system-red" testId="add-error"
+            column gap=12 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="detail"
+              match selectedCard
+                case none
+                  text "select a card" color="-exact-secondary-label"
+                case some(c)
+                  text `#${c.id} ${c.title}` role="heading" aria-level=2 font="-exact-headline" testId="detail-title"
+                  text `in ${columnName(selectedCol)}` color="-exact-secondary-label" testId="detail-column"
+                  row gap=8 align-items="center"
+                    input value=newTitle input=editTitle submit=rename placeholder="New title"
+                      aria-label="New title" flex=1 min-width=0 testId="title-input"
+                    button press=rename disabled=(newTitle.trim() == "") buttonStyle="bordered" testId="rename"
+                      text "Rename"
+                    button press=archive destructive=true buttonStyle="bordered" testId="archive"
+                      text "Archive"
+                  if renameError != ""
+                    text `rename error: ${renameError}` color="-exact-system-red" testId="rename-error"
+                  column gap=6 testId="checklist"
+                    text "Checklist" role="heading" aria-level=3 font="-exact-subheadline"
+                    if failed(checklist)
+                      text `checklist error: ${errorOf(failure(checklist))}` color="-exact-system-red"
+                    else if not current(checklist)
+                      text "loading checklist" color="-exact-secondary-label"
+                    else
+                      for it in checklist key=it.id
+                        row gap=8 align-items="center"
+                          text itemText(it) flex=1 min-width=0
+                            color=(it.id < 0 ? "-exact-secondary-label" : "-exact-label") testId="item"
+                          if it.id > 0
+                            button press=toggle(it) aria-label=(it.done ? `Mark ${it.text} not done` : `Mark ${it.text} done`)
+                              testId="toggle"
+                              text (it.done ? "Undo" : "Done")
+                      text `${doneCount}/${checklist.length} done` font-variant-numeric="tabular-nums" testId="progress"
+                  row gap=8 align-items="center"
+                    input value=newItem input=editItem submit=addItem placeholder="New item"
+                      aria-label="New checklist item" flex=1 min-width=0 testId="item-input"
+                    button press=addItem disabled=(newItem.trim() == "") buttonStyle="bordered" testId="add-item"
+                      text "Add item"
+                  if itemError != ""
+                    text `item error: ${itemError}` color="-exact-system-red" testId="item-error"
+      else
+        scroll id="archive" flex=1 min-height=0
+          column id="panel-archive" role="tabpanel" gap=12 padding=16
+            text "Archive" role="heading" aria-level=1 font="-exact-title1"
+            if restoreError != ""
+              text `restore error: ${restoreError}` color="-exact-system-red" testId="restore-error"
+            column gap=8 testId="archived"
+              if failed(archived)
+                text `archive error: ${errorOf(failure(archived))}` color="-exact-system-red"
+              else if not current(archived)
+                text "loading archive" color="-exact-secondary-label"
+              else if archived.length == 0
+                text "Nothing archived." color="-exact-secondary-label"
+              else
+                for a in archived key=a.id
+                  row gap=8 align-items="center" padding=8 border-radius=8 background-color="-exact-background"
+                    text `#${a.id} ${a.title}` flex=1 min-width=0 testId="archived-card"
+                    button press=restore(a.id) buttonStyle="bordered" aria-label=`Restore #${a.id}` testId="restore"
+                      text "Restore"

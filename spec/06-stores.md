@@ -4,7 +4,7 @@
 question, drafts, keys, streams, and the imperative forms that tie writes to
 async work: `action`, `guess`, `refresh`, `affects`. Rules cite Solid's
 F-9, F-11 and the derived rules they restate. In `ref/`: ST-1…ST-6,
-AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path writes: S-store-6. AC-6 `until`: S-action-2. AC-7 try/catch: S-action-1. A functional guess over a held input, and two actions guessing one slot (H-11): S-action-3, S-action-4. AC-1b…AC-1d (inferred actions, held writes, stale own reads): S-infer-1…5. AC-1e (stale write-back): S-infer-6.
+AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path writes: S-store-6. AC-6 `until`: S-action-2. AC-7 try/catch: S-action-1. A functional guess over a held input, and two actions guessing one slot (H-11): S-action-3, S-action-4. AC-1b…AC-1d (inferred actions, held writes, stale own reads): S-infer-1…5. AC-1e (stale write-back): S-infer-6. AC-1g (an answer takes only what is the server's): S-infer-7.
 
 ---
 
@@ -63,6 +63,9 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   per-key path updates (their readers run only for changed keys); new keys
   create, missing keys remove; a reorder moves rows (S-store-3). `pending?`
   and `latest` on an element follow the key.
+  The key applies at any depth, as Solid's: on a record (`x key k = { a: …,
+  b: … }`) every list inside it is reconciled by `k` (taken by default,
+  2026-11-15).
 - **ST-4b.** `for u in x` over a keyed collection uses the key for row
   identity (RG-2a). A collection derived from a keyed one by selection
   (`filter(rows, …)`) keeps the rows' identity and needs no key of its own;
@@ -84,9 +87,11 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   a `createOptimistic(() => truth())` layer.
 - **ST-5b.** Its question (V-9) is `e`'s inputs. `refresh x` re-asks it
   quietly; `affects x` declares that in-flight work will change it (H-9).
-- **ST-5c.** It and an equation (V-2) are the legal targets of `guess`
-  (AC-3): a guess needs a truth that will confirm or correct it, and an
-  equation's truth is its expression. A guess is not a write of the truth,
+- **ST-5c.** Any source, and an equation (V-2), are the legal targets of
+  `guess` (AC-3): a guess needs a truth that will confirm or correct it. An
+  equation's truth is its expression, a source's its question's answer and
+  its plain writes (since 2026-11-20; before, a `:=` source was
+  `GUESS_NO_QUESTION`). A guess is not a write of the truth,
   so an equation still takes no `:=` (W-1). A guessed equation lowers to
   Solid's `createOptimistic(fn)` / `createOptimisticStore(fn, seed)`, whose
   setter only guesses; a guessed source with a question to a
@@ -178,8 +183,8 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   so a later write in the body hides it and otherwise it lands late, and
   nothing in the text says so. The fix names what the write is for:
   ephemeral state that shows while the work runs ("saving", a spinner, a
-  pending row) is a guess, `guess x := v` on a source with a question
-  (ST-5c; often a constant one, `source status = ""`); a reset that lands
+  pending row) is a guess, `guess x := v` (ST-5c; on any source, `source
+  saving := false`); a reset that lands
   now and stays (clear an error, clear an input, close a menu) is
   `onFlush(() => { x := v })` (02 EF-8). A write meant to be held — a
   transition: `action go() { id := 2; await prefetch() }` (S-solid-20) — is
@@ -224,18 +229,61 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   its 3 .rx defects, and a latent one in a run that passed every test; on
   all 76 eval .rx apps and the repository's examples it fires on those 3
   runs only (S-infer-6).
+- **AC-1f (Calls pass the parameters).** [taken by default 2026-11-14] A
+  call of an action declared in the module passes one argument per
+  parameter; any other count is `ARGUMENT_COUNT` (static). The parameters
+  are the action's whole input: a missing one is `undefined` in the body
+  and an extra one is dropped, silently either way. An action imported from
+  an `.rx` module or passed as a prop is not checked (its signature carries
+  no parameters yet, MO-3). Found by the eval board (r15prep,
+  `check-accepts-arity-and-missing-props.rx`; S-check-1).
+- **AC-1g (An answer takes only what is the server's).** [taken by default
+  2026-11-17] In a declared action, a write after an `await` into a source
+  with a question (the server's answer, ST-5a) takes only the `await`'s
+  value, plain arguments, and its own value at the write (a functional
+  write's argument, W-6). A value that names, directly or inside its
+  closure, a source or equation, a local read from one (before the `await`
+  or after it), or a parameter typed as a row (a type that is not
+  `number`, `string`, `boolean`, a literal, `null`, or a local alias of
+  those) is a compile error (`STALE_CAPTURE`). Such a value is what the
+  screen showed, not what the server answered: by the time the server
+  answers, the row may have changed (a rename accepted), be somewhere else
+  (an earlier move declined), or carry a write another action holds with
+  this one (a shared list, H-11), which a read does not see (H-10). The
+  write puts the old row, count or place into the answer, so the screen
+  shows a lost edit or a row twice. AC-1e's fix, the functional write, does
+  not help when its closure names such a value. The fix is to find rows in
+  the answer itself by id (`x := rs => …`), or, when the server's answer
+  doesn't say where a row is now (a move answers only where it went), to
+  re-ask the answers it left and joined (`refresh x`). Plain parameters
+  (an id, a title, an index the handler worked out) are what the user
+  asked for and are not checked; nor is an untyped parameter, a guess, a
+  write before the first `await`, or a write to a source without a
+  question (a failure record keeps what the user tried). A write that AC-1e
+  reports is not reported again. Principle: a write must not read stale
+  state. Found by the AI eval's round 15 (eval/results/round15-2026-11-16):
+  the moves of 4 of 6 frontier board apps wrote the card they were given or
+  the column it was in at the click, and in a probe on the first draft of
+  this rule (pre-`await` reads only) 2 of 3 apps moved the read after the
+  `await` and lost a rename held with the move. On round 15's 24 .rx apps,
+  the 19 .rx references, the examples and 161 .rx apps of earlier rounds it
+  fires on 9 of the 12 round 15 board apps, each time on the traced defect,
+  and on 3 October apps that write `x := x.map(…)` after an `await`
+  (S-infer-7).
 - **AC-2 (Not special).** An action is only a way to tie writes to async
   work; the hold is the thing (H-2). `refresh`, `affects` and probes behave
   the same inside and outside one.
 - **AC-3 (guess).** `guess x := e`, legal only inside an action
   body, declared or inferred (AC-1b); in an `effect`'s apply block, which
-  is never an action, it is `GUESS_OUTSIDE_HOLD`, and only on a source with a
-  question (ST-5) or on an equation (ST-5c; else `GUESS_NO_QUESTION`): writes a guess that is the
+  is never an action, it is `GUESS_OUTSIDE_HOLD`, and on a source or an
+  equation (ST-5c): writes a guess that is the
   graph's and the screen's value for `x` from the instant's settle,
   display-ahead and verdict-inert, until the hold it was made over commits
   or `x`'s own answer differs — the full rule is H-11. `x`'s truth is
   whatever its question gives: a constant (`source draft = "Ann"`), another
-  source (`source draft = name`, S-solid-32), or an `await`. Lowers to
+  source (`source draft = name`, S-solid-32), or an `await`; for a source
+  declared with `:=`, its plain writes (S-guess-writable-1, -2), which land
+  with the action's change, so the guess ends showing the action's own write. Lowers to
   `createOptimistic`/`createOptimisticStore` by usage. Path targets
   (`guess x.a := v`, `guess todos[i].done := true`) guess per key,
   as Solid's per-node override: the rest of `x` is the truth beneath the
@@ -248,8 +296,12 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   re-asked server list brings the row; a declined toggle's revert and its
   recorded failure land with that list, in one frame). Solid does the same:
   the action's transition holds until the refresh it started lands.
-  Lowers to `createOptimisticStore(fn, seed)`; a plain write to a source
-  that is also guessed by path is not lowered yet. A guess is verdict-inert: an
+  Lowers to `createOptimisticStore(fn, seed)`; a source that is guessed and
+  also written plainly lowers to an optimistic layer derived from its
+  writable truth: `createOptimistic(() => truth())` over `createSignal`, or
+  `createOptimisticStore(() => truth, seed)` over `createStore(v)` or
+  `createStore(fn, seed)` (S-guess-writable-3). Plain writes go to the truth
+  and guesses to the layer. A guess is verdict-inert: an
   action that wants `pending? x` true while its guess stands declares
   `affects x` (AC-5; the idiom is in 07 §5).
 - **AC-3a (A guess while its value loads a new question).** [taken by default
@@ -340,7 +392,8 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 | `HELD_WRITE` (new)              | S   | AC-1c: an early write in an inferred action      |
 | `STALE_OWN_READ` (new)          | S   | AC-1d: a read of the change's own write          |
 | `STALE_WRITE_BACK` (new)        | S   | AC-1e: a pre-`await` read written back after it  |
-| `GUESS_NO_QUESTION` (new)  | S   | AC-3 / ST-5c                                     |
+| `STALE_CAPTURE` (new)           | S   | AC-1g: after an `await`, an answer written with anything but the server's |
+| `GUESS_NO_QUESTION` (retired 2026-11-20) | S | AC-3 / ST-5c: any source takes a guess |
 | `GUESS_ON_DEFERRED` (new)  | S   | AC-3 / ST-5c: a deferred equation lags its truth |
 | `GUESS_WHILE_LOADING` (new) | S | AC-3a: a guess a click can make while its value loads a new question (D-34) |
 

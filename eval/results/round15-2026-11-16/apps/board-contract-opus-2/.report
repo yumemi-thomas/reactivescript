@@ -1,0 +1,7 @@
+I built the sprint board in `/tmp/claude-0/runs/r15/board-contract-opus-2/app.contract` and `/tmp/claude-0/runs/r15/board-contract-opus-2/app.ts`, and all 26 visible tests pass; I used 2 of the 15 `./check`/`./test` runs. Every write (move, add, rename, archive, toggle, add item, restore) shows at once and can be in flight alongside others. If the server declines one, only that one goes back, and it shows its own error. Leaving a tab clears selection, inputs and errors, and the page reloads when it opens again.
+
+Things I was unsure about:
+- **Refetches:** after any write is answered or declined, the affected columns, checklist or archive are fetched again. While that happens they keep showing their cards, not `loading`.
+- **Card counts:** a card moved to another column takes its checklist counts as they were shown when it was moved. If an earlier toggle on it is later declined, the moved card can show a count that is one off until the next reload.
+- **Rename input:** I didn't empty `title-input` after a rename, since the brief only says it starts empty.
+- **Late errors:** a failure that arrives after you select another card or switch tabs still shows its error.

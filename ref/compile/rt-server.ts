@@ -10,7 +10,9 @@ import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit } from "solid-js";
-import { escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
+import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
+let warnedCopies = false;   // once per process
+const warnedFields = new Set<string>();   // SV-5a: a declared field an instance came without, once per class and field
 import { $TARGET } from "@solidjs/signals";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -52,6 +54,10 @@ function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err:
 function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
   try { return f(); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); }
 }
+/** As the client's: with no observer the read is a snapshot (04 R-8) and the client builds no boundary, so no ids. */
+function catchRead(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
+  return getObserver() ? catchAcc(f, match, alt)() : tryCatch(f, match, alt);
+}
 
 // ---------------------------------------------------------------- the wire (12 SF-6; a copy of ref/src/failure.ts's)
 function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
@@ -81,7 +87,22 @@ export class Flight {
 type Owner = ReturnType<typeof getOwner>;
 type Ctx = { name: string; id: symbol; dflt: (() => unknown) | null; owner: Owner; dv: Entry | null };
 
-export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
+/** `request`: the request this app renders (SV-4: one app per request). Libraries that locate a server render by Solid's
+ *  request event (`@solidjs/router` reads the page's URL from it) see this one; without it, a placeholder for `/`. */
+/** MO-10i: a copy of what a draft holds: arrays, plain objects, Maps and Sets are copied through — what a store or a
+ *  draft library hands out as live parts of its state; anything else (a primitive, a function, a Date, an instance of a
+ *  class) is the value itself. A value met twice is copied once, so a cycle ends. */
+function copyOf(v: any, seen: Map<object, unknown>): unknown {
+  if (v === null || typeof v !== "object") return v;
+  const had = seen.get(v); if (had !== undefined) return had;
+  if (Array.isArray(v)) { const out: unknown[] = []; seen.set(v, out); for (let i = 0; i < v.length; i++) out[i] = copyOf(v[i], seen); return out; }
+  if (v instanceof Map) { const out = new Map<unknown, unknown>(); seen.set(v, out); for (const [k, x] of v) out.set(copyOf(k, seen), copyOf(x, seen)); return out; }
+  if (v instanceof Set) { const out = new Set<unknown>(); seen.set(v, out); for (const x of v) out.add(copyOf(x, seen)); return out; }
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) return v;
+  const out: Record<string, unknown> = {}; seen.set(v, out); for (const k of Object.keys(v)) out[k] = copyOf(v[k], seen); return out;
+}
+export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request?: Request } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const registry = new Map<string, Entry[]>();
@@ -90,6 +111,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const declared: unknown[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
   const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
+  const jsClassIds = new Map<unknown, string>();   // SV-5a: a declared JS error class the program imports, by its declaration (`jsClass`)
+  const jsClassFields = new Map<unknown, string[]>();   // SV-5a: the fields its declaration says are sent (`export error C(status)`)
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
@@ -99,7 +122,14 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** Render `view` as a stream: `write` receives each chunk, `end` the close. */
     /** One request (a request event, as Solid's integrations provide one — a server function called during the render runs
      *  in it, SF-2b). */
-    stream(view: () => unknown, sink: { write: (s: string) => void; end: () => void }) { return provideRequestEvent({ request: new Request("http://127.0.0.1/"), locals: {} }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
+    stream(view: () => unknown, sink0: { write: (s: string) => void; end: () => void }) {
+      // the shell carries hydration keys; one with markup and none means the compiled templates read another copy of
+      // Solid than this runtime renders with (a bundler that inlined one of them): nothing would hydrate. The copy that
+      // matters is solid-js's, which holds the render's hydration context: two @solidjs/web over one solid-js still key
+      // (runtime/test.mjs renders both ways)
+      let first = true;
+      const sink = { end: () => sink0.end(), write: (c: string) => { if (first) { first = false; if (!process.env.SV_SCOPE && /<[a-z][^>]*>/i.test(c) && !/\b_hk=/.test(c) && !warnedCopies) { warnedCopies = true; console.warn("[reactivescript] the server's first chunk has markup but no hydration keys, so the client may not be able to hydrate it (markup a page renders on purpose without keys, or keys in a later chunk, would show this too). If hydration fails, check for two copies of Solid: the compiled modules and @reactivescript/runtime may load different copies (solid-js, and with it @solidjs/web) — keep Solid, the runtime and libraries that render all external to the server build, or all bundled together"); } } sink0.write(c); } };
+      return provideRequestEvent({ request: opts.request ?? new Request("http://127.0.0.1/"), locals: { [REQUEST_APP]: app } }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
 
     B: {
       len: (x: unknown) => (Array.isArray(x) || typeof x === "string") ? x.length : (typeof x === "object" && x) ? Object.keys(x).length : 0,
@@ -125,18 +155,67 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     prim: (name: string) => primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any })[name] ?? (() => { throw new Error(`./prims has no ${name}`); }),
 
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
+    /** SV-5a: a JS module's error class, declared in its `.d.rx` (`export error C`, or `export error C(status, code?)` to
+     *  send those fields too; `code?` may be absent from an instance): `id` is that declaration. */
+    jsClass<T>(C: T, id: string, fields?: string[]): T {
+      if (!jsClassIds.has(C)) { jsClassIds.set(C, id); if (fields?.length) jsClassFields.set(C, fields); }
+      return C;
+    },
+    /** SV-5a: what is sent for `err`, if it is an instance of a JS error class this app's program declares: a copy of it,
+     *  of its class (so a typed boundary and `instanceof` still hold on the server), with its message, its declaration's
+     *  identity and the fields its declaration names, marked safe to send. Solid serializes an error with every field it
+     *  holds (a library's `cause`, a response's headers, the stack), so the library's own instance is never the one sent.
+     *  Undefined when nothing declares its class: it is redacted (SV-5b). */
+    markSendable(err: unknown): Error | undefined {
+      if (!err || typeof err !== "object") return undefined;
+      // the nearest declared class up its prototype chain names it, whatever order the program registered its classes in;
+      // the declared classes above that one go with it, so a client boundary typed with a base class matches it too
+      // a field by its name, with the class that declares it and whether its row lets it be absent (`code?`); the
+      // nearest class's row decides for a field several declare
+      const ids: string[] = []; const fields = new Map<string, { by: string; optional: boolean }>();
+      for (let p = Object.getPrototypeOf(err); p && p !== Object.prototype; p = Object.getPrototypeOf(p))
+        for (const [k, i] of jsClassIds) if ((k as { prototype?: unknown }).prototype === p && !ids.includes(i)) {
+          ids.push(i);
+          for (const f0 of jsClassFields.get(k) ?? []) { const optional = f0.endsWith("?"); const f = optional ? f0.slice(0, -1) : f0; if (!fields.has(f)) fields.set(f, { by: i, optional }); }
+        }
+      if (!ids.length) return undefined;
+      if ((err as { $class?: string }).$class === ids[0] && SENT.has(err)) return err as Error;   // already the copy
+      const e = err as Error & Record<string, unknown>;
+      const sent = Object.create(Object.getPrototypeOf(err)) as Error & Record<string, unknown>;
+      Object.defineProperty(sent, "message", { value: String(e.message ?? ""), writable: true, configurable: true });
+      Object.defineProperty(sent, "name", { value: e.name, writable: true, configurable: true });
+      for (const [f, { by, optional }] of fields) {
+        if (f === "stack" || f === "cause") continue;
+        // its own data property, as the instance read it: the copy's prototype is the class's, where an accessor of
+        // that name (`get status()`) would refuse an assignment, or run a setter
+        if (f in e) Object.defineProperty(sent, f, { value: e[f], writable: true, enumerable: true, configurable: true });
+        // the declaration says every instance has the field and this one does not: the client would read `undefined`
+        // where its type says a value. The failure is still sent, as its class; the server says so, once
+        else if (!optional && !warnedFields.has(`${by}\0${f}`)) {
+          warnedFields.add(`${by}\0${f}`);
+          console.warn(`[reactivescript] ${by} declares the field ${f}, but an instance thrown has none: it is sent without it, and the client reads undefined. Set it where the error is made, or declare it optional, \`${f}?\` (SV-5a)`);
+        }
+      }
+      Object.defineProperty(sent, "$class", { value: ids[0], writable: true, enumerable: true, configurable: true });
+      if (ids.length > 1) Object.defineProperty(sent, "$classes", { value: ids, writable: true, enumerable: true, configurable: true });
+      SENT.add(sent);
+      markSafeError(sent);
+      return sent;
+    },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
 
     // ---- declarations: the same primitives, from the server build. Writes do not happen on the server (SV-2). ----
-    source(name: string, init: unknown): [Acc, Writer] {
+    source(name: string, init: unknown, guessed = false): [Acc, Writer] {   // guessed: the client's optimistic layer over the writable (AC-3), so the owner trees (and hydration keys) match
       void name;
-      if (typeof init === "object" && init !== null) { const [store] = createStore(init as any); const [get] = createSignal<unknown>(store); return ro(get as Acc); }
-      const [get] = createSignal(init); return ro(get as Acc);
+      if (typeof init === "object" && init !== null) { const [store] = createStore(init as any); const [get] = createSignal<unknown>(store); if (guessed) { const [view] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); return ro(() => view); } return ro(get as Acc); }
+      const [get] = createSignal(init); if (guessed) { const [view] = createOptimistic(() => (get as Acc)()); return ro(view as Acc); } return ro(get as Acc);
     },
-    question(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean }, key?: string): [Acc, Writer] {
+    question(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
-      if (mode.optimistic && mode.structured) { const [store] = (createOptimisticStore as any)((draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); landDraft(draft, r, key); }, key ? [] : {}, key ? { key } : undefined); return ro(() => store); }
+      const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
+      if (mode.optimistic && mode.structured && mode.plain && !mode.derived) { const [truth] = (createStore as any)(derive, key && !mode.record ? [] : {}, key ? { key } : undefined); (createOptimisticStore as any)(() => (key && !mode.record ? [] : {}), key && !mode.record ? [] : {}, key ? { key } : undefined); return ro(() => truth); }   // the client's layer, created for its owner slot only: the server shows the truth (it has no guesses), since Solid's server runs a projection's fn at once and one over a pending store throws NotReadyError out of the component (solidjs/solid#5097)
+      if (mode.optimistic && mode.structured) { const [store] = (createOptimisticStore as any)(derive, key && !mode.record ? [] : {}, key ? { key } : undefined); return ro(() => store); }
       if (mode.optimistic && mode.derived) { const [get] = createOptimistic(fn as any, o as any); return ro(get as Acc); }   // AC-3 over an equation: the client's createOptimistic(fn), so the owner trees (and hydration keys) match
       if (mode.optimistic) { const [truth] = createSignal(fn as any, o as any); const [get] = createOptimistic(() => (truth as Acc)()); return ro(get as Acc); }
       if (mode.structured) {
@@ -146,8 +225,14 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       const [get] = createSignal(fn as any, o as any); return ro(get as Acc);
     },
     memo: (name: string | null, fn: (prev: unknown) => unknown, o?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, o as any) as Acc,
+    /** R-f-5, MO-10f: a JS fn's record or tuple result as a value whose parts are read where they are read — a getter
+     *  per part on the result (`refs`: the parts that are accessors, called) — so reading one part reads no other. */
+    lazy: (r: any, keys: (string | number)[], refs: (string | number)[]): Acc => { const o: any = keys.length && typeof keys[0] === "number" ? [] : {}; for (const k of keys) Object.defineProperty(o, k, { get: () => refs.includes(k) ? r[k]() : r[k], enumerable: true }); return () => o; },
+    /** MO-10i (ruled 2026-11-22): a read of a library's draft is a copy — what `.rx` holds of a draft is never the
+     *  library's own object, which it may take back when its callback returns (`copyOf`). */
+    copy: (v: unknown): unknown => copyOf(v, new Map()),
     deferred: (name: string, fn: (prev: unknown) => unknown, o?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, o as any) as Acc,
-    keyed: (name: string, key: string, fn: () => unknown): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, [] as any, { key } as any); return () => p; },
+    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); return () => p; },
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
     pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
@@ -157,7 +242,16 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       createEffect((() => { try { return inputs(); } catch (e) { if (e instanceof NotReadyError) throw e; return ERR; } }) as any, { effect() {}, error() {} } as any);
     },
     action(_gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) { return onServer("an action"); },
-    awaited: (v: unknown) => v instanceof Flight ? v.first : v,
+    /** SV-5a: a JS promise that rejects with a declared JS error class (imported by the program) is sent as it is, carrying
+     *  its class's identity; the side branch only marks it, before Solid serializes it, and changes nothing else. */
+    awaited: (v: unknown) => {
+      if (v instanceof Flight) return v.first;
+      // a rejection of a declared class rejects on with what is sent for it (`markSendable`); anything else as it was
+      if (jsClassIds.size && v && typeof (v as PromiseLike<unknown>).then === "function") return Promise.resolve(v).then(x => x, (err: unknown) => { throw app.markSendable(err) ?? err; });
+      return v;
+    },
+    /** `x = await f() catch (e: C) => alt` (R-f-4): a matching rejection lands `alt` as the answer; others reject on. */
+    settle: (p: unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => p && typeof (p as Promise<unknown>).then === "function" ? (p as Promise<unknown>).then(v => v, err => { if (match(err)) return alt(err); throw err; }) : p,
     /** RG-8: Solid's Portal — client-only: the server renders nothing for it, the browser renders it once it has the page. */
     Portal: WebPortal,
     /** CSS-2: a dynamic class with the view's scope class after it. */
@@ -218,9 +312,11 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
-    isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
+    isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => a === b,
+    /** MO-10h: a `signal` parameter's argument: a Solid signal of the value, which the library is handed. */
+    signal: (v: unknown) => createSignal(v as never) as unknown,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 
@@ -241,20 +337,13 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 }
 export type ServerApp = ReturnType<typeof createApp>;
 
-/** A keyed answer is merged into the draft by key: a row whose key is still there keeps its object and takes the new
- *  leaves, so an equal answer changes nothing and a changed one changes only its leaves (#51). Any other answer is
- *  assigned.
- *  TODO(Solid rc.22): return the keyed answer from the derive and let Solid reconcile it, dropping this merge. On
- *  2.0.0-rc.21 that path throws in holdStaging (memo over latest() of the rows); fixed on Solid next (dba2aad). */
-function landDraft(draft: any, v: unknown, key: string | undefined) {
-  if (!key || !Array.isArray(v) || !Array.isArray(draft)) return assignDraft(draft, v);
-  const had = new Map<unknown, any>(); for (const row of draft) if (row && typeof row === "object") had.set(row[key], row);
-  v.forEach((x: any, i) => { const row = x && typeof x === "object" ? had.get(x[key]) : undefined; if (row) { mergeLeaves(row, x); if (draft[i] !== row) draft[i] = row; } else draft[i] = x; });
-  draft.length = v.length;
-}
-function mergeLeaves(o: any, v: any) {
-  for (const k of Object.keys(o)) if (!(k in v)) delete o[k];
-  for (const k of Object.keys(v)) { const a = o[k], b = v[k]; if (a && b && typeof a === "object" && typeof b === "object" && Array.isArray(a) === Array.isArray(b)) { if (Array.isArray(a)) { a.length = b.length; } mergeLeaves(a, b); } else if (a !== b) o[k] = b; }
+/** A keyed answer is returned from the derive, and Solid reconciles it by key at any depth (ST-4a): a row whose key is
+ *  still there keeps its object and takes the new leaves, so an equal answer changes nothing (#51, #64). Any other
+ *  answer is assigned to the draft. */
+function landDraft(draft: any, v: unknown, key: string | undefined): unknown {
+  if (key && v && typeof v === "object") return v;
+  assignDraft(draft, v);
+  return undefined;
 }
 /** A store draft becomes `v`: keys `v` lacks are removed, the rest assigned (an array's length follows). */
 function assignDraft(draft: any, v: unknown) {
@@ -262,4 +351,38 @@ function assignDraft(draft: any, v: unknown) {
   if (Array.isArray(draft) && Array.isArray(v)) { draft.length = v.length; v.forEach((x, i) => { draft[i] = x; }); return; }
   for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k];
   Object.assign(draft, v);
+}
+
+/** CP-4d: an `.rx` module's components for a JS host (`import pages from "./pages.rx?rx-lib"`; `const { Home } =
+ *  components(pages)`): Solid components bound to the request's app (SV-4: module state is per request), found through
+ *  Solid's request event and made on first use. A host that renders outside a request passes the app itself
+ *  (`components(pages, createApp({ request }))`); with neither, rendering one throws rather than share one app's module
+ *  state across unrelated renders. */
+export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ReturnType<typeof createApp>): T {
+  const made = new Map<string, unknown>();
+  const appNow = () => {
+    if (app) return app;
+    const ev = getRequestEvent() as { request: Request; locals: Record<PropertyKey, unknown> } | undefined;
+    if (!ev) throw new Error("an .rx component imported with ?rx-lib was rendered on the server outside a request: its module state would be shared by every render in the process. Render it inside the framework's request (Solid's request event), or pass the app: components(pages, createApp({ request })) (CP-4d)");
+    return (ev.locals[HOST_APP] ??= createApp({ request: ev.request })) as ReturnType<typeof createApp>;
+  };
+  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) =>
+    ((appNow().module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
+}
+const HOST_APP = Symbol.for("reactivescript.app");
+const REQUEST_APP = Symbol.for("reactivescript.request-app");   // the app whose stream this request event is
+/** SV-5a: the copies `markSendable` made, which are what is sent. */
+const SENT = new WeakSet<object>();
+/** SV-5a, a library-cache adapter: `fn` with its rejections (and throws) of a JS error class the request's app declares
+ *  marked safe to send, before anything else sees them. For a library that serializes a promise itself, as
+ *  `@solidjs/router`'s `query` does: `export const getPerson = query(sendErrors(fetchPerson), "person")`. Outside an app's
+ *  request, and on the client, it changes nothing. */
+export function sendErrors<F extends (...a: any[]) => unknown>(fn: F): F {
+  // what is sent for `e` (its sendable copy, SV-5a), or `e` itself where nothing declares its class or no app is asking
+  const sendable = (e: unknown) => { const l = (getRequestEvent() as { locals?: Record<PropertyKey, unknown> } | undefined)?.locals; return ((l?.[REQUEST_APP] ?? l?.[HOST_APP]) as { markSendable?: (e: unknown) => unknown } | undefined)?.markSendable?.(e) ?? e; };
+  return ((...a: unknown[]) => {
+    let r: unknown;
+    try { r = fn(...a); } catch (e) { throw sendable(e); }
+    return r && typeof (r as PromiseLike<unknown>).then === "function" ? Promise.resolve(r).then(v => v, e => { throw sendable(e); }) : r;
+  }) as F;
 }

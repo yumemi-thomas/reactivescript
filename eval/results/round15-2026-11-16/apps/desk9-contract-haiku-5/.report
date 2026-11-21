@@ -1,0 +1,5 @@
+I built the issue desk in `/tmp/claude-0/runs/r15/desk9-contract-haiku-5/app.contract` (the Contract view) and `app.ts` (the data module, calling `src/api.js` and leaving it unchanged). `./check` passes and all 30 visible tests pass. I also ran 34 extra tests for the decline and error paths, which all pass, then restored `tests/visible.mjs`.
+
+I was unsure about three points. A declined assign shows `assign error: declined` in the detail, because the brief does not give a prefix for assign errors. Label errors sit inside the labels section, which is inside the detail. Writes go through one queue, so a slow request delays the ones after it.
+
+Tool use: 5 of 15 `./check` and `./test` runs.

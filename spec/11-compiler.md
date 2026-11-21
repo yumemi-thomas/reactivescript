@@ -115,6 +115,14 @@ record argued each way; this is the decision.
   retire the last of those reservations. Nothing in it adds run-time
   behaviour beyond Solid: each helper is a Solid primitive, a composition of
   them, or plain JavaScript the compiler would otherwise inline.
+  One helper is not Solid's (ruled 2026-11-22): `__rt.copy(v)`, a copy of
+  what a library's draft holds (arrays, plain objects, Maps and Sets
+  copied through; anything else is itself), written wherever a draft is
+  read as a value (09 MO-10i). It is what makes "a read of a draft is a
+  copy" true of the compiled program, where the earlier revisions tried
+  to prove no draft was kept; it is a value's meaning, not a check, and
+  costs a `typeof` where the value is a primitive.
+
 - **CP-4b (The names, pinned 2026-10-26).** What compiled code calls. The
   Rust crate emits exactly these; a change is a change to both.
 
@@ -139,9 +147,9 @@ record argued each way; this is the decision.
   | `eq(a, b)`, `fmt(v)` | `==` through a store (ST-2), a template part | — |
   | `errorClass(name, params, msg)`, `isA(e, classes)`, `PANIC` | `error C(…)` (R-f-1), a typed catch, `Panic` (R-f-10) | a subclass of `Error` |
   | `throw(e)` | `throw` as an expression (R-f-3) | — |
-  | `catchMemo(f, match, alt)` | `x = await … catch …` (R-f-4 over an equation's flight) | `createErrorBoundary` |
-  | `catchRead(f, match, alt)` | `e catch …` in reactive scope (R-f-4) | `createErrorBoundary` |
-  | `tryCatch(f, match, alt)` | `e catch …` in imperative scope | `try` |
+  | `settle(p, match, alt)` | `await … catch …` in reactive scope: a matching rejection lands `alt` as the answer where it is awaited (R-f-4), so it never becomes an errored node | `Promise.prototype.then` |
+  | `catchMemo(f, match, alt)`, `catchRead(f, match, alt)` | no source form since 2026-11-19 (`CATCH_NOT_ON_AWAIT`, R-f-4); kept in the runtime until the lowering that emits them is removed | `createErrorBoundary` |
+  | `tryCatch(f, match, alt)` | `await … catch …` in imperative scope | `try` |
   | `context(name, dflt)`, `provide(c, entry)`, `use(c, owner)`, `useGet(c, owner)`, `owner()` | contexts (RG-7) | `createContext`, `setContext`, `getContext`, `getOwner` |
   | `module(key, factory)` | an `.rx` dependency, once per app (MO-1); `key` is the file's name in a sibling-file build, the factory itself when modules are imported by source for a bundler (`rxc app`), so a module two programs share is one key | — |
   | `serverRef(name, fn)`, `serverCall(name, gen, args)` | a server fn as the client calls it, and its body (12 SF-2, SF-6, SF-7) | Solid's `"use server"` functions |
@@ -159,6 +167,31 @@ record argued each way; this is the decision.
   `frame` (what the runners observe). Compiled code calls them only in a
   conformance build — the compiler's option for running `scenarios/`
   (CP-5); `ref/compile/emit.ts` always emits one.
+- **CP-4d (A JS host's `.rx` components).** A JS module may import an
+  `.rx` module for its components rather than mount a program from it:
+  `import pages from "./pages.rx?rx-lib"` compiles the module as a
+  dependency is (`module(__rt)`, returning its exports; `rxc app --lib`,
+  the Node-API `app(…, library)`), and the runtime's
+  `components(pages)` turns those exports into Solid components the host
+  renders itself (`const { PersonCard } = components(pages)`), or, the
+  same bound, by name (`import { PersonCard } from "./pages.rx?rx-lib"`;
+  the build's `components` lists the module's exported components). They are
+  bound to an app made on first use: on the client, one for the page; on
+  the server, one per request, kept on Solid's request event
+  (`getRequestEvent().locals`), so module state is per request (SV-4) as
+  in a program's own server. A host may pass the app itself
+  (`components(pages, app)`); a server render outside any request with
+  none passed throws (proposed 2026-11-21: one app for the process would
+  share module state across unrelated renders). The
+  module is checked as an entry is (its components' failures reach their
+  own boundaries, or are refused); what the host passes in is typed by
+  the module's projection: `rx-tsc` resolves `pages.rx?rx-lib` to
+  declarations of its exported components (13 TY-1c), so a TSX host
+  passing `PersonCard` a number is a type error on its own line. A
+  TypeScript without `.rx` support takes them untyped, through the
+  runtime's `@reactivescript/runtime/rx-lib` pattern. It is how a framework that owns routing and the document —
+  TanStack Start's file routes, which its generator reads as TypeScript —
+  renders `.rx` components (`examples/start`, `compiler/test/start.mjs`).
 
 ## CP-5 — `ref/` is the conformance suite
 

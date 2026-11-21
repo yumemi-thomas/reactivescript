@@ -1,0 +1,12 @@
+I built the sprint board in ReactiveScript, and all 26 visible tests pass; I used 2 of the 15 `./check`/`./test` runs. The app has two tabs. The board shows three columns that load and retry on their own, and cards can be moved, reordered, renamed, added, archived and have their checklist edited. The archive page lists archived cards and restores them. Every change shows on screen at once and is taken back if the server declines it, and in `src/board.rx` an accepted change is written straight into what the app last loaded, with no reload. The page state lives inside the page components, so leaving a page throws it away and opening it again loads it fresh.
+
+I wasn't sure about a few cases the visible tests don't cover:
+- **Overlapping writes:** if two writes of the same kind are out at once, a declined one stays on screen until the other one finishes.
+- **Moving a card that is already changing:** if a card is moved while its rename or checklist change is still waiting, the moved copy can keep the old title or count.
+- **Leaving mid-save:** a save still waiting when you leave a page finishes on the server, but its result never reaches the reopened page, which shows whatever it loads.
+- **Rename input:** it doesn't clear after a rename, because the brief doesn't say it should.
+
+Files are in /tmp/claude-0/runs/r15/board-rx-opus-6/src:
+- main.rx
+- board.rx
+- archive.rx

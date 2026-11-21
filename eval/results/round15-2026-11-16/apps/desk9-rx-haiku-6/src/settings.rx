@@ -1,0 +1,71 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+
+type Settings = { name: string; theme: string; density: string }
+
+export component SettingsPage() {
+  settings = await loadSettings()
+
+  <section>
+    <div data-testid="load">
+      {errored fallback(e) {
+        <p>Could not load settings: {e.message}</p>
+        <button data-testid="retry-load" onClick={() => { refresh settings }}>retry</button>
+      } {
+        loading fallback { <p>Loading settings…</p> } {
+          <SettingsForm initial={settings} />
+        }
+      }}
+    </div>
+  </section>
+}
+
+component SettingsForm(props: { initial: Settings }) {
+  source savedNow := peek(props.initial)
+  source dName := peek(props.initial.name)
+  source dTheme := peek(props.initial.theme)
+  source dDensity := peek(props.initial.density)
+  source saving: Settings[] = []
+  source saveError := ""
+
+  action saveDraft(s: Settings) {
+    onFlush(() => { saveError := "" })
+    try {
+      guess saving := ss => [s]
+      let answer = await saveSettings(s)
+      savedNow := answer
+    } catch (e) {
+      saveError := `Save failed: ${e.message}`
+    }
+  }
+
+  <div>
+    {if saving.length > 0 {
+      <p data-testid="saved">Saved: {saving[0].name} · {saving[0].theme} · {saving[0].density} (saving…)</p>
+    } else {
+      <p data-testid="saved">Saved: {savedNow.name} · {savedNow.theme} · {savedNow.density}</p>
+    }}
+    {if saveError != "" { <p data-testid="save-error">{saveError}</p> }}
+
+    <label>Display name <input data-testid="name" value={dName} onInput={(e) => { dName := e.target.value }} /></label>
+    <span data-testid="name-count">{dName.length}/20</span>
+    {if dName.length == 0 {
+      <p data-testid="name-error">Display name is required</p>
+    } else if dName.length > 20 {
+      <p data-testid="name-error">Display name must be at most 20 characters, not {dName.length}</p>
+    }}
+
+    <div>
+      <button data-testid="theme-light" onClick={() => { dTheme := "light" }}>light</button>
+      <button data-testid="theme-dark" onClick={() => { dTheme := "dark" }}>dark</button>
+      <button data-testid="density-toggle" onClick={() => { dDensity := dDensity == "compact" ? "comfortable" : "compact" }}>density</button>
+    </div>
+    <p data-testid="preview">Preview: {dTheme} / {dDensity}</p>
+
+    <button data-testid="save" onClick={() => {
+      if (dName.length > 0 && dName.length <= 20) {
+        saveDraft({ name: dName, theme: dTheme, density: dDensity })
+      }
+    }}>save</button>
+  </div>
+}

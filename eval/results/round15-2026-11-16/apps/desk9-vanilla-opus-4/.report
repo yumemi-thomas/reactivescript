@@ -1,0 +1,7 @@
+I built the issue desk in plain TypeScript and DOM code. `./check` passes, and `./test` passed all 30 visible tests (2 of the 15 allowed runs used). Its one console error was a resource returning 404, probably the favicon. The files are `/tmp/claude-0/runs/r15/desk9-vanilla-opus-4/src/main.ts` (tabs and the `Issues (n)` count), `src/issues.ts`, `src/help.ts`, `src/settings.ts` and `src/dom.ts`. Instant updates (assign, rename, close, comments, labels, row actions, settings saves) undo correctly even when several are in flight at once. Late server answers for an old request, an issue no longer selected or a page already left are ignored.
+
+Where the brief was unclear, I chose:
+- **Blank input:** a blank or whitespace-only user, comment, title or label does nothing, and a whitespace-only display name counts as "required".
+- **Related hit:** opening one reuses the hits already found instead of searching again.
+- **Late failure:** a failure that arrives after a newer action of the same kind has started still shows its error.
+- **Re-clicking:** clicking the selected issue or the current filter does nothing.

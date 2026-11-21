@@ -1,0 +1,4 @@
+I built the issue desk in `src/` as `App.tsx` plus the page and detail components and two helper modules. `./check` passes and `./test` passes all 30 visible tests; the only console error is a 404 for a file the app doesn't request, probably the favicon. Every change appears straight away and is rolled back if the server declines, overlapping changes resolve in the order they were made, and late answers to an old filter, selection or query are ignored. I wasn't sure about some cases the brief leaves open:
+- **Blanks:** blank inputs are trimmed and ignored, and assign and post are disabled while the user name is blank.
+- **Related help:** it searches the title the server has confirmed, not a rename still in flight, and opening a hit shows the hits already fetched instead of searching again.
+- **Leaving mid-change:** changes still in flight when you leave the issues page keep showing when it reloads, so the open count can still go back up if a close is declined.

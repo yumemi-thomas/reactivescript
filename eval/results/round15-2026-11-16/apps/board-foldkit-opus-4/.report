@@ -1,0 +1,9 @@
+I built the sprint board in Foldkit, and `./check` and all 26 visible `./test` cases pass. The board's last server-confirmed state is stored separately from a queue of operations still waiting on the server, and the screen is that state with the queue replayed on top. A declined move, add, rename, archive, toggle or item add therefore undoes only itself, even when several are in flight or answers arrive out of order, and answers meant for a page you've left or a card you're no longer viewing are ignored.
+
+A few behaviours I had to choose because the brief doesn't say:
+- **Rename input:** it empties after a rename.
+- **Blank text:** titles and items are trimmed, and whitespace-only ones do nothing.
+- **Unloaded columns:** move buttons into a column that hasn't loaded are disabled, and `add-card` is disabled until To do has loaded.
+- **Late errors:** a rename or item error that comes back after you've selected a different card isn't shown.
+
+The code is in `/tmp/claude-0/runs/r15/board-foldkit-opus-4/src/`, with `main.ts` as the entry point.

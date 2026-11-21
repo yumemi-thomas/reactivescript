@@ -1,0 +1,8 @@
+I built the issue desk in React 19 and TypeScript. The entry point is `src/App.tsx`, with the three pages in `src/IssuesPage.tsx`, `src/HelpPage.tsx` and `src/SettingsPage.tsx`. The issues page keeps its state in one reducer, `src/issuesState.ts`, and every request is tagged so that answers arriving late or out of order are ignored. Each instant change (assign, rename, close, comment, label) is held as pending and only dropped when the server declines, so a declined change undoes just itself. `./check` is clean and all 30 visible tests in `./test` pass, after 2 of the 15 allowed runs.
+
+The brief left a few things open, and I chose:
+- Text typed into the rename, comment and label inputs is trimmed before it is sent.
+- The rename input keeps its text after a rename.
+- Related help searches the title the server has confirmed, not one still being renamed.
+- Opening a related hit reuses the hits already found instead of searching again.
+- If several labels change at once, the server's answer is used only after they have all finished; until then the app applies the changes locally.

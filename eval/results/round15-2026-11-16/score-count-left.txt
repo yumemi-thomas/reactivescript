@@ -1,0 +1,22 @@
+# defects per app (after-left family counted)
+opus desk9 rx 0.17  react 3.17  contract 1.67  xstate 2.67  foldkit 2.67  vanilla 5.00
+opus board rx 7.33  react 0.67  contract 9.17  xstate 1.50  foldkit 1.33  vanilla 1.50
+haiku desk9 rx 1.67  react 9.00  contract 22.50  xstate 16.50  foldkit 16.00  vanilla 11.00
+haiku board rx 26.17  react 3.00  contract 33.83  xstate 16.50  foldkit 2.83  vanilla 3.00
+
+# H15a (haiku): rx < each arm, permutation within task, Holm
+rx < react: diff -7.92, p 0.8968, Holm 1.0000
+rx < contract: diff 14.25, p 0.0316, Holm 0.1582
+rx < xstate: diff 2.58, p 0.3616, Holm 1.0000
+rx < foldkit: diff -4.50, p 0.7705, Holm 1.0000
+rx < vanilla: diff -6.92, p 0.8598, Holm 1.0000
+
+# H15b (opus): rx - arm, 90% bootstrap (holds if upper < 1 vs react)
+rx - react: 1.83 [0.58, 3.08]
+rx - contract: -1.67 [-3.33, -0.08]
+rx - xstate: 1.67 [0.42, 2.92]
+rx - foldkit: 1.75 [0.50, 3.00]
+rx - vanilla: 0.50 [-0.92, 1.92]
+
+# H15c (haiku, board only): rx < react
+diff -23.17, p 1.0000

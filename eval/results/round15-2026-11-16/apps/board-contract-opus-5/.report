@@ -1,0 +1,10 @@
+I built the sprint board in `/tmp/claude-0/runs/r15/board-contract-opus-5/app.contract` and `/tmp/claude-0/runs/r15/board-contract-opus-5/app.ts`, and all 26 visible tests pass; I used 5 of the 15 `./check`/`./test` runs. It has two tabs that reload their page each time it opens, three columns with loading, error and retry states, moves with the three-card Doing limit, adding, renaming, archiving, a checklist with toggles and added items, and an archive page with restore. Every change shows on screen at once and goes back by itself if the server declines it.
+
+Things I was unsure about:
+- **Extra loading:** after each change the server answers, the affected columns (or the checklist, or the archive) are loaded again. Hidden tests that count `fetchCards` calls exactly could see more than they expect.
+- **Brief gaps:** the brief doesn't say what to do in four places, so I chose:
+  - The rename field keeps its text after a rename.
+  - A move button is disabled while the column it points to is still loading or has failed.
+  - A failed reload of a column that already shows cards keeps the cards and adds the error and Retry.
+  - A move into To do lands above a card that is still being added.
+- **Rare failure orders:** if several quick changes to the same card overlap and an earlier one is declined, the counts and titles are rebuilt from the server's values. I reasoned this through but no test exercises it.

@@ -1,0 +1,49 @@
+✓ the app opens on the board page with both tabs on screen
+✓ the archive page loads again each time it opens
+✓ the new-card input starts empty when the board opens again
+✓ an archive that fails shows its error
+✓ a heading counts only once its column has loaded
+✗ a column's retry shows loading, then the cards
+    expected [col-done] cards ["#5 Kickoff · 3/3"], got []
+✓ an empty column reads (0)
+✓ left moves a Doing card to the bottom of To do
+✓ right moves a Doing card to the bottom of Done
+✓ down swaps a card with the one below it
+✓ a declined reorder puts the cards back in their order
+✓ a declined move from Done puts the card back in Done
+✓ a moved card's buttons follow its new place
+✓ the move error is cleared when the next move starts
+✓ a move error stays when another move is accepted
+✓ a move into Doing that brings it to three disables To do's right at once
+✓ a declined move into Doing enables the right buttons again
+✓ a move out of a full Doing enables the right buttons at once
+✓ Doing's own buttons are not limited
+✓ add-card with an empty input adds nothing
+✓ a card being added counts in the heading
+✓ the add error is cleared when the next add starts
+✗ two adds show both, each taking its own id
+    expected [col-todo] cards ["#1 Write spec · 0/2","#2 Fix login · 1/3","Plan sprint (adding…)","#8 Retro · 0/0"], got ["#1 Write spec · 0/2","#2 Fix login · 1/3","Plan sprint (adding…)","Retro (adding…)"]
+✓ a card being added has no move buttons
+✓ an added card can be moved once it has its id
+✓ the detail names the column of a card in Done
+✓ a declined move puts the detail's column back
+✓ selecting another card shows its detail and empties title-input
+✓ rename with an empty title-input asks nothing
+✓ the rename error is cleared when another card is selected
+✓ the rename error is cleared when the next rename starts
+✓ a renamed card keeps its new title when it moves
+✓ archiving a card counts it out of its heading at once
+✓ a declined archive brings the card back in its place
+✓ archiving a card from a full Doing enables To do's right at once
+✓ an empty checklist reads 0/0 done
+✓ toggling a done item un-does it
+✓ an accepted toggle keeps the item, the progress and the card's count
+✓ selecting another card loads its checklist
+✓ the item error is cleared when another card is selected
+✓ the item error is cleared when the next item action starts
+✓ add-item with an empty input adds nothing
+✓ a declined item add puts the card's count back
+✓ an added item can be toggled once it has its id
+✓ an accepted restore keeps the row off, and the board shows the card when it opens again
+
+43/45 passed

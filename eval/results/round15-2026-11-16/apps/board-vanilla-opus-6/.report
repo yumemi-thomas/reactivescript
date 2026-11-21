@@ -1,0 +1,8 @@
+I built the sprint board in plain TypeScript and the DOM. `src/main.ts` holds the tabs and a fresh page on each tab switch, `src/board.ts` the columns and detail panel, `src/archive.ts` the archive page, and `src/dom.ts` a few helpers. `./check` passes and `./test` passes 26/26; its only console error was a 404 for a missing resource, probably the favicon. Every change shows on screen at once. Each change is kept as a pending step on top of what the server last confirmed, and a declined request just drops its step. That way several requests in flight at once roll back correctly, and answers that arrive after you leave a page or pick another card are ignored.
+
+Choices the brief left open:
+- **Rename input:** `title-input` keeps its text after a rename, because the brief says to empty the other two inputs but not this one.
+- **Late errors:** a rename or item error that comes back after you've selected another card isn't shown. The title or checklist still goes back.
+- **Column counts:** a card still being added counts in To do's heading.
+- **Unloaded columns:** move buttons pointing into a column that is loading or failed are disabled, and so are `add-card` until To do has loaded and `add-item` until the checklist has loaded.
+- **Blank text:** input that is empty or only spaces is ignored, and text is trimmed before it is sent.

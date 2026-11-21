@@ -1,0 +1,9 @@
+I built the sprint board in Foldkit as specified, and the last `./test` run passed all 26 visible tests. Every optimistic action (move, add, rename, archive, toggle, add item, restore) is kept as a pending operation and replayed over the server-confirmed data, so a declined call removes only its own change even when several are in flight. Replies that arrive after you've left the page or selected another card are ignored. Code is in `/tmp/claude-0/runs/r15/board-foldkit-opus-6/src/` (`domain.ts`, `message.ts`, `command.ts`, `model.ts`, `update.ts`, `view.ts`, `main.ts`, `entry.ts`).
+
+A few things the brief leaves open, where I chose:
+- **Unloaded columns:** `left`/`right` are disabled while the target column is loading or failed, and `add-card` is disabled until To do has loaded.
+- **Added extras:** I added retry buttons for a failed checklist and a failed archive list, which the brief doesn't ask for.
+- **Rename input:** `title-input` keeps its text after a rename, since the brief only says the add inputs empty.
+- **Clicking the open tab** does nothing rather than reloading the page.
+
+I didn't write `story`/`scene` tests, and every test run logged one 404 resource error whose source I didn't track down.

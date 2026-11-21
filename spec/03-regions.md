@@ -132,7 +132,9 @@ A component is a function from a props value to a region whose tail is a view.
   keep updating. A prop is never a snapshot unless the body takes one (E-4,
   `peek`). Spread, rest, `merge`, and `omit` are operations on this value
   (06-stores treats its path semantics). Named parameters are not a separate
-  form; destructuring covers the signature use.
+  form; destructuring covers the signature use. `component C()` declares no
+  props: `props` is not a name in its body, and reading it is `UNBOUND`
+  (S-check-1; before 2026-11-14 it read `undefined` silently).
 - **RG-4c (Children).** `children` is a view value evaluated in the *caller's*
   region: its readers are the caller's, its lifetime is the caller's, and the
   child only decides where it is placed. A child that needs to create its

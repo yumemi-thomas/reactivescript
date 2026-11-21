@@ -13,5 +13,7 @@ export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-was
  * `rxc app`'s answer, as JSON text: the program `entry` (an absolute path) starts, for `target` (dom, ssr or
  * universal; dom by default) over `module_name` (`@solidjs/web` by default). `spa`: a client-only build (dom, not
  * hydratable), checked under 08 CN-3d.
+ * `whole` (E-5a): the program's modules checked as the whole program, with `hosts` the modules a JS host imports with
+ * `?rx-lib`.
  */
-export declare function app(entry: string, target?: string | undefined | null, moduleName?: string | undefined | null, spa?: boolean | undefined | null): string
+export declare function app(entry: string, target?: string | undefined | null, moduleName?: string | undefined | null, spa?: boolean | undefined | null, library?: boolean | undefined | null, whole?: boolean | undefined | null, hosts?: Array<string> | undefined | null): string

@@ -1,0 +1,7 @@
+I built the issue desk in `/tmp/claude-0/runs/r15/desk9-contract-opus-6/app.contract` (the interface) and `/tmp/claude-0/runs/r15/desk9-contract-opus-6/app.ts` (the data module). All 30 visible tests pass. I also wrote 12 tests of my own for the brief's failure cases, and they all pass: declined assign, rename, close, post, label and row actions; not-found and failed loads with retry; the count staying put; and a failed save. I took those tests out again, so `tests/` is as I found it. Assign, rename, close, posting and labels show at once and undo themselves when the server declines, using the data module's `overlay`; the settings save is tracked in state, and an error only shows for the latest action of its kind.
+
+A few points I was unsure about:
+- **Extra reloads:** after each accepted or declined write, the app fetches the changed list, comments or labels again.
+- **Related help after a rename:** it searches again using the new title.
+- **Page switching:** it is plain state rather than routes, so the pages have no URLs and the browser's Back button doesn't move between them.
+- **Clicking the open page's tab** does nothing. For example, clicking Help while already on the help page doesn't clear the query.

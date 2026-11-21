@@ -8,12 +8,13 @@ Why TypeScript and not OCaml: it runs in the playground later, and it can
 import `@solidjs/signals` to diff the interpreter against the real runtime on
 the same scenario.
 
-Solid comes from its `next` branch, built from source at the commit in
+Solid comes from its `main` branch, built from source at the commit in
 `ref/SOLID_NEXT`: `sh ref/scripts/solid-next.sh` checks it out beside this
 repository (`../solid-next`), builds `@solidjs/signals`, `solid-js`,
 `@solidjs/web`, `@solidjs/universal` and the native `@solidjs/compiler`
 (pnpm and a Rust toolchain), and `ref/package.json` links them
-(`--latest` moves the pin to `next`'s HEAD). Views are JSX that
+(`--latest` moves the pin to `main`'s HEAD, or to another branch's with
+`SOLID_BRANCH=<branch>`). Views are JSX that
 `@solidjs/compiler` lowers (`compile/jsx.ts`): `universal` over a string-tree
 renderer for the compiled runner, `ssr` and `dom` (hydratable) for the server
 runner.
@@ -30,10 +31,16 @@ Five runners over the same scenarios (`cd ref && npm install` once):
 
 Checker: `ref/src/check.ts` (spec/08) runs before the interpreter; a
 program with any diagnostic does not run. `node --experimental-strip-types
-ref/check.ts [--signature] file.rx…` prints diagnostics for files and the
+ref/check.ts [--signature] [--whole-program] file.rx…` prints diagnostics for files and the
 `.rx` modules they import (spec/09), and with `--signature` each module's
 signature as `.d.rx` text — the text an importer is checked against when
-the module's `.rx` is not there (MO-9, `src/signature.ts`).
+the module's `.rx` is not there (MO-9, `src/signature.ts`). With
+`--whole-program` the modules loaded are checked as the whole program: a
+kept `peek` of a prop or a provision is decided by every application and
+provision in them (E-5a, `-- whole-program` and `-- accept: whole-program`
+in a scenario). A plain `-- accept` block is a program the checker accepts
+per module: the other side of a rejected variant, so a check that grows too
+strict is caught on both sides.
 
 Resolved model (spec/11 CP-6): `src/model.ts`, filled by the checker's walk.
 `node --experimental-strip-types ref/model.ts file.rx…` prints, per module, its

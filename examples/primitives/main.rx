@@ -1,0 +1,34 @@
+// @solid-primitives on Solid 2.0, from .rx: accessors, stores, a tuple, a callback-taking primitive, a JS component
+// with handler props, a render-prop component, and a primitive that wraps a Solid signal (a `signal` parameter).
+import { createMediaQuery, createWindowSize, createActiveElement, createIntervalCounter, createPagination, debounce, WindowEventListener, Key, createMousePosition, makePersisted } from "./primitives.js"
+
+source query: string := ""
+source lastKey: string := "-"
+
+export default component App() {
+  wide = createMediaQuery("(min-width: 600px)")
+  size = createWindowSize()
+  active = createActiveElement()
+  ticks = createIntervalCounter(100)
+  [pages, page, setPage] = createPagination({ pages: 5 })
+  search = debounce((v: string) => { query := v }, 150)   // the library types v as unknown: the closure says what it takes
+  mouse = createMousePosition()
+  [theme, setTheme] = makePersisted("light", { name: "theme" })
+  items = [{ id: 1, label: "one" }, { id: 2, label: "two" }, { id: 3, label: "three" }]
+  <main class={theme}>
+    <WindowEventListener onKeydown={(e) => { lastKey := e.key }} />
+    <p id="media">{wide ? "wide" : "narrow"} {size.width}x{size.height}</p>
+    <p id="ticks">{ticks > 0 ? "ticking" : "waiting"}</p>
+    <input id="search" onInput={(e) => { search(e.target.value) }} />
+    <p id="query">query: {query}</p>
+    <p id="active">focus: {active != null ? active.tagName : "none"}</p>
+    <p id="page">page {page} of 5</p>
+    <button id="next" onClick={() => { setPage(page + 1) }}>next page</button>
+    <p id="key">key: {lastKey}</p>
+    <p id="mouse">mouse {mouse.x},{mouse.y}</p>
+    <button id="theme" onClick={() => { setTheme(theme == "light" ? "dark" : "light") }}>theme: {theme}</button>
+    <ul id="items">
+      <Key each={items} by="id">{view (item, i) { <li>{item().label}</li> }}</Key>
+    </ul>
+  </main>
+}

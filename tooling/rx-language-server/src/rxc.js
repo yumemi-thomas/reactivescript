@@ -74,6 +74,12 @@ function analyze(file, text, prelude) {
   return ask("analyze", { file, overlays: { [file]: text }, prelude });
 }
 
+/** E-5a: the crate's diagnostics for every module `entry` loads, checked as a build checks them: `whole`, the loaded
+ *  modules as the whole program, with `hosts` the modules a JS host imports with ?rx-lib; `spa`, a client-only build. */
+function checkProgram(entry, { whole = false, hosts = [], spa = false } = {}) {
+  return ask("analyze", { file: entry, overlays: {}, prelude: undefined, whole, hosts, spa, all: true });
+}
+
 /** Where a file's projection imports the prelude from: written once beside the nearest `node_modules`, so its own
  *  `@solidjs/web` resolves; a `.d.ts`, so the import needs no extension. */
 const preludes = new Map();
@@ -91,4 +97,22 @@ function preludeFor(file) {
   return at;
 }
 
-module.exports = { analyze, preludeFor, rxcPath, wasmPath };
+/** TY-6: the boundary check for a `.d.rx` against the JS module it declares (`module`, as an import from beside it). */
+function boundary(file, module) {
+  return ask("boundary", { file, module });
+}
+
+/** TY-4b: the `.d.ts` a `.d.rx` stands for, for a JS module with no TypeScript types of its own. */
+function declaration(file) {
+  return ask("declaration", { file });
+}
+
+/** MO-8k: the declaration a package import from `file` finds (rx-types/, the package's, @rx-types, generated), or null. */
+function lookup(file, spec) {
+  return ask("lookup", { file, spec });
+}
+/** MO-8j, TY-7: a declaration file's rows as the parser reads them: `{ rows: [{ name, kind, line, end, trusted }] }`. */
+function rows(file) {
+  return ask("rows", { file });
+}
+module.exports = { analyze, checkProgram, preludeFor, boundary, declaration, lookup, rows, rxcPath, wasmPath };

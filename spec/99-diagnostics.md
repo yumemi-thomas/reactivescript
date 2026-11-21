@@ -42,6 +42,7 @@ Bins:
 | `ON_FLUSH_IN_OWNED_SCOPE`         | S   | EF-8: `onFlush` in reactive scope is `IO_IN_REACTIVE`, an error (Solid: a dev warning) |
 | `SNAPSHOT_ARGUMENT` (new)         | S   | E-10: reactive argument to a value parameter at an instantiation       |
 | `SNAPSHOT_INITIALIZER` (new)      | S   | E-4 / DV-6: a source initializer reads a reactive value outside `peek(…)` |
+| `SNAPSHOT_KEPT` (new)             | S   | E-5a: a `peek` kept where it is read (an equation, a provision, a view, an argument) of a value that changes |
 | `INVALID_REFRESH_TARGET`          | S   | `refresh` requires a source with a question (V-9)                  |
 | `INVALID_AFFECTS_TARGET`          | S   | same                                                               |
 | `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary; S within a component (08 CN-3e), R through a prop |
@@ -88,38 +89,47 @@ named.
 | `SHADOWED_IMPORT` (new)           | S   | MO-1d | S-module-1 |
 | `CYCLE`                           | S   | C-1 (CN-3a: union of branches; only an equation's own `pre` breaks it) | S-check-1, S-core-1 |
 | `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
-| `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a) | S-check-1 |
-| `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories | S-check-1, S-region-5, S-module-5, S-module-6 |
+| `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a; `props` of a component that declares none, RG-4b) | S-check-1 |
+| `ARGUMENT_COUNT` (new)            | S   | AC-1f: a call of a declared action with another number of arguments than its parameters | S-check-1 |
+| `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories; MO-11s, a component given to JS that says nothing of where it renders it, is checked under a root of its own | S-check-1, S-region-5, S-module-5, S-module-6, S-module-27 |
+| `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k (render props) | S-module-14 |
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
 | `SNAPSHOT_INITIALIZER`            | S   | E-4 / DV-6 | S-surface-1 |
+| `SNAPSHOT_KEPT`                   | S   | E-5a  | S-surface-6, S-surface-8 |
 | `IO_IN_REACTIVE`                  | S   | IO-2 / R-io-3 | S-surface-1 |
 | `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | IO-2 / R-io-3 | S-check-1 |
 | `IO_IN_FN`                        | S   | R-io-2 | S-check-1 |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`   | U/S | W-2 (a statement position) / SC-3 (a statement-bodied closure in reactive scope) | S-core-1, S-check-1 |
 | `WRITE_TO_NON_SOURCE`             | S   | W-1   | S-core-1, S-check-1 |
 | `DRAFT_WRITE_OUTSIDE_DRAFT`       | S   | ST-3a | S-store-2 |
+| `DRAFT_ESCAPES` (new)             | S   | 09 MO-10i: a library's draft is a place — named only in its own callback (not in a closure made there, nor after an `await`), handed only to a closure written at its setter's call, by a setter that is called by its own name | S-module-25 |
+| `RESULT_AS_VALUE` (new)           | S   | 09 MO-10f: a JS result whose fields hold or fail is read a field at a time, never used as a value | S-module-11 |
+| `RENDERS_ESCAPES` (new)           | S   | 09 MO-11l: a value `renders` checked where it is bound, or anything that may hold a part of it, leaving its region; MO-11o: a `renders` prop given a value whose components the checker cannot name | S-module-16, S-module-22 |
 | `ASYNC_STORE_SETTER`              | S   | ST-3b | S-check-1 |
 | `GUESS_OUTSIDE_HOLD`         | S   | AC-3 (an `effect`'s apply block: never an action, AC-1b) | S-check-1, S-infer-1 |
 | `HELD_WRITE`                      | S   | AC-1c | S-infer-2 |
 | `STALE_OWN_READ`                  | S   | AC-1d | S-infer-5 |
 | `STALE_WRITE_BACK`                | S   | AC-1e | S-infer-6 |
-| `GUESS_NO_QUESTION`          | S   | AC-3 / ST-5c | S-check-1, S-solid-32 |
+| `STALE_CAPTURE`                   | S   | AC-1g | S-infer-7 |
+| `GUESS_NO_QUESTION`          | —   | retired 2026-11-20: any source takes a guess (AC-3, ST-5c; 07 decision 21) | S-guess-writable-1, -2 |
 | `GUESS_ON_DEFERRED`          | S   | AC-3 / ST-5c (a deferred equation lags its truth, V-16) | S-guess-equation |
 | `GUESS_WHILE_LOADING`        | S   | AC-3a (Solid's `OPTIMISTIC_WRITE_WHILE_LOADING`, at compile time) | S-guess-equation, check.rs unit test |
 | `INVALID_REFRESH_TARGET`, `INVALID_AFFECTS_TARGET` | S | AC-4, AC-5 | S-check-1 |
 | `REGION_ESCAPE`                   | S   | O-3, O-3a, O-3b | S-check-1 (seven shapes), S-module-1 |
 | `UNSTABLE_LIST_IDENTITY`          | S   | ST-4b (narrow form: `map` into fresh records, unkeyed) | S-store-3 |
-| `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree; a context with a default is always found) | S-check-1, S-region-7, S-ai-feed, S-context-1 |
+| `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree; a context with a default is always found); MO-12b for a JS hook | S-check-1, S-region-7, S-ai-feed, S-context-1, S-module-7 |
 | `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written); R-f-9 for `fails(…)` | S-check-1, S-fail-1 |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3 (directly or through equations; not closures the apply creates) | S-check-2 |
 | `UNHANDLED_FAILURE`               | S   | R-f-5 / CN-6a (over the static application tree; props where read, children where rendered) | S-fail-1, S-fail-2 |
+| `CATCH_NOT_ON_AWAIT` (new)        | S   | R-f-4: a `catch` after anything but an `await` (a failed value is shown by an `errored` region where it is read; 2026-11-19) | S-fail-1, S-catch-snapshot |
 | `UNCAUGHT_ACTION_FAILURE`         | S   | R-f-6 / CN-6a (incl. a prop the action reads, checked at each application) | S-action-1, S-fail-2 |
 | `NOT_AN_ERROR_CLASS`              | S   | R-f-1 | S-fail-1 |
 | `WRITE_TO_NON_SOURCE` (MO-2)      | S   | MO-2a: an imported source is read-only | S-module-1 |
 | `IMPORT_ROW_MISMATCH`             | S   | MO-4a: `pure` / `fails` on an `.rx` import | S-module-1 |
 | `MODULE_CYCLE`                    | S   | MO-5  | S-module-1 |
-| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a | S-module-1 |
+| `DUPLICATE_WIRE_ID` (new)         | S   | 10 SV-5a: two declared error classes, in packages with no name, that would cross to the client under one identity (refused where the declarations are loaded) | `a_wire_id_does_not_depend_on_the_entry_and_two_classes_never_share_one` (crate, `ref/units.ts`) |
+| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a; MO-12a for an undeclared JS context | S-module-1, S-module-7 |
 | `NOT_A_CONTEXT`, `CONTEXT_AS_VALUE` | S | RG-7a | S-context-1 |
 | `SOURCE_CONTEXT`, `WRITE_TO_NON_SOURCE` (O-4) | S | O-4: a context is read beneath its provision; `context x: source T` withdrawn (RG-7c, 2026-10-31) | S-context-1 |
 | `ROW_NARROWER_THAN_INFERRED` (RG-7e) | S | a provision wider than its context's declared rows | S-context-1 |
@@ -165,7 +175,7 @@ section with a fix in `guide/diagnostics.md`, and the compiler's tests check its
 | `JS_LOCAL`   | `const` / `let` / `var` in a component or at top level   |
 | `JS_FUNCTION`| `function f() { … }`                                     |
 | `JS_RETURN`  | `return <div>…</div>` in a component                     |
-| `JS_API`     | `createSignal(…)`, `useState(…)`, … on a failing line    |
+| `JS_API`     | `createSignal(…)`, `useState(…)`, … on a failing line, or `[a, b] = createStore(…)` when the module does not import that name (an imported one is its declared JS fn, 09 MO-10i) |
 | `ASSIGNMENT` | `x = …`, `x += …`, `x++` where a write `x := …` was meant (W-1) |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE` | `() => x := …`: the arrow needs a braced body (W-2, SC-3) |
 

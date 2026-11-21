@@ -13,8 +13,19 @@ const COARSE = { verification: true };
 
 /** A module: `.rx`, not a declaration file (`.d.rx`, MO-8/MO-9), which the crate reads beside the modules that import it. */
 const isModule = f => f.endsWith(".rx") && !f.endsWith(".d.rx");
+/** `include` globs take `.d.rx` too; Volar's tsc stops on a program file with no script, so it is an empty module. */
+const isDeclaration = f => f.endsWith(".d.rx");
 
 const snapshotOf = text => ({ getText: (s, e) => text.slice(s, e), getLength: () => text.length, getChangeRange: () => undefined });
+
+/** MO-8l: a declaration drafted for each package the module imports that nothing declares, once per set of imports. */
+const drafted = new Map();
+function draft(file, text) {
+  const key = [...text.matchAll(/^\s*import\b[^"'`;]*?\bfrom\s*["']([^"']+)["']/gm)].map(m => m[1]).join("\n");
+  if (drafted.get(file) === key) return;
+  drafted.set(file, key);
+  try { require("./generate.js").ensureDeclarations(file, { text }); } catch (e) { console.error(`rx: drafting declarations for ${file} failed: ${e?.stack ?? e}`); }
+}
 
 /** The last analysis of each file, by its text: the virtual code and the diagnostics share one `rxc` run. */
 const cache = new Map();
@@ -22,6 +33,7 @@ function analysis(file, text) {
   const hit = cache.get(file);
   if (hit && hit.text === text) return hit.result;
   let result;
+  draft(file, text);
   try { result = analyze(file, text, preludeFor(file)); } catch (e) {
     console.error(`rx: analyzing ${file} failed: ${e?.stack ?? e}`); // the server's log, else the failure is silent
     result = { code: null, mappings: [], ranges: [], diagnostics: [], error: String(e) };
@@ -47,11 +59,19 @@ function virtualCode(file, snapshot) {
   };
 }
 
+function declarationCode(snapshot) {
+  return { id: "root", languageId: "reactivescript-declaration", snapshot, mappings: [], embeddedCodes: [{ id: "ts", languageId: "typescript", snapshot: snapshotOf("export {};\n"), mappings: [] }] };
+}
+
 /** @param {typeof import("typescript")} ts */
 function rxLanguagePlugin(ts, asFileName = uri => uri.fsPath ?? String(uri)) {
   return {
-    getLanguageId(id) { return isModule(String(id.path ?? id)) ? "reactivescript" : undefined; },
+    getLanguageId(id) {
+      const f = String(id.path ?? id);
+      return isModule(f) ? "reactivescript" : isDeclaration(f) ? "reactivescript-declaration" : undefined;
+    },
     createVirtualCode(id, languageId, snapshot) {
+      if (languageId === "reactivescript-declaration" || isDeclaration(asFileName(id))) return declarationCode(snapshot);
       if (languageId !== "reactivescript" || !isModule(asFileName(id))) return undefined;
       return virtualCode(asFileName(id), snapshot);
     },
@@ -59,7 +79,9 @@ function rxLanguagePlugin(ts, asFileName = uri => uri.fsPath ?? String(uri)) {
       extraFileExtensions: [{ extension: "rx", isMixedContent: true, scriptKind: ts.ScriptKind.Deferred }],
       getServiceScript(root) {
         const tsx = root.embeddedCodes?.find(c => c.id === "tsx");
-        return tsx ? { code: tsx, extension: ".tsx", scriptKind: ts.ScriptKind.TSX } : undefined;
+        if (tsx) return { code: tsx, extension: ".tsx", scriptKind: ts.ScriptKind.TSX };
+        const decl = root.embeddedCodes?.find(c => c.id === "ts");
+        return decl ? { code: decl, extension: ".ts", scriptKind: ts.ScriptKind.TS } : undefined;
       },
     },
   };

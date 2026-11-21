@@ -21,7 +21,7 @@ export component Card(props) {
   errored fallback(e) { <p>?</p> } { <div>{props.children}</div> }
 }
 export component Name(props) {
-  <i>{props.user.name catch (e: NotFound) => "nobody"}</i>
+  errored fallback(e: NotFound) { <i>nobody</i> } { <i>{props.user.name}</i> }
 }
 export component Badge(props) {
   <b>{initials(use who)}</b>
@@ -84,7 +84,7 @@ export default component App() {
 ```
 
 `user` fails with `Error` (the fetch) and `NotFound` (the throw). `Name`
-discharges `NotFound`; the `Error` left over leaves `Name` at its
+discharges `NotFound` with a typed boundary; the `Error` left over leaves `Name` at its
 application, which is a child of `Card`, whose boundary takes every class.
 `Badge` needs a provision of `who`, the context `ui.rx` declares and
 exports; `main` imports it and provides it above the place it is applied. `initials` is found in `ui.rx`, where `Badge` is declared, not
@@ -97,13 +97,24 @@ in `main`, which does not import it (MO-6).
 | 0       | mount                          | ``             |
 | 1       | resolve user { name: "Ann" }   | `#1 Ann Z`     |
 | 2       | handler `select(0)`            | `#0 nobody Z`  |
-| 3       | handler `select(2)`            | `#0 nobody Z`  |
+| 3       | handler `select(2)`            | `#2 nobody Z`  |
 | 4       | reject user "offline"          | `#2 ? Z`       |
 
 Instant 2: the write goes through `store.rx`'s action; `user` throws
-`NotFound` with no await and `Name` shows its value. Instant 3: a new
-question holds the change. Instant 4: the rejection is an `Error`, which
-`Name` passes and `Card` takes, in one frame with `#2`.
+`NotFound` with no await and `Name`'s typed boundary shows its fallback.
+Instant 3: the new question's reader is behind that fallback, which holds
+nothing (H-4, D-41): `#2` shows at once and the fallback stays until an
+answer replaces the error. Instant 4: the answer is an `Error`, which
+`Name`'s boundary passes and `Card` takes.
+
+## Divergences (DV-25)
+
+- oracle "Frames" instant 3: `#2 nobody Z`
+- hydrated "Frames" instant 3: `#2 nobody Z`
+
+Solid 2.0.1 regressed here, still in 2.0.3 (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
+does not hold the change, so the screen shows the new input beside the old fallback while the question is in flight.
+rc.21 held it, as the spec rules; the spec frames stand.
 
 ## Rejected variants
 

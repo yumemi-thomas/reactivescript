@@ -1,0 +1,46 @@
+// The archive page: one optimistic store over the server's archive, as the board page is. A restore's guess is a
+// path write into it; an accepted restore re-asks the archive and holds until it lands. Everything here is the
+// visit's: the page is mounted only while it is open.
+
+import pure { fetchArchived } from "./api"
+import { restoreCard } from "./api"
+
+type Shown = { id: number; title: string; gone: boolean }
+
+export component ArchivePage() {
+  archived key id = (await fetchArchived()).map(a => ({ id: a.id, title: a.title, gone: false }))
+  source restoreError: string := ""
+
+  action restore(id: number) {
+    try {
+      let i = archived.findIndex(a => a.id == id)
+      guess archived[i].gone := true
+      onFlush(() => { restoreError := "" })
+      await restoreCard(id)
+      refresh archived
+    } catch (e) {
+      restoreError := e.message
+      onFlush(() => { restoreError := e.message })
+    }
+  }
+
+  <section>
+    <div data-testid="archived">
+      {loading fallback { <p>loading archive</p> } {
+        {errored fallback(e) { <p>archive error: {e.message}</p> } {
+          <ul>
+            {for a in archived.filter(a => !a.gone) {
+              <li>
+                <span data-testid="archived-card">#{a.id} {a.title}</span>{" "}
+                <button data-testid="restore" onClick={() => { restore(a.id) }}>restore</button>
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </div>
+    {if restoreError != "" {
+      <p data-testid="restore-error">restore error: {restoreError}</p>
+    }}
+  </section>
+}
