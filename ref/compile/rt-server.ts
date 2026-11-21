@@ -173,7 +173,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       Object.defineProperty(sent, "name", { value: e.name, writable: true, configurable: true });
       for (const [f, { by, optional }] of fields) {
         if (f === "stack" || f === "cause") continue;
-        if (f in e) sent[f] = e[f];
+        // its own data property, as the instance read it: the copy's prototype is the class's, where an accessor of
+        // that name (`get status()`) would refuse an assignment, or run a setter
+        if (f in e) Object.defineProperty(sent, f, { value: e[f], writable: true, enumerable: true, configurable: true });
         // the declaration says every instance has the field and this one does not: the client would read `undefined`
         // where its type says a value. The failure is still sent, as its class; the server says so, once
         else if (!optional && !warnedFields.has(`${by}\0${f}`)) {
@@ -181,8 +183,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
           console.warn(`[reactivescript] ${by} declares the field ${f}, but an instance thrown has none: it is sent without it, and the client reads undefined. Set it where the error is made, or declare it optional, \`${f}?\` (SV-5a)`);
         }
       }
-      sent.$class = ids[0];
-      if (ids.length > 1) sent.$classes = ids;
+      Object.defineProperty(sent, "$class", { value: ids[0], writable: true, enumerable: true, configurable: true });
+      if (ids.length > 1) Object.defineProperty(sent, "$classes", { value: ids, writable: true, enumerable: true, configurable: true });
       SENT.add(sent);
       markSafeError(sent);
       return sent;

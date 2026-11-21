@@ -18,6 +18,9 @@ pub struct ModuleSet {
     /// MO-8, TY-6: each declaration the program consumed, with the module that imported it and the import's own text:
     /// what a version pin, strict mode and the boundary check apply to, resolved as the importer resolves it
     pub declaration_uses: Vec<DeclarationUse>,
+    /// SV-5a: each declaration's identity, the same from every entry and every checkout: its path from the folder of the
+    /// nearest package.json above it, after that package's name (`app/src/err.d.rx`); none when no package.json is found
+    pub declaration_ids: HashMap<String, String>,
     /// MO-9, by `.rx` path
     pub signatures: IndexMap<String, ModSig>,
     /// each program's text, which its spans index
@@ -75,6 +78,7 @@ struct Loader<'r> {
     diags: Vec<Diagnostic>,
     declarations: IndexMap<String, Vec<JsDecl>>,
     declaration_uses: Vec<DeclarationUse>,
+    declaration_ids: HashMap<String, String>,
     signatures: IndexMap<String, ModSig>,
     sources: HashMap<String, String>,
     state: HashMap<String, State>,
@@ -185,6 +189,28 @@ pub fn declaration_for(from_file: &str, spec: &str, read: &dyn Fn(&str) -> Optio
         .or_else(|| up(&format!("node_modules/@rx-types/{shared}/{sub}.d.rx")))
         .or_else(|| up(&format!("node_modules/.rx-types/{spec}.d.rx")))
 }
+/// SV-5a: `file` named from the nearest folder above it with a package.json, after the package's name: what a declared
+/// error class is identified by, so a server and a client built from different entries, or in checkouts at different
+/// paths, name it alike. None when no package.json is above it.
+pub fn package_relative(file: &str, read: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    let segs: Vec<&str> = file.split('/').collect();
+    let lo = if file.starts_with('/') { 1 } else { 0 };
+    let mut i = segs.len() as i64 - 1;
+    while i >= lo {
+        let dir = segs[..i as usize].join("/");
+        let pj = if dir.is_empty() { "package.json".to_string() } else { format!("{dir}/package.json") };
+        if let Some(text) = read(&pj) {
+            let name = serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string));
+            let rel = segs[i as usize..].join("/");
+            return Some(match name {
+                Some(n) if !n.is_empty() => format!("{n}/{rel}"),
+                _ => rel,
+            });
+        }
+        i -= 1;
+    }
+    None
+}
 static PKG_EXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.(m?js|cjs|jsx|ts|tsx)$").unwrap());
 
 fn replace_js_ext(from: &str) -> String {
@@ -221,6 +247,9 @@ impl Loader<'_> {
                     if let Some(src) = (self.read)(&dts) {
                         let ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", dts, e.0), e.1, Some(dts.clone()), e.3))?;
                         self.declarations.insert(dts.clone(), ds);
+                        if let Some(id) = package_relative(&dts, &*self.read) {
+                            self.declaration_ids.insert(dts.clone(), id);
+                        }
                     }
                 }
                 if let Some(ds) = self.declarations.get(&dts) {
@@ -297,9 +326,9 @@ pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String
     load(entry, read, true)
 }
 fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
-    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
+    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
+    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
 }
 
 /// E-5a: the module keys that name the hosts (`?rx-lib` imports, CP-4d). A key is the path the program reached the module

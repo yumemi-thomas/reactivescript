@@ -85,6 +85,32 @@ console.log(JSON.stringify({ missing: { warned, sent: bare.$class, status: "stat
   check("only the message and the declared fields cross: no cause, headers or stack", cls.wire.message === "not found" && cls.wire.status === 404 && cls.wire.leaked === false, JSON.stringify(cls.wire));
   check("a required declared field an instance lacks is said once, naming its declaration; the failure is still sent as its class (SV-5a)", cls.missing.warned.length === 1 && /k\.d\.rx#Base declares the field status/.test(cls.missing.warned[0]) && cls.missing.sent === "k.d.rx#Base" && cls.missing.status === false, JSON.stringify(cls.missing));
   check("an optional one (`code?`) may be absent in silence, and is sent when it is there", !cls.missing.warned.some(w => /field code/.test(w)) && cls.missing.code === false && JSON.stringify(cls.missing.full) === JSON.stringify([500, "E"]), JSON.stringify(cls.missing));
+  // SV-5a: a declared field the class defines as a getter (`get status() { return 404 }`) is copied as the copy's own data
+  // property, the value the instance read: an assignment to the copy would hit the inherited accessor
+  writeFileSync(path.join(tmp, "getter.mjs"), `import { createApp } from "@reactivescript/runtime";
+import { serialize, deserialize } from "seroval";
+class NotFound extends Error { get status() { return 404; } }
+const app = createApp({}); app.jsClass(NotFound, "k.d.rx#NotFound", ["status"]);
+let out; try { const sent = app.markSendable(new NotFound("gone")); const back = deserialize(serialize(sent)); out = { status: sent.status, own: Object.getOwnPropertyDescriptor(sent, "status")?.value, cls: sent.$class, wire: back.status }; } catch (e) { out = { threw: String(e) }; }
+console.log(JSON.stringify(out));
+`);
+  const getter = JSON.parse(execFileSync(process.execPath, ["getter.mjs"], { cwd: tmp }).toString());
+  check("a declared field that is a getter on the class is copied as its value, own data, and crosses (SV-5a)", !getter.threw && getter.status === 404 && getter.own === 404 && getter.cls === "k.d.rx#NotFound" && getter.wire === 404, JSON.stringify(getter));
+  // SV-5a: a declared class's identity is the same from every entry and every checkout: a library entry in nested/
+  // importing ../err.js, and the app's entry at the root, name err.d.rx alike, from the package, with no machine path
+  const idOf = root => {
+    rmSync(root, { recursive: true, force: true }); mkdirSync(path.join(root, "nested"), { recursive: true });
+    writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "shop", type: "module" }));
+    writeFileSync(path.join(root, "err.js"), "export class Gone extends Error {}\nexport const load = async () => { throw new Gone(\"x\"); };\n");
+    writeFileSync(path.join(root, "err.d.rx"), "export error Gone\nexport pure fn load(): Promise<string> rejects(Gone)\n");
+    const page = from => `import { Gone, load } from "${from}"\nexport component Page() {\n  x = await load() catch (e: Gone) => "gone"\n  <p>{x}</p>\n}\n`;
+    writeFileSync(path.join(root, "nested/lib.rx"), page("../err.js"));
+    writeFileSync(path.join(root, "main.rx"), page("./err.js").replace("export component Page", "export default component Page"));
+    const ids = f => [...new Set([...Object.values(JSON.parse(compile(path.join(root, f), "ssr", "@solidjs/web", false, f.includes("nested"))).modules ?? {}).map(m => m.code).join("\n").matchAll(/"([^"]*#Gone)"/g)].map(m => m[1]))];
+    return { lib: ids("nested/lib.rx"), main: ids("main.rx") };
+  };
+  const idA = idOf(path.join(tmp, "checkout-a")), idB = idOf(path.join(tmp, "elsewhere/checkout-b"));
+  check("a declared class is named alike from a nested library entry and the root entry, and across checkouts (SV-5a)", idA.lib.length === 1 && JSON.stringify(idA.lib) === JSON.stringify(idA.main) && JSON.stringify(idA.lib) === JSON.stringify(idB.lib) && idA.lib[0] === "shop/err.d.rx#Gone" && !idA.lib[0].includes(tmp), JSON.stringify({ idA, idB }));
   writeFileSync(path.join(tmp, "client.mjs"), `import { createApp } from "@reactivescript/runtime";
 import { createRoot, createMemo } from "@solidjs/signals";
 class Base extends Error {} class Child extends Base {}

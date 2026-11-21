@@ -291,12 +291,22 @@ impl<'p> Gen<'p> {
         !from.starts_with('.') || (self.by_source && !from.ends_with("/api"))
     }
     /// SV-5a: the module a declared JS error class is identified by: a package's specifier, or the app's own `.d.rx`
-    /// relative to the entry's directory (no machine path in a client bundle; the same for both builds).
+    /// named from its package (the nearest package.json above it: the same from every entry, a library's in `nested/`
+    /// as the server's at the root, and in every checkout), else relative to the entry's directory. No machine path in a
+    /// client bundle.
     fn class_module(&self, from: &str, declared: Option<&str>) -> String {
+        if let Some(id) = declared.filter(|_| from.starts_with('.')).and_then(|d| self.set.declaration_ids.get(d)) {
+            return id.clone();
+        }
         match declared {
             Some(dts) if from.starts_with('.') => {
-                let base = self.set.entry.rsplit_once('/').map(|(d, _)| format!("{d}/")).unwrap_or_default();
-                dts.strip_prefix(&base).unwrap_or(dts).to_string()
+                // relative to the entry's folder, `../` included: never the machine's path
+                let base: Vec<&str> = self.set.entry.rsplit_once('/').map(|(d, _)| d.split('/').collect()).unwrap_or_default();
+                let to: Vec<&str> = dts.split('/').collect();
+                let common = base.iter().zip(&to).take_while(|(a, b)| a == b).count();
+                let mut rel: Vec<&str> = std::iter::repeat_n("..", base.len() - common).collect();
+                rel.extend(&to[common..]);
+                rel.join("/")
             }
             _ => from.to_string(),
         }

@@ -141,9 +141,13 @@ by default — see the list at the end.
   declare `NotFound` declare two classes (as two contexts, MO-7). A JS module's
   class (`export error C` in its `.d.rx`) is the JS class itself, on both
   sides, identified by its declaration: the compiler writes it at the
-  import (`jsClass(NotFound, "people.d.rx#NotFound")`: a package's
-  specifier, or the app's `.d.rx` relative to the entry, never a machine
-  path), so both builds agree whatever each imports. A rejection of it that
+  import (`jsClass(NotFound, "app/people.d.rx#NotFound")`: a package's
+  specifier, or the app's `.d.rx` named from the nearest `package.json`
+  above it, after that package's name; with none, relative to the entry,
+  `../` included; never a machine path), so both builds agree whatever each
+  imports, from any entry (a library entry in `nested/` and the app's at
+  the root name `../err.d.rx` alike, revised 2026-11-21 after review: the
+  entry-relative name made the nested one absolute) and in any checkout. A rejection of it that
   a question awaits is sent with that identity: the nearest declared class
   up the instance's prototype chain, whatever order the program declared
   them in, so a `Child` of a declared `Base` is sent as `Child` when both
@@ -161,7 +165,19 @@ by default — see the list at the end.
   value: the failure is still sent as its class, and the server says so
   once per class and field, naming the declaration, unless the row marks
   the field optional, `export error HttpError(status, code?)` (revised
-  2026-11-21 after review: it was left out in silence). Nothing checks a
+  2026-11-21 after review: it was left out in silence). Each field is copied
+  as the copy's own data property, the value the instance read (revised
+  2026-11-21 after review: a class whose field is a getter, `get status()
+  { return 404 }`, made the copy refuse the assignment). What the client
+  gets back is guaranteed in these terms only: a typed boundary or catch
+  matches it by the identities sent (`$class`, `$classes`), `instanceof`
+  holds for the client's own declared class, and the message and declared
+  fields are there as data. It is not the library's instance rebuilt: the
+  client's object takes the class's prototype without running its
+  constructor, so state the constructor sets up (a private `#field`, a
+  closure, an undeclared property) is not there, and a getter the class
+  defines over a declared field reads as the class does on the client,
+  where it has no instance state of its own. Nothing checks a
   JS class's fields before it runs (IO-3: the declaration is the trust
   boundary). The copy is made at a boundary the app owns, an awaited
   promise or `sendErrors`, and nowhere else (revised 2026-11-21: the first
