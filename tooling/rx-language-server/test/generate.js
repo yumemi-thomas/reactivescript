@@ -98,6 +98,27 @@ fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: tru
   fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: true });
   let refused; try { quiet.compile("", { id: path.join(ws, "main.rx"), moduleId: path.join(ws, "main.rx") + "?x=1", solid: { generate: "dom", hydratable: true }, addWatchFile() {} }); } catch (e) { refused = String(e); }
   check("rx({ generate: false }) drafts nothing, and the import is unknown", !fs.existsSync(gen) && /UNKNOWN_COMPONENT/.test(refused ?? ""), refused);
+  // TY-1d: a type check that was asked for and cannot run fails the build; RX_TYPECHECK=0 builds without it
+  const compileWith = (flag, env = {}) => {
+    const saved = { RX_TYPECHECK: process.env.RX_TYPECHECK, NODE_ENV: process.env.NODE_ENV, RX_GENERATE: process.env.RX_GENERATE };
+    Object.assign(process.env, { RX_TYPECHECK: flag, RX_GENERATE: "0" }, env);
+    const warned = []; const w = console.warn; console.warn = m => warned.push(m);
+    try { rx().compile("", { id: path.join(ws, "main.rx"), moduleId: path.join(ws, "main.rx"), solid: { generate: "dom", hydratable: true }, addWatchFile() {} }); return { ok: true, warned }; }
+    catch (e) { return { ok: false, error: String(e.message ?? e), warned }; }
+    finally { console.warn = w; for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  };
+  fs.writeFileSync(path.join(ws, "main.rx"), "export default component App() {\n  <p>hi</p>\n}\n");
+  const noTsconfig = compileWith("1");
+  check("RX_TYPECHECK=1 with no tsconfig.json fails the build (TY-1d)", !noTsconfig.ok && /types not checked: no tsconfig\.json/.test(noTsconfig.error), noTsconfig);
+  const prodNoTsconfig = compileWith(undefined, { NODE_ENV: "production" });
+  check("a production build with no tsconfig.json only warns", prodNoTsconfig.ok && prodNoTsconfig.warned.some(m => /types not checked: no tsconfig\.json/.test(m)), prodNoTsconfig);
+  fs.writeFileSync(path.join(ws, "tsconfig.json"), "{}\n");
+  const noChecker = compileWith(undefined, { NODE_ENV: "production" });
+  check("a production build of a TypeScript project with no language server fails (TY-1d)", !noChecker.ok && /no @reactivescript\/language-server/.test(noChecker.error), noChecker);
+  const skipped = compileWith("0", { NODE_ENV: "production" });
+  check("RX_TYPECHECK=0 builds without the check", skipped.ok, skipped);
+  fs.rmSync(path.join(ws, "tsconfig.json"));
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

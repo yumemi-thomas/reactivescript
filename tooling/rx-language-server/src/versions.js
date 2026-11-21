@@ -1,38 +1,20 @@
 // A `.d.rx` pinned to the package it declares: `//@ for @tanstack/solid-query ^6.0.0` on a line of its own. A declaration
 // states rows the checker trusts (09 MO-8b); written for one version of a library, it may say the wrong thing about the
 // next. rx-tsc refuses a declaration whose pinned package is installed at a version outside the range (DECLARATION_VERSION).
-// Ranges: an exact version, `^x.y.z`, `~x.y.z`, `>=x.y.z`, or several joined by `||`. Prereleases compare by their base
-// version and then by their tag, as npm's do.
+// Ranges are npm's, evaluated by npm's own `semver`: space-separated comparators all hold (`>=1.0.0 <2.0.0`), `||`
+// joins alternatives, hyphen ranges, x-ranges, `^`, `~`. As in npm, a prerelease satisfies a range only when the range
+// names a prerelease of the same version (`2.0.0-rc.10` satisfies `>=2.0.0-rc.2`, identifiers compared numerically).
+// A range npm cannot read is reported, not taken to hold.
 const fs = require("node:fs");
 const path = require("node:path");
+const semver = require("semver");
 
 const PIN = /^\s*\/\/@\s*for\s+(\S+)\s+(.+?)\s*$/;
 
-/** `"2.0.0-rc.6"` → `[2, 0, 0, "rc.6"]`. */
-function parse(v) {
-  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(v.trim());
-  return m ? [+m[1], +m[2], +m[3], m[4] ?? ""] : null;
-}
-function cmp(a, b) {
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
-  if (a[3] === b[3]) return 0;
-  if (!a[3]) return 1; if (!b[3]) return -1;   // a release is above its prereleases
-  return a[3] < b[3] ? -1 : 1;
-}
+/** Whether `version` is in `range`, as npm decides; null when the range is not one npm reads. */
 function satisfies(version, range) {
-  const v = parse(version); if (!v) return false;
-  return range.split("||").some(r0 => {
-    const r = r0.trim();
-    if (r === "*" || r === "") return true;
-    const op = /^(\^|~|>=|<=|>|<|=)?\s*(.+)$/.exec(r); const want = parse(op[2]); if (!want) return false;
-    const c = cmp(v, want);
-    switch (op[1] ?? "=") {
-      case "^": return c >= 0 && (want[0] > 0 ? v[0] === want[0] : want[1] > 0 ? v[0] === 0 && v[1] === want[1] : v[0] === 0 && v[1] === 0 && v[2] === want[2]);
-      case "~": return c >= 0 && v[0] === want[0] && v[1] === want[1];
-      case ">=": return c >= 0; case ">": return c > 0; case "<=": return c <= 0; case "<": return c < 0;
-      default: return c === 0;
-    }
-  });
+  if (semver.validRange(range) === null) return null;
+  return semver.satisfies(version, range);
 }
 /** The installed version of `pkg`, resolved from `dir` as Node would, or undefined. */
 function installed(pkg, dir) {
@@ -49,6 +31,7 @@ function checkPins(file) {
     const m = PIN.exec(l); if (!m) return;
     const [, pkg, range] = m; const v = installed(pkg, path.dirname(file));
     if (!v) out.push({ line: i + 1, message: `${pkg} is pinned (${range}) but not installed here` });
+    else if (satisfies(v, range) === null) out.push({ line: i + 1, message: `${range} is not a version range npm reads: write it as npm would (\`^2.0.0\`, \`>=1.0.0 <2.0.0\`)` });
     else if (!satisfies(v, range)) out.push({ line: i + 1, message: `written for ${pkg} ${range}, but ${v} is installed: check the declaration against this version, then update the pin` });
   });
   return out;

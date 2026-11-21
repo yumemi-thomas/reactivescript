@@ -32,9 +32,14 @@ does for `.tsrx`. Nothing here is a second type system.
   `.rx` line, as a checker error does. So what only TypeScript can check
   (a route whose path lacks a param its page needs, MO-11h; a `.d.rx`
   that disagrees with its module, TY-6) cannot ship by being left out of a
-  CI step. A build that cannot type-check (no `tsconfig.json`, or no
-  language server installed) says its types went unchecked. The dev
-  server leaves types to the editor, which runs the same projection.
+  CI step. A check that cannot run fails the build too (revised
+  2026-11-21): a project with a `tsconfig.json` and no language server to
+  run `rx-tsc` with, or, when `RX_TYPECHECK=1` asked for the check, no
+  `tsconfig.json`. A production build with no `tsconfig.json` is not a
+  TypeScript project and only says its types went unchecked.
+  `RX_TYPECHECK=0` builds without the check, for a project that runs it
+  elsewhere. The dev server leaves types to the editor, which runs the
+  same projection.
 
 ## TY-2 — What each form is, as a value
 

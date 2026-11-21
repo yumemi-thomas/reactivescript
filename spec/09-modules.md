@@ -183,6 +183,12 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   checker reads none of it, and the projection's `.d.ts` carries it as
   written (TY-1c), so a library's own inference reaches `.rx` code that
   calls it (S-module-8).
+- **MO-8e (Optional parameters) — proposed 2026-11-18.** A declared fn's
+  parameter may be optional, `export pure fn createDebounced(ref source:
+  string, ms?: number): ref string`. A call may leave it out (a trailing
+  argument only, as in TypeScript); the `.d.ts` written from the
+  declaration and TY-6's boundary check write it `ms?: number`. The
+  checker reads nothing more from it (S-module-13).
 
 - **MO-8f (Pinned to a version) — proposed 2026-11-18.** A declaration may
   say which version of a package it was written for, on a line of its own:

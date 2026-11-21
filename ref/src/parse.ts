@@ -98,6 +98,9 @@ function parseType(c: Cursor, braceStops = false, arrows = false): string {
     if (depth === 0) {
       if (c.startsWith("//") || c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
     }
+    if (ch === '"' || ch === "'" || ch === "`") {   // a string literal type is one token: a `//`, `,` or `)` inside it does not end the type
+      c.i++; while (!c.eof() && c.peek() !== ch && c.peek() !== "\n") { if (c.peek() === "\\") c.i++; c.i++; } if (!c.eof() && c.peek() === ch) c.i++; continue;
+    }
     if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
     else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
     c.i++;
@@ -165,7 +168,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const sv = c.i; let g = !r && c.keyword("signal"); if (g) { c.ws(); if (!/^[A-Za-z_$]/.test(c.peek())) { c.i = sv; g = false; } } sigs.push(g);   /* MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name) */ const rest = !r && !g && c.eat("...");   /* MO-8h: a rest parameter, `...items: T[]` */ params.push((rest ? "..." : "") + (c.ident() ?? c.fail("param"))); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b/.exec(t); if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
     let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders = false; let rendersRoot = false; const carries: string[] = []; let carrier = false; let under: { parent: string; inside: string } | undefined;
@@ -204,6 +207,20 @@ export function parseDeclarations(src: string): JsDecl[] {
     for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripTracked(stripDraft(ptypes[i])); ret = stripTracked(stripDraft(ret));
     out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(held ? { held } : {}), ...(cbs ? { cbs } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}) });
   }
+}
+/** `t` with every character inside a string literal, or inside brackets (`()`, `[]`, `{}`, `<>`), replaced by `_`: the
+ *  same offsets, with only the row's top level left to search for row words. The crate's `masked`, step for step. */
+function masked(t: string): string {
+  const out = t.split(""); let q = "", depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (q) { out[i] = "_"; if (ch === "\\" && i + 1 < t.length) { out[i + 1] = "_"; i++; } else if (ch === q) q = ""; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") { q = ch; out[i] = "_"; continue; }
+    if ("([{<".includes(ch)) { if (depth > 0) out[i] = "_"; depth++; continue; }
+    if (")]}".includes(ch) || (ch === ">" && t[i - 1] !== "=")) { depth = Math.max(0, depth - 1); if (depth > 0) out[i] = "_"; continue; }
+    if (depth > 0) out[i] = "_";
+  }
+  return out.join("");
 }
 /** A declaration line without its `// comment` (not a `//` inside a string literal type): words in a comment are not rows. */
 function codeOf(line: string): string {

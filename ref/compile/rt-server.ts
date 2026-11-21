@@ -299,13 +299,15 @@ function assignDraft(draft: any, v: unknown) {
 
 /** CP-4d: an `.rx` module's components for a JS host (`import pages from "./pages.rx?rx-lib"`; `const { Home } =
  *  components(pages)`): Solid components bound to the request's app (SV-4: module state is per request), found through
- *  Solid's request event and made on first use. Outside a request, one app for the process. */
-let processApp: ReturnType<typeof createApp> | null = null;
-export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T): T {
+ *  Solid's request event and made on first use. A host that renders outside a request passes the app itself
+ *  (`components(pages, createApp({ request }))`); with neither, rendering one throws rather than share one app's module
+ *  state across unrelated renders. */
+export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ReturnType<typeof createApp>): T {
   const made = new Map<string, unknown>();
   const appNow = () => {
+    if (app) return app;
     const ev = getRequestEvent() as { request: Request; locals: Record<PropertyKey, unknown> } | undefined;
-    if (!ev) return (processApp ??= createApp());
+    if (!ev) throw new Error("an .rx component imported with ?rx-lib was rendered on the server outside a request: its module state would be shared by every render in the process. Render it inside the framework's request (Solid's request event), or pass the app: components(pages, createApp({ request })) (CP-4d)");
     return (ev.locals[HOST_APP] ??= createApp({ request: ev.request })) as ReturnType<typeof createApp>;
   };
   return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) =>

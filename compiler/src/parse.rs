@@ -73,6 +73,8 @@ pub struct Cursor<'a> {
     pub errors: Vec<ParseError>,
     /// a destructuring `let` (07 §5) is several statements: the rest of them, after the first
     pub pending: Vec<Stmt>,
+    /// MO-8j: the lines of a declaration file where a row says `trusted` (as the parser read it, not a text search)
+    pub trusted: Vec<usize>,
     /// `$$n`: the bound value of a destructuring whose right side is not a name (RG-4b)
     pub temps: usize,
     /// the names this module imports so far (a hook's pair is a habit only when it is not one of them)
@@ -80,7 +82,7 @@ pub struct Cursor<'a> {
 }
 impl<'a> Cursor<'a> {
     pub fn new(src: &'a str) -> Self {
-        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], temps: 0, imported: std::collections::HashSet::new() }
+        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], trusted: vec![], temps: 0, imported: std::collections::HashSet::new() }
     }
     /// What `fail` would return, recorded instead (`recover`).
     fn note(&mut self, msg: &str) {
@@ -209,6 +211,20 @@ fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
         let ch = c.peek();
         if depth == 0 && (c.starts_with("//") || c.starts_with("=>") || c.starts_with(":=") || ch == '=' || ch == ',' || ch == ')' || ch == ';' || ch == '\n' || (brace_stops && ch == '{')) {
             break;
+        }
+        if ch == '"' || ch == '\'' || ch == '`' {
+            // a string literal type is one token: a `//`, `,` or `)` inside it does not end the type
+            c.bump();
+            while !c.eof() && c.peek() != ch && c.peek() != '\n' {
+                if c.peek() == '\\' {
+                    c.bump();
+                }
+                c.bump();
+            }
+            if !c.eof() && c.peek() == ch {
+                c.bump();
+            }
+            continue;
         }
         if "([{<".contains(ch) {
             depth += 1;
@@ -809,6 +825,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         }
         if c.keyword("trusted") {
             // MO-8j: a row taken on trust where nothing verifies it
+            let l = c.line();
+            c.trusted.push(l);
             continue;
         }
         if c.keyword("uses") {
@@ -869,14 +887,21 @@ fn context_names(c: &mut Cursor) -> R<Vec<String>> {
     }
 }
 pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
+    parse_declaration_rows(src).map(|r| r.0)
+}
+/// MO-8j: a declaration file's rows as the parser reads them — each declaration, the line its row starts on, and the lines
+/// where a row says `trusted` — for strict declarations (TY-7), which hash and trust rows by the parser, not by a text search.
+pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usize>)> {
     let mut c = Cursor::new(src);
     let mut out = vec![];
+    let mut starts = vec![];
     loop {
         c.ws(true);
         if c.eof() {
-            return Ok(out);
+            return Ok((out, starts, c.trusted));
         }
         let line = c.line();
+        starts.push(line);
         if !c.keyword("export") {
             return c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export component …`, `export error …`, `export type …`");
         }
@@ -1013,9 +1038,10 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             let line0 = c.rest().split('\n').next().unwrap_or("").to_string();
             let t = code_of(&line0).to_string(); // words in a `// comment` are not rows
-            let r1 = REJECTS.find(&t).map(|m| m.end() - "rejects(".len());
-            let r2 = INSTANTIATES.find(&t).map(|m| m.start() + if t[m.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r3 = CTX_WORD.find(&t).map(|m| m.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted"].iter().any(|w| t[m.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
+            let m = masked(&t); // nor words in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`)
+            let r1 = REJECTS.find(&m).map(|x| x.end() - "rejects(".len());
+            let r2 = INSTANTIATES.find(&m).map(|x| x.start() + if m[x.start()..].starts_with("instantiates") { 0 } else { 1 });
+            let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted"].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
             let r = [r1, r2, r3].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
@@ -1059,6 +1085,8 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             }
             if c.keyword("trusted") {
                 // MO-8j: a row taken on trust where nothing verifies it (rx-tsc --strict, TY-7)
+                let l = c.line();
+                c.trusted.push(l);
                 continue;
             }
             // MO-11r: one placement vocabulary — `renders` (here), `renders(root, ctx…)`, `renders(later)`; `nests(…)` for the tree
@@ -1167,6 +1195,44 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
     }
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).
+/// `t` with every byte inside a string literal, or inside brackets (`()`, `[]`, `{}`, `<>`), replaced by `_`: the same
+/// byte offsets, with only the row's top level left to search for row words.
+fn masked(t: &str) -> String {
+    let b = t.as_bytes();
+    let mut out = b.to_vec();
+    let (mut q, mut depth) = (0u8, 0i32);
+    let mut i = 0;
+    while i < b.len() {
+        let ch = b[i];
+        if q != 0 {
+            out[i] = b'_';
+            if ch == b'\\' && i + 1 < b.len() {
+                out[i + 1] = b'_';
+                i += 1;
+            } else if ch == q {
+                q = 0;
+            }
+        } else if ch == b'"' || ch == b'\'' || ch == b'`' {
+            q = ch;
+            out[i] = b'_';
+        } else if matches!(ch, b'(' | b'[' | b'{' | b'<') {
+            if depth > 0 {
+                out[i] = b'_';
+            }
+            depth += 1;
+        } else if matches!(ch, b')' | b']' | b'}') || (ch == b'>' && (i == 0 || b[i - 1] != b'=')) {
+            depth = (depth - 1).max(0);
+            if depth > 0 {
+                out[i] = b'_';
+            }
+        } else if depth > 0 {
+            out[i] = b'_';
+        }
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| t.to_string())
+}
+
 fn code_of(line: &str) -> &str {
     let b = line.as_bytes();
     let mut q = 0u8;

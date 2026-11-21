@@ -69,7 +69,10 @@ support, add `"types": ["@reactivescript/runtime/rx-lib"]` and they are
 untyped.
 
 On the client they share one app; on the server, one per request, found
-through Solid's request event, so module state is per request. TanStack
+through Solid's request event, so module state is per request. A server render
+outside any request throws instead of sharing one app across renders: render
+inside the framework's request, or pass the app, `components(pages,
+createApp({ request }))`. TanStack
 Start's file routes use this (`examples/start`).
 
 Solid is a peer: `solid-js`, `@solidjs/web` and `@solidjs/signals` (the

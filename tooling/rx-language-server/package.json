@@ -31,9 +31,10 @@
     "@volar/language-core": "2.4.30",
     "@volar/language-server": "2.4.30",
     "@volar/typescript": "2.4.30",
+    "semver": "^7.8.6",
+    "typescript": "^6.0.3",
     "volar-service-typescript": "0.0.71",
-    "vscode-uri": "^3.0.8",
-    "typescript": "^6.0.3"
+    "vscode-uri": "^3.0.8"
   },
   "devDependencies": {
     "@volar/test-utils": "2.4.30"

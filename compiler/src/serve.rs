@@ -11,6 +11,7 @@ pub fn request(method: &str, params: &Value, disk: &dyn Fn(&str) -> Option<Strin
         "boundary" => boundary(params, disk),
         "declaration" => declaration(params, disk),
         // MO-8k: where a package import's declaration is found from `file` (null: none of the four places has one)
+        "rows" => rows(params, disk),
         "lookup" => json!(crate::modules::declaration_for(params["file"].as_str().unwrap_or(""), params["spec"].as_str().unwrap_or(""), disk)),
         _ => json!({ "error": "unknown method" }),
     }
@@ -116,6 +117,38 @@ pub fn boundary(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value 
 
 /// `declaration` (`{file, text?}`): the `.d.ts` a `.d.rx` stands for (TY-4b), for a JS module that has no TypeScript types
 /// of its own: what `rx-tsc` gives TypeScript in its place.
+/// MO-8j, TY-7: a declaration file's rows as the parser reads them, for strict declarations: each row's name and kind,
+/// the lines it spans (to the next row), and whether it says `trusted`.
+pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
+    use crate::parse::JsDecl;
+    let file = params["file"].as_str().unwrap_or_default();
+    let Some(text) = params["text"].as_str().map(str::to_string).or_else(|| disk(file)) else { return json!({ "error": format!("cannot read {}", file) }) };
+    match crate::parse::parse_declaration_rows(&text) {
+        Ok((decls, starts, trusted)) => {
+            let last = text.lines().count().max(1);
+            let rows: Vec<Value> = decls
+                .iter()
+                .enumerate()
+                .map(|(i, d)| {
+                    let line = starts[i];
+                    let end = starts.get(i + 1).map(|n| n - 1).unwrap_or(last);
+                    let kind = match d {
+                        JsDecl::Fn { .. } => "fn",
+                        JsDecl::Comp { .. } => "component",
+                        JsDecl::Error { .. } => "error",
+                        JsDecl::Value { .. } => "const",
+                        JsDecl::Type { .. } => "type",
+                        JsDecl::Context { .. } => "context",
+                    };
+                    json!({ "name": d.name(), "kind": kind, "line": line, "end": end, "trusted": trusted.iter().any(|t| *t >= line && *t <= end) })
+                })
+                .collect();
+            json!({ "rows": rows })
+        }
+        Err(e) => json!({ "error": e.0 }),
+    }
+}
+
 pub fn declaration(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     let file = params["file"].as_str().unwrap_or_default();
     let Some(text) = params["text"].as_str().map(str::to_string).or_else(|| disk(file)) else { return json!({ "error": format!("cannot read {}", file) }) };

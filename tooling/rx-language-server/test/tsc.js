@@ -80,6 +80,15 @@ const pinOk = run();
 fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
 check("a .d.rx pinned to a version range the installed package is outside fails (MO-8f)", pin.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_VERSION: written for typescript \^1\.0\.0/.test(pin.out), pin);
 check("a pin the installed package satisfies passes", pinOk.status === 0, pinOk);
+fs.writeFileSync(path.join(ws, "lib.d.rx"), "//@ for typescript >=1.0.0 <2.0.0\n" + libDecl);
+const pinBoth = run();
+fs.writeFileSync(path.join(ws, "lib.d.rx"), "//@ for typescript one point oh\n" + libDecl);
+const pinBad = run();
+fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
+check("a range's comparators all hold, as npm's: >=1.0.0 <2.0.0 refuses typescript 6 (MO-8f)", pinBoth.status !== 0 && /DECLARATION_VERSION: written for typescript >=1\.0\.0 <2\.0\.0/.test(pinBoth.out), pinBoth);
+check("a range npm cannot read is reported, not taken to hold", pinBad.status !== 0 && /DECLARATION_VERSION: one point oh is not a version range npm reads/.test(pinBad.out), pinBad);
+const { satisfies } = require("../src/versions.js");
+check("prereleases compare as npm's: 2.0.0-rc.10 satisfies >=2.0.0-rc.2, not ^2.0.0", satisfies("2.0.0-rc.10", ">=2.0.0-rc.2") === true && satisfies("2.0.0-rc.10", "^2.0.0") === false && satisfies("2.0.0-rc.10", ">=2.0.0-rc.11") === false, null);
 
 // a package that ships only declarations: no .rx module of its own, its .d.rx named by the tsconfig, still checked (TY-6)
 const only = path.join(ws, "decl-only"); fs.mkdirSync(only, { recursive: true });

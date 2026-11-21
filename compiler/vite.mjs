@@ -16,9 +16,10 @@
 //
 // Types (13 TY-1a): a production build type-checks the project with `rx-tsc` (from @reactivescript/language-server),
 // once, when it compiles its first entry: TypeScript's errors on the `.rx` (a route whose path lacks a param its page
-// needs, MO-11h), TY-6's on the `.d.rx`, fail the build. Without the language server installed the build says that the
-// types went unchecked. The dev server leaves types to the editor, which runs the same projection. RX_TYPECHECK=0 or 1
-// overrides either default.
+// needs, MO-11h), TY-6's on the `.d.rx`, fail the build. A check that cannot run fails it too (TY-1d): a tsconfig.json
+// with no @reactivescript/language-server to run rx-tsc, or, when RX_TYPECHECK=1 asked for it, no tsconfig.json; a
+// production build with no tsconfig.json only says the types went unchecked. The dev server leaves types to the
+// editor, which runs the same projection. RX_TYPECHECK=0 or 1 overrides either default.
 //
 // Declarations (09 MO-8l): before a program is read, each package it imports that nothing declares (no `rx-types/` file,
 // none shipped, no `@rx-types` package) gets a draft from its TypeScript types in `node_modules/.rx-types/`, with the
@@ -48,13 +49,13 @@ const isDep = moduleId => new URLSearchParams(moduleId.split("?")[1] ?? "").has(
 const tagDeps = code => code.replace(/^(import \w+ from ")(\.{1,2}\/[^"?]*\.rx)(";?)$/gm, `$1$2?${DEP}$3`);
 
 /** TY-1a: `rx-tsc --noEmit` over the project the entry belongs to (its nearest tsconfig.json): null when it passes, the
- *  report when it does not, `undefined` when there is nothing to run it with. */
+ *  report when it does not, `{ missing }` ("tsconfig" or "checker") when it cannot run. */
 function typecheck(entry) {
   let dir = path.dirname(entry);
   while (!existsSync(path.join(dir, "tsconfig.json")) && path.dirname(dir) !== dir) dir = path.dirname(dir);
-  if (!existsSync(path.join(dir, "tsconfig.json"))) return undefined;
+  if (!existsSync(path.join(dir, "tsconfig.json"))) return { missing: "tsconfig" };
   let bin;
-  try { bin = createRequire(path.join(dir, "package.json")).resolve("@reactivescript/language-server/bin/tsc.js"); } catch { return undefined; }
+  try { bin = createRequire(path.join(dir, "package.json")).resolve("@reactivescript/language-server/bin/tsc.js"); } catch { return { missing: "checker" }; }
   const r = spawnSync(process.execPath, [bin, "--noEmit", "-p", path.join(dir, "tsconfig.json")], { cwd: dir, encoding: "utf8" });
   return r.status === 0 ? null : (r.stdout + r.stderr).trim() || `rx-tsc exited with ${r.status}`;
 }
@@ -144,7 +145,12 @@ export default function rx(options = {}) {
       if (!typed && !dep && (flag === "1" || process.env.NODE_ENV === "production")) {
         typed = true;
         const t = typecheck(file);
-        if (t === undefined) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${path.relative(process.cwd(), file)}, or no @reactivescript/language-server to run rx-tsc with (13 TY-1a)`);
+        // TY-1d: a check that was asked for (RX_TYPECHECK=1), or a TypeScript project's production build, fails when it
+        // cannot run; a production build with no tsconfig.json is not a TypeScript project, and only says so
+        const where = path.relative(process.cwd(), file);
+        if (t?.missing === "checker" || (t?.missing === "tsconfig" && flag === "1"))
+          throw new Error(`types not checked: ${t.missing === "checker" ? `no @reactivescript/language-server to run rx-tsc with (install it in the project)` : `no tsconfig.json above ${where}`}; set RX_TYPECHECK=0 to build without checking them (13 TY-1d)`);
+        if (t?.missing) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
         else if (t) throw new Error(`type errors (rx-tsc):\n${t}`);
       }
       const { entry, out } = dep ? containing(file, target, moduleName, spa, path.resolve(root ?? process.cwd())) : build(file, target, moduleName, spa, lib);

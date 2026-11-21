@@ -171,7 +171,10 @@ record argued each way; this is the decision.
   bound to an app made on first use: on the client, one for the page; on
   the server, one per request, kept on Solid's request event
   (`getRequestEvent().locals`), so module state is per request (SV-4) as
-  in a program's own server; outside a request, one for the process. The
+  in a program's own server. A host may pass the app itself
+  (`components(pages, app)`); a server render outside any request with
+  none passed throws (proposed 2026-11-21: one app for the process would
+  share module state across unrelated renders). The
   module is checked as an entry is (its components' failures reach their
   own boundaries, or are refused); what the host passes in is typed by
   the module's projection: `rx-tsc` resolves `pages.rx?rx-lib` to
