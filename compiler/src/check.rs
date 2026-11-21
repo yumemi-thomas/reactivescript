@@ -2066,6 +2066,30 @@ impl<'a> Checker<'a> {
     /// MO-10b: an equation bound from a primitive's result, or from a part of it (`[a, b] = f(…)`, `x.k`): a `ref` part is
     /// a reader (it may hold, MO-10d), a function part is io (R-io-3), anything else is a value.
     fn foreign_part(&self, sym: &mut Sym<'a>, e: &Expr, env: EId) {
+        // MO-10b, MO-10f: an alias of a result is the result — its shape, its fields' rows, its methods and draft parts
+        if let ExprKind::Id(n) = &e.k {
+            let Some(t) = self.lookup(env, n) else { return };
+            let t = &self.syms[t];
+            if t.foreign.is_none() || t.kind == SymKind::Comp {
+                return;
+            }
+            sym.foreign = t.foreign.clone();
+            if !t.held.is_empty() {
+                sym.held = t.held.clone();
+            }
+            if !t.methods.is_empty() {
+                sym.methods = t.methods.clone();
+            }
+            if !t.part_drafts.is_empty() {
+                sym.part_drafts = t.part_drafts.clone();
+            }
+            sym.via_field |= t.via_field;
+            sym.reader |= t.reader;
+            if t.foreign == Some(FShape::Part(Part::Fn)) {
+                sym.io = true;
+            }
+            return;
+        }
         // MO-10i: a result's function parts that take drafts, and a part bound from them
         match &e.k {
             ExprKind::Call { f, .. } => {

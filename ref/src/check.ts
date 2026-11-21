@@ -775,6 +775,12 @@ class Checker {
   /** MO-10b: an equation bound from a primitive's result, or from a part of it (`[a, b] = f(…)`, `x.k`): a `ref` part is a
    *  reader (it may hold, MO-10d), a function part is io (R-io-3), anything else is a value. */
   private foreignPart(sym: Sym, e: Expr, env: Env) {
+    if (e.k === "id") {                                                                    // MO-10b, MO-10f: an alias of a result is the result — its shape, its fields' rows, its methods and draft parts
+      const t = env.lookup(e.name); if (!t?.foreign || t.kind === "comp") return;
+      sym.foreign = t.foreign; if (t.held) sym.held = t.held; if (t.methods) sym.methods = t.methods; if (t.partDrafts) sym.partDrafts = t.partDrafts;
+      if (t.viaField) sym.viaField = true; if (t.reader) sym.reader = true; if (t.foreign === "fn") sym.io = true;
+      return;
+    }
     let shape: Shape | undefined;
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.kind === "fn" && f.foreign) shape = f.foreign; }
     else if (e.k === "index" || e.k === "member") {

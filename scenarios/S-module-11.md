@@ -259,3 +259,34 @@ export default component App() {
 
 An alias of a part named by a dynamic key keeps the rows of every part it
 may be.
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+export default component App() {
+  orig = useThing()
+  q = orig
+  <p>{q["result"]["data"]}</p>
+}
+```
+
+An alias of the result is the result: it keeps its shape and its fields'
+rows.
+
+```rx
+-- reject: ASYNC_OUTSIDE_LOADING_BOUNDARY
+-- spa
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Todos() {
+  orig = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  todos = orig
+  <ul>{for t in todos.data { <li>{t}</li> }}</ul>
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    {errored fallback(e) { <p>failed: {e.message}</p> } { <Todos /> }}
+  </QueryClientProvider>
+}
+```
