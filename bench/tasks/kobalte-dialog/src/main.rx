@@ -1,0 +1,20 @@
+// A confirm dialog on Kobalte: the compound parts, the open state held by the app, a confirm that writes app state.
+import { Dialog } from "@kobalte/core/dialog"
+
+export default component App() {
+  source open := false
+  source removed := 0
+  <p class="count">removed {removed}</p>
+  <Dialog open={open} onOpenChange={(next) => { open := next }}>
+    <Dialog.Trigger class="trigger">Remove…</Dialog.Trigger>
+    <Dialog.Portal>
+      <Dialog.Overlay class="overlay" />
+      <Dialog.Content class="content">
+        <Dialog.Title>Remove the item?</Dialog.Title>
+        <Dialog.Description>This cannot be undone.</Dialog.Description>
+        <button class="confirm" onClick={() => { removed := removed + 1; open := false }}>Remove</button>
+        <Dialog.CloseButton class="close">Cancel</Dialog.CloseButton>
+      </Dialog.Content>
+    </Dialog.Portal>
+  </Dialog>
+}

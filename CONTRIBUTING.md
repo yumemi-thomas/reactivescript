@@ -50,6 +50,7 @@ for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/te
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar
 (cd runtime && node test.mjs)
 (cd tooling/rx-language-server && npm test)
+node bench/run.mjs --check     # the representative tasks (bench/README.md): real libraries, good programs and one-line mistakes
 ```
 
 `ref/README.md` describes each runner. Please run the suite before opening a

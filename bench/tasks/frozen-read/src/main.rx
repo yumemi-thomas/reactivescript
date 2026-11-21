@@ -1,0 +1,13 @@
+// Formatters kept together in a record, as apps keep them, and read by the view, by a primitive and by a seed.
+import { createLabel, createStamp } from "./label.js"
+
+export default component App() {
+  source count := 0
+  fmt = { total: () => `${count} items`, unit: () => "items" }
+  label = createLabel(fmt.total())
+  stamp = createStamp(fmt.unit())
+  <p class="total">{fmt.total()}</p>
+  <p class="label">{label}</p>
+  <p class="stamp">{stamp}</p>
+  <button onClick={() => { count := count + 1 }}>add</button>
+}

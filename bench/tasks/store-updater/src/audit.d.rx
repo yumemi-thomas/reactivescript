@@ -1,0 +1,2 @@
+export fn record(label: string, value: unknown): void
+export fn first(): string

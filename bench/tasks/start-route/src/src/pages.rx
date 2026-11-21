@@ -1,0 +1,18 @@
+// The app's .rx components, imported by the TSX file routes with ?rx-lib (Start's route generator reads TypeScript).
+import { fetchPerson, NotFound } from "./people.js"
+
+source clicks := 0
+
+export component Counter(props: { label: string }) {
+  <button class="counter" onClick={() => { clicks := clicks + 1 }}>{props.label}: {clicks}</button>
+}
+// a person's card for the route's params: the id from the path, the tab from the search
+export component PersonCard(props: { id: string; tab: "role" | "name" }) {
+  person = await fetchPerson(props.id)
+  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
+    loading fallback { <p>loading…</p> } {
+      <h2>{person.name}</h2>
+      if (props.tab == "role") { <p class="role">{person.role}</p> } else { <p class="plain">no details</p> }
+    }
+  }
+}

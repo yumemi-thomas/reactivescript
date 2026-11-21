@@ -1,0 +1,7 @@
+// The table adapter in rows. A table renders the components its columns are given, in the view that calls flexRender
+// on them: where the table is bound (MO-11l).
+export type CellContext<T, V> = import("@tanstack/table-core").CellContext<T, V>
+export pure fn getCoreRowModel(): any
+export pure fn getPaginationRowModel(): any
+export pure fn createTable(ref options: { data: any[]; columns: { accessorKey: string; header: string; cell?: Component }[]; getCoreRowModel: any; getPaginationRowModel?: any; initialState?: any }): any renders
+export pure fn flexRender(comp: any, props: any): View

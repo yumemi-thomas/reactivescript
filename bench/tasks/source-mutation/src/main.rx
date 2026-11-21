@@ -1,0 +1,14 @@
+// A list held in a source, added to and sorted for display.
+type Item = { id: number; name: string }
+
+component Sorted(props: { items: Item[] }) {
+  byName = props.items.toSorted((a, b) => a.name < b.name ? -1 : 1)
+  <ol>{for it in byName { <li>{it.name}</li> }}</ol>
+}
+
+export default component App() {
+  source rows: Item[] := [{ id: 1, name: "pear" }, { id: 2, name: "apple" }]
+  <p class="count">{len(rows)} rows</p>
+  <Sorted items={rows} />
+  <button class="add" onClick={() => { rows := rs => [...rs, { id: len(rs) + 1, name: "fig" }] }}>add</button>
+}

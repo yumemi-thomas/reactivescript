@@ -35,7 +35,8 @@
     "create-npm-dirs": "napi create-npm-dirs",
     "version": "napi version && node scripts/sync-optional-deps.mjs",
     "prepack": "node scripts/guide.mjs",
-    "test": "node test/node.mjs"
+    "test": "node test/node.mjs",
+    "bench": "node ../bench/run.mjs --check"
   },
   "napi": {
     "binaryName": "compiler",

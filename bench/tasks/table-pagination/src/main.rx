@@ -1,0 +1,48 @@
+// A paginated people table on TanStack Table: cell components, pagination buttons, and a pager that is a component of
+// its own, given the page numbers and the handlers.
+import { createTable, flexRender, getCoreRowModel, getPaginationRowModel, CellContext } from "./table.js"
+
+type Person = { name: string; age: number }
+context accent: string
+
+component NameCell(props: CellContext<Person, unknown>) {
+  tone = use accent
+  <strong class={tone}>{props.row.original.name}</strong>
+}
+component AgeCell(props: CellContext<Person, unknown>) {
+  <em>{props.row.original.age} years</em>
+}
+component Pager(props: { page: number; pages: number; canNext: boolean; onPrev: () => void; onNext: () => void }) {
+  <button class="prev" onClick={() => { props.onPrev() }}>prev</button>
+  <span class="page">page {props.page} of {props.pages}</span>
+  <button class="next" disabled={!props.canNext} onClick={() => { props.onNext() }}>next</button>
+}
+
+component People(props: { onPick: (id: string) => void }) {
+  source people: Person[] := [{ name: "Ann", age: 31 }, { name: "Bo", age: 44 }, { name: "Cy", age: 27 }]
+  table = createTable({
+    data: people,
+    columns: [{ accessorKey: "name", header: "Name", cell: NameCell }, { accessorKey: "age", header: "Age", cell: AgeCell }],
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageIndex: 0, pageSize: 2 } },
+  })
+  <table>
+    <thead>{for group in table.getHeaderGroups() {
+      <tr>{for header in group.headers { <th>{flexRender(header.column.columnDef.header, header.getContext())}</th> }}</tr>
+    }}</thead>
+    <tbody>{for row in table.getRowModel().rows {
+      <tr class="row" onClick={() => { props.onPick(row.id) }}>{for cell in row.getVisibleCells() { <td>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td> }}</tr>
+    }}</tbody>
+  </table>
+  <Pager page={table.getState().pagination.pageIndex + 1} pages={table.getPageCount()} canNext={table.getCanNextPage()}
+    onPrev={() => { table.previousPage() }} onNext={() => { table.nextPage() }} />
+  <button class="add" onClick={() => { people := ps => [...ps, { name: "Di", age: 52 }, { name: "Ed", age: 19 }] }}>add two</button>
+}
+
+export default component App() {
+  source picked := ""
+  provide accent = "dark"
+  <People onPick={(id) => { picked := id }} />
+  <p class="picked">picked row {picked}</p>
+}

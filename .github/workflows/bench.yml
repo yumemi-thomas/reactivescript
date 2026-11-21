@@ -1,0 +1,41 @@
+# The representative-task benchmark (bench/README.md): each task is a job a Solid user does with a library of the
+# ecosystem — its good program accepted by both checkers, typed by the library's own types and run in Chromium, its
+# one-line mistakes refused. The run is compared with bench/scorecard.json: a check that is green there may not turn red.
+name: bench
+
+on:
+  push:
+    branches: [main]
+    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml"]
+  pull_request:
+    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml"]
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: The crate (rxc, and the Node-API build Solid's Vite plugin loads)
+        working-directory: compiler
+        run: |
+          npm ci
+          cargo build --release
+          npx napi build --platform --release --features node --manifest-path ./Cargo.toml -- --lib
+      - name: The runtime
+        run: npm --prefix runtime ci && npm --prefix runtime run build
+      - name: The language server's packages (rx-tsc)
+        run: npm --prefix tooling/rx-language-server ci
+      - name: The libraries, and Chromium
+        run: |
+          mkdir -p bench/.out/ws && cp bench/package.json bench/.out/ws/package.json
+          (cd bench/.out/ws && npm install --no-audit --no-fund --legacy-peer-deps && npx playwright install --with-deps chromium)
+      - name: The benchmark, against bench/scorecard.json
+        run: node bench/run.mjs --check

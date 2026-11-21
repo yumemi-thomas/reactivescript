@@ -1,0 +1,25 @@
+// A sign-in form on Formisch: a valibot schema, each field named by its typed path, the submit writing .rx state.
+import { createForm, Form, Field } from "@formisch/solid/v2"
+import { object, string, pipe, email, minLength } from "valibot"
+
+schema = object({
+  email: pipe(string(), email("Enter a valid email")),
+  profile: object({ name: pipe(string(), minLength(2, "At least 2 characters")) }),
+})
+source signedIn := ""
+
+export default component App() {
+  form = createForm({ schema: schema })
+  <Form of={form} onSubmit={(output) => { signedIn := `${output.profile.name} <${output.email}>` }}>
+    <Field of={form} path={["email"]}>{view (field) {
+      <input class="email" {...field.props} type="email" value={field.input ?? ""} />
+      if (field.errors) { <p class="err">{field.errors[0]}</p> }
+    }}</Field>
+    <Field of={form} path={["profile", "name"]}>{view (field) {
+      <input class="name" {...field.props} value={field.input ?? ""} />
+      if (field.errors) { <p class="err">{field.errors[0]}</p> }
+    }}</Field>
+    <button class="submit" type="submit">Sign in</button>
+  </Form>
+  <p class="who">signed in: {signedIn}</p>
+}

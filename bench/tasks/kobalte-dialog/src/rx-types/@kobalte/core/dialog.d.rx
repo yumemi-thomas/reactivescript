@@ -1,0 +1,11 @@
+//@ for @kobalte/core ^2.0.0-alpha.4
+// Kobalte's Dialog in rows, as `rx-declare --dom @kobalte/core/dialog` drafts it (the parts read the root's context). The types are the package's own.
+export context coreDialog   // drafted by running: hooks that throw with no provider read it
+export component Dialog(props: { translations?: { dismiss: string; } | undefined; open?: boolean | undefined; defaultOpen?: boolean | undefined; onOpenChange?: handler (...args: any[]) => any; id?: string | undefined; modal?: boolean | undefined; preventScroll?: boolean | undefined; forceMount?: boolean | undefined; children?: View }) provides(coreDialog)
+export component Dialog.CloseButton(props: { onClick?: any; disabled?: boolean | undefined; type?: string | undefined; ref?: any; tabindex?: string | number | undefined; as?: any }) uses(coreDialog)
+export component Dialog.Content(props: { onOpenAutoFocus?: handler (...args: any[]) => any; onCloseAutoFocus?: handler (...args: any[]) => any; onEscapeKeyDown?: handler (...args: any[]) => any; onPointerDownOutside?: handler (...args: any[]) => any; onFocusOutside?: handler (...args: any[]) => any; onInteractOutside?: handler (...args: any[]) => any; id?: string | undefined; ref?: any; as?: any }) uses(coreDialog)
+export component Dialog.Description(props: { id?: string | undefined; as?: any }) uses(coreDialog)
+export component Dialog.Overlay(props: { ref?: any; onPointerDown?: any; style?: any; as?: any }) uses(coreDialog)
+export component Dialog.Portal(props: { mount?: Element | undefined; children: View }) uses(coreDialog)
+export component Dialog.Title(props: { id?: string | undefined; as?: any }) uses(coreDialog)
+export component Dialog.Trigger(props: { onClick?: any; disabled?: boolean | undefined; type?: string | undefined; ref?: any; tabindex?: string | number | undefined; as?: any }) uses(coreDialog)

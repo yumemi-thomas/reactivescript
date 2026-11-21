@@ -1,0 +1,29 @@
+// A TanStack Query result, forwarded through child components: the list gets the data, the badge a flag, and the panel
+// the whole result, as Solid apps pass a query down.
+import { QueryClientProvider, useQuery } from "@tanstack/solid-query"
+import { queryClient, fetchTodos, Todo } from "./api.js"
+
+component TodoList(props: { items: Todo[] }) {
+  <ul>{for t in props.items { <li>{t.title}</li> }}</ul>
+}
+component Badge(props: { busy: boolean }) {
+  <small class="badge">{props.busy ? "refreshing" : "idle"}</small>
+}
+// the whole result, through an interface that says which of its fields wait and fail
+component Panel(props: { query: { data: pending fails(Error) Todo[]; status: string } }) {
+  <p class="status">{props.query.status}</p>
+  <p class="count">{len(props.query.data)} todos</p>
+}
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <Badge busy={todos.isFetching} />
+  <TodoList items={todos.data} />
+  <Panel query={todos} />
+}
+export default component App() {
+  <QueryClientProvider client={queryClient}>
+    {errored fallback(e) { <p class="err">failed: {e.message}</p> } {
+      {loading fallback { <p class="wait">loading…</p> } { <Todos /> }}
+    }}
+  </QueryClientProvider>
+}
