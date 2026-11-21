@@ -53,6 +53,8 @@ const DRAFT_METHODS: &[&str] = &[
     "toFixed", "toPrecision", "toString", "toLocaleString", "valueOf", "hasOwnProperty",
 ];
 const DRAFT_CALLBACKS: &[&str] = &["forEach", "map", "filter", "find", "findIndex", "findLast", "findLastIndex", "some", "every", "flatMap", "reduce", "reduceRight", "sort", "toSorted"];
+/// W-1a: an Array's methods that change it in place.
+const ARRAY_MUTATORS: &[&str] = &["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"];
 const SCALAR_BUILTINS: &[&str] = &["len", "str", "sum", "every", "indexOf"];
 /// EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one.
 fn returns_closure(f: &Expr) -> bool {
@@ -306,6 +308,8 @@ struct Sym<'a> {
     /// MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a
     /// draft: the parameter positions that are drafts
     updater: Option<Vec<usize>>,
+    /// EF-5a (2026-11-22): a declared JS fn whose result is `() => void`: what undoes the call (a subscription's disposer)
+    disposer: bool,
     /// MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or
     /// of a part of it, that part's: the closed set of what the value answers (`ty_step`)
     ret_ty: Option<String>,
@@ -414,6 +418,7 @@ impl<'a> Sym<'a> {
             local_renders: false,
             methods: vec![],
             updater: None,
+            disposer: false,
             ret_ty: None,
             carries: vec![],
             undeclared: None,
@@ -1603,6 +1608,8 @@ pub struct Checker<'a> {
     arg_calls: HashMap<String, Vec<(String, usize)>>,
     /// …and the arguments so written that a draft-handing call took as its callback
     updater_ok: HashSet<*const Expr>,
+    /// W-1a: the functions of functional writes of a source (`x := xs => …`): their parameter is the slot's value
+    write_fns: HashSet<*const Expr>,
     /// E-10: equations decided constant (None while being decided)
     const_eqs: HashMap<SId, Option<bool>>,
     carried_rendered: HashSet<*const Expr>,
@@ -1744,6 +1751,7 @@ impl<'a> Checker<'a> {
             forwarded_decl: vec![],
             arg_calls: HashMap::new(),
             updater_ok: HashSet::new(),
+            write_fns: HashSet::new(),
             prop_held: HashMap::new(),
             const_eqs: HashMap::new(),
             carried_rendered: HashSet::new(),
@@ -2501,6 +2509,7 @@ impl<'a> Checker<'a> {
                     }
                     let mut s = Sym::new(SymKind::Import, alias, region, line);
                     s.io = !xpure;
+                    s.disposer = xret.as_deref().is_some_and(ty_disposer);
                     s.rejects = Some(rejects.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
                     s.side = *xside;
                     s.cbs = xcbs.clone();
@@ -4496,6 +4505,48 @@ impl<'a> Checker<'a> {
         self.callback_fns.insert(e as *const Expr);
         Some(ps)
     }
+    /// W-1a: what `e` reads its value from, when that is reactive state of `.rx` — a source, an equation, a prop, a
+    /// provision, a row of one, the value a functional write is given, or a local that names a path of one. A JS
+    /// instance (a declared result) is the library's; what a call answers, a literal, and a local bound to either are
+    /// the program's own to change.
+    fn reactive_place(&self, e: &Expr, env: EId, depth: usize) -> Option<String> {
+        if depth > 32 {
+            return None;
+        }
+        match &e.k {
+            ExprKind::Id(n) => {
+                let t = self.lookup(env, n)?;
+                let sy = &self.syms[t];
+                if sy.foreign.is_some() || sy.ret_ty.is_some() || sy.js_draft {
+                    return None;
+                }
+                match sy.kind {
+                    SymKind::Source => Some(format!("the source {n}")),
+                    SymKind::Props => Some(format!("a prop of {n}")),
+                    SymKind::Eq | SymKind::Value => {
+                        if let Some((list, lenv)) = sy.row_of {
+                            return self.reactive_place(list, lenv, depth + 1).map(|w| format!("a row of {}", w.trim_start_matches("a row of ")));
+                        }
+                        if sy.of_fn.is_some_and(|f| self.write_fns.contains(&f)) {
+                            return Some(format!("the value the write is given ({n})"));
+                        }
+                        let (v, venv) = sy.val?;
+                        match (&v.k, sy.kind) {
+                            (ExprKind::Fn { .. }, _) => None,
+                            // a local that names a path of reactive state is that state
+                            (ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. } | ExprKind::Use(_), SymKind::Value) => self.reactive_place(v, venv, depth + 1),
+                            (_, SymKind::Eq) => Some(format!("the equation {n}")),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => self.reactive_place(o, env, depth + 1),
+            ExprKind::Use(n) => Some(format!("the provision {n}")),
+            _ => None,
+        }
+    }
     /// MO-10b: a method of a declared JS result whose declared type answers nothing, `() => void`.
     fn void_method(&self, f: &Expr, env: EId) -> bool {
         matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| ty_clean(&r) == "void")
@@ -4745,6 +4796,21 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Call { f, args, .. } => {
                 self.call_marks(f, args, env);
+                // W-1a (2026-11-22): the value of a source, an equation or a prop is changed by a write, never in place:
+                // `rows.push(x)` changes the array every reader holds and tells none of them
+                if let ExprKind::Member { o, p, .. } = &f.k {
+                    if ARRAY_MUTATORS.contains(&p.as_str()) && !self.draft_chain(o, env) {
+                        if let Some(what) = self.reactive_place(o, env, 0) {
+                            let fix = match p.as_str() {
+                                "sort" => format!("`{}.toSorted(…)` gives a sorted copy", show(o)),
+                                "reverse" => format!("`{}.toReversed()` gives a reversed copy", show(o)),
+                                "splice" => format!("`{}.toSpliced(…)` gives a changed copy", show(o)),
+                                _ => "write the new value, `xs := v => [...v, x]`, in the block that declares the source (or through an action it exports)".to_string(),
+                            };
+                            self.err("MUTATION_IN_PLACE", "W-1a", format!("{}(…) changes {what} in place: the value of a source, an equation or a prop is changed by a write (`:=`), which tells its readers — a change in place tells none, and changes what every other reader of it holds; {fix}", show(f)));
+                        }
+                    }
+                }
                 // MO-10b (2026-11-22): a function part of a declared result that answers nothing (`nextPage: () => void`)
                 // is called for what it does: it is io, called from imperative scope
                 if !ctx.imperative && self.void_method(f, env) {
@@ -4935,7 +5001,28 @@ impl<'a> Checker<'a> {
     fn stmts(&mut self, ss: &'a [Stmt], env0: EId, ctx: Ctx) {
         let region = self.reg(env0);
         let env = self.env(Some(env0), region);
-        for s in ss {
+        for (at, s) in ss.iter().enumerate() {
+            // EF-5a (2026-11-22): a call that answers the function that undoes it (`onShortcut(…): () => void`), with
+            // that function dropped — the statement's value, or a local the rest of the block never names
+            if let StmtKind::Let { e, .. } | StmtKind::Expr(e) = &s.k {
+                if let ExprKind::Call { f, .. } = &e.k {
+                    if let ExprKind::Id(n) = &f.k {
+                        if self.lookup(env, n).is_some_and(|t| self.syms[t].disposer) {
+                            let dropped = match &s.k {
+                                StmtKind::Let { name, .. } => {
+                                    let mut used = IndexSet::new();
+                                    free_names_stmts(&ss[at + 1..], &HashSet::new(), &mut used);
+                                    (!used.contains(name)).then(|| format!("`{name}` is never used after it is bound"))
+                                }
+                                _ => Some("the call is a statement, and what it answers is dropped".to_string()),
+                            };
+                            if let Some(why) = dropped {
+                                self.err("DISPOSER_DROPPED", "EF-5a", format!("{n}(…) answers the function that undoes it (its declaration: `() => void`), and {why}: what it set up — a listener, a subscription, a timer — then outlives the component — keep it and call it when the region ends: in `effect () {{ let stop = {n}(…); return () => {{ stop() }} }}`, or from the handler that ends it"));
+                            }
+                        }
+                    }
+                }
+            }
             if let StmtKind::Let { e, .. } | StmtKind::Expr(e) = &s.k {
                 let t = if let ExprKind::Catch { e: inner, .. } = &e.k { &**inner } else { e };
                 if let ExprKind::Await { .. } = &t.k {
@@ -4985,6 +5072,11 @@ impl<'a> Checker<'a> {
                     self.stmts(body, lenv, ctx);
                 }
                 StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                    // W-1a: a functional write's function is given the slot's value: it answers the next one, and does
+                    // not change the one it is given
+                    if matches!(e.k, ExprKind::Fn { .. }) && target.path.is_empty() && self.lookup(env, &target.name).is_some_and(|t| self.syms[t].kind == SymKind::Source) {
+                        self.write_fns.insert(e as *const Expr);
+                    }
                     self.sink(e, env, format!("written to {}", target.name));
                     let op = if matches!(&s.k, StmtKind::Optimistic { .. }) { "optimistic" } else { "write" };
                     if ctx.server {
@@ -8312,6 +8404,11 @@ pub fn ty_scalar(t: &str) -> bool {
                 || m.parse::<f64>().is_ok()
                 || (m.len() >= 2 && ((m.starts_with('"') && m.ends_with('"')) || (m.starts_with('\'') && m.ends_with('\''))) && !m[1..m.len() - 1].contains(['"', '\'']))
         })
+}
+/// Whether a declared result is a function that takes nothing and answers nothing, `() => void`: what undoes a call.
+pub fn ty_disposer(t: &str) -> bool {
+    let t = ty_clean(t);
+    t.starts_with("()") && ty_step(t, &TStep::Call).is_some_and(|r| ty_clean(&r) == "void")
 }
 /// Whether a declared type is a function's.
 pub fn ty_fn(t: &str) -> bool {

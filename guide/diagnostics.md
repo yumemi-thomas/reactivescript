@@ -218,6 +218,53 @@ export default component App() {
 }
 ```
 
+
+### MUTATION_IN_PLACE
+
+The value of a source, an equation or a prop is changed by a write, never in place (W-1a). `rows.push(x)`, `rows.sort()`
+and the like change the array itself: nothing is told that it changed, so the view does not follow, and every other
+reader of that array — an equation over it, the parent that passed it as a prop — now holds a changed value it did not
+ask for. Solid has the same trap (a signal's array pushed to, a memo's array sorted). Write the new value; for a sorted
+or reversed view of a list, `toSorted`, `toReversed` and `toSpliced` give a copy. The check reads the names: a list read
+from a source, an equation, a prop, a provision, a row, the value a functional write is given, or a local that names
+one of those. A list the code made itself (`let xs = [...rows]`) is its own to change.
+
+```rx before
+export default component App() {
+  source rows := [1]
+  <button onClick={() => { rows.push(2) }}>{len(rows)}</button>
+}
+```
+
+```rx after
+export default component App() {
+  source rows := [1]
+  <button onClick={() => { rows := rs => [...rs, 2] }}>{len(rows)}</button>
+}
+```
+
+```rx before
+component Sorted(props: { items: number[] }) {
+  sorted = props.items.sort()
+  <p>{sorted}</p>
+}
+export default component App() {
+  source rows := [3, 1, 2]
+  <Sorted items={rows} />
+}
+```
+
+```rx after
+component Sorted(props: { items: number[] }) {
+  sorted = props.items.toSorted()
+  <p>{sorted}</p>
+}
+export default component App() {
+  source rows := [3, 1, 2]
+  <Sorted items={rows} />
+}
+```
+
 ### STALE_OWN_READ
 
 All the writes of one run land together when the run ends, so after `count := count + 1` the run still reads the old
@@ -674,6 +721,42 @@ export default component App() {
   source n := 0
   effect (n) { return () => { log($0) } }
   <button onClick={() => { n := n + 1 }}>x</button>
+}
+```
+
+
+### DISPOSER_DROPPED
+
+A JS function that subscribes — to a DOM event, a store, a timer — usually answers the function that unsubscribes. Its
+declaration says so with a result of `() => void` (EF-5a), and a call whose result is dropped is refused: the statement
+`listen(…)`, or `let stop = listen(…)` with `stop` never used. What the call set up would outlive the component, and a
+handler that calls it would add another on every click. Keep the function and call it when the region ends: an effect's
+cleanup (`return () => { stop() }`), or the handler that ends what the call started.
+
+```rx before
+-- module: ./keys.d.rx
+export fn onShortcut(key: string, run: handler () => void): () => void
+-- main
+import { onShortcut } from "./keys.js"
+export default component App() {
+  source hits := 0
+  effect () { onShortcut("k", () => { hits := h => h + 1 }) }
+  <p>{hits}</p>
+}
+```
+
+```rx after
+-- module: ./keys.d.rx
+export fn onShortcut(key: string, run: handler () => void): () => void
+-- main
+import { onShortcut } from "./keys.js"
+export default component App() {
+  source hits := 0
+  effect () {
+    let stop = onShortcut("k", () => { hits := h => h + 1 })
+    return () => { stop() }
+  }
+  <p>{hits}</p>
 }
 ```
 
