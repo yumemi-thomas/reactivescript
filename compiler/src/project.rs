@@ -760,6 +760,13 @@ impl Proj<'_> {
                     self.stmts(f, &format!("{ind}  "));
                     self.w.emit(Code::of(&format!("{ind}}}")), 0);
                 }
+                StmtKind::For { name, e, body } => {
+                    let nm = self.name(name, sp, &mut at);
+                    let v = self.expr(e, true, None);
+                    self.w.emit(Code::of(&format!("{ind}for (const ")).c(nm).t(" of ").c(v).t(") {"), 0);
+                    self.stmts(body, &format!("{ind}  "));
+                    self.w.emit(Code::of(&format!("{ind}}}")), 0);
+                }
                 StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
                     self.w.emit(Code::of(&format!("{ind}try {{")), 0);
                     self.stmts(body, &format!("{ind}  "));

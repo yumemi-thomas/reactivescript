@@ -374,3 +374,35 @@ action a() {
             (binary_expression
               (number)
               (number))))))))
+
+========================================
+A loop of imperative scope
+========================================
+
+action addAll(xs: number[]) {
+  for (const x of xs) { total := t => t + x }
+}
+
+---
+
+(program
+  (action_declaration
+    (identifier)
+    (formal_parameters
+      (required_parameter
+        (identifier)
+        (type_annotation
+          (array_type
+            (predefined_type)))))
+    (statement_block
+      (for_in_statement
+        (identifier)
+        (identifier)
+        (statement_block
+          (write_statement
+            (identifier)
+            (arrow_function
+              (identifier)
+              (binary_expression
+                (identifier)
+                (identifier)))))))))

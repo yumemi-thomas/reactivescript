@@ -39,6 +39,7 @@ export type Stmt =
   | { k: "affects"; name: string }                              // AC-5
   | { k: "action"; body: Stmt[] }                               // AC-1 inline
   | { k: "sif"; c: Expr; t: Stmt[]; f: Stmt[] }                 // imperative `if`
+  | { k: "for"; name: string; e: Expr; body: Stmt[] }           // 07 §5: `for (const x of e) { … }`, a loop of imperative scope
   | { k: "return"; e?: Expr }
   | { k: "try"; body: Stmt[]; catchName?: string; catchClasses?: string[]; handler?: Stmt[]; fin?: Stmt[] }   // AC-7: traditional try/catch/finally in imperative scope
   | { k: "throw"; e: Expr };

@@ -114,6 +114,7 @@ pub fn inferred_action(stmts: &[Stmt]) -> Option<Trigger> {
                     go(t, &local, st);
                     go(f, &local, st);
                 }
+                StmtKind::For { body, .. } => go(body, &local, st),
                 StmtKind::Try { body, handler, fin, .. } => {
                     go(body, &local, st);
                     if let Some(h) = handler {
@@ -516,6 +517,15 @@ impl<'o> Walker<'o> {
                     let a = self.walk(t, st.clone(), &sh, &local, depth);
                     let b = self.walk(f, st.clone(), &sh, &local, depth);
                     st = merge(&[&a, &b]);
+                }
+                // 07 §5: a loop's body may not run, run once, or run again over what its last turn wrote
+                StmtKind::For { name, e, body } => {
+                    self.read(e, &mut st, &sh, &local, depth);
+                    let mut bs = sh.clone();
+                    bs.insert(name.clone());
+                    let once = self.walk(body, st.clone(), &bs, &local, depth);
+                    let again = self.walk(body, alive(&once), &bs, &local, depth);
+                    st = merge(&[&st, &once, &again]);
                 }
                 StmtKind::Try { body, catch_name, handler, fin, .. } => {
                     let before = st.clone();

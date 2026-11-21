@@ -116,6 +116,11 @@ impl Spans<'_> {
                 self.stmts(t, at);
                 self.stmts(f, at);
             }
+            StmtKind::For { name, e, body } => {
+                self.word_in(at, name, "the bound name");
+                self.expr(e, at);
+                self.stmts(body, at);
+            }
             StmtKind::Try { body, handler, fin, .. } => {
                 self.stmts(body, at);
                 handler.iter().for_each(|h| self.stmts(h, at));
@@ -353,6 +358,10 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
             StmtKind::Sif { c, t, f: e } => {
                 expr(c, f);
                 t.iter().chain(e).for_each(|s| stmt(s, f));
+            }
+            StmtKind::For { e, body, .. } => {
+                expr(e, f);
+                body.iter().for_each(|s| stmt(s, f));
             }
             StmtKind::Try { body, handler, fin, .. } => body.iter().chain(handler.iter().flatten()).chain(fin.iter().flatten()).for_each(|s| stmt(s, f)),
         }

@@ -2893,6 +2893,28 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
         }
         return Ok(st(start, StmtKind::Sif { c: cond, t, f }, c));
     }
+    // 07 §5: `for (const x of e) { … }` — a loop over what `e` holds now, its body imperative scope
+    if c.keyword("for") {
+        c.ws(true);
+        c.expect("(")?;
+        c.ws(true);
+        if !(c.keyword("const") || c.keyword("let")) {
+            return c.fail("`for (const x of e) { … }`: the loop of imperative scope binds one name per turn");
+        }
+        c.ws(true);
+        let name = c.ident_or("loop variable")?;
+        c.ws(true);
+        if !c.keyword("of") {
+            return c.fail("`of`: the loop of imperative scope is `for (const x of e) { … }`");
+        }
+        c.ws(true);
+        let e = parse_expr(c)?;
+        c.ws(true);
+        c.expect(")")?;
+        c.ws(true);
+        let body = parse_block(c)?;
+        return Ok(st(start, StmtKind::For { name, e, body }, c));
+    }
     // write?  target := expr
     let save = c.i;
     let mut name = c.ident();

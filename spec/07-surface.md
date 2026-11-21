@@ -265,13 +265,28 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   compose (W-6).
 - `let` (or `const`) declares an imperative local; `if (c) { … } else { … }`,
   `return`, `try { … } catch (e) { … } finally { … }`, `throw e` and
-  expression statements are allowed (`for`/`while`: not yet in `ref/`);
+  expression statements are allowed, and the loop `for (const x of e) { …
+  }` (below; `while`: not yet in `ref/`);
   reads of reactive names are snapshots of σ (H-10, SC-2), and a snapshot of
   a failing value throws (R-f-7). A rejected `await` throws at the `await`;
   a catch inside an action is still the action's change (AC-7).
   `catch (e: A | B)` takes those classes and rethrows the rest.
   `let r = await save(x) catch (e: Offline) => null` is the statement form
   of the same: a `try` around the `await` whose catch gives `r` (S-await-1).
+- **The loop** (ruled 2026-11-22). `for (const x of e) { … }` runs its
+  block once for each value `e` holds when the loop starts, `x` a constant
+  of that turn (`let` is read as `const`: a local is never reassigned). It
+  is JavaScript's `for … of`, and compiles to it. Being a statement, its
+  body is the scope it is written in — the same run, the same change, the
+  same `return` — which a closure handed to `forEach` is not: the body may
+  `await` in an action (a hold-safe suspension, AC-1), end the run with
+  `return`, and name what a closure may not capture, a library's draft (09
+  MO-10i: `for (const t of d.items) { t.done := true }`). The run's
+  checks read a loop as a body that may not run, run once, or run again
+  over what its last turn wrote: `for (const x of xs) { total := total +
+  x }` reads `total` after the change wrote it (`STALE_OWN_READ`, AC-1d),
+  and `total := t => t + x` composes (W-6). `for x in e` in a view is the
+  other form (§4), a region per row. S-surface-10.
 - An action catches every failure its body can produce (R-f-6): there is
   no one after the body to catch it.
 - An arrow that guesses, declares `affects`, or both writes and awaits is

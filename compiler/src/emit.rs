@@ -1766,6 +1766,14 @@ impl<'p> Gen<'p> {
                     let f = self.stmts(f, env, ctx, false)?;
                     out.push(S::If(c, t, Some(f)));
                 }
+                // 07 §5: a loop of imperative scope; its variable is a constant of each turn
+                StmtKind::For { name, e, body } => {
+                    let x = self.expr(e, env, &sub)?;
+                    let inner = self.new_env(Some(env));
+                    self.set(inner, name, val(mg(name)));
+                    let b = self.stmts(body, inner, ctx, false)?;
+                    out.push(S::ForOf(mg(name), x, b));
+                }
                 StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
                     let block = self.stmts(body, env, ctx, false)?;
                     let (param, handler) = match handler {

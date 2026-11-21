@@ -100,8 +100,9 @@ effect (count) { log($0) }   // runs after `count` changes; `$0` is its value (a
 
 - A write is `x := v`, `x.field := v`, `xs[i].done := v`, or functional `x := old => …` (applied to the slot as it
   stands at the write).
-- `let`/`const` (destructuring too: `let { a, b } = pair` takes snapshots), `if`, `try`/`catch`/`finally`, `return`, `throw` work as in TypeScript (no `for`/`while` loops:
-  use array methods).
+- `let`/`const` (destructuring too: `let { a, b } = pair` takes snapshots), `if`, `try`/`catch`/`finally`, `return`,
+  `throw` and the loop `for (const x of xs) { … }` work as in TypeScript (no `while`). In a loop that writes a
+  source, write functionally (`total := t => t + x`): a second turn reads what the first wrote.
 - Browser and JS globals (`console`, `document`, `window`) are not in scope. `log(…)` prints; anything else from
   JS comes in through an import from a `.js` module.
 - Reading a source gives its value at the start of the run: after `x := v`, `x` still reads the old value. Keep the

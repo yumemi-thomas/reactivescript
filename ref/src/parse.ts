@@ -653,6 +653,14 @@ function parseStmt(c: Cursor): Stmt {
     if (c.keyword("else")) { c.ws(); f = c.peek() === "{" ? parseBlock(c) : [parseStmt(c), ...c.pendingStmts.splice(0)]; }
     return { k: "sif", c: cond, t, f };
   }
+  if (c.keyword("for")) {                                              // 07 §5: `for (const x of e) { … }` — a loop over what `e` holds now, its body imperative scope
+    c.ws(); c.expect("("); c.ws();
+    if (!(c.keyword("const") || c.keyword("let"))) c.fail("`for (const x of e) { … }`: the loop of imperative scope binds one name per turn");
+    c.ws(); const name = c.ident() ?? c.fail("loop variable"); c.ws();
+    if (!c.keyword("of")) c.fail("`of`: the loop of imperative scope is `for (const x of e) { … }`");
+    c.ws(); const e = parseExpr(c); c.ws(); c.expect(")"); c.ws();
+    return { k: "for", name, e, body: parseBlock(c) };
+  }
   // write?  target := expr
   const save = c.i;
   let name = c.ident();

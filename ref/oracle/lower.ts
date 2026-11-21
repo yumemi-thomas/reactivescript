@@ -532,6 +532,7 @@ export class Oracle {
       case "expr": return untrack(() => this.ev(s.e, scope, env));
       case "return": return new Returned(s.e ? untrack(() => this.ev(s.e!, scope, env)) : undefined);
       case "sif": { for (const st of untrack(() => this.ev(s.c, scope, env)) ? s.t : s.f) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } return undefined; }
+      case "for": { for (const x of untrack(() => this.ev(s.e, scope, env)) as Iterable<unknown>) { env.set(s.name, x); for (const st of s.body) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } } return undefined; }   // 07 §5
       case "try": {
         const runBlock = (ss: Stmt[]) => { for (const st of ss) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } return undefined; };
         try { const r = runBlock(s.body); if (r) return r; } catch (e) { if (!s.handler || !isA(e, this.classValues(s.catchClasses, scope))) throw e; if (s.catchName) env.set(s.catchName, e); const r = runBlock(s.handler); if (r) return r; } finally { if (s.fin) { const r = runBlock(s.fin); if (r) return r; } }
@@ -624,6 +625,7 @@ export class Oracle {
           continue;
         }
         if (s.k === "sif") { const r = yield* block(untrack(() => self.ev(s.c, scope, env)) ? s.t : s.f, env); if (r) return r; continue; }
+        if (s.k === "for") { let out: unknown; for (const x of untrack(() => self.ev(s.e, scope, env)) as Iterable<unknown>) { env.set(s.name, x); out = yield* block(s.body, env); if (out) break; } if (out) return out; continue; }   // 07 §5
         if (s.k === "try") {
           try { const r = yield* block(s.body, env); if (r) return r; }
           catch (e) { if (!s.handler || !isA(e, self.classValues(s.catchClasses, scope))) throw e; if (s.catchName) env.set(s.catchName, e); const r = yield* block(s.handler, env); if (r) return r; }   // R-f-6: a typed catch rethrows other classes

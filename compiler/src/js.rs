@@ -82,6 +82,8 @@ pub enum S {
     If(E, Vec<S>, Option<Vec<S>>),
     /// `if (c) s;` — no block
     IfThen(E, Box<S>),
+    /// `for (const x of e) { … }`
+    ForOf(String, E, Vec<S>),
     Block(Vec<S>),
     Try { block: Vec<S>, param: Option<String>, handler: Option<Vec<S>>, fin: Option<Vec<S>> },
     Func(Func),

@@ -48,6 +48,7 @@ fn returns_closure(f: &Expr) -> bool {
         ss.iter().any(|s| match &s.k {
             StmtKind::Return(Some(Expr { k: ExprKind::Fn { .. }, .. })) => true,
             StmtKind::Sif { t, f, .. } => in_stmts(t) || in_stmts(f),
+            StmtKind::For { body, .. } => in_stmts(body),
             StmtKind::Try { body, handler, fin, .. } => in_stmts(body) || handler.as_deref().is_some_and(in_stmts) || fin.as_deref().is_some_and(in_stmts),
             _ => false,
         })
@@ -437,7 +438,7 @@ fn snapshot_reads<'a>(n: Node<'a>, caught: bool, locals: &mut HashSet<String>, o
             _ => {}
         },
         Node::S(st) => match &st.k {
-            StmtKind::Let { name, .. } => {
+            StmtKind::Let { name, .. } | StmtKind::For { name, .. } => {
                 locals.insert(name.clone());
             }
             StmtKind::Try { body, handler, fin, catch_name, .. } => {
@@ -549,6 +550,10 @@ pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
                 out.push(Node::E(c));
                 ss(&mut out, t);
                 ss(&mut out, f);
+            }
+            StmtKind::For { e, body, .. } => {
+                out.push(Node::E(e));
+                ss(&mut out, body);
             }
             StmtKind::Return(e) => out.extend(e.iter().map(Node::E)),
             StmtKind::Try { body, handler, fin, .. } => {
@@ -693,6 +698,12 @@ fn free_names_stmts(ss: &[Stmt], bound0: &HashSet<String>, out: &mut IndexSet<St
                 free_names(c, &bound, out);
                 free_names_stmts(t, &bound, out);
                 free_names_stmts(f, &bound, out);
+            }
+            StmtKind::For { name, e, body } => {
+                free_names(e, &bound, out);
+                let mut b = bound.clone();
+                b.insert(name.clone());
+                free_names_stmts(body, &b, out);
             }
             StmtKind::Try { body, catch_name, handler, fin, .. } => {
                 free_names_stmts(body, &bound, out);
@@ -2852,6 +2863,7 @@ impl<'a> Checker<'a> {
                     self.osw_direct(t, env, read);
                     self.osw_direct(f, env, read);
                 }
+                StmtKind::For { body, .. } => self.osw_direct(body, env, read),
                 StmtKind::Try { body, handler, fin, .. } => {
                     self.osw_direct(body, env, read);
                     if let Some(h) = handler {
@@ -4256,6 +4268,13 @@ impl<'a> Checker<'a> {
                     self.expr(c, env, ctx, None);
                     self.stmts(t, env, ctx);
                     self.stmts(f, env, ctx);
+                }
+                // 07 §5: a loop over what `e` holds now; its variable is a constant of each turn
+                StmtKind::For { name, e, body } => {
+                    self.expr(e, env, ctx, None);
+                    let lenv = self.env(Some(env), region);
+                    self.set_value(lenv, name, self.line);
+                    self.stmts(body, lenv, ctx);
                 }
                 StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
                     self.stmts(body, env, ctx);
@@ -6310,6 +6329,14 @@ impl<'a> Checker<'a> {
                     let x = self.stmts_fails(t, env, bound);
                     out.add(x);
                     let x = self.stmts_fails(f, env, bound);
+                    out.add(x);
+                }
+                StmtKind::For { name, e, body } => {
+                    let x = self.fails_of(e, env, true, bound);
+                    out.add(x);
+                    let lenv = self.env(Some(env), region);
+                    self.set_value(lenv, name, 0);
+                    let x = self.stmts_fails(body, lenv, bound);
                     out.add(x);
                 }
                 StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {

@@ -140,6 +140,8 @@ pub enum StmtKind {
     Affects(String),
     Action(Vec<Stmt>),
     Sif { c: Expr, t: Vec<Stmt>, f: Vec<Stmt> },
+    /// 07 §5: `for (const x of e) { … }`, a loop of imperative scope
+    For { name: String, e: Expr, body: Vec<Stmt> },
     Return(Option<Expr>),
     Try { body: Vec<Stmt>, catch_name: Option<String>, catch_classes: Option<Vec<String>>, handler: Option<Vec<Stmt>>, fin: Option<Vec<Stmt>> },
     Throw(Expr),
@@ -160,6 +162,7 @@ impl StmtKind {
             StmtKind::Affects(_) => "affects",
             StmtKind::Action(_) => "action",
             StmtKind::Sif { .. } => "sif",
+            StmtKind::For { .. } => "for",
             StmtKind::Return(_) => "return",
             StmtKind::Try { .. } => "try",
             StmtKind::Throw(_) => "throw",
@@ -504,6 +507,7 @@ impl Stmt {
             StmtKind::Refresh(n) | StmtKind::Affects(n) => obj(vec![("k", k), ("name", s(n))]),
             StmtKind::Action(body) => obj(vec![("k", k), ("body", Some(stmts_json(body)))]),
             StmtKind::Sif { c, t, f } => obj(vec![("k", k), ("c", Some(c.to_json())), ("t", Some(stmts_json(t))), ("f", Some(stmts_json(f)))]),
+            StmtKind::For { name, e, body } => obj(vec![("k", k), ("name", s(name)), ("e", Some(e.to_json())), ("body", Some(stmts_json(body)))]),
             StmtKind::Return(e) => obj(vec![("k", k), ("e", e.as_ref().map(|e| e.to_json()))]),
             StmtKind::Try { body, catch_name, catch_classes, handler, fin } => obj(vec![
                 ("k", k),

@@ -50,7 +50,7 @@ const addF = (a: Fails, b: Fails) => { for (const x of b.cls) a.cls.add(x); a.pr
 const catchOf = (classes?: string[]): Catch => classes ? new Set(classes) : "all";
 /** EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one. */
 function returnsClosure(f: Extract<Expr, { k: "fn" }>): boolean {
-  const inStmts = (ss: Stmt[]): boolean => ss.some(s => (s.k === "return" && s.e?.k === "fn") || (s.k === "sif" && (inStmts(s.t) || inStmts(s.f))) || (s.k === "try" && (inStmts(s.body) || inStmts(s.handler ?? []) || inStmts(s.fin ?? []))));
+  const inStmts = (ss: Stmt[]): boolean => ss.some(s => (s.k === "return" && s.e?.k === "fn") || (s.k === "sif" && (inStmts(s.t) || inStmts(s.f))) || (s.k === "for" && inStmts(s.body)) || (s.k === "try" && (inStmts(s.body) || inStmts(s.handler ?? []) || inStmts(s.fin ?? []))));
   if (!f.stmts) return f.body.k === "fn";
   const last = f.stmts[f.stmts.length - 1];
   return inStmts(f.stmts) || (last?.k === "expr" && last.e.k === "fn");
@@ -182,6 +182,7 @@ function freeNamesStmts(ss: Stmt[], bound0: Set<string>, out: Set<string>): void
       case "refresh": case "affects": if (!bound.has(s.name)) out.add(s.name); break;
       case "action": freeNamesStmts(s.body, bound, out); break;
       case "sif": go(s.c); freeNamesStmts(s.t, bound, out); freeNamesStmts(s.f, bound, out); break;
+      case "for": go(s.e); freeNamesStmts(s.body, new Set([...bound, s.name]), out); break;
       case "try": freeNamesStmts(s.body, bound, out); if (s.handler) freeNamesStmts(s.handler, new Set([...bound, ...(s.catchName ? [s.catchName] : [])]), out); if (s.fin) freeNamesStmts(s.fin, bound, out); break;
     }
   }
@@ -1058,6 +1059,7 @@ class Checker {
           if (t && read.has(t)) this.err("EFFECT_WRITES_OWN_SOURCE", "C-3", `the apply block writes ${t.name}, which its compute half reads (${read.get(t)}): a loop across instants — derive it as an equation, or as \`source ${t.name} = …\` (ST-5), or write it from the event that changes the inputs`);
         }
         if (st.k === "sif") { direct(st.t); direct(st.f); }
+        if (st.k === "for") direct(st.body);
         if (st.k === "try") { direct(st.body); if (st.handler) direct(st.handler); if (st.fin) direct(st.fin); }
         if (st.k === "action") direct(st.body);
       }
@@ -1561,6 +1563,12 @@ class Checker {
           if (s.k === "affects") { const t = this.resolve(s.name, env, ctx); this.model.write(t, "affects"); if (t) this.changed.add(t); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
           { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t) this.changed.add(t); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
         case "sif": this.expr(s.c, env, ctx); this.stmts(s.t, env, ctx); this.stmts(s.f, env, ctx); break;
+        case "for": {                                                                        // 07 §5: a loop over what `e` holds now; its variable is a constant of each turn
+          this.expr(s.e, env, ctx);
+          const lenv = new Env(env, env.region); lenv.vars.set(s.name, { kind: "value", name: s.name, region: env.region, line: this.line });
+          this.stmts(s.body, lenv, ctx);
+          break;
+        }
         case "try": {
           this.stmts(s.body, env, ctx);
           if (s.catchClasses) for (const n of s.catchClasses) this.errClass(n, env);
@@ -2088,6 +2096,7 @@ class Checker {
         case "write": case "optimistic": s.target.path.forEach(p => typeof p !== "string" && ex(p)); ex(s.e); break;
         case "throw": ex(s.e); for (const c of this.classOf(s.e, env, bound).split("|")) out.cls.add(c); break;
         case "sif": ex(s.c); addF(out, this.stmtsFails(s.t, env, bound)); addF(out, this.stmtsFails(s.f, env, bound)); break;
+        case "for": { ex(s.e); const lenv = new Env(env, env.region); lenv.vars.set(s.name, { kind: "value", name: s.name, region: env.region, line: 0 }); addF(out, this.stmtsFails(s.body, lenv, bound)); break; }
         case "try": {
           const b = this.stmtsFails(s.body, env, bound);
           if (s.handler) {

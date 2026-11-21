@@ -35,6 +35,7 @@ export function inferredAction(stmts: Stmt[]): Trigger | null {
         case "write": write = true; break;
         case "let": case "expr": if (stmtAwait(s)) wait = true; break;
         case "sif": go(s.t, local); go(s.f, local); break;
+        case "for": go(s.body, local); break;
         case "try": go(s.body, local); if (s.handler) go(s.handler, local); if (s.fin) go(s.fin, local); break;
       }
     }
@@ -157,6 +158,8 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
         case "return": if (s.e) read(s.e); st.dead = true; break;
         case "throw": read(s.e); st.dead = true; break;
         case "sif": { read(s.c); const t = walk(s.t, clone(st), sh, local, depth), f = walk(s.f, clone(st), sh, local, depth); Object.assign(st, merge(t, f)); break; }
+        // 07 §5: a loop's body may not run, run once, or run again over what its last turn wrote
+        case "for": { read(s.e); const bs = new Set([...sh, s.name]); const once = walk(s.body, clone(st), bs, local, depth); const again = walk(s.body, { ...clone(once), dead: false }, bs, local, depth); Object.assign(st, merge(st, once, again)); break; }
         case "try": {
           const before = clone(st);
           const body = walk(s.body, clone(st), sh, local, depth);

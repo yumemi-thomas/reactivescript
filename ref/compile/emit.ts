@@ -560,6 +560,10 @@ class Gen {
         case "refresh": { const b = env.lookup(s.name); out.push(`${pad}__rt.refresh(${J(s.name)}, ${b ? b.js : `__rt.lookup(${J(s.name)}).get`});`); break; }
         case "affects": { const b = env.lookup(s.name); out.push(`${pad}__rt.affects(${b ? b.js : `__rt.lookup(${J(s.name)}).get`});`); break; }
         case "action": out.push(`${pad}__rt.action(function* () {\n${this.stmts(s.body, env, { imp: true, gen: true, dyn: ctx.dyn }, ind + 1)}\n${pad}})();`); break;
+        case "for": {                                                                        // 07 §5: a loop of imperative scope; its variable is a constant of each turn
+          const x = e(s.e); const inner = new Env(env); inner.vars.set(s.name, { kind: "val", js: mg(s.name) });
+          out.push(`${pad}for (const ${mg(s.name)} of ${x}) {\n${this.stmts(s.body, inner, ctx, ind + 1)}\n${pad}}`); break;
+        }
         case "sif": out.push(`${pad}if (${e(s.c)}) {\n${this.stmts(s.t, env, ctx, ind + 1)}\n${pad}} else {\n${this.stmts(s.f, env, ctx, ind + 1)}\n${pad}}`); break;
         case "try": {
           let t = `${pad}try {\n${this.stmts(s.body, env, ctx, ind + 1)}\n${pad}}`;

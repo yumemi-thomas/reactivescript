@@ -269,6 +269,7 @@ class Proj {
         case "write": case "optimistic": this.w.emit(`${ind}__.set(${this.target(s.target)})(${e(s.e)});`, 0); break;
         case "refresh": case "affects": this.w.emit(`${ind}void ${s.name};`, 0); break;
         case "action": this.w.emit(`${ind}void (async () => {`, 0); this.stmts(s.body, ind + "  "); this.w.emit(`${ind}})();`, 0); break;
+        case "for": this.w.emit(`${ind}for (const ${s.name} of ${e(s.e)}) {`, 0); this.stmts(s.body, ind + "  "); this.w.emit(`${ind}}`, 0); break;
         case "sif": this.w.emit(`${ind}if (${e(s.c)}) {`, 0); this.stmts(s.t, ind + "  "); this.w.emit(`${ind}} else {`, 0); this.stmts(s.f, ind + "  "); this.w.emit(`${ind}}`, 0); break;
         case "try": {
           this.w.emit(`${ind}try {`, 0); this.stmts(s.body, ind + "  ");

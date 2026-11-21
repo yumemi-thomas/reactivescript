@@ -130,6 +130,11 @@ impl<'a> Build<'a> {
                 b,
             ),
             S::IfThen(c, t) => Statement::new_if_statement(SPAN, self.expr(c), self.stmt(t), None, b),
+            S::ForOf(n, e, body) => {
+                let d = VariableDeclarator::new(SPAN, BindingPattern::new_binding_identifier(SPAN, self.s(n), b), None, None, false, b);
+                let left = ForStatementLeft::new_variable_declaration(SPAN, VariableDeclarationKind::Const, self.vec([d]), false, b);
+                Statement::new_for_of_statement(SPAN, false, left, self.expr(e), Statement::new_block_statement(SPAN, self.block(body), b), b)
+            }
             S::Block(ss) => Statement::new_block_statement(SPAN, self.block(ss), b),
             S::Try { block, param, handler, fin } => {
                 let block = self.block_stmt(block);
