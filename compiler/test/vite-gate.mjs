@@ -73,6 +73,40 @@ const c = project("c", { "tsconfig.json": tsconfig(["*.rx", "*.ts"]), "show.rx":
   check("whole-program, TypeScript's errors still fail the gate (TS2322)", e && /TS2322/.test(e.message) && !/SNAPSHOT_KEPT/.test(e.message), e ?? "it compiled");
 }
 
+// TY-1d (RFC 25): the gate is stale when the project's files change in number, not only when one is newer — deleting a
+// module another re-exports breaks the project (TS2307) though no surviving file is newer, and deleting the only file
+// with an error fixes it though none is either
+{
+  const d = project("d", { "tsconfig.json": tsconfig(["*.rx", "*.ts"]), "main.rx": app, "ok.ts": 'export * from "./dep";\n', "dep.ts": "export const n: number = 1;\n" });
+  const fe = rx();
+  const e0 = await compile(fe, path.join(d, "main.rx"), ws);
+  check("a project whose ok.ts re-exports ./dep compiles", e0 === null, e0);
+  rmSync(path.join(d, "dep.ts"));
+  let start = null; try { fe.buildStart(); } catch (e) { start = e; }
+  check("once dep.ts is deleted, the next build start re-checks and fails (TS2307), though no file is newer", start && /TS2307/.test(start.message), start ?? "it did not fail");
+  const fresh = await compile(rx(), path.join(d, "main.rx"), ws);
+  check("...as a fresh front end does", fresh && /TS2307/.test(fresh.message), fresh ?? "it compiled");
+}
+{
+  const g = project("g", { "tsconfig.json": tsconfig(["*.rx", "*.ts"]), "main.rx": app, "bad.ts": 'export const n: number = "bad";\n' });
+  const fe = rx();
+  const e0 = await compile(fe, path.join(g, "main.rx"), ws);
+  check("a project with an erroneous bad.ts is refused (TS2322)", e0 && /TS2322/.test(e0.message), e0 ?? "it compiled");
+  rmSync(path.join(g, "bad.ts"));
+  let start = null; try { fe.buildStart(); } catch (e) { start = e; }
+  check("deleting the only erroneous .ts file lets the next build start, with no file newer than the failed check", start === null, start);
+}
+{
+  const f = project("f", { "tsconfig.json": tsconfig(["*.rx", "*.ts"]), "main.rx": app });
+  const fe = rx();
+  const e0 = await compile(fe, path.join(f, "main.rx"), ws);
+  check("a project with no .ts module compiles", e0 === null, e0);
+  writeFileSync(path.join(f, "late.ts"), 'export const s: string = 1;\n');
+  const old = new Date(Date.now() - 3600_000); utimesSync(path.join(f, "late.ts"), old, old);
+  let start = null; try { fe.buildStart(); } catch (e) { start = e; }
+  check("a file added with an older mtime (copied, checked out) is still checked at the next build start (TS2322)", start && /TS2322/.test(start.message), start ?? "it did not fail");
+}
+
 rmSync(ws, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

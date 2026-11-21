@@ -94,18 +94,27 @@ function projectKey(entry) {
 
 // what a type-check reads that a build of `.rx` entries may not: TypeScript and `.rx` sources, declarations, the configs
 const TYPED_FILE = /\.(?:[cm]?tsx?|rx)$|^(?:tsconfig.*|package)\.json$/;
-/** TY-1d: whether a file the project's type-check may read (under the folder of its tsconfig.json, node_modules and
- *  dot-folders aside) is newer than `since`: an edit of a `.ts` module no `.rx` entry is rebuilt for. */
-function typedSince(entry, since) {
+/** TY-1d: the files the project's type-check may read (under the folder of its tsconfig.json, node_modules and
+ *  dot-folders aside), in a stable order. */
+function typedFiles(entry) {
+  const out = [];
   const walk = dir => {
-    let entries; try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return false; }
-    return entries.some(e => {
-      if (e.name === "node_modules" || e.name.startsWith(".")) return false;
+    let entries; try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name === "node_modules" || e.name.startsWith(".")) continue;
       const p = path.join(dir, e.name);
-      return e.isDirectory() ? walk(p) : TYPED_FILE.test(e.name) && mtime(p) > since;
-    });
+      if (e.isDirectory()) walk(p); else if (TYPED_FILE.test(e.name)) out.push(p);
+    }
   };
-  return walk(projectOf(entry) ?? path.dirname(entry));
+  walk(projectOf(entry) ?? path.dirname(entry));
+  return out.sort();
+}
+/** TY-1d: whether the project's check is stale since the one at `since`, which read `files` (typedFiles, joined): a file
+ *  is newer (an edit of a `.ts` module no `.rx` entry is rebuilt for), or one was added or removed — a deletion leaves no
+ *  newer file behind, and an added one may carry an older mtime (copied, checked out). */
+function typedSince(entry, since, files) {
+  const now = typedFiles(entry);
+  return now.join("\0") !== files || now.some(p => mtime(p) > since);
 }
 
 /** MO-8l: draft a declaration for each package the program imports that nothing declares (into node_modules/.rx-types),
@@ -269,9 +278,10 @@ export default function rx(options = {}) {
   // project: a rebuild (`vite build --watch`) compiles an entry again because a file of its program changed, and a file
   // of that project newer than its last check asks for another. Two entries of one build under two tsconfigs are two
   // checks, each failing its own entries; one passing does not stand for the other.
-  const typedProjects = new Map();   // projectKey → { at, outcome, entry, hosts }
+  const typedProjects = new Map();   // projectKey → { at, outcome, entry, hosts, files }
   const typed = () => flag !== "0" && (flag === "1" || process.env.NODE_ENV === "production");
   function check(file, hosts = []) {
+    const files = typedFiles(file).join("\0");   // before the check: a file added while it runs makes it stale
     const t = typecheck(file, { whole: !!options.wholeProgram, hosts });
     // TY-1d: a check that was asked for (RX_TYPECHECK=1), or a TypeScript project's production build, fails when it
     // cannot run; a production build with no tsconfig.json is not a TypeScript project, and only says so
@@ -280,7 +290,7 @@ export default function rx(options = {}) {
       ? `types not checked: ${t.missing === "checker" ? `no @reactivescript/language-server to run rx-tsc with (install it in the project)` : `no tsconfig.json above ${where}`}; set RX_TYPECHECK=0 to build without checking them (13 TY-1d)`
       : t?.missing ? null : t ? `type errors (rx-tsc):\n${t}` : null;
     if (t?.missing && !outcome) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
-    const st = { at: Date.now(), outcome, entry: file, hosts: hosts.join("\0") };
+    const st = { at: Date.now(), outcome, entry: file, hosts: hosts.join("\0"), files };
     typedProjects.set(projectKey(file), st);
     return st;
   }
@@ -349,7 +359,7 @@ export default function rx(options = {}) {
       if (!typed()) return;
       let failed;
       for (const [, st] of typedProjects) {
-        const now = typedSince(st.entry, st.at) ? check(st.entry, st.hosts ? st.hosts.split("\0") : []) : st;
+        const now = typedSince(st.entry, st.at, st.files) ? check(st.entry, st.hosts ? st.hosts.split("\0") : []) : st;
         failed ??= now.outcome;
       }
       if (failed) throw new Error(failed);

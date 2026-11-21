@@ -49,8 +49,10 @@ does for `.tsrx`. Nothing here is a second type system.
   build's start (`Frontend.buildStart`), the check runs again there when a
   file it may read, under the folder of the `tsconfig.json` (a `.ts`,
   `.tsx` or `.rx` file, a `.d.rx`, a `tsconfig*.json` or `package.json`;
-  `node_modules` aside), is newer than the last check, and a failed check
-  fails that build before it bundles. A plugin without the hook checks
+  `node_modules` aside), is newer than the last check, or such a file was
+  added or removed since (a deletion leaves no newer file; revised
+  2026-11-21 after review), and a failed check fails that build before it
+  bundles. A plugin without the hook checks
   only the rebuilds that compile an entry (`compiler/test/vite-watch.mjs`).
   Each check belongs to its project (revised 2026-11-21 after a second
   review): a build whose entries sit under two `tsconfig.json` files runs
