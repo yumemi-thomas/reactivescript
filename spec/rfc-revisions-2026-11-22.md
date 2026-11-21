@@ -32,10 +32,67 @@ MO-10k):
   what is written makes a primitive; every way out is where the check
   refuses it.
 
-No value is followed anywhere. Each guarantee is shown by a test that
-puts the value through every way an expression hands a value on, and
-every pair of them, into every way out — in both checkers, and for
-drafts at run time against a library that revokes its draft.
+No *value* is tracked through the program's runs. What the analysis does
+follow is *names*, through what is written: a name to the expression it
+is bound to, a row to its list, a parameter to the arguments its calls
+pass, a call to what its fn's body may return and to the closures its
+callee's value may hold (the wording "no value is followed anywhere"
+said less than that, and is corrected here and in 08 CN-7a, 09 MO-10k).
+Each guarantee is shown by a test that puts the value through every way
+an expression hands a value on, and every pair of them, into every way
+out — in both checkers, and for drafts at run time against a library
+that revokes its draft.
+
+## After the fourth review: a closed set of operations for each kind
+
+The fourth review accepted the local rules and found four programs they
+admitted, each of which did at run time what its rule says cannot
+happen. One mistake was under all four: the syntax around a JS method
+call was read as evidence of what the method answers, keeps or calls.
+
+| RFC | accepted, and wrong | the syntax that was trusted | now |
+| --- | --- | --- | --- |
+| 06 | `<Child v={q.valueOf()} />`, the child reading `.data`: the server's render threw | "the object of `.`": any member read of the result | what is read from the result is a field its declaration names; `valueOf`, `toJSON`, an undeclared field, `q[k]()` are `RESULT_AS_VALUE` |
+| 09 | `d.items.forEach((row) => { kept.push(row) })`, `saved := d.items.values()`: read after the callback, "proxy revoked" | "a closure that names no draft keeps none"; "a method's answer is copied" (an iterator was not) | a method called on a draft is one of plain data's, by name; a callback given to one is written there and its parameters are places of the draft (read as copies); an iterator is run to its end and kept as one over copies; any other method is `DRAFT_ESCAPES` |
+| 17 | `({ onSend: props.onSend, t: table }).onSend(table)`: the parent received the table | "a method of the value itself": a receiver that mentions it | a method keeps nothing only when `methods(…)` names it and it is called on the value's own name |
+| 14, 34 | `box = { read: () => n }`, then `peek box.read()` kept and `createLabel(box.read())`: frozen | "a callee that is not a name calls nothing the checker can see" | a callee read out of a value may call any closure that value holds, and reads what each reads; a slot the expression names is that slot's closure alone |
+
+So each kind has a closed set of operations (09 MO-10k's table, 08
+CN-7d), and a method is one of them only on positive evidence of which
+operation it is: the declared result type, `methods(…)`, or the name of
+a method of plain data. `compiler/test/confined.mjs` keeps the four
+programs: the verdict of both checkers, and what each does when it runs
+(the copies read after the library took its draft back; the refused
+reads shown throwing where no check looks).
+
+The same evidence gives back what the strict reading cost:
+
+- **A declared primitive leaves a `renders` value.** The declared result
+  type is read a step at a time, so `table.label`, `table.getPageCount()`
+  and the `row.id` of a row of `table.getRowModel().rows` are passed to a
+  child or a callback with their types, where `str(…)` was needed.
+- **A literal's own slot is that slot.** `createLabel([clock, 5][1])`
+  reads `5` (it was refused as a read through the instance).
+- **A draft's own method takes a callback.** `d.items.forEach((row) => {
+  row.done := true })`, `d.items.find((row) => row.id == id)`,
+  `d.items.sort((a, b) => a.n - b.n)` (a closure there was refused when it
+  named the draft, and kept live rows when it did not).
+
+*Now refused, was accepted.* The four programs above; `q.toJSON()`,
+`q.hasOwnProperty("data")`, a field of a result with held fields that
+its declaration leaves out (it read `undefined` at run time: the
+compiled result has the declared fields only); `d.items.each(…)`,
+`d.items.forEach(keep)`, `d.items.push.bind(d.items)`;
+`table.setPage(table.rows)` without `methods(setPage)`; `fs = [() => n];
+createLabel(fs[0]())`, `mk()()`.
+
+**The loop (07 §5).** The spec said a loop visits the values its list
+holds when it starts; the emitters compiled it to JavaScript's `for … of`
+over the list itself, which reads as it goes, so a loop over a draft's
+list that added to it was handed what it added (and one that always
+added never ended). The spec's reading stands — it is the rule of every
+run, that a run does not see what it writes — and the emitters now loop
+over `[...e]`, as the interpreter did.
 
 ## RFC 06 — fields of a JS result that wait or fail
 
@@ -228,11 +285,14 @@ module (`MODULE_NOT_FOUND`, as the crate), not as a read error.
   what `draft` says.
 - **A JS fn declared `pure` that keeps or hands on its argument** breaks
   the `renders` guarantee as it breaks every other use of `pure`.
-- **Precision.** A primitive read out of a `renders` value needs `str(…)`
-  or an operator to leave; a result with held fields cannot be passed to
-  a child, only its fields; an element read out of a literal holding an
-  instance is a read through it. These are CN-3a's rejections of fine
-  programs, each with its way round in the language.
+- **Precision.** A part of a `renders` value that its declaration does
+  not type as a primitive needs `str(…)` or an operator to leave; an
+  element read out of a named array holding an instance is a read
+  through it. These are CN-3a's rejections of fine programs, each with
+  its way round in the language.
+- **`draft` means plain data.** A draft whose objects carry their own
+  methods under the names of an Array's, or that hands out instances of
+  its own classes, is outside what the word says.
 - **Identity.** A copy of a draft's object is not `==` the object: use it
   as data. Inside the draft's own methods the draft's objects are passed
   as they are (`d.items.indexOf(d.current)`).

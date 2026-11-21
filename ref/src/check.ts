@@ -5,11 +5,20 @@
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
-import type { JsDecl, Shape } from "./parse.ts";
+import { splitTop, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
+/** MO-10i (closed 2026-11-22): what is called on a draft is a method of plain data, by name — an Array's, a Map's, a Set's,
+ *  a string's or a number's. `DRAFT_CALLBACKS` are the ones that call a function they are given, now, with parts of the data. */
+const DRAFT_METHODS = new Set([
+  "push", "pop", "shift", "unshift", "splice", "reverse", "fill", "copyWithin", "includes", "indexOf", "lastIndexOf", "at", "slice", "concat", "join", "flat", "keys", "values", "entries", "with", "toReversed", "toSpliced",
+  "set", "get", "has", "add", "delete", "clear",
+  "trim", "trimStart", "trimEnd", "toUpperCase", "toLowerCase", "startsWith", "endsWith", "padStart", "padEnd", "split", "replace", "replaceAll", "charAt", "charCodeAt", "codePointAt", "substring", "repeat", "normalize", "localeCompare", "match", "search",
+  "toFixed", "toPrecision", "toString", "toLocaleString", "valueOf", "hasOwnProperty",
+]);
+const DRAFT_CALLBACKS = new Set(["forEach", "map", "filter", "find", "findIndex", "findLast", "findLastIndex", "some", "every", "flatMap", "reduce", "reduceRight", "sort", "toSorted"]);
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);   // the scenario prelude; all pure
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr) || attr === "ref";                // SC-4; `ref`: called once with the element (07 §4)
 
@@ -118,7 +127,8 @@ type Sym = {
   partDrafts?: Record<string, [number, number[]][]>;   // MO-10i: the same, for its result's function parts (tuple index or field)
   jsDraft?: boolean;                   // MO-10i: a callback's parameter the library declares a draft: its paths are written
   draftFn?: number;                    // MO-10i: the closure whose parameter the draft is (its fnStack id)
-  methods?: string[];                  // E-10 (RFC 14, bounded): a primitive's declared methods(…), and on an instance it made, its own
+  methods?: string[];
+  retTy?: string;                      // MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or of a part of it, that part's: the closed set of what the value answers (`tyStep`)                  // E-10 (RFC 14, bounded): a primitive's declared methods(…), and on an instance it made, its own
   localRenders?: boolean;              // MO-11l (revised 2026-11-21): components `renders` checked where this was bound — it may not travel
   outlet?: boolean;                    // MO-11p: a JS component that renders, where it is written, what nests under its component
   carriedExpr?: { e: Expr; env: Env };   // MO-11o: every equation's expression, looked through for what it carries
@@ -199,8 +209,37 @@ const SCALAR_BUILTINS = new Set(["len", "str", "sum", "every", "indexOf"]);
  *  parameters give nothing by themselves: the call that hands them a value is where they are named). Names bound inside
  *  (`bound`) give nothing; a closure's own locals (`locals`) give what their values do. `use c` is written `use:c`, for
  *  the checks that must know a value came from where they cannot look. */
-function flows(e: Expr, bound: Set<string>, locals: Map<string, Set<string>>, builtin: (n: string) => boolean, out: Set<string>): void {
+/** What `flows` asks of where it is read: whether a name is a builtin there (not bound), and whether an expression is a
+ *  primitive by its declaration (`Checker.declPrim`). */
+type Look = { builtin: (n: string) => boolean; prim: (e: Expr) => boolean };
+/** The name a path is read from: `table` of `table.getState().page`. */
+function pathRoot(e: Expr): string | undefined {
+  if (e.k === "id") return e.name;
+  if (e.k === "member" || e.k === "index") return pathRoot(e.o);
+  if (e.k === "call") return pathRoot(e.f);
+  return undefined;
+}
+type RecFields = Extract<Expr, { k: "rec" }>["fields"];
+function recField(fields: RecFields, key: string): Expr | undefined {
+  if (fields.some(f => "spread" in f)) return undefined;
+  const hit = fields.filter(f => !("spread" in f) && f.key === key);
+  return hit.length === 1 ? (hit[0] as { v: Expr }).v : undefined;
+}
+/** A slot of a literal written where it is read: `[clock, 5][1]` is `5`, `{ a: x, b: y }.b` is `y`. Only what the
+ *  expression itself says: no spread before the slot, one field of that name. */
+function literalPart(e: Expr): Expr | undefined {
+  if (e.k === "index") {
+    if (e.o.k === "arr" && e.i.k === "lit" && typeof e.i.v === "number") { const k = litKey(e.i); if (k === undefined) return undefined; const n = Number(k); if (e.o.items.slice(0, n + 1).some(x => x.k === "spread")) return undefined; return e.o.items[n]; }
+    if (e.o.k === "rec") { const k = litKey(e.i); return k === undefined ? undefined : recField(e.o.fields, k); }
+    return undefined;
+  }
+  if (e.k === "member" && e.o.k === "rec") return recField(e.o.fields, e.p);
+  return undefined;
+}
+function flows(e: Expr, bound: Set<string>, locals: Map<string, Set<string>>, builtin: Look, out: Set<string>): void {
   const go = (x: Expr) => flows(x, bound, locals, builtin, out);
+  // what its declaration says is a primitive holds nothing (a declared scalar field, what a declared method answers)
+  if ((e.k === "member" || e.k === "index" || e.k === "call") && (() => { const n = pathRoot(e); return n !== undefined && !bound.has(n) && !locals.has(n); })() && builtin.prim(e)) return;
   switch (e.k) {
     case "lit": case "tpl": case "un": case "pending": case "stylemap": case "serverfn": return;
     case "id": { const l = locals.get(e.name); if (l) { for (const n of l) out.add(n); } else if (!bound.has(e.name)) out.add(e.name); return; }
@@ -210,8 +249,8 @@ function flows(e: Expr, bound: Set<string>, locals: Map<string, Set<string>>, bu
     case "await": go(e.e); if (e.init) go(e.init); return;
     case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") { go(e.l); go(e.r); } return;
     case "if": go(e.t); go(e.f); return;
-    case "member": case "index": go(e.o); return;
-    case "call": if (e.f.k === "id" && SCALAR_BUILTINS.has(e.f.name) && !bound.has(e.f.name) && !locals.has(e.f.name) && builtin(e.f.name)) return; go(e.f); e.args.forEach(go); return;
+    case "member": case "index": go(literalPart(e) ?? e.o); return;                       // a slot of a literal written here is that slot: `[clock, 5][1]` is `5`
+    case "call": if (e.f.k === "id" && SCALAR_BUILTINS.has(e.f.name) && !bound.has(e.f.name) && !locals.has(e.f.name) && builtin.builtin(e.f.name)) return; go(e.f); e.args.forEach(go); return;
     case "arr": e.items.forEach(go); return;
     case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
     case "fn": {
@@ -231,7 +270,7 @@ function flows(e: Expr, bound: Set<string>, locals: Map<string, Set<string>>, bu
   }
 }
 /** What a statement body returns (`flows`): each `return`'s value, its `let`s standing for their values. */
-function flowsReturns(ss: Stmt[], bound: Set<string>, locals: Map<string, Set<string>>, builtin: (n: string) => boolean, out: Set<string>): void {
+function flowsReturns(ss: Stmt[], bound: Set<string>, locals: Map<string, Set<string>>, builtin: Look, out: Set<string>): void {
   for (const s of ss) {
     switch (s.k) {
       case "let": { const v = new Set<string>(); flows(s.e, bound, locals, builtin, v); bound.delete(s.name); locals.set(s.name, v); break; }
@@ -250,7 +289,7 @@ function flowsReturns(ss: Stmt[], bound: Set<string>, locals: Map<string, Set<st
 }
 /** What an `.rx` fn gives (`flows`): its tail, its own equations and sources standing for their values, its parameters for
  *  nothing. */
-function flowsFn(params: Param[], decls: Decl[], tail: Expr, builtin: (n: string) => boolean, out: Set<string>): void {
+function flowsFn(params: Param[], decls: Decl[], tail: Expr, builtin: Look, out: Set<string>): void {
   const bound = new Set(params.map(p => p.name)); const locals = new Map<string, Set<string>>();
   for (const d of decls) if ("name" in d) bound.add(d.name);
   // equations may be read before they are written: to a fixpoint (a name gives what any name it reads gives)
@@ -723,8 +762,8 @@ class Checker {
     // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)
     for (const d of decls) {
       if (d.k !== "fn" && d.k !== "action") continue;
-      const names = new Set<string>(); const builtin = (n: string) => !env.lookup(n);
-      if (d.k === "fn") flowsFn(d.params, d.decls, d.tail, builtin, names); else flowsReturns(d.body, new Set(d.params), new Map(), builtin, names);
+      const names = new Set<string>(); const look: Look = { builtin: (n: string) => !env.lookup(n), prim: x => this.declPrim(x, env) };
+      if (d.k === "fn") flowsFn(d.params, d.decls, d.tail, look, names); else flowsReturns(d.body, new Set(d.params), new Map(), look, names);
       env.vars.get(d.name)!.retFlows = { names, env };
     }
     for (const d of decls) if (d.k === "source" && !d.question) env.vars.get(d.name)!.failsT = this.failsThunk(d.init, env);   // R-f-2: a source holds what its initializer gave it — an error, if that failed (found by S-ai2-settings)
@@ -829,7 +868,7 @@ class Checker {
       if (x.kind === "comp") { bindComp(x, alias); continue; }   // MO-11a
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.forwards ? { forwards: true } : {}), ...(x.methods ? { methods: x.methods } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.forwards ? { forwards: true } : {}), ...(x.methods ? { methods: x.methods } : {}), ...(x.ret ? { retTy: x.ret } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.kind === "fn" && x.forwards ? { forwards: true } : {}), ...(generated ? { generated } : {}) });
     }
   }
@@ -884,7 +923,7 @@ class Checker {
   private foreignPart(sym: Sym, e: Expr, env: Env) {
     if (e.k === "id") {                                                                    // MO-10b, MO-10f: an alias of a result is the result — its shape, its fields' rows, its methods and draft parts
       const t = env.lookup(e.name); if (!t?.foreign || t.kind === "comp") return;
-      sym.foreign = t.foreign; if (t.held) sym.held = t.held; if (t.methods) sym.methods = t.methods; if (t.partDrafts) sym.partDrafts = t.partDrafts;
+      sym.foreign = t.foreign; if (t.held) sym.held = t.held; if (t.methods) sym.methods = t.methods; if (t.partDrafts) sym.partDrafts = t.partDrafts; if (t.retTy) sym.retTy = t.retTy;
       if (t.viaField) sym.viaField = true; if (t.reader) sym.reader = true; if (t.foreign === "fn") sym.io = true;
       return;
     }
@@ -907,10 +946,11 @@ class Checker {
     if (!shape) return;
     sym.foreign = shape;
     if (e.k === "member" || (e.k === "index" && e.o.k === "id" && (() => { const f = env.lookup((e.o as { name: string }).name)?.foreign; return !!f && typeof f === "object" && "fields" in f; })())) sym.viaField = true;
-    if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; if (f?.methods) sym.methods = f.methods; }   // MO-10f: its fields' rows come with it; E-10: its declared methods
+    if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; if (f?.methods) sym.methods = f.methods; if (f?.retTy) sym.retTy = f.retTy; }   // MO-10f: its fields' rows come with it; E-10: its declared methods; MO-10k: its declared type
     if ((e.k === "member" || e.k === "index") && this.heldField(e, env)?.[1]) sym.reader = true;   // MO-10f: a part bound from a field that holds reads as a reader (MO-10d)
     if ((e.k === "member" || e.k === "index") && e.o.k === "id") {                          // a record part keeps its fields' rows; `x[k]`: whichever part it is, each suffix's combined
       const key = e.k === "member" ? e.p : litKey(e.i); const sub: [string, boolean, string[]][] = [];
+      { const ty = env.lookup(e.o.name)?.retTy; const part = key !== undefined && ty !== undefined ? tyStep(ty, { field: key }) : undefined; if (part !== undefined) sym.retTy = part; }   // MO-10k: a named part's declared type
       for (const h of env.lookup(e.o.name)?.held ?? []) {
         const dot = h[0].indexOf("."); if (dot < 0) continue;
         const first = h[0].slice(0, dot), rest = h[0].slice(dot + 1); if (key !== undefined && key !== first) continue;
@@ -1151,13 +1191,51 @@ class Checker {
     if (ok && this.instanceRead(e, env, false) !== undefined) ok = false;                  // E-10 (ruled 2026-11-22): a read through a value that may be an instance
     this.constEqs.set(s, ok); return ok;
   }
-  /** E-10, E-5a (ruled 2026-11-22): the closure a call calls, where the checker can see it — one written at the call, or
-   *  the one its callee's name is bound to. Calling it reads what its body reads. */
-  private calledClosure(call: Expr, env: Env): { f: Extract<Expr, { k: "fn" }>; env: Env } | undefined {
-    if (call.k !== "call") return undefined;
-    if (call.f.k === "fn") return { f: call.f, env };
-    if (call.f.k === "id") { const v = env.lookup(call.f.name)?.val; if (v && v.e.k === "fn") return { f: v.e, env: v.env }; }
-    return undefined;
+  /** E-10, E-5a (ruled 2026-11-22; a closure held in a value, 2026-11-22): the closures a call may call, where the checker
+   *  can see them. One written at the call, or the one its callee's name is bound to, is that closure. A callee read out
+   *  of a value — `box.read()`, `fs[0]()`, `mk()()` — is the closure in that slot when the value is a literal the checker
+   *  can read the slot of (`staticPart`: a record's field, an array's index, through the equations and locals that name
+   *  it); otherwise it may be any closure the value holds, by mention (`heldClosures`). Calling one reads what its body
+   *  reads. */
+  private calledClosures(call: Expr, env: Env): { f: Extract<Expr, { k: "fn" }>; env: Env }[] {
+    if (call.k !== "call") return [];
+    if (call.f.k === "fn") return [{ f: call.f, env }];
+    let from: { e: Expr; env: Env };
+    if (call.f.k === "id") { const v = env.lookup(call.f.name)?.val; if (!v) return []; if (v.e.k === "fn") return [{ f: v.e, env: v.env }]; from = v; }
+    else from = { e: call.f, env };
+    // a method of a JS value — an import, the instance a declared primitive made — is JS's: what it calls is its
+    // declaration's to say (CN-3b), and what it answers is the instance rule's (E-10)
+    { const n = pathRoot(from.e); const t = n === undefined ? undefined : from.env.lookup(n); if (t && (t.kind === "import" || t.kind === "errclass" || t.foreign !== undefined)) return []; }
+    const x = this.staticPart(from.e, from.env, 0);
+    if (x.e.k === "fn") return [{ f: x.e, env: x.env }];
+    const out: { f: Extract<Expr, { k: "fn" }>; env: Env }[] = [];
+    this.heldClosures(from.e, from.env, new Set(), out);
+    return out;
+  }
+  /** The expression a path denotes, where what is written says so: a name bound by an equation or a local is its value
+   *  (neither is ever written), a field of a record literal is that field, an index of an array literal that item.
+   *  Anything else is itself. */
+  private staticPart(e: Expr, env: Env, depth: number): { e: Expr; env: Env } {
+    if (depth > 32) return { e, env };
+    if (e.k === "id") { const s = env.lookup(e.name); const v = s && (s.kind === "eq" || s.kind === "value") ? s.val : undefined; return v ? this.staticPart(v.e, v.env, depth + 1) : { e, env }; }
+    if (e.k === "member") { const r = this.staticPart(e.o, env, depth + 1); const v = r.e.k === "rec" ? recField(r.e.fields, e.p) : undefined; return v ? this.staticPart(v, r.env, depth + 1) : { e, env }; }
+    if (e.k === "index") {
+      const r = this.staticPart(e.o, env, depth + 1); const k = litKey(e.i); let v: Expr | undefined;
+      if (r.e.k === "rec" && k !== undefined) v = recField(r.e.fields, k);
+      else if (r.e.k === "arr" && k !== undefined && e.i.k === "lit" && typeof e.i.v === "number") { const n = Number(k); if (!r.e.items.slice(0, n + 1).some(x => x.k === "spread")) v = r.e.items[n]; }
+      return v ? this.staticPart(v, r.env, depth + 1) : { e, env };
+    }
+    return { e, env };
+  }
+  /** Every closure a value may hold, by mention: the closures written in its expression (and in the closures those
+   *  return), and those of the values its names are bound to. */
+  private heldClosures(e: Expr, env: Env, seen: Set<Sym>, out: { f: Extract<Expr, { k: "fn" }>; env: Env }[]) {
+    const walk = (x: Expr, env: Env) => {
+      if (x.k === "fn") { if (!out.some(o => o.f === x)) out.push({ f: x, env }); }
+      else if (x.k === "id") { const s = env.lookup(x.name); if (s && !seen.has(s)) { seen.add(s); if (s.val) walk(s.val.e, s.val.env); } }
+      for (const k of subExprs(x)) walk(k, env);
+    };
+    walk(e, env);
   }
   /** The names read by the closures an expression calls (outside `peek`), each with the symbol it names there. */
   private calledReads(e: Expr, env: Env): [string, Sym][] {
@@ -1165,8 +1243,7 @@ class Checker {
     const walk = (x: Expr, env: Env) => {
       if (x.k === "peek" || x.k === "fn" || x.k === "serverfn") return;
       if (x.k === "call") {
-        const c = this.calledClosure(x, env);
-        if (c && !seen.has(c.f)) {
+        for (const c of this.calledClosures(x, env)) if (!seen.has(c.f)) {
           seen.add(c.f);
           const ns = new Set<string>(); freeNames(c.f, new Set(), ns);
           for (const name of ns) { const n = name.replace(/^pre:/, ""); const t = c.env.lookup(n); if (t) out.push([n, t]); }
@@ -1199,7 +1276,7 @@ class Checker {
     switch (e.k) {
       case "peek": if (!peeks) return undefined; break;
       case "fn": case "serverfn": return undefined;
-      case "member": case "index": if (this.mayBeInstance(e.o, env, tp)) return show(e); break;
+      case "member": case "index": if (!literalPart(e) && this.mayBeInstance(e.o, env, tp)) return show(e); break;   // a slot of a literal written here is that slot (`[clock, 5][1]`): no read through the instance
       case "call": {
         // a method the instance's declaration names, called on its own name, reads nothing
         const mc = methodCallee(e.f);
@@ -1224,14 +1301,13 @@ class Checker {
             const r = kids(a, env, tp2); if (r !== undefined) return r;
           }
           // a closure the checker can see is called: its body is read, its parameters what it is given
-          const c = this.calledClosure(e, env);
-          if (c) {
-            if (!seen.has(c.f)) {
-              seen.add(c.f);
-              const tp2 = new Set<string>(); c.f.params.forEach((p, i) => { if (given[i]) tp2.add(p); });
-              const r = kids(c.f, c.env, tp2); if (r !== undefined) return r;
-            }
-          } else if (!builtin && !own) {
+          const called = this.calledClosures(e, env);
+          for (const c of called) if (!seen.has(c.f)) {
+            seen.add(c.f);
+            const tp2 = new Set<string>(); c.f.params.forEach((p, i) => { if (given[i]) tp2.add(p); });
+            const r = kids(c.f, c.env, tp2); if (r !== undefined) return r;
+          }
+          if (!called.length && !builtin && !own) {
             // a function of `.rx` the checker cannot see into (an .rx fn, a prop, a parameter, a closure held in a record:
             // a method of anything that is not the instance or JS), given it
             const i = given.indexOf(true);
@@ -1289,7 +1365,7 @@ class Checker {
     const counting = mode === "all" || (mode === "in") === inPeek;
     // a closure the checker can see is called (one written at the call, or the one its name is bound to): the call reads
     // what its body reads (ruled 2026-11-22)
-    { const c = this.calledClosure(e, env); if (c && !this.chFns.has(c.f)) { this.chFns.add(c.f); for (const k of subExprs(c.f)) this.chWalk(k, c.env, mode, acc, inPeek); this.chFns.delete(c.f); } }
+    for (const c of this.calledClosures(e, env)) if (!this.chFns.has(c.f)) { this.chFns.add(c.f); for (const k of subExprs(c.f)) this.chWalk(k, c.env, mode, acc, inPeek); this.chFns.delete(c.f); }
     switch (e.k) {
       case "peek": if (mode !== "out") this.chWalk(e.e, env, mode, acc, true); return acc;
       case "fn": case "serverfn": return acc;                                              // a closure reads when it is called
@@ -1434,7 +1510,29 @@ class Checker {
   }
   // ---- MO-10k: values the checker confines, by mention ----
   /** The names `e`'s value may come from (`flows`), read in `env`. */
-  private flowNames(e: Expr, env: Env): Set<string> { const out = new Set<string>(); flows(e, new Set(), new Map(), n => !env.lookup(n), out); return out; }
+  private flowNames(e: Expr, env: Env): Set<string> { const out = new Set<string>(); flows(e, new Set(), new Map(), { builtin: n => !env.lookup(n), prim: x => this.declPrim(x, env) }, out); return out; }
+  /** MO-10k: the declared type of a path over a declared JS result — the bound name, a field of it, what a method of it
+   *  answers, an element (a `for` row, an index) — where the declaration's text says it (`tyStep`). */
+  private declTy(e: Expr, env: Env, depth = 0): string | undefined {
+    if (depth > 32) return undefined;
+    const step = (t: string | undefined, s: TStep) => t === undefined ? undefined : tyStep(t, s);
+    switch (e.k) {
+      case "id": {
+        const sy = env.lookup(e.name); if (!sy || (sy.kind !== "eq" && sy.kind !== "value")) return undefined;
+        if (sy.retTy !== undefined) return sy.retTy;
+        if (sy.rowOf) return step(this.declTy(sy.rowOf.e, sy.rowOf.env, depth + 1), "elem");
+        const v = sy.val; if (!v) return undefined;
+        return v.e.k === "id" || v.e.k === "member" || v.e.k === "index" || v.e.k === "call" ? this.declTy(v.e, v.env, depth + 1) : undefined;
+      }
+      case "member": return step(this.declTy(e.o, env, depth + 1), { field: e.p });
+      case "index": { const t = this.declTy(e.o, env, depth + 1); const k = litKey(e.i); return (e.i.k === "lit" && typeof e.i.v === "number") || k === undefined ? step(t, "elem") : step(t, { field: k }); }
+      case "call": return e.f.k === "member" || e.f.k === "index" ? step(this.declTy(e.f, env, depth + 1), "call") : undefined;
+      default: return undefined;
+    }
+  }
+  /** MO-10k: a value its declaration says is a primitive (a declared scalar field, what a declared method answers) holds
+   *  no part of the value it was read from. */
+  private declPrim(e: Expr, env: Env): boolean { const t = this.declTy(e, env); return t !== undefined && tyScalar(t); }
   /** MO-10k: whether `e`'s value may be, or hold, a value of kind `k`: the first name it mentions that may, and the binding
    *  that value was made at. */
   private gives(e: Expr, env: Env, k: Taint): { n: string; root: Sym } | undefined {
@@ -1517,7 +1615,10 @@ class Checker {
       }
     }
     if (f.k === "member" || f.k === "index") {
-      if (this.gives(f.o, env, "renders")) return false;
+      // a method of the value itself keeps nothing only where the checker knows which method is called: one its
+      // declaration names (`methods(…)`), on the value's own name (closed 2026-11-22). A record or an array that
+      // mentions the value is not the value: `({ send: props.onSend, t: table }).send(table)`
+      { const key = f.k === "member" ? f.p : litKey(f.i); const t = f.o.k === "id" ? env.lookup(f.o.name) : undefined; if (key !== undefined && t?.localRenders && t.methods?.includes(key)) return false; }
       let root: Expr = f.o; while (root.k === "member" || root.k === "index") root = root.o;
       const t = root.k === "id" ? env.lookup(root.name) : undefined;
       return !(t?.kind === "import" && !t.io);
@@ -1535,6 +1636,17 @@ class Checker {
       const a = args[i];
       if (a?.k === "fn") this.draftFns.set(a, ps);
       else if (a) this.err("DRAFT_ESCAPES", "MO-10i", `${show(f)}(…) hands this callback a library's draft: write the callback here, as a closure (\`(d) => { … }\`) — a function made elsewhere would be given the draft where the checker cannot see what it does with it`);
+    }
+    // MO-10i (closed 2026-11-22): a method called on a draft, or on what such a method answers, is one of plain data's, by
+    // name. One that calls a function it is given takes it as a closure written here: the closure is called now, with
+    // places of the draft, so its parameters are the draft's as a loop's variable is
+    if ((f.k === "member" || f.k === "index") && this.draftChain(f.o, env)) {
+      const m = f.k === "member" ? f.p : litKey(f.i);
+      if (m !== undefined && DRAFT_CALLBACKS.has(m)) args.forEach((a, i) => {
+        if (a.k === "fn") { if (!this.draftFns.has(a)) this.draftFns.set(a, a.params.map((_, j) => j)); }
+        else if (i === 0) this.err("DRAFT_ESCAPES", "MO-10i", `${show(f)}(…) calls the function it is given with parts of a library's draft: write it here, as a closure (\`(x) => …\`), whose parameters are then places of the draft — a function made elsewhere would be handed them where the checker cannot see what it does with them`);
+      });
+      else if (m === undefined || !DRAFT_METHODS.has(m)) this.err("DRAFT_ESCAPES", "MO-10i", `${show(f)}(…) is called on a library's draft, and it is not a method of plain data the checker knows (an Array's, a Map's, a Set's, a string's): what it does with the draft, and with what it is given, cannot be seen — read the value first (\`let v = ${show(f.o)}\`, a copy) and call it on that`);
     }
     // MO-10k: a closure written among a call's arguments may be handed any of the others, or what it is called on; one
     // called where it is written, its arguments
@@ -1558,6 +1670,25 @@ class Checker {
    *  except a draft path's updater, which is applied where it is written. */
   private draftHere(s: Sym, name: string) {
     if (s.draftFn !== undefined && this.fnStack[this.fnStack.length - 1] !== s.draftFn) this.err("DRAFT_ESCAPES", "MO-10i", `${name} is a library's draft, its callback's only while that call runs: a closure made inside the callback may run after the library has taken it back — use ${name} in the callback itself (a loop is \`for (const x of xs) { … }\`), or read what the closure needs into a local first (a read of a draft is a copy)`);
+  }
+  /** MO-10f (closed 2026-11-22): the operations of a result with held fields are its declared fields. `e` reads a member
+   *  of one, or of a record of held fields below it: what is read is a field the declaration names. Anything else — a
+   *  method every object inherits (`valueOf`, `toJSON`), a field the declaration does not have — is not an operation of
+   *  the result: what it answers may be the result itself. A key the checker cannot name reads some field, and is not
+   *  called. */
+  private heldMember(e: Expr, env: Env) {
+    const fp = fieldPath(e); if (!fp) return;
+    const t = env.lookup(fp.root); if (!t?.held?.length) return;
+    const path = fp.path; const obj = path.slice(0, -1);
+    const below = (key: string) => { const segs = key.split("."); return segs.length > obj.length && obj.every((b, i) => b === undefined || b === segs[i]); };
+    if (!obj.every(x => x !== undefined) || !t.held.some(h => below(h[0]))) return;
+    let ty: string | undefined = t.retTy;
+    for (const seg of obj) ty = ty === undefined ? undefined : tyStep(ty, { field: seg! });
+    const fields = ty === undefined ? undefined : tyFields(ty);
+    const whole = e.k === "member" || e.k === "index" ? show(e.o) : fp.root;
+    const k = path[path.length - 1];
+    if (k !== undefined && fields && !fields.some(f => f[0] === k)) this.err("RESULT_AS_VALUE", "MO-10f", `${whole}.${k} is not a field ${whole}'s declaration names (${fields.map(f => f[0]).join(", ")}): ${whole} is a JS result whose fields hold or fail where each is read, so what is read from it is one of those fields — a method every object has (\`valueOf\`, \`toJSON\`, \`toString\`) may answer the result itself, and a field the declaration leaves out has no rows; declare the field in the \`.d.rx\``);
+    else if (k === undefined && this.calleeIds.has(e)) this.err("RESULT_AS_VALUE", "MO-10f", `${show(e)} is called, and its key is not one the checker can name: ${whole} is a JS result whose fields hold or fail where each is read, and a method every object has (\`valueOf\`) may answer the result itself — call a field its declaration names, \`${whole}.refetch()\``);
   }
   /** MO-10f, MO-10i (ruled 2026-11-22): a JS result whose fields hold or fail, or whose parts take drafts, is read a part
    *  at a time: its name, and a path to a record of such fields, stand only where a part is read from them (the object of
@@ -1592,6 +1723,13 @@ class Checker {
       const what = show(e);
       this.err("DRAFT_ESCAPES", "MO-10i", `${what} hands its callback a library's draft: it is called here, with the callback written in the call (\`${what}((d) => { … })\`), and not passed or stored — a function that travels would be given a callback the checker cannot see; share the change as an action`);
     }
+  }
+  /** MO-10i: a read through a draft: its name, a path below it, or what a method called on one answers. */
+  private draftChain(e: Expr, env: Env): boolean {
+    if (e.k === "id") return !!env.lookup(e.name)?.jsDraft;
+    if (e.k === "member" || e.k === "index") return this.draftChain(e.o, env);
+    if (e.k === "call") return (e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env);
+    return false;
   }
   /** MO-10i: the draft a place belongs to: the draft's name, or a path below it. */
   private draftPlace(e: Expr, env: Env): Sym | undefined {
@@ -1650,8 +1788,8 @@ class Checker {
         go(e.l); go(e.r); return;
       case "if": this.wholeOk.add(e.c); go(e.c); go(e.t); go(e.f); return;
       case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
-      case "member": this.wholeOk.add(e.o); this.wholeUse(e, env); this.partUse(e, env); if (e.o.k === "id") this.expr(e.o, env, ctx, e.p); else go(e.o); return;
-      case "index": this.wholeOk.add(e.o); this.wholeUse(e, env); this.partUse(e, env); go(e.o); go(e.i); return;
+      case "member": this.wholeOk.add(e.o); this.heldMember(e, env); this.wholeUse(e, env); this.partUse(e, env); if (e.o.k === "id") this.expr(e.o, env, ctx, e.p); else go(e.o); return;
+      case "index": this.wholeOk.add(e.o); this.heldMember(e, env); this.wholeUse(e, env); this.partUse(e, env); go(e.o); go(e.i); return;
       case "arr": e.items.forEach(go); return;
       case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
       case "call": {
@@ -2439,6 +2577,50 @@ class Checker {
   }
   compSig: ((G: Region) => CompSig) | null = null;
 }
+
+// ---- MO-10k: a declared result's type, read as the closed set of what its value answers ----
+/** One step down a declared type: a field, what a call of it answers, an element of it. */
+export type TStep = { field: string } | "call" | "elem";
+/** The index of the bracket that closes the one at `at`. */
+function closesAt(t: string, at: number): number | undefined {
+  let depth = 0;
+  for (let i = at; i < t.length; i++) { const ch = t[i]; if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch) && !(ch === ">" && t[i - 1] === "=")) { depth--; if (depth === 0) return i; } }
+  return undefined;
+}
+/** The type text without what does not change what it answers: outer parentheses, `readonly`, the function words. */
+function tyClean(t: string): string {
+  t = t.trim();
+  for (;;) {
+    const before = t;
+    for (const w of ["readonly ", "handler ", "tracked "]) if (t.startsWith(w)) t = t.slice(w.length).trim();
+    if (t.startsWith("(") && t.endsWith(")") && closesAt(t, 0) === t.length - 1) t = t.slice(1, -1).trim();
+    if (t === before) return t;
+  }
+}
+/** A union's members; `null` and `undefined` dropped when `present` (a read of a field that is there). */
+function tyMembers(t: string, present: boolean): string[] { return splitTop(tyClean(t), "|").map(tyClean).filter(m => !(present && (m === "null" || m === "undefined"))); }
+/** A record type's fields, as written: `{ a: T; b?: (x: U) => V }`. */
+export function tyFields(t: string): [string, string][] | undefined {
+  const ms = tyMembers(t, true); if (ms.length !== 1) return undefined; t = ms[0];
+  if (!(t.startsWith("{") && t.endsWith("}") && t.length >= 2)) return undefined;
+  return splitTop(t.slice(1, -1), ",;").flatMap(f => { const i = f.indexOf(":"); if (i < 0) return []; const k = f.slice(0, i).trim().replace(/^readonly\s+/, "").replace(/\?$/, "").replace(/^["']|["']$/g, ""); return [[k, f.slice(i + 1).trim()] as [string, string]]; });
+}
+/** The declared type one step down, where the text says it: a field of a record type, the result of a function type, the
+ *  element of an array type. Undefined: the declaration does not say (`any`, a named type, a union of several). */
+export function tyStep(t: string, s: TStep): string | undefined {
+  const ms = tyMembers(t, true); if (ms.length !== 1) return undefined; t = ms[0];
+  if (s === "call") { if (!t.startsWith("(")) return undefined; const end = closesAt(t, 0); if (end === undefined) return undefined; const rest = t.slice(end + 1).trim(); return rest.startsWith("=>") ? rest.slice(2).trim() : undefined; }
+  if (s === "elem") { if (t.endsWith("[]")) return t.slice(0, -2).trim(); for (const w of ["Array<", "ReadonlyArray<"]) if (t.startsWith(w)) return t.endsWith(">") ? t.slice(w.length, -1).trim() : undefined; return undefined; }
+  return tyFields(t)?.find(f => f[0] === s.field)?.[1];
+}
+/** Whether a declared type is a primitive's — `string`, `number`, `boolean`, `bigint`, `null`, `undefined`, `void`, a
+ *  literal, or a union of those: a value of it holds nothing. */
+export function tyScalar(t: string): boolean {
+  const ms = tyMembers(t, false);
+  return ms.length > 0 && ms.every(m => ["string", "number", "boolean", "bigint", "null", "undefined", "void", "never", "true", "false"].includes(m) || (m !== "" && !Number.isNaN(Number(m))) || (m.length >= 2 && ((m.startsWith('"') && m.endsWith('"')) || (m.startsWith("'") && m.endsWith("'"))) && !/["']/.test(m.slice(1, -1))));
+}
+/** Whether a declared type is a function's. */
+export function tyFn(t: string): boolean { return tyStep(t, "call") !== undefined; }
 
 /** MO-10f: the field path of a read from a bound name — `q.a`, `q["a"]`, `q[0]` name a field; `q[k]` is any field (undefined). */
 export function fieldPath(e: Expr): { root: string; path: (string | undefined)[] } | undefined {

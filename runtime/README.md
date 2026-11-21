@@ -2,8 +2,11 @@
 
 ReactiveScript's runtime (spec/11 CP-4a): `createApp` and the `__rt` helpers
 that compiled `.rx` calls, over Solid. Each helper is a Solid primitive, a
-composition of them, or plain JavaScript; nothing in it adds run-time
-behaviour beyond Solid.
+composition of them, or plain JavaScript. It adds no reactive behaviour of
+its own; the plain JavaScript is where a rule of the language is kept by
+construction: `copy` (a value read out of a library's draft, spec/09
+MO-10i) and `lazy` (a getter per field of a JS result whose fields wait or
+fail, MO-10f).
 
 There is a browser build and a server build, chosen by export condition as
 `@solidjs/web` chooses (`browser` → the browser build; `node`, `deno`,

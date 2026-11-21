@@ -1615,6 +1615,15 @@ impl<'p> Gen<'p> {
                 // a method of a draft is the library's own: what it is given goes straight back to it; a builtin that
                 // answers a primitive keeps nothing
                 let own = matches!(&f.k, ExprKind::Member { o, .. } | ExprKind::Index { o, .. } if self.draft_chain(o, env));
+                // a closure written for one of a draft's own methods (`d.items.forEach((row) => { … })`) is called by it
+                // with places of the draft: its parameters are read as copies, as the draft is (closed 2026-11-22)
+                if own {
+                    for a in args {
+                        if let ExprKind::Fn { params, .. } = &a.k {
+                            self.draft_closures.entry(a as *const Expr).or_insert_with(|| (0..params.len()).collect());
+                        }
+                    }
+                }
                 let scalar = matches!(&f.k, ExprKind::Id(n) if ["len", "str", "sum", "every", "indexOf"].contains(&n.as_str()) && self.lookup(env, n).is_none());
                 if own || scalar {
                     for a in args {
@@ -1909,7 +1918,9 @@ impl<'p> Gen<'p> {
                     b.draft = place;
                     self.set(inner, name, b);
                     let b = self.stmts(body, inner, ctx, false)?;
-                    out.push(S::ForOf(mg(name), x, b));
+                    // the loop visits what `e` holds when it starts (07 §5): a turn that adds to the list it loops over
+                    // does not lengthen the loop
+                    out.push(S::ForOf(mg(name), E::Arr(vec![E::Spread(Box::new(x))]), b));
                 }
                 StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
                     let block = self.stmts(body, env, ctx, false)?;

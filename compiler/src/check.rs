@@ -11,7 +11,7 @@ use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
-use crate::parse::{js_trim, JsDecl, Part, Shape as FShape};
+use crate::parse::{js_trim, split_top, JsDecl, Part, Shape as FShape};
 use crate::signature::{Catch, CompSig, ExportSig, ModSig, Own, PropSig, SigParam, HOLD};
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
@@ -43,6 +43,16 @@ impl Diagnostic {
 
 const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"];
 /// MO-10k: the builtins that answer a primitive, whatever they are given
+/// MO-10i (closed 2026-11-22): what is called on a draft is a method of plain data, by name — an Array's, a Map's, a
+/// Set's, a string's or a number's. `DRAFT_CALLBACKS` are the ones that call a function they are given, now, with parts of
+/// the data.
+const DRAFT_METHODS: &[&str] = &[
+    "push", "pop", "shift", "unshift", "splice", "reverse", "fill", "copyWithin", "includes", "indexOf", "lastIndexOf", "at", "slice", "concat", "join", "flat", "keys", "values", "entries", "with", "toReversed", "toSpliced",
+    "set", "get", "has", "add", "delete", "clear",
+    "trim", "trimStart", "trimEnd", "toUpperCase", "toLowerCase", "startsWith", "endsWith", "padStart", "padEnd", "split", "replace", "replaceAll", "charAt", "charCodeAt", "codePointAt", "substring", "repeat", "normalize", "localeCompare", "match", "search",
+    "toFixed", "toPrecision", "toString", "toLocaleString", "valueOf", "hasOwnProperty",
+];
+const DRAFT_CALLBACKS: &[&str] = &["forEach", "map", "filter", "find", "findIndex", "findLast", "findLastIndex", "some", "every", "flatMap", "reduce", "reduceRight", "sort", "toSorted"];
 const SCALAR_BUILTINS: &[&str] = &["len", "str", "sum", "every", "indexOf"];
 /// EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one.
 fn returns_closure(f: &Expr) -> bool {
@@ -289,6 +299,9 @@ struct Sym<'a> {
     local_renders: bool,
     /// E-10 (RFC 14, bounded): a primitive's declared `methods(…)`, and on an instance it made, its own
     methods: Vec<String>,
+    /// MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or
+    /// of a part of it, that part's: the closed set of what the value answers (`ty_step`)
+    ret_ty: Option<String>,
     /// MO-11n: the JS contexts (keys) it carries into that root
     carries: Vec<String>,
     /// MO-8k: a JS import with no declaration in any of the four places: its specifier
@@ -393,6 +406,7 @@ impl<'a> Sym<'a> {
             renders_root: false,
             local_renders: false,
             methods: vec![],
+            ret_ty: None,
             carries: vec![],
             undeclared: None,
             forwards: false,
@@ -772,8 +786,60 @@ fn strip_pre(n: &str) -> &str {
 /// returns (its parameters give nothing by themselves: the call that hands them a value is where they are named). Names
 /// bound inside (`bound`) give nothing; a closure's own locals (`locals`) give what their values do. `use c` is written
 /// `use:c`, for the checks that must know a value came from where they cannot look.
-fn flows(e: &Expr, bound: &HashSet<String>, locals: &HashMap<String, IndexSet<String>>, builtin: &dyn Fn(&str) -> bool, out: &mut IndexSet<String>) {
+/// What `flows` asks of where it is read: whether a name is a builtin there (not bound), and whether an expression is a
+/// primitive by its declaration (`Checker::decl_prim`).
+struct Look<'x> {
+    builtin: &'x dyn Fn(&str) -> bool,
+    prim: &'x dyn Fn(&Expr) -> bool,
+}
+/// The name a path is read from: `table` of `table.getState().page`.
+fn path_root(e: &Expr) -> Option<&str> {
+    match &e.k {
+        ExprKind::Id(n) => Some(n.as_str()),
+        ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => path_root(o),
+        ExprKind::Call { f, .. } => path_root(f),
+        _ => None,
+    }
+}
+/// A slot of a literal written where it is read: `[clock, 5][1]` is `5`, `{ a: x, b: y }.b` is `y`. Only what the
+/// expression itself says: no spread before the slot, one field of that name.
+fn literal_part(e: &Expr) -> Option<&Expr> {
+    match &e.k {
+        ExprKind::Index { o, i, .. } => match (&o.k, &i.k) {
+            (ExprKind::Arr(items), ExprKind::Lit(Lit::Num(_))) => {
+                let n = lit_key(i)?.parse::<usize>().ok()?;
+                if items.iter().take(n + 1).any(|x| matches!(x.k, ExprKind::Spread(_))) {
+                    return None;
+                }
+                items.get(n)
+            }
+            (ExprKind::Rec(fields), _) => rec_field(fields, &lit_key(i)?),
+            _ => None,
+        },
+        ExprKind::Member { o, p, .. } => match &o.k {
+            ExprKind::Rec(fields) => rec_field(fields, p),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+fn rec_field<'e>(fields: &'e [Field], key: &str) -> Option<&'e Expr> {
+    if fields.iter().any(|f| matches!(f, Field::Spread(_))) {
+        return None;
+    }
+    let mut hit = fields.iter().filter_map(|f| match f {
+        Field::Kv { key: k, v } if k == key => Some(v),
+        _ => None,
+    });
+    let v = hit.next()?;
+    hit.next().is_none().then_some(v)
+}
+fn flows(e: &Expr, bound: &HashSet<String>, locals: &HashMap<String, IndexSet<String>>, builtin: &Look, out: &mut IndexSet<String>) {
     let go = |x: &Expr, out: &mut IndexSet<String>| flows(x, bound, locals, builtin, out);
+    // what its declaration says is a primitive holds nothing (a declared scalar field, what a declared method answers)
+    if matches!(e.k, ExprKind::Member { .. } | ExprKind::Index { .. } | ExprKind::Call { .. }) && path_root(e).is_some_and(|n| !bound.contains(n) && !locals.contains_key(n)) && (builtin.prim)(e) {
+        return;
+    }
     match &e.k {
         ExprKind::Lit(_) | ExprKind::Tpl(_) | ExprKind::Un { .. } | ExprKind::Pending(_) | ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => {}
         ExprKind::Id(n) => match locals.get(n) {
@@ -811,10 +877,14 @@ fn flows(e: &Expr, bound: &HashSet<String>, locals: &HashMap<String, IndexSet<St
             go(t, out);
             go(f, out);
         }
-        ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => go(o, out),
+        // a slot of a literal written here is that slot: `[clock, 5][1]` is `5`
+        ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => match literal_part(e) {
+            Some(x) => go(x, out),
+            None => go(o, out),
+        },
         ExprKind::Call { f, args, .. } => {
             if let ExprKind::Id(n) = &f.k {
-                if SCALAR_BUILTINS.contains(&n.as_str()) && !bound.contains(n) && !locals.contains_key(n) && builtin(n) {
+                if SCALAR_BUILTINS.contains(&n.as_str()) && !bound.contains(n) && !locals.contains_key(n) && (builtin.builtin)(n) {
                     return;
                 }
             }
@@ -883,7 +953,7 @@ fn flows(e: &Expr, bound: &HashSet<String>, locals: &HashMap<String, IndexSet<St
     }
 }
 /// What a statement body returns (`flows`): each `return`'s value, its `let`s standing for their values.
-fn flows_returns(ss: &[Stmt], bound: &mut HashSet<String>, locals: &mut HashMap<String, IndexSet<String>>, builtin: &dyn Fn(&str) -> bool, out: &mut IndexSet<String>) {
+fn flows_returns(ss: &[Stmt], bound: &mut HashSet<String>, locals: &mut HashMap<String, IndexSet<String>>, builtin: &Look, out: &mut IndexSet<String>) {
     for s in ss {
         match &s.k {
             StmtKind::Let { name, e, .. } => {
@@ -926,7 +996,7 @@ fn flows_returns(ss: &[Stmt], bound: &mut HashSet<String>, locals: &mut HashMap<
 }
 /// What an `.rx` fn gives (`flows`): its tail, its own equations and sources standing for their values, its parameters
 /// for nothing.
-fn flows_fn(params: &[crate::ast::Param], decls: &[Decl], tail: &Expr, builtin: &dyn Fn(&str) -> bool, out: &mut IndexSet<String>) {
+fn flows_fn(params: &[crate::ast::Param], decls: &[Decl], tail: &Expr, builtin: &Look, out: &mut IndexSet<String>) {
     let mut bound: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
     let mut locals: HashMap<String, IndexSet<String>> = HashMap::new();
     // equations may be read before they are written: to a fixpoint (a name gives what any name it reads gives)
@@ -2020,11 +2090,11 @@ impl<'a> Checker<'a> {
             let mut names = IndexSet::new();
             let name = match d {
                 Decl::Fn { name, params, decls: fdecls, tail, .. } => {
-                    flows_fn(params, fdecls, tail, &|n| self.lookup(env, n).is_none(), &mut names);
+                    flows_fn(params, fdecls, tail, &Look { builtin: &|n| self.lookup(env, n).is_none(), prim: &|x| self.decl_prim(x, env) }, &mut names);
                     name
                 }
                 Decl::Action { name, params, body, .. } => {
-                    flows_returns(body, &mut params.iter().cloned().collect(), &mut HashMap::new(), &|n| self.lookup(env, n).is_none(), &mut names);
+                    flows_returns(body, &mut params.iter().cloned().collect(), &mut HashMap::new(), &Look { builtin: &|n| self.lookup(env, n).is_none(), prim: &|x| self.decl_prim(x, env) }, &mut names);
                     name
                 }
                 _ => continue,
@@ -2318,7 +2388,7 @@ impl<'a> Checker<'a> {
                     bind_comp(self, x, alias);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, forwards: xforwards, methods: xmethods, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, forwards: xforwards, methods: xmethods, ret: xret, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -2345,6 +2415,7 @@ impl<'a> Checker<'a> {
                         s.held = xheld.clone();
                         s.cbs = xcbs.clone();
                         s.methods = xmethods.clone();
+                        s.ret_ty = xret.clone();
                         self.bind(env, alias, s);
                         continue;
                     }
@@ -2395,6 +2466,7 @@ impl<'a> Checker<'a> {
             if !t.part_drafts.is_empty() {
                 sym.part_drafts = t.part_drafts.clone();
             }
+            sym.ret_ty = t.ret_ty.clone();
             sym.via_field |= t.via_field;
             sym.reader |= t.reader;
             if t.foreign == Some(FShape::Part(Part::Fn)) {
@@ -2468,6 +2540,7 @@ impl<'a> Checker<'a> {
             if let ExprKind::Id(n) = &f.k {
                 if let Some(t) = self.lookup(env, n) {
                     sym.methods = self.syms[t].methods.clone(); // E-10: its declared methods
+                    sym.ret_ty = self.syms[t].ret_ty.clone(); // MO-10k: its declared type
                     if !self.syms[t].held.is_empty() {
                         sym.held = self.syms[t].held.clone();
                     }
@@ -2486,6 +2559,8 @@ impl<'a> Checker<'a> {
         if let Some((o, key)) = part_key {
             if let ExprKind::Id(on) = &o.k {
                 if let Some(t) = self.lookup(env, on) {
+                    // MO-10k: a named part's declared type
+                    sym.ret_ty = key.as_ref().and_then(|k| self.syms[t].ret_ty.as_deref().and_then(|ty| ty_step(ty, &TStep::Field(k.clone()))));
                     // `x[k]`: the rows of whichever part it is — each suffix's, combined
                     let mut sub: Vec<(String, bool, Vec<String>)> = vec![];
                     for h in &self.syms[t].held {
@@ -3144,19 +3219,108 @@ impl<'a> Checker<'a> {
         self.const_eqs.insert(s, Some(ok));
         ok
     }
-    /// E-10, E-5a (ruled 2026-11-22): the closure a call calls, where the checker can see it — one written at the call,
-    /// or the one its callee's name is bound to. Calling it reads what its body reads.
-    fn called_closure(&self, call: &'a Expr, env: EId) -> Option<(&'a Expr, EId)> {
-        let ExprKind::Call { f, .. } = &call.k else { return None };
+    /// E-10, E-5a (ruled 2026-11-22; a closure held in a value, 2026-11-22): the closures a call may call, where the
+    /// checker can see them. One written at the call, or the one its callee's name is bound to, is that closure. A callee
+    /// read out of a value — `box.read()`, `fs[0]()`, `mk()()` — is the closure in that slot when the value is a literal
+    /// the checker can read the slot of (`static_part`: a record's field, an array's index, through the equations and
+    /// locals that name it); otherwise it may be any closure the value holds, by mention (`held_closures`). Calling one
+    /// reads what its body reads.
+    fn called_closures(&self, call: &'a Expr, env: EId) -> Vec<(&'a Expr, EId)> {
+        let ExprKind::Call { f, .. } = &call.k else { return vec![] };
         match &f.k {
-            ExprKind::Fn { .. } => Some((&**f, env)),
+            ExprKind::Fn { .. } => vec![(&**f, env)],
             ExprKind::Id(n) => {
-                let s = self.lookup(env, n)?;
-                let (v, venv) = self.syms[s].val?;
-                matches!(v.k, ExprKind::Fn { .. }).then_some((v, venv))
+                let Some(s) = self.lookup(env, n) else { return vec![] };
+                let Some((v, venv)) = self.syms[s].val else { return vec![] };
+                if matches!(v.k, ExprKind::Fn { .. }) {
+                    return vec![(v, venv)];
+                }
+                self.closures_of(v, venv)
             }
-            _ => None,
+            _ => self.closures_of(f, env),
         }
+    }
+    /// The closures a callee read out of a value may be. A method of a JS value — an import, the instance a declared
+    /// primitive made — is JS's: what it calls is its declaration's to say (CN-3b), and what it answers is the instance
+    /// rule's (E-10: a method its declaration does not name may change).
+    fn closures_of(&self, f: &'a Expr, env: EId) -> Vec<(&'a Expr, EId)> {
+        let js = path_root(f).and_then(|n| self.lookup(env, n)).is_some_and(|t| matches!(self.syms[t].kind, SymKind::Import | SymKind::ErrClass) || self.syms[t].foreign.is_some());
+        if js {
+            return vec![];
+        }
+        let (x, xenv) = self.static_part(f, env, 0);
+        if matches!(x.k, ExprKind::Fn { .. }) {
+            return vec![(x, xenv)];
+        }
+        let mut out = vec![];
+        self.held_closures(f, env, &mut HashSet::new(), &mut out);
+        out
+    }
+    /// The expression a path denotes, where what is written says so: a name bound by an equation or a local is its
+    /// value (neither is ever written), a field of a record literal is that field, an index of an array literal that
+    /// item. Anything else is itself.
+    fn static_part(&self, e: &'a Expr, env: EId, depth: usize) -> (&'a Expr, EId) {
+        if depth > 32 {
+            return (e, env);
+        }
+        match &e.k {
+            ExprKind::Id(n) => match self.lookup(env, n).filter(|&s| matches!(self.syms[s].kind, SymKind::Eq | SymKind::Value)).and_then(|s| self.syms[s].val) {
+                Some((v, venv)) => self.static_part(v, venv, depth + 1),
+                None => (e, env),
+            },
+            ExprKind::Member { o, p, .. } => {
+                let (ro, renv) = self.static_part(o, env, depth + 1);
+                match &ro.k {
+                    ExprKind::Rec(fields) => match rec_field(fields, p) {
+                        Some(v) => self.static_part(v, renv, depth + 1),
+                        None => (e, env),
+                    },
+                    _ => (e, env),
+                }
+            }
+            ExprKind::Index { o, i, .. } => {
+                let (ro, renv) = self.static_part(o, env, depth + 1);
+                let hit: Option<&'a Expr> = match (&ro.k, lit_key(i)) {
+                    (ExprKind::Rec(fields), Some(k)) => rec_field(fields, &k),
+                    (ExprKind::Arr(items), Some(k)) if matches!(i.k, ExprKind::Lit(Lit::Num(_))) => k.parse::<usize>().ok().filter(|n| !items.iter().take(n + 1).any(|x| matches!(x.k, ExprKind::Spread(_)))).and_then(|n| items.get(n)),
+                    _ => None,
+                };
+                match hit {
+                    Some(v) => self.static_part(v, renv, depth + 1),
+                    None => (e, env),
+                }
+            }
+            _ => (e, env),
+        }
+    }
+    /// Every closure a value may hold, by mention: the closures written in its expression (and in the closures those
+    /// return), and those of the values its names are bound to.
+    fn held_closures(&self, e: &'a Expr, env: EId, seen: &mut HashSet<SId>, out: &mut Vec<(&'a Expr, EId)>) {
+        fn walk<'a>(c: &Checker<'a>, n: Node<'a>, env: EId, seen: &mut HashSet<SId>, out: &mut Vec<(&'a Expr, EId)>) {
+            if let Node::E(x) = n {
+                match &x.k {
+                    ExprKind::Fn { .. } => {
+                        if !out.iter().any(|(f, _)| std::ptr::eq(*f, x)) {
+                            out.push((x, env));
+                        }
+                    }
+                    ExprKind::Id(name) => {
+                        if let Some(s) = c.lookup(env, name) {
+                            if seen.insert(s) {
+                                if let Some((v, venv)) = c.syms[s].val {
+                                    walk(c, Node::E(v), venv, seen, out);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for k in children(n, false) {
+                walk(c, k, env, seen, out);
+            }
+        }
+        walk(self, Node::E(e), env, seen, out);
     }
     /// The names read by the closures an expression calls (outside `peek`), each with the symbol it names there.
     fn called_reads(&self, e: &'a Expr, env: EId) -> Vec<(String, SId)> {
@@ -3165,7 +3329,7 @@ impl<'a> Checker<'a> {
                 match &x.k {
                     ExprKind::Peek(_) | ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return,
                     ExprKind::Call { .. } => {
-                        if let Some((f, fenv)) = c.called_closure(x, env) {
+                        for (f, fenv) in c.called_closures(x, env) {
                             if seen.insert(f as *const Expr) {
                                 for name in names_of(f) {
                                     if let Some(t) = c.lookup(fenv, strip_pre(&name)) {
@@ -3222,7 +3386,8 @@ impl<'a> Checker<'a> {
         match &e.k {
             ExprKind::Peek(_) if !peeks => return None,
             ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return None,
-            ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => {
+            // a slot of a literal written here is that slot (`[clock, 5][1]`): no read through the instance
+            ExprKind::Member { o, .. } | ExprKind::Index { o, .. } if literal_part(e).is_none() => {
                 if self.may_be_instance(o, env, tp) {
                     return Some(show(e));
                 }
@@ -3279,7 +3444,8 @@ impl<'a> Checker<'a> {
                         }
                     }
                     // a closure the checker can see is called: its body is read, its parameters what it is given
-                    if let Some((c, cenv)) = self.called_closure(e, env) {
+                    let called = self.called_closures(e, env);
+                    for &(c, cenv) in &called {
                         if seen.insert(c as *const Expr) {
                             let mut tp2 = HashSet::new();
                             if let ExprKind::Fn { params, .. } = &c.k {
@@ -3293,7 +3459,8 @@ impl<'a> Checker<'a> {
                                 return Some(r);
                             }
                         }
-                    } else if !builtin && own.is_none() {
+                    }
+                    if called.is_empty() && !builtin && own.is_none() {
                         // a function of `.rx` the checker cannot see into (an .rx fn, a prop, a parameter, a closure held
                         // in a record: a method of anything that is not the instance or JS), given it
                         if let Some(i) = given.iter().position(|g| *g) {
@@ -3398,7 +3565,7 @@ impl<'a> Checker<'a> {
         if let Node::E(e) = n {
             // a closure the checker can see is called (one written at the call, or the one its name is bound to): the
             // call reads what its body reads (ruled 2026-11-22)
-            if let Some((c, cenv)) = self.called_closure(e, env) {
+            for (c, cenv) in self.called_closures(e, env) {
                 if self.ch_fns.insert(c as *const Expr) {
                     for k in children(Node::E(c), false) {
                         self.ch_of(k, cenv, mode, acc, in_peek);
@@ -3808,10 +3975,52 @@ impl<'a> Checker<'a> {
         self.expr_k(e, env, ctx, field)
     }
     // ---- MO-10k: values the checker confines, by mention ----
+    /// MO-10k: the declared type of a path over a declared JS result — the bound name, a field of it, what a method
+    /// of it answers, an element (a `for` row, an index) — where the declaration's text says it (`ty_step`).
+    fn decl_ty(&self, e: &Expr, env: EId, depth: usize) -> Option<String> {
+        if depth > 32 {
+            return None;
+        }
+        match &e.k {
+            ExprKind::Id(n) => {
+                let s = self.lookup(env, n)?;
+                let sy = &self.syms[s];
+                if !matches!(sy.kind, SymKind::Eq | SymKind::Value) {
+                    return None;
+                }
+                if let Some(t) = &sy.ret_ty {
+                    return Some(t.clone());
+                }
+                if let Some((list, lenv)) = sy.row_of {
+                    return ty_step(&self.decl_ty(list, lenv, depth + 1)?, &TStep::Elem);
+                }
+                let (v, venv) = sy.val?;
+                match v.k {
+                    ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => self.decl_ty(v, venv, depth + 1),
+                    _ => None,
+                }
+            }
+            ExprKind::Member { o, p, .. } => ty_step(&self.decl_ty(o, env, depth + 1)?, &TStep::Field(p.clone())),
+            ExprKind::Index { o, i, .. } => {
+                let t = self.decl_ty(o, env, depth + 1)?;
+                match (&i.k, lit_key(i)) {
+                    (ExprKind::Lit(Lit::Num(_)), _) | (_, None) => ty_step(&t, &TStep::Elem),
+                    (_, Some(k)) => ty_step(&t, &TStep::Field(k)),
+                }
+            }
+            ExprKind::Call { f, .. } if matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) => ty_step(&self.decl_ty(f, env, depth + 1)?, &TStep::Call),
+            _ => None,
+        }
+    }
+    /// MO-10k: a value its declaration says is a primitive (a declared scalar field, what a declared method answers)
+    /// holds no part of the value it was read from.
+    fn decl_prim(&self, e: &Expr, env: EId) -> bool {
+        self.decl_ty(e, env, 0).is_some_and(|t| ty_scalar(&t))
+    }
     /// The names `e`'s value may come from (`flows`), read in `env`.
     fn flow_names(&self, e: &Expr, env: EId) -> IndexSet<String> {
         let mut out = IndexSet::new();
-        flows(e, &HashSet::new(), &HashMap::new(), &|n| self.lookup(env, n).is_none(), &mut out);
+        flows(e, &HashSet::new(), &HashMap::new(), &Look { builtin: &|n| self.lookup(env, n).is_none(), prim: &|x| self.decl_prim(x, env) }, &mut out);
         out
     }
     /// MO-10k: whether `e`'s value may be, or hold, a value of kind `k`: the first name it mentions that may, and the
@@ -3941,8 +4150,18 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => {
-                if self.gives(o, env, Taint::Renders).is_some() {
-                    return false;
+                // a method of the value itself keeps nothing only where the checker knows which method is called: one
+                // its declaration names (`methods(…)`), on the value's own name (closed 2026-11-22). A record or an
+                // array that mentions the value is not the value: `({ send: props.onSend, t: table }).send(table)`
+                let key = match &f.k {
+                    ExprKind::Member { p, .. } => Some(p.clone()),
+                    ExprKind::Index { i, .. } => lit_key(i),
+                    _ => None,
+                };
+                if let (ExprKind::Id(on), Some(m)) = (&o.k, key) {
+                    if self.lookup(env, on).is_some_and(|t| self.syms[t].local_renders && self.syms[t].methods.iter().any(|x| *x == m)) {
+                        return false;
+                    }
                 }
                 let mut root: &Expr = o;
                 while let ExprKind::Member { o, .. } | ExprKind::Index { o, .. } = &root.k {
@@ -3960,6 +4179,47 @@ impl<'a> Checker<'a> {
         if let Some(own) = self.syms[s].draft_fn {
             if self.fn_stack.last() != Some(&own) {
                 self.err("DRAFT_ESCAPES", "MO-10i", format!("{name} is a library's draft, its callback's only while that call runs: a closure made inside the callback may run after the library has taken it back — use {name} in the callback itself (a loop is `for (const x of xs) {{ … }}`), or read what the closure needs into a local first (a read of a draft is a copy)"));
+            }
+        }
+    }
+    /// MO-10f (closed 2026-11-22): the operations of a result with held fields are its declared fields. `e` reads a
+    /// member of one, or of a record of held fields below it.
+    fn held_member(&mut self, e: &'a Expr, env: EId) {
+        let Some((root, path)) = field_path(e) else { return };
+        let Some(t) = self.lookup(env, root) else { return };
+        if self.syms[t].held.is_empty() {
+            return;
+        }
+        // MO-10f (closed 2026-11-22): what is read from a result with held fields, or from a record of them below it, is
+        // a field its declaration names. Anything else — a method every object inherits (`valueOf`, `toJSON`), a field
+        // the declaration does not have — is not an operation of the result: what it answers may be the result itself.
+        // A key the checker cannot name reads some field, and is not called
+        if !path.is_empty() {
+            let obj = &path[..path.len() - 1];
+            let below = |key: &str| {
+                let segs: Vec<&str> = key.split('.').collect();
+                segs.len() > obj.len() && segs.iter().zip(obj).all(|(a, b)| b.as_deref().is_none_or(|b| b == *a))
+            };
+            if obj.iter().all(|x| x.is_some()) && self.syms[t].held.iter().any(|h| below(&h.0)) {
+                let mut ty = self.syms[t].ret_ty.clone();
+                for seg in obj.iter().flatten() {
+                    ty = ty.and_then(|x| ty_step(&x, &TStep::Field(seg.clone())));
+                }
+                let fields = ty.as_deref().and_then(ty_fields);
+                let whole = match &e.k {
+                    ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => show(o),
+                    _ => root.to_string(),
+                };
+                match (path.last().unwrap(), fields) {
+                    (Some(k), Some(fs)) if !fs.iter().any(|f| &f.0 == k) => {
+                        let names = fs.iter().map(|f| f.0.clone()).collect::<Vec<_>>().join(", ");
+                        self.err("RESULT_AS_VALUE", "MO-10f", format!("{whole}.{k} is not a field {whole}'s declaration names ({names}): {whole} is a JS result whose fields hold or fail where each is read, so what is read from it is one of those fields — a method every object has (`valueOf`, `toJSON`, `toString`) may answer the result itself, and a field the declaration leaves out has no rows; declare the field in the `.d.rx`"));
+                    }
+                    (None, _) if self.callee_ids.contains(&(e as *const Expr)) => {
+                        self.err("RESULT_AS_VALUE", "MO-10f", format!("{} is called, and its key is not one the checker can name: {whole} is a JS result whose fields hold or fail where each is read, and a method every object has (`valueOf`) may answer the result itself — call a field its declaration names, `{whole}.refetch()`", show(e)));
+                    }
+                    _ => {}
+                }
             }
         }
     }
@@ -4012,6 +4272,31 @@ impl<'a> Checker<'a> {
                 None => {}
             }
         }
+        // MO-10i (closed 2026-11-22): a method called on a draft, or on what such a method answers, is one of plain
+        // data's, by name. One that calls a function it is given takes it as a closure written here: the closure is
+        // called now, with places of the draft, so its parameters are the draft's as a loop's variable is
+        if let ExprKind::Member { o, .. } | ExprKind::Index { o, .. } = &f.k {
+            if self.draft_chain(o, env) {
+                let key = match &f.k {
+                    ExprKind::Member { p, .. } => Some(p.clone()),
+                    ExprKind::Index { i, .. } => lit_key(i),
+                    _ => None,
+                };
+                match key.as_deref() {
+                    Some(m) if DRAFT_CALLBACKS.contains(&m) => {
+                        for (i, a) in args.iter().enumerate() {
+                            if let ExprKind::Fn { params, .. } = &a.k {
+                                self.draft_fns.entry(a as *const Expr).or_insert_with(|| (0..params.len()).collect());
+                            } else if i == 0 {
+                                self.err("DRAFT_ESCAPES", "MO-10i", format!("{}(…) calls the function it is given with parts of a library's draft: write it here, as a closure (`(x) => …`), whose parameters are then places of the draft — a function made elsewhere would be handed them where the checker cannot see what it does with them", show(f)));
+                            }
+                        }
+                    }
+                    Some(m) if DRAFT_METHODS.contains(&m) => {}
+                    _ => self.err("DRAFT_ESCAPES", "MO-10i", format!("{}(…) is called on a library's draft, and it is not a method of plain data the checker knows (an Array's, a Map's, a Set's, a string's): what it does with the draft, and with what it is given, cannot be seen — read the value first (`let v = {}`, a copy) and call it on that", show(f), show(o))),
+                }
+            }
+        }
         // MO-10k: a closure written among a call's arguments may be handed any of the others, or what it is called
         // on; one called where it is written, its arguments
         {
@@ -4052,6 +4337,15 @@ impl<'a> Checker<'a> {
         if self.part_drafts_of(e, env).is_some() && !self.callee_ids.contains(&(e as *const Expr)) && !self.whole_ok.contains(&(e as *const Expr)) {
             let what = show(e);
             self.err("DRAFT_ESCAPES", "MO-10i", format!("{what} hands its callback a library's draft: it is called here, with the callback written in the call (`{what}((d) => {{ … }})`), and not passed or stored — a function that travels would be given a callback the checker cannot see; share the change as an action"));
+        }
+    }
+    /// MO-10i: a read through a draft: its name, a path below it, or what a method called on one answers.
+    fn draft_chain(&self, e: &Expr, env: EId) -> bool {
+        match &e.k {
+            ExprKind::Id(n) => self.lookup(env, n).is_some_and(|t| self.syms[t].js_draft),
+            ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => self.draft_chain(o, env),
+            ExprKind::Call { f, .. } => matches!(&f.k, ExprKind::Member { o, .. } | ExprKind::Index { o, .. } if self.draft_chain(o, env)),
+            _ => false,
         }
     }
     /// MO-10i: the draft a place belongs to: the draft's name, or a path below it.
@@ -4220,6 +4514,7 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Member { o, p, .. } => {
                 self.whole_ok.insert(&**o as *const Expr);
+                self.held_member(e, env);
                 self.whole_use(e, env);
                 self.part_use(e, env);
                 if let ExprKind::Id(_) = &o.k {
@@ -4230,6 +4525,7 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Index { o, i, .. } => {
                 self.whole_ok.insert(&**o as *const Expr);
+                self.held_member(e, env);
                 self.whole_use(e, env);
                 self.part_use(e, env);
                 self.expr(o, env, ctx, None);
@@ -7183,6 +7479,86 @@ mod tests {
     }
     const LOCALS: &str = "  o = { f: (x) => x }\n  id = (x) => x\n  k = \"part\"\n";
 
+    /// MO-10k (closed 2026-11-22): each confined value has a closed set of operations; a method call outside it is
+    /// refused, whatever the syntax around it — an inherited method, a record that mentions the value, a closure kept
+    /// in a value. The safe forms beside each are accepted.
+    #[test]
+    fn each_confined_value_has_a_closed_set_of_operations() {
+        const LIB2: &str = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders methods(setPage)\nexport pure fn createClock(): any instantiates methods(format)\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
+        let run = |main: &str| -> Vec<String> {
+            let main = format!("import {{ useQ, createStore, createTable, createClock, createLabel, later, stashJs }} from \"./lib.js\"\nsource held: any := null\nsource n := 0\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any; onF: (x: any) => void }}) {{ <p>ok</p> }}\n{main}");
+            let read = |p: &str| match p {
+                "/app.rx" => Some(main.clone()),
+                "/lib.d.rx" => Some(LIB2.to_string()),
+                _ => None,
+            };
+            let set = load_modules("/app.rx", &read).unwrap();
+            check_modules(&set, false).diags.iter().map(|d| d.code.clone()).collect()
+        };
+        // MO-10f: what is read from a result with held fields is a field its declaration names
+        for m in ["valueOf", "toJSON", "toString", "hasOwnProperty", "constructor", "part"] {
+            for read in ["orig.M()", "orig[\"M\"]()", "orig.M", "q.M()", "orig.inner.M()", "orig.inner.M"] {
+                let src = format!("export default component App() {{\n  orig = useQ()\n  q = orig\n  k = \"valueOf\"\n  <Grid t={{{}}} onF={{(x) => {{}}}} />\n}}\n", read.replace('M', m));
+                assert!(run(&src).iter().any(|c| c == "RESULT_AS_VALUE"), "accepted:\n{src}");
+            }
+        }
+        let src = "export default component App() {\n  orig = useQ()\n  k = \"valueOf\"\n  <Grid t={orig[k]()} onF={(x) => {}} />\n}\n";
+        assert!(run(src).iter().any(|c| c == "RESULT_AS_VALUE"), "accepted:\n{src}");
+        let src = "export default component App() {\n  orig = useQ()\n  <Grid t={orig.isFetching} onF={(x) => { orig.refetch() }} />\n  <p>{orig.inner.n}</p>\n}\n";
+        assert_eq!(run(src), Vec::<String>::new(), "{src}");
+        // MO-10i: what is called on a draft is a method of plain data, by name; a function it calls is a closure written there
+        let store = "  [todos, setTodos] = createStore<{ items: { n: number }[] }>({ items: [] })\n";
+        for body in ["d.items.forEach(keep)", "d.items.map(keep)", "d.items.sort(keep)", "d.items.each((x) => x)", "d.items.push.bind(d.items)", "d.valueOf.call(d)", "d.items[\"forEach\"](keep)", "d.items[m]((x) => x)", "d.items.forEach((row) => { later(() => { held := row }) })", "d.items.slice(0).forEach(keep)"] {
+            let src = format!("export default component App() {{\n{store}  <button onClick={{() => {{ let keep = (x) => {{ held := x }}; let m = \"forEach\"; setTodos((d) => {{ {body} }}) }}}}>x</button>\n}}\n");
+            assert!(run(&src).iter().any(|c| c == "DRAFT_ESCAPES"), "accepted:\n{src}");
+        }
+        let src = format!("export default component App() {{\n{store}  <button onClick={{() => {{ setTodos((d) => {{ d.items.forEach((row) => {{ held := row; row.n := 1 }}); held := d.items.values(); held := d.items.map((row) => row).filter((row) => row.n > 0); d.items.push({{ n: 1 }}); d.items.sort((a, b) => a.n - b.n); held := d.items.valueOf() }}) }}}}>x</button>\n}}\n");
+        assert_eq!(run(&src), Vec::<String>::new(), "{src}");
+        // MO-11l: a method keeps nothing only when the declaration names it and it is called on the value's own name
+        for call in ["({ f: props.onF, t: table }).f(table)", "[props.onF, table][0](table)", "box.f(table)", "table.meta.f(table)", "table.rows.push(table)", "table.other(table.rows)", "alias.f(table.rows[0])"] {
+            let src = format!("component Host(props: {{ onF: (x: any) => void }}) {{\n  table = createTable({{ columns: [{{ cell: Cell }}] }})\n  box = {{ f: props.onF, t: table }}\n  alias = box\n  <button onClick={{() => {{ {call} }}}}>x</button>\n}}\nexport default component App() {{\n  <Host onF={{(x) => {{ held := x }}}} />\n}}\n");
+            assert!(run(&src).iter().any(|c| c == "RENDERS_ESCAPES"), "accepted:\n{src}");
+        }
+        // …and a declared method on its own name, a declared scalar, a primitive made of a part are free
+        let src = "component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <button onClick={() => { table.setPage(table.rows); props.onF(table.label); props.onF(table.count()); props.onF(table.rows[0].id); props.onF(len(table.rows)) }}>x</button>\n  <Grid t={table.label} onF={(x) => {}} />\n  {for row in table.rows { <Grid t={row.id} onF={(x) => {}} /> }}\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n";
+        assert_eq!(run(src), Vec::<String>::new(), "{src}");
+        // …but an undeclared field of it, or a part whose type is not a primitive's, is the value's
+        for arg in ["table.meta", "table.rows[0]", "table.rows[0].cells", "table.rows", "table.other"] {
+            let src = format!("component Host(props: {{ onF: (x: any) => void }}) {{\n  table = createTable({{ columns: [{{ cell: Cell }}] }})\n  <Grid t={{{arg}}} onF={{(x) => {{}}}} />\n}}\nexport default component App() {{\n  <Host onF={{(x) => {{}}}} />\n}}\n");
+            assert!(run(&src).iter().any(|c| c == "RENDERS_ESCAPES"), "accepted:\n{src}");
+        }
+        // E-10, E-5a: a closure kept in a value reads, when it is called, what its body reads
+        for holder in ["box.read()", "fs[0]()", "mk()()", "again.read()", "({ read: () => n }).read()", "[() => n][0]()", "pick.any()", "boxes[0].read()"] {
+            for (read, code) in [("createLabel(E)", "SNAPSHOT_ARGUMENT"), ("peek E", "SNAPSHOT_KEPT")] {
+                let src = format!("export default component App() {{\n  box = {{ read: () => n }}\n  fs = [() => n]\n  mk = () => () => n\n  again = box\n  pick = true ? box : {{ any: () => 1 }}\n  boxes = [box]\n  label = {}\n  <p onClick={{() => {{ n := n + 1 }}}}>{{label}}</p>\n}}\n", read.replace('E', holder));
+                assert!(run(&src).iter().any(|c| c == code), "accepted ({code}):\n{src}");
+            }
+        }
+        // …and a slot the expression itself names is that slot: another field, a literal's own item
+        let src = "export default component App() {\n  clock = createClock()\n  box = { read: () => n, unit: () => \"u\" }\n  a = createLabel(box.unit())\n  b = createLabel([clock, 5][1])\n  c = createLabel({ a: clock, b: 5 }.b)\n  d = peek [() => n, () => 1][1]()\n  <p onClick={() => { n := n + 1 }}>{a} {b} {c} {d} {box.read()}</p>\n}\n";
+        assert_eq!(run(src), Vec::<String>::new(), "{src}");
+    }
+    #[test]
+    fn a_declared_type_is_read_a_step_at_a_time() {
+        let t = "{ label: string; count: () => number; rows: { id: string; cells: any[] }[]; state?: { page: number } | undefined; get: (k: string) => readonly (\"a\" | \"b\")[] }";
+        let f = |k: &str| TStep::Field(k.to_string());
+        assert_eq!(ty_step(t, &f("label")).as_deref(), Some("string"));
+        assert!(ty_scalar(&ty_step(t, &f("label")).unwrap()));
+        assert_eq!(ty_step(&ty_step(t, &f("count")).unwrap(), &TStep::Call).as_deref(), Some("number"));
+        let row = ty_step(&ty_step(t, &f("rows")).unwrap(), &TStep::Elem).unwrap();
+        assert_eq!(ty_step(&row, &f("id")).as_deref(), Some("string"));
+        assert!(!ty_scalar(&ty_step(&row, &f("cells")).unwrap()));
+        assert_eq!(ty_step(&ty_step(t, &f("state")).unwrap(), &f("page")).as_deref(), Some("number"));
+        let got = ty_step(&ty_step(&ty_step(t, &f("get")).unwrap(), &TStep::Call).unwrap(), &TStep::Elem).unwrap();
+        assert!(ty_scalar(&got), "{got}");
+        assert_eq!(ty_step(t, &f("valueOf")), None);
+        for no in ["any", "Row", "string | Row", "{ a: string }", "() => string", "string[]"] {
+            assert!(!ty_scalar(no), "{no}");
+        }
+        for yes in ["string", "number | undefined", "\"a\" | \"b\"", "boolean | null", "(string)", "1 | 2"] {
+            assert!(ty_scalar(yes), "{yes}");
+        }
+    }
     /// MO-11l: whatever is made of a `renders` value by handing it on, it leaves through no way out.
     #[test]
     fn a_renders_value_leaves_through_no_way_out() {
@@ -7475,4 +7851,115 @@ fn held_match(held: &[(String, bool, Vec<String>)], path: &[Option<String>]) -> 
         }
     }
     out
+}
+
+// ---- MO-10k: a declared result's type, read as the closed set of what its value answers ----
+/// One step down a declared type: a field, what a call of it answers, an element of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TStep {
+    Field(String),
+    Call,
+    Elem,
+}
+/// The type text without what does not change what it answers: outer parentheses, `readonly`, the function words.
+fn ty_clean(t: &str) -> &str {
+    let mut t = js_trim(t);
+    loop {
+        let before = t;
+        for w in ["readonly ", "handler ", "tracked "] {
+            if let Some(r) = t.strip_prefix(w) {
+                t = js_trim(r);
+            }
+        }
+        if t.starts_with('(') && t.ends_with(')') && split_top(t, "\u{0}").len() == 1 && closes_at(t, 0) == Some(t.len() - 1) {
+            t = js_trim(&t[1..t.len() - 1]);
+        }
+        if t == before {
+            return t;
+        }
+    }
+}
+/// The index of the bracket that closes the one at `at`.
+fn closes_at(t: &str, at: usize) -> Option<usize> {
+    let b = t.as_bytes();
+    let mut depth = 0i64;
+    for i in at..b.len() {
+        let ch = b[i] as char;
+        if "([{<".contains(ch) {
+            depth += 1;
+        } else if ")]}>".contains(ch) && !(ch == '>' && i > 0 && b[i - 1] == b'=') {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+/// A union's members; `null` and `undefined` dropped when `present` (a read through `?.`, or of a field that is there).
+fn ty_members(t: &str, present: bool) -> Vec<String> {
+    split_top(ty_clean(t), "|").into_iter().map(|m| ty_clean(&m).to_string()).filter(|m| !(present && (m == "null" || m == "undefined"))).collect()
+}
+/// A record type's fields, as written: `{ a: T; b?: (x: U) => V }`.
+pub fn ty_fields(t: &str) -> Option<Vec<(String, String)>> {
+    let ms = ty_members(t, true);
+    let [t] = ms.as_slice() else { return None };
+    if !(t.starts_with('{') && t.ends_with('}') && t.len() >= 2) {
+        return None;
+    }
+    Some(
+        split_top(&t[1..t.len() - 1], ",;")
+            .iter()
+            .filter_map(|f| {
+                let i = f.find(':')?;
+                let k = js_trim(&f[..i]);
+                let k = k.strip_prefix("readonly ").map(js_trim).unwrap_or(k);
+                let k = k.strip_suffix('?').unwrap_or(k).trim_matches(|c| c == '"' || c == '\'');
+                Some((k.to_string(), js_trim(&f[i + 1..]).to_string()))
+            })
+            .collect(),
+    )
+}
+/// The declared type one step down, where the text says it: a field of a record type, the result of a function type,
+/// the element of an array type. `None`: the declaration does not say (`any`, a named type, a union of several).
+pub fn ty_step(t: &str, s: &TStep) -> Option<String> {
+    let ms = ty_members(t, true);
+    let [t] = ms.as_slice() else { return None };
+    match s {
+        TStep::Field(k) => ty_fields(t)?.into_iter().find(|f| &f.0 == k).map(|f| f.1),
+        TStep::Call => {
+            if !t.starts_with('(') {
+                return None;
+            }
+            let end = closes_at(t, 0)?;
+            let rest = js_trim(&t[end + 1..]);
+            rest.strip_prefix("=>").map(|r| js_trim(r).to_string())
+        }
+        TStep::Elem => {
+            if let Some(r) = t.strip_suffix("[]") {
+                return Some(js_trim(r).to_string());
+            }
+            for w in ["Array<", "ReadonlyArray<"] {
+                if let Some(r) = t.strip_prefix(w) {
+                    return r.strip_suffix('>').map(|x| js_trim(x).to_string());
+                }
+            }
+            None
+        }
+    }
+}
+/// Whether a declared type is a primitive's — `string`, `number`, `boolean`, `bigint`, `null`, `undefined`, `void`, a
+/// literal, or a union of those: a value of it holds nothing.
+pub fn ty_scalar(t: &str) -> bool {
+    let ms = ty_members(t, false);
+    !ms.is_empty()
+        && ms.iter().all(|m| {
+            matches!(m.as_str(), "string" | "number" | "boolean" | "bigint" | "null" | "undefined" | "void" | "never" | "true" | "false")
+                || m.parse::<f64>().is_ok()
+                || (m.len() >= 2 && ((m.starts_with('"') && m.ends_with('"')) || (m.starts_with('\'') && m.ends_with('\''))) && !m[1..m.len() - 1].contains(['"', '\'']))
+        })
+}
+/// Whether a declared type is a function's.
+pub fn ty_fn(t: &str) -> bool {
+    ty_step(t, &TStep::Call).is_some()
 }

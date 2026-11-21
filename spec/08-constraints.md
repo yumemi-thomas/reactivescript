@@ -33,7 +33,7 @@ runtime check.
 | an unkeyed `for` over records whose values change | ST-4b | static shape check |
 | exported rows: a component's props and an exported equation carry their rows in their types | RG-4, R-14 | emitted in `.d.rx`; checked at the import (CN-4) |
 | every failure a reader can see is discharged above it; an action catches what its body can fail with | R-f-5, R-f-6 | the `fails` row over the static application tree (CN-6) |
-| a value that must stay where the checker can see what is done with it: a JS result's held fields, a library's draft, a `renders` value, a primitive's instance | 09 MO-10f, MO-10i, MO-11l, MO-11o; E-10, E-5a | rules on where a name is written, and "may hold" by mention (CN-7); no value is followed |
+| a value that must stay where the checker can see what is done with it: a JS result's held fields, a library's draft, a `renders` value, a primitive's instance | 09 MO-10f, MO-10i, MO-11l, MO-11o; E-10, E-5a | rules on where a name is written, "may hold" by mention, and a closed set of operations for each kind (CN-7); names are followed through what is written, nothing about JS is inferred |
 
 ## CN-3 — Soundness and the static graph
 
@@ -153,7 +153,7 @@ runtime check.
 
 ## CN-7 — Values that stay where they are checked (ruled 2026-11-22)
 
-- **CN-7a (No value is followed).** Four checks need a value not to get
+- **CN-7a (Local rules; nothing inferred about JS).** Four checks need a value not to get
   somewhere the checker cannot see: a JS result whose fields hold or fail
   (the field must be read where a boundary is asked for), a library's
   draft (it is the callback's only while the library's call runs), a
@@ -172,6 +172,25 @@ runtime check.
     may hold a part of one when its expression mentions its name, unless
     what is written makes a primitive; every way out of the region or
     the module is where the check refuses it or stops naming it.
+
+  What "followed" means, exactly (closed 2026-11-22): no *value* is
+  tracked through the program's runs; *names* are followed through what
+  is written — a name to its binding's expression, a row to its list, a
+  parameter to the arguments its calls pass, a call to what its fn's body
+  may return and to the closures its callee's value may hold. Each step
+  is syntactic and over-approximates.
+- **CN-7d (A closed set of operations for each kind) — closed
+  2026-11-22.** What a JS method answers, keeps or calls is never read
+  off the syntax around the call: a receiver that mentions a value is
+  not that value, an inherited method may answer the object itself, a
+  method may call the closure it is given with live parts. Each
+  confined kind has a closed set of operations (09 MO-10k's table), and
+  a method is one of them only on positive evidence of which operation
+  it is: a field or a method the declaration names (the declared result
+  type, `methods(…)`), or the name of a method of plain data (a draft).
+  Anything else is refused — or, for a draft, read as a copy. The
+  evidence is the declaration's, so it is checked as the declaration is
+  (13 TY-6, `rx-verify`).
 - **CN-7b (Stricter, on purpose, and said).** This is CN-3a's stance, an
   over-approximation that rejects some fine programs and never admits a
   wrong one: a path read out of a `renders` value is confined with it,

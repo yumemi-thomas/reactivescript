@@ -516,6 +516,28 @@ export component Search(props: { start: boolean, q: string }) {
   program still threw. S-module-11; `compiler/test/ssr-held.mjs` renders
   the accepted programs on the server and shows the refused ones were the
   ones that threw.)
+
+  **Its operations are its declared fields (closed 2026-11-22).** "The
+  object of `.`" was read as any member: `q.valueOf()` is such a read,
+  and what an inherited method answers is the result itself, which a
+  child then read `.data` of under no boundary (the fourth review; the
+  server's render threw). The result's declared type is the closed set of
+  what is read from it: a member read from a result with held fields, or
+  from a record of held fields below it, names a field of the
+  declaration (`q.data`, `q["status"]`, `q.result.data`); one that does
+  not — a method every object has (`valueOf`, `toJSON`, `toString`,
+  `hasOwnProperty`), a field the declaration leaves out — is
+  `RESULT_AS_VALUE`, as is a call through a key the checker cannot name
+  (`q[k]()`; uncalled, `q[k]` is still some field's value with every
+  field's rows). A declared function field is called (`refetch: () =>
+  void`, then `q.refetch()` from a handler): it is the library's, and
+  what it answers is its declared type. So the only values an accepted
+  program reads out of the result are its declared fields', and no
+  expression's value is the result. The compiled result has those fields
+  and no others (`__rt.lazy`), so a field the declaration leaves out
+  reads `undefined` at run time too: the refusal says to declare it.
+  `each_confined_value_has_a_closed_set_of_operations` (the crate,
+  `ref/units.ts`); `compiler/test/confined.mjs`.
 - **MO-10g (Callbacks) — proposed 2026-11-18, revised 2026-11-21.** A
   declaration marks a function type `handler` where the library calls it
   later, outside any computation, as the DOM calls an event handler
@@ -633,7 +655,8 @@ export component Search(props: { start: boolean, q: string }) {
   2. *A read of it is a copy.* Wherever a draft — its name, a path below
      it, what a method called on one answers — is read as a value, the
      compiled code copies it (`__rt.copy`: arrays, plain objects, Maps and
-     Sets copied through, a cycle once; a primitive, a function, a Date,
+     Sets copied through, a cycle once; an iterator run to its end and
+     kept as an iterator over copies; a primitive, a function, a Date,
      an instance of a class is itself): `let n = d.done`, `saved := d`,
      `keep(d.sub)`, `[d]`, a `let` a later closure captures. What goes
      straight back to the library is not copied — a value written to a
@@ -651,17 +674,45 @@ export component Search(props: { start: boolean, q: string }) {
      callback that is ever handed the draft has a parameter the checker
      knows is one. A change is shared as an action that calls the setter.
 
+  4. *What is called on a draft is a method of plain data, by name
+     (closed 2026-11-22).* `draft` says the library hands out plain data
+     — arrays, plain objects, Maps, Sets — so a method called on a draft,
+     a path below it, or what such a method answers is one of theirs (or
+     a string's or a number's, for a field that is one), and the checker
+     knows each by its name. The closed set:
+
+     | methods | what the call is |
+     | --- | --- |
+     | `push` `pop` `shift` `unshift` `splice` `reverse` `fill` `copyWithin` `set` `add` `delete` `clear` | a write of the draft: its arguments go to the library as they are |
+     | `includes` `indexOf` `lastIndexOf` `at` `slice` `concat` `join` `flat` `with` `toReversed` `toSpliced` `get` `has` `valueOf` `toString` `toLocaleString` `hasOwnProperty`, and a string's or a number's (`trim`, `split`, `toFixed`, …) | a read: what it answers is a copy where it is kept (rule 2) |
+     | `keys` `values` `entries` | a read whose answer is an iterator: kept, it is run to its end and is an iterator over copies |
+     | `forEach` `map` `filter` `find` `findIndex` `findLast` `findLastIndex` `some` `every` `flatMap` `reduce` `reduceRight` `sort` `toSorted` | calls the function it is given, now, with parts of the data: that function is a closure written in the call, and its parameters are places of the draft, as a loop's variable is — read as copies (`kept.push(row)` keeps a copy), written by path (`row.done := true`), named in no closure made inside it, with no `await` |
+
+     Any other method (`d.items.each(…)`, `d.items.push.bind(…)`,
+     `d.valueOf.call(d)`), a method named by a key the checker cannot
+     read, and a function made elsewhere given to one that calls it
+     (`d.items.forEach(keep)`) are `DRAFT_ESCAPES`: what would be done
+     with the live parts cannot be seen. (The fourth review: `d.items.
+     forEach((row) => { kept.push(row) })` kept live rows, since the
+     closure names no draft; `d.items.values()` was kept as it was, since
+     an iterator is neither an array nor a plain object; reading either
+     after the library took its draft back threw.) The syntax around a
+     call no longer says what the call does: the name of a method of
+     plain data does, and nothing else is called.
+
   *Guarantee:* in a program the checker accepts, no value `.rx` holds
   after a draft callback returns is the library's draft or a live part of
   it, and no `.rx` code names the draft after its callback returned. The
-  first half is by construction (the copy), the second by rules 1 and 3.
+  first half is by construction (the copy), the second by rules 1, 3 and 4.
   It rests on the declaration (which parameter is a draft, MO-8j's
   `rx-verify` runs it) and on what `draft` says the library hands out:
   plain data — arrays, plain objects, Maps, Sets — which is what a store
   or a draft library proxies. JS the callback calls with a copy has a
   copy. `rx-verify` checks the row by running it: the setter must hand
   its callback an object, and a write to it must be kept (a library that
-  hands a copy is a mismatch). S-module-25; `examples/formisch` runs
+  hands a copy is a mismatch). A draft whose objects carry methods of
+  their own under those names is, like one that hands out instances of
+  its own classes, outside what `draft` says. S-module-25; `examples/formisch` runs
   Solid 2's own store this way, and `compiler/test/drafts.mjs` runs the
   guarantee against a library that revokes its draft: every read of it,
   through every way an expression hands a value on and every pair of
@@ -670,8 +721,8 @@ export component Search(props: { start: boolean, q: string }) {
   through locals, records and calls to refuse a write of it to a source;
   each round found another carrier. Nothing is followed now, and nothing
   is refused that only reads.)
-- **MO-10k (Confined values: one rule, no value followed) — ruled
-  2026-11-22.** Four checks keep a value where the checker can see what is
+- **MO-10k (Confined values: local rules, and a closed set of operations
+  for each) — ruled 2026-11-22, closed the same day.** Four checks keep a value where the checker can see what is
   done with it: a result with held fields (MO-10f), a library's draft
   (MO-10i), a value `renders` checked where it is bound (MO-11l, and the
   values `renders(later)` carries, MO-11o), and the instance a primitive
@@ -686,7 +737,8 @@ export component Search(props: { start: boolean, q: string }) {
 
   - *A place, or a path root, is not a value at all.* A draft and a
     result with held fields are restricted by where their name is
-    written (MO-10i, MO-10f); a draft's reads are copies. Nothing flows.
+    written (MO-10i, MO-10f); a draft's reads are copies. No value of
+    theirs is tracked through the program: there is none to track.
   - *By mention.* For the other two, a value **may be, or hold a part
     of,** a confined value when its expression mentions that value's
     name, or a name bound to such an expression: an equation's or a
@@ -708,26 +760,76 @@ export component Search(props: { start: boolean, q: string }) {
     may keep it) is where the check refuses it (MO-11l) or stops naming
     it (MO-11o).
 
+  **What the analysis follows, said exactly (closed 2026-11-22).** "No
+  value is followed" was too short. Nothing follows a *value* through
+  the program's runs. What is followed is *names*, through what is
+  written: a name to the expression it is bound to (an equation's, a
+  local's, a destructured part's), a `for` row or a loop's variable to
+  its list, a parameter to the arguments its calls pass (for a fn, an
+  action or a named closure of this module, and for a closure written in
+  a call), a fn's or an action's call to what its body may return, a
+  call of a closure to the closures the callee's value may hold — and,
+  where what is written names one slot of a literal (a field of a record
+  literal, an index of an array literal), to that slot alone. Each step
+  is syntactic and over-approximates; none reads a type or runs
+  anything. What is *not* followed is anything about JavaScript: what a
+  JS function keeps, returns or calls is its declaration's word, and
+  the next paragraph is what that word must be.
+
+  **A closed set of operations for each (closed 2026-11-22).** The
+  fourth review found one mistake under four accepted programs: the
+  syntax around a JS method call — "the object of `.`", "a method of the
+  value itself", "a closure that names no draft", "a callee that is not
+  a name" — was taken as evidence of what the method answers, keeps or
+  calls. It is not: `q.valueOf()` answers `q`; `({ f: props.f, t:
+  table }).f(table)` is not a method of `table`; `d.items.forEach(…)`
+  hands its callback live rows; `box.read()` runs a closure. So each
+  confined kind has a closed set of operations, and a method is granted
+  an exemption only on positive evidence of which operation it is — a
+  name the declaration gives, or the name of a method of plain data:
+
+  | kind | its operations | the evidence | anything else |
+  | --- | --- | --- | --- |
+  | a result with held fields (MO-10f) | read a declared field (by `.`, `[…]`, a rest that names the held ones); call a declared function field; another name by an equation; compare, test | the field is in the declared result type | `RESULT_AS_VALUE`: an inherited method (`valueOf`, `toJSON`), an undeclared field, a call through a computed key |
+  | a library's draft (MO-10i) | read a path (a copy where kept); write a path; loop over a path; call a method of plain data from MO-10i's table | the method's name is an Array's, a Map's, a Set's, a string's or a number's; a function it calls is a closure written in the call | `DRAFT_ESCAPES`; what a known method answers is copied, an iterator run to its end |
+  | a `renders` value (MO-11l) | read and render it in its region; give it to a `pure` JS fn; call a method `methods(…)` names on its own name; let a part out that its declared type says is a primitive | `methods(…)` and the declared result type; `pure` | `RENDERS_ESCAPES` where a call that may keep it is given it or a part of it |
+  | a primitive's instance (E-10, E-5a) | name it, pass it whole; call a method `methods(…)` names on its own name or an alias's | `methods(…)` | a read of what may change: `SNAPSHOT_ARGUMENT`, `SNAPSHOT_KEPT` |
+
+  The declared result type is read as text, a step at a time
+  (`ty_step`): a field of a record type, what a function type answers,
+  an element of an array type; a type the text does not spell out
+  (`any`, a named type, a union of several shapes) says nothing, so the
+  strict reading stands. `rx-tsc` checks the text against the library's
+  own types (13 TY-6), so the evidence is the declaration's, checked as
+  every row at the boundary is.
+
   What it costs is precision, on purpose: a field read out of a
-  `renders` value is the value's (`row.id` may be a component for all the
-  checker knows), until the program makes a primitive of it
-  (`str(row.id)`); `[clock][0].format()` is a read through what may be
-  the instance, though it is the instance's declared method. What it
+  `renders` value is the value's (`row.original` may hold a component
+  for all the checker knows) unless its declaration says it is a
+  primitive (`rows: { id: string }[]`, then `row.id` is free) or the
+  program makes one of it (`str(row.name)`); `w = [clock]; w[0].format()`
+  is a read through what may be the instance, though it is the
+  instance's declared method. What it
   buys is that the guarantees below are properties of the rules, shown by
   tests that put each value through every way of handing it on and every
   pair of them into every way out (`a_renders_value_leaves_through_no_way_out`,
   `a_read_through_what_may_be_an_instance_changes`,
   `a_result_with_held_fields_is_never_a_value`,
-  `a_draft_is_named_only_in_its_callback`: in the crate and in
-  `ref/units.ts`), not a list of the cases a review found.
+  `a_draft_is_named_only_in_its_callback`,
+  `each_confined_value_has_a_closed_set_of_operations`: in the crate and in
+  `ref/units.ts`), not a list of the cases a review found; and by
+  `compiler/test/confined.mjs`, which runs the fourth review's four
+  programs: each verdict in both checkers, and what the program does.
 
   **The JS boundary.** What JS does with a value it is given is the
   declaration's to say, as everywhere (CN-3b, CN-5): a `pure` fn keeps
   nothing and hands what it is given back only as its result, so a
   confined value may be passed to one (its result is confined again); an
-  `io` fn, a method of another value, and anything the checker cannot
-  name may keep it, so a `renders` value is refused there; a draft passed to JS is a copy; a result with held fields is not
-  passed. Nothing about JS is inferred.
+  `io` fn, a method the declaration does not name, a method of another
+  value, and anything the checker cannot name may keep it, so a `renders`
+  value is refused there; a draft passed to JS is a copy; a result with
+  held fields is not passed. Nothing about JS is inferred: not from a
+  method's receiver, nor from the shape of the expression it is called in.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 
@@ -969,13 +1071,32 @@ export default component App() {
   body is checked with that (so `action stash(x) { held := x }` is refused
   at its write when it is called with a row). A `pure` JS fn keeps nothing
   (`flexRender(cell.column.cell, …)`), nor does a method of a `pure` JS
-  import or of the value itself (`table.setPage(n)`): the result of such a
-  call is a part of the value again. A function the checker cannot name
+  import, nor a method of the value that its declaration names, called on
+  the value's own name (`createTable(…): … renders methods(setSorting)`,
+  then `table.setSorting(next)`): the result of such a call is a part of
+  the value again. *A method of the value itself* was once any call whose
+  receiver mentioned the value (closed 2026-11-22): `({ onSend:
+  props.onSend, t: table }).onSend(table)` is such a call and hands the
+  table to the parent, and so does a callback the program itself put in
+  the table (`table.options.meta.report(table)`). A receiver says nothing
+  of what is called; the declaration's `methods(…)` does. A call with no
+  argument that may hold a part of the value keeps nothing whatever it
+  is, so `table.nextPage()` and `row.toggleSelected()` need no word. A function the checker cannot name
   is refused in reactive scope too: `props.report(table.rows)` hands the
   rows up to whatever applied the component. What is free to leave is a primitive made of it —
-  `str(row.id)`, a template, arithmetic, a comparison, `len(table.rows)`
-  — and a closure that gives nothing back: `onPress={() => {
-  table.nextPage() }}` is an ordinary prop. *Guarantee:* in a program the
+  `str(row.name)`, a template, arithmetic, a comparison, `len(table.rows)`
+  — a part its declaration says is a primitive, and a closure that gives
+  nothing back: `onPress={() => { table.nextPage() }}` is an ordinary
+  prop. *A declared primitive (2026-11-22).* The declared result type
+  is read a step at a time (MO-10k): with `createTable(…): { label:
+  string; getPageCount: () => number; getRowModel: () => { rows: { id:
+  string }[] } } renders`, `table.label`, `table.getPageCount()` and
+  the `row.id` of `for row in table.getRowModel().rows` are a string and
+  numbers by declaration, hold no part of the table, and are passed to a
+  child or a callback as they are, with their types (`<Pager
+  pages={table.getPageCount()} />`, `props.onPick(row.id)`). A part
+  whose type the text does not say is a primitive's — `any`, a record,
+  an array, a field the declaration leaves out — is the value's. *Guarantee:* in a program the
   checker accepts, no `.rx` code outside the region a bare `renders`
   result is bound in holds that result or a value read out of it, so
   whatever renders its components is beneath that region, under the

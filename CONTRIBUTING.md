@@ -44,7 +44,7 @@ The crate, the plugin, the runtime and the tooling, from the repository's root:
 
 ```sh
 (cd compiler && cargo test --release)
-for t in vite kobalte formisch ssr-router start vite-types vite-gate ssr-held drafts; do node compiler/test/$t.mjs; done
+for t in vite kobalte formisch ssr-router start vite-types vite-gate ssr-held drafts confined; do node compiler/test/$t.mjs; done
 # with a Solid plugin that has context.resolve and Frontend.buildStart (compiler/README.md):
 for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar

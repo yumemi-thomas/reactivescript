@@ -530,6 +530,9 @@ class Gen {
         // a method of a draft is the library's own: what it is given goes straight back to it; a builtin that answers a
         // primitive keeps nothing
         if (((e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env)) || (e.f.k === "id" && ["len", "str", "sum", "every", "indexOf"].includes(e.f.name) && !env.lookup(e.f.name))) for (const a of e.args) this.raw.add(a);
+        // a closure written for one of a draft's own methods (`d.items.forEach((row) => { … })`) is called by it with
+        // places of the draft: its parameters are read as copies, as the draft is (closed 2026-11-22)
+        if ((e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env)) for (const a of e.args) if (a.k === "fn" && !this.draftClosures.has(a)) this.draftClosures.set(a, a.params.map((_, i) => i));
         this.raw.add(e.f);
         if (e.f.k === "member") return `${rawGo(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
         return `${go(e.f)}(${e.args.map(go).join(", ")})`;
@@ -616,7 +619,7 @@ class Gen {
         case "for": {                                                                        // 07 §5: a loop of imperative scope; its variable is a constant of each turn
           const place = this.draftPlace(s.e, env); if (place) this.raw.add(s.e);              // MO-10i: a turn of a loop over a path of a draft is a place of that draft
           const x = e(s.e); const inner = new Env(env); inner.vars.set(s.name, { kind: "val", js: mg(s.name), ...(place ? { draft: true } : {}) });
-          out.push(`${pad}for (const ${mg(s.name)} of ${x}) {\n${this.stmts(s.body, inner, ctx, ind + 1)}\n${pad}}`); break;
+          out.push(`${pad}for (const ${mg(s.name)} of [...${x}]) {\n${this.stmts(s.body, inner, ctx, ind + 1)}\n${pad}}`); break;   // the loop visits what `e` holds when it starts (07 §5)
         }
         case "sif": this.raw.add(s.c); out.push(`${pad}if (${e(s.c)}) {\n${this.stmts(s.t, env, ctx, ind + 1)}\n${pad}} else {\n${this.stmts(s.f, env, ctx, ind + 1)}\n${pad}}`); break;
         case "try": {

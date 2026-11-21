@@ -22,9 +22,15 @@ them things the compiler refuses, the way Rust refuses a borrow, so the
 program that runs is one where those mistakes cannot happen
 ([spec/08](spec/08-constraints.md), [spec/99](spec/99-diagnostics.md)).
 
-The checks are static only. A `.rx` program compiles to ordinary Solid 2.0
-code and adds nothing at run time beyond what Solid does
-([spec/11](spec/11-compiler.md)).
+The checks are static: none of them becomes a run-time check. A `.rx`
+program compiles to ordinary Solid 2.0 code over a small runtime of Solid's
+own primitives ([spec/11](spec/11-compiler.md)). In three places a rule is
+kept by construction instead of by refusal, and there the compiled code does
+a little more than hand-written Solid would: a value read out of a library's
+draft is a copy, a JS result whose fields wait or fail is read through a
+getter per field, and a loop runs over the values its list held when it
+started ([spec/09](spec/09-modules.md) MO-10i, MO-10f;
+[spec/07](spec/07-surface.md) §5).
 
 It is also meant to be easy for an AI to write correctly. The rules are
 small and explicit, and each checker error names the rule it enforces and usually the fix. We

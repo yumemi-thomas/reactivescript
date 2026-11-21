@@ -10,7 +10,7 @@ import { readDisk } from "./disk.ts";
 import { packageRelative, besideDeclaration } from "./src/modules.ts";
 import { looksLikeTypes, parseProgram } from "./src/parse.ts";
 import { loadModules } from "./src/modules.ts";
-import { checkModules } from "./src/check.ts";
+import { checkModules, tyStep, tyScalar } from "./src/check.ts";
 
 const files = (fs: Record<string, string>) => (p: string) => fs[p];
 
@@ -78,6 +78,60 @@ export const units: [string, () => void][] = [
       src = `export default component App() {\n${store}${LOCALS}  <button onClick={() => { setTodos((d) => { held := ${e}; let v = ${e}; later(() => { held := v }) }) }}>x</button>\n}\n`;
       must(codesOf(src).includes("DRAFT_ESCAPES") === e.includes("(() =>"), "a read of the draft in its callback is a copy", src);
     }
+  }],
+  ["each_confined_value_has_a_closed_set_of_operations", () => {   // MO-10k (closed 2026-11-22); mirrors the crate's test
+    const LIB2 = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders methods(setPage)\nexport pure fn createClock(): any instantiates methods(format)\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
+    const run = (main: string): string[] => {
+      const src = `import { useQ, createStore, createTable, createClock, createLabel, later, stashJs } from "./lib.js"\nsource held: any := null\nsource n := 0\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any; onF: (x: any) => void }) { <p>ok</p> }\n${main}`;
+      return checkModules(loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB2 : undefined)).diags.map(d => d.code);
+    };
+    // MO-10f: what is read from a result with held fields is a field its declaration names
+    for (const m of ["valueOf", "toJSON", "toString", "hasOwnProperty", "constructor", "part"]) for (const read of ["orig.M()", "orig[\"M\"]()", "orig.M", "q.M()", "orig.inner.M()", "orig.inner.M"]) {
+      const src = `export default component App() {\n  orig = useQ()\n  q = orig\n  k = "valueOf"\n  <Grid t={${read.replaceAll("M", m)}} onF={(x) => {}} />\n}\n`;
+      must(run(src).includes("RESULT_AS_VALUE"), "accepted", src);
+    }
+    let src = "export default component App() {\n  orig = useQ()\n  k = \"valueOf\"\n  <Grid t={orig[k]()} onF={(x) => {}} />\n}\n";
+    must(run(src).includes("RESULT_AS_VALUE"), "accepted", src);
+    deepStrictEqual(run("export default component App() {\n  orig = useQ()\n  <Grid t={orig.isFetching} onF={(x) => { orig.refetch() }} />\n  <p>{orig.inner.n}</p>\n}\n"), []);
+    // MO-10i: what is called on a draft is a method of plain data, by name; a function it calls is a closure written there
+    const store = "  [todos, setTodos] = createStore<{ items: { n: number }[] }>({ items: [] })\n";
+    for (const body of ["d.items.forEach(keep)", "d.items.map(keep)", "d.items.sort(keep)", "d.items.each((x) => x)", "d.items.push.bind(d.items)", "d.valueOf.call(d)", "d.items[\"forEach\"](keep)", "d.items[m]((x) => x)", "d.items.forEach((row) => { later(() => { held := row }) })", "d.items.slice(0).forEach(keep)"]) {
+      src = `export default component App() {\n${store}  <button onClick={() => { let keep = (x) => { held := x }; let m = "forEach"; setTodos((d) => { ${body} }) }}>x</button>\n}\n`;
+      must(run(src).includes("DRAFT_ESCAPES"), "accepted", src);
+    }
+    deepStrictEqual(run(`export default component App() {\n${store}  <button onClick={() => { setTodos((d) => { d.items.forEach((row) => { held := row; row.n := 1 }); held := d.items.values(); held := d.items.map((row) => row).filter((row) => row.n > 0); d.items.push({ n: 1 }); d.items.sort((a, b) => a.n - b.n); held := d.items.valueOf() }) }}>x</button>\n}\n`), []);
+    // MO-11l: a method keeps nothing only when the declaration names it and it is called on the value's own name
+    for (const call of ["({ f: props.onF, t: table }).f(table)", "[props.onF, table][0](table)", "box.f(table)", "table.meta.f(table)", "table.rows.push(table)", "table.other(table.rows)", "alias.f(table.rows[0])"]) {
+      src = `component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  box = { f: props.onF, t: table }\n  alias = box\n  <button onClick={() => { ${call} }}>x</button>\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n`;
+      must(run(src).includes("RENDERS_ESCAPES"), "accepted", src);
+    }
+    // …and a declared method on its own name, a declared scalar, a primitive made of a part are free
+    deepStrictEqual(run("component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <button onClick={() => { table.setPage(table.rows); props.onF(table.label); props.onF(table.count()); props.onF(table.rows[0].id); props.onF(len(table.rows)) }}>x</button>\n  <Grid t={table.label} onF={(x) => {}} />\n  {for row in table.rows { <Grid t={row.id} onF={(x) => {}} /> }}\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n"), []);
+    // …but an undeclared field of it, or a part whose type is not a primitive's, is the value's
+    for (const arg of ["table.meta", "table.rows[0]", "table.rows[0].cells", "table.rows", "table.other"]) {
+      src = `component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <Grid t={${arg}} onF={(x) => {}} />\n}\nexport default component App() {\n  <Host onF={(x) => {}} />\n}\n`;
+      must(run(src).includes("RENDERS_ESCAPES"), "accepted", src);
+    }
+    // E-10, E-5a: a closure kept in a value reads, when it is called, what its body reads
+    for (const holder of ["box.read()", "fs[0]()", "mk()()", "again.read()", "({ read: () => n }).read()", "[() => n][0]()", "pick.any()", "boxes[0].read()"]) for (const [read, code] of [["createLabel(E)", "SNAPSHOT_ARGUMENT"], ["peek E", "SNAPSHOT_KEPT"]]) {
+      src = `export default component App() {\n  box = { read: () => n }\n  fs = [() => n]\n  mk = () => () => n\n  again = box\n  pick = true ? box : { any: () => 1 }\n  boxes = [box]\n  label = ${read.replaceAll("E", holder)}\n  <p onClick={() => { n := n + 1 }}>{label}</p>\n}\n`;
+      must(run(src).includes(code), `accepted (${code})`, src);
+    }
+    // …and a slot the expression itself names is that slot: another field, a literal's own item
+    deepStrictEqual(run("export default component App() {\n  clock = createClock()\n  box = { read: () => n, unit: () => \"u\" }\n  a = createLabel(box.unit())\n  b = createLabel([clock, 5][1])\n  c = createLabel({ a: clock, b: 5 }.b)\n  d = peek [() => n, () => 1][1]()\n  <p onClick={() => { n := n + 1 }}>{a} {b} {c} {d} {box.read()}</p>\n}\n"), []);
+  }],
+  ["a_declared_type_is_read_a_step_at_a_time", () => {   // MO-10k: `tyStep`, `tyScalar`
+    const t = "{ label: string; count: () => number; rows: { id: string; cells: any[] }[]; state?: { page: number } | undefined; get: (k: string) => readonly (\"a\" | \"b\")[] }";
+    const f = (k: string) => ({ field: k });
+    deepStrictEqual(tyStep(t, f("label")), "string");
+    deepStrictEqual(tyStep(tyStep(t, f("count"))!, "call"), "number");
+    const row = tyStep(tyStep(t, f("rows"))!, "elem")!;
+    deepStrictEqual([tyStep(row, f("id")), tyScalar(tyStep(row, f("cells"))!)], ["string", false]);
+    deepStrictEqual(tyStep(tyStep(t, f("state"))!, f("page")), "number");
+    deepStrictEqual(tyScalar(tyStep(tyStep(tyStep(t, f("get"))!, "call")!, "elem")!), true);
+    deepStrictEqual(tyStep(t, f("valueOf")), undefined);
+    deepStrictEqual(["any", "Row", "string | Row", "{ a: string }", "() => string", "string[]"].map(tyScalar), [false, false, false, false, false, false]);
+    deepStrictEqual(["string", "number | undefined", "\"a\" | \"b\"", "boolean | null", "(string)", "1 | 2"].map(tyScalar), [true, true, true, true, true, true]);
   }],
   ["a_wire_id_is_the_declarations_own_place", () => {   // SV-5a (ruled 2026-11-22)
     let read = files({ "/w/app/package.json": `{"name":"shop"}`, "/w/app/a/package.json": `{"type":"module"}` });

@@ -245,9 +245,9 @@ Function application `f(e…)` covers both language functions and FFI imports;
   a read of what may change, and which values may be it is 09 MO-10k's
   rule, by mention, with no value followed: a field read, an index or a
   method call on an expression that mentions the instance — a record or
-  an array holding it (`[clock][0].now()`, and `[clock][0].format()` too:
-  the checker does not follow the index to know it is the instance's
-  declared method), what a call given it returns, however it is called
+  an array holding it (`w = [clock]`, then `w[0].now()` and
+  `w[0].format()` too: the checker does not read a name's value to know
+  which slot is the instance), what a call given it returns, however it is called
   (`keep(keep(clock)).now()`, `o.f(clock).now()`, `mk(clock)().now()`,
   `[].concat([clock])[0].now()`), a parameter of a closure handed it
   (`map([clock], (c) => c.now())`) — and handing it to a function of
@@ -259,7 +259,26 @@ Function application `f(e…)` covers both language functions and FFI imports;
   then `createLabel(f())`, and `f = () => n` for a written source `n`,
   are snapshots, as `peek f()` kept is `SNAPSHOT_KEPT` (the earlier
   rule looked at the names an argument reads and took a closure's name
-  for a constant). *Guarantee:* an argument, or a kept `peek`, that the
+  for a constant).
+  **A closure kept in a value (closed 2026-11-22).** The same holds
+  wherever the closure is kept: a call whose callee is read out of a
+  value — `box.read()`, `fs[0]()`, `mk()()` — may call any closure that
+  value holds, by mention (every closure written in its expression and
+  in the closures those return, and in the values its names are bound
+  to), and reads what each of them reads: `box = { read: () => n }`,
+  then `peek box.read()` kept is `SNAPSHOT_KEPT` and `createLabel(
+  box.read())` is `SNAPSHOT_ARGUMENT` (the fourth review: a closure in a
+  record lost what its body reads, and the value was frozen). Where what
+  is written names the slot, the call is of that slot's closure alone:
+  a field of a record literal, an index of an array literal, through
+  the equations and locals that name it (neither is ever written), so
+  `box = { read: () => n, unit: () => "items" }` leaves
+  `createLabel(box.unit())` a constant. A method of a JS value — an
+  import, the instance — is not a closure of `.rx`: what it answers is
+  the rule above. And a slot of a literal written where it is read is
+  that slot, for a value as for a closure: `createLabel([clock, 5][1])`
+  reads `5`, not through the instance (`w = [clock, 5]; w[1]` is still a
+  read through `w`: only what the expression itself says). *Guarantee:* an argument, or a kept `peek`, that the
   checker takes for made once reads no field of a primitive's instance
   and calls no method its declaration does not name, through any `.rx`
   expression; it rests on the declaration's `methods(…)`. S-module-20.

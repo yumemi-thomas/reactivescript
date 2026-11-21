@@ -276,7 +276,16 @@ action { refresh user; affects user }   // inline, one run (AC-1)
 - **The loop** (ruled 2026-11-22). `for (const x of e) { … }` runs its
   block once for each value `e` holds when the loop starts, `x` a constant
   of that turn (`let` is read as `const`: a local is never reassigned). It
-  is JavaScript's `for … of`, and compiles to it. Being a statement, its
+  compiles to JavaScript's `for … of` over those values, `for (const x of
+  [...e])` (closed 2026-11-22: the emitters looped over `e` itself, which
+  JavaScript reads as it goes, so a turn that added to the list it looped
+  over — a draft's, `d.items.push(…)` — was handed what it had just added,
+  and one that always added never ended; the interpreter already took the
+  values first). This is the rule of every run: nothing a run writes is
+  seen by that run (W-3, W-4), a loop's turns included, and it is what the
+  run's checks assume when they read a loop as a body run again. It costs
+  one array per loop, and `e` is read to its end before the first turn, so
+  it is a finite collection. Being a statement, its
   body is the scope it is written in — the same run, the same change, the
   same `return` — which a closure handed to `forEach` is not: the body may
   `await` in an action (a hold-safe suspension, AC-1), end the run with
