@@ -86,6 +86,21 @@ check("a draft from an earlier drafting rule is redone, though the version stand
 const reused = ensureDeclarations(path.join(ws, "main.rx"));
 check("...and the redrafted file is kept on the next run", status(reused, "kit-ui") === "current", reused);
 
+// an outdated draft that cannot be redone (the package's types are gone) is removed, not left to be read
+const typesAt = path.join(ws, "node_modules/kit-ui/index.d.ts"), typesKept = fs.readFileSync(typesAt, "utf8");
+const pjKit = path.join(ws, "node_modules/kit-ui/package.json"), pjKept = fs.readFileSync(pjKit, "utf8");
+fs.writeFileSync(gen, "//@ generated kit-ui@1.3.0 (MO-8l): drafted from kit-ui's TypeScript types\nexport component Badge(props: { label: string })\nexport pure fn useCount(): ref number\n");
+fs.rmSync(typesAt); fs.writeFileSync(pjKit, JSON.stringify({ ...JSON.parse(pjKept), types: undefined }));
+const gone = ensureDeclarations(path.join(ws, "main.rx"));
+const afterGone = checkRx();
+check("an outdated draft that cannot be redone is removed: the import is undeclared again, not read with its old `pure`", status(gone, "kit-ui") === "failed" && gone.find(r => r.spec === "kit-ui").removed === true && !fs.existsSync(gen) && afterGone.status !== 0 && /UNKNOWN_COMPONENT/.test(afterGone.out), { gone, afterGone });
+fs.writeFileSync(typesAt, typesKept); fs.writeFileSync(pjKit, pjKept);
+const current = ensureDeclarations(path.join(ws, "main.rx"));
+fs.rmSync(typesAt);
+const keptCurrent = ensureDeclarations(path.join(ws, "main.rx"));
+check("...while a current draft is kept, though its package's types are gone (nothing to redo)", status(current, "kit-ui") === "written" && status(keptCurrent, "kit-ui") === "current" && fs.existsSync(gen), { current, keptCurrent });
+fs.writeFileSync(typesAt, typesKept);
+
 fs.mkdirSync(path.join(ws, "rx-types"), { recursive: true });
 fs.writeFileSync(path.join(ws, "rx-types/kit-ui.d.rx"), "export component Badge(props: { label: string })\nexport pure fn useCount(): ref number\n");
 const own = ensureDeclarations(path.join(ws, "main.rx"));
@@ -168,8 +183,23 @@ fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: tru
   check("context.resolve (Vite's resolver) names @/show.rx: the peek is refused, with no alias option", !resolvedByVite.ok && /SNAPSHOT_KEPT/.test(resolvedByVite.error) && asked.some(([s, i]) => s === "@/show.rx" && i === path.join(wp, "pages/host.tsx")), { resolvedByVite, asked });
   const nothing = await viaVite({ wholeProgram: true, alias: { "@": wp } }, async () => null);
   check("...an import Vite does not resolve falls back to the alias option", !nothing.ok && /SNAPSHOT_KEPT/.test(nothing.error), nothing);
+  // two Vite configurations in one process that resolve the alias differently each get their own answer
+  fs.writeFileSync(path.join(wp, "other.rx"), "export component Other() {\n  <i>o</i>\n}\n");
+  const elsewhere = await viaVite({ wholeProgram: true }, async s => s === "@/show.rx" ? path.join(wp, "other.rx") : null);
+  const here = await viaVite({ wholeProgram: true }, async s => s === "@/show.rx" ? path.join(wp, "show.rx") : null);
+  check("another configuration resolving @ elsewhere does not decide this one's hosts (a resolution cache per plugin)", elsewhere.ok && !here.ok && /SNAPSHOT_KEPT/.test(here.error), { elsewhere, here });
+  fs.rmSync(path.join(wp, "other.rx"));
   const perModuleAsync = await viaVite({}, vite);
   check("...and without wholeProgram the resolver is not asked, and the compile stays synchronous", !perModuleAsync.isAsync && asked.length === 1, { perModuleAsync, asked });
+  // a project opened through a symlink: the hosts are named as the checker names its modules, through the link
+  const link = path.join(ws, "whole-link"); fs.rmSync(link, { force: true }); fs.symlinkSync(wp, link, "dir");
+  fs.writeFileSync(path.join(wp, "pages/host.tsx"), "import { Show } from \"../show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
+  const throughLink = (() => { const saved = process.env.RX_GENERATE; process.env.RX_GENERATE = "0";
+    try { rx({ wholeProgram: true }).compile("", { id: path.join(link, "main.rx"), moduleId: path.join(link, "main.rx"), root: link, solid: { generate: "dom", hydratable: true }, addWatchFile() {} }); return { ok: true }; }
+    catch (e) { return { ok: false, error: String(e.message ?? e) }; } finally { if (saved === undefined) delete process.env.RX_GENERATE; else process.env.RX_GENERATE = saved; } })();
+  check("a project opened through a symlink: the host is still the module the checker sees, and the peek is refused", !throughLink.ok && /SNAPSHOT_KEPT/.test(throughLink.error), throughLink);
+  fs.rmSync(link);
+  fs.writeFileSync(path.join(wp, "pages/host.tsx"), "import { Show } from \"@/show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
   fs.writeFileSync(path.join(wp, "tsconfig.json"), JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@/*": ["./*"] } } }));
   const tsPaths = buildWith({ wholeProgram: true });
   check("...and through tsconfig.json's paths", !tsPaths.ok && /SNAPSHOT_KEPT/.test(tsPaths.error), tsPaths);

@@ -17,6 +17,7 @@ const { installed } = require("./versions.js");
 
 const IMPORT = /^\s*import\b([^"'`;]*?)\bfrom\s*["']([^"']+)["']/gm;
 const GENERATED = /^\/\/@ generated (\S+)@(\S+) \(MO-8l, draft (\d+)\)/;
+const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, under any rule
 // The drafting rules a generated file was written under. A draft is kept only while the package's version and this both
 // stand, so a change of rule (2: no fn is guessed `pure`) redrafts what an earlier rule wrote. Bump it with any change to
 // what a draft says.
@@ -82,7 +83,14 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     }
     let text;
     try { text = declare(typescriptFor(dir), spec, dir); }
-    catch (e) { out.push({ spec, file, status: "failed", reason: e.message }); continue; }
+    catch (e) {
+      // a draft written for another version or under other rules is not kept when it cannot be redone: its rows (an
+      // earlier rule's guessed `pure`) would still be read, so the import falls back to undeclared, the cautious reading
+      let removed = false;
+      if (found && path.resolve(found) === file && GENERATED_ANY.test(fs.readFileSync(file, "utf8"))) { fs.rmSync(file); removed = true; }
+      out.push({ spec, file, status: "failed", reason: e.message, ...(removed ? { removed } : {}) });
+      continue;
+    }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     text = parsing(text, file);
     fs.writeFileSync(file, [

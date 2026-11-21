@@ -132,7 +132,7 @@ function resolveHost(spec, importer, aliases, tsPaths) {
   return undefined;
 }
 const unresolved = new Set();   // ?rx-lib imports already reported as naming no file
-const scans = new Map();   // a JS file → { t: its mtime, specs: the ?rx-lib imports it was read with, via: what Vite resolved them to }
+const scans = new Map();   // a JS file → { t: its mtime, specs: the ?rx-lib imports it was read with } (the file's text: shared)
 /** Every `?rx-lib` import of the JS files under `root`: `{ p, spec, s }`, `s` the file's scan (kept while its mtime stands). */
 function hostImports(root) {
   const out = [];
@@ -144,7 +144,7 @@ function hostImports(root) {
       if (e.isDirectory()) walk(p);
       else if (/\.(m?[jt]sx?|cjs)$/.test(e.name)) {
         const t = mtime(p); let s = scans.get(p);
-        if (!s || s.t !== t) { s = { t, specs: [...readFileSync(p, "utf8").matchAll(RX_LIB_IMPORT)].map(m => m[2] ?? m[4]), via: new Map() }; scans.set(p, s); }
+        if (!s || s.t !== t) { s = { t, specs: [...readFileSync(p, "utf8").matchAll(RX_LIB_IMPORT)].map(m => m[2] ?? m[4]) }; scans.set(p, s); }
         for (const spec of s.specs) out.push({ p, spec, s });
       }
     }
@@ -157,26 +157,41 @@ function warnUnresolved(p, spec) {
   unresolved.add(`${p}\0${spec}`);
   console.warn(`[reactivescript] whole-program check: ${path.relative(process.cwd(), p)} imports ${spec}?rx-lib, which names no .rx file here: pass the project's aliases as rx({ alias }), or the components it applies are not counted (E-5a)`);
 }
+/** A host's file under each name the checker's module keys may give it: the checker keys a module by the path the
+ *  build named it with, which is the real one (Vite's ids) or one through a link (a root opened through a symlink,
+ *  `preserveSymlinks`); so the real path, and the same file under the root as it was given. */
+function keysOf(f, root) {
+  const out = new Set([posix(f), real(f)]);
+  const given = posix(path.resolve(root)), actual = real(root);
+  if (given !== actual) for (const k of [...out]) {
+    if (k.startsWith(actual + "/")) out.add(given + k.slice(actual.length));
+    if (k.startsWith(given + "/")) out.add(actual + k.slice(given.length));
+  }
+  return out;
+}
 /** The hosts, resolved here: relative imports, the `alias` option and tsconfig.json's `paths`. */
 function hostsUnder(root, alias) {
   const out = new Set(); const aliases = aliasesOf(alias); const tsPaths = tsPathsOf(root);
   for (const { p, spec } of hostImports(root)) {
     const f = resolveHost(spec, p, aliases, tsPaths);
-    if (f && existsSync(f)) out.add(f); else warnUnresolved(p, spec);
+    if (f && existsSync(f)) for (const k of keysOf(f, root)) out.add(k); else warnUnresolved(p, spec);
   }
   return [...out].sort();
 }
 /** The hosts, resolved by Vite itself (`resolve`, the front-end context's, which runs every plugin's `resolveId`), so an
- *  alias only another plugin knows is seen too; an import Vite does not resolve falls back to `hostsUnder`'s reading. */
-async function hostsVia(root, resolve, alias) {
+ *  alias only another plugin knows is seen too; an import Vite does not resolve falls back to `hostsUnder`'s reading.
+ *  `via` keeps Vite's answers for one plugin instance, by file, its mtime and the import: another Vite configuration in
+ *  the same process (another instance) may resolve the same import elsewhere, and asks again. */
+async function hostsVia(root, resolve, alias, via) {
   const out = new Set(); const aliases = aliasesOf(alias); const tsPaths = tsPathsOf(root);
   for (const { p, spec, s } of hostImports(root)) {
-    if (!s.via.has(spec)) {
+    const key = `${p}\0${s.t}\0${spec}`;
+    if (!via.has(key)) {
       let id = null; try { id = await resolve(spec, p); } catch {}
-      s.via.set(spec, id && !id.startsWith("\0") ? real(id.split("?")[0]) : null);
+      via.set(key, id && !id.startsWith("\0") ? posix(id.split("?")[0]) : null);
     }
-    const f = s.via.get(spec) ?? resolveHost(spec, p, aliases, tsPaths);
-    if (f && existsSync(f)) out.add(f); else warnUnresolved(p, spec);
+    const f = via.get(key) ?? resolveHost(spec, p, aliases, tsPaths);
+    if (f && existsSync(f)) for (const k of keysOf(f, root)) out.add(k); else warnUnresolved(p, spec);
   }
   return [...out].sort();
 }
@@ -186,6 +201,7 @@ export default function rx(options = {}) {
   const flag = process.env.RX_TYPECHECK;
   let typed = flag === "0" ? true : null;   // whether this process has type-checked (once per build)
   const builds = new Map();
+  const via = new Map();   // E-5a: what this instance's Vite resolved each ?rx-lib import to (hostsVia)
   let lastRoot;   // the Vite root, for whole-program checking's ?rx-lib hosts   // entry\0target\0moduleName\0spa\0lib → { entry, target, moduleName, spa, lib, out, stamps }
   // E-5a: the hosts a whole-program check counted are part of what it was checked against: a JS file that starts or stops
   // importing a module with ?rx-lib makes the check stale, as an edit of one of its modules does
@@ -199,6 +215,7 @@ export default function rx(options = {}) {
       let drafted = [];
       try { drafted = generator(entry)?.ensureDeclarations(entry) ?? []; }
       catch (e) { console.warn(`[reactivescript] drafting declarations failed, the program is read without them (MO-8l): ${e?.message ?? e}`); }
+      for (const r of drafted) if (r.removed) console.warn(`[reactivescript] removed an outdated drafted declaration for ${r.spec} that could not be redone (${r.reason}): it is undeclared until it is declared or can be drafted again (MO-8l)`);
       for (const r of drafted) if (r.status === "written") console.info(`[reactivescript] drafted a declaration for ${r.spec} from its types: ${path.relative(process.cwd(), r.file)} (MO-8l)`);
     }
     // E-5a: `rx({ wholeProgram: true })` checks a build as the whole program, counting every module a JS host imports with
@@ -233,7 +250,7 @@ export default function rx(options = {}) {
       // E-5a: with Solid's plugin handing a resolver (`context.resolve`), the hosts are resolved by Vite, so asynchronously;
       // without it, here (the `alias` option and tsconfig paths), and the compile stays synchronous
       if (options.wholeProgram && typeof context.resolve === "function")
-        return hostsVia(lastRoot ?? process.cwd(), context.resolve, options.alias).then(hosts => compileWith(context, hosts));
+        return hostsVia(lastRoot ?? process.cwd(), context.resolve, options.alias, via).then(hosts => compileWith(context, hosts));
       return compileWith(context, hostsNow());
     },
   };

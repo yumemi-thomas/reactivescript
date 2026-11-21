@@ -154,8 +154,11 @@ Function application `f(e…)` covers both language functions and FFI imports;
   (`context.resolve`, every plugin's `resolveId`), else relative, through
   the aliases given as `rx({ alias })`, the same object as Vite's
   `resolve.alias`, and tsconfig.json's `paths`; one that names no file is
-  reported, and a change to the hosts re-checks the build), whose props can
-  change, and nothing else;
+  reported, and a change to the hosts re-checks the build; Vite's answers
+  are kept per plugin, since another configuration in the same process may
+  resolve the same import elsewhere, and a host is matched under every name
+  the checker may key its module by, real or through a symlinked root),
+  whose props can change, and nothing else;
   a module known only by its signature (MO-9) is not seen. It is opt-in:
   builds and the editor check one module at a time unless asked. (Solid:
   `untrack(data)` in a memo with no other source, or `<Ctx

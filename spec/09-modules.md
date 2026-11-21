@@ -273,7 +273,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   `//@ generated <package>@<version> (MO-8l, draft <n>)`, kept while that
   version is installed and the drafting rules are draft `<n>`'s, and
   redrafted when either moves (a draft written under an earlier rule, one
-  that guessed `pure`, is redone once though the version stands); a package with no types gets none, and a row
+  that guessed `pure`, is redone once though the version stands; one that
+  must be redone and cannot be, its package's types gone, is removed, so
+  the import is undeclared rather than read under an earlier rule); a package with no types gets none, and a row
   the notation cannot say is left out as a comment, not the whole file.
   The draft is `rx-declare`'s from types alone (the package is not run):
   every fn io (revised 2026-11-21: a name such as `use…` is a convention,
