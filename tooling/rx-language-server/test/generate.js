@@ -152,6 +152,24 @@ fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: tru
   check("with the alias Vite is given (rx({ alias })), @/show.rx is show.rx: the peek is refused (E-5a)", !aliased.ok && /SNAPSHOT_KEPT/.test(aliased.error), aliased);
   const arrayAlias = buildWith({ wholeProgram: true, alias: [{ find: /^@\//, replacement: wp + "/" }] });
   check("...and with Vite's { find, replacement } form", !arrayAlias.ok && /SNAPSHOT_KEPT/.test(arrayAlias.error), arrayAlias);
+  // with Solid's plugin handing a resolver (context.resolve), Vite resolves the import: no alias option needed
+  const viaVite = async (opts, resolve) => {
+    const saved = process.env.RX_GENERATE; process.env.RX_GENERATE = "0";
+    try {
+      const r = rx(opts).compile("", { id: path.join(wp, "main.rx"), moduleId: path.join(wp, "main.rx"), root: wp, solid: { generate: "dom", hydratable: true }, addWatchFile() {}, resolve });
+      const isAsync = typeof r?.then === "function";
+      await r; return { ok: true, isAsync };
+    } catch (e) { return { ok: false, error: String(e.message ?? e) }; }
+    finally { if (saved === undefined) delete process.env.RX_GENERATE; else process.env.RX_GENERATE = saved; }
+  };
+  const asked = [];
+  const vite = async (spec, importer) => { asked.push([spec, importer]); return spec === "@/show.rx" ? path.join(wp, "show.rx") + "?v=1" : null; };
+  const resolvedByVite = await viaVite({ wholeProgram: true }, vite);
+  check("context.resolve (Vite's resolver) names @/show.rx: the peek is refused, with no alias option", !resolvedByVite.ok && /SNAPSHOT_KEPT/.test(resolvedByVite.error) && asked.some(([s, i]) => s === "@/show.rx" && i === path.join(wp, "pages/host.tsx")), { resolvedByVite, asked });
+  const nothing = await viaVite({ wholeProgram: true, alias: { "@": wp } }, async () => null);
+  check("...an import Vite does not resolve falls back to the alias option", !nothing.ok && /SNAPSHOT_KEPT/.test(nothing.error), nothing);
+  const perModuleAsync = await viaVite({}, vite);
+  check("...and without wholeProgram the resolver is not asked, and the compile stays synchronous", !perModuleAsync.isAsync && asked.length === 1, { perModuleAsync, asked });
   fs.writeFileSync(path.join(wp, "tsconfig.json"), JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@/*": ["./*"] } } }));
   const tsPaths = buildWith({ wholeProgram: true });
   check("...and through tsconfig.json's paths", !tsPaths.ok && /SNAPSHOT_KEPT/.test(tsPaths.error), tsPaths);

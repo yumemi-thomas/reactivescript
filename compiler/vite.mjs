@@ -132,9 +132,10 @@ function resolveHost(spec, importer, aliases, tsPaths) {
   return undefined;
 }
 const unresolved = new Set();   // ?rx-lib imports already reported as naming no file
-const scans = new Map();   // a JS file → { t: its mtime, specs: the ?rx-lib imports it was read with }
-function hostsUnder(root, alias) {
-  const out = new Set(); const aliases = aliasesOf(alias); const tsPaths = tsPathsOf(root);
+const scans = new Map();   // a JS file → { t: its mtime, specs: the ?rx-lib imports it was read with, via: what Vite resolved them to }
+/** Every `?rx-lib` import of the JS files under `root`: `{ p, spec, s }`, `s` the file's scan (kept while its mtime stands). */
+function hostImports(root) {
+  const out = [];
   const walk = dir => {
     let entries; try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
@@ -143,16 +144,40 @@ function hostsUnder(root, alias) {
       if (e.isDirectory()) walk(p);
       else if (/\.(m?[jt]sx?|cjs)$/.test(e.name)) {
         const t = mtime(p); let s = scans.get(p);
-        if (!s || s.t !== t) { s = { t, specs: [...readFileSync(p, "utf8").matchAll(RX_LIB_IMPORT)].map(m => m[2] ?? m[4]) }; scans.set(p, s); }
-        for (const spec of s.specs) {
-          const f = resolveHost(spec, p, aliases, tsPaths);
-          if (f && existsSync(f)) out.add(f);
-          else if (!unresolved.has(`${p}\0${spec}`)) { unresolved.add(`${p}\0${spec}`); console.warn(`[reactivescript] whole-program check: ${path.relative(process.cwd(), p)} imports ${spec}?rx-lib, which names no .rx file here: pass the project's aliases as rx({ alias }), or the components it applies are not counted (E-5a)`); }
-        }
+        if (!s || s.t !== t) { s = { t, specs: [...readFileSync(p, "utf8").matchAll(RX_LIB_IMPORT)].map(m => m[2] ?? m[4]), via: new Map() }; scans.set(p, s); }
+        for (const spec of s.specs) out.push({ p, spec, s });
       }
     }
   };
   walk(root);
+  return out;
+}
+function warnUnresolved(p, spec) {
+  if (unresolved.has(`${p}\0${spec}`)) return;
+  unresolved.add(`${p}\0${spec}`);
+  console.warn(`[reactivescript] whole-program check: ${path.relative(process.cwd(), p)} imports ${spec}?rx-lib, which names no .rx file here: pass the project's aliases as rx({ alias }), or the components it applies are not counted (E-5a)`);
+}
+/** The hosts, resolved here: relative imports, the `alias` option and tsconfig.json's `paths`. */
+function hostsUnder(root, alias) {
+  const out = new Set(); const aliases = aliasesOf(alias); const tsPaths = tsPathsOf(root);
+  for (const { p, spec } of hostImports(root)) {
+    const f = resolveHost(spec, p, aliases, tsPaths);
+    if (f && existsSync(f)) out.add(f); else warnUnresolved(p, spec);
+  }
+  return [...out].sort();
+}
+/** The hosts, resolved by Vite itself (`resolve`, the front-end context's, which runs every plugin's `resolveId`), so an
+ *  alias only another plugin knows is seen too; an import Vite does not resolve falls back to `hostsUnder`'s reading. */
+async function hostsVia(root, resolve, alias) {
+  const out = new Set(); const aliases = aliasesOf(alias); const tsPaths = tsPathsOf(root);
+  for (const { p, spec, s } of hostImports(root)) {
+    if (!s.via.has(spec)) {
+      let id = null; try { id = await resolve(spec, p); } catch {}
+      s.via.set(spec, id && !id.startsWith("\0") ? real(id.split("?")[0]) : null);
+    }
+    const f = s.via.get(spec) ?? resolveHost(spec, p, aliases, tsPaths);
+    if (f && existsSync(f)) out.add(f); else warnUnresolved(p, spec);
+  }
   return [...out].sort();
 }
 
@@ -166,10 +191,9 @@ export default function rx(options = {}) {
   // importing a module with ?rx-lib makes the check stale, as an edit of one of its modules does
   const hostsNow = () => options.wholeProgram ? hostsUnder(lastRoot ?? process.cwd(), options.alias) : [];
   const fresh = (b, hosts = hostsNow()) => [...b.stamps].every(([f, t]) => mtime(f) === t) && b.hosts.join("\0") === hosts.join("\0");
-  function build(entry, target, moduleName, spa, lib = false) {
+  function build(entry, target, moduleName, spa, lib = false, hosts = hostsNow()) {
     const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${lib}`;
     const prior = builds.get(key);
-    const hosts = hostsNow();
     if (prior && fresh(prior, hosts)) return prior;
     if (options.generate !== false && process.env.RX_GENERATE !== "0") {   // MO-8l, before the program is read
       let drafted = [];
@@ -189,14 +213,14 @@ export default function rx(options = {}) {
   const built = (file, target, moduleName, spa) =>
     [...builds.values()].filter(b => b.target === target && b.moduleName === moduleName && b.spa === spa && b.out.modules?.[file]);
   /** A dependency: from a build of a program that has it, rebuilt if that program changed. */
-  function containing(file, target, moduleName, spa, root) {
+  function containing(file, target, moduleName, spa, root, hosts = hostsNow()) {
     const has = built(file, target, moduleName, spa);
-    const b = has.find(x => fresh(x)) ?? has[0];
-    if (b) return build(b.entry, target, moduleName, spa);
+    const b = has.find(x => fresh(x, hosts)) ?? has[0];
+    if (b) return build(b.entry, target, moduleName, spa, false, hosts);
     // the entry's compile was skipped (Vitest's `fsModuleCache` served it), so find the program from the files
     let failed;
     for (const entry of entriesOf(file, root)) {
-      const found = build(entry, target, moduleName, spa);
+      const found = build(entry, target, moduleName, spa, false, hosts);
       if (found.out.modules?.[file]) return found;
       if (!failed && found.out.diagnostics) failed = found;   // the program holds it but does not compile: report why
     }
@@ -204,9 +228,17 @@ export default function rx(options = {}) {
     throw new Error(`${file} is imported as an .rx dependency, but no program under ${root} contains it`);
   }
   return {
-    compile(_source, { id, moduleId, root, solid, addWatchFile }) {
+    compile(source, context) {
+      if (context.root) lastRoot = path.resolve(context.root);
+      // E-5a: with Solid's plugin handing a resolver (`context.resolve`), the hosts are resolved by Vite, so asynchronously;
+      // without it, here (the `alias` option and tsconfig paths), and the compile stays synchronous
+      if (options.wholeProgram && typeof context.resolve === "function")
+        return hostsVia(lastRoot ?? process.cwd(), context.resolve, options.alias).then(hosts => compileWith(context, hosts));
+      return compileWith(context, hostsNow());
+    },
+  };
+  function compileWith({ id, moduleId, root, solid, addWatchFile }, hosts) {
       const file = path.resolve(id);
-      if (root) lastRoot = path.resolve(root);
       const target = solid.generate === "ssr" ? "ssr" : solid.generate === "universal" ? "universal" : "dom";
       const moduleName = solid.moduleName ?? "@solidjs/web";
       // 08 CN-3d: a client-only build (no SSR, nothing hydrates) has nothing to show on a first load nothing holds
@@ -224,7 +256,7 @@ export default function rx(options = {}) {
         if (t?.missing) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
         else if (t) throw new Error(`type errors (rx-tsc):\n${t}`);
       }
-      const { entry, out } = dep ? containing(file, target, moduleName, spa, path.resolve(root ?? process.cwd())) : build(file, target, moduleName, spa, lib);
+      const { entry, out } = dep ? containing(file, target, moduleName, spa, path.resolve(root ?? process.cwd()), hosts) : build(file, target, moduleName, spa, lib, hosts);
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];
@@ -236,6 +268,5 @@ export default function rx(options = {}) {
         ? `\nimport { components as __rxComponents } from "@reactivescript/runtime";\nconst __rx = __rxComponents(module);\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n`
         : "";
       return { code: tagDeps(m.code) + named, map: m.map, css: m.css ?? "" };
-    },
-  };
+  }
 }

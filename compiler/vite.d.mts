@@ -22,7 +22,9 @@ export interface RxOptions {
   wholeProgram?: boolean;
   /**
    * The aliases the project gives Vite (`resolve.alias`, the same object), used to find which `.rx` module a JS file's
-   * `?rx-lib` import names when `wholeProgram` is on. tsconfig.json's `compilerOptions.paths` are read as well.
+   * `?rx-lib` import names when `wholeProgram` is on, where Vite itself does not answer: a `@solidjs/vite-plugin` that
+   * hands front ends its resolver (`context.resolve`) resolves each import as the bundle will, and this, with
+   * tsconfig.json's `compilerOptions.paths`, is the fallback.
    */
   alias?: Record<string, string> | RxAlias[];
 }
