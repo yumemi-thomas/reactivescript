@@ -7,6 +7,14 @@
 // The crate's own diagnostics (parse errors, else the checker's, with their rules) are reported after TypeScript's, for
 // every `.rx` module in the program: a module that does not parse has no projection, so TypeScript alone would pass it.
 const path = require("node:path");
+// TY-1d: `--rx-inputs <file>` writes, on exit, every file the run read (its content's hash, as read), every path it
+// looked for and did not find, and every directory it listed (its names): the Vite front end's production gate is stale
+// exactly when one of them is different now, whatever the mtimes say. Not tsc's flag.
+const inputs = (() => {
+  const at = process.argv.indexOf("--rx-inputs"); if (at < 0) return null;
+  const out = process.argv[at + 1]; process.argv.splice(at, 2);
+  return require("../src/inputs.js").record(out);
+})();
 const { runTsc } = require("@volar/typescript/lib/quickstart/runTsc");
 const { rxLanguagePlugin, analyses, guideUrl } = require("../src/index.js");
 const { checkBoundaries } = require("../src/boundary.js");
@@ -22,7 +30,7 @@ process.argv = process.argv.filter(a => a !== "--rx-strict");
 const wholeFlag = process.argv.includes("--rx-whole-program");
 let hostList = [];
 { const at = process.argv.indexOf("--rx-hosts");
-  if (at >= 0) { try { hostList = JSON.parse(require("node:fs").readFileSync(process.argv[at + 1], "utf8")); } catch (e) { process.stderr.write(`rx-tsc: --rx-hosts ${process.argv[at + 1]}: ${e.message}\n`); process.exit(2); } process.argv.splice(at, 2); } }
+  if (at >= 0) { inputs?.ignore(process.argv[at + 1]); try { hostList = JSON.parse(require("node:fs").readFileSync(process.argv[at + 1], "utf8")); } catch (e) { process.stderr.write(`rx-tsc: --rx-hosts ${process.argv[at + 1]}: ${e.message}\n`); process.exit(2); } process.argv.splice(at, 2); } }
 process.argv = process.argv.filter(a => a !== "--rx-whole-program");
 const { patchSystem } = require("../src/declarations.js");   // TY-4b: a JS module typed only by its .d.rx, through ts.sys
 
@@ -124,4 +132,5 @@ process.on("exit", code => {
   }
 });
 
+if (inputs) process.on("exit", () => inputs.write());   // after the handler above, which reads declarations and records too
 runTsc(tsc, [".rx"], ts => { patchSystem(ts.sys); return [rxLanguagePlugin(ts)]; });

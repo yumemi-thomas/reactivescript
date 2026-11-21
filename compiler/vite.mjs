@@ -72,7 +72,9 @@ function typecheck(entry, { whole = false, hosts = [] } = {}) {
   if (!dir) return { missing: "tsconfig" };
   let bin;
   try { bin = createRequire(path.join(dir, "package.json")).resolve("@reactivescript/language-server/bin/tsc.js"); } catch { return { missing: "checker" }; }
-  const args = [bin, "--noEmit", "-p", path.join(dir, "tsconfig.json")];
+  // TY-1d: what the check read, by content (rx-tsc's --rx-inputs), so the gate knows when it is stale
+  const inputsFile = path.join(tmpdir(), `rx-inputs-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  const args = [bin, "--noEmit", "-p", path.join(dir, "tsconfig.json"), "--rx-inputs", inputsFile];
   let hostsFile;
   if (whole) {
     args.push("--rx-whole-program");
@@ -82,39 +84,16 @@ function typecheck(entry, { whole = false, hosts = [] } = {}) {
   }
   try {
     const r = spawnSync(process.execPath, args, { cwd: dir, encoding: "utf8" });
-    return r.status === 0 ? null : (r.stdout + r.stderr).trim() || `rx-tsc exited with ${r.status}`;
-  } finally { if (hostsFile) rmSync(hostsFile, { force: true }); }
+    let inputs = null; try { inputs = JSON.parse(readFileSync(inputsFile, "utf8")); } catch {}
+    let stale = () => true; try { stale = createRequire(bin)("../src/inputs.js").stale; } catch {}
+    return { report: r.status === 0 ? null : (r.stdout + r.stderr).trim() || `rx-tsc exited with ${r.status}`, inputs, stale };
+  } finally { if (hostsFile) rmSync(hostsFile, { force: true }); rmSync(inputsFile, { force: true }); }
 }
 /** TY-1d: the project a type-check covers, by its tsconfig.json's real path (two links to one project are one); an entry
  *  with no tsconfig.json above it is its own folder's. */
 function projectKey(entry) {
   const dir = projectOf(entry);
   return dir ? real(path.join(dir, "tsconfig.json")) : `none:${real(path.dirname(entry))}`;
-}
-
-// what a type-check reads that a build of `.rx` entries may not: TypeScript and `.rx` sources, declarations, the configs
-const TYPED_FILE = /\.(?:[cm]?tsx?|rx)$|^(?:tsconfig.*|package)\.json$/;
-/** TY-1d: the files the project's type-check may read (under the folder of its tsconfig.json, node_modules and
- *  dot-folders aside), in a stable order. */
-function typedFiles(entry) {
-  const out = [];
-  const walk = dir => {
-    let entries; try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const e of entries) {
-      if (e.name === "node_modules" || e.name.startsWith(".")) continue;
-      const p = path.join(dir, e.name);
-      if (e.isDirectory()) walk(p); else if (TYPED_FILE.test(e.name)) out.push(p);
-    }
-  };
-  walk(projectOf(entry) ?? path.dirname(entry));
-  return out.sort();
-}
-/** TY-1d: whether the project's check is stale since the one at `since`, which read `files` (typedFiles, joined): a file
- *  is newer (an edit of a `.ts` module no `.rx` entry is rebuilt for), or one was added or removed — a deletion leaves no
- *  newer file behind, and an added one may carry an older mtime (copied, checked out). */
-function typedSince(entry, since, files) {
-  const now = typedFiles(entry);
-  return now.join("\0") !== files || now.some(p => mtime(p) > since);
 }
 
 /** MO-8l: draft a declaration for each package the program imports that nothing declares (into node_modules/.rx-types),
@@ -278,11 +257,11 @@ export default function rx(options = {}) {
   // project: a rebuild (`vite build --watch`) compiles an entry again because a file of its program changed, and a file
   // of that project newer than its last check asks for another. Two entries of one build under two tsconfigs are two
   // checks, each failing its own entries; one passing does not stand for the other.
-  const typedProjects = new Map();   // projectKey → { at, outcome, entry, hosts, files }
+  const typedProjects = new Map();   // projectKey → { outcome, entry, hosts, inputs, stale }
   const typed = () => flag !== "0" && (flag === "1" || process.env.NODE_ENV === "production");
   function check(file, hosts = []) {
-    const files = typedFiles(file).join("\0");   // before the check: a file added while it runs makes it stale
-    const t = typecheck(file, { whole: !!options.wholeProgram, hosts });
+    const r = typecheck(file, { whole: !!options.wholeProgram, hosts });
+    const t = r?.missing ? r : r.report;
     // TY-1d: a check that was asked for (RX_TYPECHECK=1), or a TypeScript project's production build, fails when it
     // cannot run; a production build with no tsconfig.json is not a TypeScript project, and only says so
     const where = path.relative(process.cwd(), file);
@@ -290,7 +269,8 @@ export default function rx(options = {}) {
       ? `types not checked: ${t.missing === "checker" ? `no @reactivescript/language-server to run rx-tsc with (install it in the project)` : `no tsconfig.json above ${where}`}; set RX_TYPECHECK=0 to build without checking them (13 TY-1d)`
       : t?.missing ? null : t ? `type errors (rx-tsc):\n${t}` : null;
     if (t?.missing && !outcome) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
-    const st = { at: Date.now(), outcome, entry: file, hosts: hosts.join("\0"), files };
+    // TY-1d (revised after review): stale when anything the check read is different now — by content, not mtime
+    const st = { outcome, entry: file, hosts: hosts.join("\0"), stale: r?.missing ? () => true : () => r.stale(r.inputs) };
     typedProjects.set(projectKey(file), st);
     return st;
   }
@@ -352,14 +332,14 @@ export default function rx(options = {}) {
     },
     // TY-1d: a build starts (Solid's plugin calls this where it has the hook: each `vite build`, each rebuild of
     // `vite build --watch`, each environment). A rebuild after an edit of a `.ts` module alone compiles no `.rx` entry,
-    // so nothing above would check it: here the project is checked again when a file its check may read is newer than
-    // the last one, and a build whose check failed fails before it bundles. The first build has no entry yet: its first
+    // so nothing above would check it: here the project is checked again when anything its last check read (by
+    // content: rx-tsc's --rx-inputs) is different, and a build whose check failed fails before it bundles. The first build has no entry yet: its first
     // compile checks.
     buildStart() {
       if (!typed()) return;
       let failed;
       for (const [, st] of typedProjects) {
-        const now = typedSince(st.entry, st.at, st.files) ? check(st.entry, st.hosts ? st.hosts.split("\0") : []) : st;
+        const now = st.stale() ? check(st.entry, st.hosts ? st.hosts.split("\0") : []) : st;
         failed ??= now.outcome;
       }
       if (failed) throw new Error(failed);
@@ -377,9 +357,9 @@ export default function rx(options = {}) {
       if (typed() && !dep) {
         const key = projectKey(file);
         let st = typedProjects.get(key);
-        // stale when a file of a program of this project changed since its check, or the hosts it was checked with did
-        const mine = [...builds.values()].filter(b => projectKey(b.entry) === key);
-        const changed = s0 => mtime(file) > s0.at || mine.some(b => [...b.stamps.keys()].some(f => mtime(f) > s0.at)) || (options.wholeProgram && s0.hosts !== hosts.join("\0"));
+        // stale when anything its check read is different now (an .rx module of this build among them), or the hosts it
+        // was checked with are
+        const changed = s0 => s0.stale() || (options.wholeProgram && s0.hosts !== hosts.join("\0"));
         if (!st || changed(st)) st = check(file, options.wholeProgram ? hosts : []);
         typeOutcome = st.outcome;
       }

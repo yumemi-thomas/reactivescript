@@ -3,7 +3,7 @@
 // other, and each is re-checked on its own), and a `wholeProgram` build's gate reads the crate's rows as the build does
 // (E-5a), keeping TypeScript's errors. Needs the crate's Node-API build (`npm run build` in compiler/), the language
 // server's WebAssembly build, and ref/node_modules (Solid).   node compiler/test/vite-gate.mjs
-import { mkdirSync, rmSync, symlinkSync, writeFileSync, readdirSync, utimesSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync, readdirSync, utimesSync, renameSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import rx from "../vite.mjs";
@@ -11,7 +11,7 @@ import rx from "../vite.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
 const ws = path.join(here, ".out/vite-gate"); rmSync(ws, { recursive: true, force: true });
-const tsconfig = include => JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] }, include });
+const tsconfig = (include, extra = {}) => JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [], ...extra }, include });
 function project(name, files) {
   const dir = path.join(ws, name);
   mkdirSync(path.join(dir, "node_modules/@reactivescript"), { recursive: true });
@@ -19,7 +19,7 @@ function project(name, files) {
   symlinkSync(path.join(repo, "runtime"), path.join(dir, "node_modules/@reactivescript/runtime"), "dir");
   symlinkSync(path.join(repo, "tooling/rx-language-server"), path.join(dir, "node_modules/@reactivescript/language-server"), "dir");
   writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, type: "module" }));
-  for (const [f, t] of Object.entries(files)) writeFileSync(path.join(dir, f), t);
+  for (const [f, t] of Object.entries(files)) { mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); writeFileSync(path.join(dir, f), t); }
   return dir;
 }
 const app = 'export default component App() {\n  source n := 1\n  <p>{n}</p>\n}\n';
@@ -105,6 +105,44 @@ const c = project("c", { "tsconfig.json": tsconfig(["*.rx", "*.ts"]), "show.rx":
   const old = new Date(Date.now() - 3600_000); utimesSync(path.join(f, "late.ts"), old, old);
   let start = null; try { fe.buildStart(); } catch (e) { start = e; }
   check("a file added with an older mtime (copied, checked out) is still checked at the next build start (TS2322)", start && /TS2322/.test(start.message), start ?? "it did not fail");
+}
+
+// TY-1d (revised after review): what decides is the content of everything the check read (rx-tsc's --rx-inputs), not
+// mtimes or the folder's listing: each case below changes a file the check read with no newer mtime, or one outside the
+// tsconfig's folder, or one a walk of `.ts` files would not see — and the next build start fails, as a fresh front end does
+const old = () => new Date(Date.now() - 3600_000), later = () => new Date(Date.now() + 5000);
+const gated = [
+  ["a file restored with an older mtime (git checkout, mv of a backup)", { "tsconfig.json": tsconfig(["*.rx", "*.ts"]), "ok.ts": "export const n: number = 1;\n" },
+    d => { writeFileSync(path.join(d, "ok.ts"), 'export const n: number = "bad";\n'); utimesSync(path.join(d, "ok.ts"), old(), old()); }],
+  ["a checkJs .js file edited", { "tsconfig.json": tsconfig(["*.rx", "*.ts", "*.js"], { allowJs: true, checkJs: true }), "util.js": "/** @type {number} */ export const n = 1;\n" },
+    d => { writeFileSync(path.join(d, "util.js"), '/** @type {number} */ export const n = "bad";\n'); utimesSync(path.join(d, "util.js"), later(), later()); }],
+  ["a file outside the tsconfig's folder that its include names", { "tsconfig.json": tsconfig(["*.rx", "../h-shared/*.ts"]) },
+    d => { writeFileSync(path.join(d, "../h-shared/s.ts"), 'export const n: number = "bad";\n'); }, d => { mkdirSync(path.join(d, "../h-shared"), { recursive: true }); writeFileSync(path.join(d, "../h-shared/s.ts"), "export const n: number = 1;\n"); }],
+  ["a file saved while the check ran, after it was read (its mtime before the check ended)", { "tsconfig.json": tsconfig(["*.rx", "*.ts"]), "ok.ts": "export const n: number = 1;\n" },
+    (d, t1) => { writeFileSync(path.join(d, "ok.ts"), 'export const n: number = "bad";\n'); const mid = new Date(t1 - 50); utimesSync(path.join(d, "ok.ts"), mid, mid); }],
+  ["an imported .json edited", { "tsconfig.json": tsconfig(["*.rx", "*.ts"], { resolveJsonModule: true }), "data.json": '{"n": 1}', "ok.ts": 'import d from "./data.json";\nexport const n: number = d.n;\n' },
+    d => { writeFileSync(path.join(d, "data.json"), '{"n": "bad"}'); utimesSync(path.join(d, "data.json"), later(), later()); }],
+  ["two files swapped with mv (the same paths, no newer mtime)", { "tsconfig.json": tsconfig(["*.rx", "*.ts"]), "a.ts": 'import { v } from "./b";\nexport const n: number = v;\n', "b.ts": "export const v = 1;\n", "sub/b.ts": 'export const v = "s";\n' },
+    d => { renameSync(path.join(d, "b.ts"), path.join(d, "tmp")); renameSync(path.join(d, "sub/b.ts"), path.join(d, "b.ts")); renameSync(path.join(d, "tmp"), path.join(d, "sub/b.ts")); }, d => utimesSync(path.join(d, "sub/b.ts"), old(), old())],
+];
+for (const [i, [what, files, change, setup]] of gated.entries()) {
+  const d = project(`h${i}`, { "main.rx": app, ...files });
+  setup?.(d);
+  const fe = rx();
+  const e0 = await compile(fe, path.join(d, "main.rx"), ws);
+  const t1 = Date.now();
+  if (e0) { check(`${what}: the project compiles first`, false, e0); continue; }
+  change(d, t1);
+  let start = null; try { fe.buildStart(); } catch (e) { start = e; }
+  const fresh = await compile(rx(), path.join(d, "main.rx"), ws);
+  check(`${what}: the next build start re-checks and fails (TS2322), as a fresh front end does`, start && /TS2322/.test(start.message) && fresh && /TS2322/.test(fresh.message), start ?? "it did not fail");
+}
+{   // and nothing changed: the next build start does not run the check again
+  const d = project("i", { "tsconfig.json": tsconfig(["*.rx", "*.ts"]), "main.rx": app, "ok.ts": "export const n: number = 1;\n" });
+  const fe = rx();
+  const t0 = Date.now(); await compile(fe, path.join(d, "main.rx"), ws); const first = Date.now() - t0;
+  const t1 = Date.now(); let start = null; try { fe.buildStart(); } catch (e) { start = e; } const again = Date.now() - t1;
+  check(`with nothing changed, the next build start passes without checking again (${again} ms, the check took ${first} ms)`, start === null && again * 3 < first, { again, first, start });
 }
 
 rmSync(ws, { recursive: true, force: true });

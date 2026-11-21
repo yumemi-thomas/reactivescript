@@ -41,18 +41,22 @@ does for `.tsrx`. Nothing here is a second type system.
   elsewhere. Once per build means each build (revised 2026-11-21 after
   review; the first version checked once per process, so the rebuilds of
   `vite build --watch` shipped unchecked): the check runs again when an
-  entry is compiled and a file its programs were made from is newer than
-  the last check, and a build whose check failed fails at each of its
-  entries until one changes. A rebuild that compiles no entry is checked
-  too (revised 2026-11-21 after review; an edit of a `.ts` module alone
-  rebuilt unchecked): where Solid's plugin calls front ends at each
-  build's start (`Frontend.buildStart`), the check runs again there when a
-  file it may read, under the folder of the `tsconfig.json` (a `.ts`,
-  `.tsx` or `.rx` file, a `.d.rx`, a `tsconfig*.json` or `package.json`;
-  `node_modules` aside), is newer than the last check, or such a file was
-  added or removed since (a deletion leaves no newer file; revised
-  2026-11-21 after review), and a failed check fails that build before it
-  bundles. A plugin without the hook checks
+  entry is compiled and the last check is stale, and a build whose check
+  failed fails at each of its entries until one changes. A rebuild that
+  compiles no entry is checked too (revised 2026-11-21 after review; an
+  edit of a `.ts` module alone rebuilt unchecked): where Solid's plugin
+  calls front ends at each build's start (`Frontend.buildStart`), the
+  check runs again there when the last one is stale, and a failed check
+  fails that build before it bundles. A check is stale when anything it
+  read is different now, by content (revised 2026-11-21 after review,
+  three times; mtimes and a walk of the folder missed a file restored
+  with an older mtime, two files swapped with `mv`, a file saved while
+  the check ran, a `checkJs` file, an `include` outside the tsconfig's
+  folder and an imported `.json`): `rx-tsc --rx-inputs` records each file
+  the run read with the hash of what it read, each path it looked for and
+  did not find, and each folder it listed, and the check is stale when a
+  file's content differs, a missing path appears or a listing changes.
+  A plugin without the hook checks
   only the rebuilds that compile an entry (`compiler/test/vite-watch.mjs`).
   Each check belongs to its project (revised 2026-11-21 after a second
   review): a build whose entries sit under two `tsconfig.json` files runs
