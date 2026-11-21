@@ -26,7 +26,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-const JS = [".js", ".mjs", ".jsx"];
 
 /** The declaration's exports, as far as the runner needs them. */
 function exportsOf(text) {
@@ -133,7 +132,7 @@ async function mount(dir, mod, probeMod, hook, args, fields, run, provide = prob
 
 async function verify(file) {
   const base = file.slice(0, -".d.rx".length);
-  const js = JS.map(x => base + x).find(f => fs.existsSync(f));
+  const js = require("../src/beside.js").jsOf(file);
   if (!js) return [{ line: 1, status: "fail", what: `no JS module beside ${path.basename(file)}` }];
   require("../src/declare-run.js").compileJsx(path.dirname(path.resolve(js)));   // a package that ships .jsx runs compiled (its solid build)
   const mod = await import(pathToFileURL(path.resolve(js)).href);

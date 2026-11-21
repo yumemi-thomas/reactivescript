@@ -6,9 +6,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { declaration } = require("./rxc");
+const { declarationOf } = require("./beside.js");
 
 // TypeScript asks for the declaration of `lib.js` as `lib.d.ts`, of `lib.mjs` as `lib.d.mts` and of `lib.cjs` as `lib.d.cts`
-const DECL = [[".d.ts", [".js", ".mjs", ".jsx"]], [".d.mts", [".mjs"]], [".d.cts", [".cjs"]]];
+const DECL = [[".d.ts", [".jsx", ".js", ".mjs"]], [".d.mts", [".mjs"]], [".d.cts", [".cjs"]]];   // `.jsx` first: `view.jsx.d.rx` names it
 const virtual = new Map();   // path of a .d.ts that does not exist → its text, or null when it is not one of ours
 
 /** The `.d.ts` text for `p`, when `p` is a missing `.d.ts` (`.d.mts`, `.d.cts`) that a `.d.rx` beside a JS module stands for. */
@@ -45,8 +46,11 @@ function besideJs(abs, [ext, js]) {
   if (virtual.has(abs)) return virtual.get(abs);
   let text = null;
   const base = abs.slice(0, -ext.length);
-  if (!real.existsSync(abs) && real.existsSync(base + ".d.rx") && js.some(x => real.existsSync(base + x))) {
-    const r = declaration(base + ".d.rx");
+  // the JS modules this `.d.ts` stands for, each declared as the crate finds it (`old.cjs.d.rx`, then `old.d.rx`)
+  const exists = f => real.existsSync(f);
+  const dts = real.existsSync(abs) ? undefined : js.map(x => base + x).filter(exists).map(f => declarationOf(f, exists)).find(Boolean);
+  if (dts) {
+    const r = declaration(dts);
     if (r && typeof r.code === "string") text = r.code;
   }
   virtual.set(abs, text);

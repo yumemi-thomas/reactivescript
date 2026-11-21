@@ -245,13 +245,27 @@ pub fn package_relative(file: &str, entry: &str, read: &dyn Fn(&str) -> Option<S
 }
 static PKG_EXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.(m?js|cjs|jsx|ts|tsx)$").unwrap());
 
-fn replace_js_ext(from: &str) -> String {
-    for ext in [".mjs", ".cjs", ".js", ".ts"] {
+/// MO-8 (revised 2026-11-21 after review): the `.d.rx` that declares a relative JS import, first that exists wins:
+/// `./x.mjs`, `./x.cjs` and `./x.jsx` by `x.mjs.d.rx` (`x.cjs.d.rx`, `x.jsx.d.rx`), the file's whole name, then by
+/// `x.d.rx`; `./x.js` and `./x.ts` by `x.d.rx`; anything else by its name and `.d.rx`. The tooling (rx-tsc's
+/// declarations, the boundary check, verify) reads the same names in the same order. When none exists, the last.
+pub fn beside_declaration(importer: &str, from: &str, read: &dyn Fn(&str) -> Option<String>) -> String {
+    let names = declaration_names(from);
+    let paths: Vec<String> = names.iter().map(|n| join_path(importer, n)).collect();
+    paths.iter().find(|p| read(p).is_some()).cloned().unwrap_or_else(|| paths.last().unwrap().clone())
+}
+pub fn declaration_names(from: &str) -> Vec<String> {
+    for ext in [".mjs", ".cjs", ".jsx"] {
         if let Some(s) = from.strip_suffix(ext) {
-            return s.to_string();
+            return vec![format!("{from}.d.rx"), format!("{s}.d.rx")];
         }
     }
-    from.to_string()
+    for ext in [".js", ".ts"] {
+        if let Some(s) = from.strip_suffix(ext) {
+            return vec![format!("{s}.d.rx")];
+        }
+    }
+    vec![format!("{from}.d.rx")]
 }
 
 impl Loader<'_> {
@@ -274,7 +288,7 @@ impl Loader<'_> {
             let pkg_dts = if !is_rx(from) && !from.starts_with('.') && !from.starts_with('/') { declaration_for(path, from, &*self.read) } else { None };
             if !is_rx(from) && (from.starts_with('.') || pkg_dts.is_some()) {
                 // MO-8: a JS module with a declaration file beside it
-                let dts = pkg_dts.unwrap_or_else(|| join_path(path, &(replace_js_ext(from) + ".d.rx")));
+                let dts = pkg_dts.unwrap_or_else(|| beside_declaration(path, from, &*self.read));
                 if !self.declarations.contains_key(&dts) {
                     if let Some(src) = (self.read)(&dts) {
                         let ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", dts, e.0), e.1, Some(dts.clone()), e.3))?;
@@ -432,5 +446,18 @@ mod tests {
         // outside the root and under no package.json: none (the emitter names it from the entry)
         let read = files(&[("/w/app/package.json", "{}")]);
         assert_eq!(package_relative("/w/x/err.d.rx", "/w/app/main.rx", &read), None);
+    }
+    #[test]
+    fn a_relative_js_import_is_declared_by_its_whole_name_then_its_stem() {
+        // MO-8a: `./old.cjs` by `old.cjs.d.rx` (the name before RFC 23), then `old.d.rx`; `.jsx` alike; `.js` by `x.d.rx`
+        let read = files(&[("/w/old.cjs.d.rx", ""), ("/w/old.d.rx", ""), ("/w/v.d.rx", ""), ("/w/lib.d.rx", "")]);
+        assert_eq!(beside_declaration("/w/main.rx", "./old.cjs", &read), "/w/old.cjs.d.rx");
+        assert_eq!(beside_declaration("/w/main.rx", "./v.jsx", &read), "/w/v.d.rx");
+        assert_eq!(beside_declaration("/w/main.rx", "./lib.mjs", &read), "/w/lib.d.rx");
+        assert_eq!(beside_declaration("/w/main.rx", "./lib.js", &read), "/w/lib.d.rx");
+        assert_eq!(beside_declaration("/w/main.rx", "./api", &read), "/w/api.d.rx");
+        let read = files(&[("/w/v.jsx.d.rx", "")]);
+        assert_eq!(beside_declaration("/w/main.rx", "./v.jsx", &read), "/w/v.jsx.d.rx");
+        assert_eq!(beside_declaration("/w/main.rx", "./old.cjs", &read), "/w/old.d.rx");
     }
 }

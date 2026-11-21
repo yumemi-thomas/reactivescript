@@ -160,6 +160,23 @@ const esmOk = esmRun(esmApp);
 check("a .mjs and a .cjs module typed by the .d.rx beside them pass (no TS7016: lib.d.mts, old.d.cts, TY-4b)", esmOk.status === 0 && esmOk.out.trim() === "", esmOk);
 const esmBad = esmRun(esmApp.replace("twice(2)", 'twice("2")').replace("half(4)", 'half("4")'));
 check("...and are typed by it (TS2345 on the .rx, for each)", esmBad.status !== 0 && /main\.rx\(4,\d+\): error TS2345/.test(esmBad.out) && /main\.rx\(5,\d+\): error TS2345/.test(esmBad.out), esmBad);
+// MO-8 (revised after review): `./old.cjs` is also declared by `old.cjs.d.rx` (its whole name), which wins over `old.d.rx`;
+// `./view.jsx` by `view.jsx.d.rx` — the names the checker reads, in its order
+fs.rmSync(path.join(esm, "old.d.rx"));
+fs.writeFileSync(path.join(esm, "old.cjs.d.rx"), "export pure fn half(n: number): number\n");
+fs.writeFileSync(path.join(esm, "view.jsx"), "export const third = n => n / 3;\n");
+fs.writeFileSync(path.join(esm, "view.jsx.d.rx"), "export pure fn third(n: number): number\n");
+const named = 'import { half } from "./old.cjs"\nimport { third } from "./view.jsx"\nexport default component App() {\n  b = half(4)\n  c = third(3)\n  <p>{b} {c}</p>\n}\n';
+const namedOk = esmRun(named);
+check("old.cjs.d.rx and view.jsx.d.rx declare ./old.cjs and ./view.jsx (no TS7016)", namedOk.status === 0 && namedOk.out.trim() === "", namedOk);
+const namedBad = esmRun(named.replace("half(4)", 'half("4")').replace("third(3)", 'third("3")'));
+check("...and type them (TS2345 on the .rx, for each)", namedBad.status !== 0 && /main\.rx\(4,\d+\): error TS2345/.test(namedBad.out) && /main\.rx\(5,\d+\): error TS2345/.test(namedBad.out), namedBad);
+fs.writeFileSync(path.join(esm, "old.d.rx"), "export pure fn half(n: string): number\n");
+const both = esmRun(named);
+check("old.cjs.d.rx wins over old.d.rx beside it", both.status === 0 && both.out.trim() === "", both);
+const { declarationOf, jsOf } = require("../src/beside.js");
+check("the boundary check and rx-verify pair them alike (old.cjs.d.rx ↔ old.cjs, view.jsx.d.rx ↔ view.jsx, old.d.rx declares nothing then)",
+  declarationOf(path.join(esm, "old.cjs")) === path.join(esm, "old.cjs.d.rx") && jsOf(path.join(esm, "old.cjs.d.rx")) === path.join(esm, "old.cjs") && jsOf(path.join(esm, "view.jsx.d.rx")) === path.join(esm, "view.jsx") && jsOf(path.join(esm, "old.d.rx")) === undefined && jsOf(path.join(esm, "lib.d.rx")) === path.join(esm, "lib.mjs"), null);
 fs.rmSync(esm, { recursive: true });
 
 // E-5a (RFC 35): --rx-whole-program covers every module, also two that import each other (no module is imported by

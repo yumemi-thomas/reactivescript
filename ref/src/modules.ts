@@ -99,6 +99,18 @@ export function packageRelative(file: string, entry: string, read: (path: string
   return own ? below(own[0]) : undefined;
 }
 
+/** MO-8 (revised 2026-11-21 after review): the `.d.rx` that declares a relative JS import, first that exists wins: `./x.mjs`,
+ *  `./x.cjs` and `./x.jsx` by `x.mjs.d.rx` (`x.cjs.d.rx`, `x.jsx.d.rx`), the file's whole name, then by `x.d.rx`; `./x.js`
+ *  and `./x.ts` by `x.d.rx`; anything else by its name and `.d.rx`. When none exists, the last. */
+export function declarationNames(from: string): string[] {
+  const m = /^(.*)\.(mjs|cjs|jsx)$/.exec(from); if (m) return [`${from}.d.rx`, `${m[1]}.d.rx`];
+  return [from.replace(/\.(js|ts)$/, "") + ".d.rx"];
+}
+export function besideDeclaration(importer: string, from: string, read: (path: string) => string | undefined): string {
+  const paths = declarationNames(from).map(n => joinPath(importer, n));
+  return paths.find(p => read(p) !== undefined) ?? paths[paths.length - 1];
+}
+
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
   const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>(); const declarationIds = new Map<string, string>();
@@ -113,7 +125,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     for (const d of p.decls) {
       const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? declarationFor(path, d.from, read) : undefined;   // MO-8k, MO-10c
       if (d.k === "import" && !isRx(d.from) && (d.from.startsWith(".") || pkgDts)) {             // MO-8: a JS module with a declaration file beside it
-        const dts = pkgDts ?? joinPath(path, d.from.replace(/\.(m?js|cjs|ts)$/, "") + ".d.rx");
+        const dts = pkgDts ?? besideDeclaration(path, d.from, read);
         if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try { declarations.set(dts, parseDeclarations(src)); const id = packageRelative(dts, entry, read); if (id !== undefined) declarationIds.set(dts, id); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; } } }
         const ds = declarations.get(dts);
         if (ds) { d.declared = dts; d.declaredErrors = ds.filter(x => x.kind === "error").map(x => x.name); const ef = ds.flatMap(x => x.kind === "error" && x.fields ? [[x.name, x.fields]] : []); if (ef.length) d.declaredErrorFields = Object.fromEntries(ef); d.declaredPure = ds.filter(x => x.kind === "fn" && x.pure).map(x => x.name); d.declaredSide = Object.fromEntries(ds.flatMap(x => x.kind === "fn" && x.side ? [[x.name, x.side]] : [])); }

@@ -86,7 +86,7 @@ function inputsOf(file) {
   for (const l of fs.readFileSync(file, "utf8").split("\n")) { const m = PIN.exec(l); if (m) inputs[`package ${m[1]}`] = installed(m[1], dir) ?? "not installed"; }
   const at = file.split(path.sep).lastIndexOf("rx-types");
   if (at >= 0) { const spec = file.split(path.sep).slice(at + 1).join("/").replace(/\.d\.rx$/, ""); const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0]; inputs[`package ${pkg}`] = installed(pkg, dir) ?? "not installed"; }
-  else { const js = [".js", ".mjs", ".jsx", ".ts"].map(x => base + x).find(f => fs.existsSync(f)); if (js) inputs[`module ${path.basename(js)}`] = hashOf(fs.readFileSync(js, "utf8")); }
+  else { const js = require("./beside.js").jsOf(file); if (js) inputs[`module ${path.basename(js)}`] = hashOf(fs.readFileSync(js, "utf8")); }
   const probe = [".probe.mjs", ".probe.js"].map(x => base + x).find(f => fs.existsSync(f));
   inputs.probe = probe ? hashOf(fs.readFileSync(probe, "utf8")) : "none";
   return inputs;

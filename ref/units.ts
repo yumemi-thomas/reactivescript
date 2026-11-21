@@ -1,7 +1,7 @@
 // Unit checks for what the scenarios cannot reach (the crate holds the same cases as #[test]s, under the same names).
 // Run by run.ts after the scenarios; exits non-zero on the first failure.
 import { deepStrictEqual } from "node:assert";
-import { packageRelative } from "./src/modules.ts";
+import { packageRelative, besideDeclaration } from "./src/modules.ts";
 import { looksLikeTypes, parseProgram } from "./src/parse.ts";
 
 const files = (fs: Record<string, string>) => (p: string) => fs[p];
@@ -42,5 +42,11 @@ export const units: [string, () => void][] = [
       const json = JSON.stringify(parseProgram(src));
       if (!json.includes(`"targs":${JSON.stringify(targs)}`)) throw new Error(`${src}: ${json}`);
     }
+  }],
+  ["a_relative_js_import_is_declared_by_its_whole_name_then_its_stem", () => {   // MO-8a
+    let read = files({ "/w/old.cjs.d.rx": "", "/w/old.d.rx": "", "/w/v.d.rx": "", "/w/lib.d.rx": "" });
+    deepStrictEqual(["./old.cjs", "./v.jsx", "./lib.mjs", "./lib.js", "./api"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/old.cjs.d.rx", "/w/v.d.rx", "/w/lib.d.rx", "/w/lib.d.rx", "/w/api.d.rx"]);
+    read = files({ "/w/v.jsx.d.rx": "" });
+    deepStrictEqual(["./v.jsx", "./old.cjs"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/v.jsx.d.rx", "/w/old.d.rx"]);
   }],
 ];

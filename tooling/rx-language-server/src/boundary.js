@@ -7,17 +7,16 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { boundary } = require("./rxc");
+const { jsOf } = require("./beside.js");
 
-const JS = [".js", ".mjs", ".jsx", ".ts", ".tsx"];
 
 /** The module a `.d.rx` declares, as an import from beside it: the JS module of the same name there, or, under a
  *  project's `rx-types/`, the package its path names. Undefined for an `.rx` module's signature (MO-9). */
 function moduleOf(file) {
   const parts = path.resolve(file).split(path.sep), at = parts.lastIndexOf("rx-types");
   if (at >= 0 && at < parts.length - 1) return parts.slice(at + 1).join("/").slice(0, -".d.rx".length);
-  const dir = path.dirname(file), base = path.basename(file).slice(0, -".d.rx".length);
-  const js = JS.map(x => base + x).find(x => fs.existsSync(path.join(dir, x)) && !x.endsWith(".d.ts"));
-  return js ? "./" + js : undefined;
+  const js = jsOf(path.resolve(file));
+  return js ? "./" + path.basename(js) : undefined;
 }
 /** A resolved file as an import from `dir`: relative, with the extension an import of its JavaScript has (`lib.d.ts`
  *  is `./lib.js`), so every module resolution TypeScript has accepts it. */
@@ -49,9 +48,8 @@ function declarations(rxFiles) {
   for (const dir of new Set(rxFiles.map(f => path.dirname(f)))) {
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith(".d.rx")) continue;
-      const base = f.slice(0, -".d.rx".length);
-      const js = JS.map(x => base + x).find(x => fs.existsSync(path.join(dir, x)) && !x.endsWith(".d.ts"));
-      if (js) out.push({ file: path.join(dir, f), module: "./" + js });   // a .d.rx with no JS beside it is an .rx module's signature (MO-9)
+      const js = jsOf(path.join(dir, f));
+      if (js) out.push({ file: path.join(dir, f), module: "./" + path.basename(js) });   // a .d.rx with no JS beside it is an .rx module's signature (MO-9)
     }
   }
   // MO-8k: a project's declarations for packages, `rx-types/<spec>.d.rx` in a module's directory or one above it
