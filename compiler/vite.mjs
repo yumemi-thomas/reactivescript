@@ -14,9 +14,11 @@
 // of a program that contains it. A module several programs share is one module: its instance is keyed by its factory
 // (11 CP-4b `module`), not by its place in a program.
 //
-// Types (13 TY-1a): a production build type-checks the project with `rx-tsc` (from @reactivescript/language-server),
-// once per build, when it compiles its first entry (and again when a rebuild of `vite build --watch` compiles an entry
-// whose program changed since): TypeScript's errors on the `.rx` (a route whose path lacks a param its page
+// Types (13 TY-1a): a production build type-checks each project with `rx-tsc` (from @reactivescript/language-server),
+// once per build per tsconfig.json, when it compiles that project's first entry (and again when a rebuild of `vite build
+// --watch` compiles an entry whose program changed since); entries under two tsconfigs are two checks, each failing only
+// its own entries. With `wholeProgram`, rx-tsc reads the crate's rows as the build does (`--rx-whole-program`, with the
+// hosts found): TypeScript's errors on the `.rx` (a route whose path lacks a param its page
 // needs, MO-11h), TY-6's on the `.d.rx`, fail the build. A check that cannot run fails it too (TY-1d): a tsconfig.json
 // with no @reactivescript/language-server to run rx-tsc, or, when RX_TYPECHECK=1 asked for it, no tsconfig.json; a
 // production build with no tsconfig.json only says the types went unchecked. The dev server leaves types to the
@@ -30,7 +32,8 @@
 // kept `peek` of a prop or provision is decided by every application and provision; a module some JS file under the
 // root imports with `?rx-lib` counts as applied from outside; `rx({ hostRoots: ["../site"] })` names the folders or files
 // beyond the root that hold such hosts (another app's, a server's). Off by default: the editor checks per module.
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -61,13 +64,32 @@ function projectOf(entry) {
   while (!existsSync(path.join(dir, "tsconfig.json")) && path.dirname(dir) !== dir) dir = path.dirname(dir);
   return existsSync(path.join(dir, "tsconfig.json")) ? dir : undefined;
 }
-function typecheck(entry) {
+/** E-5a: `whole`, the build checks its programs as the whole program, with `hosts` the modules JS hosts import with
+ *  ?rx-lib: rx-tsc then reads the crate's rows the same way (`--rx-whole-program`, `--rx-hosts`), so the gate and the
+ *  build agree on what a kept `peek` is; TypeScript's check is the same either way. */
+function typecheck(entry, { whole = false, hosts = [] } = {}) {
   const dir = projectOf(entry);
   if (!dir) return { missing: "tsconfig" };
   let bin;
   try { bin = createRequire(path.join(dir, "package.json")).resolve("@reactivescript/language-server/bin/tsc.js"); } catch { return { missing: "checker" }; }
-  const r = spawnSync(process.execPath, [bin, "--noEmit", "-p", path.join(dir, "tsconfig.json")], { cwd: dir, encoding: "utf8" });
-  return r.status === 0 ? null : (r.stdout + r.stderr).trim() || `rx-tsc exited with ${r.status}`;
+  const args = [bin, "--noEmit", "-p", path.join(dir, "tsconfig.json")];
+  let hostsFile;
+  if (whole) {
+    args.push("--rx-whole-program");
+    hostsFile = path.join(tmpdir(), `rx-hosts-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    writeFileSync(hostsFile, JSON.stringify(hosts));
+    args.push("--rx-hosts", hostsFile);
+  }
+  try {
+    const r = spawnSync(process.execPath, args, { cwd: dir, encoding: "utf8" });
+    return r.status === 0 ? null : (r.stdout + r.stderr).trim() || `rx-tsc exited with ${r.status}`;
+  } finally { if (hostsFile) rmSync(hostsFile, { force: true }); }
+}
+/** TY-1d: the project a type-check covers, by its tsconfig.json's real path (two links to one project are one); an entry
+ *  with no tsconfig.json above it is its own folder's. */
+function projectKey(entry) {
+  const dir = projectOf(entry);
+  return dir ? real(path.join(dir, "tsconfig.json")) : `none:${real(path.dirname(entry))}`;
 }
 
 // what a type-check reads that a build of `.rx` entries may not: TypeScript and `.rx` sources, declarations, the configs
@@ -243,20 +265,24 @@ async function hostsVia(root, resolve, alias, via, more) {
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx(options = {}) {
   const flag = process.env.RX_TYPECHECK;
-  // TY-1d: when this plugin last type-checked, and what came of it. Once per build: a rebuild (`vite build --watch`)
-  // compiles an entry again because a file of its program changed, and a file newer than the last check asks for another
-  let typedAt = -1, typeOutcome = null, typedFor;   // typedFor: the entry whose project was checked
+  // TY-1d: when each project (by its tsconfig.json) was last type-checked, and what came of it. Once per build per
+  // project: a rebuild (`vite build --watch`) compiles an entry again because a file of its program changed, and a file
+  // of that project newer than its last check asks for another. Two entries of one build under two tsconfigs are two
+  // checks, each failing its own entries; one passing does not stand for the other.
+  const typedProjects = new Map();   // projectKey → { at, outcome, entry, hosts }
   const typed = () => flag !== "0" && (flag === "1" || process.env.NODE_ENV === "production");
-  function check(file) {
-    typedAt = Date.now(); typedFor = file;
-    const t = typecheck(file);
+  function check(file, hosts = []) {
+    const t = typecheck(file, { whole: !!options.wholeProgram, hosts });
     // TY-1d: a check that was asked for (RX_TYPECHECK=1), or a TypeScript project's production build, fails when it
     // cannot run; a production build with no tsconfig.json is not a TypeScript project, and only says so
     const where = path.relative(process.cwd(), file);
-    typeOutcome = t?.missing === "checker" || (t?.missing === "tsconfig" && flag === "1")
+    const outcome = t?.missing === "checker" || (t?.missing === "tsconfig" && flag === "1")
       ? `types not checked: ${t.missing === "checker" ? `no @reactivescript/language-server to run rx-tsc with (install it in the project)` : `no tsconfig.json above ${where}`}; set RX_TYPECHECK=0 to build without checking them (13 TY-1d)`
       : t?.missing ? null : t ? `type errors (rx-tsc):\n${t}` : null;
-    if (t?.missing && !typeOutcome) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
+    if (t?.missing && !outcome) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${where} (13 TY-1d)`);
+    const st = { at: Date.now(), outcome, entry: file, hosts: hosts.join("\0") };
+    typedProjects.set(projectKey(file), st);
+    return st;
   }
   const builds = new Map();
   const via = new Map();   // E-5a: what this instance's Vite resolved each ?rx-lib import to (hostsVia)
@@ -320,9 +346,13 @@ export default function rx(options = {}) {
     // the last one, and a build whose check failed fails before it bundles. The first build has no entry yet: its first
     // compile checks.
     buildStart() {
-      if (!typed() || typedAt < 0) return;
-      if (typedSince(typedFor, typedAt)) check(typedFor);
-      if (typeOutcome) throw new Error(typeOutcome);
+      if (!typed()) return;
+      let failed;
+      for (const [, st] of typedProjects) {
+        const now = typedSince(st.entry, st.at) ? check(st.entry, st.hosts ? st.hosts.split("\0") : []) : st;
+        failed ??= now.outcome;
+      }
+      if (failed) throw new Error(failed);
     },
   };
   function compileWith({ id, moduleId, root, solid, addWatchFile }, hosts) {
@@ -333,9 +363,15 @@ export default function rx(options = {}) {
       const spa = target === "dom" && solid.hydratable === false;
       const dep = isDep(moduleId);
       const lib = new URLSearchParams(moduleId.split("?")[1] ?? "").has(LIB);
+      let typeOutcome = null;
       if (typed() && !dep) {
-        const changed = () => mtime(file) > typedAt || [...builds.values()].some(b => [...b.stamps.keys()].some(f => mtime(f) > typedAt));
-        if (typedAt < 0 || changed()) check(file);
+        const key = projectKey(file);
+        let st = typedProjects.get(key);
+        // stale when a file of a program of this project changed since its check, or the hosts it was checked with did
+        const mine = [...builds.values()].filter(b => projectKey(b.entry) === key);
+        const changed = s0 => mtime(file) > s0.at || mine.some(b => [...b.stamps.keys()].some(f => mtime(f) > s0.at)) || (options.wholeProgram && s0.hosts !== hosts.join("\0"));
+        if (!st || changed(st)) st = check(file, options.wholeProgram ? hosts : []);
+        typeOutcome = st.outcome;
       }
       const { entry, out } = dep ? containing(file, target, moduleName, spa, path.resolve(root ?? process.cwd()), hosts) : build(file, target, moduleName, spa, lib, hosts);
       // a declaration the program read is watched as its modules are: fixing a row re-checks the program, also after it

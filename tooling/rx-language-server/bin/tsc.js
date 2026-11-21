@@ -16,6 +16,14 @@ const tsc = require.resolve("typescript/lib/tsc");
 // imports must be verified by rx-verify (its record beside it) or say `trusted` (UNVERIFIED_ROW, TY-7). Not tsc's flag.
 const strictFlag = process.argv.includes("--rx-strict");
 process.argv = process.argv.filter(a => a !== "--rx-strict");
+// E-5a: `--rx-whole-program` checks the crate's rows as a `wholeProgram` build does — each program from its entry (an .rx
+// module no other imports), the loaded modules as the whole program — with `--rx-hosts <file>`, a JSON list of the modules
+// a JS host imports with ?rx-lib (what the Vite front end found). TypeScript's own check is the same either way.
+const wholeFlag = process.argv.includes("--rx-whole-program");
+let hostList = [];
+{ const at = process.argv.indexOf("--rx-hosts");
+  if (at >= 0) { try { hostList = JSON.parse(require("node:fs").readFileSync(process.argv[at + 1], "utf8")); } catch (e) { process.stderr.write(`rx-tsc: --rx-hosts ${process.argv[at + 1]}: ${e.message}\n`); process.exit(2); } process.argv.splice(at, 2); } }
+process.argv = process.argv.filter(a => a !== "--rx-whole-program");
 const { patchSystem } = require("../src/declarations.js");   // TY-4b: a JS module typed only by its .d.rx, through ts.sys
 
 process.on("exit", code => {
@@ -23,8 +31,25 @@ process.on("exit", code => {
   if (watching) return;
   let errors = 0;
   const codes = new Set();
-  for (const { file, result } of analyses()) {
-    for (const d of result.diagnostics ?? []) {
+  // per module, as the editor has them; or, whole-program, from each program's entry
+  let crateDiags = analyses().map(({ file, result }) => ({ file, diagnostics: result.diagnostics ?? [] }));
+  if (wholeFlag) {
+    const { checkProgram } = require("../src/rxc.js");
+    const all = analyses();
+    const imported = new Set(all.flatMap(a => (a.result.modules ?? []).filter(m => path.resolve(m) !== path.resolve(a.file)).map(m => path.resolve(m))));
+    const entries = all.filter(a => !imported.has(path.resolve(a.file))).map(a => a.file);
+    const byFile = new Map(all.map(a => [path.resolve(a.file), []]));
+    const seen = new Set();
+    for (const e of entries) for (const d of checkProgram(e, { whole: true, hosts: hostList }).diagnostics ?? []) {
+      const f = path.resolve(d.file ?? e), k = `${f}\0${d.code}\0${d.line}\0${d.message}`;
+      if (seen.has(k)) continue; seen.add(k);
+      if (!byFile.has(f)) byFile.set(f, []);
+      byFile.get(f).push(d);
+    }
+    crateDiags = [...byFile].map(([file, diagnostics]) => ({ file, diagnostics }));
+  }
+  for (const { file, diagnostics } of crateDiags) {
+    for (const d of diagnostics) {
       errors++;
       codes.add(d.code);
       const where = d.range ? `${d.range.start.line}:${d.range.start.column + 1}` : "1:1";

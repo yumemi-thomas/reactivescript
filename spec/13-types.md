@@ -52,6 +52,16 @@ does for `.tsrx`. Nothing here is a second type system.
   `node_modules` aside), is newer than the last check, and a failed check
   fails that build before it bundles. A plugin without the hook checks
   only the rebuilds that compile an entry (`compiler/test/vite-watch.mjs`).
+  Each check belongs to its project (revised 2026-11-21 after a second
+  review): a build whose entries sit under two `tsconfig.json` files runs
+  one check for each, keyed by the tsconfig's real path, and each fails
+  only its own entries and is re-checked on its own files; one project
+  passing does not stand for another. A `wholeProgram` build (E-5a) runs
+  `rx-tsc --rx-whole-program --rx-hosts …` with the hosts the build
+  found, so the gate reads the crate's rows from each program's entry as
+  the build does (a kept `peek` the whole program shows never changes is
+  not refused by the gate alone), while TypeScript's errors fail it as
+  before (`compiler/test/vite-gate.mjs`).
   The dev server leaves types to the editor,
   which runs the same projection. A build is made from its declarations
   as from its modules: the frontend watches each `.d.rx` the program read

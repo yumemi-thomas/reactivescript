@@ -89,12 +89,19 @@ pub fn analyze(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
         let ranges: Vec<[u32; 4]> = p.ranges.iter().map(|r| { let (g, s) = (u(&gi, r.gen, r.glen), u(&si, r.src, r.len)); [g[0], g[1], s[0], s[1]] }).collect();
         out = json!({ "code": p.code, "mappings": maps, "ranges": ranges });
     }
-    let own: Vec<Value> = if set.parse_errors.iter().any(|e| e.2.as_deref() == Some(file.as_str())) {
-        set.parse_errors.iter().filter(|e| e.2.as_deref() == Some(file.as_str())).map(|e| parse_error_in(&file, e, Some(&src))).collect()
+    // `whole` (E-5a): the loaded modules checked as the whole program, `hosts` the modules a JS host imports with ?rx-lib
+    // (as a build is checked, `app.rs`); `all`: every loaded module's diagnostics, not only the file's (`rx-tsc
+    // --rx-whole-program`, which checks from each program's entry)
+    let all = params["all"].as_bool().unwrap_or(false);
+    let hosts: Vec<String> = params["hosts"].as_array().map(|a| a.iter().filter_map(|h| h.as_str().map(|h| h.replace('\\', "/"))).collect()).unwrap_or_default();
+    let hosts = crate::modules::hosts_as_keys(&set, &hosts);
+    let own: Vec<Value> = if set.parse_errors.iter().any(|e| all || e.2.as_deref() == Some(file.as_str())) {
+        set.parse_errors.iter().filter(|e| all || e.2.as_deref() == Some(file.as_str())).map(|e| { let f = e.2.clone().unwrap_or_else(|| file.clone()); let src = set.sources.get(&f).cloned(); parse_error_in(&f, e, src.as_deref()) }).collect()
     } else {
-        crate::check::check_modules_with(&set, params["spa"].as_bool().unwrap_or(false), params["whole"].as_bool().unwrap_or(false)).diags.iter().map(|d| diagnostic_json(&set, d)).filter(|d| d["file"] == json!(file)).collect()
+        crate::check::check_modules_hosts(&set, params["spa"].as_bool().unwrap_or(false), params["whole"].as_bool().unwrap_or(false), &hosts).diags.iter().map(|d| diagnostic_json(&set, d)).filter(|d| all || d["file"] == json!(file)).collect()
     };
     out["diagnostics"] = json!(own);
+    out["modules"] = json!(set.order);
     // MO-8f, MO-8j, TY-6: the declarations this load consumed, each with its importer and the import's text
     out["declarations"] = json!(set.declaration_uses.iter().map(|u| json!({ "file": u.declaration, "importer": u.importer, "spec": u.spec })).collect::<Vec<_>>());
     out
