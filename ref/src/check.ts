@@ -5,7 +5,7 @@
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
-import { splitTop, type JsDecl, type Shape } from "./parse.ts";
+import { splitTop, fieldRows, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
@@ -52,7 +52,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; callback?: boolean; pure?: boolean; renders?: boolean }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; callback?: boolean; pure?: boolean; renders?: boolean; takes?: [string, boolean, string[]][] }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -820,7 +820,7 @@ class Checker {
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
-        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; { const cp = Object.entries(x.sig.props).filter(([, v]) => v.renders).map(([k]) => k); if (cp.length) this.carriedProps.set(r, new Set(cp)); } break; }   // E-5a; MO-11o: the props it renders what they carry
+        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; { const cp = Object.entries(x.sig.props).filter(([, v]) => v.renders).map(([k]) => k); if (cp.length) this.carriedProps.set(r, new Set(cp)); } { const ph = Object.entries(x.sig.props).flatMap(([k, v]) => (v.takes ?? []).map(([p, h, c]) => [`${k}.${p}`, h, c] as [string, boolean, string[]])); if (ph.length) this.propHeld.set(r, ph); } break; }   // E-5a; MO-11o: the props it renders what they carry
         case "context": sym = { kind: "context", name: alias, region: env.region, line: d.line, ctx: { key: x.key, source: x.source, dflt: x.dflt, contract: { rows: new Set(x.rows), fails: new Set(x.fails) } } }; break;
       }
       if (sym.kind === "source" || sym.kind === "eq" || sym.kind === "fn") sym.exportKey = `${d.resolved}#${name}`;   // E-5a
@@ -926,7 +926,9 @@ class Checker {
    *  reader (it may hold, MO-10d), a function part is io (R-io-3), anything else is a value. */
   private foreignPart(sym: Sym, e: Expr, env: Env) {
     if (e.k === "id") {                                                                    // MO-10b, MO-10f: an alias of a result is the result — its shape, its fields' rows, its methods and draft parts
-      const t = env.lookup(e.name); if (!t?.foreign || t.kind === "comp") return;
+      const t = env.lookup(e.name);
+      if (t && !t.foreign && t.kind === "props" && t.held?.length) { sym.held = t.held; if (t.retTy !== undefined) sym.retTy = t.retTy; return; }   // MO-10f: another name for props whose fields hold or fail is those props
+      if (!t?.foreign || t.kind === "comp") return;
       sym.foreign = t.foreign; if (t.held) sym.held = t.held; if (t.methods) sym.methods = t.methods; if (t.partDrafts) sym.partDrafts = t.partDrafts; if (t.retTy) sym.retTy = t.retTy;
       if (t.viaField) sym.viaField = true; if (t.reader) sym.reader = true; if (t.foreign === "fn") sym.io = true;
       return;
@@ -947,7 +949,17 @@ class Checker {
     // MO-10i: a result's function parts that take drafts, and a part bound from them
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.partDrafts) sym.partDrafts = f.partDrafts; }
     else if ((e.k === "index" || e.k === "member") && e.o.k === "id") { const key = e.k === "member" ? e.p : litKey(e.i) ?? ""; const pd = env.lookup(e.o.name)?.partDrafts?.[key]; if (pd) sym.drafts = pd; }
-    if (!shape) return;
+    if (!shape) {                                                                         // MO-10f: a part of props whose fields hold or fail (`q = props.query`) keeps its fields' rows and its type
+      const fp = e.k === "member" || e.k === "index" ? fieldPath(e) : undefined;
+      const t = fp ? env.lookup(fp.root) : undefined;
+      if (fp && t && !t.foreign && t.held?.length && fp.path.every(p => p !== undefined)) {
+        const pre = `${fp.path.join(".")}.`;
+        const sub = t.held.flatMap(h => h[0].startsWith(pre) ? [[h[0].slice(pre.length), h[1], h[2]] as [string, boolean, string[]]] : []);
+        if (sub.length) { sym.held = sub; let ty: string | undefined = t.retTy; for (const seg of fp.path) ty = ty === undefined ? undefined : tyStep(ty, { field: seg! }); if (ty !== undefined) sym.retTy = ty; else delete sym.retTy; }
+        if (heldMatch(t.held, fp.path)?.[1]) sym.reader = true;
+      }
+      return;
+    }
     sym.foreign = shape;
     if (e.k === "member" || (e.k === "index" && e.o.k === "id" && (() => { const f = env.lookup((e.o as { name: string }).name)?.foreign; return !!f && typeof f === "object" && "fields" in f; })())) sym.viaField = true;
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; if (f?.methods) sym.methods = f.methods; if (f?.retTy) sym.retTy = f.retTy; }   // MO-10f: its fields' rows come with it; E-10: its declared methods; MO-10k: its declared type
@@ -1132,7 +1144,10 @@ class Checker {
       case "component": {
         const sym = env.lookup(d.name)!; const r = sym.compRegion!;
         const inner = new Env(env, r);
-        this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line, ...(d.noProps ? { noProps: d.name } : {}) });
+        // MO-10f (2026-11-22): a prop whose type is a record with field rows (`query: { data: pending fails(Error) T }`) is
+        // read as a JS result with those fields is: a field at a time, each held field's read checked
+        const ph = this.propHeld.get(r);
+        this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line, ...(d.noProps ? { noProps: d.name } : {}), ...(ph ? { held: ph, ...(d.propsType !== undefined ? { retTy: fieldRows(d.propsType).text } : {}) } : {}) });
         sym.compEnv = inner;
         this.block(d.decls, d.view, inner, { scope: "reactive" });
         this.later.push(() => this.contentCheck(d.view, inner, []));
@@ -2092,6 +2107,13 @@ class Checker {
               const opaque: [string, string][] = []; this.carriedNames(a.e, env, new Set(), [], opaque);
               if (opaque.length) { const [n, why] = opaque[0]; this.err("RENDERS_ESCAPES", "MO-11o", `<${m.tag}> renders what its ${a.name} carries, and ${n} is ${why}: the components it carries cannot be named here, so they would render unchecked — give ${a.name} a value this module builds from its own \`renders(later)\` calls, or a prop of this component read as it is (\`props.x\`), which is then one this component renders`); }
             }
+            // MO-10f (2026-11-22): a result with held fields, or a record of them, is given whole to a prop whose type says
+            // those fields hold or fail (at least as the result's do): the component reads them as such, each read checked
+            { const ph = s?.compRegion ? this.propHeld.get(s.compRegion) : undefined;
+              if (ph) for (const a of m.attrs) {
+                const given = this.heldUnder(a.e, env); if (!given.length) continue;
+                if (given.every(([p, holds, fails]) => ph.some(([q, qh, qf]) => q === `${a.name}.${p}` && (qh || !holds) && fails.every(c => qf.includes(c) || qf.includes("Error"))))) this.wholeOk.add(a.e);
+              } }
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
             const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; return !!d?.callback || (n !== "ref" && !d?.pure && isHandler(n)); };   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element only (07 §4): on a component, a handler only when declared one
@@ -2233,6 +2255,12 @@ class Checker {
    *  walk records each (`forwards`), and one the walk does not confirm is refused (`run`). */
   private forwardedProps(decls: Decl[], env: Env) {
     const comps = decls.flatMap(d => d.k === "component" ? [d] : []);
+    // MO-10f: each component's prop interfaces, before any view is walked
+    for (const d of comps) {
+      const R = env.lookup(d.name)?.compRegion; if (!R || d.propsType === undefined) continue;
+      const held = (fieldRows(d.propsType).held ?? []).filter(h => h[0].includes("."));
+      if (held.length) this.propHeld.set(R, held);
+    }
     const inView = (ms: Markup[], f: (m: Extract<Markup, { k: "el" }>) => void) => {
       for (const m of ms) switch (m.k) {
         case "el": f(m); inView(m.children, f); break;
@@ -2259,6 +2287,18 @@ class Checker {
     }
   }
   private forwardedDecl = new Map<string, { comp: Region; field: string; name: string; line: number }>();
+  /** MO-10f (2026-11-22): per component, the fields of its props that its type says hold or fail where they are read
+   *  (`query.data`, holds, classes): the interface a JS result with held fields may be given whole through. */
+  private propHeld = new Map<Region, [string, boolean, string[]][]>();
+  /** MO-10f: the held fields at or below what `e` names — a result with held fields, or a path to a record of them — by
+   *  their paths from it. Empty when `e` is neither. */
+  private heldUnder(e: Expr, env: Env): [string, boolean, string[]][] {
+    let root: string; let path: (string | undefined)[];
+    if (e.k === "id") { root = e.name; path = []; } else { const fp = fieldPath(e); if (!fp) return []; root = fp.root; path = fp.path; }
+    if (!path.every(p => p !== undefined)) return [];
+    const pre = path.map(p => `${p}.`).join("");
+    return (env.lookup(root)?.held ?? []).flatMap(h => h[0].startsWith(pre) ? [[h[0].slice(pre.length), h[1], h[2]] as [string, boolean, string[]]] : []);
+  }
   /** MO-11o: the component values carrying calls were given, and those a `renders` prop reached. */
   private carriedPending: { e: Expr; name: string; line: number; by: string }[] = [];
   private carriedRendered = new Set<Expr>();
@@ -2653,7 +2693,7 @@ class Checker {
       for (const f of fields) {
         const es = PF(G, f); let df: Catch = "all", dp: Catch = "all", da: Catch | null = null; let an = ""; let rendered = false;
         for (const e of es) { if (e.term) { da = da === null ? along(e.chain, "f") : meet(da, along(e.chain, "f")); an = e.term.name; } else { rendered = true; df = meet(df, along(e.chain, "f")); dp = meet(dp, along(e.chain, "p")); } }
-        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...(this.carriedProps.get(G)?.has(f) ? { renders: true } : {}) };
+        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...(this.carriedProps.get(G)?.has(f) ? { renders: true } : {}), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
       }
       const e = esc(G);
       const file = (this.opts.file ?? "main.rx").split("/").pop();

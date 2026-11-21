@@ -52,6 +52,9 @@ pub struct PropSig {
     pub component: bool,
     /// MO-11o: the component renders what this prop's value carries (`f` and `p` are then what is above that)
     pub renders: bool,
+    /// MO-10f: the fields of this prop its type says hold or fail where they are read (path, holds, classes): a JS
+    /// result with such fields may be given whole
+    pub takes: Vec<(String, bool, Vec<String>)>,
 }
 #[derive(Debug, Clone)]
 pub struct Own {
@@ -243,6 +246,11 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                     if v.renders {
                         parts.push("renders".to_string()); // MO-11o: it renders what the prop's value carries
                     }
+                    if !v.takes.is_empty() {
+                        // MO-10f: the fields it reads as ones that hold or fail
+                        let ts: Vec<String> = v.takes.iter().map(|(p, holds, fails)| format!("{p}{}{}", if *holds { " pending" } else { "" }, if fails.is_empty() { String::new() } else { format!(" fails({})", fails.join(" | ")) })).collect();
+                        parts.push(format!("takes({})", ts.join(", ")));
+                    }
                     if !v.rendered {
                         parts.push("unrendered".to_string());
                     } else {
@@ -313,6 +321,9 @@ re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
 re!(P_RENDERS, r"(^|[^A-Za-z0-9_])renders([^A-Za-z0-9_]|$)");
 re!(P_PARENS, r"\([^)]*\)");
+re!(P_TAKES, r"(^|[^A-Za-z0-9_])takes\(((?:[^()]|\([^()]*\))*)\)");
+re!(P_PENDING, r"(^|\s)pending(\s|$)");
+re!(P_FAILS, r"fails\(([^)]*)\)");
 re!(P_CATCHES, r"(^|[^A-Za-z0-9_])catches\(([^)]*)\)");
 re!(P_PROVIDES, r"(^|[^A-Za-z0-9_])provides\(([^)]*)\)");
 re!(C_FAILS, r"(^|[^A-Za-z0-9_])fails\(([^)]*)\)");
@@ -475,7 +486,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     None => (crate::parse::js_trim(&f).to_string(), String::new()),
                 };
                 let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
-                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, renders: false };
+                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, renders: false, takes: vec![] };
                 let a = P_ACTION.captures(&spec);
                 let rest = match &a {
                     Some(a) => {
@@ -487,6 +498,19 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     }
                     None => spec.clone(),
                 };
+                if let Some(t) = P_TAKES.captures(&rest) {
+                    // `takes(data pending fails(Error), result.more pending)`
+                    for part in split(&t[2], ',') {
+                        let part = crate::parse::js_trim(&part);
+                        let path = part.split_whitespace().next().unwrap_or("").to_string();
+                        let holds = P_PENDING.is_match(part);
+                        let fails = P_FAILS.captures(part).map(|f| f[1].split('|').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect()).unwrap_or_default();
+                        if !path.is_empty() {
+                            v.takes.push((path, holds, fails));
+                        }
+                    }
+                }
+                let rest = P_TAKES.replace(&rest, "$1").to_string();
                 if P_RENDERS.is_match(&P_PARENS.replace_all(&rest, "")) {
                     v.renders = true;
                 }

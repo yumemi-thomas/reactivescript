@@ -11,7 +11,7 @@ use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
-use crate::parse::{js_trim, split_top, JsDecl, Part, Shape as FShape};
+use crate::parse::{field_rows, js_trim, split_top, JsDecl, Part, Shape as FShape};
 use crate::signature::{Catch, CompSig, ExportSig, ModSig, Own, PropSig, SigParam, HOLD};
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
@@ -1567,6 +1567,9 @@ pub struct Checker<'a> {
     /// MO-11o (2026-11-22): each place a component gives a prop of its own on to a prop that renders what it carries:
     /// the component, its prop, and the region what the prop carries is rendered in
     forwards: Vec<(RId, String, RId)>,
+    /// MO-10f (2026-11-22): per component, the fields of its props that its type says hold or fail where they are
+    /// read (`query.data`, holds, classes): the interface a JS result with held fields may be given whole through
+    prop_held: HashMap<RId, Vec<(String, bool, Vec<String>)>>,
     /// …and the props taken, by syntax, for such ones (`forwarded_props`): component, prop, the component's name and line
     forwarded_decl: Vec<(RId, String, String, usize)>,
     /// E-10: equations decided constant (None while being decided)
@@ -1708,6 +1711,7 @@ impl<'a> Checker<'a> {
             outlets: vec![],
             forwards: vec![],
             forwarded_decl: vec![],
+            prop_held: HashMap::new(),
             const_eqs: HashMap::new(),
             carried_rendered: HashSet::new(),
             reached: std::cell::RefCell::new(HashSet::new()),
@@ -2058,7 +2062,7 @@ impl<'a> Checker<'a> {
                             };
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
-                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, renders: false });
+                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, renders: false, takes: vec![] });
                             self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new() });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
@@ -2267,6 +2271,11 @@ impl<'a> Checker<'a> {
                     if !cp.is_empty() {
                         self.carried_props.insert(r, cp);
                     }
+                    // MO-10f: the fields of its props it reads as ones that hold or fail
+                    let ph: Vec<(String, bool, Vec<String>)> = sig.props.iter().flat_map(|(k, v)| v.takes.iter().map(move |(p, h, c)| (format!("{k}.{p}"), *h, c.clone()))).collect();
+                    if !ph.is_empty() {
+                        self.prop_held.insert(r, ph);
+                    }
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
                     s
@@ -2337,13 +2346,13 @@ impl<'a> Checker<'a> {
                 let empty = || Catch::Set(IndexSet::new());
                 let given = || Catch::Set(gives.iter().cloned().collect());
                 let mut props = IndexMap::new();
-                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false, renders: false });
+                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false, renders: false, takes: vec![] });
                 for p in xprops {
                     let f = match &p.catches {
                         Some(c) => Catch::of(c),
                         None => empty(),
                     };
-                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component, renders: false });
+                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component, renders: false, takes: vec![] });
                 }
                 let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                 let r = c.region(None, "imported", true, Some(alias.to_string()));
@@ -2478,6 +2487,12 @@ impl<'a> Checker<'a> {
         if let ExprKind::Id(n) = &e.k {
             let Some(t) = self.lookup(env, n) else { return };
             let t = &self.syms[t];
+            if t.foreign.is_none() && t.kind == SymKind::Props && !t.held.is_empty() {
+                // MO-10f: another name for props whose fields hold or fail is those props
+                sym.held = t.held.clone();
+                sym.ret_ty = t.ret_ty.clone();
+                return;
+            }
             if t.foreign.is_none() || t.kind == SymKind::Comp {
                 return;
             }
@@ -2556,6 +2571,29 @@ impl<'a> Checker<'a> {
             },
             _ => None,
         };
+        // MO-10f: a part of props whose fields hold or fail (`q = props.query`) keeps its fields' rows and its type
+        if shape.is_none() {
+            if let (ExprKind::Member { o, .. } | ExprKind::Index { o, .. }, Some((root, path))) = (&e.k, field_path(e)) {
+                let _ = o;
+                if let Some(t) = self.lookup(env, root).filter(|&t| self.syms[t].foreign.is_none() && !self.syms[t].held.is_empty()) {
+                    if path.iter().all(|p| p.is_some()) {
+                        let pre = format!("{}.", path.iter().flatten().cloned().collect::<Vec<_>>().join("."));
+                        let sub: Vec<(String, bool, Vec<String>)> = self.syms[t].held.iter().filter_map(|h| h.0.strip_prefix(&pre).map(|r| (r.to_string(), h.1, h.2.clone()))).collect();
+                        if !sub.is_empty() {
+                            sym.held = sub;
+                            let mut ty = self.syms[t].ret_ty.clone();
+                            for seg in path.iter().flatten() {
+                                ty = ty.and_then(|x| ty_step(&x, &TStep::Field(seg.clone())));
+                            }
+                            sym.ret_ty = ty;
+                        }
+                        if held_match(&self.syms[t].held, &path).is_some_and(|h| h.1) {
+                            sym.reader = true;
+                        }
+                    }
+                }
+            }
+        }
         let Some(shape) = shape else { return };
         if matches!(e.k, ExprKind::Member { .. }) || matches!(&e.k, ExprKind::Index { o, .. } if matches!(self.lookup_foreign(o, env), Some(FShape::Fields(_)))) {
             sym.via_field = true;
@@ -3119,11 +3157,17 @@ impl<'a> Checker<'a> {
                 sym.fails_t = Some(FailsT::Expr { e: tail, env: inner, cache: None, busy: false });
                 sym.rows = Some(RowsT::Expr { e: tail, env: inner, cache: None, busy: false });
             }
-            Decl::Component { name, props, decls, view, line, no_props, .. } => {
+            Decl::Component { name, props, decls, view, line, no_props, props_type, .. } => {
                 let s = self.lookup(env, name).unwrap();
                 let r = self.syms[s].comp_region.unwrap();
                 let inner = self.env(Some(env), r);
                 let mut ps = Sym::new(SymKind::Props, props, r, *line as i64);
+                // MO-10f (2026-11-22): a prop whose type is a record with field rows (`query: { data: pending fails(Error)
+                // T }`) is read as a JS result with those fields is: a field at a time, each held field's read checked
+                if let Some(held) = self.prop_held.get(&r).cloned() {
+                    ps.held = held;
+                    ps.ret_ty = props_type.as_deref().map(|t| field_rows(t).0);
+                }
                 if *no_props {
                     ps.no_props = Some(name.clone());
                 }
@@ -4206,6 +4250,23 @@ impl<'a> Checker<'a> {
                 self.err("DRAFT_ESCAPES", "MO-10i", format!("{name} is a library's draft, its callback's only while that call runs: a closure made inside the callback may run after the library has taken it back — use {name} in the callback itself (a loop is `for (const x of xs) {{ … }}`), or read what the closure needs into a local first (a read of a draft is a copy)"));
             }
         }
+    }
+    /// MO-10f: the held fields at or below what `e` names — a result with held fields, or a path to a record of them —
+    /// by their paths from it. Empty when `e` is neither.
+    fn held_under(&self, e: &Expr, env: EId) -> Vec<(String, bool, Vec<String>)> {
+        let (root, path): (&str, Vec<Option<String>>) = match &e.k {
+            ExprKind::Id(n) => (n.as_str(), vec![]),
+            _ => match field_path(e) {
+                Some(x) => x,
+                None => return vec![],
+            },
+        };
+        if !path.iter().all(|p| p.is_some()) {
+            return vec![];
+        }
+        let Some(t) = self.lookup(env, root) else { return vec![] };
+        let pre: String = path.iter().flatten().map(|p| format!("{p}.")).collect();
+        self.syms[t].held.iter().filter_map(|h| h.0.strip_prefix(&pre).map(|r| (r.to_string(), h.1, h.2.clone()))).collect()
     }
     /// MO-10f (closed 2026-11-22): the operations of a result with held fields are its declared fields. `e` reads a
     /// member of one, or of a record of held fields below it.
@@ -5336,6 +5397,23 @@ impl<'a> Checker<'a> {
                                 self.err("RENDERS_ESCAPES", "MO-11o", format!("<{tag}> renders what its {} carries, and {n} is {why}: the components it carries cannot be named here, so they would render unchecked — give {} a value this module builds from its own `renders(later)` calls, or a prop of this component read as it is (`props.x`), which is then one this component renders", a.name, a.name));
                             }
                         }
+                        // MO-10f (2026-11-22): a result with held fields, or a record of them, is given whole to a prop whose
+                        // type says those fields hold or fail (at least as the result's do): the component reads them as
+                        // such, each read checked where it is
+                        if let Some(ph) = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.prop_held.get(&r).cloned()) {
+                            for a in attrs.iter() {
+                                let given = self.held_under(&a.e, env);
+                                if given.is_empty() {
+                                    continue;
+                                }
+                                let covered = given.iter().all(|(p, holds, fails)| {
+                                    ph.iter().any(|(q, qh, qf)| *q == format!("{}.{p}", a.name) && (*qh || !holds) && fails.iter().all(|c| qf.contains(c) || qf.iter().any(|x| x == "Error")))
+                                });
+                                if covered {
+                                    self.whole_ok.insert(&a.e as *const Expr);
+                                }
+                            }
+                        }
                         let values = self.component_values(tag, attrs, env);
                         for (i, _) in &values {
                             if let Some(Attr { e: Expr { k: ExprKind::Id(n), .. }, .. }) = attrs.get(*i) {
@@ -5648,6 +5726,15 @@ impl<'a> Checker<'a> {
     /// Found before any view is walked, so an application written above the component's declaration sees it. A summary
     /// by syntax: the walk records each (`forwards`), and one the walk does not confirm is refused.
     fn forwarded_props(&mut self, decls: &'a [Decl], env: EId) {
+        // MO-10f: each component's prop interfaces, before any view is walked
+        for d in decls {
+            let Decl::Component { name, props_type: Some(t), .. } = d else { continue };
+            let Some(r) = self.lookup(env, name).and_then(|s| self.syms[s].comp_region) else { continue };
+            let held: Vec<(String, bool, Vec<String>)> = field_rows(t).1.into_iter().filter(|h| h.0.contains('.')).collect();
+            if !held.is_empty() {
+                self.prop_held.insert(r, held);
+            }
+        }
         fn in_view<'a>(ms: &'a [Markup], out: &mut Vec<(&'a str, &'a [Attr])>) {
             for m in ms {
                 match &m.kind {
@@ -7573,7 +7660,8 @@ impl<'a> Checker<'a> {
                 }
             }
             let renders = self.carried_props.get(&g).is_some_and(|c| c.contains(&f));
-            props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, renders });
+            let takes = self.prop_held.get(&g).map(|hs| hs.iter().filter_map(|(p, h, c)| p.strip_prefix(&format!("{f}.")).map(|r| (r.to_string(), *h, c.clone()))).collect()).unwrap_or_default();
+            props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, renders, takes });
         }
         let e = self.esc(Some(g));
         let file = self.opts.file.clone().unwrap_or_else(|| "main.rx".into()).split('/').last().unwrap_or("").to_string();

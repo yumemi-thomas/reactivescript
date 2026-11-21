@@ -70,6 +70,7 @@ function line(file: string, name: string, x: ExportSig): string {
       const props = Object.entries(s.props).map(([f, v]) => {
         const parts: string[] = [];
         if (v.renders) parts.push("renders");                                                // MO-11o: it renders what the prop's value carries
+        if (v.takes?.length) parts.push(`takes(${v.takes.map(([p, holds, fails]) => `${p}${holds ? " pending" : ""}${fails.length ? ` fails(${fails.join(" | ")})` : ""}`).join(", ")})`);   // MO-10f: the fields it reads as ones that hold or fail
         if (!v.rendered) parts.push("unrendered");
         else {
           if (!(v.f instanceof Set && v.f.size === 0)) parts.push(`catches(${cls(v.f)})`);
@@ -151,7 +152,12 @@ export function parseSignature(src: string, file: string): ModSig {
         const fname = fname0 === "...props" ? "*" : fname0;
         const v: CompSig["props"][string] = { f: new Set(), p: new Set(), rendered: true };
         const a = /\baction\s+([A-Za-z_$][\w$]*)\s+catches\(([^)]*)\)/.exec(spec); if (a) v.action = { f: catchOf(a[2]), name: a[1] };
-        const rest = a ? spec.replace(a[0], "") : spec;
+        let rest = a ? spec.replace(a[0], "") : spec;
+        const tk = /(^|[^A-Za-z0-9_])takes\(((?:[^()]|\([^()]*\))*)\)/.exec(rest);          // `takes(data pending fails(Error), result.more pending)`
+        if (tk) {
+          v.takes = split(tk[2], ",").flatMap(part => { const path = part.trim().split(/\s+/)[0] ?? ""; const fl = /fails\(([^)]*)\)/.exec(part); return path ? [[path, /(^|\s)pending(\s|$)/.test(part.trim()), fl ? fl[1].split("|").map(c => c.trim()).filter(Boolean) : []] as [string, boolean, string[]]] : []; });
+          rest = rest.replace(tk[0], tk[1]);
+        }
         if (/\bunrendered\b/.test(rest)) { v.rendered = false; v.f = "all"; v.p = "all"; }
         if (/\brenders\b/.test(rest.replace(/\([^)]*\)/g, ""))) v.renders = true;
         const c = /\bcatches\(([^)]*)\)/.exec(rest); if (c) v.f = catchOf(c[1]);

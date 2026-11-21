@@ -2088,7 +2088,7 @@ fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
 }
 /// MO-10f: a result's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
 /// are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i).
-fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
+pub(crate) fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
     // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
     fn walk(x: &str, prefix: &str, held: &mut Vec<(String, bool, Vec<String>)>) -> String {
         if !(x.starts_with('{') && x.ends_with('}') && x.len() >= 2) {

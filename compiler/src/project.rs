@@ -18,6 +18,8 @@ pub const PRELUDE: &str = include_str!("prelude.ts");
 
 static ROW_WORDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^((?:io|pending|lane|fails\([^)]*\))\s+)+").unwrap());
 static SOURCE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^source\s+").unwrap());
+/// MO-10f: a field's row words in a component's props type, after the field's `:` (group 2).
+static PROP_ROWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)").unwrap());
 const BUILTINS: [&str; 13] = ["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf", "log", "until", "onSettled", "onFlush"];
 fn builtin(n: &str) -> bool {
     BUILTINS.contains(&n)
@@ -514,7 +516,18 @@ impl Proj<'_> {
                     let nm = self.name(name, sp, &mut at);
                     let pn = self.name(props, sp, &mut at);
                     let pt = match props_type {
-                        Some(t) => Code::of(": ").c(self.ty(t, sp, &mut at)),
+                        // MO-10f: a field's row words (`data: pending fails(Error) T`) are `.rx`'s, not TypeScript's: the
+                        // type is written without them, each piece between them mapped where it is
+                        Some(t) => {
+                            let mut c = Code::of(": ");
+                            let mut last = 0;
+                            for m in PROP_ROWS.captures_iter(t) {
+                                let words = m.get(2).unwrap();
+                                c = c.c(self.ty(&t[last..words.start()], sp, &mut at));
+                                last = words.end();
+                            }
+                            c.c(self.ty(&t[last..], sp, &mut at))
+                        }
                         None => Code::of(": any"),
                     };
                     self.w.emit(Code::of(ind).t(ex(d)).t("function ").c(nm).t("(").c(pn).c(pt).t(") {"), *line);

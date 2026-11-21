@@ -549,3 +549,144 @@ export default component App() {
   <p>{b}</p>
 }
 ```
+
+## Rejected variants, and accepted ones: the whole result, through an interface that keeps its fields' rows (2026-11-22)
+
+A Solid app passes a query down. The result still is not a value, but a
+component may say, in its props' type, that a prop is such a result: a
+record type whose fields carry the row words, `query: { data: pending
+fails(Error) T; isFetching: boolean }`. In that component `props.query`
+is read as the result is — a field at a time, each held field's read
+checked where it is — and at an application a result (or a record of
+held fields below one) is given whole to such a prop when the prop's
+type marks every field the result holds or fails with, at least as the
+declaration does. The interface is in the component's signature
+(`query: takes(data pending fails(Error))`), so it holds across modules.
+What is erased for TypeScript is the row words alone: the prop's type is
+the record, and the library's result is assignable to it.
+
+```rx
+-- accept
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Count(props: { n: number }) { <small>{props.n}</small> }
+component Panel(props: { query: { data: pending fails(Error) any; isFetching: boolean }; title: string }) {
+  q = props.query
+  <h2>{props.title} {props.query.isFetching ? "…" : ""}</h2>
+  <ul>{for t in q.data { <li>{t}</li> }}</ul>
+  <Count n={len(props.query.data)} />
+}
+component Frame(props: { query: { data: pending fails(Error) any; isFetching: boolean } }) {
+  <Panel query={props.query} title="todos" />
+}
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <Frame query={todos} />
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    {errored fallback(e) { <p>failed</p> } { <Todos /> }}
+  </QueryClientProvider>
+}
+```
+
+The reads in `Panel` are question readers: with no `errored` above them,
+in `Panel` or above where it is applied, the program is refused as it is
+for a read of `todos.data` itself.
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Panel(props: { query: { data: pending fails(Error) any; isFetching: boolean } }) {
+  <ul>{for t in props.query.data { <li>{t}</li> }}</ul>
+}
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <Panel query={todos} />
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+}
+```
+
+A prop whose type does not say the field holds and fails takes it for
+plain data, so the result is not given to it; nor to one that says less
+than the declaration (`pending` alone: the failure would be read under
+no boundary the check asked for).
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Panel(props: { query: { data: any; isFetching: boolean } }) {
+  {errored fallback(e) { <p>failed</p> } { <ul>{for t in props.query.data { <li>{t}</li> }}</ul> }}
+}
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <Panel query={todos} />
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+}
+```
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Panel(props: { query: { data: pending any; isFetching: boolean } }) {
+  {errored fallback(e) { <p>failed</p> } { <ul>{for t in props.query.data { <li>{t}</li> }}</ul> }}
+}
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <Panel query={todos} />
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+}
+```
+
+Inside the component the prop is held to the same closed set as the
+result (MO-10f): it is not passed on to a prop that does not take it, put
+in a record, or asked for a method its type does not name.
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Plain(props: { v: any }) { <p>{props.v}</p> }
+component Panel(props: { query: { data: pending fails(Error) any; isFetching: boolean } }) {
+  {errored fallback(e) { <p>failed</p> } { <Plain v={props.query} /> }}
+}
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <Panel query={todos} />
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+}
+```
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Plain(props: { v: any }) { <p>{props.v}</p> }
+component Panel(props: { query: { data: pending fails(Error) any; isFetching: boolean } }) {
+  {errored fallback(e) { <p>failed</p> } { <Plain v={props.query.valueOf()} /> }}
+}
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <Panel query={todos} />
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+}
+```

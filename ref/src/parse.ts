@@ -269,7 +269,7 @@ function maskedStrings(t: string): string {
 }
 /** MO-10f: a result's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
  *  are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i). */
-function fieldRows(t: string): { text: string; held?: [string, boolean, string[]][] } {
+export function fieldRows(t: string): { text: string; held?: [string, boolean, string[]][] } {
   const held: [string, boolean, string[]][] = [];
   // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
   const walk = (x: string, prefix: string): string => {
