@@ -8,8 +8,8 @@ Rules: MO-11o, MO-11c, MO-12, E-10, R-f-5, RG-4a.
 -- module: ./tsr.d.rx
 // as @tanstack/solid-router declares it: routes carry their components, the provider renders what its router carries
 export context router
-export pure fn createRootRoute(options: { component?: Component }): { addChildren: (children: any[]) => any } renders(later)
-export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): { addChildren: (children: any[]) => any } renders(later)
+export pure fn createRootRoute(options: { component?: Component }): any renders(later) methods(addChildren)
+export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) methods(addChildren)
 export pure fn createRouter(options: { routeTree: any }): any instantiates
 export component RouterProvider(props: { router: renders any }) provides(router)
 export component Outlet(props: {}) uses(router)
@@ -52,10 +52,9 @@ strict (a boundary inside the parent's component is not credited to them).
 An instance a primitive made never changes, so reading it in another
 instantiation's arguments (`createRouter({ routeTree: rootRoute.… })`)
 needs no `peek` (E-10). A method called on it keeps that only when the
-declaration names the method on the result (`{ addChildren: (children:
-any[]) => any }`): a stable receiver says nothing of what an undeclared
-method gives back, which may read state that changes (RFC 14, bounded
-2026-11-21).
+declaration names the method, `methods(addChildren)` after the signature:
+a stable receiver says nothing of what an undeclared method gives back,
+which may read state that changes (RFC 14, bounded 2026-11-21).
 
 ## Program
 
@@ -97,9 +96,10 @@ export default component App() {
 }
 ```
 
-`currentTree` is no method the declaration names: what it returns may
-change after the router is made, so the argument is a snapshot (write
-`peek rootRoute.currentTree()` if that is meant, or declare the method).
+`currentTree` is not among the `methods(…)` the declaration names: what
+it returns may change after the router is made, so the argument is a
+snapshot (write `peek rootRoute.currentTree()` if that is meant, or
+declare the method).
 
 ```rx
 -- reject: UNHANDLED_FAILURE

@@ -276,6 +276,7 @@
   "renders"
   "nests"
   "joins"
+  "methods"
   "under"
   "later"
   "root"

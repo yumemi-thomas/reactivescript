@@ -229,13 +229,17 @@ Function application `f(e…)` covers both language functions and FFI imports;
   made once and never changes, so reading it in an argument loses nothing
   and is no diagnostic (proposed 2026-11-19: `createRouter({ routeTree:
   rootRoute.addChildren(…) })`, S-module-22); a reader (`ref`) still is.
-  A method called on the instance keeps that only when the declaration
-  names the method on its result as a function (revised 2026-11-21 after
-  review: `createRootRoute(…): { addChildren: (children: any[]) => any }`):
-  a stable receiver says nothing of what a method gives back, so a method
-  the declaration does not name (a result typed `any`, or a record that
-  lacks it) is read as a call whose answer may change, and the argument is
-  `SNAPSHOT_ARGUMENT` (S-module-22). The instance is the object passed
+  A method called on the instance keeps that only when the primitive's
+  declaration names the method (revised 2026-11-21 after review:
+  `createRootRoute(…): any renders(later) methods(addChildren)`, 09
+  MO-8i): a method so named makes its value once, from what it is given,
+  which is checked as any argument is. A stable receiver says nothing of
+  what another method gives back, so a method the declaration does not
+  name is read as a call whose answer may change, and the argument is
+  `SNAPSHOT_ARGUMENT` (S-module-22); E-5a reads it the same way, so a kept
+  `peek inst.m()` of an undeclared method is `SNAPSHOT_KEPT` (S-module-20).
+  The word changes nothing at run time
+  and nothing of the result's shape. The instance is the object passed
   whole, whether its declared result is a value or a record of parts.
   So is a field read through such an instance, or an equation bound to one
   (`w = size.width`), since a primitive's fields track (MO-10b), revised

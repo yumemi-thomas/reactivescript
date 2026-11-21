@@ -473,7 +473,7 @@ re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
 re!(TRACKED_WORD, r"\btracked\s+");
 re!(HANDLER_WORD, r"\bhandler\s+");
 re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
-re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\(|trusted\b|forwards\b|joins\()");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\(|trusted\b|forwards\b|joins\(|methods\()");
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
@@ -525,7 +525,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, joins: Option<String>, forwards: bool, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, joins: Option<String>, forwards: bool, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, methods: Vec<String> },
     /// SV-5a: `fields`, what of an instance is sent to the client (`export error HttpError(status, code)`); none, name and message only
     Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
@@ -577,7 +577,7 @@ pub fn obligations(d: &JsDecl) -> Vec<&'static str> {
         fn_params_text(t).is_some()
     };
     match d {
-        JsDecl::Fn { pure, instantiates, uses, provides, held, shape, ptypes, renders, renders_root, nests, forwards, joins, carrier, under, drafts, part_drafts, .. } => {
+        JsDecl::Fn { pure, instantiates, uses, provides, held, shape, ptypes, renders, renders_root, nests, forwards, joins, carrier, under, drafts, part_drafts, methods, .. } => {
             if *pure && !*instantiates {
                 out.push("pure");
             }
@@ -603,6 +603,9 @@ pub fn obligations(d: &JsDecl) -> Vec<&'static str> {
             }
             if !drafts.is_empty() || !part_drafts.is_empty() {
                 out.push("draft");
+            }
+            if !methods.is_empty() {
+                out.push("methods");
             }
             if *renders || *renders_root || nests.is_some() || *forwards || joins.is_some() || *carrier || under.is_some() || matches!(shape, Shape::Comp) {
                 out.push("placement");
@@ -1712,7 +1715,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
             let m = masked(&t); // nor words in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`)
             let r1 = REJECTS.find(&m).map(|x| x.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&m).map(|x| x.start() + if m[x.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted", "forwards", "joins("].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
+            let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted", "forwards", "joins(", "methods("].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
             let r = [r1, r2, r3].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
@@ -1748,6 +1751,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         let mut carrier = false;
         let mut under: Option<(String, String)> = None;
         let mut forwards = false;
+        let mut methods: Vec<String> = vec![];
         let mut joins: Option<String> = None;
         loop {
             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
@@ -1759,6 +1763,21 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
             if c.keyword("forwards") {
                 // MO-11g: inside a factory's arguments, it hands the components it is given on to the factory
                 forwards = true;
+                continue;
+            }
+            if c.keyword("methods") {
+                // E-10 (RFC 14, bounded): the methods of its instance that make a value once from what they are given
+                c.ws(false);
+                c.expect("(")?;
+                loop {
+                    c.ws(true);
+                    methods.push(c.ident_or("methods(name, …): the methods of the instance it makes")?);
+                    c.ws(true);
+                    if !c.eat(",") {
+                        break;
+                    }
+                }
+                c.expect(")")?;
                 continue;
             }
             if c.keyword("joins") {
@@ -1887,7 +1906,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         let part_drafts = draft_parts(ret.as_deref());
         let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))))).collect();
         let ret = ret.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, joins, forwards, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, joins, forwards, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts, methods });
     }
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).

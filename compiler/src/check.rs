@@ -266,6 +266,8 @@ struct Sym<'a> {
     /// MO-11l (revised 2026-11-21): a value whose components `renders` checked where it was bound — bound from a bare
     /// `renders` call, or an alias of one; it may not travel to where something else would render it
     local_renders: bool,
+    /// E-10 (RFC 14, bounded): a primitive's declared `methods(…)`, and on an instance it made, its own
+    methods: Vec<String>,
     /// MO-11n: the JS contexts (keys) it carries into that root
     carries: Vec<String>,
     /// MO-8k: a JS import with no declaration in any of the four places: its specifier
@@ -353,6 +355,7 @@ impl<'a> Sym<'a> {
             renders: false,
             renders_root: false,
             local_renders: false,
+            methods: vec![],
             carries: vec![],
             undeclared: None,
             forwards: false,
@@ -2003,7 +2006,7 @@ impl<'a> Checker<'a> {
                     bind_comp(self, x, alias);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, forwards: xforwards, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, forwards: xforwards, methods: xmethods, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -2029,6 +2032,7 @@ impl<'a> Checker<'a> {
                         s.forwards = *xforwards;
                         s.held = xheld.clone();
                         s.cbs = xcbs.clone();
+                        s.methods = xmethods.clone();
                         self.bind(env, alias, s);
                         continue;
                     }
@@ -2127,6 +2131,7 @@ impl<'a> Checker<'a> {
         if let ExprKind::Call { f, .. } = &e.k {
             if let ExprKind::Id(n) = &f.k {
                 if let Some(t) = self.lookup(env, n) {
+                    sym.methods = self.syms[t].methods.clone(); // E-10: its declared methods
                     if !self.syms[t].held.is_empty() {
                         sym.held = self.syms[t].held.clone();
                     }
@@ -2779,12 +2784,11 @@ impl<'a> Checker<'a> {
             rooted_reads(a, &mut rooted);
             // E-10: an instance a primitive made (its value result) is made once and never changes, when it is passed
             // whole; a field read through it, or a name bound to one, tracks (RFC 14, MO-10b)
-            // a method called on it keeps it stable only when the primitive's declared result names the method as a
-            // function (`createRootRoute(…): { addChildren: (routes: any[]) => any }`): what an undeclared method gives
-            // back the declaration does not say, and may track (RFC 14, bounded 2026-11-21)
+            // a method called on it keeps it stable only when the primitive's declaration names it, `methods(addChildren)`:
+            // what an undeclared method gives back the declaration does not say, and may track (RFC 14, bounded 2026-11-21)
             let mut methods = vec![];
             method_calls(a, &mut methods);
-            let declared_method = |s: SId, m: &str| matches!(&self.syms[s].foreign, Some(crate::parse::Shape::Fields(fs)) if fs.iter().any(|(k, p)| k == m && *p == crate::parse::Part::Fn));
+            let declared_method = |s: SId, m: &str| self.syms[s].methods.iter().any(|x| x == m);
             let instance = |s: SId| matches!(self.syms[s].foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value)) | Some(crate::parse::Shape::Comp) | Some(crate::parse::Shape::Fields(_)));
             let undeclared = |s: SId, n: &String| methods.iter().find(|(r, m)| r == n && !declared_method(s, m)).map(|(_, m)| m.clone());
             let constant = |s: SId, n: &String| instance(s) && !self.syms[s].via_field && !rooted.contains(n) && undeclared(s, n).is_none();
@@ -2797,7 +2801,7 @@ impl<'a> Checker<'a> {
             for (n, s, m) in cands {
                 if !self.constant_eq(s) {
                     hit = Some(match m {
-                        Some(m) => format!("{n}.{m}(…), a method its declaration does not name (declare it on the result, `{{ {m}: (…) => … }}`, for its value to count as made once)"),
+                        Some(m) => format!("{n}.{m}(…), a method its declaration does not name (declare it, `methods({m})` on the fn that made {n}, for its value to count as made once)"),
                         None => n,
                     });
                     break;
@@ -2883,10 +2887,15 @@ impl<'a> Checker<'a> {
                 }
                 // a method called on a name reads no field of it (E-10's exemption): the name, and the arguments
                 ExprKind::Call { f, args, .. } if matches!(&f.k, ExprKind::Member { o, .. } if matches!(&o.k, ExprKind::Id(on) if !self.lookup(env, on).is_some_and(|s| self.syms[s].kind == SymKind::Props))) => {
-                    if let ExprKind::Member { o, .. } = &f.k {
+                    if let ExprKind::Member { o, p, .. } = &f.k {
                         if let ExprKind::Id(on) = &o.k {
                             if counting {
                                 let s = self.lookup(env, on);
+                                // E-10 (bounded): a method a primitive's instance does not declare (`methods(…)`) may answer
+                                // something that changes
+                                if s.is_some_and(|s| self.syms[s].kind == SymKind::Eq && self.syms[s].foreign.is_some() && !self.syms[s].methods.iter().any(|m| m == p)) {
+                                    acc.yes = true;
+                                }
                                 let c = self.sym_ch(s);
                                 add_ch(acc, &c);
                             }

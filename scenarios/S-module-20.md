@@ -15,6 +15,8 @@ export pure fn debounce(callback: handler (...args: any[]) => void, wait?: numbe
 export pure fn loose(callback: any, wait?: number): (...args: any[]) => void instantiates
 // a primitive with a value parameter: its argument is read once (E-10)
 export pure fn createLabel(width: number): any instantiates
+// a primitive whose instance has a method that makes a value once (`format`), and others it does not declare
+export pure fn createClock(): any instantiates methods(format)
 ```
 
 TypeScript's `readonly` on a field and on a tuple is a modifier, not part
@@ -74,7 +76,7 @@ export default component App() {
 The instance `createWindowSize` made never changes, but its fields track
 (MO-10b): `w` follows `size.width`, so passing it to a value parameter
 reads it once and keeps the first width (E-10). Only the instance passed
-whole is exempt, and a method its declaration names on the result
+whole is exempt, and a method its declaration names, `methods(…)`
 (`route.addChildren(…)`, S-module-22), which reads no field.
 
 ```rx
@@ -101,3 +103,28 @@ export default component App() {
 
 The parameter's type is checked as TypeScript checks it: a `number` is not written into a `string` source (a write is
 the source's setter called with the value, so TypeScript reports the argument).
+
+```rx
+-- reject: SNAPSHOT_KEPT
+import { createClock } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  shown = peek clock.now()
+  <p>{shown}</p>
+}
+```
+
+`now` is no method `methods(…)` names: what it answers may change, so a
+kept `peek` of it keeps the first answer (E-5a, aligned with E-10's
+bounded exemption). `peek clock.format()`, a declared method, is not
+refused for the instance.
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  label = createLabel(clock.now())
+  <p>{label}</p>
+}
+```

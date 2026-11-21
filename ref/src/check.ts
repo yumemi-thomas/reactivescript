@@ -115,6 +115,7 @@ type Sym = {
   partDrafts?: Record<string, [number, number[]][]>;   // MO-10i: the same, for its result's function parts (tuple index or field)
   jsDraft?: boolean;                   // MO-10i: a callback's parameter the library declares a draft: its paths are written
   draftFn?: number;                    // MO-10i: the closure whose parameter the draft is (its fnStack id)
+  methods?: string[];                  // E-10 (RFC 14, bounded): a primitive's declared methods(…), and on an instance it made, its own
   localRenders?: boolean;              // MO-11l (revised 2026-11-21): components `renders` checked where this was bound — it may not travel
   outlet?: boolean;                    // MO-11p: a JS component that renders, where it is written, what nests under its component
   carriedExpr?: { e: Expr; env: Env };   // MO-11o: every equation's expression, looked through for what it carries
@@ -721,7 +722,7 @@ class Checker {
       if (x.kind === "comp") { bindComp(x, alias); continue; }   // MO-11a
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.forwards ? { forwards: true } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.forwards ? { forwards: true } : {}), ...(x.methods ? { methods: x.methods } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.kind === "fn" && x.forwards ? { forwards: true } : {}), ...(generated ? { generated } : {}) });
     }
   }
@@ -793,7 +794,7 @@ class Checker {
     if (!shape) return;
     sym.foreign = shape;
     if (e.k === "member" || (e.k === "index" && e.o.k === "id" && (() => { const f = env.lookup((e.o as { name: string }).name)?.foreign; return !!f && typeof f === "object" && "fields" in f; })())) sym.viaField = true;
-    if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; }   // MO-10f: its fields' rows come with it
+    if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; if (f?.methods) sym.methods = f.methods; }   // MO-10f: its fields' rows come with it; E-10: its declared methods
     if ((e.k === "member" || e.k === "index") && this.heldField(e, env)?.[1]) sym.reader = true;   // MO-10f: a part bound from a field that holds reads as a reader (MO-10d)
     if ((e.k === "member" || e.k === "index") && e.o.k === "id") {                          // a record part keeps its fields' rows; `x[k]`: whichever part it is, each suffix's combined
       const key = e.k === "member" ? e.p : litKey(e.i); const sub: [string, boolean, string[]][] = [];
@@ -1019,14 +1020,14 @@ class Checker {
       const a = call.args[i]; if (!a || p.ref) return;
       const reads = new Set<string>(); readsOutsidePeek(a, reads);
       const rooted = new Set<string>(); rootedReads(a, rooted);   // RFC 14: the instance passed whole is exempt; a field read through it is not
-      // a method called on it keeps it stable only when the primitive's declared result names the method as a function
-      // (`createRootRoute(…): { addChildren: (routes: any[]) => any }`): what an undeclared method gives back may track
+      // a method called on it keeps it stable only when the primitive's declaration names it, `methods(addChildren)`: what
+      // an undeclared method gives back may track
       const methods: [string, string][] = []; methodCalls(a, methods);
       const instance = (s: Sym) => s.foreign === "value" || s.foreign === "comp" || (typeof s.foreign === "object" && "fields" in s.foreign);
-      const undeclared = (s: Sym, n: string) => methods.find(([r, m]) => r === n && !(typeof s.foreign === "object" && "fields" in s.foreign && s.foreign.fields.some(([k, p]) => k === m && p === "fn")))?.[1];
+      const undeclared = (s: Sym, n: string) => methods.find(([r, m]) => r === n && !s.methods?.includes(m))?.[1];
       const exempt = (s: Sym, n: string) => instance(s) && !s.viaField && !rooted.has(n);
       let hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !(exempt(s, n) && undeclared(s, n) === undefined) && !this.constantEq(s); });   // E-10: an instance a primitive made (its value result) is made once and never changes; so does an equation that reads nothing that changes
-      if (hit) { const s = env.lookup(hit)!; const m = exempt(s, hit) ? undeclared(s, hit) : undefined; if (m !== undefined) hit = `${hit}.${m}(…), a method its declaration does not name (declare it on the result, \`{ ${m}: (…) => … }\`, for its value to count as made once)`; }
+      if (hit) { const s = env.lookup(hit)!; const m = exempt(s, hit) ? undeclared(s, hit) : undefined; if (m !== undefined) hit = `${hit}.${m}(…), a method its declaration does not name (declare it, \`methods(${m})\` on the fn that made ${hit}, for its value to count as made once)`; }
       // E-10: a field read through a `for` row (`counter(r.x)`): the row is a constant (RG-2b), but its fields are written
       // by path or reconciled by key while it lives (ST-4a). The row passed whole reads no field; `peek r.x` is meant
       if (!hit) { const row = [...rooted].find(n => !!env.lookup(n)?.rowOf); if (row) hit = `a field of the row ${row}`; }
@@ -1054,7 +1055,7 @@ class Checker {
       case "pre": if (counting) this.addCh(acc, this.symCh(env.lookup(e.name))); if (e.init) this.chOf(e.init, env, mode, acc, inPeek); return acc;
       case "use": { const c = env.lookup(e.name); if (counting && c?.kind === "context") { if (/\.d\.rx#/.test(c.ctx!.key)) acc.yes = true; else acc.deps.add(`ctx|${c.ctx!.key}`); } return acc; }   // a JS context's provider is JS
       case "call":                                                                         // a method called on a name reads no field of it (E-10's exemption): the name, and the arguments
-        if (e.f.k === "member" && e.f.o.k === "id" && env.lookup(e.f.o.name)?.kind !== "props") { if (counting) this.addCh(acc, this.symCh(env.lookup(e.f.o.name))); for (const a of e.args) this.chOf(a, env, mode, acc, inPeek); return acc; }
+        if (e.f.k === "member" && e.f.o.k === "id" && env.lookup(e.f.o.name)?.kind !== "props") { if (counting) { const r = env.lookup(e.f.o.name); if (r?.kind === "eq" && r.foreign !== undefined && !r.methods?.includes(e.f.p)) acc.yes = true;   /* E-10 (bounded): a method a primitive's instance does not declare may answer something that changes */ this.addCh(acc, this.symCh(r)); } for (const a of e.args) this.chOf(a, env, mode, acc, inPeek); return acc; }
         break;
       case "member": case "index": {
         const o = e.k === "member" && e.o.k === "id" ? env.lookup(e.o.name) : undefined;

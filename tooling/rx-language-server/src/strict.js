@@ -70,7 +70,7 @@ function unanswered(file, results) {
   }
   return out;
 }
-const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides(…)", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler, tracked or pure)", draft: "draft", placement: "where it renders what it is given (renders, nests, forwards, joins, outlet)" };
+const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides(…)", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler, tracked or pure)", draft: "draft", placement: "where it renders what it is given (renders, nests, forwards, joins, outlet)", methods: "methods(…), that its instance's methods make a value once" };
 /** The meaning of a record: what rx-verify checked when it wrote one. A record from a version whose checks differ (2:
  *  each claim the crate reads must be answered) does not count. */
 const RECORD_VERSION = 2;

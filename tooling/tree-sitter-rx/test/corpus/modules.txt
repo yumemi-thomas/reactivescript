@@ -333,7 +333,7 @@ export context router
 export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]
 export pure fn defineRoute<const S extends string>(route: { path: S }): RouteDefinition forwards
 export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)
-export pure fn createRoute(options: { path: string }): any renders(later) nests(component under getParentRoute)
+export pure fn createRoute(options: { path: string }): any renders(later) methods(addChildren) nests(component under getParentRoute)
 export pure fn mount(app: Component): void renders(root, router) trusted
 export pure fn useParams(): ref any uses(router)
 export pure fn makePersisted(signal init: string, signal?: number): [ref string, (v: string) => void]
@@ -437,6 +437,8 @@ export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
       (type_annotation
         (predefined_type))
       (renders_clause)
+      (methods_clause
+        (property_identifier))
       (nests_clause
         (property_identifier)
         (property_identifier))))

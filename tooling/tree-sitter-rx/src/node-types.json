@@ -2832,6 +2832,10 @@
           "named": true
         },
         {
+          "type": "methods_clause",
+          "named": true
+        },
+        {
           "type": "nests_clause",
           "named": true
         },
@@ -4844,6 +4848,22 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "methods_clause",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "property_identifier",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -7919,6 +7939,10 @@
   },
   {
     "type": "meta",
+    "named": false
+  },
+  {
+    "type": "methods",
     "named": false
   },
   {

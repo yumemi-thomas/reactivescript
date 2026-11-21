@@ -211,6 +211,7 @@ module.exports = grammar(tsx, {
       $.renders_clause,
       $.nests_clause,
       $.joins_clause,
+      $.methods_clause,
     ),
 
     // `instantiates`, `forwards` (MO-11g), `trusted` (MO-8j), a component's `outlet` (MO-11p), a fn's bare `renders`
@@ -244,6 +245,9 @@ module.exports = grammar(tsx, {
 
     // `joins(path)` (MO-11i)
     joins_clause: $ => seq('joins', '(', field('field', alias($.identifier, $.property_identifier)), ')'),
+
+    // `methods(addChildren)`: the methods of the instance a primitive makes that make a value once (02 E-10)
+    methods_clause: $ => seq('methods', '(', commaSep1(field('name', alias($.identifier, $.property_identifier))), optional(','), ')'),
 
     // A declaration file's component: `component Dialog.Title(props: { id?: string }) uses(coreDialog)` (MO-11a,
     // MO-11q). As a fn's row, it does not end at a newline that a `{` follows: that is a component's body
