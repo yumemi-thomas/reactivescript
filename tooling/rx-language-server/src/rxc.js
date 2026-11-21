@@ -101,4 +101,8 @@ function declaration(file) {
   return ask("declaration", { file });
 }
 
-module.exports = { analyze, preludeFor, boundary, declaration, rxcPath, wasmPath };
+/** MO-8k: the declaration a package import from `file` finds (rx-types/, the package's, @rx-types, generated), or null. */
+function lookup(file, spec) {
+  return ask("lookup", { file, spec });
+}
+module.exports = { analyze, preludeFor, boundary, declaration, lookup, rxcPath, wasmPath };

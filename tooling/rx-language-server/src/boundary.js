@@ -21,6 +21,19 @@ function declarations(rxFiles) {
       if (js) out.push({ file: path.join(dir, f), module: "./" + js });   // a .d.rx with no JS beside it is an .rx module's signature (MO-9)
     }
   }
+  // MO-8k: a project's declarations for packages, `rx-types/<spec>.d.rx` in a module's directory or one above it
+  const seen = new Set();
+  for (let dir of new Set(rxFiles.map(f => path.resolve(path.dirname(f))))) {
+    for (;;) {
+      const root = path.join(dir, "rx-types");
+      if (!seen.has(root) && fs.existsSync(root) && fs.statSync(root).isDirectory()) {
+        seen.add(root);
+        const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else if (e.name.endsWith(".d.rx")) out.push({ file: f, module: path.relative(root, f).slice(0, -".d.rx".length).split(path.sep).join("/") }); } };
+        walk(root);
+      }
+      const up = path.dirname(dir); if (up === dir) break; dir = up;
+    }
+  }
   return out;
 }
 

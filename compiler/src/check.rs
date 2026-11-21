@@ -259,6 +259,8 @@ struct Sym<'a> {
     renders_root: bool,
     /// MO-11n: the JS contexts (keys) it carries into that root
     carries: Vec<String>,
+    /// MO-8k: a JS import with no declaration in any of the four places: its specifier
+    undeclared: Option<String>,
     /// MO-11o: a declared fn whose result carries the components in its arguments
     carrier: bool,
     /// MO-11o: on an equation bound to such a call, those arguments and their scope
@@ -329,6 +331,7 @@ impl<'a> Sym<'a> {
             renders: false,
             renders_root: false,
             carries: vec![],
+            undeclared: None,
             carrier: false,
             carried: None,
             carried_under: None,
@@ -962,6 +965,14 @@ fn peeks_in<'a>(n: Node<'a>, out: &mut Vec<&'a Expr>) {
         }
     }
 }
+/// MO-11a, MO-8k: what UNKNOWN_COMPONENT says for a JS import — where its declaration goes, and for a package how to draft one.
+pub fn unknown_js_component(tag: &str, from: Option<&str>) -> String {
+    match from {
+        Some(f) if !f.starts_with('.') && !f.starts_with('/') => format!("<{tag}> is imported from {f}, which has no declaration: write rx-types/{f}.d.rx with `export component {tag}(props: {{ … }})`, or draft it from the package's types: `npx rx-declare {f} --out rx-types/{f}.d.rx` (MO-8k, MO-11a)"),
+        _ => format!("<{tag}> is imported from JS, which declares no component {tag}: declare it beside the module, `export component {tag}(props: {{ … }})` (MO-11a)"),
+    }
+}
+
 fn kept_msg(peek: &str, why: &str) -> String {
     format!("`{}` is kept where it is read, but {} — it would keep its first value: drop peek to read it live, or name the snapshot, `source saved := {}`", peek, why, peek)
 }
@@ -1424,9 +1435,10 @@ impl<'a> Checker<'a> {
                 }
             }
             match d {
-                Decl::Import { names, pure, fails, side, line, .. } => {
+                Decl::Import { names, pure, fails, side, line, from, .. } => {
                     for n in names {
                         let mut s = Sym::new(SymKind::Import, &n.alias, region, *line as i64);
+                        s.undeclared = Some(from.clone());
                         s.io = !pure;
                         s.rejects = Some(fails.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
                         s.side = *side;
@@ -2329,6 +2341,9 @@ impl<'a> Checker<'a> {
                         if let Some(fs) = self.lookup(env, fname) {
                             if self.syms[fs].kind == SymKind::Fn && self.syms[fs].instantiating {
                                 self.mark_callbacks(args, fs);
+                                if self.unplaced_fn(fs) {
+                                    self.unplaced(args, env); // MO-11s
+                                }
                                 self.snapshot_args(e, fs, env);
                                 // MO-12b: a hook reads its context where it is called
                                 let region = self.reg(env);
@@ -3137,6 +3152,9 @@ impl<'a> Checker<'a> {
                         self.mark_callbacks(args, s);
                     }
                     self.model.call(s, kind.map(|k| k.as_str()).unwrap_or(""));
+                    if s.is_some_and(|s| self.unplaced_fn(s)) {
+                        self.unplaced(args, env); // MO-11s
+                    }
                 }
                 self.expr(f, env, ctx, None);
                 for a in args {
@@ -3707,8 +3725,9 @@ impl<'a> Checker<'a> {
                         let s = self.lookup(env, tag);
                         let is_comp = s.is_some_and(|s| self.syms[s].kind == SymKind::Comp);
                         if !is_comp {
-                            if s.is_some_and(|s| self.syms[s].kind == SymKind::Import) {
-                                self.err("UNKNOWN_COMPONENT", "RG-4a", format!("<{}> is imported from JS, which declares no component {}: declare it beside the module, `export component {}(props: {{ … }})` (MO-11a)", tag, tag, tag));
+                            if let Some(s) = s.filter(|s| self.syms[*s].kind == SymKind::Import) {
+                                let msg = unknown_js_component(tag, self.syms[s].undeclared.as_deref());
+                                self.err("UNKNOWN_COMPONENT", "RG-4a", msg);
                             } else {
                                 self.err("UNKNOWN_COMPONENT", "RG-4a", format!("<{}> is not a component declared here", tag));
                             }
@@ -4231,6 +4250,64 @@ impl<'a> Checker<'a> {
             ExprKind::Spread(x) | ExprKind::Peek(x) => self.carried_names(x, env, seen, out),
             _ => {}
         }
+    }
+    /// MO-11s: components given to a JS fn that says nothing of where it renders them (no factory, `renders` or
+    /// `renders(later)` row, or no declaration at all) — as values in its arguments, their record and array literals and
+    /// the JS calls among them — are checked as the most cautious placement allows: applied under a root of their own, at
+    /// any time, so nothing above the call (errored, loading, provide) is credited to them.
+    fn unplaced(&mut self, args: &'a [Expr], env: EId) {
+        let mut out = vec![];
+        fn walk<'a>(c: &mut Checker<'a>, e: &'a Expr, env: EId, out: &mut Vec<String>) {
+            match &e.k {
+                ExprKind::Id(n) => {
+                    if is_upper_tag(n) && c.lookup(env, n).is_some_and(|t| c.syms[t].kind == SymKind::Comp) && !c.value_ids.contains(&(e as *const Expr)) {
+                        c.value_ids.insert(e as *const Expr);
+                        out.push(n.clone());
+                    }
+                }
+                ExprKind::Rec(fields) => {
+                    for f in fields {
+                        if let Field::Kv { v, .. } = f {
+                            walk(c, v, env, out);
+                        }
+                    }
+                }
+                ExprKind::Arr(items) => {
+                    for x in items {
+                        if !matches!(x.k, ExprKind::Spread(_)) {
+                            walk(c, x, env, out);
+                        }
+                    }
+                }
+                ExprKind::Call { f, args, .. } => {
+                    if let ExprKind::Id(g) = &f.k {
+                        if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
+                            for a in args {
+                                walk(c, a, env, out);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        for a in args {
+            walk(self, a, env, &mut out);
+        }
+        if out.is_empty() {
+            return;
+        }
+        let r = self.region(None, "root", false, None);
+        let at = self.env(Some(env), r);
+        let line = self.line as usize;
+        for n in out {
+            self.apply_tree(&VTree { tag: n, kids: vec![] }, Some(line), at);
+        }
+    }
+    /// MO-11s: a JS fn with no word for where it renders what it is given
+    fn unplaced_fn(&self, s: SId) -> bool {
+        let y = &self.syms[s];
+        (y.kind == SymKind::Import || (y.kind == SymKind::Fn && y.foreign.is_some())) && !y.renders && !y.carrier && y.foreign != Some(FShape::Comp)
     }
     /// MO-11f: the components in a factory call's arguments — anywhere inside its record and array literals, and the
     /// arguments of JS calls among them (MO-11g).

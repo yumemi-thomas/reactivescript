@@ -1,6 +1,6 @@
 # S-module-16 — components a JS fn renders where its result is bound: `renders`
 
-Rules: MO-11l, MO-11c, MO-11g, DV-24, RG-7b, R-f-5.
+Rules: MO-11l, MO-11s, MO-11c, MO-11g, DV-24, RG-7b, R-f-5.
 
 ## Modules
 
@@ -83,14 +83,16 @@ export default component App() {
 `NoteCell`'s failure escapes to the binding's region.
 
 ```rx
--- reject: COMPONENT_AS_VALUE
+-- reject: CONTEXT_NOT_FOUND
 import { flexRender } from "./table.js"
-import { NameCell } from "./cells.rx"
+import { accent, NameCell } from "./cells.rx"
 export default component App() {
-  shown = flexRender(NameCell, { value: "x" })
-  <p>{shown}</p>
+  provide accent = "hot"
+  <p>{flexRender(NameCell, { value: "x" })}</p>
 }
 ```
 
-Only a fn declared `renders` (or a factory) takes component values: the
-checker would not know where `flexRender` renders this one.
+`flexRender` says nothing of where it renders what it is given (it is not
+declared `renders`), so `NameCell` is checked the most cautious way: under
+a root of its own (MO-11s), where the `accent` provided above the call does
+not reach.

@@ -86,5 +86,24 @@ fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): 
 const trusted = strictRun();
 check("strict: a row marked trusted passes", trusted.status === 0, { status: trusted.status, out: trusted.stdout + trusted.stderr });
 
+// MO-8k: packages declared by the project, `rx-types/<spec>.d.rx`, with no re-export file beside the app
+const pk = path.join(ws, "rx-types-app"); fs.mkdirSync(path.join(pk, "node_modules"), { recursive: true });
+for (const d of fs.readdirSync(path.join(repo, "ref/node_modules"))) fs.symlinkSync(path.join(repo, "ref/node_modules", d), path.join(pk, "node_modules", d), "dir");
+const pkgDir = (name, files) => { const d = path.join(pk, "node_modules", name); fs.mkdirSync(d, { recursive: true }); for (const [f, t] of Object.entries(files)) fs.writeFileSync(path.join(d, f), t); };
+pkgDir("plain-kit", { "package.json": JSON.stringify({ name: "plain-kit", type: "module", main: "./index.js" }), "index.js": "export const twice = n => n * 2;\n" });
+pkgDir("typed-kit", { "package.json": JSON.stringify({ name: "typed-kit", type: "module", main: "./index.js", types: "./index.d.ts" }), "index.js": "export const half = n => n / 2;\n", "index.d.ts": "export declare function half(n: number): number;\n" });
+fs.mkdirSync(path.join(pk, "rx-types"), { recursive: true });
+fs.writeFileSync(path.join(pk, "rx-types/plain-kit.d.rx"), "export pure fn twice(n: number): number\n");
+fs.writeFileSync(path.join(pk, "rx-types/typed-kit.d.rx"), "export pure fn half(n: number): number\n");
+fs.writeFileSync(path.join(pk, "tsconfig.json"), JSON.stringify({ compilerOptions: JSON.parse(fs.readFileSync(path.join(ws, "tsconfig.json"), "utf8")).compilerOptions, include: ["*.rx"] }));
+const appRx = 'import { twice } from "plain-kit"\nimport { half } from "typed-kit"\nexport default component App() {\n  a = twice(2)\n  b = half(4)\n  <p>{a} {b}</p>\n}\n';
+const pkRun = (app, decls = {}) => { fs.writeFileSync(path.join(pk, "main.rx"), app); for (const [f, t] of Object.entries(decls)) fs.writeFileSync(path.join(pk, "rx-types", f), t); const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: pk, encoding: "utf8" }); return { status: r.status, out: r.stdout + r.stderr }; };
+const pkOk = pkRun(appRx);
+check("rx-types: a JS-only package and a typed one, declared by the project, pass (MO-8k)", pkOk.status === 0 && pkOk.out.trim() === "", pkOk);
+const pkType = pkRun(appRx.replace("twice(2)", 'twice("2")'));
+check("rx-types: a package with no types of its own is typed by its rx-types declaration (TS2345 on the .rx)", pkType.status !== 0 && /main\.rx\(4,\d+\): error TS2345/.test(pkType.out), pkType);
+const pkMismatch = pkRun(appRx, { "typed-kit.d.rx": "export pure fn half(n: string): number\n" });
+check("rx-types: a declaration that disagrees with the package's own types fails, on its line (TY-6)", pkMismatch.status !== 0 && /rx-types[\\/]typed-kit\.d\.rx:1:1 - error DECLARATION_MISMATCH: half: /.test(pkMismatch.out), pkMismatch);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

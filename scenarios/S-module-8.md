@@ -1,6 +1,6 @@
 # S-module-8 — typed route params: `defineRoute` inside a route table, and a page that declares its params
 
-Rules: MO-11g, MO-8d, MO-11c, MO-11f, MO-11i, TY-1c.
+Rules: MO-11g, MO-11s, MO-8d, MO-11c, MO-11f, MO-11i, TY-1c.
 
 ## Modules
 
@@ -16,6 +16,11 @@ export pure fn defineRoute<const S extends string | readonly string[]>(route: { 
 
 ```rx
 -- module: ./pages.rx
+import pure { fetch } from "./prelude"
+export component Profile(props: { params: { id: string } }) {
+  bio = await fetch(`bio:${props.params.id}`)
+  <p>{bio}</p>
+}
 export component Home() {
   <h1>Home</h1>
 }
@@ -105,16 +110,21 @@ export default component App() {
 Reached by `/crew`, the child has no `id`.
 
 ```rx
--- reject: COMPONENT_AS_VALUE
+-- reject: UNHANDLED_FAILURE
 import { createRouter, defineRoute } from "./router.js"
-import { Person } from "./pages.rx"
-route = defineRoute({ path: "/people/:id", component: Person })
+import { Profile } from "./pages.rx"
+route = defineRoute({ path: "/people/:id", component: Profile })
 Router = createRouter({ routes: [route] })
 export default component App() {
-  <Router />
+  errored fallback(e) { <p>failed</p> } {
+    loading fallback { <p>…</p> } { <Router /> }
+  }
 }
 ```
 
-A JS call hands components on only inside a factory's arguments: bound on
-its own, `defineRoute(…)` is not part of any route table the checker can
-see (MO-11g).
+A JS call hands components on to a factory only inside its arguments: bound
+on its own, `defineRoute(…)` is not part of any route table the checker can
+see (MO-11g). It says nothing of where it renders `Profile`, so `Profile`
+is checked under a root of its own (MO-11s): the `errored` above
+`<Router />` is not credited, and its fetch's failure escapes. Written
+inside `createRouter({ routes: [defineRoute(…)] })`, it is discharged.

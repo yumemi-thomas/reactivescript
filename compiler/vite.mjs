@@ -19,6 +19,10 @@
 // needs, MO-11h), TY-6's on the `.d.rx`, fail the build. Without the language server installed the build says that the
 // types went unchecked. The dev server leaves types to the editor, which runs the same projection. RX_TYPECHECK=0 or 1
 // overrides either default.
+//
+// Declarations (09 MO-8l): before a program is read, each package it imports that nothing declares (no `rx-types/` file,
+// none shipped, no `@rx-types` package) gets a draft from its TypeScript types in `node_modules/.rx-types/`, with the
+// language server's generator. `rx({ generate: false })` or RX_GENERATE=0 turns it off.
 import { existsSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -55,8 +59,18 @@ function typecheck(entry) {
   return r.status === 0 ? null : (r.stdout + r.stderr).trim() || `rx-tsc exited with ${r.status}`;
 }
 
+/** MO-8l: draft a declaration for each package the program imports that nothing declares (into node_modules/.rx-types),
+ *  with the language server's generator — the project's, else this checkout's. Undefined when there is none to run. */
+function generator(entry) {
+  for (const from of [path.join(path.dirname(entry), "package.json"), fileURLToPath(import.meta.url)]) {
+    try { return createRequire(from)("@reactivescript/language-server/src/generate.js"); } catch {}
+  }
+  const local = path.join(path.dirname(fileURLToPath(import.meta.url)), "../tooling/rx-language-server/src/generate.js");
+  return existsSync(local) ? createRequire(import.meta.url)(local) : undefined;
+}
+
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
-export default function rx() {
+export default function rx(options = {}) {
   const flag = process.env.RX_TYPECHECK;
   let typed = flag === "0" ? true : null;   // whether this process has type-checked (once per build)
   const builds = new Map();   // entry\0target\0moduleName\0spa\0lib → { entry, target, moduleName, spa, lib, out, stamps }
@@ -65,6 +79,12 @@ export default function rx() {
     const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${lib}`;
     const prior = builds.get(key);
     if (prior && fresh(prior)) return prior;
+    if (options.generate !== false && process.env.RX_GENERATE !== "0") {   // MO-8l, before the program is read
+      let drafted = [];
+      try { drafted = generator(entry)?.ensureDeclarations(entry) ?? []; }
+      catch (e) { console.warn(`[reactivescript] drafting declarations failed, the program is read without them (MO-8l): ${e?.message ?? e}`); }
+      for (const r of drafted) if (r.status === "written") console.info(`[reactivescript] drafted a declaration for ${r.spec} from its types: ${path.relative(process.cwd(), r.file)} (MO-8l)`);
+    }
     const out = JSON.parse(app(entry, target, moduleName, spa, lib));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
     const files = out.modules ? Object.keys(out.modules) : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];

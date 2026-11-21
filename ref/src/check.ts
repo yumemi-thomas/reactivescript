@@ -101,6 +101,7 @@ type Sym = {
   held?: [string, boolean, string[]][];   // MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
+  undeclared?: string;                 // MO-8k: a JS import with no declaration in any of the four places: its specifier
   carrier?: boolean;                   // MO-11o: a declared fn whose result carries the components in its arguments
   carried?: { args: Expr[]; env: Env; under?: { parent: string; inside: string } };   // MO-11o: on an equation bound to such a call, those arguments; MO-11p: where it renders
   under?: { parent: string; inside: string };   // MO-11p: a carrying fn whose result renders at its parent's outlet
@@ -194,6 +195,14 @@ function subExprs(e: Expr): Expr[] {
   return out;
 }
 /** E-5a: the outermost `peek`s of an expression, outside closures (a closure's body is read when it is called). */
+/** MO-11a, MO-8k: what UNKNOWN_COMPONENT says for a JS import — where its declaration goes, and for a package how to draft one. */
+export function unknownJsComponent(tag: string, from?: string): string {
+  const pkg = from !== undefined && !from.startsWith(".") && !from.startsWith("/");
+  return pkg
+    ? `<${tag}> is imported from ${from}, which has no declaration: write rx-types/${from}.d.rx with \`export component ${tag}(props: { … })\`, or draft it from the package's types: \`npx rx-declare ${from} --out rx-types/${from}.d.rx\` (MO-8k, MO-11a)`
+    : `<${tag}> is imported from JS, which declares no component ${tag}: declare it beside the module, \`export component ${tag}(props: { … })\` (MO-11a)`;
+}
+
 function peeksIn(e: Expr, out: Extract<Expr, { k: "peek" }>[] = []): Extract<Expr, { k: "peek" }>[] {
   if (e.k === "peek") { out.push(e); return out; }
   if (e.k === "fn" || e.k === "serverfn") return out;
@@ -543,7 +552,7 @@ class Checker {
       if (d.k === "import") {
         if (d.resolved) this.importRx(d, env);                                                                    // MO-1/MO-3: an .rx module's signature
         else if (d.declared) this.importDeclared(d, env);                                                         // MO-8: a JS module's declaration file
-        else for (const { alias } of d.names) this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side });   // R-io-4, R-f-8, SF-5
+        else for (const { alias } of d.names) this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side, undeclared: d.from });   // R-io-4, R-f-8, SF-5
         for (const { alias } of d.names) { const s = env.vars.get(alias); if (s) this.importSyms.add(s); }
         continue;
       }
@@ -836,7 +845,7 @@ class Checker {
         const made = env.vars.get(d.name);
         if (made?.carried) this.carriedValues(made.carried.args, made.carried.env, true, [], d.e.k === "call" && d.e.f.k === "id" ? d.e.f.name : "");   // MO-11o: its component values are values, applied where a prop renders them
         if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (made.factory.here) this.markup(this.factoryTree(made, d.line), made.factory.root ? new Env(env, this.rootOf(made.factory.carries ?? [])) : env);   /* MO-11n: under a root of its own, nothing above the binding reaches them */ else if (d.exported) this.exportMade(made, d.name, d.line); }   // MO-11l: applied where it is bound
-        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.markCallbacks(call.args, f.cbs); this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
+        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && !f.renders && !f.carrier && f.foreign !== "comp") this.unplaced(call.args, env);   /* MO-11s */ this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
@@ -1150,6 +1159,7 @@ class Checker {
           if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.f.name} called as a function: apply it in a view`);
           this.markCallbacks(e.args, s?.cbs);
           this.model.call(s);
+          if (s && (s.kind === "import" || (s.kind === "fn" && s.foreign !== undefined)) && !s.renders && !s.carrier && s.foreign !== "comp") this.unplaced(e.args, env);   // MO-11s
         }
         go(e.f); e.args.forEach(go); return;
       }
@@ -1364,7 +1374,7 @@ class Checker {
         case "el": {
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
-            if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? `<${m.tag}> is imported from JS, which declares no component ${m.tag}: declare it beside the module, \`export component ${m.tag}(props: { … })\` (MO-11a)` : `<${m.tag}> is not a component declared here`); }
+            if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? unknownJsComponent(m.tag, s.undeclared) : `<${m.tag}> is not a component declared here`); }
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
             const handles = (n: string) => isHandler(n) || !!s?.compRegion?.sig?.props[n]?.callback;   // MO-10g: a prop the declaration types as a function is a handler
@@ -1531,6 +1541,21 @@ class Checker {
     return f.values = out;
   }
 
+  /** MO-11s: components given to a JS fn that says nothing of where it renders them (no factory, `renders` or
+   *  `renders(later)` row, or no declaration at all) — as values in its arguments, their record and array literals and the
+   *  JS calls among them — are checked as the most cautious placement allows: applied under a root of their own, at any
+   *  time, so nothing above the call (errored, loading, provide) is credited to them. */
+  private unplaced(args: Expr[], env: Env) {
+    const out: string[] = [];
+    const walk = (e: Expr) => {
+      if (e.k === "id" && /^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp" && !this.valueIds.has(e)) { this.valueIds.add(e); out.push(e.name); }
+      else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
+      else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
+      else if (e.k === "call" && e.f.k === "id") { const g = env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined))) e.args.forEach(walk); }
+    };
+    args.forEach(walk);
+    if (out.length) this.markup(this.applied(out, this.line), new Env(env, this.rootOf([])));
+  }
   /** MO-11j: an exported factory's component, summarised as a component whose view applies it — what its values let out
    *  and need from above, and its content shape, are what an importer's `<Router />` gets (MO-3). */
   private exportMade(made: Sym, name: string, line: number) {

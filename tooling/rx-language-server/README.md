@@ -60,11 +60,17 @@ TypeScript's errors are reported.
 ## Drafting a declaration
 
 `rx-declare <module> [--out file.d.rx]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
-types, resolved from the current directory as an import there would be:
+types, resolved from the current directory as an import there would be. A package's declaration goes in the project's
+`rx-types/` folder, named by the import (spec/09 MO-8k); the import in `.rx` stays as written:
 
 ```sh
-npx rx-declare @tanstack/solid-query --out query.d.rx
+npx rx-declare @tanstack/solid-query --out rx-types/@tanstack/solid-query.d.rx
 ```
+
+You may not need to run it: for a package nothing declares, the language server, rx-tsc and the Vite plugin draft one
+themselves from its types (`src/generate.js`, MO-8l) into `node_modules/.rx-types/`, redrafted when the package's
+version changes. Those drafts don't run the package, so a hook's context and a field that waits or throws go unchecked
+there; write the `rx-types/` file (this command, then its TODOs) to check them. `RX_GENERATE=0` turns drafting off.
 
 What the types show becomes rows: an accessor parameter or result is `ref`, a function of props to a JSX element is a
 component (its JSX props are `View`, its component props `Component`), a tuple keeps its `ref` parts, an `Error`
@@ -187,6 +193,7 @@ cargo build --release --manifest-path ../../compiler/Cargo.toml
 npm install && node test/run.js      # VERBOSE=1 prints each answer
 node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, a .d.rx that disagrees with its types
 node test/declare.js                 # rx-declare: each kind of export drafted as its row, the run pass, and the draft passes rx-tsc
+node test/generate.js                # generated declarations: drafted, found by the crate, kept, redrafted, and in the Vite plugin
 node test/verify.js                  # rx-verify: uses(…) rows, missing exports, errors, probes, callbacks, --record and strict mode
 ```
 

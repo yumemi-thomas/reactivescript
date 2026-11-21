@@ -188,7 +188,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
         out.push(Projected { path: format!("{rx}.d.ts"), code: signature_stub(sig), lines: vec![], rx: rx.strip_suffix(".rx").map(|s| format!("{s}.d.rx")).unwrap_or(rx.clone()), mappings: vec![], ranges: vec![] });
     }
     for (dts, decls) in &set.declarations {
-        let path = dts.strip_suffix(".d.rx").map(|s| format!("{s}.d.ts")).unwrap_or(dts.clone());
+        let path = types_path_of(dts).unwrap_or_else(|| dts.strip_suffix(".d.rx").map(|s| format!("{s}.d.ts")).unwrap_or(dts.clone()));
         out.push(Projected { path, code: declaration_file(decls), lines: vec![], rx: dts.clone(), mappings: vec![], ranges: vec![] });
     }
     for (m, names) in js_stubs {
@@ -1307,4 +1307,32 @@ fn join_route_path(parent: &str, child: &str) -> String {
         return parent.to_string();
     }
     format!("{}{}", parent.trim_end_matches('/'), if child.starts_with('/') { child.to_string() } else { format!("/{}", child) })
+}
+
+/// MO-8k: a package's declaration that is not beside the package's file (the project's `rx-types/`, a shared `@rx-types`
+/// package, a generated `.rx-types/` draft) is projected where TypeScript looks for a package's types when it ships none:
+/// `node_modules/@types/<scope>__<name>/<subpath or index>.d.ts`.
+pub fn types_path_of(dts: &str) -> Option<String> {
+    let stem = dts.strip_suffix(".d.rx")?;
+    let (root, spec) = if let Some(i) = stem.find("node_modules/.rx-types/") {
+        (&stem[..i], &stem[i + "node_modules/.rx-types/".len()..])
+    } else if let Some(i) = stem.find("node_modules/@rx-types/") {
+        let rest = &stem[i + "node_modules/@rx-types/".len()..];
+        let (m, sub) = rest.split_once('/')?;
+        return Some(format!("{}node_modules/@types/{m}/{sub}.d.ts", &stem[..i]));
+    } else if stem.starts_with("rx-types/") {
+        ("", &stem["rx-types/".len()..])
+    } else if let Some(i) = stem.find("/rx-types/") {
+        (&stem[..i + 1], &stem[i + "/rx-types/".len()..])
+    } else {
+        return None;
+    };
+    let seg: Vec<&str> = spec.split('/').collect();
+    let n = if spec.starts_with('@') { 2 } else { 1 };
+    if seg.len() < n {
+        return None;
+    }
+    let m = seg[..n].join("/").trim_start_matches('@').replacen('/', "__", 1);
+    let sub = if seg.len() > n { seg[n..].join("/") } else { "index".to_string() };
+    Some(format!("{root}node_modules/@types/{m}/{sub}.d.ts"))
 }

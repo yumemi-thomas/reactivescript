@@ -97,11 +97,24 @@ export function projectModules(set: ModuleSet): Projected[] {
     out.push({ path: projectedPath(path), code: w.out.join("\n"), lines: w.lines, rx: path });
   }
   for (const [rx, sig] of set.signatures ?? []) out.push({ path: `${rx}.d.ts`, code: signatureStub(sig), lines: [], rx: rx.replace(/\.rx$/, ".d.rx") });   // TY-4c
-  for (const [dts, decls] of set.declarations ?? []) out.push({ path: dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationFile(decls), lines: [], rx: dts });
+  for (const [dts, decls] of set.declarations ?? []) out.push({ path: typesPathOf(dts) ?? dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationFile(decls), lines: [], rx: dts });
   for (const [mod, names] of jsStubs) out.push({ path: mod, code: [...names].map(n => n === "default" ? "declare const __d: any; export default __d;" : `export declare const ${n}: any;`).join("\n"), lines: [], rx: mod });
   return out;
 }
 
+/** MO-8k: a package's declaration that is not beside the package's file (the project's `rx-types/`, a shared `@rx-types`
+ *  package, a generated `.rx-types/` draft) is projected where TypeScript looks for a package's types when it ships none:
+ *  `node_modules/@types/<scope>__<name>/<subpath or index>.d.ts`. */
+export function typesPathOf(dts: string): string | undefined {
+  let root: string, spec: string;
+  let m = /^(.*?)node_modules\/\.rx-types\/(.+)\.d\.rx$/.exec(dts);
+  if (m) { root = m[1]; spec = m[2]; }
+  else if ((m = /^(.*?)node_modules\/@rx-types\/([^/]+)\/(.+)\.d\.rx$/.exec(dts))) return `${m[1]}node_modules/@types/${m[2]}/${m[3]}.d.ts`;
+  else if ((m = /^(.*?\/|)rx-types\/(.+)\.d\.rx$/.exec(dts))) { root = m[1]; spec = m[2]; }
+  else return undefined;
+  const seg = spec.split("/"); const n = spec.startsWith("@") ? 2 : 1;
+  return `${root}node_modules/@types/${seg.slice(0, n).join("/").replace(/^@/, "").replace("/", "__")}/${seg.slice(n).join("/") || "index"}.d.ts`;
+}
 /** TY-4c: an `.rx` module read by its signature (MO-9) is typed by the \`.d.ts\` TypeScript emits from its projection (TY-1c);
  *  ref/ ships none, so its exports are \`any\` here. */
 function signatureStub(sig: ModSig): string {

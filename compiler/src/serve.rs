@@ -10,6 +10,8 @@ pub fn request(method: &str, params: &Value, disk: &dyn Fn(&str) -> Option<Strin
         "prelude" => json!(crate::project::PRELUDE),
         "boundary" => boundary(params, disk),
         "declaration" => declaration(params, disk),
+        // MO-8k: where a package import's declaration is found from `file` (null: none of the four places has one)
+        "lookup" => json!(crate::modules::declaration_for(params["file"].as_str().unwrap_or(""), params["spec"].as_str().unwrap_or(""), disk)),
         _ => json!({ "error": "unknown method" }),
     }
 }

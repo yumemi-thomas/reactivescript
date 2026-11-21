@@ -49,6 +49,21 @@ export function packageDeclaration(fromFile: string, spec: string, read: (path: 
   return undefined;
 }
 
+/** MO-8k: where a package import's declaration is found, first match wins:
+ *  1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or one above it (it overrides a shipped one);
+ *  2. the package's own, beside the file the import resolves to (MO-10c);
+ *  3. a shared one, `node_modules/@rx-types/<scope>__<name>/<subpath or index>.d.rx`, as `@types` is for TypeScript;
+ *  4. a generated one, `node_modules/.rx-types/<spec>.d.rx`, which the tooling drafts from the package's types (MO-8l).
+ *  Undefined when none exists (the import is then what R-io-4 and R-f-8 say). */
+export function declarationFor(fromFile: string, spec: string, read: (path: string) => string | undefined): string | undefined {
+  const seg = spec.split("/"); const n = spec.startsWith("@") ? 2 : 1; if (seg.length < n || seg.some(x => !x || x === "." || x === "..")) return undefined;
+  const dirs = fromFile.split("/").slice(0, -1); const lo = fromFile.startsWith("/") ? 1 : 0;
+  const up = (rel: string): string | undefined => { for (let i = dirs.length; i >= lo; i--) { const f = [...dirs.slice(0, i), rel].join("/"); if (read(f) !== undefined) return f; } return undefined; };
+  const shared = seg.slice(0, n).join("/").replace(/^@/, "").replace("/", "__"); const sub = seg.slice(n).join("/") || "index";
+  const shipped = packageDeclaration(fromFile, spec, read);
+  return up(`rx-types/${spec}.d.rx`) ?? (shipped !== undefined && read(shipped) !== undefined ? shipped : undefined) ?? up(`node_modules/@rx-types/${shared}/${sub}.d.rx`) ?? up(`node_modules/.rx-types/${spec}.d.rx`);
+}
+
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
   const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>();
@@ -61,7 +76,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     try { p = parseProgram(src); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${path}: ${e.message}`), { code: e.code }); throw e; }
     programs.set(path, p); state.set(path, "busy");
     for (const d of p.decls) {
-      const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? packageDeclaration(path, d.from, read) : undefined;   // MO-10c
+      const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? declarationFor(path, d.from, read) : undefined;   // MO-8k, MO-10c
       if (d.k === "import" && !isRx(d.from) && (d.from.startsWith(".") || pkgDts)) {             // MO-8: a JS module with a declaration file beside it
         const dts = pkgDts ?? joinPath(path, d.from.replace(/\.(m?js|ts)$/, "") + ".d.rx");
         if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try { declarations.set(dts, parseDeclarations(src)); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; } } }

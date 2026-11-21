@@ -1052,7 +1052,9 @@ export default component App() {
 ### UNKNOWN_COMPONENT
 
 A capitalised tag names a component declared or imported in this module (RG-4a). A JS import is a component only
-when its `.d.rx` declares one: `export component X(props: { … })` (MO-11a).
+when its `.d.rx` declares one: `export component X(props: { … })` (MO-11a). For a package with none, the message gives
+the file to write, `rx-types/<package>.d.rx`, and the `npx rx-declare` command that drafts it from the package's types
+(MO-8k); the Vite plugin and the editor draft one on their own unless that is turned off (MO-8l).
 
 ```rx before
 export default component App() {
@@ -1072,9 +1074,10 @@ name, `export component Dialog.Trigger(props: { … })` (MO-11q), and a member i
 
 ### COMPONENT_AS_VALUE
 
-A component is applied in markup, `<Greeting name="x" />`, not stored or called as a function (RG-4a). The one
-exception is JS that takes a component: a factory's arguments (`createRouter({ routes: [{ path: "/", component: Home }] })`)
-or a JS component's prop typed `Component` (MO-11c, MO-11f).
+A component is applied in markup, `<Greeting name="x" />`, not stored or called as a function (RG-4a). The exception is
+JS that takes a component: a factory's arguments (`createRouter({ routes: [{ path: "/", component: Home }] })`), a JS
+component's prop typed `Component` (MO-11c, MO-11f), and the arguments of any other JS call, where a library may render
+it anywhere: there it is checked under a root of its own, with nothing above the call credited (MO-11s, below).
 
 ```rx before
 component Greeting(props) { <p>{props.name}</p> }
@@ -1128,6 +1131,11 @@ export default component App() {
   <RouterProvider router={rootRoute} />
 }
 ```
+
+A JS fn that says none of these (or a JS import with no declaration) still takes a component: it is checked the most
+cautious way, under a root of its own (MO-11s). It must then stand on its own: an `errored`, a `loading` or a `provide`
+above the call does not count, so one it needs is refused as `UNHANDLED_FAILURE` or `CONTEXT_NOT_FOUND` there. Give the
+component its own boundary, or say in the declaration where the library renders it.
 
 ### INSTANTIATION_NOT_BOUND
 

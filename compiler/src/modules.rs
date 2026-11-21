@@ -138,6 +138,39 @@ pub fn package_declaration(from_file: &str, spec: &str, read: &dyn Fn(&str) -> O
     }
     None
 }
+/// MO-8k: where a package import's declaration is found, first match wins: the project's `rx-types/<spec>.d.rx` (in the
+/// importer's directory or one above it), the package's own beside the file it resolves to (MO-10c), a shared
+/// `node_modules/@rx-types/<scope>__<name>/<subpath or index>.d.rx`, then a generated `node_modules/.rx-types/<spec>.d.rx`
+/// (MO-8l). `None` when none exists.
+pub fn declaration_for(from_file: &str, spec: &str, read: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    let seg: Vec<&str> = spec.split('/').collect();
+    let n = if spec.starts_with('@') { 2 } else { 1 };
+    if seg.len() < n || seg.iter().any(|x| x.is_empty() || *x == "." || *x == "..") {
+        return None;
+    }
+    let all: Vec<&str> = from_file.split('/').collect();
+    let dirs = &all[..all.len() - 1];
+    let lo = if from_file.starts_with('/') { 1 } else { 0 };
+    let up = |rel: &str| -> Option<String> {
+        let mut i = dirs.len() as i64;
+        while i >= lo {
+            let mut parts: Vec<&str> = dirs[..i as usize].to_vec();
+            parts.push(rel);
+            let f = parts.join("/");
+            if read(&f).is_some() {
+                return Some(f);
+            }
+            i -= 1;
+        }
+        None
+    };
+    let shared = seg[..n].join("/").trim_start_matches('@').replacen('/', "__", 1);
+    let sub = if seg.len() > n { seg[n..].join("/") } else { "index".to_string() };
+    up(&format!("rx-types/{spec}.d.rx"))
+        .or_else(|| package_declaration(from_file, spec, read).filter(|f| read(f).is_some()))
+        .or_else(|| up(&format!("node_modules/@rx-types/{shared}/{sub}.d.rx")))
+        .or_else(|| up(&format!("node_modules/.rx-types/{spec}.d.rx")))
+}
 static PKG_EXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.(m?js|cjs|jsx|ts|tsx)$").unwrap());
 
 fn replace_js_ext(from: &str) -> String {
@@ -166,7 +199,7 @@ impl Loader<'_> {
         for d in p.decls.iter_mut() {
             let Decl::Import { from, line, resolved, declared, declared_errors, declared_pure, declared_side, .. } = d else { continue };
             // MO-10c: a package's declaration, beside the file it resolves to
-            let pkg_dts = if !is_rx(from) && !from.starts_with('.') && !from.starts_with('/') { package_declaration(path, from, &*self.read) } else { None };
+            let pkg_dts = if !is_rx(from) && !from.starts_with('.') && !from.starts_with('/') { declaration_for(path, from, &*self.read) } else { None };
             if !is_rx(from) && (from.starts_with('.') || pkg_dts.is_some()) {
                 // MO-8: a JS module with a declaration file beside it
                 let dts = pkg_dts.unwrap_or_else(|| join_path(path, &(replace_js_ext(from) + ".d.rx")));

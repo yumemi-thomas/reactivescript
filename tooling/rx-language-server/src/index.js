@@ -18,12 +18,22 @@ const isDeclaration = f => f.endsWith(".d.rx");
 
 const snapshotOf = text => ({ getText: (s, e) => text.slice(s, e), getLength: () => text.length, getChangeRange: () => undefined });
 
+/** MO-8l: a declaration drafted for each package the module imports that nothing declares, once per set of imports. */
+const drafted = new Map();
+function draft(file, text) {
+  const key = [...text.matchAll(/^\s*import\b[^"'`;]*?\bfrom\s*["']([^"']+)["']/gm)].map(m => m[1]).join("\n");
+  if (drafted.get(file) === key) return;
+  drafted.set(file, key);
+  try { require("./generate.js").ensureDeclarations(file, { text }); } catch (e) { console.error(`rx: drafting declarations for ${file} failed: ${e?.stack ?? e}`); }
+}
+
 /** The last analysis of each file, by its text: the virtual code and the diagnostics share one `rxc` run. */
 const cache = new Map();
 function analysis(file, text) {
   const hit = cache.get(file);
   if (hit && hit.text === text) return hit.result;
   let result;
+  draft(file, text);
   try { result = analyze(file, text, preludeFor(file)); } catch (e) {
     console.error(`rx: analyzing ${file} failed: ${e?.stack ?? e}`); // the server's log, else the failure is silent
     result = { code: null, mappings: [], ranges: [], diagnostics: [], error: String(e) };

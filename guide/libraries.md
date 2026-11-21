@@ -31,8 +31,36 @@ Where the file goes:
 - **Your own JS module:** `./media.js` with `./media.d.rx` beside it.
 - **A package that ships one:** nothing to do. The compiler resolves the import the way a bundler does (`exports`,
   `module`, `main`) and reads the `.d.rx` beside that file (`dist/index.jsx` → `dist/index.d.rx`).
-- **A package that doesn't:** re-export what you use from a local file and declare that:
-  `export { createMediaQuery } from "@solid-primitives/media"` in `./media.js`, then `./media.d.rx` as above.
+- **A package that doesn't:** put it in `rx-types/`, named by the import: `rx-types/@solid-primitives/media.d.rx` for
+  `import { createMediaQuery } from "@solid-primitives/media"` (a subpath is a folder:
+  `rx-types/@kobalte/core/dialog.d.rx`). `npx rx-declare @solid-primitives/media --out rx-types/@solid-primitives/media.d.rx`
+  drafts it. Your import stays as written; nothing re-exports it.
+- **A shared declaration:** an `@rx-types/<scope>__<name>` package (like `@types`), with `index.d.rx` (and
+  `<subpath>.d.rx`).
+- **Nothing written:** the Vite plugin and the editor draft one from the package's types into
+  `node_modules/.rx-types/` (see [Generated declarations](#generated-declarations)).
+
+The first of these that exists is the declaration, in this order: `rx-types/`, the package's own, `@rx-types`,
+generated. So a project file replaces a shipped one that is wrong; pin it (`//@ for <package> <range>`) so it can't go
+stale silently. rx-tsc checks a `rx-types/` file against the package's own types (`DECLARATION_MISMATCH`), and types a
+package that has none from it.
+
+### Generated declarations
+
+A package you import with no declaration anywhere gets one drafted for you. Before a build (and in the editor), the
+plugin reads the package's TypeScript types and writes `node_modules/.rx-types/<package>.d.rx`: its components with
+their props, `create*`/`use*` functions as pure, the rest as io, accessors as `ref`. It's redrafted when you upgrade
+the package. So `import { Badge } from "some-solid-kit"` just works.
+
+A draft says only what types show:
+
+- a component you hand to one of its functions is checked under a root of its own (MO-11s): give it its own
+  `errored`/`loading` and the contexts it reads;
+- a hook's provider and a field that suspends or throws are **not** checked: as in TypeScript, they fail at run time.
+
+To say those, write `rx-types/<package>.d.rx` (it wins over the draft): `npx rx-declare <package> --out
+rx-types/<package>.d.rx` starts from the same draft and also runs the package to find which hooks need a provider.
+Turn drafting off with `RX_GENERATE=0` or `rx({ generate: false })`.
 
 ## Use it
 

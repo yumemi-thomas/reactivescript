@@ -236,6 +236,45 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   (its hash changed) are `UNVERIFIED_ROW` (13 TY-7), each saying which and
   what to run. `trusted` changes nothing else: outside strict mode it is
   read and ignored.
+- **MO-8k (Where a package's declaration is found) — proposed 2026-11-21.**
+  A package import's declaration is the first of these that exists:
+  1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or
+     one above it (`rx-types/@tanstack/solid-query.d.rx`; a subpath is a
+     folder, `rx-types/@kobalte/core/dialog.d.rx`);
+  2. the package's own, beside the file the import resolves to (MO-10c);
+  3. a shared one, `node_modules/@rx-types/<scope>__<name>/index.d.rx` (a
+     subpath: `<subpath>.d.rx`), named as `@types` packages are;
+  4. a generated one, `node_modules/.rx-types/<spec>.d.rx`, drafted by the
+     tooling from the package's types (MO-8l).
+
+  The project's comes first so that a wrong shipped declaration can be
+  replaced without waiting for the package; MO-8f's pin keeps it from going
+  stale. The compiled import stays `from "<spec>"` (MO-8c). In rx-tsc, a
+  package with no TypeScript types of its own is typed by the declaration
+  (TypeScript's `@types` fallback answers with its projection, TY-4b), and a
+  project declaration is checked against the package's types where it has
+  them (TY-6). With none of the four, the import is what R-io-4 and R-f-8
+  say, and a component from it is `UNKNOWN_COMPONENT`, whose message gives
+  the `rx-types/` path and the `rx-declare` command that drafts it.
+- **MO-8l (Generated declarations) — proposed 2026-11-21.** A package the
+  program imports that has no declaration in the first three places of
+  MO-8k gets one drafted from its TypeScript types, by the tooling, before
+  the program is read: the Vite plugin before each build, the language
+  server when a module's imports change, rx-tsc as it analyses. It is
+  written to `node_modules/.rx-types/<spec>.d.rx` with a first line
+  `//@ generated <package>@<version>`, kept while that version is installed
+  and redrafted when it moves; a package with no types gets none, and a row
+  the notation cannot say is left out as a comment, not the whole file.
+  The draft is `rx-declare`'s from types alone (the package is not run):
+  `create*` and `use*` fns are `pure`, the rest io, `ref` where the types
+  show an accessor, components with their props. What types cannot show is
+  left out: where a component it is given is rendered then takes the
+  cautious reading (MO-11s); a hook's context (`uses`) and a field that
+  waits or throws (`pending`, `fails`) are not checked, and fail at run time
+  as they would in TypeScript, until a project declaration (MO-8k, first)
+  says them. Under strict declarations (MO-8j) no generated row is
+  verified. `RX_GENERATE=0`, or `rx({ generate: false })` for the plugin,
+  turns it off.
 
 ## MO-9 — A signature read in place of its module
 
@@ -343,8 +382,10 @@ export component Search(props: { start: boolean, q: string }) {
   `dist/index.d.rx`. No export condition is needed. A package whose
   conditions resolve to more than one file ships the declaration beside
   each; the rows of one export are the same in every build.
-  A package that ships none is declared through a local module: `./media.js`
-  re-exports it and `./media.d.rx` beside it declares it (MO-8a, MO-8c).
+  A package that ships none is declared by the project in
+  `rx-types/<spec>.d.rx`, a shared `@rx-types` package or a generated draft
+  (MO-8k); a local module that re-exports it (`./media.js` with
+  `./media.d.rx` beside it, MO-8a) still works.
   Without either, the import is what R-io-4 says, and `import pure` of a
   primitive is unchecked (CN-5): the call is then lifted (E-9) and re-runs,
   rebuilding the primitive, whenever an argument changes.
@@ -729,8 +770,8 @@ export default component App() {
 - **MO-11r (One placement vocabulary) — proposed 2026-11-19.** Where a
   library renders the components a program gives it is said in one
   vocabulary, on the declared fn that takes them; each form replaces DV-24's
-  blanket assumption with a narrower, checked one, and a component passed
-  to a call with none of them is refused (`COMPONENT_AS_VALUE`).
+  blanket assumption with a narrower, checked one. A component passed to a
+  call with none of them is checked the most cautious way (MO-11s).
 
   | written | the components are checked | rule |
   | --- | --- | --- |
@@ -766,6 +807,26 @@ export default component App() {
   TanStack Router's rows this way. A hook that warns rather than throws
   with no provider (TanStack's `useRouter`) counts as reading its
   context, for `rx-declare`'s draft and `rx-verify`'s check alike.
+- **MO-11s (The cautious placement) — proposed 2026-11-21.** A component
+  given to a JS fn that says nothing of where it renders it (a declared fn
+  with no factory result, `renders`, `renders(root, …)` or
+  `renders(later)` row, or a JS import with no declaration at all), as a
+  value among its arguments, their record and array literals and the JS
+  calls among them, is no longer refused (it was `COMPONENT_AS_VALUE`
+  under MO-11r): it is checked as applied under a root of its own, at the
+  call, with nothing above the call credited to it: no `errored`, no
+  `loading`, no `provide`. This is `renders(root)` with no contexts carried,
+  and it is sound whatever the library does: a library that renders the
+  component beneath the call gives it more than was assumed, never less,
+  and one that renders it later, many times or never needs nothing more
+  of an `.rx` component. What it costs is precision: a component that
+  needs a context or a boundary from above is refused
+  (`CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`) until the declaration says
+  where it renders, and the content model (SV-7d) is not checked against
+  a parent it cannot know. A JS component's prop typed as something other
+  than a `Component` still refuses one (MO-11c); a component carried by
+  `renders(later)` that nothing renders is still `COMPONENT_AS_VALUE`
+  (MO-11o), since the declaration said where and nothing did. S-module-27.
 - **MO-11m (A made component's properties) — proposed 2026-11-18.** A
   factory's component may carry properties (`@solidjs/router`'s `paths`, its
   typed path builder). `Router.paths` is a value read in the module that
