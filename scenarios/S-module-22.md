@@ -193,3 +193,74 @@ export default component App() {
   <RouterProvider router={box.r} />
 }
 ```
+
+What a `renders` prop is given is named by mention (ruled 2026-11-22,
+MO-10k): every name its expression's value may come from is followed to
+the carrying calls it was bound to, whatever is in between — a branch, a
+call, a closure's result. Nothing is followed into a value: the names are.
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import pure { fetchPerson } from "./people.js"
+import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, useParams } from "./tsr.js"
+component Root() { <main><Outlet /></main> }
+component Person() {
+  params = useParams({ from: "/people/$id" })
+  person = await fetchPerson(params.id)
+  <h1>{person.name}</h1>
+}
+rootRoute = createRootRoute({ component: Root })
+personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
+router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+pick = (r) => r
+export default component App() {
+  source dev := false
+  <RouterProvider router={dev ? pick(router) : (() => router)()} />
+}
+```
+
+`Person` can fail, and no `errored` is above the provider: the router is
+reached through `?:`, a call and a closure, and its components are checked
+there all the same.
+
+A value that comes from where the checker cannot look — a prop, a
+parameter, a source, a provision — may carry components nothing names
+here, so they would render unchecked: a `renders` prop refuses it.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { RouterProvider } from "./tsr.js"
+component Shell(props: { router: any }) {
+  <RouterProvider router={props.router} />
+}
+export default component App() {
+  <Shell router={null} />
+}
+```
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createRootRoute, createRouter, RouterProvider, Outlet } from "./tsr.js"
+component Root() { <main><Outlet /></main> }
+rootRoute = createRootRoute({ component: Root })
+source current: any := createRouter({ routeTree: rootRoute })
+export default component App() {
+  <RouterProvider router={current} />
+}
+```
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createRootRoute, createRouter, RouterProvider, Outlet } from "./tsr.js"
+component Root() { <main><Outlet /></main> }
+context routerCtx: any
+rootRoute = createRootRoute({ component: Root })
+router = createRouter({ routeTree: rootRoute })
+component Shell() {
+  <RouterProvider router={use routerCtx} />
+}
+export default component App() {
+  provide routerCtx = router
+  <Shell />
+}
+```

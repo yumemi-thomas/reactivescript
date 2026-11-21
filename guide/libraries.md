@@ -84,6 +84,8 @@ export component Search(props: { start: boolean, q: string }) {
 A result that is a store whose field waits or throws when read (a query's `data`) says so on that field:
 `export pure fn useQuery(ref options: { … }): { data: pending fails(Error) any; isFetching: boolean }`. A read of
 `todos.data` then needs an `errored` (or a `catch`) above it, and in a client-only build a `loading`, like an `await`.
+Such a result is read a field at a time: pass `todos.data` to a component, not `todos` (`RESULT_AS_VALUE`). The
+field carries what it needs to where it is read; the whole result would be a plain value on the other side.
 
 `isOn`, `query` and `wide` are equations like any other: read them without calling them. They may hold, like a
 value from an `await` (Solid promises nothing about an accessor), so `latest`, `pending?` and `loading` apply.
@@ -95,6 +97,7 @@ What the compiler catches:
 | `createToggle(props.start)` | `SNAPSHOT_ARGUMENT`: a value argument is read once; write `peek props.start`, or the library should take `ref` |
 | `x = setOn(true)` | `IO_IN_REACTIVE`: a setter is called from an action or handler |
 | `<p>{createMediaQuery(q)}</p>` | `INSTANTIATION_NOT_BOUND`: bind it, `wide = createMediaQuery(q)` |
+| `<List query={todos} />` for a result with a `pending` or `fails` field | `RESULT_AS_VALUE`: pass the field, `items={todos.data}` |
 
 ## What stays the library's
 

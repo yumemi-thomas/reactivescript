@@ -36,6 +36,8 @@ check("rx-tsc: main.rx with Formisch's, valibot's and Solid's types, and the .d.
 const refused = (name, edit, want) => { const bad = edit(good); if (bad === good) { check(name, false, "the edit did not apply"); return; } writeFileSync(main, bad); const out = rxTsc(); writeFileSync(main, good); check(name, want.test(out), out); };
 refused("the draft itself is not reassigned: the callback returns the new value (MO-10i)", s => s.replace("{ d.done := v => v + 1 }", "{ d := { items: [], done: 0 } }"), /WRITE_TO_NON_SOURCE/);
 refused("a draft's field is written with its own type (TS2345)", s => s.replace("d.done := v => v + 1", "d.done := \"many\""), /main\.rx\(\d+,\d+\): error TS2345/);
+refused("a closure made in the callback may not name the draft: a loop is the statement (DRAFT_ESCAPES)", s => s.replace("for (const item of d.items) { d.done := d.done + 1 }", "d.items.forEach((item) => { d.done := d.done + 1 })"), /DRAFT_ESCAPES/);
+refused("the setter is called by its own name, not passed on (DRAFT_ESCAPES)", s => s.replace("setTodos((d) => { kept := d.items })", "let set = setTodos; set((d) => { kept := d.items })"), /DRAFT_ESCAPES/);
 refused("a schema that reads a source is still a snapshot (E-10)", s => s.replace("form = createForm({ schema: schema })", "form = createForm({ schema: object({ email: pipe(string(), minLength(len(text))) }) })"), /SNAPSHOT_ARGUMENT/);
 execFileSync(process.execPath, [path.join(ws, "node_modules/vite/bin/vite.js"), "build"], { cwd: ws, stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, RX_TYPECHECK: "0" } });
 
@@ -57,6 +59,14 @@ await page.fill(".text", "milk"); await page.click(".add"); await page.fill(".te
 check("the store's draft is appended to through its setter", await until(async () => (await text()).includes("milkeggs") && (await text()).includes("0 of 2 done")), await text());
 await page.click(".finish");
 check("and a field of it written", await until(async () => (await text()).includes("1 of 2 done")), await text());
+// MO-10i (ruled 2026-11-22): a read of the draft is a copy — Solid's draft is the store itself, live and tracked, so a
+// source that held it would follow the store; and a loop is the statement, in the callback's own scope
+await page.click(".keep");
+check("what is read out of the draft is kept as it was", await until(async () => (await text()).includes("2 kept")), await text());
+await page.fill(".text", "tea"); await page.click(".add");
+check("...and does not follow the store when it changes (a copy, not Solid's live draft)", await until(async () => (await text()).includes("1 of 3 done")) && (await text()).includes("2 kept"), await text());
+await page.click(".all");
+check("a loop over the draft's items writes the draft (for … of)", await until(async () => (await text()).includes("3 of 3 done")), await text());
 check("no console errors or warnings", problems.length === 0, problems);
 await browser.close(); http.close();
 console.log(`\n${pass} passed, ${fail} failed`);

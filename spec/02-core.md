@@ -238,6 +238,31 @@ Function application `f(e…)` covers both language functions and FFI imports;
   name is read as a call whose answer may change, and the argument is
   `SNAPSHOT_ARGUMENT` (S-module-22); E-5a reads it the same way, so a kept
   `peek inst.m()` of an undeclared method is `SNAPSHOT_KEPT` (S-module-20).
+  **What counts as reading through the instance (ruled 2026-11-22).** The
+  instance stays one where the checker knows what is done to it: named,
+  passed whole, a declared method called on its own name (or an alias's).
+  Anything else that reads through a value that *may be* the instance is
+  a read of what may change, and which values may be it is 09 MO-10k's
+  rule, by mention, with no value followed: a field read, an index or a
+  method call on an expression that mentions the instance — a record or
+  an array holding it (`[clock][0].now()`, and `[clock][0].format()` too:
+  the checker does not follow the index to know it is the instance's
+  declared method), what a call given it returns, however it is called
+  (`keep(keep(clock)).now()`, `o.f(clock).now()`, `mk(clock)().now()`,
+  `[].concat([clock])[0].now()`), a parameter of a closure handed it
+  (`map([clock], (c) => c.now())`) — and handing it to a function of
+  `.rx` the checker cannot see into (an `.rx` fn, a prop, a closure held
+  in a record: `o.read(clock)`). A JS fn, or a method of a JS import,
+  takes it whole, which is the exemption. And a closure reads when it is called (E-5a), which is also
+  here: a call of a closure written at the call, or of the closure a
+  name is bound to, reads what its body reads, so `f = () => clock.now()`
+  then `createLabel(f())`, and `f = () => n` for a written source `n`,
+  are snapshots, as `peek f()` kept is `SNAPSHOT_KEPT` (the earlier
+  rule looked at the names an argument reads and took a closure's name
+  for a constant). *Guarantee:* an argument, or a kept `peek`, that the
+  checker takes for made once reads no field of a primitive's instance
+  and calls no method its declaration does not name, through any `.rx`
+  expression; it rests on the declaration's `methods(…)`. S-module-20.
   The word changes nothing at run time
   and nothing of the result's shape. The instance is the object passed
   whole, whether its declared result is a value or a record of parts.

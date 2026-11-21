@@ -291,10 +291,20 @@ export default component App() {
 }
 ```
 
-A spread reads every field of what it spreads: `q`'s value is made by reading `result.data` (revised 2026-11-21 after review),
+## The result is read a field at a time (ruled 2026-11-22)
+
+A result whose fields hold or fail is not a value the program holds: it is
+read a field at a time, by a path from the name it is bound to (MO-10f).
+That is what makes the check above complete. Every read of a held field is
+written as a path the checker sees, so there is no other way to `data` — a
+closure that returns the result, a prop, a provision, an export or a source
+that holds it would each be one, and each is `RESULT_AS_VALUE`. What
+travels is the field, which carries its rows as any `.rx` value does.
+
+Spread, it is read whole:
 
 ```rx
--- reject: UNHANDLED_FAILURE
+-- reject: RESULT_AS_VALUE
 import { useThing } from "./thing.js"
 export default component App() {
   orig = useThing()
@@ -303,10 +313,10 @@ export default component App() {
 }
 ```
 
-and so does showing the result whole,
+and so it is shown,
 
 ```rx
--- reject: UNHANDLED_FAILURE
+-- reject: RESULT_AS_VALUE
 import { useThing } from "./thing.js"
 export default component App() {
   orig = useThing()
@@ -314,10 +324,10 @@ export default component App() {
 }
 ```
 
-A field read through a record that holds the result is a read of that field,
+held in a record,
 
 ```rx
--- reject: UNHANDLED_FAILURE
+-- reject: RESULT_AS_VALUE
 import { useThing } from "./thing.js"
 export default component App() {
   orig = useThing()
@@ -326,10 +336,10 @@ export default component App() {
 }
 ```
 
-and through what a closure returns.
+returned by a closure,
 
 ```rx
--- reject: UNHANDLED_FAILURE
+-- reject: RESULT_AS_VALUE
 import { useThing } from "./thing.js"
 export default component App() {
   orig = useThing()
@@ -339,8 +349,12 @@ export default component App() {
 }
 ```
 
+or passed to a component. On the other side of each of these the field
+would be read where no check could see that it holds and fails: `props.q`
+is a value like any other to `Child`, whatever boundary `Child` has.
+
 ```rx
--- reject: UNHANDLED_FAILURE
+-- reject: RESULT_AS_VALUE
 import { useThing } from "./thing.js"
 component Child(props: { q: any }) {
   <p>{props.q.status}</p>
@@ -351,21 +365,187 @@ export default component App() {
 }
 ```
 
-A component given the result whole may read any field of it: its reads
-carry every held field's failures.
+A closure given to a component is a way out too (the component calls it and
+reads the field), and so are a provision, a write to a source from a
+handler, a call, and an export — the result's name, a part of it that is a
+record of held fields (`q.result`), or a fn that gives it. A module's
+signature carries an equation's rows, not its fields'.
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { useThing } from "./thing.js"
+component Kid(props: { get: () => any }) {
+  {errored fallback(e) { <p>failed</p> } { <p>{props.get().status}</p> }}
+}
+export default component App() {
+  orig = useThing()
+  <Kid get={() => orig} />
+}
+```
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { useThing } from "./thing.js"
+context qctx: any
+component Reader() {
+  q = use qctx
+  <p>{q.status}</p>
+}
+export default component App() {
+  orig = useThing()
+  provide qctx = orig
+  <Reader />
+}
+```
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { useThing } from "./thing.js"
+export default component App() {
+  source saved: any := null
+  orig = useThing()
+  <button onClick={() => { saved := orig }}>keep</button>
+  <p>{saved == null ? "none" : saved.status}</p>
+}
+```
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { useThing } from "./thing.js"
+fn statusOf(q) { q.status }
+export default component App() {
+  orig = useThing()
+  <p>{statusOf(orig)}</p>
+}
+```
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { useThing } from "./thing.js"
+export default component App() {
+  orig = useThing()
+  <p>{orig.status}</p>
+  <ul>{for q in [orig] { <li>{q.status}</li> }}</ul>
+}
+```
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { useThing } from "./thing.js"
+export thing = useThing()
+export default component App() {
+  <p>{thing.status}</p>
+}
+```
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { useThing } from "./thing.js"
+thing = useThing()
+export fn getThing() { thing }
+export default component App() {
+  <p>{thing.status}</p>
+}
+```
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { useThing } from "./thing.js"
+component Child(props: { r: any }) {
+  <p>{props.r.at}</p>
+}
+export default component App() {
+  q = useThing()
+  <Child r={q.result} />
+}
+```
+
+The rest of a destructuring is the result without the fields named beside
+it: it is a value only when every field that holds or fails is named.
+
+```rx
+-- reject: RESULT_AS_VALUE
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Todos() {
+  { isFetching, ...rest } = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <small>{isFetching ? "refreshing" : ""} {rest.data}</small>
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    {errored fallback(e) { <p>failed</p> } { <Todos /> }}
+  </QueryClientProvider>
+}
+```
+
+What is not a use of its value is accepted: another name for it (an
+equation), a part of it that is a record (`r = q.result`), a comparison, a
+test, and the fields themselves, wherever they go — to a component (the prop
+carries the field's rows to where it is read), into a handler, or to a
+source.
 
 ```rx
 -- accept
 import { useThing } from "./thing.js"
+component Btn(props: { onPress: () => void; label: string }) {
+  <button onClick={() => { props.onPress() }}>{props.label}</button>
+}
+component Shown(props: { data: any; at: number }) {
+  <p>{props.data} at {props.at}</p>
+}
 export default component App() {
+  source n := 0
+  source saved: any := null
   orig = useThing()
   q = orig
-  box = { q: orig }
-  <p>{q.status} {box.q.result.at} {orig.status}</p>
+  r = q.result
+  <p>{q.status} {r.at} {orig.status} {orig == null ? "none" : "some"} {orig && orig.status}</p>
+  <Btn label="again" onPress={() => { n := orig.status == "idle" ? 1 : 2 }} />
+  {if orig { <small>{orig.result.at}</small> }}
+  {errored fallback(e) { <p>failed</p> } {
+    <Shown data={orig.result.data} at={r.at} />
+    <button onClick={() => { try { saved := r.data } catch (e) { saved := null } }}>keep</button>
+  }}
 }
 ```
 
-Moved — an alias, a record that holds it — the result is not read: only
-the fields read are (`status`, `result.at`), and they neither hold nor
-fail. The compiled result reads each field where it is read (a getter
-per field), so the program does what the checker counts.
+The compiled result reads each field where it is read (a getter per
+field), so `q.status` and `r.at` read no `data`: the program does what the
+checker counts.
+
+```rx
+-- accept
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Todos() {
+  { data, ...rest } = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <small>{rest.isFetching ? "refreshing" : ""}</small>
+  {errored fallback(e) { <p>failed</p> } { <ul>{for t in data { <li>{t}</li> }}</ul> }}
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+}
+```
+
+`rest` holds no field that holds or fails: `data` is named beside it.
+
+The words are a record field's. A tuple's part that holds is an accessor
+(`ref T`, MO-10b), and a result that may be absent, or sits inside another
+type, has no field the checker could follow: a row word written there is
+refused where it is declared, not ignored.
+
+```rx
+-- module: ./pair.d.rx
+export pure fn usePair(): [pending fails(Error) any, boolean]
+```
+
+```rx
+-- reject: PARSE
+import { usePair } from "./pair.js"
+export default component App() {
+  [a, b] = usePair()
+  <p>{b}</p>
+}
+```

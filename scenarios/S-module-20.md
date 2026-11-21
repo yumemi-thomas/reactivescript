@@ -168,7 +168,14 @@ export default component App() {
 A literal key names the method as a dot does: `clock["format"]()` is
 `clock.format()`, a declared method, and so is `c.format()` on an alias.
 
-An undeclared method keeps its answer unstable however the instance is reached (revised 2026-11-21 after review): a record's field,
+An instance never changes, so naming it, passing it whole and calling a
+declared method on its own name read nothing that does. Anything else read
+*through a value that may be the instance* is a read of what may change
+(ruled 2026-11-22). Which values may be it is one syntactic rule, with no
+value followed (MO-10k): an expression that mentions the instance's name,
+or a name bound to such an expression, unless what is written there makes
+a primitive. So an undeclared method keeps its answer unstable however the
+instance is reached: a record's field,
 
 ```rx
 -- reject: SNAPSHOT_ARGUMENT
@@ -242,8 +249,15 @@ export default component App() {
 }
 ```
 
+A declared method keeps the instance stable on the instance's own name
+(or an alias of it), where the checker knows what is called. Through a
+value that only may be the instance, the call is a read through it: the
+earlier revision took `[clock][0].format()` for the instance's own method
+by following the index; nothing is followed now, and the fix is to name the
+instance.
+
 ```rx
--- accept
+-- reject: SNAPSHOT_ARGUMENT
 import { createClock, createLabel } from "./prims.js"
 export default component App() {
   clock = createClock()
@@ -252,4 +266,151 @@ export default component App() {
 }
 ```
 
-A declared method through an array's element is still made once.
+A call given the instance may hand it back, whatever is called and
+however — an .rx fn twice over, a closure in a record, a closure a fn
+made, a method of an array, a JS fn:
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+fn keep(x) { x }
+export default component App() {
+  clock = createClock()
+  label = createLabel(keep(keep(clock)).now())
+  <p>{label}</p>
+}
+```
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  o = { f: (x) => x }
+  label = createLabel(o.f(clock).now())
+  <p>{label}</p>
+}
+```
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+fn mk(x) { () => x }
+export default component App() {
+  clock = createClock()
+  label = createLabel(mk(clock)().now())
+  <p>{label}</p>
+}
+```
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  label = createLabel([].concat([clock])[0].now())
+  <p>{label}</p>
+}
+```
+
+A closure reads when it is called. One the argument calls by its name is
+read there — its body's undeclared method, or a source it reads (E-10's
+own rule, which a closure hid before):
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  f = () => clock.now()
+  label = createLabel(f())
+  <p>{label}</p>
+}
+```
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createLabel } from "./prims.js"
+export default component App() {
+  source n := 1
+  f = () => n
+  label = createLabel(f())
+  <p>{label}</p>
+  <button onClick={() => { n := n + 1 }}>+</button>
+}
+```
+
+A closure held in a record is a function the checker does not see into:
+given the instance, it may read through it.
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  o = { read: (c) => c.now() }
+  label = createLabel(o.read(clock))
+  <p>{label}</p>
+}
+```
+
+One written among a call's arguments is handed the others: `c` may be
+the clock.
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  label = createLabel(map([clock], (c) => c.now())[0])
+  <p>{label}</p>
+}
+```
+
+The same reads under a kept `peek` keep the first answer:
+
+```rx
+-- reject: SNAPSHOT_KEPT
+import { createClock, createLabel } from "./prims.js"
+fn mk(x) { () => x }
+export default component App() {
+  clock = createClock()
+  label = peek mk(clock)().now()
+  <p>{label}</p>
+}
+```
+
+```rx
+-- reject: SNAPSHOT_KEPT
+import { createLabel } from "./prims.js"
+export default component App() {
+  source n := 1
+  f = () => n
+  shown = peek f()
+  <p>{shown}</p>
+  <button onClick={() => { n := n + 1 }}>+</button>
+}
+```
+
+Named, the instance is passed whole, and its declared method is called on
+its own name or an alias's:
+
+```rx
+-- accept
+import { createClock, createLabel } from "./prims.js"
+export default component App() {
+  clock = createClock()
+  c = clock
+  a = createLabel(clock.format())
+  b = createLabel(c.format())
+  e = createLabel(clock.format().length)
+  held = { clock: clock, clocks: [clock, c] }
+  <p>{a} {b} {e} {len(held.clocks)}</p>
+}
+```
+
+What a declared method answers is a value made once, not the instance:
+`clock.format().length` reads through nothing that changes.
+
+A record or an array may hold it; what is read back out of one in an
+argument is a read through what may be the instance, as above.

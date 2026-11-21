@@ -467,6 +467,8 @@ re!(REF_WORD, r"\bref\s+");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
 re!(ROW_WORD, r"^(pending\b|fails\(([^)]*)\))\s*");
 re!(ANY_ROW_WORD, r"\b(pending|fails\()");
+// MO-10f: a row word written before a type where no record field took it (a tuple's part, a member of a union, a type argument)
+re!(STRAY_ROW_WORD, r#"\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']"#);
 re!(OLD_HOLDS, r"(^|[:,\[{]\s*)holds\b");
 re!(RENDER_TYPE, r"=>\s*View\s*$");
 re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
@@ -1783,6 +1785,9 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
             let head = js_trim(head).to_string();
             let (head, h) = field_rows(&head); // MO-10f
             held = h;
+            if STRAY_ROW_WORD.is_match(&masked_strings(&head)) {
+                return c.fail("`pending` and `fails(…)` are written on a field of a result that is a record, `{ data: pending fails(Error) T }` (MO-10f): the read of that field is what holds or fails. A tuple's part that holds is an accessor, `ref T`; a result that may be absent, or one inside another type, has no field the checker could follow");
+            }
             if !head.is_empty() {
                 shape = Some(shape_of(&head)); // MO-10b: `ref T` is an accessor, read as T
             }
@@ -2004,6 +2009,30 @@ fn masked(t: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| t.to_string())
 }
 
+/// A type text with what its string literals hold blanked, so a word inside one is not read as a row.
+fn masked_strings(t: &str) -> String {
+    let b = t.as_bytes();
+    let mut out = b.to_vec();
+    let mut q = 0u8;
+    let mut i = 0;
+    while i < b.len() {
+        let ch = b[i];
+        if q != 0 {
+            out[i] = b'_';
+            if ch == b'\\' && i + 1 < b.len() {
+                out[i + 1] = b'_';
+                i += 1;
+            } else if ch == q {
+                q = 0;
+            }
+        } else if ch == b'"' || ch == b'\'' || ch == b'`' {
+            q = ch;
+            out[i] = b'_';
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
 fn code_of(line: &str) -> &str {
     let b = line.as_bytes();
     let mut q = 0u8;

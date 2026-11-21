@@ -481,6 +481,38 @@ export component Search(props: { start: boolean, q: string }) {
   `data` does; nothing changes at run time. A result with field rows is
   instantiated (MO-10a, inferred). The words are taken out of the type text
   the projection writes (TY-1c). Executable: S-module-11.
+
+  **The result is read a field at a time (ruled 2026-11-22).** The check
+  is complete only if every read of a held field is one the checker sees,
+  so the result is not a value the program holds: its name, and a path to
+  a record of held fields (`q.result`), stand only where a field is read
+  from them (the object of `.` or `[…]`), where an equation gives them
+  another name (`q = orig`, `r = q.result`), where the rest of a
+  destructuring names every held field beside it, and where they are
+  compared or tested (`orig == null`, `!orig`, a condition, the left of
+  `&&`). Anywhere else — passed to a component or a call, returned by a
+  closure or a fn, provided, exported, written to a source, spread, put
+  in a record or an array, shown — is `RESULT_AS_VALUE`: on the other
+  side the field would be read as a plain value, under no boundary the
+  check asked for. What travels is the field: `<List items={todos.data}
+  />` carries `data`'s rows to where `List` reads the prop (R-2, R-f-5),
+  as a provision and an export carry theirs. *Guarantee:* in a program
+  the checker accepts, a held field of a declared JS result is read only
+  by a path written from a name bound to that result, and each such read
+  is checked as a question's reader is; the compiled result reads each
+  field where it is read (a getter per field, `__rt.lazy`), so a read of
+  one field is no read of another. It rests on the declaration alone
+  (which fields hold or fail), as every row at the JS boundary does; a
+  row word written where no record field takes it — a tuple's part, a
+  member of a union, a type argument — is refused in the `.d.rx`
+  (`PARSE`), not ignored. No value is followed: the rule is on where a
+  name is written. (The earlier revisions followed the result through
+  aliases, records, closures and calls to find where its fields were
+  read, and counted a result passed whole as a read of every field; each
+  round found another way through, and the server render of an accepted
+  program still threw. S-module-11; `compiler/test/ssr-held.mjs` renders
+  the accepted programs on the server and shows the refused ones were the
+  ones that threw.)
 - **MO-10g (Callbacks) — proposed 2026-11-18, revised 2026-11-21.** A
   declaration marks a function type `handler` where the library calls it
   later, outside any computation, as the DOM calls an event handler
@@ -579,51 +611,120 @@ export component Search(props: { start: boolean, q: string }) {
   its place evaluated once (revised 2026-11-21 after review): the object up
   to the last key, then that key, then the old value read from them and the
   new one written there, as `x[k] += 1` is, so `d.items[next()] := v => v +
-  1` calls `next` once and updates one element. The draft lives as long as
-  the library's call of the callback (revised 2026-11-21): a library may
-  take it back when the callback returns (a revocable proxy, Solid's
-  setter), so a closure made inside the callback, which may run later,
-  may not capture it, to write a path or to read one (`DRAFT_ESCAPES`);
-  what such a closure needs is copied into a local first. A local bound
-  to the draft (`let a = d`) is the draft, and so is a record or array
-  literal holding it; a source written with it (`saved := d`) would keep it
-  past the call and is refused the same way, while a path read through it
-  (`let n = d.done`, `saved := d.done`) is a copy. Passing the draft
-  itself to a function the callback calls is that function's contract with
-  the library, as any JS argument is. `rx-verify` checks the row by running it: the setter must hand its
-  callback an object, and a write to it must be kept (a library that
+  1` calls `next` once and updates one element.
+
+  **A draft is a place, not a value (ruled 2026-11-22).** The draft lives
+  as long as the library's call of the callback: a library may take it
+  back when the callback returns (a revocable proxy; Solid's setter stops
+  taking writes). Three local rules keep it there, with no value followed:
+
+  1. *Its name stands only in its own callback.* A closure made inside
+     the callback may run later, so it may not name the draft, to write a
+     path or to read one (`DRAFT_ESCAPES`). The one exception is a path's
+     updater (`d.n := v => v + d.step`), which is applied where it is
+     written. An `await` ends the library's call, so the callback has
+     none. A loop is the statement `for (const x of xs) { … }` (07 §5),
+     whose body is the callback's own scope; a turn of a loop over a path
+     of the draft is a place of the draft, written by path (`for (const t
+     of d.items) { t.done := true }`).
+  2. *A read of it is a copy.* Wherever a draft — its name, a path below
+     it, what a method called on one answers — is read as a value, the
+     compiled code copies it (`__rt.copy`: arrays, plain objects, Maps and
+     Sets copied through, a cycle once; a primitive, a function, a Date,
+     an instance of a class is itself): `let n = d.done`, `saved := d`,
+     `keep(d.sub)`, `[d]`, a `let` a later closure captures. What goes
+     straight back to the library is not copied — a value written to a
+     path of the draft, the callback's result, an argument of the draft's
+     own method (`d.items.push(d.last)`) — nor what an operator makes a
+     primitive of (arithmetic, a comparison, `!`, a template, a condition,
+     a key, `len(…)`). A local bound to a read is a copy, so its paths are
+     not written (`let a = d; a.done := 1` is `WRITE_TO_NON_SOURCE`).
+  3. *The function that hands the draft is called by its own name, with
+     the callback written in the call.* A name whose declaration has a
+     `draft` callback parameter — the fn, or the setter bound from its
+     result — is not passed, stored or given another name, a result
+     holding one is read a part at a time (`st[1]((d) => …)`), and the
+     argument at the draft's position is a closure literal: so every
+     callback that is ever handed the draft has a parameter the checker
+     knows is one. A change is shared as an action that calls the setter.
+
+  *Guarantee:* in a program the checker accepts, no value `.rx` holds
+  after a draft callback returns is the library's draft or a live part of
+  it, and no `.rx` code names the draft after its callback returned. The
+  first half is by construction (the copy), the second by rules 1 and 3.
+  It rests on the declaration (which parameter is a draft, MO-8j's
+  `rx-verify` runs it) and on what `draft` says the library hands out:
+  plain data — arrays, plain objects, Maps, Sets — which is what a store
+  or a draft library proxies. JS the callback calls with a copy has a
+  copy. `rx-verify` checks the row by running it: the setter must hand
+  its callback an object, and a write to it must be kept (a library that
   hands a copy is a mismatch). S-module-25; `examples/formisch` runs
-  Solid 2's own store this way. Which values may be the draft is MO-10k's
-  answer (revised 2026-11-21 after review): `[d]`, `{ d }`, `let [a] = [d]`,
-  `c ? d : x`, `d ?? x`, `keep(d)` for an .rx fn `keep(x) { x }`, are the
-  draft.
-- **MO-10k (What a value may be) — revised 2026-11-21 after review.** The
-  checks that follow a value where it goes — a library's draft (MO-10i), a
-  `renders` value (MO-11l), a result's held fields (MO-10f, R-f-5) and an
-  instance's undeclared methods (E-10, E-5a) — share one answer to "what
-  values may this expression be": each a name and a path below it (a
-  path: a part read out of that name's value, not the value). It follows
-  an alias (an equation's or a local's value); a record or array literal,
-  a static key or whole-number index precisely (`[table, 5][1]` is `5`), a
-  key the checker cannot name as any key, a spread as the spread value's
-  parts; destructuring; `?:`, `??`, `||`, `&&`, `catch` and `peek`; an
-  object rest; what an .rx fn or a closure returns when called (its
-  parameters bound to the arguments, its locals to their values);
-  `filter`'s elements, `map`'s and a method's results (the receiver's
-  elements, what a closure given it returns); an undeclared JS fn's
-  arguments, which it may give back; and what a closure captures, whole,
-  for whoever calls it. A declared JS fn makes a new value (what it keeps
-  of its arguments is the checks' own business at the call), and a name
-  imported from an `.rx` module is decided in its module (an export of a
-  `renders` value is refused there, MO-11l). A held field is touched where
-  a value that may be the result is read through it (`box.q.data`,
-  `get().data`), and every held field is touched where the result is
-  consumed whole — spread, passed to a component or a JS fn, shown,
-  written — while only moving it (an alias, a record or array that holds
-  it, a branch) touches none; the compiled result is read a field at a time
-  where each is read (a getter per field, `__rt.lazy`), so `q = orig;
-  q.isFetching` reads no `data`, as the checker counts it. S-module-11,
-  S-module-16, S-module-20, S-module-25.
+  Solid 2's own store this way, and `compiler/test/drafts.mjs` runs the
+  guarantee against a library that revokes its draft: every read of it,
+  through every way an expression hands a value on and every pair of
+  them, is read after the revocation. (The earlier revisions took a path
+  read for a copy, which a nested proxy is not, and followed the draft
+  through locals, records and calls to refuse a write of it to a source;
+  each round found another carrier. Nothing is followed now, and nothing
+  is refused that only reads.)
+- **MO-10k (Confined values: one rule, no value followed) — ruled
+  2026-11-22.** Four checks keep a value where the checker can see what is
+  done with it: a result with held fields (MO-10f), a library's draft
+  (MO-10i), a value `renders` checked where it is bound (MO-11l, and the
+  values `renders(later)` carries, MO-11o), and the instance a primitive
+  made (E-10, E-5a). Three revisions answered them with one analysis of
+  "what values may this expression hold", followed through aliases,
+  records, calls and closures; each review found a way through it and a
+  program it refused for nothing, because following values through a
+  language with first-class functions and no types here is neither sound
+  nor precise. The stance is 08's (the checks are sound, over-approximate
+  and modular; the JS boundary is the declaration's), so the rules are
+  now ones whose soundness is local:
+
+  - *A place, or a path root, is not a value at all.* A draft and a
+    result with held fields are restricted by where their name is
+    written (MO-10i, MO-10f); a draft's reads are copies. Nothing flows.
+  - *By mention.* For the other two, a value **may be, or hold a part
+    of,** a confined value when its expression mentions that value's
+    name, or a name bound to such an expression: an equation's or a
+    local's value, a destructured part, the list a `for` row or a loop's
+    variable goes through, an effect's `$n`, a parameter of a closure
+    handed it in the same call, a parameter of a fn, an action or a named
+    closure of this module called with it, what such a fn returns. A
+    mention does not count where what is written cannot be handed on: an
+    operand of an operator that makes a primitive (arithmetic, a
+    comparison, `!`, `typeof`), a template, a condition, a key, the
+    argument of `len`, `str`, `sum`, `every` or `indexOf`; and a closure
+    gives what it returns, not what it captures (what it does with a
+    capture is checked where it is written). A call is opaque: its result
+    may be anything it was given. This is a syntactic over-approximation
+    of every way `.rx` hands a value on, so it has no cases to miss
+    inside `.rx`; and it is modular, because a value never reaches where
+    the rule cannot look: each way out of the module or the region (a
+    prop, a provision, an export, a source, a thrown value, a call that
+    may keep it) is where the check refuses it (MO-11l) or stops naming
+    it (MO-11o).
+
+  What it costs is precision, on purpose: a field read out of a
+  `renders` value is the value's (`row.id` may be a component for all the
+  checker knows), until the program makes a primitive of it
+  (`str(row.id)`); `[clock][0].format()` is a read through what may be
+  the instance, though it is the instance's declared method. What it
+  buys is that the guarantees below are properties of the rules, shown by
+  tests that put each value through every way of handing it on and every
+  pair of them into every way out (`a_renders_value_leaves_through_no_way_out`,
+  `a_read_through_what_may_be_an_instance_changes`,
+  `a_result_with_held_fields_is_never_a_value`,
+  `a_draft_is_named_only_in_its_callback`: in the crate and in
+  `ref/units.ts`), not a list of the cases a review found.
+
+  **The JS boundary.** What JS does with a value it is given is the
+  declaration's to say, as everywhere (CN-3b, CN-5): a `pure` fn keeps
+  nothing and hands what it is given back only as its result, so a
+  confined value may be passed to one (its result is confined again); an
+  `io` fn, a method of another value, and anything the checker cannot
+  name may keep it, so a `renders` value is refused there; a draft passed to JS is a copy; a result with held fields is not
+  passed. Nothing about JS is inferred.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 
@@ -842,16 +943,46 @@ export default component App() {
   render, and its boundaries would be credited wrongly: declare
   `renders(later)` and the consuming prop's `renders T` (MO-11o), which put
   the check where they do render, or nothing, which takes the cautious
-  placement (MO-11s). (Revised 2026-11-21.) The checker holds the program
-  to it (revised 2026-11-21 after a second review): the bound value, and an
-  equation that only names it, may be read through (`table.rows`) and
-  rendered in the binding's own view, but not passed to a component's
-  prop, provided, exported, written to a source, or passed to a call;
-  each is `RENDERS_ESCAPES`, since the components would render under other
-  boundaries and providers than the binding's (S-module-16). The value is
-  followed wherever an equation puts it: an alias, a record or array
-  literal that holds it, and a field read back out of such a record
-  (`box = { table }`, then `box.table`) are the value.
+  placement (MO-11s). (Revised 2026-11-21.)
+
+  **The checker holds the program to it (ruled 2026-11-22).** The bound
+  value, and every value that may hold a part of it (MO-10k, by mention:
+  an alias, a record or an array holding it, a field read out of it, a
+  row of a `for` over it, what a call given it returns, a parameter
+  handed it), is read and rendered in the region it is bound in, and
+  leaves it through none of the ways out:
+
+  | way out | refused where |
+  | --- | --- |
+  | a component's prop — an `.rx` component's or a JS one's, a spread, a closure that returns it | the attribute |
+  | a provision | the `provide` |
+  | an export — the name, a fn or an action that gives it, a source seeded with it | the declaration |
+  | a source: its seed, a write, a guess | the write |
+  | a thrown value (it goes to whichever boundary catches it) | the `throw` |
+  | an argument of a call that may keep it: an action of another module, an `.rx` fn of another module that declares state or can fail, an `io` JS fn, a method of another value, a function the checker cannot name (a prop, a parameter, a part of a record, what a call returns) | the call |
+
+  each `RENDERS_ESCAPES`. A fn, an action or a named closure of this
+  module is seen into instead: its parameter is what it is given, and its
+  body is checked with that (so `action stash(x) { held := x }` is refused
+  at its write when it is called with a row). A `pure` JS fn keeps nothing
+  (`flexRender(cell.column.cell, …)`), nor does a method of a `pure` JS
+  import or of the value itself (`table.setPage(n)`): the result of such a
+  call is a part of the value again. A function the checker cannot name
+  is refused in reactive scope too: `props.report(table.rows)` hands the
+  rows up to whatever applied the component. What is free to leave is a primitive made of it —
+  `str(row.id)`, a template, arithmetic, a comparison, `len(table.rows)`
+  — and a closure that gives nothing back: `onPress={() => {
+  table.nextPage() }}` is an ordinary prop. *Guarantee:* in a program the
+  checker accepts, no `.rx` code outside the region a bare `renders`
+  result is bound in holds that result or a value read out of it, so
+  whatever renders its components is beneath that region, under the
+  boundaries and provisions they were checked under. It rests on the
+  declaration (`renders` is the library's claim that it renders through
+  what the app calls there) and on `pure` at the JS boundary. It is
+  stricter than the earlier revisions on purpose: they let a path read
+  through (`<Rows rows={table.rows} />`, `held := table.rows`, a row of
+  `for t in [table]`), which carries the components as well as the table
+  does. S-module-16.
 - **MO-11n (Components a library renders under its own root) — proposed
   2026-11-19.** `renders(root)` is `renders` (MO-11l) for a library that
   mounts the components it is given with a root of its own (`render()`,
@@ -886,11 +1017,20 @@ export default component App() {
   reaches is checked nowhere, so it is `COMPONENT_AS_VALUE` where it is
   passed. A carrying value may be exported (for its type, as
   `examples/tanstack` registers its router), but a module's signature
-  says nothing of what it carries, so a `renders` prop given a value
-  imported from another `.rx` module — directly, or through an alias or a
-  record field that holds it, as MO-11l follows a value — is
-  `RENDERS_ESCAPES` (revised 2026-11-21): the carried components are checked in the module that
-  builds them, at its own `renders` props. Without MO-11p, a route's nested components are checked as
+  says nothing of what it carries. So what a `renders` prop is given must
+  be a value whose components the checker can name (ruled 2026-11-22):
+  every name its expression's value may come from (MO-10k, by mention) is
+  followed to the carrying calls it was bound to — through a branch, a
+  call, a closure's result, a row — and a name whose value comes from
+  where the checker cannot look is `RENDERS_ESCAPES` at the prop: a value
+  imported from another `.rx` module or made by its fn, a prop, a
+  parameter, a source, a provision. The carried components are checked in
+  the module that builds them, at its own `renders` props. *Guarantee:*
+  every component an `.rx` program hands a `renders(later)` fn is checked
+  as applied at each `renders` prop the program gives a value that may
+  carry it, or is `COMPONENT_AS_VALUE` if it gives none; no `renders`
+  prop is given a value that may carry components the check did not
+  name. Without MO-11p, a route's nested components are checked as
   siblings under the provider, which errs strict (a boundary inside the
   parent's component is not credited to them). S-module-22; `examples/tanstack` runs on `@tanstack/solid-router` 2.0 (rc)
   in the Vite suite, with TanStack's registered route types checked by the
@@ -971,13 +1111,15 @@ export default component App() {
      at the parent component's `outlet` (`… under …`); a parent the
      checker cannot find leaves the entry a sibling at the same place,
      crediting nothing of the parent's.
-  3. *Travel.* A value checked at the binding (`renders`) stays there:
-     one that leaves is `RENDERS_ESCAPES` (MO-11l). A carried value
+  3. *Travel.* A value checked at the binding (`renders`) stays there,
+     and so does everything that may hold a part of it: one that leaves
+     is `RENDERS_ESCAPES` (MO-11l, MO-10k). A carried value
      (`renders(later)`) may travel freely through equations, records and
-     carrying calls (`rootRoute.addChildren(…)`, `createRouter(…)`) within
-     its module; each `renders` prop it reaches is a consuming render,
-     checked there, as often as it is rendered. It may not be rendered in
-     another module (MO-11o).
+     calls within its module; each `renders` prop it reaches is a
+     consuming render, checked there, as often as it is rendered, and a
+     `renders` prop is given only what the checker can name the
+     components of: not a value from another module, a prop, a
+     parameter, a source or a provision (MO-11o).
   4. *Consumption.* A carried value no `renders` prop reaches is checked
      nowhere: `COMPONENT_AS_VALUE` where its component is written. A
      component given to a call with no row takes the cautious placement
@@ -1153,6 +1295,9 @@ Executable: S-module-7.
 | `UNKNOWN_COMPONENT` for an undeclared JS component, `COMPONENT_AS_VALUE` outside MO-11c's places | S | MO-11a, MO-11c, MO-11f |
 | `CONTEXT_NOT_FOUND` for a JS hook with no provider above; `NOT_EXPORTED` for an undeclared JS context | S | MO-12b, MO-12a |
 | `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k |
+| `RESULT_AS_VALUE` | S | MO-10f: a result with held fields, used as a value |
+| `DRAFT_ESCAPES` | S | MO-10i: a draft named outside its callback's own run, or handed where its parameter is not known |
+| `RENDERS_ESCAPES` | S | MO-11l: a `renders` value, or what may hold a part of it, leaving its region; MO-11o: a `renders` prop given what cannot be named |
 
 ## Implementation
 

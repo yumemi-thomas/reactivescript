@@ -115,6 +115,14 @@ record argued each way; this is the decision.
   retire the last of those reservations. Nothing in it adds run-time
   behaviour beyond Solid: each helper is a Solid primitive, a composition of
   them, or plain JavaScript the compiler would otherwise inline.
+  One helper is not Solid's (ruled 2026-11-22): `__rt.copy(v)`, a copy of
+  what a library's draft holds (arrays, plain objects, Maps and Sets
+  copied through; anything else is itself), written wherever a draft is
+  read as a value (09 MO-10i). It is what makes "a read of a draft is a
+  copy" true of the compiled program, where the earlier revisions tried
+  to prove no draft was kept; it is a value's meaning, not a check, and
+  costs a `typeof` where the value is a primitive.
+
 - **CP-4b (The names, pinned 2026-10-26).** What compiled code calls. The
   Rust crate emits exactly these; a change is a change to both.
 

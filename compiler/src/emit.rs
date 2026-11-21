@@ -66,9 +66,15 @@ struct Bind {
     /// MO-10: a primitive's result (Jfn), or an instance's (with `inst`, the name of its raw result)
     shape: Option<FShape>,
     inst: Option<String>,
+    /// MO-10i: a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy
+    draft: bool,
+    /// MO-10i: a JS fn's callbacks whose parameters are its drafts (argument, parameter positions); its result's
+    /// function parts that take such callbacks, by tuple index or field
+    drafts: Vec<(usize, Vec<usize>)>,
+    part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>,
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), w: None, f: None, prev: None, client: false, shape: None, inst: None }
+    Bind { kind, js: js.into(), w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![] }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -256,6 +262,12 @@ pub fn compile_linked_as(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, 
 }
 
 struct Gen<'p> {
+    /// MO-10i: expressions written where a read of a draft needs no copy: handed straight back to the library (a value
+    /// written to a draft's path, the callback's result, an argument of a draft's own method), or consumed by an operator
+    /// that makes a primitive of them
+    raw: HashSet<*const Expr>,
+    /// MO-10i: closures written where a JS fn hands their parameters a draft, with those positions
+    draft_closures: HashMap<*const Expr, Vec<usize>>,
     u: Usage,
     set: &'p ModuleSet,
     file: String,
@@ -328,6 +340,8 @@ impl<'p> Gen<'p> {
             hoist_seq: 0,
             frames: vec![],
             style_ids: 0,
+            raw: HashSet::new(),
+            draft_closures: HashMap::new(),
         }
     }
     // ---- environments
@@ -667,10 +681,12 @@ impl<'p> Gen<'p> {
                     for n in names {
                         // MO-10a: a declared primitive
                         let x = declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).and_then(|ds| ds.iter().find(|y| y.name() == n.name));
-                        if let Some(JsDecl::Fn { params, refs, shape, instantiates: true, sigs, .. }) = x {
+                        if let Some(JsDecl::Fn { params, refs, shape, instantiates: true, sigs, drafts, part_drafts, .. }) = x {
                             let mut b = bind(Kind::Jfn, mg(&n.alias));
                             b.f = Some(FnRef { params: params.iter().enumerate().map(|(i, p)| (p.clone(), refs.get(i).copied().unwrap_or(false))).collect(), decl: None, sigs: sigs.clone() });
                             b.shape = Some(shape.clone());
+                            b.drafts = drafts.clone();
+                            b.part_drafts = part_drafts.clone();
                             self.set(env, &n.alias, b);
                             continue;
                         }
@@ -684,6 +700,10 @@ impl<'p> Gen<'p> {
                         let mut b = val(mg(&n.alias));
                         b.client = *side == Some(crate::ast::Side::Client)
                             || declared_side.as_ref().is_some_and(|ds| ds.iter().any(|(k, s)| *k == n.name && *s == crate::ast::Side::Client));
+                        if let Some(JsDecl::Fn { drafts, part_drafts, .. }) = x {
+                            b.drafts = drafts.clone();
+                            b.part_drafts = part_drafts.clone();
+                        }
                         self.set(env, &n.alias, b);
                     }
                 }
@@ -718,8 +738,25 @@ impl<'p> Gen<'p> {
                             if let Some(jf) = self.lookup(env, fname).filter(|x| x.kind == Kind::Jfn) {
                                 b.inst = Some(format!("r${name}"));
                                 b.shape = jf.shape.clone();
+                                b.part_drafts = jf.part_drafts.clone(); // MO-10i
+                            } else if let Some(jf) = self.lookup(env, fname) {
+                                b.part_drafts = jf.part_drafts.clone();
                             }
                         }
+                    }
+                    // MO-10i: a result's function part that takes drafts, bound to a name; an alias of the result
+                    match &e.k {
+                        ExprKind::Id(on) => {
+                            if let Some(ob) = self.lookup(env, on) {
+                                b.part_drafts = ob.part_drafts.clone();
+                            }
+                        }
+                        ExprKind::Member { .. } | ExprKind::Index { .. } => {
+                            if let Some(d) = self.part_drafts_of(e, env) {
+                                b.drafts = d;
+                            }
+                        }
+                        _ => {}
                     }
                     if self.guessed_eq(name, e, *deferred) {
                         b.w = Some(format!("w${name}"));
@@ -1418,7 +1455,45 @@ impl<'p> Gen<'p> {
     }
 
     // ---- expressions
+    /// MO-10i: the draft a read goes through: the draft's name, a path below it, or what a method called on one gives.
+    fn draft_chain(&self, e: &Expr, env: Env) -> bool {
+        match &e.k {
+            ExprKind::Id(n) => self.lookup(env, n).is_some_and(|b| b.draft),
+            ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => self.draft_chain(o, env),
+            ExprKind::Call { f, .. } => matches!(&f.k, ExprKind::Member { o, .. } | ExprKind::Index { o, .. } if self.draft_chain(o, env)),
+            _ => false,
+        }
+    }
+    /// MO-10i: a place of a draft: its name, or a path below it (no call).
+    fn draft_place(&self, e: &Expr, env: Env) -> bool {
+        match &e.k {
+            ExprKind::Id(n) => self.lookup(env, n).is_some_and(|b| b.draft),
+            ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => self.draft_place(o, env),
+            _ => false,
+        }
+    }
+    /// MO-10i: the draft callbacks of a function part read off a result, `st[1]` or `st.set`.
+    fn part_drafts_of(&self, f: &Expr, env: Env) -> Option<Vec<(usize, Vec<usize>)>> {
+        let (o, key) = match &f.k {
+            ExprKind::Member { o, p, .. } => (o, Some(p.clone())),
+            ExprKind::Index { o, i, .. } => (o, crate::check::lit_key(i)),
+            _ => return None,
+        };
+        let (ExprKind::Id(on), Some(key)) = (&o.k, key) else { return None };
+        self.lookup(env, on)?.part_drafts.iter().find(|(k, _)| *k == key).map(|(_, d)| d.clone())
+    }
+    /// An expression's value. MO-10i (ruled 2026-11-22): a library's draft is a place, not a value, so a read of one —
+    /// its name, a path below it, what a method called on it gives — is a copy (`__rt.copy`), wherever its value could
+    /// be kept: what `.rx` holds of a draft is never the library's own object. Not where it is handed straight back to
+    /// the library, or consumed by an operator that makes a primitive of it (`raw`).
     fn expr(&mut self, e: &Expr, env: Env, ctx: &Ctx) -> R<E> {
+        let x = self.expr0(e, env, ctx)?;
+        if !self.raw.contains(&(e as *const Expr)) && self.draft_chain(e, env) {
+            return Ok(rtc("copy", vec![x]));
+        }
+        Ok(x)
+    }
+    fn expr0(&mut self, e: &Expr, env: Env, ctx: &Ctx) -> R<E> {
         let sub = Ctx { tail: false, ..ctx.clone() };
         Ok(match &e.k {
             ExprKind::Lit(l) => lit(l),
@@ -1467,6 +1542,7 @@ impl<'p> Gen<'p> {
             ExprKind::Latest(x) => rtc("latest", vec![thunk(self.expr(x, env, &Ctx { imp: false, ..ctx.clone() })?)]),
             ExprKind::Pending(x) => rtc("isPending", vec![thunk(self.expr(x, env, &sub)?)]),
             ExprKind::If { c, t, f } => {
+                self.raw.insert(&**c as *const Expr);
                 let c = self.expr(c, env, &sub)?;
                 let t = self.expr(t, env, ctx)?;
                 let f = self.expr(f, env, ctx)?;
@@ -1495,7 +1571,10 @@ impl<'p> Gen<'p> {
                 for p in parts {
                     xs.push(match p {
                         crate::ast::TplPart::Str(s) => str(s.clone()),
-                        crate::ast::TplPart::Expr(x) => rtc("fmt", vec![self.expr(x, env, &sub)?]),
+                        crate::ast::TplPart::Expr(x) => {
+                            self.raw.insert(x as *const Expr);
+                            rtc("fmt", vec![self.expr(x, env, &sub)?])
+                        }
                     });
                 }
                 let mut it = xs.into_iter();
@@ -1504,8 +1583,13 @@ impl<'p> Gen<'p> {
                     Some(first) => it.fold(first, |a, b| bin("+", a, b)),
                 }
             }
-            ExprKind::Member { o, p, .. } => E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true),
+            ExprKind::Member { o, p, .. } => {
+                self.raw.insert(&**o as *const Expr);
+                E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true)
+            }
             ExprKind::Index { o, i, .. } => {
+                self.raw.insert(&**o as *const Expr);
+                self.raw.insert(&**i as *const Expr); // a key is a primitive
                 let o = self.expr(o, env, &sub)?;
                 E::Index(Box::new(o), Box::new(self.expr(i, env, &sub)?), true)
             }
@@ -1528,7 +1612,32 @@ impl<'p> Gen<'p> {
                         return Ok(rtc(n, xs));
                     }
                 }
-                let callee = if let ExprKind::Member { o, p, .. } = &f.k { E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true) } else { self.expr(f, env, &sub)? };
+                // MO-10i: the closures this call hands a library's draft
+                let drafts = match &f.k {
+                    ExprKind::Id(n) => self.lookup(env, n).map(|b| b.drafts).unwrap_or_default(),
+                    _ => self.part_drafts_of(f, env).unwrap_or_default(),
+                };
+                for (i, ps) in drafts {
+                    if let Some(a) = args.get(i).filter(|a| matches!(a.k, ExprKind::Fn { .. })) {
+                        self.draft_closures.insert(a as *const Expr, ps);
+                    }
+                }
+                // a method of a draft is the library's own: what it is given goes straight back to it; a builtin that
+                // answers a primitive keeps nothing
+                let own = matches!(&f.k, ExprKind::Member { o, .. } | ExprKind::Index { o, .. } if self.draft_chain(o, env));
+                let scalar = matches!(&f.k, ExprKind::Id(n) if ["len", "str", "sum", "every", "indexOf"].contains(&n.as_str()) && self.lookup(env, n).is_none());
+                if own || scalar {
+                    for a in args {
+                        self.raw.insert(a as *const Expr);
+                    }
+                }
+                self.raw.insert(&**f as *const Expr);
+                let callee = if let ExprKind::Member { o, p, .. } = &f.k {
+                    self.raw.insert(&**o as *const Expr);
+                    E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true)
+                } else {
+                    self.expr(f, env, &sub)?
+                };
                 let mut xs = vec![];
                 for a in args {
                     xs.push(self.expr(a, env, &sub)?);
@@ -1557,6 +1666,17 @@ impl<'p> Gen<'p> {
             }
             ExprKind::Fn { params, body, stmts, .. } => {
                 let inner = self.params(env, params);
+                // MO-10i: the parameters a library hands its draft
+                if let Some(ds) = self.draft_closures.get(&(e as *const Expr)).cloned() {
+                    for j in ds {
+                        if let Some(p) = params.get(j) {
+                            let mut b = val(mg(p));
+                            b.draft = true;
+                            self.set(inner, p, b);
+                        }
+                    }
+                    self.raw.insert(&**body as *const Expr); // what the callback gives back is the library's
+                }
                 let ps: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
                 match stmts {
                     Some(ss) if crate::infer::inferred_action(ss).is_some() => {
@@ -1578,6 +1698,11 @@ impl<'p> Gen<'p> {
             }
             ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
             ExprKind::Bin { op, l, r } => {
+                // MO-10i: an operator that makes a primitive keeps nothing of what it reads
+                if !matches!(op.as_str(), "??" | "||" | "&&") {
+                    self.raw.insert(&**l as *const Expr);
+                    self.raw.insert(&**r as *const Expr);
+                }
                 let l = self.expr(l, env, &sub)?;
                 let r = self.expr(r, env, &sub)?;
                 match op.as_str() {
@@ -1586,7 +1711,10 @@ impl<'p> Gen<'p> {
                     op => bin(static_op(op), l, r),
                 }
             }
-            ExprKind::Un { op, e: x } => E::Un(static_op(op), Box::new(self.expr(x, env, &sub)?)),
+            ExprKind::Un { op, e: x } => {
+                self.raw.insert(&**x as *const Expr);
+                E::Un(static_op(op), Box::new(self.expr(x, env, &sub)?))
+            }
             ExprKind::Draft { .. } => return fail("a draft is an equation's whole expression"),
             ExprKind::Spread(_) => return fail("spread outside an array literal"),
             ExprKind::ServerFn { .. } => undef(),
@@ -1680,12 +1808,16 @@ impl<'p> Gen<'p> {
                     self.set(env, name, val(mg(name)));
                 }
                 StmtKind::Expr(e) => {
+                    self.raw.insert(e as *const Expr); // MO-10i: its value is dropped, or is the callback's result
                     let x = self.expr(e, env, &sub)?;
                     out.push(if return_last && i == ss.len() - 1 { S::Return(Some(x)) } else { sexpr(x) });
                 }
                 StmtKind::Return(e) => {
                     let x = match e {
-                        Some(e) => Some(self.expr(e, env, &sub)?),
+                        Some(e) => {
+                            self.raw.insert(e as *const Expr); // MO-10i: a draft is named only in its own callback, whose result is the library's
+                            Some(self.expr(e, env, &sub)?)
+                        }
                         None => None,
                     };
                     out.push(S::Return(x));
@@ -1697,11 +1829,18 @@ impl<'p> Gen<'p> {
                     for p in &target.path {
                         keys.push(match p {
                             PathSeg::Name(n) => str(n.clone()),
-                            PathSeg::Expr(x) => self.expr(x, env, &sub)?,
+                            PathSeg::Expr(x) => {
+                                self.raw.insert(x as *const Expr); // a key is a primitive
+                                self.expr(x, env, &sub)?
+                            }
                         });
                     }
                     let has_path = !keys.is_empty();
                     let keys = E::Arr(keys);
+                    // MO-10i: a value written to a path of a draft goes straight back to the library
+                    if !optimistic && has_path && !target.is_ctx() && self.lookup(env, &target.name).is_some_and(|b| b.draft) {
+                        self.raw.insert(e as *const Expr);
+                    }
                     let v = self.expr(e, env, &sub)?;
                     if ctx.dynamic && !target.is_ctx() && self.lookup(env, &target.name).is_none() {
                         out.push(sexpr(rtc("dset", vec![str(target.name.clone()), keys, v, E::Bool(optimistic)])));
@@ -1761,6 +1900,7 @@ impl<'p> Gen<'p> {
                     out.push(sexpr(call(rtc("action", vec![gen]), vec![])));
                 }
                 StmtKind::Sif { c, t, f } => {
+                    self.raw.insert(c as *const Expr);
                     let c = self.expr(c, env, &sub)?;
                     let t = self.stmts(t, env, ctx, false)?;
                     let f = self.stmts(f, env, ctx, false)?;
@@ -1768,9 +1908,16 @@ impl<'p> Gen<'p> {
                 }
                 // 07 §5: a loop of imperative scope; its variable is a constant of each turn
                 StmtKind::For { name, e, body } => {
+                    // MO-10i: a turn of a loop over a path of a draft is a place of that draft
+                    let place = self.draft_place(e, env);
+                    if place {
+                        self.raw.insert(e as *const Expr);
+                    }
                     let x = self.expr(e, env, &sub)?;
                     let inner = self.new_env(Some(env));
-                    self.set(inner, name, val(mg(name)));
+                    let mut b = val(mg(name));
+                    b.draft = place;
+                    self.set(inner, name, b);
                     let b = self.stmts(body, inner, ctx, false)?;
                     out.push(S::ForOf(mg(name), x, b));
                 }

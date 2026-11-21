@@ -118,6 +118,19 @@ export function makePortal<N>(R: { createElement: (t: string) => N; insertNode: 
 
 
 // ---------------------------------------------------------------- one app instance
+/** MO-10i: a copy of what a draft holds: arrays, plain objects, Maps and Sets are copied through — what a store or a
+ *  draft library hands out as live parts of its state; anything else (a primitive, a function, a Date, an instance of a
+ *  class) is the value itself. A value met twice is copied once, so a cycle ends. */
+function copyOf(v: any, seen: Map<object, unknown>): unknown {
+  if (v === null || typeof v !== "object") return v;
+  const had = seen.get(v); if (had !== undefined) return had;
+  if (Array.isArray(v)) { const out: unknown[] = []; seen.set(v, out); for (let i = 0; i < v.length; i++) out[i] = copyOf(v[i], seen); return out; }
+  if (v instanceof Map) { const out = new Map<unknown, unknown>(); seen.set(v, out); for (const [k, x] of v) out.set(copyOf(k, seen), copyOf(x, seen)); return out; }
+  if (v instanceof Set) { const out = new Set<unknown>(); seen.set(v, out); for (const x of v) out.add(copyOf(x, seen)); return out; }
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) return v;
+  const out: Record<string, unknown> = {}; seen.set(v, out); for (const k of Object.keys(v)) out[k] = copyOf(v[k], seen); return out;
+}
 export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
@@ -241,6 +254,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** R-f-5, MO-10f: a JS fn's record or tuple result as a value whose parts are read where they are read — a getter
      *  per part on the result (`refs`: the parts that are accessors, called) — so reading one part reads no other. */
     lazy: (r: any, keys: (string | number)[], refs: (string | number)[]): Acc => { const o: any = keys.length && typeof keys[0] === "number" ? [] : {}; for (const k of keys) Object.defineProperty(o, k, { get: () => refs.includes(k) ? r[k]() : r[k], enumerable: true }); return () => o; },
+    /** MO-10i (ruled 2026-11-22): a read of a library's draft is a copy — what `.rx` holds of a draft is never the
+     *  library's own object, which it may take back when its callback returns (`copyOf`). */
+    copy: (v: unknown): unknown => copyOf(v, new Map()),
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
     keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key

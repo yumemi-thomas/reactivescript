@@ -809,9 +809,14 @@ export default component App() {
 ### DRAFT_ESCAPES
 
 A library's draft (MO-10i) is its callback's only while the library's call of it runs: the library may take it back when
-the callback returns, as Solid's store setter does. A closure made inside the callback may run later (a timer, an event,
-a `then`), when writing or reading the draft would touch nothing. Use the draft in the callback itself; copy what a later
-closure needs into a local first.
+the callback returns, as Solid's store setter does. So a draft is a place, not a value. A read of it is a copy
+(`let n = d.done`, `saved := d`), and its name stands only in its own callback: a closure made inside may run later (a
+timer, an event, a `then`), when writing or reading the draft would touch nothing. Use the draft in the callback itself;
+read what a later closure needs into a local first; loop with the statement, `for (const x of xs) { … }`, not with a
+closure handed to `forEach`. The same code is reported for the other ways a draft could be kept: an `await` in the
+callback (the library's call ends there), a callback made elsewhere (`setTodos(update)`: write the closure in the call,
+so its parameter is known to be the draft), and the setter itself passed, stored or given another name (share the change
+as an action that calls it).
 
 ```rx before
 -- module: ./store.d.rx
@@ -1197,10 +1202,16 @@ name, `export component Dialog.Trigger(props: { … })` (MO-11q), and a member i
 ### RENDERS_ESCAPES
 
 A JS fn declared `renders` (a headless table) has the components it is given checked where its result is bound, so
-that is where the result must be rendered (MO-11l). Passed to a component, provided, exported, written to a source or
-handed to a call, it could be rendered under other boundaries and providers than the ones it was checked under. Render
-it in the view where it is bound; a library whose result is rendered elsewhere declares where: `renders(later)` with a
-component prop that `renders` it, or `renders(root, …)` for a root of its own.
+that is where the result must be rendered (MO-11l). The result, and anything that may hold a part of it — an alias, a
+record or an array holding it, a field read out of it (`table.rows`), a row of a `for` over it, what a call given it
+returns — stays in the region it is bound in: passed to a component, provided, exported, written to a source, thrown, or
+handed to a call that may keep it, it could be rendered under other boundaries and providers than the ones it was
+checked under. Render it in the view where it is bound. What leaves that view is a primitive made of it: `str(row.id)`,
+a template, arithmetic, a comparison, `len(table.rows)`; and a handler that only calls it,
+`onPress={() => { table.nextPage() }}`, gives nothing away. A library whose result is rendered elsewhere declares
+where: `renders(later)` with a component prop that `renders` it, or `renders(root, …)` for a root of its own. The same
+code is reported where a prop that `renders` (MO-11o) is given a value the checker cannot name the components of: a
+prop, a parameter, a source, a provision, or a value another `.rx` module made.
 
 ```rx before
 -- module: ./table.d.rx
@@ -1232,6 +1243,44 @@ component Cell() {
 export default component App() {
   table = createTable({ columns: [{ cell: Cell }] })
   <p>{for c in table.cells { <span>{flexRender(c, {})}</span> }}</p>
+}
+```
+
+### RESULT_AS_VALUE
+
+A JS result whose fields hold or fail (`useQuery(…): { data: pending fails(Error) T; isFetching: boolean }`, MO-10f) is
+read a field at a time: `todos.data` is checked where it is read, so every read of it has to be one the checker sees.
+The result itself is therefore not a value. Passed to a component, returned by a closure, provided, exported, written to
+a source, spread or put in a record, it would be read on the other side as a plain value, with no `errored` or `loading`
+asked for. Read the field where the result is bound and pass that: the field carries its rows (a prop, a provision and
+an export all do). Another name for the result is an equation (`q = todos`); comparing or testing it (`todos == null`)
+reads no field.
+
+```rx before
+-- module: ./query.d.rx
+export pure fn useQuery(key: string): { data: pending fails(Error) any; isFetching: boolean }
+-- main
+import { useQuery } from "./query.js"
+component List(props: { query: any }) {
+  <ul>{for t in props.query.data { <li>{t}</li> }}</ul>
+}
+export default component App() {
+  todos = useQuery("todos")
+  {errored fallback(e) { <p>failed</p> } { <List query={todos} /> }}
+}
+```
+
+```rx after
+-- module: ./query.d.rx
+export pure fn useQuery(key: string): { data: pending fails(Error) any; isFetching: boolean }
+-- main
+import { useQuery } from "./query.js"
+component List(props: { items: any }) {
+  <ul>{for t in props.items { <li>{t}</li> }}</ul>
+}
+export default component App() {
+  todos = useQuery("todos")
+  {errored fallback(e) { <p>failed</p> } { <List items={todos.data} /> }}
 }
 ```
 

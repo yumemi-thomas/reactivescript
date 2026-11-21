@@ -173,7 +173,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const sv = c.i; let g = !r && c.keyword("signal"); if (g) { c.ws(); if (!/^[A-Za-z_$]/.test(c.peek())) { c.i = sv; g = false; } } sigs.push(g);   /* MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name) */ const rest = !r && !g && c.eat("...");   /* MO-8h: a rest parameter, `...items: T[]` */ params.push((rest ? "..." : "") + (c.ident() ?? c.fail("param"))); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b|\bforwards\b|\bjoins\(|\bmethods\(/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b|\bforwards\b|\bjoins\(|\bmethods\(/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = fieldRows((r ? t.slice(0, r.index) : t).trim()); const raw = fr.text; held = fr.held; if (/\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']/.test(maskedStrings(raw))) c.fail("`pending` and `fails(…)` are written on a field of a result that is a record, `{ data: pending fails(Error) T }` (MO-10f): the read of that field is what holds or fails. A tuple's part that holds is an accessor, `ref T`; a result that may be absent, or one inside another type, has no field the checker could follow"); shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
     let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders = false; let forwards = false; let joins: string | undefined; let rendersRoot = false; const carries: string[] = []; let carrier = false; let under: { parent: string; inside: string } | undefined; const methods: string[] = [];
@@ -255,6 +255,17 @@ function callbacks(ptypes: (string | undefined)[]): ([boolean, string[]] | null)
     return null;
   });
   return out.some(Boolean) ? out : undefined;
+}
+/** A type text with what its string literals hold blanked, so a word inside one is not read as a row. */
+function maskedStrings(t: string): string {
+  let out = ""; let q = "";
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (q) { out += "_"; if (ch === "\\" && i + 1 < t.length) { out += "_"; i++; } else if (ch === q) q = ""; }
+    else if (ch === '"' || ch === "'" || ch === "`") { q = ch; out += "_"; }
+    else out += ch;
+  }
+  return out;
 }
 /** MO-10f: a result's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
  *  are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i). */

@@ -33,27 +33,58 @@ habit (`JS_API` is for a name the module does not import).
 
 The draft is the callback's only while the library's call of it runs: a
 library may take it back when the callback returns (Solid's store setter
-does). A closure made inside the callback may run later, so a draft it
-captures — to write a path, or to read one — is refused (`DRAFT_ESCAPES`,
-MO-10i, revised 2026-11-21). An updater's place is evaluated once:
-`d.items[i] := v => v + 1` reads and writes the same element, the object
-and the key computed once each, as `x[k] += 1` is.
+does). So a draft is a *place*, not a value (MO-10i, ruled 2026-11-22):
+
+- Its name stands in the callback it is the parameter of, and nowhere
+  else: a closure made inside the callback may run later, so it may not
+  name the draft, to write a path or to read one (`DRAFT_ESCAPES`). The
+  one exception is a path's updater, `d.n := v => v + d.step`, which is
+  applied where it is written. An `await` ends the library's call, so the
+  callback has none. A loop is a statement, `for (const x of xs) { … }`
+  (07 §5), not a closure; a turn of a loop over a path of the draft is a
+  place of the draft (`for (const t of d.items) { t.done := true }`).
+- A read of it is a copy: `let n = d.done`, `saved := d`, `keep(d.sub)`,
+  `[d]` hold what the draft held then, never the library's own object
+  (`__rt.copy`: arrays, plain objects, Maps and Sets copied through). What
+  goes straight back to the library is not copied: a value written to a
+  path of the draft, the callback's result, an argument of the draft's own
+  method (`d.items.push(d.last)`).
+- The function that hands the draft is called by its own name, with the
+  callback written in the call: it is not passed, stored, or given
+  another name, so the parameter of every callback it is given is known to
+  be a draft. A change is shared as an action that calls it.
+
+An updater's place is evaluated once: `d.items[i] := v => v + 1` reads and
+writes the same element, the object and the key computed once each, as
+`x[k] += 1` is.
 
 ## Program
 
 ```rx
 import { createStore } from "./store.js"
+source saved: any := null
 export default component App() {
   [todos, setTodos] = createStore<{
     done: number
     items: string[]
   }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { d.done := v => v + 1; d.items[len(d.items)] := "x" }) }}>add</button>
+  <button onClick={() => { setTodos((d) => {
+    d.done := v => v + 1
+    d.items[len(d.items)] := "x"
+    for (const x of [1, 2]) { d.done := d.done + x }
+    for (const t of d.items) { saved := t }
+    let first = d.items[0]
+    saved := [d.items, first]
+    d.items.push(d.items[0])
+  }) }}>add</button>
   <p>{todos.done} {len(todos.items)}</p>
 }
 ```
 
-Accepted.
+Accepted. The compiled callback writes the paths as assignments, loops
+with `for … of`, and copies what it reads out of the draft: `let v$first
+= __rt.copy(v$d?.items?.[0])`, `w$saved.set([__rt.copy(v$d?.items),
+v$first])`; the argument of the draft's own `push` is not copied.
 
 ## Rejected variants
 
@@ -128,21 +159,49 @@ export default component App() {
 }
 ```
 
-A read through a captured draft is refused too: copy what the closure
-needs into a local first (`let n = d.done`).
+A read through a captured draft is refused too: read what the closure
+needs into a local first (`let n = d.done`, a copy).
+
+Any closure, wherever it is given: the checker does not know that a
+method calls it now and forgets it, so a loop over a draft is the
+statement (below), not `forEach`.
 
 ```rx
 -- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
+import { createStore } from "./store.js"
 export default component App() {
   [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { let alias = d; later(() => { log(alias.done) }) }) }}>add</button>
+  <button onClick={() => { setTodos((d) => { [1, 2].forEach((x) => { d.done := d.done + x }) }) }}>add</button>
   <p>{todos.done}</p>
 }
 ```
 
-A local bound to the draft is the draft: the closure that captures it
-captures the draft.
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore } from "./store.js"
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { d.items := map(d.items, (x) => x + d.done) }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+An `await` in the callback ends the library's call before the callback
+does:
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore } from "./store.js"
+import pure { fetch } from "./prelude"
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { let n = await fetch("n"); d.done := n }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+The callback is written at the call. A function made elsewhere would be
+handed the draft where the checker does not know its parameter is one:
 
 ```rx
 -- reject: DRAFT_ESCAPES
@@ -150,14 +209,12 @@ import { createStore } from "./store.js"
 source saved: any := null
 export default component App() {
   [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { saved := d }) }}>add</button>
+  <button onClick={() => { let up = (d) => { saved := d }; setTodos(up) }}>add</button>
   <p>{todos.done}</p>
 }
 ```
 
-A source written with the draft keeps it past the call: it is refused as
-a captured draft is, directly or through a local (`let a = d; saved :=
-a`).
+and so the setter itself does not travel — another name,
 
 ```rx
 -- reject: DRAFT_ESCAPES
@@ -165,176 +222,106 @@ import { createStore } from "./store.js"
 source saved: any := null
 export default component App() {
   [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { let a = d; saved := a }) }}>add</button>
+  <button onClick={() => { let set2 = setTodos; set2((d) => { saved := d }) }}>add</button>
   <p>{todos.done}</p>
 }
 ```
 
-In an array literal, the draft is kept as it is:
+a component's prop,
 
 ```rx
 -- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
+import { createStore } from "./store.js"
+component Row(props: { set: any }) {
+  <button onClick={() => { props.set((d) => d) }}>add</button>
+}
 export default component App() {
   [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { saved := [d] }) }}>add</button>
+  <Row set={setTodos} />
   <p>{todos.done}</p>
 }
 ```
+
+or inside the result it came in, held whole:
 
 ```rx
 -- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
+import { createStore } from "./store.js"
+component Row(props: { st: any }) {
+  <p>{props.st[0].done}</p>
+}
 export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { saved := { d } }) }}>add</button>
-  <p>{todos.done}</p>
+  st = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <Row st={st} />
 }
 ```
+
+A local bound to a read of the draft is a copy, not the draft: its paths
+are not written.
 
 ```rx
--- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
+-- reject: WRITE_TO_NON_SOURCE
+import { createStore } from "./store.js"
 export default component App() {
   [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { saved := { x: d } }) }}>add</button>
+  <button onClick={() => { setTodos((d) => { let a = d; a.done := 1 }) }}>add</button>
   <p>{todos.done}</p>
 }
 ```
 
-and read back out of one by a static index, it is the draft again.
-
-```rx
--- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
-export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { saved := [d][0] }) }}>add</button>
-  <p>{todos.done}</p>
-}
-```
-
-Destructuring takes the draft out of the literal it was put in.
-
-```rx
--- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
-export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { let [a] = [d]; later(() => { log(a.done) }) }) }}>add</button>
-  <p>{todos.done}</p>
-}
-```
-
-A branch of `?:`, `??`, `||` or `&&` may be the draft:
-
-```rx
--- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
-export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { saved := true ? d : null }) }}>add</button>
-  <p>{todos.done}</p>
-}
-```
-
-```rx
--- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
-export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { saved := d ?? null }) }}>add</button>
-  <p>{todos.done}</p>
-}
-```
-
-```rx
--- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
-export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { let a = true ? d : d; later(() => { log(a.done) }) }) }}>add</button>
-  <p>{todos.done}</p>
-}
-```
-
-and so may what an .rx fn or a closure returns, given it:
-
-```rx
--- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
-export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { saved := keep(d) }) }}>add</button>
-  <p>{todos.done}</p>
-}
-```
-
-```rx
--- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
-export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { saved := (() => d)() }) }}>add</button>
-  <p>{todos.done}</p>
-}
-```
-
-A closure that captures a local holding the draft whole captures the draft.
-
-```rx
--- reject: DRAFT_ESCAPES
-import { createStore, later } from "./store.js"
-source saved: any := null
-fn keep(x) { x }
-export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { let a = { x: d }; later(() => { log(a.x.done) }) }) }}>add</button>
-  <p>{todos.done}</p>
-}
-```
-
-Which values may be the draft is one analysis, shared with `renders`
-values (MO-11l), held fields (MO-10f) and instances' methods (E-10): through
-an alias, a record or array literal (a static key or index precisely, a
-dynamic one as any key), destructuring, `?:`, `??`, `||`, `&&`, what an .rx
-fn or a closure returns, and what a closure captures (revised 2026-11-21
-after review).
+Everything else is accepted, because nothing of it can keep the draft.
+Reads are copies, wherever they go — a source, a record, an array, a fn, an
+action, a closure's capture of the local:
 
 ```rx
 -- accept
 import { createStore, later } from "./store.js"
 source saved: any := null
+source list: any[] := []
 fn keep(x) { x }
+action stash(x) { saved := x }
 export default component App() {
-  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { let xs = [d.done, 1]; saved := xs[1]; let b = [1, d]; saved := b[0] }) }}>add</button>
+  [todos, setTodos] = createStore<{ done: number; items: string[]; sub: { n: number } }>({ done: 0, items: [], sub: { n: 0 } })
+  <button onClick={() => { setTodos((d) => {
+    saved := d
+    saved := [d, { x: d }]
+    saved := keep(keep(d))
+    saved := true ? d : null
+    stash(d.sub)
+    list := [...d.items]
+    let alias = d
+    let n = d.done
+    let xs = d.items
+    later(() => { log(alias.done, n, len(xs)) })
+  }) }}>keep</button>
   <p>{todos.done}</p>
 }
 ```
 
-`xs[1]` and `b[0]` are the literal `1`, not the draft: a static index is
-read precisely. A field read through the draft (`d.done`) is a copy.
+and writes are the draft's: by path, through a loop's variable, with an
+updater that reads the draft, by the draft's own methods, by a part read
+off the result where it is called.
+
+```rx
+-- accept
+import { createStore } from "./store.js"
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; step: number; items: { text: string; done: boolean }[] }>({ done: 0, step: 1, items: [] })
+  st = createStore<{ n: number }>({ n: 0 })
+  <button onClick={() => { setTodos((d) => {
+    for (const x of [1, 2]) { d.done := d.done + x }
+    for (const t of d.items) { t.done := true }
+    d.done := v => v + d.step
+    d.items.push({ text: "new", done: false })
+    let i = d.items.findIndex((t) => t.text == "old")
+    if (i >= 0) { d.items.splice(i, 1) }
+    d.items := d.items.filter((t) => !t.done)
+    return d
+  }) }}>all</button>
+  <button onClick={() => { st[1]((d) => { d.n := d.n + 1 }) }}>one</button>
+  <p>{todos.done} {st[0].n}</p>
+}
+```
 
 ```rx
 -- accept: whole-program
@@ -342,11 +329,13 @@ import { createStore, later } from "./store.js"
 source saved: number := 0
 export default component App() {
   [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { setTodos((d) => { let n = d.done; let a = d; a.done := n + 1; saved := d.done; later(() => { log(n) }) }) }}>add</button>
+  <button onClick={() => { setTodos((d) => { let n = d.done; d.done := n + 1; saved := d.done; later(() => { log(n) }) }) }}>add</button>
   <p>{todos.done} {saved}</p>
 }
 ```
 
-A scalar copied out of the draft is a value of the callback's own: the
-closure may keep it, and a source may take it. A path of a local bound to
-the draft is written as the draft's own.
+A scalar read out of the draft is a value of the callback's own: the
+closure may keep it, and a source may take it. What the compiled callback
+does with each of these — the copies, the loop, the updater — is run by
+`compiler/test/node.mjs` against a draft that is revoked when the setter
+returns.
