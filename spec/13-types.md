@@ -25,7 +25,10 @@ does for `.tsrx`. Nothing here is a second type system.
 - **TY-1c.** In the product the compiler emits the projection beside the
   JavaScript (11, CP-1a) and hands it to TypeScript; an editor uses the
   same projection. The crate emits it with mappings onto the `.rx` (11
-  CP-8c: `rxc project`), the same text as `ref/`'s.
+  CP-8c: `rxc project`), the same text as `ref/`'s. A component's props type is
+  written without the row words on its fields (2026-11-22: `query: {
+  data: pending fails(Error) T }` is `query: { data: T }` to TypeScript,
+  09 MO-10f), each piece between them mapped where it is.
 - **TY-1d (Types in the build) — proposed 2026-11-19.** A production
   build type-checks: the Vite frontend runs `rx-tsc` over the project's
   `tsconfig.json` once per build, and a type error fails the build on its
