@@ -8,7 +8,7 @@ import { singleModule, type ModuleSet } from "../src/modules.ts";
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
-import { unwrapServer, litKey } from "../src/check.ts";
+import { unwrapServer, litKey, argCalls } from "../src/check.ts";
 import { isPrims } from "../src/prims.ts";
 import type { Shape, JsDecl } from "../src/parse.ts";
 
@@ -103,6 +103,7 @@ class Gen {
   /** Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns). */
   beginModule(path: string, decls: Decl[]) {
     this.file = path; this.top = []; this.modDecls = decls; this.serverNames = new Map();
+    this.argCalls = new Map(); argCalls(decls, this.argCalls);
     for (const d of decls) if (d.k === "server" || (d.k === "eq" && unwrapServer(d.e))) this.serverNames.set(d.name, `sf$${d.name}`);
     // a package's JS (\`@solidjs/web/server-functions\`): a real import at module level, where a hoisted server fn's wrappers are
     for (const d of decls) if (d.k === "import" && !d.resolved && !d.from.startsWith(".")) {
@@ -303,6 +304,7 @@ class Gen {
       return `${hoisted}${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
     }
     const b = env.vars.get((d as { name: string }).name)!;
+    if (d.k === "eq" && d.e.k !== "draft") this.updaterClosure(d.name, d.e, env);
     const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad) : d.k === "eq" && d.e.k !== "draft" ? [this.hoist(d.name, d.e, env, pad), this.hoistCatches(d.name, d.e, env, pad)].filter(Boolean).join("\n") : "";
     if (hoist) return hoist + "\n" + this.value1(d, env, ind, b);
     return this.value1(d, env, ind, b);
@@ -457,6 +459,21 @@ class Gen {
   private raw = new Set<Expr>();
   /** MO-10i: closures written where a JS fn hands their parameters a draft, with those positions. */
   private draftClosures = new Map<Expr, number[]>();
+  /** MO-10i (2026-11-22): where a name is written as a call's whole argument, in the module being emitted: name → (callee's
+   *  name, argument index) — how a closure bound to a name is known to be a draft's callback. */
+  private argCalls = new Map<string, [string, number][]>();
+  /** MO-10i (2026-11-22): a closure bound to `name` that the module gives, by that name, to a call that hands the position
+   *  a draft (`setTodos(up)`) is that callback: its parameters there are the draft's (the checker holds the name to that
+   *  use alone, `Checker.updaterPositions`). */
+  private updaterClosure(name: string, e: Expr, env: Env) {
+    if (e.k !== "fn" || !e.params.length) return;
+    let found: number[] | undefined;
+    for (const [callee, i] of this.argCalls.get(name) ?? []) {
+      const ps = env.lookup(callee)?.drafts?.find(([j]) => j === i)?.[1]; if (!ps) continue;
+      if (!found) found = ps; else if (JSON.stringify(found) !== JSON.stringify(ps)) return;
+    }
+    if (found) this.draftClosures.set(e, found);
+  }
   /** MO-10i: what an equation's binding keeps of a result's draft parts: a call's result's, an alias's, or the callbacks
    *  of a function part bound to a name. */
   private draftsOfBinding(e: Expr, env: Env): Pick<Bind, "drafts" | "partDrafts"> {
@@ -596,7 +613,7 @@ class Gen {
         return;
       }
       switch (s.k) {
-        case "let": out.push(`${pad}let ${mg(s.name)} = ${e(s.e)};`); env.vars.set(s.name, { kind: "val", js: mg(s.name) }); break;
+        case "let": this.updaterClosure(s.name, s.e, env); out.push(`${pad}let ${mg(s.name)} = ${e(s.e)};`); env.vars.set(s.name, { kind: "val", js: mg(s.name) }); break;
         case "expr": this.raw.add(s.e); out.push(`${pad}${returnLast && i === ss.length - 1 ? "return " : ""}${e(s.e)};`); break;   // MO-10i: its value is dropped, or is the callback's result
         case "return": if (s.e) this.raw.add(s.e); out.push(`${pad}return${s.e ? " " + e(s.e) : ""};`); break;   // MO-10i: a draft is named only in its own callback, whose result is the library's
         case "throw": out.push(`${pad}throw ${e(s.e)};`); break;

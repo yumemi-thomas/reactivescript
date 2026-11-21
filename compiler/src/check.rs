@@ -303,6 +303,9 @@ struct Sym<'a> {
     local_renders: bool,
     /// E-10 (RFC 14, bounded): a primitive's declared `methods(…)`, and on an instance it made, its own
     methods: Vec<String>,
+    /// MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a
+    /// draft: the parameter positions that are drafts
+    updater: Option<Vec<usize>>,
     /// MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or
     /// of a part of it, that part's: the closed set of what the value answers (`ty_step`)
     ret_ty: Option<String>,
@@ -410,6 +413,7 @@ impl<'a> Sym<'a> {
             renders_root: false,
             local_renders: false,
             methods: vec![],
+            updater: None,
             ret_ty: None,
             carries: vec![],
             undeclared: None,
@@ -790,6 +794,28 @@ fn strip_pre(n: &str) -> &str {
 /// returns (its parameters give nothing by themselves: the call that hands them a value is where they are named). Names
 /// bound inside (`bound`) give nothing; a closure's own locals (`locals`) give what their values do. `use c` is written
 /// `use:c`, for the checks that must know a value came from where they cannot look.
+/// Where a name is written as a call's whole argument: `f(x)` gives `x → (f, 0)`. Read off the module's tree as data, so
+/// it sees every call, in every view, handler and statement.
+pub(crate) fn arg_calls(v: &serde_json::Value, out: &mut HashMap<String, Vec<(String, usize)>>) {
+    match v {
+        serde_json::Value::Array(xs) => xs.iter().for_each(|x| arg_calls(x, out)),
+        serde_json::Value::Object(o) => {
+            if o.get("k").and_then(|k| k.as_str()) == Some("call") {
+                if let (Some(f), Some(args)) = (o.get("f").filter(|f| f.get("k").and_then(|k| k.as_str()) == Some("id")).and_then(|f| f.get("name")).and_then(|n| n.as_str()), o.get("args").and_then(|a| a.as_array())) {
+                    for (i, a) in args.iter().enumerate() {
+                        if a.get("k").and_then(|k| k.as_str()) == Some("id") {
+                            if let Some(n) = a.get("name").and_then(|n| n.as_str()) {
+                                out.entry(n.to_string()).or_default().push((f.to_string(), i));
+                            }
+                        }
+                    }
+                }
+            }
+            o.values().for_each(|x| arg_calls(x, out));
+        }
+        _ => {}
+    }
+}
 /// What `flows` asks of where it is read: whether a name is a builtin there (not bound), and whether an expression is a
 /// primitive by its declaration (`Checker::decl_prim`).
 struct Look<'x> {
@@ -1572,6 +1598,11 @@ pub struct Checker<'a> {
     prop_held: HashMap<RId, Vec<(String, bool, Vec<String>)>>,
     /// …and the props taken, by syntax, for such ones (`forwarded_props`): component, prop, the component's name and line
     forwarded_decl: Vec<(RId, String, String, usize)>,
+    /// MO-10i (2026-11-22): where a name is written as a call's whole argument, in this module: name → (callee's name,
+    /// argument index). What `updater_positions` reads to find a named closure's uses before it walks its body
+    arg_calls: HashMap<String, Vec<(String, usize)>>,
+    /// …and the arguments so written that a draft-handing call took as its callback
+    updater_ok: HashSet<*const Expr>,
     /// E-10: equations decided constant (None while being decided)
     const_eqs: HashMap<SId, Option<bool>>,
     carried_rendered: HashSet<*const Expr>,
@@ -1711,6 +1742,8 @@ impl<'a> Checker<'a> {
             outlets: vec![],
             forwards: vec![],
             forwarded_decl: vec![],
+            arg_calls: HashMap::new(),
+            updater_ok: HashSet::new(),
             prop_held: HashMap::new(),
             const_eqs: HashMap::new(),
             carried_rendered: HashSet::new(),
@@ -1834,6 +1867,7 @@ impl<'a> Checker<'a> {
     }
 
     pub fn run(&mut self, p: &'a Program) {
+        arg_calls(&p.to_json(), &mut self.arg_calls);
         let r = self.region(None, "program", false, None);
         let root = self.env(None, r);
         self.root_env = Some(root);
@@ -3002,6 +3036,15 @@ impl<'a> Checker<'a> {
                 // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
                 if matches!(e.k, ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. }) {
                     self.whole_ok.insert(e as *const Expr);
+                }
+                // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
+                if let Some(ps) = self.updater_positions(name, e, env) {
+                    if let Some(&made) = self.envs[env].vars.get(name.as_str()) {
+                        self.syms[made].updater = Some(ps);
+                    }
+                    if d.exported() {
+                        self.err("DRAFT_ESCAPES", "MO-10i", format!("{name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter"));
+                    }
                 }
                 let kind = if *deferred {
                     "deferred"
@@ -4354,6 +4397,10 @@ impl<'a> Checker<'a> {
                 Some(a) if matches!(a.k, ExprKind::Fn { .. }) => {
                     self.draft_fns.insert(a as *const Expr, ps);
                 }
+                // …or the name of a closure used for nothing else (`updater_positions`): its parameter is known as well
+                Some(a) if matches!(&a.k, ExprKind::Id(n) if self.lookup(env, n).is_some_and(|t| self.syms[t].updater.as_ref() == Some(&ps))) => {
+                    self.updater_ok.insert(a as *const Expr);
+                }
                 Some(_) => self.err("DRAFT_ESCAPES", "MO-10i", format!("{}(…) hands this callback a library's draft: write the callback here, as a closure (`(d) => {{ … }}`) — a function made elsewhere would be given the draft where the checker cannot see what it does with it", show(f))),
                 None => {}
             }
@@ -4425,6 +4472,30 @@ impl<'a> Checker<'a> {
             self.err("DRAFT_ESCAPES", "MO-10i", format!("{what} hands its callback a library's draft: it is called here, with the callback written in the call (`{what}((d) => {{ … }})`), and not passed or stored — a function that travels would be given a callback the checker cannot see; share the change as an action"));
         }
     }
+    /// MO-10i (2026-11-22): a closure bound to `name` — an equation's or a local's — is a draft callback when the name
+    /// is written, somewhere in the module, as the argument of a call that hands that position a draft (`setTodos(up)`):
+    /// its body is then checked as that callback's, its parameters at those positions the draft's. Read from what is
+    /// written (`arg_calls`), before the body is walked; the walk holds the name to it — `call_marks` takes the name at
+    /// such a position, and any other use of it is refused where it is written.
+    fn updater_positions(&mut self, name: &str, e: &'a Expr, env: EId) -> Option<Vec<usize>> {
+        let ExprKind::Fn { params, .. } = &e.k else { return None };
+        if params.is_empty() {
+            return None;
+        }
+        let mut found: Option<Vec<usize>> = None;
+        for (callee, i) in self.arg_calls.get(name).cloned().unwrap_or_default() {
+            let Some(ps) = self.lookup(env, &callee).and_then(|t| self.syms[t].drafts.iter().find(|(j, _)| *j == i).map(|(_, ps)| ps.clone())) else { continue };
+            match &found {
+                None => found = Some(ps),
+                Some(f) if *f == ps => {}
+                Some(_) => return None, // two kinds of callback: neither is assumed
+            }
+        }
+        let ps = found?;
+        self.draft_fns.insert(e as *const Expr, ps.clone());
+        self.callback_fns.insert(e as *const Expr);
+        Some(ps)
+    }
     /// MO-10b: a method of a declared JS result whose declared type answers nothing, `() => void`.
     fn void_method(&self, f: &Expr, env: EId) -> bool {
         matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| ty_clean(&r) == "void")
@@ -4489,6 +4560,10 @@ impl<'a> Checker<'a> {
                 let s = self.resolve(name, env, ctx);
                 if let Some(s) = s {
                     self.draft_here(s, name);
+                    // MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else
+                    if self.syms[s].updater.is_some() && !self.updater_ok.contains(&(e as *const Expr)) {
+                        self.err("DRAFT_ESCAPES", "MO-10i", format!("{name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, `setStore({name})` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one"));
+                    }
                     // MO-10i: a function that hands its callback a draft is called by its own name, where the callback is written
                     if !self.syms[s].drafts.is_empty() && !self.callee_ids.contains(&(e as *const Expr)) {
                         self.err("DRAFT_ESCAPES", "MO-10i", format!("{name} hands its callback a library's draft: it is called by this name, with the callback written in the call (`{name}((d) => {{ … }})`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action"));
@@ -4869,10 +4944,12 @@ impl<'a> Checker<'a> {
             }
             match &s.k {
                 StmtKind::Let { name, e, .. } => {
+                    let updater = self.updater_positions(name, e, env); // MO-10i: a named draft callback
                     self.expr(e, env, ctx, None);
                     let captures = self.stored(e, env, &mut HashSet::new(), false);
                     let ret = self.stored(e, env, &mut HashSet::new(), true);
                     let mut sym = Sym::new(SymKind::Value, name, region, self.line);
+                    sym.updater = updater;
                     sym.captures = captures;
                     sym.ret_captures = Some(ret);
                     sym.val = Some((e, env)); // MO-10k

@@ -200,8 +200,51 @@ export default component App() {
 }
 ```
 
-The callback is written at the call. A function made elsewhere would be
-handed the draft where the checker does not know its parameter is one:
+The callback is written at the call, or it is a closure given a name and
+used for nothing else (2026-11-22): a closure bound by an equation or a
+local, whose name is written only as the argument of a function that
+hands that position a draft, is that function's callback — its parameter
+is the draft, its body the callback's (it writes paths; what it reads out
+is a copy; it has no `await`). So one change is written once and shared
+by the handlers that make it:
+
+```rx
+-- accept
+import { createStore } from "./store.js"
+source saved: any := null
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  bump = (d) => { d.done := d.done + 1; saved := d.items }
+  <button onClick={() => { setTodos(bump) }}>one</button>
+  <button onClick={() => { let twice = (d) => { d.done := d.done + 2 }; setTodos(twice); setTodos(bump) }}>three</button>
+  <p>{todos.done}</p>
+}
+```
+
+Any other use of the name is refused where it is written: called by hand
+it would be given something that is no draft, and passed on or stored it
+could be called with a draft the checker does not see.
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore } from "./store.js"
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  bump = (d) => { d.done := d.done + 1 }
+  <button onClick={() => { setTodos(bump); bump(todos) }}>one</button>
+  <p>{todos.done}</p>
+}
+```
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { let up = (d) => { d.done := 1 }; setTodos(up); later(up) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
 
 ```rx
 -- reject: DRAFT_ESCAPES
@@ -209,8 +252,24 @@ import { createStore } from "./store.js"
 source saved: any := null
 export default component App() {
   [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
-  <button onClick={() => { let up = (d) => { saved := d }; setTodos(up) }}>add</button>
+  <button onClick={() => { let up = (d) => { d.done := 1 }; setTodos(up); saved := [up] }}>add</button>
   <p>{todos.done}</p>
+}
+```
+
+A function that is not such a closure — a parameter, a prop, what a call
+answers — is still handed the draft where the checker does not know its
+parameter is one:
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore } from "./store.js"
+component Row(props: { onChange: (d: any) => void }) {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos(props.onChange) }}>add</button>
+}
+export default component App() {
+  <Row onChange={(d) => {}} />
 }
 ```
 

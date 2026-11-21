@@ -202,7 +202,7 @@ export function parseDeclarations(src: string): JsDecl[] {
         c.fail("nests(children in component) or nests(component under parent) (MO-11r)"); }
       break;
     }
-    const instantiates = written || refs.some(x => x) || sigs.some(x => x) || carrier || shapeHasRef(shape) || shape === "comp" || !!uses || !!held || renders;   // MO-10a: inferred from a ref on either side; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+    const instantiates = written || refs.some(x => x) || sigs.some(x => x) || carrier || shapeHasRef(shape) || shape === "comp" || !!uses || !!held || renders || !!draftParts(ret);   // MO-10i (2026-11-22): a result with a function part that hands out drafts is state the call made   // MO-10a: inferred from a ref on either side; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
     if (nests && shape !== "comp") c.fail(`nests(…) on fn ${name}: only a fn that hands back a Component renders what it is given (MO-11i)`);
     if (joins && !nests) c.fail(`joins(${joins}) on fn ${name}: it joins paths through the tree nests(children in component) describes: add that (MO-11i)`);
     if (under && !carrier) c.fail(`nests(${under.inside} under ${under.parent}) on fn ${name}: it places what the result carries, which is rendered later — add renders(later) (MO-11r)`);

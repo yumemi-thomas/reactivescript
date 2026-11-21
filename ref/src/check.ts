@@ -129,6 +129,7 @@ type Sym = {
   jsDraft?: boolean;                   // MO-10i: a callback's parameter the library declares a draft: its paths are written
   draftFn?: number;                    // MO-10i: the closure whose parameter the draft is (its fnStack id)
   methods?: string[];
+  updater?: number[];                  // MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a draft: the parameter positions that are drafts
   retTy?: string;                      // MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or of a part of it, that part's: the closed set of what the value answers (`tyStep`)                  // E-10 (RFC 14, bounded): a primitive's declared methods(…), and on an instance it made, its own
   localRenders?: boolean;              // MO-11l (revised 2026-11-21): components `renders` checked where this was bound — it may not travel
   outlet?: boolean;                    // MO-11p: a JS component that renders, where it is written, what nests under its component
@@ -210,6 +211,15 @@ const SCALAR_BUILTINS = new Set(["len", "str", "sum", "every", "indexOf"]);
  *  parameters give nothing by themselves: the call that hands them a value is where they are named). Names bound inside
  *  (`bound`) give nothing; a closure's own locals (`locals`) give what their values do. `use c` is written `use:c`, for
  *  the checks that must know a value came from where they cannot look. */
+/** Where a name is written as a call's whole argument: `f(x)` gives `x → (f, 0)`. Read off the module's tree as data, so it
+ *  sees every call, in every view, handler and statement. */
+export function argCalls(v: unknown, out: Map<string, [string, number][]>): void {
+  if (Array.isArray(v)) { for (const x of v) argCalls(x, out); return; }
+  if (!v || typeof v !== "object") return;
+  const o = v as { k?: string; f?: { k?: string; name?: string }; args?: { k?: string; name?: string }[] };
+  if (o.k === "call" && o.f?.k === "id" && typeof o.f.name === "string" && Array.isArray(o.args)) o.args.forEach((a, i) => { if (a?.k === "id" && typeof a.name === "string") { let xs = out.get(a.name); if (!xs) { xs = []; out.set(a.name, xs); } xs.push([o.f!.name!, i]); } });
+  for (const x of Object.values(v)) argCalls(x, out);
+}
 /** What `flows` asks of where it is read: whether a name is a builtin there (not bound), and whether an expression is a
  *  primitive by its declaration (`Checker.declPrim`). */
 type Look = { builtin: (n: string) => boolean; prim: (e: Expr) => boolean };
@@ -509,6 +519,7 @@ class Checker {
   private bind(env: Env, name: string, sym: Sym) { env.vars.set(name, sym); this.model.sym(sym); }
 
   run(p: Program) {
+    argCalls(p, this.argCalls);
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     this.block(p.decls, p.view, root, { scope: "reactive" });
@@ -1082,6 +1093,8 @@ class Checker {
           if (h) this.err("RESULT_AS_VALUE", "MO-10f", `${d.name} is a JS result whose fields hold or fail where each is read (${d.name}.${h[0]}), and a module's signature says nothing of a value's fields: export the field, \`export ${h[0].split(".").pop()} = ${d.name}.${h[0]}\`, which carries its rows`);
         }
         if (d.e.k === "id" || d.e.k === "member" || d.e.k === "index") this.wholeOk.add(d.e);   // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
+        { const ps = this.updaterPositions(d.name, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
+          if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && !f.renders && !f.carrier && f.foreign !== "comp") this.unplaced(call.args, env);   /* MO-11s */ this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
@@ -1654,6 +1667,7 @@ class Checker {
     for (const [i, ps] of drafts) {
       const a = args[i];
       if (a?.k === "fn") this.draftFns.set(a, ps);
+      else if (a?.k === "id" && (() => { const u = env.lookup(a.name)?.updater; return !!u && JSON.stringify(u) === JSON.stringify(ps); })()) this.updaterOk.add(a);   // …or the name of a closure used for nothing else (`updaterPositions`): its parameter is known as well
       else if (a) this.err("DRAFT_ESCAPES", "MO-10i", `${show(f)}(…) hands this callback a library's draft: write the callback here, as a closure (\`(d) => { … }\`) — a function made elsewhere would be given the draft where the checker cannot see what it does with it`);
     }
     // MO-10i (closed 2026-11-22): a method called on a draft, or on what such a method answers, is one of plain data's, by
@@ -1743,6 +1757,26 @@ class Checker {
       this.err("DRAFT_ESCAPES", "MO-10i", `${what} hands its callback a library's draft: it is called here, with the callback written in the call (\`${what}((d) => { … })\`), and not passed or stored — a function that travels would be given a callback the checker cannot see; share the change as an action`);
     }
   }
+  /** MO-10i (2026-11-22): where a name is written as a call's whole argument, in this module: name → (callee's name,
+   *  argument index); and the arguments so written that a draft-handing call took as its callback. */
+  private argCalls = new Map<string, [string, number][]>();
+  private updaterOk = new Set<Expr>();
+  /** MO-10i (2026-11-22): a closure bound to `name` — an equation's or a local's — is a draft callback when the name is
+   *  written, somewhere in the module, as the argument of a call that hands that position a draft (`setTodos(up)`): its
+   *  body is then checked as that callback's, its parameters at those positions the draft's. Read from what is written
+   *  (`argCalls`), before the body is walked; the walk holds the name to it — `callMarks` takes the name at such a
+   *  position, and any other use of it is refused where it is written. */
+  private updaterPositions(name: string, e: Expr, env: Env): number[] | undefined {
+    if (e.k !== "fn" || !e.params.length) return undefined;
+    let found: number[] | undefined;
+    for (const [callee, i] of this.argCalls.get(name) ?? []) {
+      const ps = env.lookup(callee)?.drafts?.find(([j]) => j === i)?.[1]; if (!ps) continue;
+      if (!found) found = ps; else if (JSON.stringify(found) !== JSON.stringify(ps)) return undefined;   // two kinds of callback: neither is assumed
+    }
+    if (!found) return undefined;
+    this.draftFns.set(e, found); this.callbackFns.add(e);
+    return found;
+  }
   /** MO-10b: a method of a declared JS result whose declared type answers nothing, `() => void`. */
   private voidMethod(f: Expr, env: Env): boolean {
     if (f.k !== "member" && f.k !== "index") return false;
@@ -1789,7 +1823,7 @@ class Checker {
     const go = (x: Expr) => this.expr(x, env, ctx);
     switch (e.k) {
       case "lit": return;
-      case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory && !s.factory.here)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes a \`Component\`: a JS component's prop, or a JS factory's arguments (MO-11c, MO-11f)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
+      case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.updater && !this.updaterOk.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, \`setStore(${e.name})\` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one`);   /* MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else */ if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory && !s.factory.here)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes a \`Component\`: a JS component's prop, or a JS factory's arguments (MO-11c, MO-11f)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", true); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
       case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c) this.model.read(c, ctx.scope === "imperative"); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": this.model.snap++; go(e.e); this.model.snap--; return;                  // E-5: a snapshot
@@ -1916,8 +1950,9 @@ class Checker {
       if (s.k === "let" || s.k === "expr") { const t = s.e.k === "catch" ? s.e.e : s.e; if (t.k === "await") this.stmtAwaits.add(t); }
       switch (s.k) {
         case "let": {
+          const updater = this.updaterPositions(s.name, s.e, env);                           // MO-10i: a named draft callback
           this.expr(s.e, env, ctx);
-          const sym: Sym = { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env), retCaptures: this.stored(s.e, env, new Set(), true), val: { e: s.e, env } };   // MO-10k
+          const sym: Sym = { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env), retCaptures: this.stored(s.e, env, new Set(), true), val: { e: s.e, env }, ...(updater ? { updater } : {}) };   // MO-10k
           if (s.e.k === "fn") this.fnOwner.set(s.e, sym);
           env.vars.set(s.name, sym);
           break;

@@ -101,12 +101,18 @@ const refused = {
   "a closure made in the callback reads it later": [page("  <Run go={() => { setTodos((d) => { later(() => { sink(\"n\", d.done) }) }) }} />"), "DRAFT_ESCAPES"],
   "a closure given to a method names it (a loop is the statement)": [page("  <Run go={() => { setTodos((d) => { [1, 2].forEach((x) => { d.done := d.done + x }) }) }} />"), "DRAFT_ESCAPES"],
   "an await in the callback": [page("  <Run go={() => { setTodos((d) => { let v = await sink(\"x\", 1); d.done := 2 }) }} />"), "DRAFT_ESCAPES"],
-  "a callback made elsewhere": [page("  <Run go={() => { let up = (d) => { sink(\"d\", d) }; setTodos(up) }} />"), "DRAFT_ESCAPES"],
+  // (2026-11-22: a closure given a name and used only as the setter's argument is its callback, checked as one; any
+  // other use of the name is where it could be handed something else, or keep the draft)
+  "a named callback also passed elsewhere": [page("  <Run go={() => { let up = (d) => { sink(\"d\", d) }; setTodos(up); later(up) }} />"), "DRAFT_ESCAPES"],
+  "a named callback also called by hand": [page("  <Run go={() => { let up = (d) => { d.done := 1 }; setTodos(up); up(todos) }} />"), "DRAFT_ESCAPES"],
+  "a function that is not a closure written here, given to the setter": [page("  <Row up={(d) => {}} />", "component Row(props: { up: any }) {\n  [todos, setTodos] = createStore<{ done: number }>({ done: 0 })\n  <Run go={() => { setTodos(props.up) }} />\n}\n").replace(store, ""), "DRAFT_ESCAPES"],
   "the setter under another name": [page("  <Run go={() => { let set2 = setTodos; set2((d) => { sink(\"d\", d) }) }} />"), "DRAFT_ESCAPES"],
   "the setter passed to a component": [page("  <Row set={setTodos} />", "component Row(props: { set: any }) {\n  <Run go={() => { props.set((d) => { sink(\"d\", d) }) }} />\n}\n"), "DRAFT_ESCAPES"],
   "the setter inside the result it came in, passed whole": [`${head}component Row(props: { st: any }) {\n  <Run go={() => { props.st[1]((d) => { sink("d", d) }) }} />\n}\nexport default component App() {\n  st = createStore<{ done: number }>({ done: 0 })\n  <Row st={st} />\n}\n`, "DRAFT_ESCAPES"],
   "a path of a local read from the draft (a copy) is not written": [page("  <Run go={() => { setTodos((d) => { let a = d; a.done := 1 }) }} />"), "WRITE_TO_NON_SOURCE"],
 };
+// a callback given a name and shared by two calls: its parameter is the draft, what it reads out a copy
+const named = page("  <Run go={() => { let up = (d) => { d.done := d.done + 1; sink(\"named\", d) }; setTodos(up); setTodos(up) }} />");
 const { createApp } = await import(pathToFileURL(path.join(ws, "node_modules/@reactivescript/runtime/dist/server.js")).href);
 const lib = await import(pathToFileURL(path.join(ws, "lib.js")).href);
 let pass = 0, fail = 0, seq = 0;
@@ -160,6 +166,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   let alive = null; try { JSON.stringify(lib.sunk); } catch (e) { alive = e; }
   check(`every way of handing a read of the draft on, and every pair of them (${all.length}): accepted, run, and all of it reads after the revocation`, !r.refused && !r.threw && Object.keys(lib.sunk).length === all.length && alive === null, r.refused ?? r.threw?.stack ?? alive?.message ?? Object.keys(lib.sunk).length);
   check("and the callback still wrote the draft", lib.states[lib.states.length - 1]?.done === 1, lib.states[lib.states.length - 1]);
+}
+{
+  const r = await run("named", named);
+  let read = null, threw = r.threw; try { read = JSON.stringify(lib.sunk.named); } catch (e) { threw = e; }
+  check(`a named callback, given to the setter twice: accepted, the draft written, and what it read out read after the revocation (${read})`, !r.refused && !threw && read === '{"done":2,"items":[]}', r.refused ?? threw?.stack ?? read);
 }
 for (const [name, [src, code]] of Object.entries(refused)) {
   const r = await run(`r${++seq}`, src);

@@ -1936,7 +1936,9 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
             }
             break;
         }
-        let instantiates = written || refs.iter().any(|x| *x) || sigs.iter().any(|x| *x) || carrier || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        // MO-10i (2026-11-22): a result with a function part that hands out drafts is state the call made: a primitive
+        let makes_drafts = !draft_parts(ret.as_deref()).is_empty();
+        let instantiates = written || refs.iter().any(|x| *x) || sigs.iter().any(|x| *x) || carrier || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders || makes_drafts; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
         if nests.is_some() && shape != Some(Shape::Comp) {
             return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
         }

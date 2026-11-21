@@ -268,6 +268,9 @@ struct Gen<'p> {
     raw: HashSet<*const Expr>,
     /// MO-10i: closures written where a JS fn hands their parameters a draft, with those positions
     draft_closures: HashMap<*const Expr, Vec<usize>>,
+    /// MO-10i (2026-11-22): where a name is written as a call's whole argument, in the module being emitted: name →
+    /// (callee's name, argument index) — how a closure bound to a name is known to be a draft's callback
+    arg_calls: HashMap<String, Vec<(String, usize)>>,
     u: Usage,
     set: &'p ModuleSet,
     file: String,
@@ -332,6 +335,7 @@ impl<'p> Gen<'p> {
             style_ids: 0,
             raw: HashSet::new(),
             draft_closures: HashMap::new(),
+            arg_calls: HashMap::new(),
         }
     }
     // ---- environments
@@ -383,6 +387,8 @@ impl<'p> Gen<'p> {
         self.top = vec![];
         self.top_fns = HashSet::new();
         self.mod_decls = decls;
+        self.arg_calls = HashMap::new();
+        crate::check::arg_calls(&crate::ast::decls_json(decls), &mut self.arg_calls);
         self.server_names = IndexMap::new();
         for d in decls {
             match d {
@@ -1033,6 +1039,7 @@ impl<'p> Gen<'p> {
         let mut out = match d {
             Decl::Source { question: true, init, .. } => self.hoist(Some(name), init, env, true)?,
             Decl::Eq { e, .. } if !matches!(&e.k, ExprKind::Draft { .. }) => {
+                self.updater_closure(name, e, env);
                 let mut v = self.hoist(Some(name), e, env, true)?;
                 v.append(&mut self.hoist_catches(name, e, env)?);
                 v
@@ -1455,6 +1462,27 @@ impl<'p> Gen<'p> {
     }
 
     // ---- expressions
+    /// MO-10i (2026-11-22): a closure bound to `name` that the module gives, by that name, to a call that hands the
+    /// position a draft (`setTodos(up)`) is that callback: its parameters there are the draft's (the checker holds the
+    /// name to that use alone, `check::updater_positions`).
+    fn updater_closure(&mut self, name: &str, e: &Expr, env: Env) {
+        let ExprKind::Fn { params, .. } = &e.k else { return };
+        if params.is_empty() {
+            return;
+        }
+        let mut found: Option<Vec<usize>> = None;
+        for (callee, i) in self.arg_calls.get(name).cloned().unwrap_or_default() {
+            let Some(ps) = self.lookup(env, &callee).and_then(|b| b.drafts.iter().find(|(j, _)| *j == i).map(|(_, ps)| ps.clone())) else { continue };
+            match &found {
+                None => found = Some(ps),
+                Some(f) if *f == ps => {}
+                Some(_) => return,
+            }
+        }
+        if let Some(ps) = found {
+            self.draft_closures.insert(e as *const Expr, ps);
+        }
+    }
     /// MO-10i: the draft a read goes through: the draft's name, a path below it, or what a method called on one gives.
     fn draft_chain(&self, e: &Expr, env: Env) -> bool {
         match &e.k {
@@ -1812,6 +1840,7 @@ impl<'p> Gen<'p> {
             }
             match &s.k {
                 StmtKind::Let { name, e, .. } => {
+                    self.updater_closure(name, e, env);
                     let x = self.expr(e, env, &sub)?;
                     out.push(S::Let(mg(name), Some(x)));
                     self.set(env, name, val(mg(name)));
