@@ -12,7 +12,8 @@
 //   export context theme: source pending Theme = …          rows, then the written type; `= …` a default
 //   export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) fails(Error) uses(./theme.rx#theme, loading) shape(roots section; children-at section)
 //
-// A prop field: bare (rendered, discharges nothing), `catches(A | B)` / `catches(*)`, `provides(…)` (children), `unrendered`
+// A prop field: bare (rendered, discharges nothing), `renders` (the component renders what the prop's value carries, MO-11o:
+// `catches` and `provides` are then what is above that), `catches(A | B)` / `catches(*)`, `provides(…)` (children), `unrendered`
 // (only an action reads it), `action save catches(…)` (an action reads it). `uses(loading)` is SV-7b's need for a `loading`
 // above a reader of a client question. `retains(onPick: module, onFocus: ./form.rx#fields)` names the props the component
 // stores where they outlive it (O-3) — in its module's sources, or through a provision above it — so a closure passed for one
@@ -68,6 +69,7 @@ function line(file: string, name: string, x: ExportSig): string {
       const s = x.sig;
       const props = Object.entries(s.props).map(([f, v]) => {
         const parts: string[] = [];
+        if (v.renders) parts.push("renders");                                                // MO-11o: it renders what the prop's value carries
         if (!v.rendered) parts.push("unrendered");
         else {
           if (!(v.f instanceof Set && v.f.size === 0)) parts.push(`catches(${cls(v.f)})`);
@@ -151,6 +153,7 @@ export function parseSignature(src: string, file: string): ModSig {
         const a = /\baction\s+([A-Za-z_$][\w$]*)\s+catches\(([^)]*)\)/.exec(spec); if (a) v.action = { f: catchOf(a[2]), name: a[1] };
         const rest = a ? spec.replace(a[0], "") : spec;
         if (/\bunrendered\b/.test(rest)) { v.rendered = false; v.f = "all"; v.p = "all"; }
+        if (/\brenders\b/.test(rest.replace(/\([^)]*\)/g, ""))) v.renders = true;
         const c = /\bcatches\(([^)]*)\)/.exec(rest); if (c) v.f = catchOf(c[1]);
         const p = /\bprovides\(([^)]*)\)/.exec(rest); if (p) v.p = p[1].trim() === "*" ? "all" : new Set(p[1].split(",").map(k => absKey(file, k.trim())).filter(Boolean));
         sig.props[fname] = v;

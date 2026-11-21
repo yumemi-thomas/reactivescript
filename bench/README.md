@@ -19,7 +19,9 @@ It needs the crate (`cargo build --release` and `npm run build` in
 server's packages (`npm ci` in `tooling/rx-language-server`), Node 22.6 or
 later, and the network once: `bench/package.json` is installed into
 `bench/.out/ws`, with this repository's compiler, runtime and language server
-linked in as an app would install them. `scripts/setup.sh` builds all but the
+linked in as an app would install them (a task with a `package.json` of its
+own beside its `task.mjs` has an install of its own, for a library that pins
+another version: TanStack Start pins its router). `scripts/setup.sh` builds all but the
 last.
 
 ## What a task is

@@ -22,10 +22,28 @@ export function workspace() {
     writeFileSync(at, pkg);
     execFileSync("npm", ["install", "--no-audit", "--no-fund", "--silent", "--legacy-peer-deps"], { cwd: ws, stdio: "inherit" });
   }
-  const rx = path.join(ws, "node_modules/@reactivescript"); rmSync(rx, { recursive: true, force: true }); mkdirSync(path.join(rx, "runtime"), { recursive: true });
+  linkOwn(path.join(ws, "node_modules"));
+}
+/** This repository's packages in a node_modules, as an app installs them: the compiler and the language server linked,
+ *  the runtime copied (its peers are then that install's Solid, one copy). */
+function linkOwn(nm) {
+  const rx = path.join(nm, "@reactivescript"); rmSync(rx, { recursive: true, force: true }); mkdirSync(path.join(rx, "runtime"), { recursive: true });
   symlinkSync(path.join(repo, "compiler"), path.join(rx, "compiler"));
   symlinkSync(path.join(repo, "tooling/rx-language-server"), path.join(rx, "language-server"));
   for (const f of ["package.json", "dist", "rx-lib.d.ts"]) cpSync(path.join(repo, "runtime", f), path.join(rx, "runtime", f), { recursive: true });
+}
+/** A task with a package.json of its own (beside its task.mjs) has an install of its own, for a library that pins
+ *  another version of what the workspace holds: installed once into bench/.out/ws/deps/<id> (again when it changes). */
+function ownInstall(id) {
+  const from = path.join(here, "tasks", id, "package.json"); if (!existsSync(from)) return null;
+  const pkg = readFileSync(from, "utf8"); const at = path.join(ws, "deps", id); mkdirSync(at, { recursive: true });
+  const had = path.join(at, "package.json");
+  if (!existsSync(path.join(at, "node_modules/solid-js")) || !existsSync(had) || readFileSync(had, "utf8") !== pkg) {
+    writeFileSync(had, pkg);
+    execFileSync("npm", ["install", "--no-audit", "--no-fund", "--silent", "--legacy-peer-deps"], { cwd: at, stdio: "inherit" });
+  }
+  linkOwn(path.join(at, "node_modules"));
+  return path.join(at, "node_modules");
 }
 
 /** A task's folder in the workspace: its `src/`, copied fresh. */
@@ -33,6 +51,7 @@ export function stage(id) {
   const dir = path.join(ws, "tasks", id);
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
   cpSync(path.join(here, "tasks", id, "src"), dir, { recursive: true });
+  const own = ownInstall(id); if (own) symlinkSync(own, path.join(dir, "node_modules"), "dir");
   if (!existsSync(path.join(dir, "tsconfig.json"))) writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2023", "DOM", "DOM.Iterable"], types: [] }, include: ["**/*.rx", "**/*.d.ts"], exclude: ["node_modules", "dist", ".build"] }, null, 2));
   return dir;
 }
@@ -59,7 +78,7 @@ export function both(entry, spa, host) {
 
 /** rx-tsc over the task's tsconfig: TypeScript's errors and the crate's, as text ("" when clean). */
 export function rxTsc(dir) {
-  const r = spawnSync(process.execPath, [path.join(ws, "node_modules/@reactivescript/language-server/bin/tsc.js"), "--noEmit", "-p", "tsconfig.json"], { cwd: dir, encoding: "utf8", env: { ...process.env, RXC: rxc } });
+  const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/tsc.js"), "--noEmit", "-p", "tsconfig.json"], { cwd: dir, encoding: "utf8", env: { ...process.env, RXC: rxc } });
   return r.status === 0 ? "" : String(r.stdout ?? "") + String(r.stderr ?? "") || `exit ${r.status}`;
 }
 

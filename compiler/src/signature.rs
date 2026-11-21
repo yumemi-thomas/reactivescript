@@ -50,6 +50,8 @@ pub struct PropSig {
     pub action: Option<(Catch, String)>,
     /// MO-11c: a JS component's prop that takes a component value
     pub component: bool,
+    /// MO-11o: the component renders what this prop's value carries (`f` and `p` are then what is above that)
+    pub renders: bool,
 }
 #[derive(Debug, Clone)]
 pub struct Own {
@@ -238,6 +240,9 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 .iter()
                 .map(|(f, v)| {
                     let mut parts = vec![];
+                    if v.renders {
+                        parts.push("renders".to_string()); // MO-11o: it renders what the prop's value carries
+                    }
                     if !v.rendered {
                         parts.push("unrendered".to_string());
                     } else {
@@ -306,6 +311,8 @@ re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(props:\s*(\{.*?\}|\{\}
 re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
+re!(P_RENDERS, r"(^|[^A-Za-z0-9_])renders([^A-Za-z0-9_]|$)");
+re!(P_PARENS, r"\([^)]*\)");
 re!(P_CATCHES, r"(^|[^A-Za-z0-9_])catches\(([^)]*)\)");
 re!(P_PROVIDES, r"(^|[^A-Za-z0-9_])provides\(([^)]*)\)");
 re!(C_FAILS, r"(^|[^A-Za-z0-9_])fails\(([^)]*)\)");
@@ -468,7 +475,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     None => (crate::parse::js_trim(&f).to_string(), String::new()),
                 };
                 let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
-                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false };
+                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, renders: false };
                 let a = P_ACTION.captures(&spec);
                 let rest = match &a {
                     Some(a) => {
@@ -480,6 +487,9 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     }
                     None => spec.clone(),
                 };
+                if P_RENDERS.is_match(&P_PARENS.replace_all(&rest, "")) {
+                    v.renders = true;
+                }
                 if P_UNRENDERED.is_match(&rest) {
                     v.rendered = false;
                     v.f = Catch::All;

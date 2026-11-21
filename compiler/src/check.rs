@@ -173,6 +173,10 @@ struct Region {
     catches: Option<Catch>,
     /// children passed to a component: (the component's root, the site)
     kids: Option<(RId, RId)>,
+    /// MO-11o: for what a prop carries, the prop: it is rendered where the component renders that prop (else: its children)
+    kids_field: Option<String>,
+    /// MO-11a: a declared JS component's root
+    js: bool,
     sig: Option<CompSig>,
     /// E-5a: a component root's identity across modules (`file#name`), for what its props are given
     key: Option<String>,
@@ -1560,6 +1564,11 @@ pub struct Checker<'a> {
     carried_pending: Vec<(*const Expr, String, i64, String)>,
     /// MO-11p: each outlet, where it is (its region) and whose children it renders (the component's region)
     outlets: Vec<(RId, RId)>,
+    /// MO-11o (2026-11-22): each place a component gives a prop of its own on to a prop that renders what it carries:
+    /// the component, its prop, and the region what the prop carries is rendered in
+    forwards: Vec<(RId, String, RId)>,
+    /// …and the props taken, by syntax, for such ones (`forwarded_props`): component, prop, the component's name and line
+    forwarded_decl: Vec<(RId, String, String, usize)>,
     /// E-10: equations decided constant (None while being decided)
     const_eqs: HashMap<SId, Option<bool>>,
     carried_rendered: HashSet<*const Expr>,
@@ -1697,6 +1706,8 @@ impl<'a> Checker<'a> {
             carried_props: HashMap::new(),
             carried_pending: vec![],
             outlets: vec![],
+            forwards: vec![],
+            forwarded_decl: vec![],
             const_eqs: HashMap::new(),
             carried_rendered: HashSet::new(),
             reached: std::cell::RefCell::new(HashSet::new()),
@@ -1753,7 +1764,7 @@ impl<'a> Checker<'a> {
         let r = self.regions.len();
         let depth = parent.map(|p| self.regions[p].depth + 1).unwrap_or(0);
         let comp = if component { Some(r) } else { parent.and_then(|p| self.regions[p].component) };
-        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, kids: None, sig: None, key: None });
+        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, kids: None, kids_field: None, js: false, sig: None, key: None });
         self.model.region(id, kind, parent.map(|p| self.regions[p].id), name);
         r
     }
@@ -1828,6 +1839,13 @@ impl<'a> Checker<'a> {
         }
         self.block(&p.decls, &p.view, root, Ctx::reactive());
         self.renders_sinks(); // MO-11l: every call's arguments are known now
+        // MO-11o: a prop taken (by syntax) for one its component gives on to a prop that renders it, which the walk did not find
+        for (comp, field, name, line) in std::mem::take(&mut self.forwarded_decl) {
+            if !self.forwards.iter().any(|(c, f, _)| *c == comp && *f == field) {
+                self.line = line as i64;
+                self.err("RENDERS_ESCAPES", "MO-11o", format!("component {name} was read as rendering what its prop {field} carries (`props.{field}` given to a prop that renders it), but where it does is not one the checker can see: give it on as `props.{field}`, at the top of the component's own view"));
+            }
+        }
         // MO-11o: a component a value carries is checked where a prop renders it; one nothing renders is not checked anywhere
         for (e, name, line, by) in std::mem::take(&mut self.carried_pending) {
             if !self.carried_rendered.contains(&e) {
@@ -2040,7 +2058,7 @@ impl<'a> Checker<'a> {
                             };
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
-                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false });
+                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, renders: false });
                             self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new() });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
@@ -2085,6 +2103,7 @@ impl<'a> Checker<'a> {
             }
         }
         self.server_io(decls, env);
+        self.forwarded_props(decls, env);
         // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)
         for d in decls {
             let mut names = IndexSet::new();
@@ -2243,6 +2262,11 @@ impl<'a> Checker<'a> {
                     let r = self.region(None, "imported", true, Some(alias.clone()));
                     self.regions[r].sig = Some(sig.clone());
                     self.regions[r].key = Some(format!("{}#{}", resolved.as_ref().unwrap(), name)); // E-5a
+                    // MO-11o: the props it renders what they carry
+                    let cp: HashSet<String> = sig.props.iter().filter(|(_, v)| v.renders).map(|(k, _)| k.clone()).collect();
+                    if !cp.is_empty() {
+                        self.carried_props.insert(r, cp);
+                    }
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
                     s
@@ -2313,13 +2337,13 @@ impl<'a> Checker<'a> {
                 let empty = || Catch::Set(IndexSet::new());
                 let given = || Catch::Set(gives.iter().cloned().collect());
                 let mut props = IndexMap::new();
-                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false });
+                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false, renders: false });
                 for p in xprops {
                     let f = match &p.catches {
                         Some(c) => Catch::of(c),
                         None => empty(),
                     };
-                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component });
+                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component, renders: false });
                 }
                 let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                 let r = c.region(None, "imported", true, Some(alias.to_string()));
@@ -2341,6 +2365,7 @@ impl<'a> Checker<'a> {
                 if !carried.is_empty() {
                     c.carried_props.insert(r, carried);
                 }
+                c.regions[r].js = true;
                 let mut s = Sym::new(SymKind::Comp, alias, region, line);
                 s.comp_region = Some(r);
                 s.outlet = *xoutlet;
@@ -5293,13 +5318,22 @@ impl<'a> Checker<'a> {
                             self.sink(&a.e, env, format!("passed to <{tag}> as {}", a.name));
                         }
                         // MO-11o (revised 2026-11-21): a value another .rx module made carries what that module's own
-                        // render checked; its signature says nothing of it, so rendering it here would be unchecked
+                        // render checked; its signature says nothing of it, so rendering it here would be unchecked. A prop
+                        // of this component, given on to a prop that renders what it carries, is one this component renders
+                        // in turn (2026-11-22): its components are named and checked where this component is applied
                         let carried_props = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.carried_props.get(&r).cloned()).unwrap_or_default();
+                        let mut forwards: Vec<(String, RId, String)> = vec![];
                         for a in attrs.iter().filter(|a| carried_props.contains(&a.name)) {
+                            if let Some((comp, field)) = self.prop_field(&a.e, env) {
+                                if self.carried_props.get(&comp).is_some_and(|c| c.contains(&field)) {
+                                    forwards.push((a.name.clone(), comp, field));
+                                    continue;
+                                }
+                            }
                             let mut opaque = vec![];
                             self.carried_names(&a.e, env, &mut IndexSet::new(), &mut vec![], &mut opaque);
                             if let Some((n, why)) = opaque.into_iter().next() {
-                                self.err("RENDERS_ESCAPES", "MO-11o", format!("<{tag}> renders what its {} carries, and {n} is {why}: the components it carries cannot be named here, so they would render unchecked — give {} a value this module builds from its own `renders(later)` calls, and render it in the module that builds it", a.name, a.name));
+                                self.err("RENDERS_ESCAPES", "MO-11o", format!("<{tag}> renders what its {} carries, and {n} is {why}: the components it carries cannot be named here, so they would render unchecked — give {} a value this module builds from its own `renders(later)` calls, or a prop of this component read as it is (`props.x`), which is then one this component renders", a.name, a.name));
                             }
                         }
                         let values = self.component_values(tag, attrs, env);
@@ -5362,6 +5396,38 @@ impl<'a> Checker<'a> {
                             self.markup(children, kenv, false);
                             for (_, v) in &values {
                                 self.apply_tree(v, m.line, kenv);
+                            }
+                            // MO-11o: where what a prop carries is rendered — for a JS component, among its children; for
+                            // an .rx one, where it renders that prop itself
+                            let js = self.regions[cr].js;
+                            let tagc = tag.clone();
+                            let carried_at = |c: &mut Self, field: &str| -> RId {
+                                if js {
+                                    return kids;
+                                }
+                                let r = c.region(Some(region), "children", false, Some(tagc.clone()));
+                                c.regions[r].kids = Some((cr, region));
+                                c.regions[r].kids_field = Some(field.to_string());
+                                r
+                            };
+                            for (attr, comp, field) in &forwards {
+                                let at = carried_at(self, attr);
+                                self.forwards.push((*comp, field.clone(), at));
+                            }
+                            if !js {
+                                for a in attrs.iter().filter(|a| carried_props.contains(&a.name) && !forwards.iter().any(|f| f.0 == a.name)) {
+                                    let mut names = vec![];
+                                    let mut seen = IndexSet::new();
+                                    self.carried_names(&a.e, env, &mut seen, &mut names, &mut vec![]);
+                                    let tree = self.carried_tree(&seen, names);
+                                    if !tree.is_empty() {
+                                        let at = carried_at(self, &a.name);
+                                        let aenv = self.env(Some(env), at);
+                                        for t in &tree {
+                                            self.apply_tree(t, m.line, aenv);
+                                        }
+                                    }
+                                }
                             }
                             if self.syms[s.unwrap()].outlet {
                                 // MO-11p: what nests under this component renders here, as if it read props.children
@@ -5569,6 +5635,71 @@ impl<'a> Checker<'a> {
         }
     }
     /// The props of the component a view belongs to (MO-11p: `<Outlet />` renders its children).
+    /// A prop of the component being walked, read as it is: `props.router`.
+    fn prop_field(&self, e: &Expr, env: EId) -> Option<(RId, String)> {
+        let ExprKind::Member { o, p, .. } = &e.k else { return None };
+        let ExprKind::Id(n) = &o.k else { return None };
+        let s = self.lookup(env, n).filter(|&s| self.syms[s].kind == SymKind::Props)?;
+        let r = self.syms[s].region;
+        self.regions[r].is_component_root.then(|| (r, p.clone()))
+    }
+    /// MO-11o (2026-11-22): the props each component of a block gives on, as they are (`props.x`), to a prop that
+    /// renders what it carries — a JS component's `renders` prop, or such a prop of another component — to a fixpoint.
+    /// Found before any view is walked, so an application written above the component's declaration sees it. A summary
+    /// by syntax: the walk records each (`forwards`), and one the walk does not confirm is refused.
+    fn forwarded_props(&mut self, decls: &'a [Decl], env: EId) {
+        fn in_view<'a>(ms: &'a [Markup], out: &mut Vec<(&'a str, &'a [Attr])>) {
+            for m in ms {
+                match &m.kind {
+                    MarkupKind::El { tag, attrs, children } => {
+                        out.push((tag.as_str(), attrs.as_slice()));
+                        in_view(children, out);
+                    }
+                    MarkupKind::Mif { t, f, .. } => {
+                        in_view(t, out);
+                        in_view(f, out);
+                    }
+                    MarkupKind::Mfor { body, .. } | MarkupKind::Mview { body, .. } | MarkupKind::Portal { body, .. } => in_view(body, out),
+                    MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => {
+                        in_view(fallback, out);
+                        in_view(body, out);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let comps: Vec<(&'a str, &'a str, &'a [Markup], usize)> = decls.iter().filter_map(|d| match d {
+            Decl::Component { name, props, view, line, .. } => Some((name.as_str(), props.as_str(), view.as_slice(), *line)),
+            _ => None,
+        }).collect();
+        loop {
+            let mut grew = false;
+            for &(name, props, view, line) in &comps {
+                let Some(r) = self.lookup(env, name).and_then(|s| self.syms[s].comp_region) else { continue };
+                let mut els = vec![];
+                in_view(view, &mut els);
+                for (tag, attrs) in els {
+                    if !is_upper_tag(tag) {
+                        continue;
+                    }
+                    let Some(cp) = self.lookup(env, tag).filter(|&t| self.syms[t].kind == SymKind::Comp).and_then(|t| self.syms[t].comp_region).and_then(|t| self.carried_props.get(&t).cloned()) else { continue };
+                    for a in attrs.iter().filter(|a| cp.contains(&a.name)) {
+                        let ExprKind::Member { o, p, .. } = &a.e.k else { continue };
+                        if !matches!(&o.k, ExprKind::Id(n) if n == props) {
+                            continue;
+                        }
+                        if self.carried_props.entry(r).or_default().insert(p.clone()) {
+                            self.forwarded_decl.push((r, p.clone(), name.to_string(), line));
+                            grew = true;
+                        }
+                    }
+                }
+            }
+            if !grew {
+                break;
+            }
+        }
+    }
     fn props_of(&self, env: EId) -> Option<SId> {
         let mut e = Some(env);
         while let Some(i) = e {
@@ -5606,7 +5737,7 @@ impl<'a> Checker<'a> {
         }
         // MO-11o: what a prop renders, the components its value carries
         let region = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region);
-        if let Some(cp) = region.and_then(|r| self.carried_props.get(&r)) {
+        if let Some(cp) = region.filter(|&r| self.regions[r].js).and_then(|r| self.carried_props.get(&r)) {
             let mut names = vec![];
             let mut seen = IndexSet::new();
             for a in attrs {
@@ -7117,6 +7248,10 @@ impl<'a> Checker<'a> {
             // MO-11p: an outlet places the children
             occ.push(Occ { comp, field: "children".into(), pre: vec![], via: Via::Reader(region) });
         }
+        for (comp, field, region) in &self.forwards {
+            // MO-11o: what the prop carries is rendered there
+            occ.push(Occ { comp: *comp, field: field.clone(), pre: vec![], via: Via::Reader(*region) });
+        }
         for (i, field, f) in &arg_f {
             for pr in &f.props {
                 let a = &self.apps[*i];
@@ -7201,15 +7336,15 @@ impl<'a> Checker<'a> {
         let mut out: Vec<Vec<Step>> = vec![];
         let mut r = Some(r0);
         while let Some(ri) = r {
-            let (catches, provides, kids, root) = {
+            let (catches, provides, kids, kids_field, root) = {
                 let reg = &self.regions[ri];
-                (reg.catches.clone(), reg.provides.clone(), reg.kids, reg.is_component_root || reg.parent.is_none())
+                (reg.catches.clone(), reg.provides.clone(), reg.kids, reg.kids_field.clone(), reg.is_component_root || reg.parent.is_none())
             };
             if catches.is_some() || !provides.is_empty() {
                 local.push(Step { f: catches, p: if provides.is_empty() { None } else { Some(Catch::Set(provides)) } });
             }
             if let Some((comp, site)) = kids {
-                for p in self.pf(comp, "children") {
+                for p in self.pf(comp, kids_field.as_deref().unwrap_or("children")) {
                     if p.term.is_none() {
                         for q in self.routes(site) {
                             let mut c = local.clone();
@@ -7437,7 +7572,8 @@ impl<'a> Checker<'a> {
                     dp = meet(dp, &along(&e.chain, false));
                 }
             }
-            props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false });
+            let renders = self.carried_props.get(&g).is_some_and(|c| c.contains(&f));
+            props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, renders });
         }
         let e = self.esc(Some(g));
         let file = self.opts.file.clone().unwrap_or_else(|| "main.rx".into()).split('/').last().unwrap_or("").to_string();

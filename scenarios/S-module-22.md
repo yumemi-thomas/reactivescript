@@ -223,15 +223,89 @@ export default component App() {
 reached through `?:`, a call and a closure, and its components are checked
 there all the same.
 
-A value that comes from where the checker cannot look — a prop, a
-parameter, a source, a provision — may carry components nothing names
-here, so they would render unchecked: a `renders` prop refuses it.
+A value that comes from where the checker cannot look — a parameter, a
+source, a provision — may carry components nothing names here, so they
+would render unchecked: a `renders` prop refuses it.
+
+A prop is the exception, when the component gives it on as it is
+(2026-11-22): `Shell` renders what its `router` prop carries, so the prop
+is itself one that renders, in `Shell`'s summary and its signature
+(`router: renders provides(./tsr.d.rx#router)`), and the components are
+named, and checked, where `Shell` is applied — under `Shell`'s own
+boundaries around the provider, then the application's. A router wrapped
+in the app's own frame, in this module or another, is the ordinary case.
+
+```rx
+-- accept
+import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, useParams } from "./tsr.js"
+component Root() { <main><Outlet /></main> }
+component Person() {
+  params = useParams({ from: "/people/$id" })
+  <h1>{params.id}</h1>
+}
+rootRoute = createRootRoute({ component: Root })
+personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
+router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+component Shell(props: { router: any; title: string }) {
+  <header>{props.title}</header>
+  <RouterProvider router={props.router} />
+}
+export default component App() {
+  <Shell router={router} title="People" />
+}
+```
+
+The components are checked there as they are under the provider itself: a
+page that can fail needs its boundary above where `Shell` renders it.
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import pure { fetchPerson } from "./people.js"
+import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, useParams } from "./tsr.js"
+component Root() { <main><Outlet /></main> }
+component Person() {
+  params = useParams({ from: "/people/$id" })
+  person = await fetchPerson(params.id)
+  <h1>{person.name}</h1>
+}
+rootRoute = createRootRoute({ component: Root })
+personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
+router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+component Shell(props: { router: any }) {
+  <RouterProvider router={props.router} />
+}
+export default component App() {
+  <Shell router={router} />
+}
+```
+
+And what `Shell` is given must be a value whose components can be named
+where it is applied: a source cannot.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createRootRoute, createRouter, RouterProvider, Outlet } from "./tsr.js"
+component Root() { <main><Outlet /></main> }
+rootRoute = createRootRoute({ component: Root })
+source current: any := createRouter({ routeTree: rootRoute })
+component Shell(props: { router: any }) {
+  <RouterProvider router={props.router} />
+}
+export default component App() {
+  <Shell router={current} />
+}
+```
+
+A prop that reaches the provider any other way than as it is read
+(`props.router`) — through a local name, a record — is still one the
+checker cannot name:
 
 ```rx
 -- reject: RENDERS_ESCAPES
 import { RouterProvider } from "./tsr.js"
 component Shell(props: { router: any }) {
-  <RouterProvider router={props.router} />
+  r = props.router
+  <RouterProvider router={r} />
 }
 export default component App() {
   <Shell router={null} />

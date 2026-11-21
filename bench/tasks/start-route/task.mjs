@@ -2,14 +2,13 @@
 // param and a search param (11 CP-4d, 10 SV-3/SV-4).
 import { execFileSync, spawn } from "node:child_process";
 import path from "node:path";
-import { ws } from "../../harness.mjs";
 
 export default {
   title: "TanStack Start: an .rx page served and hydrated at /people/2?tab=role",
   entry: "src/pages.rx",
   host: true,   // the TSX routes import it with ?rx-lib: its exported components are applied by JS
   // the build first: Start's plugin writes the route tree the routes are typed by
-  prepare(dir) { execFileSync(process.execPath, [path.join(ws, "node_modules/vite/bin/vite.js"), "build"], { cwd: dir, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, RX_TYPECHECK: "0" } }); },
+  prepare(dir) { execFileSync(process.execPath, [path.join(dir, "node_modules/vite/bin/vite.js"), "build"], { cwd: dir, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, RX_TYPECHECK: "0" } }); },
   types: [
     { name: "a route passing the .rx page a number is refused on its line (pages.rx types the import)", file: "src/routes/people.$id.tsx", edit: ["<PersonCard id={params().id}", "<PersonCard id={Number(params().id)}"], expect: /people\.\$id\.tsx\(\d+,\d+\): error TS2322/ },
     { name: "the page's `tab` is the route's validated search", file: "src/routes/people.$id.tsx", edit: ['tab={search().tab ?? "name"}', 'tab="bio"'], expect: /TS2322/ },

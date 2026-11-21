@@ -32,7 +32,8 @@ type Region = {
   appSites: Region[];                  // component roots: the regions it is applied in
   provides: Set<string>;
   catches?: Catch;                     // an `errored` body: what its boundary discharges (R-f-4)
-  kids?: { comp: Region; site: Region };   // children passed to a component: read where it reads props.children (R-f-5)
+  kids?: { comp: Region; site: Region; field?: string };   // children passed to a component: read where it reads props.children (R-f-5); `field`: what a prop carries, rendered where the component renders that prop (MO-11o)
+  js?: boolean;                        // a declared JS component's root (MO-11a)
   sig?: CompSig;                       // an imported component's root: its signature stands in for its body (MO-3)
   key?: string;                        // E-5a: a component root's identity across modules (`file#name`), for what its props are given
 };
@@ -51,7 +52,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; callback?: boolean; pure?: boolean }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; callback?: boolean; pure?: boolean; renders?: boolean }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -512,6 +513,8 @@ class Checker {
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     this.block(p.decls, p.view, root, { scope: "reactive" });
     this.rendersSinks();                                                                   // MO-11l: every call's arguments are known now
+    // MO-11o: a prop taken (by syntax) for one its component gives on to a prop that renders it, which the walk did not find
+    for (const f of this.forwardedDecl.values()) if (!this.forwards.some(o => o.comp === f.comp && o.field === f.field)) { this.line = f.line; this.err("RENDERS_ESCAPES", "MO-11o", `component ${f.name} was read as rendering what its prop ${f.field} carries (\`props.${f.field}\` given to a prop that renders it), but where it does is not one the checker can see: give it on as \`props.${f.field}\`, at the top of the component's own view`); }
     // MO-11o: a component a value carries is checked where a prop renders it; one nothing renders is not checked anywhere
     for (const c of this.carriedPending) if (!this.carriedRendered.has(c.e)) { this.line = c.line; this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${c.name} is carried by ${c.by}(…), but nothing renders it: pass what carries it to a JS component's prop declared \`renders\` (MO-11o)`); }
     this.later.push(() => this.contentCheck(p.view, root, []));
@@ -759,6 +762,7 @@ class Checker {
       if (d.k === "eq" && d.e.k === "fn") this.fnOwner.set(d.e, sym);                      // MO-10k
     }
     this.serverIo(decls, env);
+    this.forwardedProps(decls, env);
     // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)
     for (const d of decls) {
       if (d.k !== "fn" && d.k !== "action") continue;
@@ -816,7 +820,7 @@ class Checker {
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
-        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; break; }   // E-5a
+        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; { const cp = Object.entries(x.sig.props).filter(([, v]) => v.renders).map(([k]) => k); if (cp.length) this.carriedProps.set(r, new Set(cp)); } break; }   // E-5a; MO-11o: the props it renders what they carry
         case "context": sym = { kind: "context", name: alias, region: env.region, line: d.line, ctx: { key: x.key, source: x.source, dflt: x.dflt, contract: { rows: new Set(x.rows), fails: new Set(x.fails) } } }; break;
       }
       if (sym.kind === "source" || sym.kind === "eq" || sym.kind === "fn") sym.exportKey = `${d.resolved}#${name}`;   // E-5a
@@ -851,7 +855,7 @@ class Checker {
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders
         const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
         for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true } : {}), ...(p.callback ? { callback: true } : {}), ...(p.pure ? { pure: true } : {}) };
-        const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig;
+        const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig; r.js = true;
         const cp = x.props.filter(p => p.carried).map(p => p.name); if (cp.length) this.carriedProps.set(r, new Set(cp));   // MO-11o
         this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(x.outlet ? { outlet: true } : {}) });
     };
@@ -2077,8 +2081,17 @@ class Checker {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? unknownJsComponent(m.tag, s.undeclared) : `<${m.tag}> is not a component declared here`); }
             for (const a of m.attrs) this.sink(a.e, env, `passed to <${m.tag}> as ${a.name}`);
-            { const cp = s?.compRegion ? this.carriedProps.get(s.compRegion) : undefined;   // MO-11o (revised 2026-11-21): a value another .rx module made carries what that module checked; its signature does not say
-              if (cp) for (const a of m.attrs) if (cp.has(a.name)) { const opaque: [string, string][] = []; this.carriedNames(a.e, env, new Set(), [], opaque); if (opaque.length) { const [n, why] = opaque[0]; this.err("RENDERS_ESCAPES", "MO-11o", `<${m.tag}> renders what its ${a.name} carries, and ${n} is ${why}: the components it carries cannot be named here, so they would render unchecked — give ${a.name} a value this module builds from its own \`renders(later)\` calls, and render it in the module that builds it`); } } }
+            // MO-11o (revised 2026-11-21): a value another .rx module made carries what that module checked; its signature
+            // does not say. A prop of this component, given on to a prop that renders what it carries, is one this
+            // component renders in turn (2026-11-22): its components are named and checked where this component is applied
+            const cp = s?.compRegion ? this.carriedProps.get(s.compRegion) : undefined;
+            const forwards: { attr: string; comp: Region; field: string }[] = [];
+            if (cp) for (const a of m.attrs) if (cp.has(a.name)) {
+              const pf = this.propField(a.e, env);
+              if (pf && this.carriedProps.get(pf.comp)?.has(pf.field)) { forwards.push({ attr: a.name, ...pf }); continue; }
+              const opaque: [string, string][] = []; this.carriedNames(a.e, env, new Set(), [], opaque);
+              if (opaque.length) { const [n, why] = opaque[0]; this.err("RENDERS_ESCAPES", "MO-11o", `<${m.tag}> renders what its ${a.name} carries, and ${n} is ${why}: the components it carries cannot be named here, so they would render unchecked — give ${a.name} a value this module builds from its own \`renders(later)\` calls, or a prop of this component read as it is (\`props.x\`), which is then one this component renders`); }
+            }
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
             const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; return !!d?.callback || (n !== "ref" && !d?.pure && isHandler(n)); };   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element only (07 §4): on a component, a handler only when declared one
@@ -2099,6 +2112,14 @@ class Checker {
                 for (const x of real) if (x.k === "mview") this.viewFns.add(x);
               }
               this.markup([...m.children, ...values.values()], new Env(env, kids));
+              // MO-11o: where what a prop carries is rendered — for a JS component, among its children; for an .rx one,
+              // where it renders that prop itself
+              const carriedAt = (field: string) => { if (s.compRegion!.js) return kids; const r = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag }); r.kids = { comp: s.compRegion!, site: env.region, field }; return r; };
+              for (const f of forwards) { this.forwards.push({ comp: f.comp, field: f.field, region: carriedAt(f.attr) }); }
+              if (cp && !s.compRegion!.js) for (const a of m.attrs) if (cp.has(a.name) && !forwards.some(f => f.attr === a.name)) {
+                const names: string[] = []; const seen = new Set<Sym>(); this.carriedNames(a.e, env, seen, names);
+                const tree = this.carriedTree(seen, names, m.line); if (tree.length) this.markup(tree, new Env(env, carriedAt(a.name)));
+              }
               if (s.outlet) { const p = this.propsOf(env); if (p) this.outlets.push({ region: env.region, comp: p.region }); }   // MO-11p: what nests under this component renders here, as if it read props.children
               if (s.factory && !this.expanding.markup.has(s)) { this.expanding.markup.add(s); this.markup(this.factoryTree(s, m.line), new Env(s.factory.env, kids)); this.expanding.markup.delete(s); }   // MO-11f: named where the factory was called
             } else this.markup(m.children, env);
@@ -2165,7 +2186,7 @@ class Checker {
     const sig = env.lookup(m.tag)?.compRegion?.sig;
     for (const a of m.attrs) if (sig?.props[a.name]?.component && a.e.k === "id" && /^[A-Z]/.test(a.e.name) && env.lookup(a.e.name)?.kind === "comp") { out.set(a, this.applied([a.e.name], m.line)[0]); const k = env.lookup(a.e.name)!.compRegion?.key; if (k) this.escapes.add(k); }   // E-5a: a JS component applies it
     const cp = env.lookup(m.tag)?.compRegion ? this.carriedProps.get(env.lookup(m.tag)!.compRegion!) : undefined;   // MO-11o: what a prop renders
-    if (cp) { const names: string[] = []; const seen = new Set<Sym>(); for (const a of m.attrs) if (cp.has(a.name)) this.carriedNames(a.e, env, seen, names); for (const el of this.carriedTree(seen, names, m.line)) out.set({ carried: el }, el); }
+    if (cp && env.lookup(m.tag)!.compRegion!.js) { const names: string[] = []; const seen = new Set<Sym>(); for (const a of m.attrs) if (cp.has(a.name)) this.carriedNames(a.e, env, seen, names); for (const el of this.carriedTree(seen, names, m.line)) out.set({ carried: el }, el); }
     return out;
   }
   /** MO-11o, MO-11p: the carried components as applied: each value carried `under(parent in inside)` is its `inside`
@@ -2195,8 +2216,49 @@ class Checker {
     for (const n of [...new Set(names)]) if (!placed.has(n)) top.push(...this.applied([n], line));
     return top;
   }
-  /** MO-11o: the JS components' props that render what their value carries, by component. */
+  /** MO-11o: the props that render what their value carries, by component: a JS component's props declared `renders`,
+   *  and an .rx component's props it gives on to such a prop (`forwardedProps`; an imported one's, from its signature). */
   private carriedProps = new Map<Region, Set<string>>();
+  /** MO-11o (2026-11-22): each place a component gives a prop of its own on to a prop that renders what it carries: the
+   *  component and its prop, and the region what the prop carries is rendered in. */
+  private forwards: { comp: Region; field: string; region: Region }[] = [];
+  /** A prop of the component being walked, read as it is: `props.router`. */
+  private propField(e: Expr, env: Env): { comp: Region; field: string } | undefined {
+    if (e.k !== "member" || e.o.k !== "id") return undefined;
+    const p = env.lookup(e.o.name); return p?.kind === "props" && p.region.isComponentRoot ? { comp: p.region, field: e.p } : undefined;
+  }
+  /** MO-11o (2026-11-22): the props each component of a block gives on, as they are (`props.x`), to a prop that renders
+   *  what it carries — a JS component's `renders` prop, or such a prop of another component — to a fixpoint. Found before
+   *  any view is walked, so an application written above the component's declaration sees it. A summary by syntax: the
+   *  walk records each (`forwards`), and one the walk does not confirm is refused (`run`). */
+  private forwardedProps(decls: Decl[], env: Env) {
+    const comps = decls.flatMap(d => d.k === "component" ? [d] : []);
+    const inView = (ms: Markup[], f: (m: Extract<Markup, { k: "el" }>) => void) => {
+      for (const m of ms) switch (m.k) {
+        case "el": f(m); inView(m.children, f); break;
+        case "mif": inView(m.t, f); inView(m.f, f); break;
+        case "mfor": case "mview": case "portal": inView(m.body, f); break;
+        case "loading": case "errored": inView(m.fallback, f); inView(m.body, f); break;
+        default: break;
+      }
+    };
+    for (;;) {
+      let grew = false;
+      for (const d of comps) {
+        const R = env.lookup(d.name)?.compRegion; if (!R) continue;
+        inView(d.view, m => {
+          if (!/^[A-Z]/.test(m.tag)) return;
+          const t = env.lookup(m.tag); const cp = t?.kind === "comp" && t.compRegion ? this.carriedProps.get(t.compRegion) : undefined; if (!cp) return;
+          for (const a of m.attrs) if (cp.has(a.name) && a.e.k === "member" && a.e.o.k === "id" && a.e.o.name === d.props) {
+            let fs = this.carriedProps.get(R); if (!fs) { fs = new Set(); this.carriedProps.set(R, fs); }
+            if (!fs.has(a.e.p)) { fs.add(a.e.p); this.forwardedDecl.set(`${R.id}:${a.e.p}`, { comp: R, field: a.e.p, name: d.name, line: d.line }); grew = true; }
+          }
+        });
+      }
+      if (!grew) break;
+    }
+  }
+  private forwardedDecl = new Map<string, { comp: Region; field: string; name: string; line: number }>();
   /** MO-11o: the component values carrying calls were given, and those a `renders` prop reached. */
   private carriedPending: { e: Expr; name: string; line: number; by: string }[] = [];
   private carriedRendered = new Set<Expr>();
@@ -2530,7 +2592,7 @@ class Checker {
       const local: Step[] = []; let out: Step[][] = [];
       for (let r: Region | null = R; r; r = r.parent) {
         if (r.catches || r.provides.size) local.push({ f: r.catches, p: r.provides.size ? r.provides : undefined });
-        if (r.kids) { for (const p of PF(r.kids.comp, "children")) if (p.term === null) for (const q of routes(r.kids.site)) out.push([...local, ...p.chain, ...q]); break; }
+        if (r.kids) { for (const p of PF(r.kids.comp, r.kids.field ?? "children")) if (p.term === null) for (const q of routes(r.kids.site)) out.push([...local, ...p.chain, ...q]); break; }
         if (r.isComponentRoot || !r.parent) { out = [local]; break; }
       }
       out = dedupe(out); rBusy.delete(R); rMemo.set(R, out); return out;
@@ -2539,6 +2601,7 @@ class Checker {
     const occ: { comp: Region; field: string; pre: Step[]; via: () => PFEntry[] }[] = [];
     for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => routes(r.region).map(q => ({ chain: q, term: null })) });
     for (const o of this.outlets) occ.push({ comp: o.comp, field: "children", pre: [], via: () => routes(o.region).map(q => ({ chain: q, term: null })) });   // MO-11p: an outlet places the children
+    for (const o of this.forwards) occ.push({ comp: o.comp, field: o.field, pre: [], via: () => routes(o.region).map(q => ({ chain: q, term: null })) });   // MO-11o: what the prop carries is rendered there
     for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => PF(a.app.comp, a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
     for (const a of actF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => [{ chain: [], term: { line: a.line, name: a.name } }] });
     const pfMemo = new Map<string, PFEntry[]>(); const pfBusy = new Set<string>();
@@ -2590,7 +2653,7 @@ class Checker {
       for (const f of fields) {
         const es = PF(G, f); let df: Catch = "all", dp: Catch = "all", da: Catch | null = null; let an = ""; let rendered = false;
         for (const e of es) { if (e.term) { da = da === null ? along(e.chain, "f") : meet(da, along(e.chain, "f")); an = e.term.name; } else { rendered = true; df = meet(df, along(e.chain, "f")); dp = meet(dp, along(e.chain, "p")); } }
-        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}) };
+        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...(this.carriedProps.get(G)?.has(f) ? { renders: true } : {}) };
       }
       const e = esc(G);
       const file = (this.opts.file ?? "main.rx").split("/").pop();
