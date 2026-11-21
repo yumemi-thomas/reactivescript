@@ -123,15 +123,18 @@ directly by `(`, they are TypeScript's alone too, for a generic whose
 argument leaves nothing to infer (`[]` would be `never[]`). The list may
 span lines (revised 2026-11-21), so a formatter that breaks a long type
 does not change what the call is; `a < b`, with a space, stays a
-comparison. What the brackets hold must be able to be a type, as
-TypeScript decides it (revised 2026-11-21, after review): with `&&`, `||`,
-`==`, `!=`, `<=`, `>=`, `*`, `/`, `%`, `!`, `^` or `~` outside a string
-literal, it is not, and `a<b && c>(d)` is two comparisons; nor, outside
-any bracket, with a `+`, a `-` that is not a negative number's, an `=`
-that is not an arrow's, a `?` that no `extends` precedes (a conditional
-type's), or a call (`f(x)`: a parenthesized type follows a keyword or an
-operator, never a name), so `a<b + c>(d)` and `a<b ? c : d>(d)` are
-comparisons too (S-surface-7).
+comparison. What the brackets hold must be TypeScript type arguments from
+end to end (revised 2026-11-21, after a second review): a comma-separated
+list that TypeScript's type grammar consumes completely — references with
+their own arguments, unions and intersections, indexed access, arrays and
+tuples, object types (members ending at `,`, `;` or a line break), function
+and constructor types, conditional types, `keyof`, `typeof`, `infer`,
+literal types and templates. Anything else is comparisons, as TypeScript
+falls back to them: `a<b && c>(d)`, `a<b + c>(d)`, `a<b ? c : d>(d)` and
+`a<b[c+1]>(d)` (an index holding an addition is not an indexed access
+type) are all `a < …` compared with `(d)` (S-surface-7). The decision no
+longer rests on a list of operators a type never has, which could miss an
+expression inside brackets.
 
 Added:
 

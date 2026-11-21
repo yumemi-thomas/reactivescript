@@ -761,36 +761,167 @@ function parseUnary(c: Cursor): Expr {
 /** 07 §3: type arguments at a call, `f<T>(…)`: a balanced `<…>` written right after the callee (no space) and followed
  *  directly by `(`; else null (`a < b` stays a comparison). The list may span lines, so a formatter that breaks a long
  *  type does not turn the call into comparisons. */
-/** 07 §3: whether `text`, between a call's `<` and `>`, can be TypeScript type arguments, as TypeScript decides when it
- *  tries them and falls back to comparisons: no operator a type never has (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `*`, `/`,
- *  `%`, `!`, `^`, `~`) outside a string literal; and, outside any bracket, no `+`, no `-` but a negative number's, no
- *  `=` but an arrow's, no `?` but a conditional type's (after `extends`), and no call (`f(x)`: a parenthesized type
- *  follows a keyword or an operator, never a name). `a<b && c>(d)` and `a<b + c>(d)` are comparisons. */
-const TYPE_WORDS = new Set(["keyof", "typeof", "readonly", "infer", "extends", "unique", "new", "asserts", "is", "in", "abstract", "import"]);
-function looksLikeTypes(text: string): boolean {
-  let depth = 0, conditional = false;
-  for (let j = 0; j < text.length; j++) {
-    const ch = text[j];
-    if (ch === '"' || ch === "'" || ch === "`") { for (j++; j < text.length && text[j] !== ch; j++) if (text[j] === "\\") j++; continue; }
-    const two = text.slice(j, j + 2);
-    if (["&&", "||", "==", "!=", "<=", ">="].includes(two)) return false;
-    if ("*/%!^~".includes(ch)) return false;
-    if (depth === 0) {
-      const before = text.slice(0, j).trimEnd(), after = text.slice(j + 1).trimStart();
-      if (ch === "+") return false;
-      if (ch === "-" && !(/^\d/.test(after) && !/[\w$)\]]$/.test(before))) return false;
-      if (ch === "=" && text[j + 1] !== ">") return false;
-      if (ch === "?" && !conditional) return false;
-      if (/[A-Za-z_$]/.test(ch) && !/[\w$]/.test(text[j - 1] ?? "")) {
-        const word = /^[\w$]+/.exec(text.slice(j))![0];
-        if (word === "extends") conditional = true;
-        if (text.slice(j + word.length).trimStart()[0] === "(" && !TYPE_WORDS.has(word)) return false;
-        j += word.length - 1; continue;
+/** 07 §3: whether `text`, between a call's `<` and `>`, is TypeScript type arguments: a comma-separated list of types
+ *  that a type grammar consumes completely, as TypeScript decides when it tries them and falls back to comparisons.
+ *  `a<b && c>(d)`, `a<b + c>(d)` and `a<b[c+1]>(d)` are comparisons; `f<{ a: string }[]>(x)`, `f<A | B>(x)`,
+ *  `f<(x: T) => U>(x)`, `f<K extends keyof T ? T[K] : never>(x)` are calls. (The crate's `looks_like_types`, token for token.) */
+type TyTok = { w: string } | { lit: true } | { p: string };
+const TY_PUNCT = ["...", "=>", "-?", "+?", "<", ">", "(", ")", "[", "]", "{", "}", ",", ";", ":", "?", "|", "&", ".", "=", "-", "+"];
+const TY_RESERVED = new Set(["extends", "keyof", "typeof", "infer", "readonly", "unique", "new", "abstract", "import", "is", "asserts", "in", "as", "this"]);
+function tyTokens(s: string): { t: TyTok[]; nl: boolean[] } | null {   // the tokens, and whether a line break comes before each (a member of an object type may end at one)
+  const out: TyTok[] = [], nl: boolean[] = []; let j = 0, brk = false;
+  const wordCh = (c: string) => /[\w$]/.test(c) || c.charCodeAt(0) >= 0x80;
+  while (j < s.length) {
+    const ch = s[j];
+    if (/\s/.test(ch)) { brk ||= ch === "\n"; j++; continue; }
+    nl.push(brk); brk = false;
+    if (ch === '"' || ch === "'" || ch === "`") {
+      j++; let depth = 0;
+      while (j < s.length && !(s[j] === ch && depth === 0)) {
+        if (s[j] === "\\") j++;
+        else if (ch === "`" && s[j] === "$" && s[j + 1] === "{") { depth++; j++; }
+        else if (ch === "`" && depth > 0 && s[j] === "}") depth--;
+        j++;
       }
+      if (j >= s.length) return null;
+      j++; out.push({ lit: true }); continue;
     }
-    if ("([{".includes(ch)) depth++; else if (")]}".includes(ch)) depth--;
+    if (/[0-9]/.test(ch)) { while (j < s.length && /[A-Za-z0-9._]/.test(s[j])) j++; out.push({ lit: true }); continue; }
+    if (wordCh(ch)) { const k = j; while (j < s.length && wordCh(s[j])) j++; out.push({ w: s.slice(k, j) }); continue; }
+    const p = TY_PUNCT.find(p => s.startsWith(p, j)); if (!p) return null;   // `+`, `-?`, `+?` only as a mapped type's modifiers; elsewhere the grammar refuses them
+    out.push({ p }); j += p.length;
   }
-  return true;
+  return { t: out, nl };
+}
+export function looksLikeTypes(text: string): boolean {
+  const tk = tyTokens(text); if (!tk) return false; const { t, nl } = tk;
+  let i = 0;
+  const isP = (k: number, p: string) => { const x = t[k]; return !!x && "p" in x && x.p === p; };
+  const isW = (k: number, w?: string) => { const x = t[k]; return !!x && "w" in x && (w === undefined || x.w === w); };
+  const isLit = (k: number) => { const x = t[k]; return !!x && "lit" in x; };
+  const at = (p: string) => isP(i, p), atWord = (w: string) => isW(i, w);
+  const eat = (p: string) => at(p) ? (i++, true) : false;
+  const eatWord = (w: string) => atWord(w) ? (i++, true) : false;
+  const name = () => isW(i) ? (i++, true) : false;
+  const OPEN = ["(", "[", "{"], CLOSE = [")", "]", "}"];
+  const list = (): boolean => { for (;;) { if (!ty()) return false; if (!eat(",")) return true; if (i === t.length) return true; } };
+  const ty = (): boolean => {
+    if (fnType()) return true;
+    if (!union()) return false;
+    if (eatWord("extends")) { if (!union()) return false; return eat("?") && ty() && eat(":") && ty(); }   // a conditional type
+    return true;
+  };
+  const fnType = (): boolean => {   // `(…) => T`, `<T>(…) => T`, `new (…) => T`; a parenthesized type is not one
+    const start = i; eatWord("abstract"); const ctor = eatWord("new");
+    if (at("<")) { i++; if (!typeParams()) { i = start; return false; } }
+    if (!at("(")) { i = start; return false; }
+    let depth = 0, k = i;
+    for (; k < t.length; k++) { const x = t[k]; if ("p" in x && OPEN.includes(x.p)) depth++; else if ("p" in x && CLOSE.includes(x.p)) { if (--depth === 0) break; } }
+    if (!isP(k + 1, "=>")) { if (ctor) return false; i = start; return false; }
+    i++; if (!params(")")) return false; if (!eat("=>")) return false; return ret();
+  };
+  const ret = (): boolean => {   // a type, or a predicate `x is T` / `asserts x [is T]`
+    const save = i;
+    if (eatWord("asserts") && name()) { if (eatWord("is")) return ty(); return true; }
+    i = save; if (name() && eatWord("is")) return ty();
+    i = save; return ty();
+  };
+  const typeParams = (): boolean => {
+    for (;;) {
+      eatWord("const"); eatWord("in"); eatWord("out");
+      if (!name()) return false;
+      if (eatWord("extends") && !ty()) return false;
+      if (eat("=") && !ty()) return false;
+      if (eat(">")) return true; if (!eat(",")) return false; if (eat(">")) return true;
+    }
+  };
+  const params = (close: string): boolean => {
+    for (;;) {
+      if (eat(close)) return true;
+      eat("...");
+      if (at("{") || at("[")) { if (!skipBalanced()) return false; } else if (!name()) return false;
+      eat("?");
+      if (eat(":") && !ty()) return false;
+      if (eat("=")) return false;   // no initializer in a type
+      if (eat(close)) return true; if (!eat(",")) return false;
+    }
+  };
+  const skipBalanced = (): boolean => {
+    let depth = 0;
+    for (; i < t.length; i++) { const x = t[i]; if ("p" in x && OPEN.includes(x.p)) depth++; else if ("p" in x && CLOSE.includes(x.p)) { if (--depth === 0) { i++; return true; } } }
+    return false;
+  };
+  const union = (): boolean => { eat("|"); for (;;) { if (!intersection()) return false; if (!eat("|")) return true; } };
+  const intersection = (): boolean => { eat("&"); for (;;) { if (!operator()) return false; if (!eat("&")) return true; } };
+  const operator = (): boolean => {
+    if (eatWord("keyof") || eatWord("unique") || eatWord("readonly")) return operator();
+    if (eatWord("infer")) {
+      if (!name()) return false;
+      const save = i; if (eatWord("extends")) { if (!(operator() && !at("?"))) i = save; }   // `infer U extends T`, unless it begins a conditional type's `extends`
+      return true;
+    }
+    return postfix();
+  };
+  const postfix = (): boolean => {
+    if (!primary()) return false;
+    while (at("[")) { i++; if (eat("]")) continue; if (!(ty() && eat("]"))) return false; }
+    return true;
+  };
+  const args = (): boolean => {   // after a name: `<T, U>`
+    if (!eat("<")) return true;
+    for (;;) { if (!ty()) return false; if (eat(">")) return true; if (!eat(",")) return false; }
+  };
+  const dotted = (): boolean => { while (eat(".")) if (!name()) return false; return true; };
+  const primary = (): boolean => {
+    const x = t[i]; if (!x) return false;
+    if ("lit" in x) { i++; return true; }
+    if ("p" in x) {
+      if (x.p === "-") { i++; if (isLit(i)) { i++; return true; } return false; }
+      if (x.p === "(") { i++; return ty() && eat(")"); }
+      if (x.p === "[") { i++; return tuple(); }
+      if (x.p === "{") { i++; return object(); }
+      return false;
+    }
+    if (x.w === "typeof") { i++; if (!eatWord("import") && !name()) return false; return dotted() && args(); }
+    if (x.w === "import") { i++; if (!(eat("(") && isLit(i))) return false; i++; if (!eat(")")) return false; return dotted() && args(); }
+    if (!TY_RESERVED.has(x.w) || x.w === "this") { i++; return dotted() && args(); }
+    return false;
+  };
+  const tuple = (): boolean => {
+    for (;;) {
+      if (eat("]")) return true;
+      eat("...");
+      const save = i; if (name()) { eat("?"); if (!eat(":")) i = save; }   // a labelled element, `name?: T`
+      if (!ty()) return false;
+      eat("?");
+      if (eat("]")) return true; if (!eat(",")) return false;
+    }
+  };
+  const propName = (): boolean => (isW(i) || isLit(i)) ? (i++, true) : false;
+  const object = (): boolean => {
+    for (;;) { if (eat("}")) return true; if (!member()) return false; if (eat("}")) return true; if (!(eat(",") || eat(";") || nl[i])) return false; }
+  };
+  const member = (): boolean => {
+    const save = i;   // a call or construct signature: `(…): T`, `<T>(…): T`, `new (…): T`
+    if (atWord("new") && (isP(i + 1, "(") || isP(i + 1, "<"))) i++;
+    if (at("(") || at("<")) { if (eat("<") && !typeParams()) return false; return eat("(") && params(")") && (!eat(":") || ret()); }
+    i = save;
+    if ((at("-") || at("+")) && isW(i + 1, "readonly")) i++;   // modifiers: `readonly`, `+readonly`, `-readonly`, `get`/`set` accessors
+    if (atWord("readonly") && !(isP(i + 1, ":") || isP(i + 1, "?") || isP(i + 1, "(") || isP(i + 1, ",") || isP(i + 1, ";") || isP(i + 1, "}"))) i++;
+    if ((atWord("get") || atWord("set")) && (isW(i + 1) || isLit(i + 1) || isP(i + 1, "["))) i++;
+    if (eat("[")) {   // an index signature `[k: string]: T`, a mapped type `[K in T as U]-?: V`, or a computed name `[Symbol.iterator]`
+      const s2 = i;
+      if (name() && eat(":")) { if (!(ty() && eat("]"))) return false; }
+      else { i = s2;
+        if (name() && eatWord("in")) { if (!ty()) return false; if (eatWord("as") && !ty()) return false; if (!eat("]")) return false; }
+        else { i = s2; if (!name()) return false; if (!dotted()) return false; if (!eat("]")) return false; } }
+    } else if (!propName()) return false;
+    void (eat("?") || eat("-?") || eat("+?"));
+    if (at("(") || at("<")) { if (eat("<") && !typeParams()) return false; return eat("(") && params(")") && (!eat(":") || ret()); }   // a method
+    if (eat(":")) return ty();
+    return false;   // a member with no type is `any` in a declaration but not in an object type literal
+  };
+  return list() && i === t.length;
 }
 function typeArgsAt(s: string, i: number): { text: string; end: number } | null {
   if (s[i] !== "<") return null; let depth = 0;

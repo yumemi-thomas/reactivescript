@@ -670,73 +670,558 @@ fn strip_draft(t: &str) -> String {
     DRAFT_WORD.replace_all(t, "$1").to_string()
 }
 /// 07 §3: a balanced `<…>` at the start of `s` followed by `(`: its text and the byte length up to the `(`.
-/// 07 §3: whether `text`, between a call's `<` and `>`, can be TypeScript type arguments, as TypeScript decides when it
-/// tries them and falls back to comparisons: no operator a type never has (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `*`, `/`,
-/// `%`, `!`, `^`, `~`) outside a string literal; and, outside any bracket, no `+`, no `-` but a negative number's, no
-/// `=` but an arrow's, no `?` but a conditional type's (after `extends`), and no call (`f(x)`: a parenthesized type
-/// follows a keyword or an operator, never a name). `a<b && c>(d)` and `a<b + c>(d)` are comparisons.
+/// 07 §3: whether `text`, between a call's `<` and `>`, is TypeScript type arguments: a comma-separated list of types
+/// that a type grammar consumes completely, as TypeScript decides when it tries them and falls back to comparisons.
+/// `a<b && c>(d)`, `a<b + c>(d)` and `a<b[c+1]>(d)` are comparisons; `f<{ a: string }[]>(x)`, `f<A | B>(x)`,
+/// `f<(x: T) => U>(x)`, `f<K extends keyof T ? T[K] : never>(x)` are calls.
 fn looks_like_types(text: &str) -> bool {
-    const TYPE_WORDS: [&str; 12] = ["keyof", "typeof", "readonly", "infer", "extends", "unique", "new", "asserts", "is", "in", "abstract", "import"];
-    let b = text.as_bytes();
-    let word_ch = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$' || c >= 0x80;
-    let (mut depth, mut conditional) = (0i32, false);
+    let Some((toks, nl)) = ty_tokens(text) else { return false };
+    let mut p = TyP { t: &toks, nl: &nl, i: 0 };
+    if !p.list() {
+        return false;
+    }
+    p.i == toks.len()
+}
+#[derive(Debug, Clone, PartialEq)]
+enum TyTok {
+    Word(String),
+    Lit,
+    Punct(&'static str),
+}
+/// the tokens, and whether a line break comes before each (a member of an object type may end at one)
+fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
+    const PUNCT: [&str; 22] = ["...", "=>", "-?", "+?", "<", ">", "(", ")", "[", "]", "{", "}", ",", ";", ":", "?", "|", "&", ".", "=", "-", "+"];
+    let b = s.as_bytes();
+    let mut out = vec![];
+    let mut nl = vec![];
+    let mut brk = false;
     let mut j = 0;
+    let word_ch = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$' || c >= 0x80;
     while j < b.len() {
         let ch = b[j];
-        if ch == b'"' || ch == b'\'' || ch == b'`' {
-            j += 1;
-            while j < b.len() && b[j] != ch {
-                if b[j] == b'\\' {
-                    j += 1;
-                }
-                j += 1;
-            }
+        if ch.is_ascii_whitespace() {
+            brk |= ch == b'\n';
             j += 1;
             continue;
         }
-        let two = &b[j..(j + 2).min(b.len())];
-        if [&b"&&"[..], b"||", b"==", b"!=", b"<=", b">="].contains(&two) || b"*/%!^~".contains(&ch) {
+        nl.push(brk);
+        brk = false;
+        if ch == b'"' || ch == b'\'' || ch == b'`' {
+            j += 1;
+            let mut depth = 0;
+            while j < b.len() && !(b[j] == ch && depth == 0) {
+                if b[j] == b'\\' {
+                    j += 1;
+                } else if ch == b'`' && b[j] == b'$' && b.get(j + 1) == Some(&b'{') {
+                    depth += 1;
+                    j += 1;
+                } else if ch == b'`' && depth > 0 && b[j] == b'}' {
+                    depth -= 1;
+                }
+                j += 1;
+            }
+            if j >= b.len() {
+                return None;
+            }
+            j += 1;
+            out.push(TyTok::Lit);
+            continue;
+        }
+        if ch.is_ascii_digit() {
+            while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'.' || b[j] == b'_') {
+                j += 1;
+            }
+            out.push(TyTok::Lit);
+            continue;
+        }
+        if word_ch(ch) {
+            let k = j;
+            while j < b.len() && word_ch(b[j]) {
+                j += 1;
+            }
+            out.push(TyTok::Word(s[k..j].to_string()));
+            continue;
+        }
+        let rest = &s[j..];
+        let p = PUNCT.iter().find(|p| rest.starts_with(**p))?;
+        // `+`, `-?`, `+?` only as a mapped type's modifiers; elsewhere the grammar refuses them
+        out.push(TyTok::Punct(p));
+        j += p.len();
+    }
+    Some((out, nl))
+}
+struct TyP<'t> {
+    t: &'t [TyTok],
+    nl: &'t [bool],
+    i: usize,
+}
+const TY_RESERVED: [&str; 14] = ["extends", "keyof", "typeof", "infer", "readonly", "unique", "new", "abstract", "import", "is", "asserts", "in", "as", "this"];
+impl<'t> TyP<'t> {
+    fn peek(&self) -> Option<&TyTok> {
+        self.t.get(self.i)
+    }
+    fn at(&self, p: &str) -> bool {
+        matches!(self.peek(), Some(TyTok::Punct(q)) if *q == p)
+    }
+    fn at_word(&self, w: &str) -> bool {
+        matches!(self.peek(), Some(TyTok::Word(x)) if x == w)
+    }
+    fn eat(&mut self, p: &str) -> bool {
+        if self.at(p) {
+            self.i += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn eat_word(&mut self, w: &str) -> bool {
+        if self.at_word(w) {
+            self.i += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn name(&mut self) -> bool {
+        if let Some(TyTok::Word(_)) = self.peek() {
+            self.i += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn list(&mut self) -> bool {
+        loop {
+            if !self.ty() {
+                return false;
+            }
+            if !self.eat(",") {
+                return true;
+            }
+            if self.i == self.t.len() {
+                return true; // a trailing comma
+            }
+        }
+    }
+    fn ty(&mut self) -> bool {
+        if self.fn_type() {
+            return true;
+        }
+        if !self.union() {
             return false;
         }
-        if depth == 0 {
-            let before = b[..j].iter().rev().find(|c| !c.is_ascii_whitespace()).copied();
-            let after = b[j + 1..].iter().find(|c| !c.is_ascii_whitespace()).copied();
-            if ch == b'+' {
+        if self.eat_word("extends") {
+            // a conditional type: `A extends B ? C : D`
+            if !self.union() {
                 return false;
             }
-            if ch == b'-' && !(after.is_some_and(|c| c.is_ascii_digit()) && !before.is_some_and(|c| word_ch(c) || c == b')' || c == b']')) {
+            return self.eat("?") && self.ty() && self.eat(":") && self.ty();
+        }
+        true
+    }
+    /// `(…) => T`, `<T>(…) => T`, `new (…) => T`, `abstract new (…) => T`; a parenthesized type is not one
+    fn fn_type(&mut self) -> bool {
+        let start = self.i;
+        self.eat_word("abstract");
+        let ctor = self.eat_word("new");
+        if self.at("<") {
+            self.i += 1;
+            if !self.type_params() {
+                self.i = start;
                 return false;
             }
-            if ch == b'=' && b.get(j + 1) != Some(&b'>') {
-                return false;
-            }
-            if ch == b'?' && !conditional {
-                return false;
-            }
-            if (ch.is_ascii_alphabetic() || ch == b'_' || ch == b'$') && !(j > 0 && word_ch(b[j - 1])) {
-                let mut k = j;
-                while k < b.len() && word_ch(b[k]) {
-                    k += 1;
+        }
+        if !self.at("(") {
+            self.i = start;
+            return false;
+        }
+        // a parenthesized type unless the matching `)` is followed by `=>`
+        let mut depth = 0;
+        let mut k = self.i;
+        while k < self.t.len() {
+            match &self.t[k] {
+                TyTok::Punct("(") | TyTok::Punct("[") | TyTok::Punct("{") => depth += 1,
+                TyTok::Punct(")") | TyTok::Punct("]") | TyTok::Punct("}") => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
                 }
-                let word = &text[j..k];
-                if word == "extends" {
-                    conditional = true;
-                }
-                if b[k..].iter().find(|c| !c.is_ascii_whitespace()) == Some(&b'(') && !TYPE_WORDS.contains(&word) {
+                _ => {}
+            }
+            k += 1;
+        }
+        if !matches!(self.t.get(k + 1), Some(TyTok::Punct("=>"))) {
+            if ctor {
+                return false;
+            }
+            self.i = start;
+            return false;
+        }
+        self.i += 1;
+        if !self.params(")") {
+            return false;
+        }
+        if !self.eat("=>") {
+            return false;
+        }
+        self.ret()
+    }
+    /// a return type: a type, or a predicate `x is T` / `asserts x [is T]`
+    fn ret(&mut self) -> bool {
+        let save = self.i;
+        if self.eat_word("asserts") && (self.name()) {
+            if self.eat_word("is") {
+                return self.ty();
+            }
+            return true;
+        }
+        self.i = save;
+        if self.name() && self.eat_word("is") {
+            return self.ty();
+        }
+        self.i = save;
+        self.ty()
+    }
+    /// `T extends U = V, …>` after the `<`
+    fn type_params(&mut self) -> bool {
+        loop {
+            self.eat_word("const");
+            self.eat_word("in");
+            self.eat_word("out");
+            if !self.name() {
+                return false;
+            }
+            if self.eat_word("extends") && !self.ty() {
+                return false;
+            }
+            if self.eat("=") && !self.ty() {
+                return false;
+            }
+            if self.eat(">") {
+                return true;
+            }
+            if !self.eat(",") {
+                return false;
+            }
+            if self.eat(">") {
+                return true;
+            }
+        }
+    }
+    /// parameters up to `close`: `...name?: T`, a binding pattern, `this: T`
+    fn params(&mut self, close: &str) -> bool {
+        loop {
+            if self.eat(close) {
+                return true;
+            }
+            self.eat("...");
+            if self.at("{") || self.at("[") {
+                if !self.skip_balanced() {
                     return false;
                 }
-                j = k;
-                continue;
+            } else if !self.name() {
+                return false;
+            }
+            self.eat("?");
+            if self.eat(":") && !self.ty() {
+                return false;
+            }
+            if self.eat("=") {
+                return false; // no initializer in a type
+            }
+            if self.eat(close) {
+                return true;
+            }
+            if !self.eat(",") {
+                return false;
             }
         }
-        if b"([{".contains(&ch) {
-            depth += 1;
-        } else if b")]}".contains(&ch) {
-            depth -= 1;
-        }
-        j += 1;
     }
-    true
+    fn skip_balanced(&mut self) -> bool {
+        let mut depth = 0;
+        while let Some(t) = self.peek() {
+            match t {
+                TyTok::Punct("(") | TyTok::Punct("[") | TyTok::Punct("{") => depth += 1,
+                TyTok::Punct(")") | TyTok::Punct("]") | TyTok::Punct("}") => {
+                    depth -= 1;
+                    if depth == 0 {
+                        self.i += 1;
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+            self.i += 1;
+        }
+        false
+    }
+    fn union(&mut self) -> bool {
+        self.eat("|");
+        loop {
+            if !self.intersection() {
+                return false;
+            }
+            if !self.eat("|") {
+                return true;
+            }
+        }
+    }
+    fn intersection(&mut self) -> bool {
+        self.eat("&");
+        loop {
+            if !self.operator() {
+                return false;
+            }
+            if !self.eat("&") {
+                return true;
+            }
+        }
+    }
+    fn operator(&mut self) -> bool {
+        if self.eat_word("keyof") || self.eat_word("unique") || self.eat_word("readonly") {
+            return self.operator();
+        }
+        if self.eat_word("infer") {
+            if !self.name() {
+                return false;
+            }
+            let save = self.i;
+            // `infer U extends T` — the constraint, unless it begins a conditional type's `extends`
+            if self.eat_word("extends") {
+                if !(self.operator() && !self.at("?")) {
+                    self.i = save;
+                }
+            }
+            return true;
+        }
+        self.postfix()
+    }
+    fn postfix(&mut self) -> bool {
+        if !self.primary() {
+            return false;
+        }
+        while self.at("[") {
+            self.i += 1;
+            if self.eat("]") {
+                continue;
+            }
+            if !(self.ty() && self.eat("]")) {
+                return false;
+            }
+        }
+        true
+    }
+    fn args(&mut self) -> bool {
+        // after a name: `<T, U>`
+        if !self.eat("<") {
+            return true;
+        }
+        loop {
+            if !self.ty() {
+                return false;
+            }
+            if self.eat(">") {
+                return true;
+            }
+            if !self.eat(",") {
+                return false;
+            }
+        }
+    }
+    fn primary(&mut self) -> bool {
+        match self.peek().cloned() {
+            Some(TyTok::Lit) => {
+                self.i += 1;
+                true
+            }
+            Some(TyTok::Punct("-")) => {
+                self.i += 1;
+                if matches!(self.peek(), Some(TyTok::Lit)) {
+                    self.i += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            Some(TyTok::Punct("(")) => {
+                self.i += 1;
+                self.ty() && self.eat(")")
+            }
+            Some(TyTok::Punct("[")) => {
+                self.i += 1;
+                self.tuple()
+            }
+            Some(TyTok::Punct("{")) => {
+                self.i += 1;
+                self.object()
+            }
+            Some(TyTok::Word(w)) if w == "typeof" => {
+                self.i += 1;
+                if !self.eat_word("import") && !self.name() {
+                    return false;
+                }
+                while self.eat(".") {
+                    if !self.name() {
+                        return false;
+                    }
+                }
+                self.args()
+            }
+            Some(TyTok::Word(w)) if w == "import" => {
+                self.i += 1;
+                if !(self.eat("(") && matches!(self.peek(), Some(TyTok::Lit))) {
+                    return false;
+                }
+                self.i += 1;
+                if !self.eat(")") {
+                    return false;
+                }
+                while self.eat(".") {
+                    if !self.name() {
+                        return false;
+                    }
+                }
+                self.args()
+            }
+            Some(TyTok::Word(w)) if !TY_RESERVED.contains(&w.as_str()) || w == "this" => {
+                self.i += 1;
+                while self.eat(".") {
+                    if !self.name() {
+                        return false;
+                    }
+                }
+                self.args()
+            }
+            _ => false,
+        }
+    }
+    fn tuple(&mut self) -> bool {
+        loop {
+            if self.eat("]") {
+                return true;
+            }
+            self.eat("...");
+            // a labelled element, `name?: T`
+            let save = self.i;
+            if self.name() {
+                self.eat("?");
+                if !self.eat(":") {
+                    self.i = save;
+                }
+            }
+            if !self.ty() {
+                return false;
+            }
+            self.eat("?");
+            if self.eat("]") {
+                return true;
+            }
+            if !self.eat(",") {
+                return false;
+            }
+        }
+    }
+    fn prop_name(&mut self) -> bool {
+        match self.peek() {
+            Some(TyTok::Word(_)) | Some(TyTok::Lit) => {
+                self.i += 1;
+                true
+            }
+            _ => false,
+        }
+    }
+    fn object(&mut self) -> bool {
+        loop {
+            if self.eat("}") {
+                return true;
+            }
+            if !self.member() {
+                return false;
+            }
+            if self.eat("}") {
+                return true;
+            }
+            if !(self.eat(",") || self.eat(";") || self.nl.get(self.i) == Some(&true)) {
+                return false;
+            }
+        }
+    }
+    fn member(&mut self) -> bool {
+        // a call or construct signature: `(…): T`, `<T>(…): T`, `new (…): T`
+        let save = self.i;
+        let ctor = self.at_word("new") && matches!(self.t.get(self.i + 1), Some(TyTok::Punct("(")) | Some(TyTok::Punct("<")));
+        if ctor {
+            self.i += 1;
+        }
+        if self.at("(") || self.at("<") {
+            if self.eat("<") && !self.type_params() {
+                return false;
+            }
+            return self.eat("(") && self.params(")") && (!self.eat(":") || self.ret());
+        }
+        self.i = save;
+        // modifiers: `readonly`, `+readonly`, `-readonly`, `get`/`set` accessors
+        if (self.at("-") || self.at("+")) && matches!(self.t.get(self.i + 1), Some(TyTok::Word(w)) if w == "readonly") {
+            self.i += 1;
+        }
+        if self.at_word("readonly") && !matches!(self.t.get(self.i + 1), Some(TyTok::Punct(":")) | Some(TyTok::Punct("?")) | Some(TyTok::Punct("(")) | Some(TyTok::Punct(",")) | Some(TyTok::Punct(";")) | Some(TyTok::Punct("}"))) {
+            self.i += 1;
+        }
+        if (self.at_word("get") || self.at_word("set")) && matches!(self.t.get(self.i + 1), Some(TyTok::Word(_)) | Some(TyTok::Lit) | Some(TyTok::Punct("["))) {
+            self.i += 1;
+        }
+        if self.eat("[") {
+            // an index signature `[k: string]: T`, a mapped type `[K in T as U]-?: V`, or a computed name `[Symbol.iterator]`
+            let save = self.i;
+            if self.name() && self.eat(":") {
+                if !(self.ty() && self.eat("]")) {
+                    return false;
+                }
+            } else {
+                self.i = save;
+                if self.name() && self.eat_word("in") {
+                    if !self.ty() {
+                        return false;
+                    }
+                    if self.eat_word("as") && !self.ty() {
+                        return false;
+                    }
+                    if !self.eat("]") {
+                        return false;
+                    }
+                } else {
+                    self.i = save;
+                    if !self.name() {
+                        return false;
+                    }
+                    while self.eat(".") {
+                        if !self.name() {
+                            return false;
+                        }
+                    }
+                    if !self.eat("]") {
+                        return false;
+                    }
+                }
+            }
+        } else if !self.prop_name() {
+            return false;
+        }
+        let _ = self.eat("?") || self.eat("-?") || self.eat("+?");
+        if self.at("(") || self.at("<") {
+            // a method
+            if self.eat("<") && !self.type_params() {
+                return false;
+            }
+            return self.eat("(") && self.params(")") && (!self.eat(":") || self.ret());
+        }
+        if self.eat(":") {
+            return self.ty();
+        }
+        // a member with no type is `any` in a declaration but not in an object type literal
+        false
+    }
 }
 fn type_args_at(s: &str) -> Option<(String, usize)> {
     let b = s.as_bytes();
@@ -3223,5 +3708,20 @@ mod recovering {
         let src = "type Pick = (id: number) => void\ncomponent Row(props: { id: number; onPick: (id: number) => void; onDrop: Pick }) {\n  source n: number := peek(props.id)\n  <li onClick={() => { props.onPick(n) }}>{n}</li>\n}\nfn twice(x: number): number => x * 2\nexport default component App() {\n  <Row id={twice(1)} onPick={id => { log(id) }} onDrop={id => { log(id) }} />\n}\n";
         let p = parse_program(src).expect("parses");
         assert_eq!(names(&p), ["Pick", "Row", "twice", "App"]);
+    }
+    #[test]
+    fn type_arguments_are_parsed_completely() {
+        // 07 §3: what TypeScript reads as type arguments is a call; anything else stays comparisons
+        for t in [
+            "Todos", "string[]", "{ a: string; b?: number }[]", "A | B", "A & { x: 1 }", "Record<string, number>", "Map<K, V[]>", "[a: string, b?: number, ...rest: T[]]",
+            "(x: T) => U", "<T>(x: T) => T", "new () => Foo", "K extends keyof T ? T[K] : never", "T[K]", "typeof foo.bar", "import(\"./x\").Y<Z>", "-1 | 0 | 1",
+            "\"a\" | 'b'", "`p-${string}`", "{ [K in keyof T]-?: T[K] }", "{ readonly [k: string]: number }", "{ (x: number): string; new (): Foo; m<T>(a: T): void }",
+            "keyof T", "readonly string[]", "unique symbol", "T extends (infer U)[] ? U : never", "(x: unknown) => x is string", "A,", "Array<Array<number>>", "this", "{ +readonly [K in T]+?: 1 }", "{\n  done: number\n  items: string[]\n}",
+        ] {
+            assert!(looks_like_types(t), "{t} is a type list");
+        }
+        for t in ["b[c+1]", "b && c", "b ? c : d", "b + c", "b - c", "b * c", "b(c)", "b = c", "b, c + 1", "!b", "b.c(d)", "b[c]()", "b[0] + 1", "{ a }", "b c", "", "typeof f(x)", "(b, c)", "b == c", "{ a: 1 b: 2 }"] {
+            assert!(!looks_like_types(t), "{t} is not");
+        }
     }
 }
