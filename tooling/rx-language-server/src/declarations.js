@@ -7,12 +7,16 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { declaration } = require("./rxc");
 
-const JS = [".js", ".mjs", ".jsx"];
+// TypeScript asks for the declaration of `lib.js` as `lib.d.ts`, of `lib.mjs` as `lib.d.mts` and of `lib.cjs` as `lib.d.cts`
+const DECL = [[".d.ts", [".js", ".mjs", ".jsx"]], [".d.mts", [".mjs"]], [".d.cts", [".cjs"]]];
 const virtual = new Map();   // path of a .d.ts that does not exist → its text, or null when it is not one of ours
 
-/** The `.d.ts` text for `p`, when `p` is a missing `.d.ts` that a `.d.rx` beside a JS module stands for. */
+/** The `.d.ts` text for `p`, when `p` is a missing `.d.ts` (`.d.mts`, `.d.cts`) that a `.d.rx` beside a JS module stands for. */
 function virtualText(p) {
-  if (typeof p !== "string" || !p.endsWith(".d.ts")) return null;
+  if (typeof p !== "string") return null;
+  const kind = DECL.find(([x]) => p.endsWith(x));
+  if (!kind) return null;
+  if (kind[0] !== ".d.ts") return besideJs(path.resolve(p), kind);
   const abs = path.resolve(p);
   if (virtual.has(abs)) return virtual.get(abs);
   let text = null;
@@ -34,8 +38,14 @@ function virtualText(p) {
     virtual.set(abs, text);
     return text;
   }
-  const base = abs.slice(0, -".d.ts".length);
-  if (!real.existsSync(abs) && real.existsSync(base + ".d.rx") && JS.some(x => real.existsSync(base + x))) {
+  return besideJs(abs, kind);
+}
+/** TY-4b: the declaration TypeScript asks for beside a JS module (`[ext, its JS extensions]`), from the `.d.rx` there. */
+function besideJs(abs, [ext, js]) {
+  if (virtual.has(abs)) return virtual.get(abs);
+  let text = null;
+  const base = abs.slice(0, -ext.length);
+  if (!real.existsSync(abs) && real.existsSync(base + ".d.rx") && js.some(x => real.existsSync(base + x))) {
     const r = declaration(base + ".d.rx");
     if (r && typeof r.code === "string") text = r.code;
   }

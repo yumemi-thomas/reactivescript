@@ -228,7 +228,7 @@ pub fn package_relative(file: &str, read: &dyn Fn(&str) -> Option<String>) -> Op
 static PKG_EXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.(m?js|cjs|jsx|ts|tsx)$").unwrap());
 
 fn replace_js_ext(from: &str) -> String {
-    for ext in [".mjs", ".js", ".ts"] {
+    for ext in [".mjs", ".cjs", ".js", ".ts"] {
         if let Some(s) = from.strip_suffix(ext) {
             return s.to_string();
         }

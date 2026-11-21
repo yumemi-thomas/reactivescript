@@ -145,6 +145,23 @@ const pkMismatch = pkRun(appRx, { "typed-kit.d.rx": "export pure fn half(n: stri
 check("rx-types: a declaration that disagrees with the package's own types fails, on its line (TY-6)", pkMismatch.status !== 0 && /rx-types[\\/]typed-kit\.d\.rx:1:1 - error DECLARATION_MISMATCH: half: /.test(pkMismatch.out), pkMismatch);
 fs.rmSync(pk, { recursive: true });   // the next checks include the whole workspace
 
+// TY-4b (RFC 23): a `.mjs` or `.cjs` module with a `.d.rx` beside it and no types of its own: TypeScript asks for
+// `lib.d.mts` (`lib.d.cts`), not `lib.d.ts`, and the declaration answers for that name too
+const esm = path.join(ws, "esm"); fs.mkdirSync(esm, { recursive: true });
+fs.symlinkSync(path.join(ws, "node_modules"), path.join(esm, "node_modules"), "dir");
+fs.writeFileSync(path.join(esm, "tsconfig.json"), JSON.stringify({ compilerOptions: JSON.parse(fs.readFileSync(path.join(ws, "tsconfig.json"), "utf8")).compilerOptions, include: ["main.rx"] }));
+fs.writeFileSync(path.join(esm, "lib.mjs"), "export const twice = n => n * 2;\n");
+fs.writeFileSync(path.join(esm, "lib.d.rx"), "export pure fn twice(n: number): number\n");
+fs.writeFileSync(path.join(esm, "old.cjs"), "exports.half = n => n / 2;\n");
+fs.writeFileSync(path.join(esm, "old.d.rx"), "export pure fn half(n: number): number\n");
+const esmApp = 'import { twice } from "./lib.mjs"\nimport { half } from "./old.cjs"\nexport default component App() {\n  a = twice(2)\n  b = half(4)\n  <p>{a} {b}</p>\n}\n';
+const esmRun = app => { fs.writeFileSync(path.join(esm, "main.rx"), app); const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: esm, encoding: "utf8" }); return { status: r.status, out: r.stdout + r.stderr }; };
+const esmOk = esmRun(esmApp);
+check("a .mjs and a .cjs module typed by the .d.rx beside them pass (no TS7016: lib.d.mts, old.d.cts, TY-4b)", esmOk.status === 0 && esmOk.out.trim() === "", esmOk);
+const esmBad = esmRun(esmApp.replace("twice(2)", 'twice("2")').replace("half(4)", 'half("4")'));
+check("...and are typed by it (TS2345 on the .rx, for each)", esmBad.status !== 0 && /main\.rx\(4,\d+\): error TS2345/.test(esmBad.out) && /main\.rx\(5,\d+\): error TS2345/.test(esmBad.out), esmBad);
+fs.rmSync(esm, { recursive: true });
+
 // MO-8f, MO-8j, TY-6 follow the declarations the compiler consumed, wherever they are, and only those: an entry that
 // imports `./sub/lib.js`, whose real types say string → string and whose .d.rx says number → number, pinned to a package
 // that is not installed, with no record; the tsconfig names only the entry
