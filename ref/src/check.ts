@@ -1455,7 +1455,7 @@ class Checker {
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? unknownJsComponent(m.tag, s.undeclared) : `<${m.tag}> is not a component declared here`); }
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
-            const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; return n === "ref" || !!d?.callback || (!d?.pure && isHandler(n)); };   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop and `ref` keep SC-4 and 07 §4
+            const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; return !!d?.callback || (n !== "ref" && !d?.pure && isHandler(n)); };   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element only (07 §4): on a component, a handler only when declared one
             for (const a of args) { this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" })); if (!handles(a.name)) this.keep(a.e, env); }   // R-2: an argument is read where the component reads it
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);

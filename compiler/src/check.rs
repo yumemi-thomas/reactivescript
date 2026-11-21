@@ -3973,10 +3973,12 @@ impl<'a> Checker<'a> {
                         self.carried_rendered.extend(reached);
                         let args: Vec<&'a Attr> = attrs.iter().enumerate().filter(|(i, _)| !values.iter().any(|(j, _)| j == i)).map(|(_, a)| a).collect();
                         // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure),
-                        // whatever its name; an untyped `on…` prop and `ref` keep SC-4 and 07 §4
+                        // whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element (07 §4: the DOM
+                        // calls it once, with the node), not on a component, which calls its props when it likes: there it is
+                        // a prop as any other, a handler only when the declaration says so (MO-10g, 13 revised 2026-11-21)
                         let cbs = s.and_then(|s| self.syms[s].comp_region).and_then(|r| self.callback_props.get(&r).cloned()).unwrap_or_default();
                         let pures = s.and_then(|s| self.syms[s].comp_region).and_then(|r| self.pure_props.get(&r).cloned()).unwrap_or_default();
-                        let handles = |n: &str| n == "ref" || cbs.contains(n) || (!pures.contains(n) && is_handler(n));
+                        let handles = |n: &str| cbs.contains(n) || (n != "ref" && !pures.contains(n) && is_handler(n));
                         for a in &args {
                             let h = handles(&a.name);
                             let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };

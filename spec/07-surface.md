@@ -226,6 +226,9 @@ attributes are equations, children are readers, components are applied as
   closure is a handler's (imperative scope, SC-4): it may write a source.
   That is how an element reaches a JS library, through a callback that reads
   the source (`getScrollElement: () => scroller`, 09 MO-10g). S-module-15.
+  This is an element's attribute only (revised 2026-11-21): a `ref` passed
+  to a component is a prop, which the component calls when it likes, and is
+  read as the component's declaration says (09 MO-10g, S-module-28).
 
 ## 5. Imperative scope (02 SC-2, 06 AC)
 

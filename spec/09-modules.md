@@ -482,8 +482,12 @@ export component Search(props: { start: boolean, q: string }) {
   pure, so `onCompare: tracked (v: number) => number` takes no write
   although its name begins with `on`. The name's reading (SC-4) is kept for
   a prop the declaration does not type as a function (`onPick: any`) or
-  does not name, for `.rx` components, and for elements; `ref` is a handler
-  on a component as on an element (07 §4). S-module-28.
+  does not name, for `.rx` components, and for elements. `ref` is a handler
+  on an element (07 §4), whatever it is passed; on a component it is a prop
+  as any other (revised 2026-11-21 after review): the component, not the
+  DOM, decides when to call it, so a declared `ref: handler (el) => void`
+  is a handler, `tracked` or an unmarked function type is pure, and a `ref`
+  the declaration does not name is pure. S-module-28.
 
   A function type alone is not a callback (the revision): the same type
   `(a: number, b: number) => number` is a comparator the library calls
@@ -1178,9 +1182,12 @@ Executable: S-module-7.
    - *`view (…) { … }` for render props* (MO-11k) is kept: it is markup,
      read as children, applied per call, with the parameters the library's
      own types give TypeScript.
-   - *`ref={el => { … }}` as a handler* (07 §4) is kept. Solid runs a ref
-     once, before mount, outside tracking; a write there lands as a
-     handler's does, and a reader of the element reads the source.
+   - *`ref={el => { … }}` as a handler* (07 §4) is kept, on an element.
+     Solid runs a ref once, before mount, outside tracking; a write there
+     lands as a handler's does, and a reader of the element reads the
+     source. On a component, `ref` is a prop, read as its declaration says
+     (MO-10g): the privilege rests on the DOM's calling convention, which a
+     JS component does not promise.
    - *The request as a `createApp` option* (SV-4a) is kept: the server entry
      is the host's (an adapter, a framework), and the runtime is the one
      place every host already calls once per request.
