@@ -1216,6 +1216,14 @@ class Checker {
   private draftHere(s: Sym, name: string) {
     if (s.draftFn !== undefined && this.fnStack[this.fnStack.length - 1] !== s.draftFn) this.err("DRAFT_ESCAPES", "MO-10i", `${name} is a library's draft, its callback's only while that call runs: a closure made inside the callback may run after the library has taken it back — use ${name} in the callback itself, or copy what the closure needs into a local first`);
   }
+  /** MO-10i (lifetime): the draft a value is — a draft's name, or a local bound to one, bare or in a record or array literal
+   *  (a path read through it, `d.done`, is a copy of the callback's own). */
+  private bareDraft(e: Expr, env: Env): string | undefined {
+    if (e.k === "id") return env.lookup(e.name)?.jsDraft ? e.name : undefined;
+    if (e.k === "arr") { for (const x of e.items) { const n = this.bareDraft(x, env); if (n) return n; } return undefined; }
+    if (e.k === "rec") { for (const f of e.fields) { if (!("key" in f)) continue; const n = this.bareDraft(f.v, env); if (n) return n; } return undefined; }
+    return undefined;
+  }
   /** `field`: the member read of an identifier (`props.title`), for the model (CP-6). */
   private expr(e: Expr, env: Env, ctx: Ctx, field?: string): void {
     if (e.k === "fn") { this.fnStack.push(++this.fnSeq); try { this.exprK(e, env, ctx, field); } finally { this.fnStack.pop(); } return; }
@@ -1338,13 +1346,15 @@ class Checker {
       switch (s.k) {
         case "let": {
           this.expr(s.e, env, ctx);
-          env.vars.set(s.name, { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env), retCaptures: this.stored(s.e, env, new Set(), true) });
+          const draft = s.e.k === "id" ? env.lookup(s.e.name) : undefined;                  // MO-10i: a local bound to a draft is the draft
+          env.vars.set(s.name, { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env), retCaptures: this.stored(s.e, env, new Set(), true), ...(draft?.jsDraft ? { jsDraft: true, draftFn: draft.draftFn } : {}) });
           break;
         }
         case "expr": case "throw": this.expr(s.e, env, ctx); break;
         case "return": if (s.e) this.expr(s.e, env, ctx); break;
         case "write": case "optimistic": {
           this.rendersEscape(s.e, env, `written to ${s.target.name}`);
+          { const n = this.bareDraft(s.e, env); if (n) this.err("DRAFT_ESCAPES", "MO-10i", `${n} is a library's draft, its callback's only while that call runs: written to ${s.target.ctx ? "use " : ""}${s.target.name}, it would be kept after the library has taken it back — write a copy of what is kept (\`${s.target.name} := ${n}.field\`), or return the new value from the callback`); }   // MO-10i (lifetime)
           if (ctx.server) {                                                                  // SF-4: return the value; the action that awaited the call writes it
             this.err("SERVER_WRITE", "SF-4", `a server function writes ${s.target.ctx ? "use " : ""}${s.target.name}: return the value, and write it in the action that awaited the call (\`let r = await f(…); ${s.target.name} := r\`)`);
             s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx)); this.expr(s.e, env, ctx); break;

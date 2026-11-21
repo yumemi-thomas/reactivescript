@@ -130,3 +130,57 @@ export default component App() {
 
 A read through a captured draft is refused too: copy what the closure
 needs into a local first (`let n = d.done`).
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore, later } from "./store.js"
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { let alias = d; later(() => { log(alias.done) }) }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+A local bound to the draft is the draft: the closure that captures it
+captures the draft.
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore } from "./store.js"
+source saved: any := null
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { saved := d }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+A source written with the draft keeps it past the call: it is refused as
+a captured draft is, directly or through a local (`let a = d; saved :=
+a`).
+
+```rx
+-- reject: DRAFT_ESCAPES
+import { createStore } from "./store.js"
+source saved: any := null
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { let a = d; saved := a }) }}>add</button>
+  <p>{todos.done}</p>
+}
+```
+
+```rx
+-- accept: whole-program
+import { createStore, later } from "./store.js"
+source saved: number := 0
+export default component App() {
+  [todos, setTodos] = createStore<{ done: number; items: string[] }>({ done: 0, items: [] })
+  <button onClick={() => { setTodos((d) => { let n = d.done; let a = d; a.done := n + 1; saved := d.done; later(() => { log(n) }) }) }}>add</button>
+  <p>{todos.done} {saved}</p>
+}
+```
+
+A scalar copied out of the draft is a value of the callback's own: the
+closure may keep it, and a source may take it. A path of a local bound to
+the draft is written as the draft's own.

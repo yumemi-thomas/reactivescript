@@ -571,7 +571,11 @@ export component Search(props: { start: boolean, q: string }) {
   take it back when the callback returns (a revocable proxy, Solid's
   setter), so a closure made inside the callback, which may run later,
   may not capture it, to write a path or to read one (`DRAFT_ESCAPES`);
-  what such a closure needs is copied into a local first. Passing the draft
+  what such a closure needs is copied into a local first. A local bound
+  to the draft (`let a = d`) is the draft, and so is a record or array
+  literal holding it; a source written with it (`saved := d`) would keep it
+  past the call and is refused the same way, while a path read through it
+  (`let n = d.done`, `saved := d.done`) is a copy. Passing the draft
   itself to a function the callback calls is that function's contract with
   the library, as any JS argument is. `rx-verify` checks the row by running it: the setter must hand its
   callback an object, and a write to it must be kept (a library that

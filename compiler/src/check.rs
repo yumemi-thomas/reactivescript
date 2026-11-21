@@ -3279,6 +3279,19 @@ impl<'a> Checker<'a> {
     fn renders_escape_msg(&mut self, n: &str, why: &str) {
         self.err("RENDERS_ESCAPES", "MO-11l", format!("{n} holds components `renders` checked where {n} is bound, and here it is {why}: render it in the view where it is bound, or declare the library `renders(later)` with a prop that `renders` it (MO-11o), or `renders(root, …)` if it mounts them under a root of its own (MO-11n)"));
     }
+    /// MO-10i (lifetime): the draft a value is — a draft's name, or a local bound to one, bare or in a record or array
+    /// literal (a path read through it, `d.done`, is a copy of the callback's own).
+    fn bare_draft(&self, e: &Expr, env: EId) -> Option<String> {
+        match &e.k {
+            ExprKind::Id(n) => self.lookup(env, n).filter(|&t| self.syms[t].js_draft).map(|_| n.clone()),
+            ExprKind::Arr(items) => items.iter().find_map(|x| self.bare_draft(x, env)),
+            ExprKind::Rec(fields) => fields.iter().find_map(|f| match f {
+                Field::Kv { v, .. } => self.bare_draft(v, env),
+                Field::Spread(_) => None,
+            }),
+            _ => None,
+        }
+    }
     fn draft_here(&mut self, s: SId, name: &str) {
         if let Some(own) = self.syms[s].draft_fn {
             if self.fn_stack.last() != Some(&own) {
@@ -3640,6 +3653,13 @@ impl<'a> Checker<'a> {
                     let mut sym = Sym::new(SymKind::Value, name, region, self.line);
                     sym.captures = captures;
                     sym.ret_captures = Some(ret);
+                    // MO-10i: a local bound to a draft is the draft
+                    if let ExprKind::Id(n) = &e.k {
+                        if let Some(t) = self.lookup(env, n).filter(|&t| self.syms[t].js_draft) {
+                            sym.js_draft = true;
+                            sym.draft_fn = self.syms[t].draft_fn;
+                        }
+                    }
                     let id = self.new_sym(sym);
                     self.envs[env].vars.insert(name.clone(), id);
                 }
@@ -3651,6 +3671,11 @@ impl<'a> Checker<'a> {
                 }
                 StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
                     self.renders_escape(e, env, &format!("written to {}", target.name));
+                    // MO-10i (lifetime)
+                    if let Some(n) = self.bare_draft(e, env) {
+                        let t = format!("{}{}", if target.is_ctx() { "use " } else { "" }, target.name);
+                        self.err("DRAFT_ESCAPES", "MO-10i", format!("{n} is a library's draft, its callback's only while that call runs: written to {t}, it would be kept after the library has taken it back — write a copy of what is kept (`{} := {n}.field`), or return the new value from the callback", target.name));
+                    }
                     let op = if matches!(&s.k, StmtKind::Optimistic { .. }) { "optimistic" } else { "write" };
                     if ctx.server {
                         self.err(
