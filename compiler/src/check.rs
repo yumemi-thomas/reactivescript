@@ -821,6 +821,25 @@ pub(crate) fn arg_calls(v: &serde_json::Value, out: &mut HashMap<String, Vec<(St
         _ => {}
     }
 }
+/// ST-4d: a key two rows of a list literal share — `[{ id: 1, … }, { id: 1, … }]` keyed by `id` — as written.
+fn duplicate_key(e: &Expr, key: &str) -> Option<String> {
+    let ExprKind::Arr(items) = &e.k else { return None };
+    let mut seen: Vec<String> = vec![];
+    for it in items {
+        let ExprKind::Rec(fields) = &it.k else { continue };
+        let Some(v) = rec_field(fields, key) else { continue };
+        let ExprKind::Lit(l) = &v.k else { continue };
+        let shown = show(v);
+        if matches!(l, Lit::Undefined | Lit::Null) {
+            continue;
+        }
+        if seen.contains(&shown) {
+            return Some(shown);
+        }
+        seen.push(shown);
+    }
+    None
+}
 /// What `flows` asks of where it is read: whether a name is a builtin there (not bound), and whether an expression is a
 /// primitive by its declaration (`Checker::decl_prim`).
 struct Look<'x> {
@@ -1710,8 +1729,37 @@ pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[Str
     }
     if whole {
         diags.extend(resolve_peeks(&facts, set, hosts));
+        diags.extend(host_exports(&sigs, hosts, spa));
     }
     Checked { diags, sigs, models }
+}
+
+/// 11 CP-4d: a component a JS host renders (`pages.rx?rx-lib`) is applied where the checker cannot see, so nothing
+/// above it is credited to it — the cautious placement (09 MO-11s), a root of its own. What its summary lets out of its
+/// root is therefore unhandled: a failure no boundary of its own discharges, a context nothing in it provides, a first
+/// load nothing in it holds.
+fn host_exports(sigs: &IndexMap<String, ModSig>, hosts: &[String], spa: bool) -> Vec<Diagnostic> {
+    let mut out = vec![];
+    for h in hosts {
+        let Some(sig) = sigs.get(h) else { continue };
+        for (name, x) in &sig.exports {
+            let ExportSig::Comp { sig: c } = x else { continue };
+            let why = format!("{name} is exported from a module a JS host renders (`?rx-lib`): JS applies it where the checker cannot see, so no boundary or provision above it is credited (CP-4d)");
+            for o in &c.own {
+                let line = o.at.as_deref().and_then(|a| a.rsplit(':').next()).and_then(|n| n.parse::<i64>().ok()).unwrap_or(1);
+                out.push(Diagnostic { code: "UNHANDLED_FAILURE".into(), rule: "R-f-5".into(), line, msg: format!("a reader of {} (in <{name}>) can fail with {} and no catch or errored boundary inside {name} discharges it — {why}: show it where it is read, `errored fallback(e) {{ … }} {{ … }}` inside the component", o.what, o.cls), file: Some(h.clone()) });
+            }
+            for k in &c.requires {
+                if k == HOLD {
+                    let code = if spa { "ASYNC_OUTSIDE_LOADING_BOUNDARY" } else { "CLIENT_QUESTION_UNHELD" };
+                    out.push(Diagnostic { code: code.into(), rule: if spa { "CN-3d" } else { "SV-7b" }.into(), line: 1, msg: format!("a reader in <{name}> can have no value yet, and no `loading` region inside {name} holds it — {why}: put the reader under `loading fallback {{ … }} {{ … }}` inside the component"), file: Some(h.clone()) });
+                } else {
+                    out.push(Diagnostic { code: "CONTEXT_NOT_FOUND".into(), rule: "RG-7b".into(), line: 1, msg: format!("use {} (in <{name}>): no provision of it inside {name} — {why}: provide it inside the component, or take the value as a prop", key_name(k)), file: Some(h.clone()) });
+                }
+            }
+        }
+    }
+    out
 }
 
 impl<'a> Checker<'a> {
@@ -2951,6 +2999,12 @@ impl<'a> Checker<'a> {
 
     fn decl(&mut self, d: &'a Decl, env: EId, ctx: Ctx) {
         let reactive = Ctx { in_fn: ctx.in_fn, ..Ctx::reactive() };
+        // ST-4d (2026-11-22): the rows of a keyed list written out with two alike keys
+        if let Decl::Source { name, init: e, key: Some(k), .. } | Decl::Eq { name, e, key: Some(k), .. } = d {
+            if let Some(v) = duplicate_key(e, k) {
+                self.err("DUPLICATE_KEY", "ST-4d", format!("{name} is keyed by {k}, and two of the rows written here have {k}: {v} — a key names one row: rows with one key share one identity, so one's state shows for both, or one is dropped. Give each row its own {k}"));
+            }
+        }
         match d {
             Decl::Import { fails, .. } => {
                 if let Some(f) = fails {

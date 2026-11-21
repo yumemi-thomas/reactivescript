@@ -265,6 +265,28 @@ export default component App() {
 }
 ```
 
+
+### DUPLICATE_KEY
+
+A keyed list (`rows key id = …`, ST-4) gives each row its identity by its key: a row's own state, and its place in the
+DOM, follow the key across a reorder or a new answer. Two rows with one key are one row to Solid: the second takes the
+first's state, or is dropped. Rows written out in the program with the same key are refused (ST-4d); rows that come
+from data are the data's to keep distinct (nothing checks them at run time, as nothing does in Solid).
+
+```rx before
+export default component App() {
+  rows key id = [{ id: 1, text: "a" }, { id: 1, text: "b" }]
+  <ul>{for row in rows { <li>{row.text}</li> }}</ul>
+}
+```
+
+```rx after
+export default component App() {
+  rows key id = [{ id: 1, text: "a" }, { id: 2, text: "b" }]
+  <ul>{for row in rows { <li>{row.text}</li> }}</ul>
+}
+```
+
 ### STALE_OWN_READ
 
 All the writes of one run land together when the run ends, so after `count := count + 1` the run still reads the old

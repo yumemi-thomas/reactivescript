@@ -223,6 +223,19 @@ export function argCalls(v: unknown, out: Map<string, [string, number][]>): void
   if (o.k === "call" && o.f?.k === "id" && typeof o.f.name === "string" && Array.isArray(o.args)) o.args.forEach((a, i) => { if (a?.k === "id" && typeof a.name === "string") { let xs = out.get(a.name); if (!xs) { xs = []; out.set(a.name, xs); } xs.push([o.f!.name!, i]); } });
   for (const x of Object.values(v)) argCalls(x, out);
 }
+/** ST-4d: a key two rows of a list literal share — `[{ id: 1, … }, { id: 1, … }]` keyed by `id` — as written. */
+function duplicateKey(e: Expr, key: string): string | undefined {
+  if (e.k !== "arr") return undefined;
+  const seen: string[] = [];
+  for (const it of e.items) {
+    if (it.k !== "rec") continue;
+    const v = recField(it.fields, key); if (!v || v.k !== "lit" || v.v === undefined || v.v === null) continue;
+    const shown = show(v);
+    if (seen.includes(shown)) return shown;
+    seen.push(shown);
+  }
+  return undefined;
+}
 /** What `flows` asks of where it is read: whether a name is a builtin there (not bound), and whether an expression is a
  *  primitive by its declaration (`Checker.declPrim`). */
 type Look = { builtin: (n: string) => boolean; prim: (e: Expr) => boolean };
@@ -479,8 +492,26 @@ export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: 
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
   const facts: [string, PeekFacts][] = [];
   for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
-  if (whole) diags.push(...resolvePeeks(facts, set, hosts));
+  if (whole) { diags.push(...resolvePeeks(facts, set, hosts)); diags.push(...hostExports(sigs, hosts, spa)); }
   return { diags, sigs, models };
+}
+
+/** 11 CP-4d: a component a JS host renders (`pages.rx?rx-lib`) is applied where the checker cannot see, so nothing above
+ *  it is credited to it — the cautious placement (09 MO-11s), a root of its own. What its summary lets out of its root is
+ *  therefore unhandled: a failure no boundary of its own discharges, a context nothing in it provides, a first load
+ *  nothing in it holds. */
+function hostExports(sigs: Map<string, ModSig>, hosts: string[], spa: boolean): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  for (const h of hosts) for (const [name, x] of sigs.get(h)?.exports ?? []) {
+    if (x.kind !== "comp") continue;
+    const why = `${name} is exported from a module a JS host renders (\`?rx-lib\`): JS applies it where the checker cannot see, so no boundary or provision above it is credited (CP-4d)`;
+    for (const o of x.sig.own) { const n = Number(o.at?.split(":").pop()); out.push({ code: "UNHANDLED_FAILURE", rule: "R-f-5", line: Number.isInteger(n) ? n : 1, msg: `a reader of ${o.what} (in <${name}>) can fail with ${o.cls} and no catch or errored boundary inside ${name} discharges it — ${why}: show it where it is read, \`errored fallback(e) { … } { … }\` inside the component`, file: h }); }
+    for (const k of x.sig.requires) {
+      if (k === HOLD) out.push({ code: spa ? "ASYNC_OUTSIDE_LOADING_BOUNDARY" : "CLIENT_QUESTION_UNHELD", rule: spa ? "CN-3d" : "SV-7b", line: 1, msg: `a reader in <${name}> can have no value yet, and no \`loading\` region inside ${name} holds it — ${why}: put the reader under \`loading fallback { … } { … }\` inside the component`, file: h });
+      else out.push({ code: "CONTEXT_NOT_FOUND", rule: "RG-7b", line: 1, msg: `use ${keyName(k)} (in <${name}>): no provision of it inside ${name} — ${why}: provide it inside the component, or take the value as a prop`, file: h });
+    }
+  }
+  return out;
 }
 
 class Checker {
@@ -1070,6 +1101,11 @@ class Checker {
   private serverExprs = new WeakMap<Expr, Sym>();
   private decl(d: Decl, env: Env, ctx: Ctx) {
     const reactive: Ctx = { scope: "reactive", inFn: ctx.inFn };
+    // ST-4d (2026-11-22): the rows of a keyed list written out with two alike keys
+    if ((d.k === "source" || d.k === "eq") && d.key !== undefined) {
+      const v = duplicateKey(d.k === "source" ? d.init : d.e, d.key);
+      if (v !== undefined) this.err("DUPLICATE_KEY", "ST-4d", `${d.name} is keyed by ${d.key}, and two of the rows written here have ${d.key}: ${v} — a key names one row: rows with one key share one identity, so one's state shows for both, or one is dropped. Give each row its own ${d.key}`);
+    }
     switch (d.k) {
       case "import": if (d.fails) for (const n of d.fails) this.errClass(n, env); return;
       case "typedecl": return;
