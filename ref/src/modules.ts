@@ -68,35 +68,31 @@ export function declarationFor(fromFile: string, spec: string, read: (path: stri
   return up(`rx-types/${spec}.d.rx`) ?? (shipped !== undefined && read(shipped) !== undefined ? shipped : undefined) ?? up(`node_modules/@rx-types/${shared}/${sub}.d.rx`) ?? up(`node_modules/.rx-types/${spec}.d.rx`);
 }
 
-/** SV-5a (revised 2026-11-21 after review): what a declared error class is identified by, so a server and a client built
- *  from different entries, or in checkouts at different paths or on different machines, name it alike. First match wins:
- *  1. the nearest folder above `file` whose package.json has a name: that name, then the path below it (`shop/src/err.d.rx`);
- *  2. the project root — the folder of the nearest package.json above `entry`, else the entry's own folder — when `file` is
- *     inside it: the path below it (`err.d.rx`; two unnamed scopes side by side under it, `a/err.d.rx` and `b/err.d.rx`);
- *  3. the folder of the nearest package.json above `file`: the path below it.
- *  A folder's own name, or any folder above the root, is never part of it. Undefined when none applies. */
-export function packageRelative(file: string, entry: string, read: (path: string) => string | undefined): string | undefined {
+/** SV-5a (ruled 2026-11-22): what a declared error class is identified by. It is read from the declaration's own place and
+ *  nothing else — not the entry, not the checkout — so a server and a client name it alike whatever each was built from,
+ *  wherever. First match wins:
+ *  1. the nearest folder above `file` whose package.json has a name: that name, then the path below it
+ *     (`shop/src/err.d.rx`); a package.json with no name (a `{"type":"module"}` scope) is passed over;
+ *  2. the nearest folder above `file` with a package.json: the path below it (`err.d.rx`, `lib/err.d.rx`);
+ *  3. with none above: the file's own name.
+ *  A folder's own name, or any folder above the package, is never part of it, so it holds no machine path. An unnamed
+ *  package has nothing to tell its classes from another unnamed one's: two declarations that would name a class alike in
+ *  one program are refused where they are loaded (`loadModules`), not told apart by where the build started. */
+export function packageRelative(file: string, read: (path: string) => string | undefined): string {
   const pj = (dir: string) => dir === "" ? "package.json" : `${dir}/package.json`;
-  const above = (path: string): [string, string | null | undefined][] => {         // nearest first: [folder, name | null (unnamed) | undefined (none)]
-    const segs = path.split("/"); const lo = path.startsWith("/") ? 1 : 0; const out: [string, string | null | undefined][] = [];
-    for (let i = segs.length - 1; i >= lo; i--) {
-      const dir = segs.slice(0, i).join("/"); const text = read(pj(dir));
-      let name: string | null | undefined = undefined;
-      if (text !== undefined) { name = null; try { const v = JSON.parse(text); if (typeof v?.name === "string" && v.name) name = v.name; } catch { /* unnamed */ } }
-      out.push([dir, name]);
-    }
-    return out;
-  };
+  const segs = file.split("/"); const lo = file.startsWith("/") ? 1 : 0; const mine: [string, string | null | undefined][] = [];   // nearest first: [folder, name | null (unnamed) | undefined (none)]
+  for (let i = segs.length - 1; i >= lo; i--) {
+    const dir = segs.slice(0, i).join("/"); const text = read(pj(dir));
+    let name: string | null | undefined = undefined;
+    if (text !== undefined) { name = null; try { const v = JSON.parse(text); if (typeof v?.name === "string" && v.name) name = v.name; } catch { /* unnamed */ } }
+    mine.push([dir, name]);
+  }
   const below = (dir: string): string | undefined => dir === "" ? (file.startsWith("/") ? undefined : file) : file.startsWith(dir + "/") ? file.slice(dir.length + 1) : undefined;
-  const mine = above(file);
   const named = mine.find(([, n]) => typeof n === "string");
-  if (named) { const r = below(named[0]); return r === undefined ? undefined : `${named[1]}/${r}`; }
-  const roots = above(entry);
-  const root = roots.find(([, n]) => n !== undefined)?.[0] ?? roots[0]?.[0];
-  const inRoot = root === undefined ? undefined : below(root);
-  if (inRoot !== undefined) return inRoot;
+  if (named) { const r = below(named[0]); if (r !== undefined) return `${named[1]}/${r}`; }
   const own = mine.find(([, n]) => n !== undefined);
-  return own ? below(own[0]) : undefined;
+  const r = own ? below(own[0]) : undefined;
+  return r ?? segs[segs.length - 1];
 }
 
 /** MO-8 (revised 2026-11-21 after review): the `.d.rx` that declares a relative JS import, first that exists wins: `./x.mjs`,
@@ -113,7 +109,7 @@ export function besideDeclaration(importer: string, from: string, read: (path: s
 
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
-  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>(); const declarationIds = new Map<string, string>();
+  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>(); const wireIds = new Map<string, string>();   /* SV-5a: each declared error class's wire id (`id#Name`), and the declaration it is */ const declarationIds = new Map<string, string>();
   const state = new Map<string, "busy" | "done">();
   const visit = (path: string, stack: string[]) => {
     if (state.get(path) === "done") return;
@@ -126,7 +122,18 @@ export function loadModules(entry: string, read: (path: string) => string | unde
       const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? declarationFor(path, d.from, read) : undefined;   // MO-8k, MO-10c
       if (d.k === "import" && !isRx(d.from) && (d.from.startsWith(".") || pkgDts)) {             // MO-8: a JS module with a declaration file beside it
         const dts = pkgDts ?? besideDeclaration(path, d.from, read);
-        if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try { declarations.set(dts, parseDeclarations(src)); const id = packageRelative(dts, entry, read); if (id !== undefined) declarationIds.set(dts, id); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; } } }
+        if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try {
+          const ds = parseDeclarations(src);
+          // SV-5a: the declaration's identity; two that would name an error class alike are not told apart
+          const id = packageRelative(dts, read);
+          if (d.from.startsWith(".")) for (const x of ds) {
+            if (x.kind !== "error") continue;
+            const key = `${id}#${x.name}`; const other = wireIds.get(key);
+            if (other !== undefined) throw Object.assign(new ParseError(`the error class ${x.name} would be sent to the client as "${key}", and so would the one ${other} declares: neither is in a package with a name, so nothing tells them apart — give the package.json above one of them a "name" (SV-5a)`), { code: "DUPLICATE_WIRE_ID" });
+            wireIds.set(key, dts);
+          }
+          declarations.set(dts, ds); declarationIds.set(dts, id);
+        } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; } } }
         const ds = declarations.get(dts);
         if (ds) { d.declared = dts; d.declaredErrors = ds.filter(x => x.kind === "error").map(x => x.name); const ef = ds.flatMap(x => x.kind === "error" && x.fields ? [[x.name, x.fields]] : []); if (ef.length) d.declaredErrorFields = Object.fromEntries(ef); d.declaredPure = ds.filter(x => x.kind === "fn" && x.pure).map(x => x.name); d.declaredSide = Object.fromEntries(ds.flatMap(x => x.kind === "fn" && x.side ? [[x.name, x.side]] : [])); }
         continue;

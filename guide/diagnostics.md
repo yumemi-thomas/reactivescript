@@ -1284,6 +1284,48 @@ export default component App() {
 }
 ```
 
+### DUPLICATE_WIRE_ID
+
+A declared JS error class crosses from the server to the client as itself (SV-5a), named by its declaration: its
+package's name and the path below it, or, in a package with no name, the path below the nearest `package.json`. Two
+declarations in unnamed packages can come out alike (`err.d.rx#Gone` in two folders that each hold a
+`{"type":"module"}`), and nothing would tell the client which class the server sent. Give the `package.json` above one
+of them a `"name"`.
+
+```rx before
+-- module: ./web/package.json
+{ "type": "module" }
+-- module: ./web/err.d.rx
+export error Gone
+-- module: ./server/package.json
+{ "type": "module" }
+-- module: ./server/err.d.rx
+export error Gone
+-- main
+import { Gone } from "./web/err.js"
+import { Gone as Lost } from "./server/err.js"
+export default component App() {
+  <p>ok</p>
+}
+```
+
+```rx after
+-- module: ./web/package.json
+{ "name": "web", "type": "module" }
+-- module: ./web/err.d.rx
+export error Gone
+-- module: ./server/package.json
+{ "type": "module" }
+-- module: ./server/err.d.rx
+export error Gone
+-- main
+import { Gone } from "./web/err.js"
+import { Gone as Lost } from "./server/err.js"
+export default component App() {
+  <p>ok</p>
+}
+```
+
 ### COMPONENT_AS_VALUE
 
 A component is applied in markup, `<Greeting name="x" />`, not stored or called as a function (RG-4a). The exception is

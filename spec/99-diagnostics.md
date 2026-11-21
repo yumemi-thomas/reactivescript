@@ -128,6 +128,7 @@ named.
 | `WRITE_TO_NON_SOURCE` (MO-2)      | S   | MO-2a: an imported source is read-only | S-module-1 |
 | `IMPORT_ROW_MISMATCH`             | S   | MO-4a: `pure` / `fails` on an `.rx` import | S-module-1 |
 | `MODULE_CYCLE`                    | S   | MO-5  | S-module-1 |
+| `DUPLICATE_WIRE_ID` (new)         | S   | 10 SV-5a: two declared error classes, in packages with no name, that would cross to the client under one identity (refused where the declarations are loaded) | `a_wire_id_does_not_depend_on_the_entry_and_two_classes_never_share_one` (crate, `ref/units.ts`) |
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a; MO-12a for an undeclared JS context | S-module-1, S-module-7 |
 | `NOT_A_CONTEXT`, `CONTEXT_AS_VALUE` | S | RG-7a | S-context-1 |
 | `SOURCE_CONTEXT`, `WRITE_TO_NON_SOURCE` (O-4) | S | O-4: a context is read beneath its provision; `context x: source T` withdrawn (RG-7c, 2026-10-31) | S-context-1 |

@@ -141,22 +141,28 @@ by default — see the list at the end.
   declare `NotFound` declare two classes (as two contexts, MO-7). A JS module's
   class (`export error C` in its `.d.rx`) is the JS class itself, on both
   sides, identified by its declaration: the compiler writes it at the
-  import (`jsClass(NotFound, "app/people.d.rx#NotFound")`: a package's
-  specifier, or the app's `.d.rx` named from the nearest `package.json`
-  above it that has a name, after that name; a `package.json` with no name
-  (a `{"type":"module"}` scope) is passed over, and with no named one
-  above, the path is kept from the project root (the folder of the
-  nearest `package.json` above the entry, else the entry's folder), never
-  with that folder's own name or any folder above it, so a checkout names
-  it `err.d.rx#Gone` wherever it is and whatever it is called, and two
-  unnamed scopes side by side under the root (`a/err.d.rx#Gone`,
-  `b/err.d.rx#Gone`) name two classes; outside the root, from the nearest
-  `package.json` above the declaration (revised 2026-11-21 after review,
-  twice); with none, relative to the entry,
-  `../` included; never a machine path), so both builds agree whatever each
-  imports, from any entry (a library entry in `nested/` and the app's at
-  the root name `../err.d.rx` alike, revised 2026-11-21 after review: the
-  entry-relative name made the nested one absolute) and in any checkout. A rejection of it that
+  import (`jsClass(NotFound, "app/people.d.rx#NotFound")`). That identity
+  is read from the declaration's own place and nothing else (ruled
+  2026-11-22): a package's specifier; or, for the app's own `.d.rx`, the
+  nearest `package.json` above it that has a name, then the path below it
+  (`shop/src/err.d.rx#Gone`; a `package.json` with no name, a
+  `{"type":"module"}` scope, is passed over); with no named one above, the
+  path below the nearest `package.json` above it (`err.d.rx#Gone`,
+  `lib/err.d.rx#Gone`); with none above at all, the file's own name. A
+  folder's own name, or any folder above the package, is never part of
+  it, so it holds no machine path and is the same in every checkout, on
+  every machine and from every entry: the earlier revisions took the
+  folder of the nearest `package.json` above the *entry* for the root of
+  an unnamed project, so a class in a nested unnamed scope was
+  `web/err.d.rx#Gone` from one entry and `err.d.rx#Gone` from another,
+  and two classes could be named alike in one build. An unnamed package
+  has nothing to tell its classes from another unnamed one's, and the
+  compiler does not guess: two declarations that would name a class
+  alike in one program are refused where they are loaded
+  (`DUPLICATE_WIRE_ID`, naming both and the fix, a `"name"` in the
+  `package.json` above one of them). So in an accepted program every
+  declared class has an identity of its own, and both builds agree on
+  it. A rejection of it that
   a question awaits is sent with that identity: the nearest declared class
   up the instance's prototype chain, whatever order the program declared
   them in, so a `Child` of a declared `Base` is sent as `Child` when both

@@ -73,32 +73,42 @@ export const units: [string, () => void][] = [
       must(codesOf(src).includes("DRAFT_ESCAPES") === e.includes("(() =>"), "a read of the draft in its callback is a copy", src);
     }
   }],
-  ["unnamed_package_scopes_side_by_side_name_their_classes_apart", () => {   // SV-5a
-    let read = files({ "/w/app/a/package.json": `{"type":"module"}`, "/w/app/b/package.json": `{"type":"module"}` });
-    deepStrictEqual([packageRelative("/w/app/a/err.d.rx", "/w/app/main.rx", read), packageRelative("/w/app/b/err.d.rx", "/w/app/main.rx", read)], ["a/err.d.rx", "b/err.d.rx"]);
-    read = files({ "/w/app/package.json": "{}", "/w/app/a/package.json": `{"type":"module"}`, "/w/app/b/package.json": `{"type":"module"}` });
-    deepStrictEqual(packageRelative("/w/app/a/err.d.rx", "/w/app/main.rx", read), "a/err.d.rx");
-    deepStrictEqual(packageRelative("/w/app/b/err.d.rx", "/w/app/src/main.rx", read), "b/err.d.rx");
-    read = files({ "/w/app/package.json": `{"name":"shop"}`, "/w/app/a/package.json": `{"type":"module"}` });
-    deepStrictEqual(packageRelative("/w/app/a/err.d.rx", "/w/app/main.rx", read), "shop/a/err.d.rx");
-    read = files({ "/w/app/package.json": `{"name":"shop"}` });
-    deepStrictEqual(packageRelative("/w/app/src/err.d.rx", "/w/app/main.rx", read), "shop/src/err.d.rx");
+  ["a_wire_id_is_the_declarations_own_place", () => {   // SV-5a (ruled 2026-11-22)
+    let read = files({ "/w/app/package.json": `{"name":"shop"}`, "/w/app/a/package.json": `{"type":"module"}` });
+    deepStrictEqual(packageRelative("/w/app/a/err.d.rx", read), "shop/a/err.d.rx");
+    deepStrictEqual(packageRelative("/w/app/src/err.d.rx", read), "shop/src/err.d.rx");
+    read = files({ "/w/app/package.json": `{"type":"module"}`, "/w/app/web/package.json": `{"type":"module"}`, "/w/app/server/package.json": `{"type":"module"}` });
+    deepStrictEqual([packageRelative("/w/app/web/err.d.rx", read), packageRelative("/w/app/server/err.d.rx", read), packageRelative("/w/app/shared/err.d.rx", read)], ["err.d.rx", "err.d.rx", "shared/err.d.rx"]);
+    read = files({ "/home/u/package.json": "{}", "/home/u/work/proj/package.json": `{"type":"module"}` });
+    deepStrictEqual(packageRelative("/home/u/work/proj/err.d.rx", read), "err.d.rx");
+    read = files({});
+    deepStrictEqual([packageRelative("/w/x/err.d.rx", read), packageRelative("a/err.d.rx", read)], ["err.d.rx", "err.d.rx"]);
+    read = files({ "/w/app/package.json": "{}" });
+    deepStrictEqual(packageRelative("/w/x/err.d.rx", read), "err.d.rx");
   }],
   ["a_wire_id_holds_no_machine_path_and_no_checkout_name", () => {   // SV-5a
     for (const root of ["/private/tmp/x/my-app", "/home/ci/build-101", "/Users/a/dev/proj"]) {
       const read = files({ [`${root}/package.json`]: `{"type":"module","private":true}` });
-      deepStrictEqual(packageRelative(`${root}/err.d.rx`, `${root}/main.rx`, read), "err.d.rx");
-      deepStrictEqual(packageRelative(`${root}/lib/err.d.rx`, `${root}/src/main.rx`, read), "lib/err.d.rx");
+      deepStrictEqual(packageRelative(`${root}/err.d.rx`, read), "err.d.rx");
+      deepStrictEqual(packageRelative(`${root}/lib/err.d.rx`, read), "lib/err.d.rx");
     }
-    let read = files({ "/home/u/package.json": "{}", "/home/u/work/proj/package.json": `{"type":"module"}` });
-    deepStrictEqual(packageRelative("/home/u/work/proj/err.d.rx", "/home/u/work/proj/main.rx", read), "err.d.rx");
-    read = files({});
-    deepStrictEqual(packageRelative("/w/x/err.d.rx", "/w/x/main.rx", read), "err.d.rx");
-    deepStrictEqual(packageRelative("a/err.d.rx", "main.rx", read), "a/err.d.rx");
-    read = files({ "/w/lib/package.json": "{}", "/w/app/package.json": "{}" });
-    deepStrictEqual(packageRelative("/w/lib/err.d.rx", "/w/app/main.rx", read), "err.d.rx");
-    read = files({ "/w/app/package.json": "{}" });
-    deepStrictEqual(packageRelative("/w/x/err.d.rx", "/w/app/main.rx", read), undefined);
+  }],
+  ["a_wire_id_does_not_depend_on_the_entry_and_two_classes_never_share_one", () => {   // SV-5a (ruled 2026-11-22)
+    const D = "export error Gone\nexport pure fn load(id: string): Promise<string> rejects(Gone)\n";
+    const MAIN = "export default component App() {\n  errored fallback(e: Gone) { <p>gone</p> } {\n    loading fallback { <p>…</p> } {\n      v = await load(\"1\")\n      <p>{v}</p>\n    }\n  }\n}\n";
+    const fs: Record<string, string> = {
+      "/w/app/package.json": `{"type":"module"}`, "/w/app/web/package.json": `{"type":"module"}`, "/w/app/server/package.json": `{"type":"module"}`,
+      "/w/app/web/err.d.rx": D, "/w/app/server/err.d.rx": D,
+      "/w/app/main.rx": `import { load, Gone } from "./web/err.js"\n${MAIN}`,
+      "/w/app/web/main.rx": `import { load, Gone } from "./err.js"\n${MAIN}`,
+      "/w/app/server/main.rx": `import { load, Gone } from "../web/err.js"\n${MAIN}`,
+      "/w/app/server/both.rx": `import { load, Gone } from "../web/err.js"\nimport { Gone as Gone2 } from "./err.js"\n${MAIN}`,
+    };
+    deepStrictEqual(["/w/app/main.rx", "/w/app/web/main.rx", "/w/app/server/main.rx"].map(e => loadModules(e, files(fs)).declarationIds!.get("/w/app/web/err.d.rx")), ["err.d.rx", "err.d.rx", "err.d.rx"]);
+    let err: any; try { loadModules("/w/app/server/both.rx", files(fs)); } catch (e) { err = e; }
+    deepStrictEqual([err?.code, /"err\.d\.rx#Gone"/.test(err?.message), /\/w\/app\/web\/err\.d\.rx/.test(err?.message), /"name"/.test(err?.message)], ["DUPLICATE_WIRE_ID", true, true, true]);
+    const set = loadModules("/w/app/server/both.rx", files({ ...fs, "/w/app/web/package.json": `{"name":"web"}` }));
+    deepStrictEqual([set.declarationIds!.get("/w/app/web/err.d.rx"), set.declarationIds!.get("/w/app/server/err.d.rx")], ["web/err.d.rx", "err.d.rx"]);
   }],
   ["type_arguments_with_a_brace_in_a_string", () => {   // R4 (RFC 11): the crate's type_arguments_are_parsed_completely cases
     for (const t of ["`x${\"}\"}`", "`x${'}'}`", "`x${`}`}`", "`x${\"{\"}`", "{ k: `x${\"}\"}` }", "\"}\""]) deepStrictEqual([t, looksLikeTypes(t)], [t, true]);

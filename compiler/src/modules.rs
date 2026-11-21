@@ -73,13 +73,14 @@ enum State {
 
 struct Loader<'r> {
     read: &'r dyn Fn(&str) -> Option<String>,
-    entry: String,
     programs: HashMap<String, Program>,
     order: Vec<String>,
     diags: Vec<Diagnostic>,
     declarations: IndexMap<String, Vec<JsDecl>>,
     declaration_uses: Vec<DeclarationUse>,
     declaration_ids: HashMap<String, String>,
+    /// SV-5a: each declared error class's wire id (`id#Name`), and the declaration it is
+    wire_ids: HashMap<String, String>,
     signatures: IndexMap<String, ModSig>,
     sources: HashMap<String, String>,
     state: HashMap<String, State>,
@@ -199,49 +200,45 @@ pub fn declaration_for(from_file: &str, spec: &str, read: &dyn Fn(&str) -> Optio
         .or_else(|| up(&format!("node_modules/@rx-types/{shared}/{sub}.d.rx")))
         .or_else(|| up(&format!("node_modules/.rx-types/{spec}.d.rx")))
 }
-/// SV-5a (revised 2026-11-21 after review): what a declared error class is identified by, so a server and a client built
-/// from different entries, or in checkouts at different paths or on different machines, name it alike. First match wins:
+/// SV-5a (ruled 2026-11-22): what a declared error class is identified by. It is read from the declaration's own place
+/// and nothing else — not the entry, not the checkout — so a server and a client name it alike whatever each was built
+/// from, wherever. First match wins:
 /// 1. the nearest folder above `file` whose package.json has a name: that name, then the path below it
-///    (`shop/src/err.d.rx`);
-/// 2. the project root — the folder of the nearest package.json above `entry`, else the entry's own folder — when
-///    `file` is inside it: the path below it (`err.d.rx`; two unnamed `{"type":"module"}` scopes side by side under
-///    it, `a/err.d.rx` and `b/err.d.rx`);
-/// 3. the folder of the nearest package.json above `file`: the path below it.
+///    (`shop/src/err.d.rx`); a package.json with no name (a `{"type":"module"}` scope) is passed over;
+/// 2. the nearest folder above `file` with a package.json: the path below it (`err.d.rx`, `lib/err.d.rx`);
+/// 3. with none above: the file's own name.
 ///
-/// A folder's own name, or any folder above the root, is never part of it, so it never holds a machine path and does
-/// not depend on what the checkout is called. None when none applies (the emitter then names it from the entry).
-pub fn package_relative(file: &str, entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+/// A folder's own name, or any folder above the package, is never part of it, so it holds no machine path. An unnamed
+/// package has nothing to tell its classes from another unnamed one's: two declarations that would name a class alike
+/// in one program are refused where they are loaded (`Loader::visit`), not told apart by where the build started.
+pub fn package_relative(file: &str, read: &dyn Fn(&str) -> Option<String>) -> String {
     let pj = |dir: &str| if dir.is_empty() { "package.json".to_string() } else { format!("{dir}/package.json") };
-    // the folders above a path, nearest first, with whether each has a package.json and its name
-    let above = |path: &str| -> Vec<(String, Option<Option<String>>)> {
-        let segs: Vec<&str> = path.split('/').collect();
-        let lo = if path.starts_with('/') { 1 } else { 0 };
-        let mut out = vec![];
-        let mut i = segs.len() as i64 - 1;
-        while i >= lo {
-            let dir = segs[..i as usize].join("/");
-            let found = read(&pj(&dir)).map(|text| serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string)).filter(|n| !n.is_empty()));
-            out.push((dir, found));
-            i -= 1;
-        }
-        out
-    };
+    // the folders above the file, nearest first, with whether each has a package.json and its name
+    let segs: Vec<&str> = file.split('/').collect();
+    let lo = if file.starts_with('/') { 1 } else { 0 };
+    let mut mine: Vec<(String, Option<Option<String>>)> = vec![];
+    let mut i = segs.len() as i64 - 1;
+    while i >= lo {
+        let dir = segs[..i as usize].join("/");
+        let found = read(&pj(&dir)).map(|text| serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string)).filter(|n| !n.is_empty()));
+        mine.push((dir, found));
+        i -= 1;
+    }
     let below = |dir: &str| -> Option<String> {
         if dir.is_empty() {
             return (!file.starts_with('/')).then(|| file.to_string());
         }
         file.strip_prefix(dir).and_then(|r| r.strip_prefix('/')).map(str::to_string)
     };
-    let mine = above(file);
     if let Some((dir, Some(Some(name)))) = mine.iter().find(|(_, f)| matches!(f, Some(Some(_)))) {
-        return below(dir).map(|r| format!("{name}/{r}"));
+        if let Some(r) = below(dir) {
+            return format!("{name}/{r}");
+        }
     }
-    let roots = above(entry);
-    let root = roots.iter().find(|(_, f)| f.is_some()).map(|(d, _)| d.clone()).or_else(|| roots.first().map(|(d, _)| d.clone()));
-    if let Some(r) = root.as_deref().and_then(below) {
-        return Some(r);
+    if let Some(r) = mine.iter().find(|(_, f)| f.is_some()).and_then(|(d, _)| below(d)) {
+        return r;
     }
-    mine.iter().find(|(_, f)| f.is_some()).and_then(|(d, _)| below(d))
+    file.rsplit('/').next().unwrap_or(file).to_string()
 }
 static PKG_EXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.(m?js|cjs|jsx|ts|tsx)$").unwrap());
 
@@ -292,10 +289,20 @@ impl Loader<'_> {
                 if !self.declarations.contains_key(&dts) {
                     if let Some(src) = (self.read)(&dts) {
                         let ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", dts, e.0), e.1, Some(dts.clone()), e.3))?;
-                        self.declarations.insert(dts.clone(), ds);
-                        if let Some(id) = package_relative(&dts, &self.entry, &*self.read) {
-                            self.declaration_ids.insert(dts.clone(), id);
+                        // SV-5a: the declaration's identity; two that would name an error class alike are not told apart
+                        let id = package_relative(&dts, &*self.read);
+                        if from.starts_with('.') {
+                            for x in &ds {
+                                let JsDecl::Error { name, .. } = x else { continue };
+                                let key = format!("{id}#{name}");
+                                if let Some(other) = self.wire_ids.get(&key) {
+                                    return Err(ParseError(format!("{dts}: the error class {name} would be sent to the client as \"{key}\", and so would the one {other} declares: neither is in a package with a name, so nothing tells them apart — give the package.json above one of them a \"name\" (SV-5a)"), None, Some(dts.clone()), "DUPLICATE_WIRE_ID"));
+                                }
+                                self.wire_ids.insert(key, dts.clone());
+                            }
                         }
+                        self.declarations.insert(dts.clone(), ds);
+                        self.declaration_ids.insert(dts.clone(), id);
                     }
                 }
                 if let Some(ds) = self.declarations.get(&dts) {
@@ -372,7 +379,7 @@ pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String
     load(entry, read, true)
 }
 fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
-    let mut l = Loader { read, entry: entry.to_string(), programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
+    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), wire_ids: HashMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
     Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
 }
@@ -408,21 +415,25 @@ mod tests {
         move |p: &str| fs.iter().find(|(k, _)| *k == p).map(|(_, v)| v.to_string())
     }
     #[test]
-    fn unnamed_package_scopes_side_by_side_name_their_classes_apart() {
-        // SV-5a: two `{"type":"module"}` scopes with no name under the project, each declaring `err.d.rx#Gone`
-        let read = files(&[("/w/app/a/package.json", r#"{"type":"module"}"#), ("/w/app/b/package.json", r#"{"type":"module"}"#)]);
-        let a = package_relative("/w/app/a/err.d.rx", "/w/app/main.rx", &read).unwrap();
-        let b = package_relative("/w/app/b/err.d.rx", "/w/app/main.rx", &read).unwrap();
-        assert_eq!((a.as_str(), b.as_str()), ("a/err.d.rx", "b/err.d.rx"));
-        // under an unnamed project root: kept from the root's folder, never with the root's own name
-        let read = files(&[("/w/app/package.json", "{}"), ("/w/app/a/package.json", r#"{"type":"module"}"#), ("/w/app/b/package.json", r#"{"type":"module"}"#)]);
-        assert_eq!(package_relative("/w/app/a/err.d.rx", "/w/app/main.rx", &read).unwrap(), "a/err.d.rx");
-        assert_eq!(package_relative("/w/app/b/err.d.rx", "/w/app/src/main.rx", &read).unwrap(), "b/err.d.rx");
-        // a named package above wins, wherever the unnamed scope is
+    fn a_wire_id_is_the_declarations_own_place() {
+        // SV-5a (ruled 2026-11-22): the nearest named package above it, then the path below
         let read = files(&[("/w/app/package.json", r#"{"name":"shop"}"#), ("/w/app/a/package.json", r#"{"type":"module"}"#)]);
-        assert_eq!(package_relative("/w/app/a/err.d.rx", "/w/app/main.rx", &read).unwrap(), "shop/a/err.d.rx");
-        let read = files(&[("/w/app/package.json", r#"{"name":"shop"}"#)]);
-        assert_eq!(package_relative("/w/app/src/err.d.rx", "/w/app/main.rx", &read).unwrap(), "shop/src/err.d.rx");
+        assert_eq!(package_relative("/w/app/a/err.d.rx", &read), "shop/a/err.d.rx");
+        assert_eq!(package_relative("/w/app/src/err.d.rx", &read), "shop/src/err.d.rx");
+        // no named one: below the nearest package.json, whatever is above that — nested unnamed scopes, a stray one in a
+        // home folder — so it is the same from every entry, in every checkout
+        let read = files(&[("/w/app/package.json", r#"{"type":"module"}"#), ("/w/app/web/package.json", r#"{"type":"module"}"#), ("/w/app/server/package.json", r#"{"type":"module"}"#)]);
+        assert_eq!(package_relative("/w/app/web/err.d.rx", &read), "err.d.rx");
+        assert_eq!(package_relative("/w/app/server/err.d.rx", &read), "err.d.rx");
+        assert_eq!(package_relative("/w/app/shared/err.d.rx", &read), "shared/err.d.rx");
+        let read = files(&[("/home/u/package.json", "{}"), ("/home/u/work/proj/package.json", r#"{"type":"module"}"#)]);
+        assert_eq!(package_relative("/home/u/work/proj/err.d.rx", &read), "err.d.rx");
+        // no package.json anywhere above: the file's own name
+        let read = files(&[]);
+        assert_eq!(package_relative("/w/x/err.d.rx", &read), "err.d.rx");
+        assert_eq!(package_relative("a/err.d.rx", &read), "err.d.rx");
+        let read = files(&[("/w/app/package.json", "{}")]);
+        assert_eq!(package_relative("/w/x/err.d.rx", &read), "err.d.rx");
     }
     #[test]
     fn a_wire_id_holds_no_machine_path_and_no_checkout_name() {
@@ -430,22 +441,40 @@ mod tests {
         for root in ["/private/tmp/x/my-app", "/home/ci/build-101", "/Users/a/dev/proj"] {
             let pj = format!("{root}/package.json");
             let read = move |p: &str| (p == pj).then(|| r#"{"type":"module","private":true}"#.to_string());
-            assert_eq!(package_relative(&format!("{root}/err.d.rx"), &format!("{root}/main.rx"), &read).unwrap(), "err.d.rx");
-            assert_eq!(package_relative(&format!("{root}/lib/err.d.rx"), &format!("{root}/src/main.rx"), &read).unwrap(), "lib/err.d.rx");
+            assert_eq!(package_relative(&format!("{root}/err.d.rx"), &read), "err.d.rx");
+            assert_eq!(package_relative(&format!("{root}/lib/err.d.rx"), &read), "lib/err.d.rx");
         }
-        // a stray unnamed package.json in a home folder above the project is not its root
-        let read = files(&[("/home/u/package.json", "{}"), ("/home/u/work/proj/package.json", r#"{"type":"module"}"#)]);
-        assert_eq!(package_relative("/home/u/work/proj/err.d.rx", "/home/u/work/proj/main.rx", &read).unwrap(), "err.d.rx");
-        // no package.json anywhere: relative to the entry's folder; a relative entry stays relative
-        let read = files(&[]);
-        assert_eq!(package_relative("/w/x/err.d.rx", "/w/x/main.rx", &read).unwrap(), "err.d.rx");
-        assert_eq!(package_relative("a/err.d.rx", "main.rx", &read).unwrap(), "a/err.d.rx");
-        // outside the root, under a package.json of its own: below that one
-        let read = files(&[("/w/lib/package.json", "{}"), ("/w/app/package.json", "{}")]);
-        assert_eq!(package_relative("/w/lib/err.d.rx", "/w/app/main.rx", &read).unwrap(), "err.d.rx");
-        // outside the root and under no package.json: none (the emitter names it from the entry)
-        let read = files(&[("/w/app/package.json", "{}")]);
-        assert_eq!(package_relative("/w/x/err.d.rx", "/w/app/main.rx", &read), None);
+    }
+    #[test]
+    fn a_wire_id_does_not_depend_on_the_entry_and_two_classes_never_share_one() {
+        // SV-5a (ruled 2026-11-22): nested unnamed scopes, each declaring `Gone` in an `err.d.rx`
+        const D: &str = "export error Gone\nexport pure fn load(id: string): Promise<string> rejects(Gone)\n";
+        const MAIN: &str = "export default component App() {\n  errored fallback(e: Gone) { <p>gone</p> } {\n    loading fallback { <p>…</p> } {\n      v = await load(\"1\")\n      <p>{v}</p>\n    }\n  }\n}\n";
+        let fs: Vec<(String, String)> = vec![
+            ("/w/app/package.json".into(), r#"{"type":"module"}"#.into()),
+            ("/w/app/web/package.json".into(), r#"{"type":"module"}"#.into()),
+            ("/w/app/server/package.json".into(), r#"{"type":"module"}"#.into()),
+            ("/w/app/web/err.d.rx".into(), D.into()),
+            ("/w/app/server/err.d.rx".into(), D.into()),
+            ("/w/app/main.rx".into(), format!("import {{ load, Gone }} from \"./web/err.js\"\n{MAIN}")),
+            ("/w/app/web/main.rx".into(), format!("import {{ load, Gone }} from \"./err.js\"\n{MAIN}")),
+            ("/w/app/server/main.rx".into(), format!("import {{ load, Gone }} from \"../web/err.js\"\n{MAIN}")),
+            ("/w/app/server/both.rx".into(), format!("import {{ load, Gone }} from \"../web/err.js\"\nimport {{ Gone as Gone2 }} from \"./err.js\"\n{MAIN}")),
+        ];
+        let read = |p: &str| fs.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+        // the same class, from three entries: one id
+        let ids: Vec<String> = ["/w/app/main.rx", "/w/app/web/main.rx", "/w/app/server/main.rx"].iter().map(|e| load_modules(e, &read).unwrap().declaration_ids["/w/app/web/err.d.rx"].clone()).collect();
+        assert_eq!(ids, vec!["err.d.rx", "err.d.rx", "err.d.rx"]);
+        // two classes that would share it, in one program: refused, with what to do
+        let e = load_modules("/w/app/server/both.rx", &read).err().expect("two classes named alike are refused");
+        assert_eq!(e.3, "DUPLICATE_WIRE_ID");
+        assert!(e.0.contains("\"err.d.rx#Gone\"") && e.0.contains("/w/app/web/err.d.rx") && e.0.contains("\"name\""), "{}", e.0);
+        // named, each is its own
+        let mut named = fs.clone();
+        named[1].1 = r#"{"name":"web"}"#.into();
+        let read = |p: &str| named.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+        let set = load_modules("/w/app/server/both.rx", &read).unwrap();
+        assert_eq!((set.declaration_ids["/w/app/web/err.d.rx"].as_str(), set.declaration_ids["/w/app/server/err.d.rx"].as_str()), ("web/err.d.rx", "err.d.rx"));
     }
     #[test]
     fn a_relative_js_import_is_declared_by_its_whole_name_then_its_stem() {
