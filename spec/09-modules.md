@@ -427,7 +427,10 @@ export component Search(props: { start: boolean, q: string }) {
   resolves to, as MO-8a's is beside a relative module and a `.d.ts` beside its
   `.js`: `@solid-primitives/media` resolves through the package's `exports`
   with the build's conditions to `dist/index.jsx`, and its declaration is
-  `dist/index.d.rx`. No export condition is needed. A package whose
+  `dist/index.d.rx`. No export condition is needed. A subpath matched by
+  `*` patterns takes the pattern Node takes (`PATTERN_KEY_COMPARE`): the
+  longest part before the `*`, then the longest key, whatever the keys'
+  order (S-module-26). A package whose
   conditions resolve to more than one file ships the declaration beside
   each; the rows of one export are the same in every build.
   A package that ships none is declared by the project in

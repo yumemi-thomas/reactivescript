@@ -129,15 +129,24 @@ pub fn package_declaration(from_file: &str, spec: &str, read: &dyn Fn(&str) -> O
                     None => (sub == ".").then(|| pick(ex)).flatten(),
                     Some(m) => match m.get(&sub) {
                         Some(v) => pick(v),
-                        None => m.iter().find_map(|(k, v)| {
-                            let star = k.find('*')?;
-                            let (pre, post) = (&k[..star], &k[star + 1..]);
-                            if sub.starts_with(pre) && sub.ends_with(post) && sub.len() >= pre.len() + post.len() {
-                                Some(pick(v).map(|t| t.replace('*', &sub[pre.len()..sub.len() - post.len()])))
-                            } else {
-                                None
+                        // Node's PATTERN_KEY_COMPARE: the longest part before `*` wins, then the longest key
+                        None => {
+                            let mut best: Option<(&String, usize)> = None;
+                            for k in m.keys() {
+                                let Some(star) = k.find('*') else { continue };
+                                if k.rfind('*') != Some(star) {
+                                    continue;
+                                }
+                                let (pre, post) = (&k[..star], &k[star + 1..]);
+                                if sub.starts_with(pre) && sub.ends_with(post) && sub.len() >= k.len() && best.is_none_or(|(b, bs)| star > bs || (star == bs && k.len() > b.len())) {
+                                    best = Some((k, star));
+                                }
                             }
-                        }).flatten(),
+                            best.and_then(|(k, star)| {
+                                let post = k.len() - star - 1;
+                                pick(&m[k]).map(|t| t.replace('*', &sub[star..sub.len() - post]))
+                            })
+                        }
                     },
                 }
             }

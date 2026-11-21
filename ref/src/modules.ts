@@ -41,7 +41,11 @@ export function packageDeclaration(fromFile: string, spec: string, read: (path: 
       const map: Record<string, unknown> | null = typeof ex === "object" && ex && !Array.isArray(ex) && Object.keys(ex).some(k => k.startsWith(".")) ? ex : null;
       if (!map) target = sub === "." ? pick(ex) : undefined;
       else if (sub in map) target = pick(map[sub]);
-      else for (const [k, v] of Object.entries(map)) { const star = k.indexOf("*"); if (star < 0) continue; const pre = k.slice(0, star), post = k.slice(star + 1); if (sub.startsWith(pre) && sub.endsWith(post) && sub.length >= pre.length + post.length) { const t = pick(v); if (t) target = t.split("*").join(sub.slice(pre.length, sub.length - post.length)); break; } }
+      else {                                                                               // Node's PATTERN_KEY_COMPARE: the longest part before `*` wins, then the longest key
+        let best: string | undefined;
+        for (const k of Object.keys(map)) { const star = k.indexOf("*"); if (star < 0 || k.lastIndexOf("*") !== star) continue; const pre = k.slice(0, star), post = k.slice(star + 1); if (sub.startsWith(pre) && sub.endsWith(post) && sub.length >= k.length && (best === undefined || star > best.indexOf("*") || (star === best.indexOf("*") && k.length > best.length))) best = k; }
+        if (best !== undefined) { const star = best.indexOf("*"), post = best.length - star - 1; const t = pick(map[best]); if (t) target = t.split("*").join(sub.slice(star, sub.length - post)); }
+      }
     } else target = sub === "." ? (typeof json.module === "string" ? json.module : typeof json.main === "string" ? json.main : "./index.js") : sub;
     if (!target) return undefined;
     return joinPath(root + "/package.json", target).replace(/\.(m?js|cjs|jsx|ts|tsx)$/, "") + ".d.rx";

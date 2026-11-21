@@ -55,6 +55,29 @@ export component Gauge(props: { value: number })
 export fn readGauge(): number
 ```
 
+```json
+-- module: ./node_modules/@demo/pat/package.json
+{ "name": "@demo/pat", "exports": { "./*": "./general/*.js", "./feature/*": "./special/*.js" } }
+```
+
+```rx
+-- module: ./node_modules/@demo/pat/special/x.d.rx
+// what `@demo/pat/feature/x` resolves to: `./feature/*` is the more specific pattern
+export component Special(props: { on: boolean })
+```
+
+```rx
+-- module: ./node_modules/@demo/pat/general/feature/x.d.rx
+// what `./*` alone would give: not the file Node loads
+export component General(props: { on: boolean })
+```
+
+A package's `exports` patterns are matched as Node matches them: of the
+keys whose `*` the subpath fits, the one with the longest part before the
+`*` wins, whatever their order (`PATTERN_KEY_COMPARE`), so
+`@demo/pat/feature/x` is `special/x.js` and its declaration
+`special/x.d.rx`.
+
 ## Program
 
 ```rx
@@ -62,8 +85,9 @@ import { Badge } from "@demo/kit"
 import { Chart } from "@demo/charts"
 import { Bars } from "@demo/charts/bars"
 import { Gauge } from "@demo/gauge"
+import { Special } from "@demo/pat/feature/x"
 export default component App() {
-  <Badge label="new" /> <Chart points={[1, 2, 3]} /> <Bars points={[4]} /> <Gauge value={3} />
+  <Badge label="new" /> <Chart points={[1, 2, 3]} /> <Bars points={[4]} /> <Gauge value={3} /> <Special on={true} />
 }
 ```
 
@@ -130,3 +154,14 @@ export default component App() {
 The generated draft declares no `Dial`. The message says the declaration
 is a draft from the package's types (MO-8l), which a build redrafts when
 those types change, and where to declare the package instead.
+
+```rx
+-- reject: NOT_EXPORTED
+import { General } from "@demo/pat/feature/x"
+export default component App() {
+  <General on={true} />
+}
+```
+
+`general/feature/x.d.rx` is not the declaration: `./*` is the less specific
+pattern, though it comes first.
