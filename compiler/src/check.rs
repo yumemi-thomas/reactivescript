@@ -2273,6 +2273,93 @@ impl<'a> Checker<'a> {
             out.cls.extend(h.2);
         }
     }
+    /// R-f-5, MO-10f (revised 2026-11-21 after review): the held rows an expression's evaluation touches — whether one
+    /// holds, and the classes they fail with — by `values_of`. A field read through any value that may be a JS fn's
+    /// result (`box.q.data`, `get().data`, an alias's) touches that field; a result consumed whole — spread, passed to a
+    /// component or a JS fn, shown, written — touches every held field below where it is consumed. Only moved — bound to
+    /// a name, put in a record or an array, a branch of `?:`, `??`, `||`, `&&` — it touches none: the compiled result is
+    /// read a field at a time, where each is read (`lazy`). `consumed`: whether `e`'s own value is consumed whole.
+    fn held_touched(&self, e: &'a Expr, env: EId, consumed: bool, out: &mut (bool, IndexSet<String>)) {
+        let mut root = e;
+        let mut keys: Vec<&'a Expr> = vec![];
+        while let ExprKind::Member { o, .. } | ExprKind::Index { o, .. } = &root.k {
+            if let ExprKind::Index { i, .. } = &root.k {
+                keys.push(i);
+            }
+            root = o;
+        }
+        let chain = !std::ptr::eq(root, e) || matches!(e.k, ExprKind::Id(_));
+        if chain {
+            for (t, p) in self.values_of(e, env) {
+                for h in &self.syms[t].held {
+                    let segs: Vec<&str> = h.0.split('.').collect();
+                    let prefix = segs.len() >= p.len() && segs.iter().zip(&p).all(|(a, b)| b.as_deref().is_none_or(|b| b == *a));
+                    if prefix && (segs.len() == p.len() || consumed) {
+                        out.0 |= h.1;
+                        out.1.extend(h.2.iter().cloned());
+                    }
+                }
+            }
+            for k in keys {
+                self.held_touched(k, env, true, out);
+            }
+            if !matches!(root.k, ExprKind::Id(_)) {
+                self.held_touched(root, env, false, out);
+            }
+            return;
+        }
+        match &e.k {
+            ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => {}
+            ExprKind::Rec(fields) => {
+                for f in fields {
+                    match f {
+                        Field::Kv { v, .. } => self.held_touched(v, env, consumed, out),
+                        Field::Spread(x) => self.held_touched(x, env, true, out),
+                    }
+                }
+            }
+            ExprKind::Arr(items) => {
+                for x in items {
+                    match &x.k {
+                        ExprKind::Spread(inner) => self.held_touched(inner, env, true, out),
+                        _ => self.held_touched(x, env, consumed, out),
+                    }
+                }
+            }
+            ExprKind::If { c, t, f } => {
+                self.held_touched(c, env, false, out);
+                self.held_touched(t, env, consumed, out);
+                self.held_touched(f, env, consumed, out);
+            }
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => {
+                self.held_touched(l, env, consumed, out);
+                self.held_touched(r, env, consumed, out);
+            }
+            ExprKind::Catch { e: x, classes, alt, .. } => {
+                // a catch discharges what it catches of the failures under it (R-f-4)
+                let mut inner = (false, IndexSet::new());
+                self.held_touched(x, env, consumed, &mut inner);
+                let c = Catch::of(classes);
+                out.0 |= inner.0;
+                out.1.extend(inner.1.into_iter().filter(|k| !c.caught(k)));
+                self.held_touched(alt, env, consumed, out);
+            }
+            ExprKind::Peek(x) | ExprKind::Latest(x) | ExprKind::Pending(x) => self.held_touched(x, env, consumed, out),
+            ExprKind::Call { f, args, .. } => {
+                self.held_touched(f, env, false, out);
+                for a in args {
+                    self.held_touched(a, env, true, out);
+                }
+            }
+            _ => {
+                for c in children(Node::E(e), false) {
+                    if let Node::E(x) = c {
+                        self.held_touched(x, env, true, out);
+                    }
+                }
+            }
+        }
+    }
     /// MO-3: this module's signature — every export as an importer sees it.
     pub fn signature(&mut self, p: &'a Program) -> ModSig {
         let mut exports = IndexMap::new();
@@ -2428,8 +2515,8 @@ impl<'a> Checker<'a> {
                 ExprKind::Latest(_) | ExprKind::Pending(_) => {
                     rows.insert("lane".into());
                 }
-                ExprKind::Member { .. } | ExprKind::Index { .. } if self.held_field(e, env).is_some_and(|h| h.1) => {
-                    rows.insert("pending".into()); // MO-10f: a field that holds
+                ExprKind::Member { .. } | ExprKind::Index { .. } if self.held_field(e, env).is_some_and(|h| h.1) || { let mut t = (false, IndexSet::new()); self.held_touched(e, env, false, &mut t); t.0 } => {
+                    rows.insert("pending".into()); // MO-10f: a field that holds, read through any value that may be the result
                 }
                 ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return,
                 ExprKind::Use(name) => {
@@ -5605,7 +5692,14 @@ impl<'a> Checker<'a> {
     /// every branch counts. CN-3d (`first`): only what the first load surely asks: a question behind a condition
     /// (`c ? null : await f()`, `c && await f()`, a `catch`'s alternative) waits only if `c` lets it, which the
     /// checker cannot know.
-    fn expr_absent(&self, e: &Expr, env: EId, own: Option<SId>, first: bool, memo: &mut HashMap<SId, bool>, busy: &mut HashSet<SId>) -> bool {
+    fn expr_absent(&self, e: &'a Expr, env: EId, own: Option<SId>, first: bool, memo: &mut HashMap<SId, bool>, busy: &mut HashSet<SId>) -> bool {
+        // MO-10f (revised 2026-11-21 after review): a field that holds, touched through any value that may be the result,
+        // or the result consumed whole (an equation only moves its value; a view or an argument consumes it)
+        let mut touched = (false, IndexSet::new());
+        self.held_touched(e, env, own.is_none_or(|s| self.syms[s].kind != SymKind::Eq), &mut touched);
+        if touched.0 {
+            return true;
+        }
         let mut stack = vec![Node::E(e)];
         while let Some(n) = stack.pop() {
             if let Node::E(x) = n {
@@ -5855,7 +5949,11 @@ impl<'a> Checker<'a> {
                 (*e, *env)
             }
         };
-        let f = self.fails_of(e, env, false, &HashMap::new());
+        let mut f = self.fails_of(e, env, false, &HashMap::new());
+        // R-f-5, MO-10f: the held fields its value touches — an equation moves its value, a source keeps it whole
+        let mut touched = (false, IndexSet::new());
+        self.held_touched(e, env, self.syms[s].kind == SymKind::Source, &mut touched);
+        f.cls.extend(touched.1);
         if let Some(FailsT::Expr { e: e2, cache, busy, .. }) = &mut self.syms[s].fails_t {
             if std::ptr::eq(*e2, e) {
                 *busy = false;
@@ -6257,7 +6355,11 @@ impl<'a> Checker<'a> {
         let readers: Vec<(RId, &'a Expr, EId, i64)> = self.readers.iter().map(|r| (r.region, r.e, r.env, r.line)).collect();
         let mut reader_f = vec![];
         for &(region, e, env, line) in &readers {
-            let f = self.fails_of(e, env, false, &HashMap::new());
+            let mut f = self.fails_of(e, env, false, &HashMap::new());
+            // R-f-5, MO-10f: what a view reads it consumes whole (shown, or handed on)
+            let mut touched = (false, IndexSet::new());
+            self.held_touched(e, env, true, &mut touched);
+            f.cls.extend(touched.1);
             reader_f.push((region, e, line, f));
         }
         let mut memo = HashMap::new();
@@ -6278,7 +6380,11 @@ impl<'a> Checker<'a> {
         let mut arg_f = vec![];
         for (i, args) in &apps {
             for (field, e, env) in args {
-                let f = self.fails_of(e, *env, false, &HashMap::new());
+                let mut f = self.fails_of(e, *env, false, &HashMap::new());
+                // R-f-5, MO-10f: a component may read any part of what it is given
+                let mut touched = (false, IndexSet::new());
+                self.held_touched(e, *env, true, &mut touched);
+                f.cls.extend(touched.1);
                 arg_f.push((*i, field.clone(), f));
             }
         }

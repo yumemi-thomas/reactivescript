@@ -238,6 +238,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       return [get, { set: set as any, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("GUESS_NO_QUESTION"); } }];
     },
     memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, opts as any) as Acc,
+    /** R-f-5, MO-10f: a JS fn's record or tuple result as a value whose parts are read where they are read — a getter
+     *  per part on the result (`refs`: the parts that are accessors, called) — so reading one part reads no other. */
+    lazy: (r: any, keys: (string | number)[], refs: (string | number)[]): Acc => { const o: any = keys.length && typeof keys[0] === "number" ? [] : {}; for (const k of keys) Object.defineProperty(o, k, { get: () => refs.includes(k) ? r[k]() : r[k], enumerable: true }); return () => o; },
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
     keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key

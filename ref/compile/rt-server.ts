@@ -212,6 +212,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       const [get] = createSignal(fn as any, o as any); return ro(get as Acc);
     },
     memo: (name: string | null, fn: (prev: unknown) => unknown, o?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, o as any) as Acc,
+    /** R-f-5, MO-10f: a JS fn's record or tuple result as a value whose parts are read where they are read — a getter
+     *  per part on the result (`refs`: the parts that are accessors, called) — so reading one part reads no other. */
+    lazy: (r: any, keys: (string | number)[], refs: (string | number)[]): Acc => { const o: any = keys.length && typeof keys[0] === "number" ? [] : {}; for (const k of keys) Object.defineProperty(o, k, { get: () => refs.includes(k) ? r[k]() : r[k], enumerable: true }); return () => o; },
     deferred: (name: string, fn: (prev: unknown) => unknown, o?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, o as any) as Acc,
     keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); return () => p; },
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },

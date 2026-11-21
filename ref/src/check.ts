@@ -432,6 +432,7 @@ class Checker {
       if (!t.expr || !t.env || busy.has(t)) return false;
       busy.add(t);
       const env = t.env;
+      if (this.heldTouched(t.expr, env, t.kind !== "eq").holds) { busy.delete(t); absentMemo.set(t, true); return true; }   // MO-10f: a field that holds, touched through any value that may be the result
       const go = (x: Expr): boolean => {
         if (x.k === "fn" || x.k === "serverfn" || x.k === "peek") return false;
         if (x.k === "await") return true;
@@ -551,6 +552,7 @@ class Checker {
       if (!t.expr || !t.env || busy.has(t)) return false;
       busy.add(t);
       const env = t.env;
+      if (this.heldTouched(t.expr, env, t.kind !== "eq").holds) { busy.delete(t); absentMemo.set(t, true); return true; }   // MO-10f: a field that holds, touched through any value that may be the result
       const go = (x: Expr): boolean => {
         if (x.k === "fn" || x.k === "peek") return false;
         if (x.k === "await") return !x.init;
@@ -639,8 +641,8 @@ class Checker {
       this.bind(env, d.name, sym);
     }
     this.serverIo(decls, env);
-    for (const d of decls) if (d.k === "source" && !d.question) env.vars.get(d.name)!.failsT = this.failsThunk(d.init, env);   // R-f-2: a source holds what its initializer gave it — an error, if that failed (found by S-ai2-settings)
-    for (const d of decls) if ((d.k === "eq" || (d.k === "source" && d.question))) { const e = d.k === "eq" ? d.e : d.init; const sym = env.vars.get(d.name)!; sym.rows = this.rowsThunk(e, env); sym.expr = e; sym.env = env; sym.failsT = this.failsThunk(e, env); }
+    for (const d of decls) if (d.k === "source" && !d.question) env.vars.get(d.name)!.failsT = this.failsThunk(d.init, env, true);   // R-f-2: a source holds what its initializer gave it — an error, if that failed (found by S-ai2-settings)
+    for (const d of decls) if ((d.k === "eq" || (d.k === "source" && d.question))) { const e = d.k === "eq" ? d.e : d.init; const sym = env.vars.get(d.name)!; sym.rows = this.rowsThunk(e, env); sym.expr = e; sym.env = env; sym.failsT = this.failsThunk(e, env, d.k === "source"); }
     // 2. C-1 over this block's equations (the static graph, CN-3a): only an equation's own `pre` breaks a cycle
     this.cycles(decls, env);
     // 3. each declaration
@@ -749,6 +751,7 @@ class Checker {
    *  counting only what the first load surely asks (a question behind a condition, `c ? null : await f()`, `c && await
    *  f()`, a `catch`'s alternative, waits only if `c` lets it). The crate's `expr_absent` with `first`, step for step. */
   private firstAbsent(e0: Expr, env: Env, own: Sym | undefined, memo: Map<Sym, boolean>, busy: Set<Sym>): boolean {
+    if (this.heldTouched(e0, env, !own || own.kind !== "eq").holds) return true;   // MO-10f (revised after review): touched through any value that may be the result, or consumed whole
     const stack: Expr[] = [e0];
     while (stack.length) {
       const x = stack.pop()!;
@@ -782,6 +785,36 @@ class Checker {
     });
   }
   /** MO-10f: the declared rows of a field read, `x.data` where `x` was bound from a JS fn's result. */
+  /** R-f-5, MO-10f (revised 2026-11-21 after review): the held rows an expression's evaluation touches — whether one holds,
+   *  and the classes they fail with — by `valuesOf`. A field read through any value that may be a JS fn's result touches
+   *  that field; a result consumed whole (spread, passed to a component or a JS fn, shown, written) touches every held field
+   *  below where it is consumed; only moved (bound to a name, put in a record or an array, a branch of `?:`, `??`, `||`,
+   *  `&&`) it touches none: the compiled result is read a field at a time (`lazy`). The crate's `held_touched`. */
+  private heldTouched(e: Expr, env: Env, consumed: boolean, out: { holds: boolean; cls: Set<string> } = { holds: false, cls: new Set() }): { holds: boolean; cls: Set<string> } {
+    let root = e; const keys: Expr[] = [];
+    while (root.k === "member" || root.k === "index") { if (root.k === "index") keys.push(root.i); root = root.o; }
+    if (root !== e || e.k === "id") {
+      for (const [t, p] of this.valuesOf(e, env)) for (const h of t.held ?? []) {
+        const segs = h[0].split("."); const prefix = segs.length >= p.length && p.every((b, i) => b === undefined || b === segs[i]);
+        if (prefix && (segs.length === p.length || consumed)) { out.holds ||= h[1]; for (const c of h[2]) out.cls.add(c); }
+      }
+      for (const k of keys) this.heldTouched(k, env, true, out);
+      if (root.k !== "id") this.heldTouched(root, env, false, out);
+      return out;
+    }
+    switch (e.k) {
+      case "fn": case "serverfn": break;
+      case "rec": for (const f of e.fields) if ("key" in f) this.heldTouched(f.v, env, consumed, out); else this.heldTouched(f.spread, env, true, out); break;
+      case "arr": for (const x of e.items) if (x.k === "spread") this.heldTouched(x.e, env, true, out); else this.heldTouched(x, env, consumed, out); break;
+      case "if": this.heldTouched(e.c, env, false, out); this.heldTouched(e.t, env, consumed, out); this.heldTouched(e.f, env, consumed, out); break;
+      case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") { this.heldTouched(e.l, env, consumed, out); this.heldTouched(e.r, env, consumed, out); } else { this.heldTouched(e.l, env, true, out); this.heldTouched(e.r, env, true, out); } break;
+      case "catch": { const inner = this.heldTouched(e.e, env, consumed); const c = catchOf(e.classes); out.holds ||= inner.holds; for (const k of inner.cls) if (!caught(c, k)) out.cls.add(k); this.heldTouched(e.alt, env, consumed, out); break; }   // a catch discharges what it catches (R-f-4)
+      case "peek": case "latest": case "pending": this.heldTouched(e.e, env, consumed, out); break;
+      case "call": this.heldTouched(e.f, env, false, out); for (const a of e.args) this.heldTouched(a, env, true, out); break;
+      default: for (const x of exprKids(e)) this.heldTouched(x, env, true, out);
+    }
+    return out;
+  }
   /** E-10, E-5a (bounded, revised 2026-11-21 after review): a method called, outside `peek` and closures, on a value `valuesOf`
    *  says may be a primitive's instance that does not declare it — through a record, an array, `?:`, a closure's result. The
    *  receiver as written, and the method. The crate's `undeclared_method_via`. */
@@ -896,7 +929,7 @@ class Checker {
         switch (x.k) {
           case "await": rows.add("pending"); if (!x.init && this.clientCall(x.e, env)) rows.add("client"); break;   // SV-7b: a client question (no first paint)
           case "latest": case "pending": rows.add("lane"); break;
-          case "member": case "index": if (this.heldField(x, env)?.[1]) rows.add("pending"); break;   // MO-10f: a field that holds
+          case "member": case "index": if (this.heldField(x, env)?.[1] || this.heldTouched(x, env, false).holds) rows.add("pending"); break;   // MO-10f: a field that holds, read through any value that may be the result
           case "fn": case "serverfn": return;                                               // a closure's body is not this value's
           case "use": {                                                                     // RG-7e
             const c = env.lookup(x.name)?.ctx; if (!c) return;
@@ -1942,9 +1975,10 @@ class Checker {
   }
 
   // ---- R-f: failures ----
-  private failsThunk(e: Expr, env: Env): () => Fails {
+  /** `consumed`: a source keeps its value whole; an equation (and a fn's result) only moves it (R-f-5, MO-10f: heldTouched) */
+  private failsThunk(e: Expr, env: Env, consumed = false): () => Fails {
     let cache: Fails | null = null; let busy = false;
-    return () => { if (cache) return cache; if (busy) return noFails(); busy = true; const f = this.failsOf(e, env, false, new Map()); busy = false; cache = f; return f; };
+    return () => { if (cache) return cache; if (busy) return noFails(); busy = true; const f = this.failsOf(e, env, false, new Map()); for (const c of this.heldTouched(e, env, consumed).cls) f.cls.add(c); busy = false; cache = f; return f; };
   }
   /** R-f-2/3/4: the failures an expression's evaluation can produce. `imp`: imperative scope, where closures are not run now.
    *  `bound`: catch bindings in scope and what they caught (for a rethrow). */
@@ -2079,12 +2113,12 @@ class Checker {
   private resolveTree() {
     type Item = { cls: string; line: number; what: string };
     type Req = { name: string; line: number; what: string };
-    const readerF = this.readers.map(r => ({ ...r, f: this.failsOf(r.e, r.env, false, new Map()) }));
+    const readerF = this.readers.map(r => { const f = this.failsOf(r.e, r.env, false, new Map()); for (const c of this.heldTouched(r.e, r.env, true).cls) f.cls.add(c); return { ...r, f }; });   // R-f-5, MO-10f: what a view reads it consumes whole
     const firstMemo = new Map<Sym, boolean>();
     const firstHeld = (e: Expr, env: Env) => !!this.opts.spa && this.firstAbsent(e, env, undefined, firstMemo, new Set());   // CN-3d: what the first load surely waits on
     for (const r of this.readers) if (this.rowsThunk(r.e, r.env)().has("client") || firstHeld(r.e, r.env)) this.uses.push({ region: r.region, name: HOLD, line: r.line, display: show(r.e) });   // SV-7b
     const argR = this.apps.flatMap(a => a.args.filter(x => this.rowsThunk(x.e, x.env)().has("client") || firstHeld(x.e, x.env)).map(x => ({ app: a, field: x.field })));
-    const argF = this.apps.flatMap(a => a.args.map(x => ({ app: a, field: x.field, f: this.failsOf(x.e, x.env, false, new Map()) })));
+    const argF = this.apps.flatMap(a => a.args.map(x => { const f = this.failsOf(x.e, x.env, false, new Map()); for (const c of this.heldTouched(x.e, x.env, true).cls) f.cls.add(c); return { app: a, field: x.field, f }; }));   // a component may read any part of what it is given
     const actF = this.actions.map(a => ({ ...a, f: this.stmtsFails(a.body, a.env, new Map()) }));
     const ck = (c?: Catch) => c === undefined ? "-" : c === "all" ? "*" : [...c].sort().join("|");
     const key = (c: Step[]) => c.map(x => `${ck(x.f)}~${ck(x.p)}`).join("/");

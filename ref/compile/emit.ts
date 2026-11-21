@@ -418,7 +418,8 @@ class Gen {
       });
       const r = b.inst!; const sh = f.shape!;
       if (sh === "comp") return `${pad}const ${b.js} = ${f.js}(${args.join(", ")});`;                 // MO-11f: the component the factory hands back
-      const whole = typeof sh === "string" ? part(r, sh) : `__rt.memo(null, () => ${"items" in sh ? `[${sh.items.map((p, i) => p === "ref" ? `${r}[${i}]()` : `${r}[${i}]`).join(", ")}]` : `({ ${sh.fields.map(([k, p]) => `${J(k)}: ${p === "ref" ? `${r}[${J(k)}]()` : `${r}[${J(k)}]`}`).join(", ")} })`})`;
+      // R-f-5, MO-10f (revised 2026-11-21 after review): the result as a value whose parts are read where they are read
+      const whole = typeof sh === "string" ? part(r, sh) : "items" in sh ? `__rt.lazy(${r}, [${sh.items.map((_, i) => i).join(", ")}], [${sh.items.flatMap((p, i) => p === "ref" ? [i] : []).join(", ")}])` : `__rt.lazy(${r}, [${sh.fields.map(([k]) => J(k)).join(", ")}], [${sh.fields.flatMap(([k, p]) => p === "ref" ? [J(k)] : []).join(", ")}])`;
       return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${whole};`;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {

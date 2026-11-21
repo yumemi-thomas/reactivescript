@@ -1345,16 +1345,19 @@ impl<'p> Gen<'p> {
                     return Ok(Some(vec![konst(b.js.clone(), call(id(fb.js.clone()), out))]));
                 }
                 let r = b.inst.clone().unwrap();
+                // R-f-5, MO-10f (revised 2026-11-21 after review): the result as a value whose parts are read where they are
+                // read, each a getter on the result (a `ref` part called): reading `q.isFetching` does not read `q.data`,
+                // which may fail or hold, as the checker counts it
                 let whole = match fb.shape.as_ref().unwrap() {
                     FShape::Comp => unreachable!(),
                     FShape::Part(p) => part(id(r.clone()), *p),
                     FShape::Items(items) => rtc(
-                        "memo",
-                        vec![E::Null, thunk(E::Arr(items.iter().enumerate().map(|(i, p)| { let x = ix(&r, E::Num(i as f64)); if *p == Part::Ref { call(x, vec![]) } else { x } }).collect()))],
+                        "lazy",
+                        vec![id(r.clone()), E::Arr((0..items.len()).map(|i| E::Num(i as f64)).collect()), E::Arr(items.iter().enumerate().filter(|(_, p)| **p == Part::Ref).map(|(i, _)| E::Num(i as f64)).collect())],
                     ),
                     FShape::Fields(fields) => rtc(
-                        "memo",
-                        vec![E::Null, thunk(E::Obj(fields.iter().map(|(k, p)| { let x = ix(&r, str(k.clone())); Prop::Kv(Key::Str(k.clone()), if *p == Part::Ref { call(x, vec![]) } else { x }) }).collect()))],
+                        "lazy",
+                        vec![id(r.clone()), E::Arr(fields.iter().map(|(k, _)| str(k.clone())).collect()), E::Arr(fields.iter().filter(|(_, p)| *p == Part::Ref).map(|(k, _)| str(k.clone())).collect())],
                     ),
                 };
                 Ok(Some(vec![konst(r.clone(), call(id(fb.js.clone()), out)), konst(b.js.clone(), whole)]))

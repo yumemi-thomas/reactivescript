@@ -418,7 +418,7 @@ export class Oracle {
         return ab && (ab.k === "sig" || ab.k === "memo" || ab.k === "store") ? ab.get : createMemo(() => this.ev(a, scope));
       });
       const r = b.f(...args) as any; const shape = b.shape;
-      const bind = typeof shape === "string" ? bindPart(r, shape) : { k: "memo" as const, get: createMemo(() => "items" in shape ? shape.items.map((p, i) => p === "ref" ? r[i]() : r[i]) : Object.fromEntries(shape.fields.map(([k, p]) => [k, p === "ref" ? r[k]() : r[k]]))) };
+      const bind = typeof shape === "string" ? bindPart(r, shape) : { k: "memo" as const, get: (() => { const o: any = "items" in shape ? [] : {}; for (const [k, p] of "items" in shape ? shape.items.map((p, i) => [i, p] as const) : shape.fields) Object.defineProperty(o, k, { get: () => p === "ref" ? r[k]() : r[k], enumerable: true }); return () => o; })() };   // R-f-5, MO-10f: each part read where it is read (compile/rt.ts `lazy`)
       this.instances.set(bind, { r, shape }); scope.vars.set(d.name, bind); return true;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {

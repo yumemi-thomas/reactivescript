@@ -290,3 +290,82 @@ export default component App() {
   </QueryClientProvider>
 }
 ```
+
+A spread reads every field of what it spreads: `q`'s value is made by reading `result.data` (revised 2026-11-21 after review),
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+export default component App() {
+  orig = useThing()
+  q = { ...orig }
+  <p>{q.status}</p>
+}
+```
+
+and so does showing the result whole,
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+export default component App() {
+  orig = useThing()
+  <p>{orig}</p>
+}
+```
+
+A field read through a record that holds the result is a read of that field,
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+export default component App() {
+  orig = useThing()
+  box = { q: orig }
+  <p>{box.q.result.data}</p>
+}
+```
+
+and through what a closure returns.
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+export default component App() {
+  orig = useThing()
+  get = () => orig
+  q = get()
+  <p>{q.result.data}</p>
+}
+```
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+component Child(props: { q: any }) {
+  <p>{props.q.status}</p>
+}
+export default component App() {
+  orig = useThing()
+  <Child q={orig} />
+}
+```
+
+A component given the result whole may read any field of it: its reads
+carry every held field's failures.
+
+```rx
+-- accept
+import { useThing } from "./thing.js"
+export default component App() {
+  orig = useThing()
+  q = orig
+  box = { q: orig }
+  <p>{q.status} {box.q.result.at} {orig.status}</p>
+}
+```
+
+Moved — an alias, a record that holds it — the result is not read: only
+the fields read are (`status`, `result.at`), and they neither hold nor
+fail. The compiled result reads each field where it is read (a getter
+per field), so the program does what the checker counts.
