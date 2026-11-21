@@ -16,7 +16,8 @@ const ANY = new Proxy(function () {}, { get: (_, k) => k === Symbol.toPrimitive 
 const ident = s => s.replace(/^@[^/]+\//, "").replace(/[^A-Za-z0-9]+(.)/g, (_, c) => c.toUpperCase()).replace(/^[^A-Za-z_$]+/, "").replace(/^./, c => c.toLowerCase()) || "context";
 
 /** Where `spec` resolves from `from`, as a browser bundle would import it: CommonJS resolution first, else the package's
- *  `exports` under the `browser`, `import` and `default` conditions (an ESM-only package has no `require` one). */
+ *  `exports` under the `browser`, `import` and `default` conditions (an ESM-only package has no `require` one), a subpath
+ *  pattern (`./*`) included. */
 function resolveModule(spec, from) {
   try { return require.resolve(spec, { paths: [from] }); } catch {}
   if (spec.startsWith(".")) return null;
@@ -29,7 +30,17 @@ function resolveModule(spec, from) {
       const pkg = JSON.parse(fs.readFileSync(pj, "utf8"));
       const pick = e => typeof e === "string" ? e : Array.isArray(e) ? e.map(pick).find(Boolean) : e && typeof e === "object" ? ["browser", "import", "default"].map(k => k in e ? pick(e[k]) : null).find(Boolean) : null;
       const ex = pkg.exports;
-      const entry = ex === undefined ? (sub === "." ? pkg.module ?? pkg.main ?? "index.js" : sub) : typeof ex === "object" && !Array.isArray(ex) && Object.keys(ex).some(k => k.startsWith(".")) ? pick(ex[sub]) : sub === "." ? pick(ex) : null;
+      const map = typeof ex === "object" && ex && !Array.isArray(ex) && Object.keys(ex).some(k => k.startsWith(".")) ? ex : null;
+      // a subpath pattern (`"./*": "./dist/*.js"`), as Node resolves it: the longest part before `*` wins, then the longest
+      // key — the crate's and ref/src/modules.ts's `packageDeclaration`
+      const pattern = () => {
+        let best;
+        for (const k of Object.keys(map)) { const star = k.indexOf("*"); if (star < 0 || k.lastIndexOf("*") !== star) continue; const pre = k.slice(0, star), post = k.slice(star + 1); if (sub.startsWith(pre) && sub.endsWith(post) && sub.length >= k.length && (best === undefined || star > best.indexOf("*") || (star === best.indexOf("*") && k.length > best.length))) best = k; }
+        if (best === undefined) return null;
+        const star = best.indexOf("*"), post = best.length - star - 1, t = pick(map[best]);
+        return t ? t.split("*").join(sub.slice(star, sub.length - post)) : null;
+      };
+      const entry = ex === undefined ? (sub === "." ? pkg.module ?? pkg.main ?? "index.js" : sub) : map ? (sub in map ? pick(map[sub]) : pattern()) : sub === "." ? pick(ex) : null;
       const f = entry && path.join(pkgDir, entry);
       return f && fs.existsSync(f) ? f : null;
     }
