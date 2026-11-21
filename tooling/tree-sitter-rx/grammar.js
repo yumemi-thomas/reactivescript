@@ -38,6 +38,12 @@ module.exports = grammar(tsx, {
     [$.side, $.server_fn_expression],
     [$.primary_expression, $.draft_expression],
     [$.primary_expression, $._property_name, $.draft_expression],
+    // `{view (a) { … }}` is a render prop, `{view(a)}` a call: told apart by the `{` after the `)`
+    [$.primary_expression, $.render_block],
+    // `(draft) => …`, `(draft state: T) => …` and `(draft)`: as TSX's own parameter conflicts
+    [$.primary_expression, $.draft_modifier],
+    [$.primary_expression, $.signal_modifier],
+    [$.primary_expression, $.draft_expression, $.draft_modifier],
   ]),
 
   rules: {
@@ -94,6 +100,8 @@ module.exports = grammar(tsx, {
       $.effect_declaration,
       $.fn_declaration,
       $.fn_signature,
+      $.component_signature,
+      $.const_signature,
       $.server_function_declaration,
       $.action_declaration,
       $.component_declaration,
@@ -180,21 +188,98 @@ module.exports = grammar(tsx, {
       '}',
     ),
 
-    // A declaration file's row: `server pure fn f(a: T): R rejects(E) instantiates`. As TSX's function_signature,
-    // it does not end at a newline that a `{` follows: that is a fn's body (parse.rs skips newlines before it)
+    // A declaration file's row: `server pure fn f<T>(a: T): R rejects(E) instantiates uses(ctx)`. As TSX's
+    // function_signature, it does not end at a newline that a `{` follows: that is a fn's body (parse.rs skips
+    // newlines before it). After the result, the row's words in any order (parse.rs reads `rejects` first)
     fn_signature: $ => seq(
       optional(field('side', $.side)),
       optional($.pure),
       'fn',
       field('name', $._binding_name),
+      optional(field('type_parameters', $.type_parameters)),
       field('parameters', $.formal_parameters),
       optional(field('return_type', $.type_annotation)),
-      optional($.rejects_clause),
-      optional('instantiates'),
+      repeat($._signature_row),
       choice($._semicolon, $._function_signature_automatic_semicolon),
     ),
 
+    _signature_row: $ => choice(
+      $.rejects_clause,
+      $.row_word,
+      $.uses_clause,
+      $.provides_clause,
+      $.renders_clause,
+      $.nests_clause,
+      $.joins_clause,
+    ),
+
+    // `instantiates`, `forwards` (MO-11g), `trusted` (MO-8j), a component's `outlet` (MO-11p), a fn's bare `renders`
+    // (MO-11l)
+    row_word: _ => choice('instantiates', 'forwards', 'trusted', 'outlet', 'renders'),
+
     rejects_clause: $ => seq('rejects', '(', $._error_classes, ')'),
+
+    // `uses(router, theme)`, `provides(router)`: contexts the declaration file declares (MO-12)
+    uses_clause: $ => seq('uses', $._context_names),
+    provides_clause: $ => seq('provides', $._context_names),
+    _context_names: $ => seq('(', optional(seq(commaSep1(field('name', $.identifier)), optional(','))), ')'),
+
+    // `renders(later)`, `renders(root, ctx)` (MO-11r)
+    renders_clause: $ => seq(
+      'renders',
+      token.immediate('('),
+      choice('later', seq('root', repeat(seq(',', field('name', $.identifier))))),
+      ')',
+    ),
+
+    // `nests(children in component)`, `nests(component under getParentRoute)` (MO-11r)
+    nests_clause: $ => seq(
+      'nests',
+      '(',
+      field('field', alias($.identifier, $.property_identifier)),
+      choice('in', 'under'),
+      field('of', alias($.identifier, $.property_identifier)),
+      ')',
+    ),
+
+    // `joins(path)` (MO-11i)
+    joins_clause: $ => seq('joins', '(', field('field', alias($.identifier, $.property_identifier)), ')'),
+
+    // A declaration file's component: `component Dialog.Title(props: { id?: string }) uses(coreDialog)` (MO-11a,
+    // MO-11q). As a fn's row, it does not end at a newline that a `{` follows: that is a component's body
+    component_signature: $ => seq(
+      'component',
+      field('name', choice($.identifier, $.member_component_name)),
+      field('parameters', $.formal_parameters),
+      repeat(choice(
+        $.row_word,
+        $.uses_clause,
+        $.provides_clause,
+        $.fails_row,
+        $.shape_clause,
+      )),
+      choice($._semicolon, $._function_signature_automatic_semicolon),
+    ),
+
+    member_component_name: $ => seq(
+      field('object', choice($.identifier, $.member_component_name)),
+      '.',
+      field('property', alias($.identifier, $.property_identifier)),
+    ),
+
+    // `fails(NotFound | Timeout)`: a component's row, and a result field's (MO-10f)
+    fails_row: $ => seq('fails', '(', optional($._error_classes), ')'),
+
+    // `shape(Item[])`: what a component's content must be
+    shape_clause: $ => seq('shape', '(', $.type, ')'),
+
+    // `export const promoteForm: any` (MO-8g)
+    const_signature: $ => seq(
+      'const',
+      field('name', $._binding_name),
+      optional(field('type', $.type_annotation)),
+      $._semicolon,
+    ),
 
     server_function_declaration: $ => seq(
       $.side,
@@ -263,7 +348,20 @@ module.exports = grammar(tsx, {
       $.loading_block,
       $.errored_block,
       $.portal_block,
+      $.render_block,
     ),
+
+    // `view (item, i) { … }`, a render prop's body; `view header (n) { … }` for a named one (MO-11k)
+    render_block: $ => prec.dynamic(1, seq(
+      'view',
+      optional(field('prop', alias($.identifier, $.property_identifier))),
+      '(',
+      optional(seq(commaSep1($._render_parameter), optional(','))),
+      ')',
+      field('body', $.view_block),
+    )),
+
+    _render_parameter: $ => field('parameter', $.identifier),
 
     if_block: $ => prec.right(seq(
       'if',
@@ -475,18 +573,49 @@ module.exports = grammar(tsx, {
       field('body', $.statement_block),
     ),
 
-    // `fn area(ref w: number)`: an instantiation parameter (E-9)
+    // `fn area(ref w: number)`: an instantiation parameter (E-9). In a declaration file, `signal init: string` takes
+    // a Solid signal (MO-10h) and a callback's `draft state: T` is a library's draft (MO-10i)
     _parameter_name: ($, previous) => seq(
-      optional($.ref_modifier),
+      optional(choice($.ref_modifier, $.signal_modifier, $.draft_modifier)),
       previous,
     ),
 
     ref_modifier: _ => 'ref',
+    signal_modifier: _ => 'signal',
+    draft_modifier: _ => 'draft',
 
-    // `): ref string`, `): [ref boolean, (v: boolean) => void]`: an accessor in a signature's return (MO-10b)
-    type: ($, previous) => choice(previous, $.ref_type),
+    // `): ref string`, `): [ref boolean, (v: boolean) => void]`: an accessor in a signature's return (MO-10b); and a
+    // declaration file's words before a type
+    type: ($, previous) => choice(
+      previous,
+      $.import_type,
+      $.ref_type,
+      $.callback_type,
+      $.row_type,
+      $.renders_type,
+      $.catches_type,
+    ),
+
+    // `import("@solidjs/router").RouteParams<S>`: TSX reads an import type without type arguments
+    import_type: $ => seq(
+      alias($._type_query_member_expression_in_type_annotation, $.member_expression),
+      field('type_arguments', $.type_arguments),
+    ),
 
     ref_type: $ => prec.right(seq($.ref_modifier, $.type)),
+
+    // `onSubmit: handler (e: Event) => void` (called later, MO-10g), `queryFn: tracked () => T` (called inside a
+    // computation, MO-10j)
+    callback_type: $ => seq(field('kind', choice('handler', 'tracked')), $.function_type),
+
+    // a result's field rows: `data: pending fails(Error) any` (MO-10f)
+    row_type: $ => prec.right(seq(choice('pending', $.fails_row), $.type)),
+
+    // `router: renders any`: a prop that carries components the component renders (MO-11o)
+    renders_type: $ => prec.right(seq('renders', $.type)),
+
+    // `fallback: catches(NotFound) (e: Error) => View`, `catches(*)`: a prop called with what the component catches
+    catches_type: $ => prec.right(seq('catches', '(', choice('*', optional($._error_classes)), ')', $.type)),
 
     _reserved_identifier: ($, previous) => choice(
       previous,
@@ -494,6 +623,8 @@ module.exports = grammar(tsx, {
       'client',
       'error',
       'draft',
+      'signal',
+      'view',
     ),
   },
 });

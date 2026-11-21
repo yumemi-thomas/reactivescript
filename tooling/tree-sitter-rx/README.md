@@ -14,9 +14,10 @@ What `.rx` adds has nodes of its own:
 | | nodes |
 | --- | --- |
 | module | `import_statement` (`side`, `pure`, `fails_clause`), `export_statement` |
-| declarations | `source_declaration`, `equation`, `key_clause`, `fn_declaration` (`fn_body`), `fn_signature` (`.d.rx`, `rejects_clause`), `server_function_declaration`, `action_declaration`, `component_declaration`, `effect_declaration`, `error_declaration`, `context_declaration`, `provide_declaration` |
-| markup | `view_block` (a reactive block: declarations, then markup), `if_block`, `else_block`, `for_block`, `loading_block`, `errored_block`, `portal_block`, `style_element` (`raw_text`) |
+| declarations | `source_declaration`, `equation`, `key_clause`, `fn_declaration` (`fn_body`), `fn_signature` (`.d.rx`: `rejects_clause`, `row_word`, `uses_clause`, `provides_clause`, `renders_clause`, `nests_clause`, `joins_clause`), `component_signature` (`member_component_name`, `fails_row`, `shape_clause`), `const_signature`, `server_function_declaration`, `action_declaration`, `component_declaration`, `effect_declaration`, `error_declaration`, `context_declaration`, `provide_declaration` |
+| markup | `view_block` (a reactive block: declarations, then markup), `if_block`, `else_block`, `for_block`, `loading_block`, `errored_block`, `portal_block`, `render_block` (`view (item) { … }`), `style_element` (`raw_text`) |
 | statements | `write_statement` (`x := e`), `guess_statement`, `refresh_statement`, `affects_statement`, `action_statement` |
+| types (`.d.rx`) | `ref_type`, `callback_type` (`handler`, `tracked`), `row_type` (`pending`, `fails(…)`), `renders_type`, `catches_type`, `import_type` (`import("m").T<A>`); a parameter's `ref_modifier`, `signal_modifier`, `draft_modifier` |
 | expressions | `pending_expression`, `latest_expression`, `peek_expression`, `pre_expression`, `use_expression`, `throw_expression`, `catch_expression`, `draft_expression`, `fn_expression`, `server_fn_expression`; `await_expression` has `initial` (`-> v`) |
 
 A declaration's name is its `name` field, its right side `value`, a block

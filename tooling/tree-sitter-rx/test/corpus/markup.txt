@@ -429,3 +429,83 @@ component App() {
           (true))
         (jsx_attribute
           (property_identifier))))))
+
+========================================
+Render props: view blocks
+========================================
+
+component App() {
+  view = 1
+  <List items={rows}>
+    {view header (n) { <p>{n} rows</p> }}
+    {view (row, i) {
+      mark = i == picked ? "x" : ""
+      <li>{row}{mark}</li>
+    }}
+    {view(row)}
+    {view}
+  </List>
+}
+
+---
+
+(program
+  (component_declaration
+    (identifier)
+    (formal_parameters)
+    (view_block
+      (equation
+        (identifier)
+        (number))
+      (jsx_element
+        (jsx_opening_element
+          (identifier)
+          (jsx_attribute
+            (property_identifier)
+            (jsx_expression
+              (identifier))))
+        (jsx_expression
+          (render_block
+            (property_identifier)
+            (identifier)
+            (view_block
+              (jsx_element
+                (jsx_opening_element
+                  (identifier))
+                (jsx_expression
+                  (identifier))
+                (jsx_text)
+                (jsx_closing_element
+                  (identifier))))))
+        (jsx_expression
+          (render_block
+            (identifier)
+            (identifier)
+            (view_block
+              (equation
+                (identifier)
+                (ternary_expression
+                  (binary_expression
+                    (identifier)
+                    (identifier))
+                  (string
+                    (string_fragment))
+                  (string)))
+              (jsx_element
+                (jsx_opening_element
+                  (identifier))
+                (jsx_expression
+                  (identifier))
+                (jsx_expression
+                  (identifier))
+                (jsx_closing_element
+                  (identifier))))))
+        (jsx_expression
+          (call_expression
+            (identifier)
+            (arguments
+              (identifier))))
+        (jsx_expression
+          (identifier))
+        (jsx_closing_element
+          (identifier))))))

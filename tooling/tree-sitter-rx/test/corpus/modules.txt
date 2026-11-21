@@ -239,7 +239,8 @@ export pure fn counter(ref start: number): number instantiates
           type: (type_annotation
             (predefined_type))))
       return_type: (type_annotation
-        (predefined_type)))))
+        (predefined_type))
+      (row_word))))
 
 ========================================
 A default import named server or client
@@ -323,3 +324,388 @@ export pure fn createToggle(initial: boolean): [ref boolean, (v: boolean) => voi
                 (type_annotation
                   (predefined_type))))
             (predefined_type)))))))
+
+========================================
+Declaration file rows: contexts, placement and type parameters
+========================================
+
+export context router
+export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]
+export pure fn defineRoute<const S extends string>(route: { path: S }): RouteDefinition forwards
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)
+export pure fn createRoute(options: { path: string }): any renders(later) nests(component under getParentRoute)
+export pure fn mount(app: Component): void renders(root, router) trusted
+export pure fn useParams(): ref any uses(router)
+export pure fn makePersisted(signal init: string, signal?: number): [ref string, (v: string) => void]
+export const promoteForm: any
+export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
+
+---
+
+(program
+  (export_statement
+    (context_declaration
+      (identifier)))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (type_identifier))))
+      (type_annotation
+        (tuple_type
+          (type_identifier)
+          (function_type
+            (formal_parameters
+              (required_parameter
+                (identifier)
+                (type_annotation
+                  (function_type
+                    (formal_parameters
+                      (required_parameter
+                        (draft_modifier)
+                        (identifier)
+                        (type_annotation
+                          (type_identifier))))
+                    (union_type
+                      (type_identifier)
+                      (predefined_type))))))
+            (predefined_type))))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)
+          (constraint
+            (predefined_type))))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (type_annotation
+        (type_identifier))
+      (row_word)))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (array_type
+                    (type_identifier))))))))
+      (type_annotation
+        (type_identifier))
+      (provides_clause
+        (identifier))
+      (nests_clause
+        (property_identifier)
+        (property_identifier))
+      (joins_clause
+        (property_identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))))))
+      (type_annotation
+        (predefined_type))
+      (renders_clause)
+      (nests_clause
+        (property_identifier)
+        (property_identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (type_identifier))))
+      (type_annotation
+        (predefined_type))
+      (renders_clause
+        (identifier))
+      (row_word)))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters)
+      (type_annotation
+        (ref_type
+          (ref_modifier)
+          (predefined_type)))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (signal_modifier)
+          (identifier)
+          (type_annotation
+            (predefined_type)))
+        (optional_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (tuple_type
+          (ref_type
+            (ref_modifier)
+            (predefined_type))
+          (function_type
+            (formal_parameters
+              (required_parameter
+                (identifier)
+                (type_annotation
+                  (predefined_type))))
+            (predefined_type))))))
+  (export_statement
+    (const_signature
+      (identifier)
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (type_alias_declaration
+      (type_identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (import_type
+        (member_expression
+          (call_expression
+            (import)
+            (arguments
+              (string
+                (string_fragment))))
+          (property_identifier))
+        (type_arguments
+          (type_identifier))))))
+
+========================================
+Declaration file rows: callbacks and field rows
+========================================
+
+export pure fn debounce(callback: handler (...args: any[]) => void, wait?: number): (...args: any[]) => void instantiates
+export pure fn useQuery(ref options: { queryFn: tracked () => Promise<any> }): { data: pending fails(Error) any; isFetching: pending boolean } uses(queryClient)
+
+---
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (callback_type
+              (function_type
+                (formal_parameters
+                  (required_parameter
+                    (rest_pattern
+                      (identifier))
+                    (type_annotation
+                      (array_type
+                        (predefined_type)))))
+                (predefined_type)))))
+        (optional_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (function_type
+          (formal_parameters
+            (required_parameter
+              (rest_pattern
+                (identifier))
+              (type_annotation
+                (array_type
+                  (predefined_type)))))
+          (predefined_type)))
+      (row_word)))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (ref_modifier)
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (callback_type
+                    (function_type
+                      (formal_parameters)
+                      (generic_type
+                        (type_identifier)
+                        (type_arguments
+                          (predefined_type)))))))))))
+      (type_annotation
+        (object_type
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (row_type
+                (row_type
+                  (fails_row
+                    (type_identifier))
+                  (predefined_type)))))
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (row_type
+                (predefined_type))))))
+      (uses_clause
+        (identifier)))))
+
+========================================
+Declaration file components
+========================================
+
+export component Outlet(props: {}) uses(router) outlet
+export component Dialog.Title(props: { id?: string; as?: any }) uses(coreDialog)
+export component RouterProvider(props: { router: renders any }) provides(router)
+export component Boundary(props: { fallback: catches(NotFound) (e: Error) => View; children: View }) fails(Timeout) shape(Item[])
+export component Form(props: { of: any; onSubmit: handler (output: any, event: any) => any })
+
+---
+
+(program
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type))))
+      (uses_clause
+        (identifier))
+      (row_word)))
+  (export_statement
+    (component_signature
+      (member_component_name
+        (identifier)
+        (property_identifier))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (renders_type
+                    (predefined_type))))))))
+      (provides_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (catches_type
+                    (type_identifier)
+                    (function_type
+                      (formal_parameters
+                        (required_parameter
+                          (identifier)
+                          (type_annotation
+                            (type_identifier))))
+                      (type_identifier)))))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (fails_row
+        (type_identifier))
+      (shape_clause
+        (array_type
+          (type_identifier)))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (callback_type
+                    (function_type
+                      (formal_parameters
+                        (required_parameter
+                          (identifier)
+                          (type_annotation
+                            (predefined_type)))
+                        (required_parameter
+                          (identifier)
+                          (type_annotation
+                            (predefined_type))))
+                      (predefined_type))))))))))))

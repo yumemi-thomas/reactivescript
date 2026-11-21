@@ -269,12 +269,30 @@
   "pre"
   "pending?"
   "draft"
+  "view"
+  ; a declaration file's rows
+  "uses"
+  "provides"
+  "renders"
+  "nests"
+  "joins"
+  "under"
+  "later"
+  "root"
+  "shape"
+  "handler"
+  "tracked"
+  "pending"
+  "catches"
 ] @keyword
 
 (side) @keyword
 (pure) @keyword
 (deferred) @keyword
 (ref_modifier) @keyword
+(signal_modifier) @keyword
+(draft_modifier) @keyword
+(row_word) @keyword
 
 ; `:=` writes and seeds, `->` a first value
 [
@@ -333,8 +351,28 @@
 (component_declaration
   name: (identifier) @function)
 
+(component_signature
+  name: (identifier) @function)
+
+(member_component_name
+  property: (property_identifier) @function)
+
+(const_signature
+  name: (identifier) @constant)
+
 (error_declaration
   name: (type_identifier) @type)
+
+; A row's contexts, as where they are declared
+
+(uses_clause
+  name: (identifier) @constant)
+
+(provides_clause
+  name: (identifier) @constant)
+
+(renders_clause
+  name: (identifier) @constant)
 
 ; Writes: the target of `:=` and `guess`
 
@@ -364,6 +402,9 @@
 
 (for_block
   name: (identifier) @variable.parameter)
+
+(render_block
+  parameter: (identifier) @variable.parameter)
 
 (errored_block
   parameter: (identifier) @variable.parameter)
