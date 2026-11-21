@@ -145,9 +145,13 @@ Function application `f(e…)` covers both language functions and FFI imports;
   each of those can change; checked as the whole program (`--whole-program`)
   they change when an application, a provision or the export passes
   something that does (a least fixpoint over all modules). The whole-program
-  check assumes JS applies the entry's exported components and the
-  components passed to it as values, whose props can change, and nothing
-  else; a module known only by its signature (MO-9) is not seen. (Solid:
+  check assumes JS applies the entry's exported components, the
+  components passed to it as values, and the exported components of every
+  module a JS host imports with `?rx-lib` (CP-4d; `--host m.rx`, which the
+  Vite plugin's `rx({ wholeProgram: true })` finds by scanning the
+  project's JS for such imports), whose props can change, and nothing else;
+  a module known only by its signature (MO-9) is not seen. It is opt-in:
+  builds and the editor check one module at a time unless asked. (Solid:
   `untrack(data)` in a memo with no other source, or `<Ctx
   value={untrack(data)}>`, which `createContext`'s provider reads once
   anyway.) S-surface-6.

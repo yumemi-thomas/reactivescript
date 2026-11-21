@@ -54,6 +54,18 @@ them in `ssr.external` (otherwise the compiled templates and the runtime
 render with two `@solidjs/web`s, and nothing hydrates). The Vite suite
 (`compiler/test/vite.mjs router-ssr`) builds and serves it this way.
 
+A JS module's error class declared in its `.d.rx` (`export error NotFound`) crosses to the client as itself when the
+program awaits the rejection (spec/10 SV-5a). A library that serializes a rejection itself first, as
+`@solidjs/router`'s `query` cache does, needs the adapter around the function it caches:
+
+```js
+import { sendErrors } from "@reactivescript/runtime";
+export const getPerson = query(sendErrors(fetchPerson), "person");
+```
+
+It marks only instances of classes the rendering app declares, during its request; on the client it is the function
+itself. Without it the router's cache sends the error redacted.
+
 A JS host can render `.rx` components itself (spec/11 CP-4d): import the
 module with `?rx-lib` and import its components:
 

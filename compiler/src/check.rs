@@ -1006,7 +1006,8 @@ fn ch_val(c: &Ch, truth: &HashSet<String>) -> bool {
 /// E-5a, the whole-program pass: each prop, provision and export changes when what can reach it does (a least fixpoint);
 /// then each kept peek that waited on them is decided. A component the entry exports, or one passed as a value, is applied by
 /// JS: its props can change. A module known only by its signature (MO-9) is not seen: what comes from it can change.
-fn resolve_peeks(all: &[(String, PeekFacts)], set: &ModuleSet) -> Vec<Diagnostic> {
+/// `hosts`: modules a JS host imports with `?rx-lib` (CP-4d): their exported components are applied by JS, as the entry's are.
+fn resolve_peeks(all: &[(String, PeekFacts)], set: &ModuleSet, hosts: &[String]) -> Vec<Diagnostic> {
     let alias: HashMap<&str, &str> = all.iter().flat_map(|(_, f)| f.aliases.iter().map(|(a, b)| (a.as_str(), b.as_str()))).collect();
     let kk = |x: &str| -> String { alias.get(x).map(|s| s.to_string()).unwrap_or_else(|| x.to_string()) };
     let seen = |x: &str| set.programs.contains_key(x.split('#').next().unwrap_or(""));
@@ -1015,7 +1016,7 @@ fn resolve_peeks(all: &[(String, PeekFacts)], set: &ModuleSet) -> Vec<Diagnostic
         for k in &f.escapes {
             escapes.insert(kk(k));
         }
-        if *path == set.entry {
+        if *path == set.entry || hosts.contains(path) {
             for k in &f.exported {
                 escapes.insert(kk(k));
             }
@@ -1198,6 +1199,10 @@ pub fn check_modules(set: &ModuleSet, spa: bool) -> Checked {
 /// The same; `whole` (E-5a): the modules are the whole program, so a kept peek of a prop or a provision is decided by every
 /// application and provision in them.
 pub fn check_modules_with(set: &ModuleSet, spa: bool, whole: bool) -> Checked {
+    check_modules_hosts(set, spa, whole, &[])
+}
+/// E-5a, whole program: as `check_modules_with`, with `hosts` the modules a JS host imports with `?rx-lib` (CP-4d).
+pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[String]) -> Checked {
     let mut sigs: IndexMap<String, ModSig> = set.signatures.clone();
     let mut diags = set.diags.clone();
     let mut models = IndexMap::new();
@@ -1210,7 +1215,7 @@ pub fn check_modules_with(set: &ModuleSet, spa: bool, whole: bool) -> Checked {
         facts.push((path.clone(), r.peeks));
     }
     if whole {
-        diags.extend(resolve_peeks(&facts, set));
+        diags.extend(resolve_peeks(&facts, set, hosts));
     }
     Checked { diags, sigs, models }
 }

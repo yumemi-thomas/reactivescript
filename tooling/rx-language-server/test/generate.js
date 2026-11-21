@@ -119,6 +119,20 @@ fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: tru
   check("RX_TYPECHECK=0 builds without the check", skipped.ok, skipped);
   fs.rmSync(path.join(ws, "tsconfig.json"));
 
+  // E-5a: rx({ wholeProgram: true }) checks a build as the whole program; a module a JS host imports with ?rx-lib is
+  // applied from outside
+  const wp = path.join(ws, "whole"); fs.mkdirSync(wp, { recursive: true });
+  fs.writeFileSync(path.join(wp, "show.rx"), "export component Show(props: { value: number }) {\n  <b>{peek props.value}</b>\n}\n");
+  fs.writeFileSync(path.join(wp, "main.rx"), "import { Show } from \"./show.rx\"\nexport default component App() {\n  source n := 1\n  <Show value={n} />\n}\n");
+  const buildWith = (opts) => { const saved = process.env.RX_GENERATE; process.env.RX_GENERATE = "0"; try { rx(opts).compile("", { id: path.join(wp, "main.rx"), moduleId: path.join(wp, "main.rx"), root: wp, solid: { generate: "dom", hydratable: true }, addWatchFile() {} }); return { ok: true }; } catch (e) { return { ok: false, error: String(e.message ?? e) }; } finally { if (saved === undefined) delete process.env.RX_GENERATE; else process.env.RX_GENERATE = saved; } };
+  const perModule = buildWith({});
+  check("by default a build checks per module: a peek of a prop is refused (E-5a)", !perModule.ok && /SNAPSHOT_KEPT/.test(perModule.error), perModule);
+  const whole = buildWith({ wholeProgram: true });
+  check("rx({ wholeProgram: true }): nothing writes n, so the peek is accepted", whole.ok, whole);
+  fs.writeFileSync(path.join(wp, "host.tsx"), "import { Show } from \"./show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
+  const hosted = buildWith({ wholeProgram: true });
+  check("...unless a JS file imports show.rx with ?rx-lib: JS applies Show, so the peek is refused", !hosted.ok && /SNAPSHOT_KEPT/.test(hosted.error), hosted);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

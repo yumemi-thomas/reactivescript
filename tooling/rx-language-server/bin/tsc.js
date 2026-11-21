@@ -16,7 +16,7 @@ const tsc = require.resolve("typescript/lib/tsc");
 // imports must be verified by rx-verify (its record beside it) or say `trusted` (UNVERIFIED_ROW, TY-7). Not tsc's flag.
 const strictFlag = process.argv.includes("--rx-strict");
 process.argv = process.argv.filter(a => a !== "--rx-strict");
-require("../src/declarations.js").install();   // TY-4b: a JS module typed only by its .d.rx
+const { patchSystem } = require("../src/declarations.js");   // TY-4b: a JS module typed only by its .d.rx, through ts.sys
 
 process.on("exit", code => {
   const watching = process.argv.includes("--watch") || process.argv.includes("-w");
@@ -67,4 +67,4 @@ process.on("exit", code => {
   }
 });
 
-runTsc(tsc, [".rx"], ts => [rxLanguagePlugin(ts)]);
+runTsc(tsc, [".rx"], ts => { patchSystem(ts.sys); return [rxLanguagePlugin(ts)]; });

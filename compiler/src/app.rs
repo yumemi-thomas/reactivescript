@@ -31,6 +31,11 @@ pub fn app(entry: &str, target: Target, module_name: &str, spa: bool) -> Value {
 }
 /// CP-4d: `library`, the entry's exports for a JS host (`compile_linked_as`).
 pub fn app_as(entry: &str, target: Target, module_name: &str, spa: bool, library: bool) -> Value {
+    app_whole(entry, target, module_name, spa, library, false, &[])
+}
+/// E-5a: `whole`, the program's modules checked as the whole program, with `hosts` the modules a JS host imports with
+/// `?rx-lib` (their exported components are applied by JS).
+pub fn app_whole(entry: &str, target: Target, module_name: &str, spa: bool, library: bool, whole: bool, hosts: &[String]) -> Value {
     // module keys are POSIX paths (`modules::join_path`); Windows takes `D:/a/b.rx` as it takes `D:\a\b.rx`
     let entry = &entry.replace('\\', "/");
     (|| {
@@ -44,7 +49,8 @@ pub fn app_as(entry: &str, target: Target, module_name: &str, spa: bool, library
             d["msg"] = json!(crate::serve::parse_message(&e));
             json!({ "diagnostics": [d] })
         })?;
-        let checked = check_modules(&set, spa);
+        let hosts: Vec<String> = hosts.iter().map(|h| h.replace('\\', "/")).collect();
+        let checked = if whole { crate::check::check_modules_hosts(&set, spa, true, &hosts) } else { check_modules(&set, spa) };
         if !checked.diags.is_empty() {
             return Err(json!({ "diagnostics": checked.diags.iter().map(|d| { let mut j = d.to_json(); if j["file"].is_null() { j["file"] = json!(set.entry); } j }).collect::<Vec<_>>() }));
         }

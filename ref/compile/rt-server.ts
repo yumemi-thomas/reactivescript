@@ -11,8 +11,7 @@ import { getObserver } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit } from "solid-js";
 import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
-const SAFE_ERROR = Symbol.for("solid.SafeError");
-let warnedCopies = false;   // once per process   // @solidjs/web's mark (markSafeError), read through the prototype
+let warnedCopies = false;   // once per process
 import { $TARGET } from "@solidjs/signals";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -113,7 +112,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       // @solidjs/web than this runtime renders with (a bundler that inlined one of them): nothing would hydrate
       let first = true;
       const sink = { end: () => sink0.end(), write: (c: string) => { if (first) { first = false; if (!process.env.SV_SCOPE && /<[a-z][^>]*>/i.test(c) && !/\b_hk=/.test(c) && !warnedCopies) { warnedCopies = true; console.warn("[reactivescript] the server's first chunk has markup but no hydration keys, so the client will not hydrate it. One likely cause: the compiled modules and @reactivescript/runtime load different copies of @solidjs/web (keep Solid, the runtime and libraries that render all external to the server build, or all bundled together)"); } } sink0.write(c); } };
-      return provideRequestEvent({ request: opts.request ?? new Request("http://127.0.0.1/"), locals: {} }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
+      return provideRequestEvent({ request: opts.request ?? new Request("http://127.0.0.1/"), locals: { [REQUEST_APP]: app } }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
 
     B: {
       len: (x: unknown) => (Array.isArray(x) || typeof x === "string") ? x.length : (typeof x === "object" && x) ? Object.keys(x).length : 0,
@@ -141,13 +140,16 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
     /** SV-5a: a JS module's error class, declared in its `.d.rx` (`export error C`): `id` is that declaration. */
     jsClass<T>(C: T, id: string): T {
-      if (jsClassIds.has(C)) return C;
-      jsClassIds.set(C, id);
-      // safe from construction, whoever serializes an instance first (a library's own cache, as the router's query): Solid
-      // reads the mark through the prototype, and the read stamps the instance's identity before it is serialized
-      const proto = (C as { prototype?: object }).prototype;
-      if (proto && !Object.prototype.hasOwnProperty.call(proto, SAFE_ERROR)) Object.defineProperty(proto, SAFE_ERROR, { configurable: true, get(this: object) { if (!Object.prototype.hasOwnProperty.call(this, "$class")) Object.defineProperty(this, "$class", { value: id, enumerable: true, configurable: true, writable: true }); return true; } });
+      if (!jsClassIds.has(C)) jsClassIds.set(C, id);
       return C;
+    },
+    /** SV-5a: `err`, if it is an instance of a JS error class this app's program declares, stamped with its declaration's
+     *  identity and marked safe to send — this instance, at a boundary this app owns (an awaited promise, or `sendErrors`
+     *  around a library's cache). Declaring a class for typed matching makes no other instance sendable. */
+    markSendable(err: unknown): boolean {
+      if (!err || typeof err !== "object") return false;
+      for (const [k, i] of jsClassIds) if (err instanceof (k as new () => unknown)) { (err as { $class?: string }).$class = i; markSafeError(err as Error); return true; }
+      return false;
     },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
@@ -187,11 +189,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
      *  its class's identity; the side branch only marks it, before Solid serializes it, and changes nothing else. */
     awaited: (v: unknown) => {
       if (v instanceof Flight) return v.first;
-      if (jsClassIds.size && v && typeof (v as PromiseLike<unknown>).then === "function") (v as PromiseLike<unknown>).then(undefined, (err: unknown) => {
-        if (!err || typeof err !== "object") return; let id: string | undefined;
-        for (const [k, i] of jsClassIds) if (err instanceof (k as new () => unknown)) { id = i; break; }
-        if (id) { (err as { $class?: string }).$class = id; markSafeError(err as Error); }
-      });
+      if (jsClassIds.size && v && typeof (v as PromiseLike<unknown>).then === "function") (v as PromiseLike<unknown>).then(undefined, (err: unknown) => { app.markSendable(err); });
       return v;
     },
     /** `x = await f() catch (e: C) => alt` (R-f-4): a matching rejection lands `alt` as the answer; others reject on. */
@@ -314,3 +312,16 @@ export function components<T extends Record<string, unknown>>(factory: (rt: unkn
     ((appNow().module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
 }
 const HOST_APP = Symbol.for("reactivescript.app");
+const REQUEST_APP = Symbol.for("reactivescript.request-app");   // the app whose stream this request event is
+/** SV-5a, a library-cache adapter: `fn` with its rejections (and throws) of a JS error class the request's app declares
+ *  marked safe to send, before anything else sees them. For a library that serializes a promise itself, as
+ *  `@solidjs/router`'s `query` does: `export const getPerson = query(sendErrors(fetchPerson), "person")`. Outside an app's
+ *  request, and on the client, it changes nothing. */
+export function sendErrors<F extends (...a: any[]) => unknown>(fn: F): F {
+  const mark = (e: unknown) => { const l = (getRequestEvent() as { locals?: Record<PropertyKey, unknown> } | undefined)?.locals; ((l?.[REQUEST_APP] ?? l?.[HOST_APP]) as { markSendable?: (e: unknown) => boolean } | undefined)?.markSendable?.(e); };
+  return ((...a: unknown[]) => {
+    let r: unknown;
+    try { r = fn(...a); } catch (e) { mark(e); throw e; }
+    return r && typeof (r as PromiseLike<unknown>).then === "function" ? Promise.resolve(r).then(v => v, e => { mark(e); throw e; }) : r;
+  }) as F;
+}

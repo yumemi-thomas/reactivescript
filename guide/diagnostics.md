@@ -383,8 +383,10 @@ export default component App() {
 A module is checked alone by default, so a `peek` of a prop (`peek props.value`) or of a provision (`peek use theme`)
 counts as changing: that module cannot see who applies the component or who provides. `rxc check --whole-program` (and
 `ref/check.ts --whole-program`) checks the loaded modules as the whole program and accepts such a `peek` when no
-application or provision passes anything that changes. It assumes JS applies only the entry's exported components and
-the components passed to it as values; a component a TSX file applies is outside what it sees.
+application or provision passes anything that changes. It assumes JS applies only the entry's exported components, the
+components passed to it as values, and the exported components of a module a JS file imports with `?rx-lib` (name it
+with `--host m.rx`; the Vite plugin's `rx({ wholeProgram: true })` finds them itself). Anything else a TSX file applies
+is outside what it sees.
 
 ### DUPLICATE_DECLARATION
 

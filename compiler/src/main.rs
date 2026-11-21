@@ -27,9 +27,11 @@
 //!                          have no value yet is an error, as its first load would show nothing (08 CN-3d).
 //!   --whole-program        (check) the modules loaded are the whole program: a kept `peek` of a prop or a provision is
 //!                          decided by every application and provision in them (E-5a); `conform` takes `whole: true`.
+//!   --host m.rx            (with --whole-program) a module a JS host imports with ?rx-lib (CP-4d): JS applies its
+//!                          exported components with props the program cannot see; `conform` takes `hosts`.
 
 use reactivescript::app::{self, read_disk};
-use reactivescript::check::{check_modules, check_modules_with};
+use reactivescript::check::{check_modules, check_modules_hosts};
 use reactivescript::emit::{compile_modules, lower_view, Target};
 use reactivescript::parse::parse_stmts;
 use reactivescript::project::{project_modules, unverified, PRELUDE};
@@ -47,7 +49,7 @@ fn abs(f: &str) -> String {
     std::path::absolute(f).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| f.to_string()).replace('\\', "/")
 }
 
-fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool, whole: bool) -> Value {
+fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool, whole: bool, hosts: &[String]) -> Value {
     let read = |p: &str| files.get(p).cloned();
     let set = match load_modules(entry, &read) {
         Ok(s) => s,
@@ -57,7 +59,7 @@ fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool, whole: b
     for p in &set.order {
         asts.insert(p.clone(), set.programs[p].to_json());
     }
-    let checked = check_modules_with(&set, spa, whole); // 08 CN-3d: a client-only build where the request says so; E-5a: the whole program
+    let checked = check_modules_hosts(&set, spa, whole, hosts); // 08 CN-3d: a client-only build where the request says so; E-5a: the whole program
     let mut sigs = Map::new();
     for p in &set.order {
         sigs.insert(p.clone(), json!(print_signature(&checked.sigs[p])));
@@ -177,6 +179,8 @@ fn main() {
     // 08 CN-3d: a client-only build (dom, not hydratable)
     let spa = args.iter().any(|a| a == "--spa");
     let whole = args.iter().any(|a| a == "--whole-program"); // E-5a
+    // E-5a, whole program: `--host m.rx` names a module a JS host imports with ?rx-lib (CP-4d): JS applies its components
+    let hosts: Vec<String> = args.windows(2).filter(|w| w[0] == "--host").map(|w| abs(&w[1])).collect();
     let Some(cmd) = args.first() else {
         eprintln!("usage: rxc check|model file.rx... | rxc conform < request.json");
         std::process::exit(2);
@@ -193,7 +197,8 @@ fn main() {
                     let entry = r["entry"].as_str().unwrap();
                     let spa = r["spa"].as_bool().unwrap_or(false);
                     let whole = r["whole"].as_bool().unwrap_or(false);
-                    let mut v = std::panic::catch_unwind(|| conform_one(entry, &files, spa, whole)).unwrap_or_else(|e| {
+                    let hosts: Vec<String> = r["hosts"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+                    let mut v = std::panic::catch_unwind(|| conform_one(entry, &files, spa, whole, &hosts)).unwrap_or_else(|e| {
                         let msg = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
                         json!({ "panic": msg })
                     });
@@ -327,7 +332,7 @@ fn main() {
             let mut bad = 0;
             let as_json = cmd == "check" && args.iter().any(|a| a == "--json");
             let mut found: Vec<Value> = vec![];
-            for f in args[1..].iter().filter(|a| !a.starts_with("--")) {
+            for f in args[1..].iter().enumerate().filter(|(i, a)| !a.starts_with("--") && args[*i] != "--host").map(|(_, a)| a) {
                 let set = match load_modules(&abs(f), &read_disk) {
                     Ok(s) => s,
                     Err(e) => {
@@ -340,7 +345,7 @@ fn main() {
                         continue;
                     }
                 };
-                let checked = check_modules_with(&set, spa, whole);
+                let checked = check_modules_hosts(&set, spa, whole, &hosts);
                 for d in &checked.diags {
                     bad += 1;
                     if as_json {

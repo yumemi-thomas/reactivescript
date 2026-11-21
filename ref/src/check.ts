@@ -230,11 +230,11 @@ function whyOf(p: Extract<Expr, { k: "peek" }>, c: Ch): string {
 /** E-5a, the whole-program pass: each prop, provision and export changes when what can reach it does (a least fixpoint);
  *  then each kept peek that waited on them is decided. A component the entry exports, or one passed as a value, is applied by
  *  JS: its props can change. A module known only by its signature (MO-9) is not seen: what comes from it can change. */
-function resolvePeeks(all: [string, PeekFacts][], set: ModuleSet): Diagnostic[] {
+function resolvePeeks(all: [string, PeekFacts][], set: ModuleSet, hosts: string[] = []): Diagnostic[] {   // hosts: modules a JS host imports with ?rx-lib (CP-4d): their exported components are applied by JS
   const alias = new Map<string, string>(); for (const [, f] of all) for (const [a, b] of f.aliases) alias.set(a, b);
   const K = (k: string) => alias.get(k) ?? k;
   const seen = (k: string) => set.programs.has(k.split("#")[0]);
-  const escapes = new Set<string>(); for (const [path, f] of all) { for (const k of f.escapes) escapes.add(K(k)); if (path === set.entry) for (const k of f.exported) escapes.add(K(k)); }
+  const escapes = new Set<string>(); for (const [path, f] of all) { for (const k of f.escapes) escapes.add(K(k)); if (path === set.entry || hosts.includes(path)) for (const k of f.exported) escapes.add(K(k)); }
   const apps = all.flatMap(([, f]) => f.apps); const provs = all.flatMap(([, f]) => f.provs); const exps = new Map(all.flatMap(([, f]) => f.exports.map(x => [x.key, x.ch] as [string, Ch])));
   const truth = new Set<string>();
   const val = (c: Ch) => c.yes || [...c.deps].some(d => truth.has(d));
@@ -289,12 +289,12 @@ type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<stri
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
-export function checkModules(set: ModuleSet, spa = false, whole = false): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {   // whole: E-5a, the modules are the whole program
+export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: string[] = []): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {   // whole: E-5a, the modules are the whole program
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
   const facts: [string, PeekFacts][] = [];
   for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
-  if (whole) diags.push(...resolvePeeks(facts, set));
+  if (whole) diags.push(...resolvePeeks(facts, set, hosts));
   return { diags, sigs, models };
 }
 

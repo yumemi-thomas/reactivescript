@@ -144,7 +144,16 @@ by default — see the list at the end.
   import (`jsClass(NotFound, "people.d.rx#NotFound")`: a package's
   specifier, or the app's `.d.rx` relative to the entry, never a machine
   path), so both builds agree whatever each imports. A rejection of it that
-  a question awaits is sent with that identity.
+  a question awaits is sent with that identity. That instance is marked,
+  at that boundary, and no other (revised 2026-11-21: the first draft
+  marked the class's prototype, so every instance anywhere in the server
+  process was sendable once a program had declared it). A library that
+  serializes a rejection itself, before the program awaits it
+  (`@solidjs/router`'s `query` cache), is given one more boundary, an
+  adapter around the function it caches: `query(sendErrors(fetchPerson),
+  "person")`, from `@reactivescript/runtime`. It marks a rejection or
+  throw of a class the request's app declares, during that app's request
+  only; elsewhere, and on the client, it changes nothing.
 - **SV-5b.** Anything else that reaches a boundary is sent as the generic
   error: an `Error` whose message is Solid's `Internal Server Error`. That
   is every panic (R-f-3), and a rejection of an undeclared class — a JS

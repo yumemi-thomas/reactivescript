@@ -156,3 +156,18 @@ export default component App() {
 
 As the whole program: nothing writes `n`, and the only provision of
 `theme` is a constant, so neither `peek` can go stale.
+
+```rx
+-- reject: SNAPSHOT_KEPT
+-- whole-program
+-- host: ./show.rx
+import { Show } from "./show.rx"
+export default component App() {
+  source n := 1
+  <Show value={n} />
+}
+```
+
+The same program, but a JS host also imports `show.rx` with `?rx-lib`
+(CP-4d, `--host ./show.rx`): JS applies `Show` with props the program
+cannot see, which may change, so its `peek` is refused again.

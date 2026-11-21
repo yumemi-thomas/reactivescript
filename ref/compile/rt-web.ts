@@ -373,6 +373,9 @@ function assignDraft(draft: any, v: unknown) {
   Object.assign(draft, v);
 }
 
+/** SV-5a, a library-cache adapter (`sendErrors(fetchPerson)`): on the server it marks a declared JS error class's
+ *  instances safe to send; on the client there is nothing to send, so it is `fn`. */
+export function sendErrors<F extends (...a: any[]) => unknown>(fn: F): F { return fn; }
 /** CP-4d: an `.rx` module's components for a JS host (`import pages from "./pages.rx?rx-lib"`; `const { Home } =
  *  components(pages)`): Solid components bound to the page's one app, made on first use, or to the app passed. */
 let hostApp: ReturnType<typeof createApp> | null = null;

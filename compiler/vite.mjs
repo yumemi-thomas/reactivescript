@@ -24,6 +24,10 @@
 // Declarations (09 MO-8l): before a program is read, each package it imports that nothing declares (no `rx-types/` file,
 // none shipped, no `@rx-types` package) gets a draft from its TypeScript types in `node_modules/.rx-types/`, with the
 // language server's generator. `rx({ generate: false })` or RX_GENERATE=0 turns it off.
+//
+// Whole program (02 E-5a, opt-in): `rx({ wholeProgram: true })` checks each build's modules as the whole program, so a
+// kept `peek` of a prop or provision is decided by every application and provision; a module some JS file under the
+// root imports with `?rx-lib` counts as applied from outside. Off by default: the editor checks per module.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -93,11 +97,30 @@ function entriesOf(file, root) {
   return [...seen].sort().sort((a, b) => top(b) - top(a));
 }
 
+/** E-5a, whole program: the `.rx` modules a JS host under `root` imports with `?rx-lib` (CP-4d), whose exported
+ *  components JS applies with props the program cannot see. Absolute POSIX paths, the module keys. */
+const RX_LIB_IMPORT = /\bfrom\s*(["'])([^"']+\.rx)\?rx-lib\1|\bimport\s*\(\s*(["'])([^"']+\.rx)\?rx-lib\3/g;
+function hostsUnder(root) {
+  const out = new Set();
+  const walk = dir => {
+    let entries; try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.(m?[jt]sx?|cjs)$/.test(e.name)) for (const m of readFileSync(p, "utf8").matchAll(RX_LIB_IMPORT)) out.add(path.resolve(path.dirname(p), m[2] ?? m[4]).replace(/\\/g, "/"));
+    }
+  };
+  walk(root);
+  return [...out];
+}
+
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx(options = {}) {
   const flag = process.env.RX_TYPECHECK;
   let typed = flag === "0" ? true : null;   // whether this process has type-checked (once per build)
-  const builds = new Map();   // entry\0target\0moduleName\0spa\0lib → { entry, target, moduleName, spa, lib, out, stamps }
+  const builds = new Map();
+  let lastRoot;   // the Vite root, for whole-program checking's ?rx-lib hosts   // entry\0target\0moduleName\0spa\0lib → { entry, target, moduleName, spa, lib, out, stamps }
   const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
   function build(entry, target, moduleName, spa, lib = false) {
     const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${lib}`;
@@ -109,7 +132,9 @@ export default function rx(options = {}) {
       catch (e) { console.warn(`[reactivescript] drafting declarations failed, the program is read without them (MO-8l): ${e?.message ?? e}`); }
       for (const r of drafted) if (r.status === "written") console.info(`[reactivescript] drafted a declaration for ${r.spec} from its types: ${path.relative(process.cwd(), r.file)} (MO-8l)`);
     }
-    const out = JSON.parse(app(entry, target, moduleName, spa, lib));
+    // E-5a: `rx({ wholeProgram: true })` checks a build as the whole program, counting every module a JS host imports with
+    // ?rx-lib as applied from outside; off by default, so a build and the editor (per module) agree
+    const out = JSON.parse(options.wholeProgram ? app(entry, target, moduleName, spa, lib, true, hostsUnder(lastRoot ?? process.cwd())) : app(entry, target, moduleName, spa, lib));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
     const files = out.modules ? Object.keys(out.modules) : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];
     const b = { entry, target, moduleName, spa, lib, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
@@ -136,6 +161,7 @@ export default function rx(options = {}) {
   return {
     compile(_source, { id, moduleId, root, solid, addWatchFile }) {
       const file = path.resolve(id);
+      if (root) lastRoot = path.resolve(root);
       const target = solid.generate === "ssr" ? "ssr" : solid.generate === "universal" ? "universal" : "dom";
       const moduleName = solid.moduleName ?? "@solidjs/web";
       // 08 CN-3d: a client-only build (no SSR, nothing hydrates) has nothing to show on a first load nothing holds
