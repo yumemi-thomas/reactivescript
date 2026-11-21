@@ -6,7 +6,8 @@ import { sendErrors } from "@reactivescript/runtime";
 const people = { 1: { name: "Ann", role: "engineer" }, 2: { name: "Bo", role: "designer" } };
 
 export class NotFound extends Error {
-  constructor(id) { super(`no person ${id}`); this.name = "NotFound"; }
+  // `cause` is what a library or a database driver attaches: the server keeps it, the client is not sent it (SV-5a)
+  constructor(id) { super(`no person ${id}`, { cause: new Error(`people.db lookup failed for ${id}`) }); this.name = "NotFound"; this.id = id; }
 }
 
 export async function fetchPerson(id) {

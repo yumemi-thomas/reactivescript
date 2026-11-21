@@ -722,14 +722,18 @@ impl<'p> Gen<'p> {
             }
         }
         for d in decls {
-            let Decl::Import { resolved: None, names, from, declared_errors, declared, .. } = d else { continue };
+            let Decl::Import { resolved: None, names, from, declared_errors, declared_error_fields, declared, .. } = d else { continue };
             let n0 = out.len();
             for n in names {
                 let (name, alias) = (&n.name, &n.alias);
                 let v = if self.js_import(from) && !builtin(name) && name != "log" {
                     if declared_errors.as_ref().is_some_and(|e| e.contains(name)) {
                         // SV-5a: a declared JS error class, by its declaration's identity (the same on server and client)
-                        rtc("jsClass", vec![id(format!("w${alias}")), str(format!("{}#{}", self.class_module(from, declared.as_deref()), name))])
+                        let mut a = vec![id(format!("w${alias}")), str(format!("{}#{}", self.class_module(from, declared.as_deref()), name))];
+                        if let Some((_, fs)) = declared_error_fields.as_ref().and_then(|xs| xs.iter().find(|(k, _)| k == name)) {
+                            a.push(E::Arr(fs.iter().map(|f| str(f.clone())).collect()));
+                        }
+                        rtc("jsClass", a)
                     } else {
                         id(format!("w${alias}"))
                     }

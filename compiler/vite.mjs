@@ -117,7 +117,7 @@ function tsPathsOf(root) {
 /** The file a JS module's import of `spec` names, as Vite resolves it for these aliases and tsconfig paths, or undefined
  *  when none of them says (a bare package specifier). Its real path, so a link and its target are one module. */
 function resolveHost(spec, importer, aliases, tsPaths) {
-  if (spec.startsWith(".")) return real(path.resolve(path.dirname(importer), spec));
+  if (spec.startsWith(".")) return real(path.resolve(path.dirname(real(importer)), spec));   // from where the importer really is, as Node and Vite resolve
   for (const { find, replacement } of aliases) {
     if (find instanceof RegExp) { if (find.test(spec)) return resolveHost(spec.replace(find, replacement), importer, [], tsPaths) ?? real(spec.replace(find, replacement)); }
     else if (spec === find || spec.startsWith(find.endsWith("/") ? find : find + "/")) { const to = replacement + spec.slice(find.length); return path.isAbsolute(to) ? real(to) : resolveHost(to, importer, [], tsPaths); }
@@ -133,15 +133,18 @@ function resolveHost(spec, importer, aliases, tsPaths) {
 }
 const unresolved = new Set();   // ?rx-lib imports already reported as naming no file
 const scans = new Map();   // a JS file → { t: its mtime, specs: the ?rx-lib imports it was read with } (the file's text: shared)
-/** Every `?rx-lib` import of the JS files under `root`: `{ p, spec, s }`, `s` the file's scan (kept while its mtime stands). */
+/** Every `?rx-lib` import of the JS files under `root`, linked folders followed: `{ p, spec, s }`, `s` the file's scan
+ *  (kept while its mtime stands). */
 function hostImports(root) {
-  const out = [];
+  const out = []; const seen = new Set();   // the real folders walked: a link back up the tree is walked once
   const walk = dir => {
+    const r = real(dir); if (seen.has(r)) return; seen.add(r);
     let entries; try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       if (e.name === "node_modules" || e.name.startsWith(".")) continue;
       const p = path.join(dir, e.name);
-      if (e.isDirectory()) walk(p);
+      // a linked folder is walked as the folder it links to (a host may live in one: a workspace package, a shared pages dir)
+      if (e.isDirectory() || (e.isSymbolicLink() && (() => { try { return statSync(p).isDirectory(); } catch { return false; } })())) walk(p);
       else if (/\.(m?[jt]sx?|cjs)$/.test(e.name)) {
         const t = mtime(p); let s = scans.get(p);
         if (!s || s.t !== t) { s = { t, specs: [...readFileSync(p, "utf8").matchAll(RX_LIB_IMPORT)].map(m => m[2] ?? m[4]) }; scans.set(p, s); }
@@ -187,7 +190,7 @@ async function hostsVia(root, resolve, alias, via) {
   for (const { p, spec, s } of hostImports(root)) {
     const key = `${p}\0${s.t}\0${spec}`;
     if (!via.has(key)) {
-      let id = null; try { id = await resolve(spec, p); } catch {}
+      let id = null; try { id = await resolve(spec, real(p)); } catch {}   // the importer as Vite names it, by its real path
       via.set(key, id && !id.startsWith("\0") ? posix(id.split("?")[0]) : null);
     }
     const f = via.get(key) ?? resolveHost(spec, p, aliases, tsPaths);

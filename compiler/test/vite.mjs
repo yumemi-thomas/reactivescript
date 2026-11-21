@@ -200,7 +200,7 @@ for (const [name, entry] of Object.entries(apps)) {
   let dir;
   process.env.RX_TYPECHECK = TYPED.has(name) ? "1" : "0";
   try { dir = project(name, entry); await vite.build(config(dir, entry)); }
-  catch (e) { fail++; console.log(`✗ ${name}: build: ${e.message.split("\n")[0]}`); continue; }
+  catch (e) { fail++; console.log(`✗ ${name}: build: ${e.message.split("\n").slice(0, 8).join(" | ")}`); continue; }
   // CP-1c: the bundle's map reaches the .rx sources
   const maps = readdirSync(path.join(dir, "dist/assets")).filter(f => f.endsWith(".js.map"));
   const sources = maps.flatMap(f => JSON.parse(readFileSync(path.join(dir, "dist/assets", f), "utf8")).sources);

@@ -9,6 +9,7 @@
 // time as they would in TypeScript, until a project declaration says them. Strict mode counts no generated row verified.
 // A draft is redone when the installed version changes; one that cannot be drafted (no types) is not written.
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const path = require("node:path");
 const { createRequire } = require("node:module");
 const { lookup, declaration } = require("./rxc");
@@ -16,7 +17,7 @@ const { declare } = require("./declare.js");
 const { installed } = require("./versions.js");
 
 const IMPORT = /^\s*import\b([^"'`;]*?)\bfrom\s*["']([^"']+)["']/gm;
-const GENERATED = /^\/\/@ generated (\S+)@(\S+) \(MO-8l, draft (\d+)\)/;
+const GENERATED = /^\/\/@ generated (\S+)@(\S+) \(MO-8l, draft (\d+)(?:, types ([0-9a-f]+))?\)/;
 const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, under any rule
 // The drafting rules a generated file was written under. A draft is kept only while the package's version and this both
 // stand, so a change of rule (2: no fn is guessed `pure`) redrafts what an earlier rule wrote. Bump it with any change to
@@ -42,6 +43,22 @@ function packageImports(entry, text) {
   return specs;
 }
 
+/** What the draft of `spec` was made from: a hash of the declaration file TypeScript resolves the import to, with its
+ *  package.json. A package that changes at the same version (a linked workspace package, a local patch) is redrafted. */
+function typesStamp(ts, spec, from) {
+  try {
+    const options = { module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, allowJs: false };
+    const r = ts.resolveModuleName(spec, from, options, ts.sys).resolvedModule;
+    if (!r?.resolvedFileName) return "";
+    const h = crypto.createHash("sha256").update(fs.readFileSync(r.resolvedFileName, "utf8"));
+    for (let d = path.dirname(r.resolvedFileName); ; d = path.dirname(d)) {
+      if (fs.existsSync(path.join(d, "package.json"))) { h.update(fs.readFileSync(path.join(d, "package.json"), "utf8")); break; }
+      if (path.dirname(d) === d) break;
+    }
+    return h.digest("hex").slice(0, 12);
+  } catch { return ""; }
+}
+
 /** The directory whose node_modules holds `pkg`, resolved from `dir` as Node would. */
 function rootOf(pkg, dir) {
   for (let d = dir; ; d = path.dirname(d)) {
@@ -57,11 +74,15 @@ function typescriptFor(dir) {
 /** The draft with each row the .d.rx parser refuses left out as a comment, so one row types put beyond the notation does
  *  not cost the package its declaration. */
 function parsing(text, file) {
-  const ok = t => { fs.writeFileSync(file, t); const r = declaration(file); return !(r && r.error); };
-  if (ok(text)) return text;
-  const lines = text.split("\n");
-  const out = lines.map(l => /^export\b/.test(l) && !ok(l + "\n") ? `// left out, the .d.rx notation cannot say it: ${l}` : l);
-  return out.join("\n");
+  // tried in a file of its own beside the draft, so a reader of the draft never sees a trial (one row, or none)
+  const trial = file.replace(/\.d\.rx$/, "") + `.${process.pid}.trial.d.rx`;
+  const ok = t => { fs.writeFileSync(trial, t); const r = declaration(trial); return !(r && r.error); };
+  try {
+    if (ok(text)) return text;
+    const lines = text.split("\n");
+    const out = lines.map(l => /^export\b/.test(l) && !ok(l + "\n") ? `// left out, the .d.rx notation cannot say it: ${l}` : l);
+    return out.join("\n");
+  } finally { fs.rmSync(trial, { force: true }); }
 }
 
 /** Draft what `entry`'s program imports and nothing declares. Returns what it did, one entry per package specifier:
@@ -77,9 +98,10 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     const root = rootOf(pkg, dir); if (!root) continue;   // not installed: the bundler reports it
     const version = installed(pkg, dir) ?? "0.0.0";
     const file = path.join(root, "node_modules", ".rx-types", ...spec.split("/")) + ".d.rx";
+    const stamp = typesStamp(typescriptFor(dir), spec, from);
     if (found && path.resolve(found) === file) {
       const head = GENERATED.exec(fs.readFileSync(file, "utf8"));
-      if (head && head[1] === pkg && head[2] === version && Number(head[3]) === FORMAT) { out.push({ spec, file, status: "current" }); continue; }
+      if (head && head[1] === pkg && head[2] === version && Number(head[3]) === FORMAT && (head[4] ?? "") === stamp) { out.push({ spec, file, status: "current" }); continue; }
     }
     let text;
     try { text = declare(typescriptFor(dir), spec, dir); }
@@ -94,7 +116,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     fs.mkdirSync(path.dirname(file), { recursive: true });
     text = parsing(text, file);
     fs.writeFileSync(file, [
-      `//@ generated ${pkg}@${version} (MO-8l, draft ${FORMAT}): drafted from ${spec}'s TypeScript types, the package not run. Its fns are io`,
+      `//@ generated ${pkg}@${version} (MO-8l, draft ${FORMAT}${stamp ? `, types ${stamp}` : ""}): drafted from ${spec}'s TypeScript types, the package not run. Its fns are io`,
       `// (no draft guesses \`pure\`); a component it is given is checked under a root of its own (MO-11s); a hook's context and`,
       `// a field that waits or throws are not checked. To say them, write rx-types/${spec}.d.rx, which comes first (MO-8k):`,
       `// npx rx-declare ${spec} --out rx-types/${spec}.d.rx (add --run to run the package and find the contexts).`,

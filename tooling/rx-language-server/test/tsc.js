@@ -104,6 +104,14 @@ const strictRun = () => spawnSync(process.execPath, [path.join(__dirname, "../bi
 fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): number\n");
 const unrec = strictRun();
 check("strict: a row nothing verified is refused (UNVERIFIED_ROW)", unrec.status !== 0 && /lib\.d\.rx:1:1 - error UNVERIFIED_ROW: twice: nothing verified it/.test(unrec.stdout), { status: unrec.status, out: unrec.stdout + unrec.stderr });
+// the strict setting in a tsconfig named with -p, rx-tsc run from elsewhere: that tsconfig is the one read
+const onlyCfg = path.join(only, "tsconfig.json"), onlyCfgText = fs.readFileSync(onlyCfg, "utf8");
+fs.writeFileSync(onlyCfg, JSON.stringify({ ...JSON.parse(onlyCfgText), reactivescript: { strict: true } }));
+const fromParent = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "-p", path.relative(ws, onlyCfg)], { cwd: ws, encoding: "utf8" });
+check("strict: a tsconfig named with -p sets it, run from another folder (UNVERIFIED_ROW)", fromParent.status !== 0 && /UNVERIFIED_ROW: twice: nothing verified it/.test(fromParent.stdout), { status: fromParent.status, out: fromParent.stdout + fromParent.stderr });
+const fromParentDir = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--project", path.relative(ws, only)], { cwd: ws, encoding: "utf8" });
+check("...and -p naming its folder", fromParentDir.status !== 0 && /UNVERIFIED_ROW: twice/.test(fromParentDir.stdout), { status: fromParentDir.status, out: fromParentDir.stdout + fromParentDir.stderr });
+fs.writeFileSync(onlyCfg, onlyCfgText);
 fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): number trusted\n");
 const trusted = strictRun();
 check("strict: a row marked trusted passes", trusted.status === 0, { status: trusted.status, out: trusted.stdout + trusted.stderr });

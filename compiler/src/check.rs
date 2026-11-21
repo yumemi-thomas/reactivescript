@@ -242,6 +242,8 @@ struct Sym<'a> {
     decl_env: Option<EId>,
     /// MO-10: a declared JS primitive (a fn) or an instance of one, or a part of it (an equation): what its result is
     foreign: Option<FShape>,
+    /// RFC 14: bound from a field of an instance (`w = size.width`), which tracks (MO-10b)
+    via_field: bool,
     /// MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
     held: Vec<(String, bool, Vec<String>)>,
     /// MO-10g: where a declared JS fn takes callbacks, by parameter
@@ -331,6 +333,7 @@ impl<'a> Sym<'a> {
             fn_decl: None,
             decl_env: None,
             foreign: None,
+            via_field: false,
             held: vec![],
             cbs: vec![],
             needs: vec![],
@@ -704,6 +707,51 @@ fn reads_outside_peek(n: Node, out: &mut IndexSet<String>) {
         _ => {
             for c in children(n, false) {
                 reads_outside_peek(c, out);
+            }
+        }
+    }
+}
+/// RFC 14: the names read outside `peek` at the root of a field or index read (`size.width`, `todos.items[0]`): a
+/// primitive's instance never changes, but what is read through it tracks (MO-10b); a method called on it is not a read
+/// of a field.
+fn rooted_reads(e: &Expr, out: &mut IndexSet<String>) {
+    match &e.k {
+        ExprKind::Peek(_) | ExprKind::Fn { .. } => {}
+        ExprKind::Call { f, args, .. } if matches!(f.k, ExprKind::Member { .. }) => {
+            // a method called on the instance (`route.addChildren(…)`) reads no field of it; a field on the way does
+            if let ExprKind::Member { o, .. } = &f.k {
+                if !matches!(o.k, ExprKind::Id(_)) {
+                    rooted_reads(o, out);
+                }
+            }
+            for a in args {
+                rooted_reads(a, out);
+            }
+        }
+        ExprKind::Member { .. } | ExprKind::Index { .. } => {
+            let mut x = e;
+            loop {
+                match &x.k {
+                    ExprKind::Member { o, .. } => x = o,
+                    ExprKind::Index { o, i, .. } => {
+                        rooted_reads(i, out);
+                        x = o;
+                    }
+                    _ => break,
+                }
+            }
+            match &x.k {
+                ExprKind::Id(n) => {
+                    out.insert(n.clone());
+                }
+                _ => rooted_reads(x, out),
+            }
+        }
+        _ => {
+            for c in children(Node::E(e), false) {
+                if let Node::E(c) = c {
+                    rooted_reads(c, out);
+                }
             }
         }
     }
@@ -1880,7 +1928,8 @@ impl<'a> Checker<'a> {
                 continue;
             }
             let Some(x) = decls.iter().find(|y| y.name() == name) else {
-                self.err("NOT_EXPORTED", "MO-8", format!("{} declares no export {} (declare it, or it is not {}'s)", file, name, from));
+                let hint = if generated.is_some() { format!("; {file} was drafted from {from}'s types (MO-8l): a build redrafts it when they change, or declare {from} in rx-types/{from}.d.rx") } else { String::new() };
+                self.err("NOT_EXPORTED", "MO-8", format!("{} declares no export {} (declare it, or it is not {}'s){}", file, name, from, hint));
                 let mut s = Sym::new(SymKind::Import, alias, region, line);
                 s.io = true;
                 self.bind(env, alias, s);
@@ -2015,6 +2064,9 @@ impl<'a> Checker<'a> {
             _ => None,
         };
         let Some(shape) = shape else { return };
+        if matches!(e.k, ExprKind::Member { .. }) {
+            sym.via_field = true;
+        }
         // MO-10f: its fields' rows come with it; a part bound from a field that holds reads as a reader (MO-10d)
         if let ExprKind::Call { f, .. } = &e.k {
             if let ExprKind::Id(n) = &f.k {
@@ -2595,6 +2647,17 @@ impl<'a> Checker<'a> {
         self.const_eqs.insert(s, None);
         let text = e.to_json().to_string();
         let mut ok = !["\"k\":\"await\"", "\"k\":\"latest\"", "\"k\":\"use\"", "\"k\":\"pre\""].iter().any(|k| text.contains(k));
+        // RFC 14: a field read of an instance tracks (MO-10b), so an equation that reads one, or is bound to one, changes
+        if ok && self.syms[s].via_field {
+            ok = false;
+        }
+        if ok {
+            let mut rooted = IndexSet::new();
+            rooted_reads(e, &mut rooted);
+            if rooted.iter().any(|n| self.lookup(env, n).is_some_and(|t| self.syms[t].foreign.is_some())) {
+                ok = false;
+            }
+        }
         if ok {
             let mut reads = IndexSet::new();
             reads_outside_peek(Node::E(e), &mut reads);
@@ -2623,9 +2686,12 @@ impl<'a> Checker<'a> {
             }
             let mut reads = IndexSet::new();
             reads_outside_peek(Node::E(a), &mut reads);
-            // E-10: an instance a primitive made (its value result) is made once and never changes
-            let constant = |s: SId| matches!(self.syms[s].foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value)) | Some(crate::parse::Shape::Comp));
-            let cands: Vec<(String, SId)> = reads.iter().filter_map(|n| self.lookup(env, n).filter(|&s| self.syms[s].kind.reactive() && !constant(s)).map(|s| (n.clone(), s))).collect();
+            let mut rooted = IndexSet::new();
+            rooted_reads(a, &mut rooted);
+            // E-10: an instance a primitive made (its value result) is made once and never changes, when it is passed
+            // whole; a field read through it, or a name bound to one, tracks (RFC 14, MO-10b)
+            let constant = |s: SId, n: &String| matches!(self.syms[s].foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value)) | Some(crate::parse::Shape::Comp)) && !self.syms[s].via_field && !rooted.contains(n);
+            let cands: Vec<(String, SId)> = reads.iter().filter_map(|n| self.lookup(env, n).filter(|&s| self.syms[s].kind.reactive() && !constant(s, n)).map(|s| (n.clone(), s))).collect();
             // and an equation that reads nothing that changes
             let mut hit = None;
             for (n, s) in cands {

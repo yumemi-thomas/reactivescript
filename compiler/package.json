@@ -69,6 +69,7 @@
     "@emnapi/runtime": "^1.11.3",
     "@napi-rs/cli": "^3.10.6",
     "@napi-rs/wasm-runtime": "^1.1.6",
-    "emnapi": "^1.11.3"
+    "emnapi": "^1.11.3",
+    "playwright": "1.63.0"
   }
 }

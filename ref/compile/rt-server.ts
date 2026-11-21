@@ -98,6 +98,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
   const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
   const jsClassIds = new Map<unknown, string>();   // SV-5a: a declared JS error class the program imports, by its declaration (`jsClass`)
+  const jsClassFields = new Map<unknown, string[]>();   // SV-5a: the fields its declaration says are sent (`export error C(status)`)
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
@@ -138,26 +139,36 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     prim: (name: string) => primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any })[name] ?? (() => { throw new Error(`./prims has no ${name}`); }),
 
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
-    /** SV-5a: a JS module's error class, declared in its `.d.rx` (`export error C`): `id` is that declaration. */
-    jsClass<T>(C: T, id: string): T {
-      if (!jsClassIds.has(C)) jsClassIds.set(C, id);
+    /** SV-5a: a JS module's error class, declared in its `.d.rx` (`export error C`, or `export error C(status, code)` to
+     *  send those fields too): `id` is that declaration. */
+    jsClass<T>(C: T, id: string, fields?: string[]): T {
+      if (!jsClassIds.has(C)) { jsClassIds.set(C, id); if (fields?.length) jsClassFields.set(C, fields); }
       return C;
     },
-    /** SV-5a: `err`, if it is an instance of a JS error class this app's program declares, stamped with its declaration's
-     *  identity and marked safe to send — this instance, at a boundary this app owns (an awaited promise, or `sendErrors`
-     *  around a library's cache). Declaring a class for typed matching makes no other instance sendable. */
-    markSendable(err: unknown): boolean {
-      if (!err || typeof err !== "object") return false;
+    /** SV-5a: what is sent for `err`, if it is an instance of a JS error class this app's program declares: a copy of it,
+     *  of its class (so a typed boundary and `instanceof` still hold on the server), with its message, its declaration's
+     *  identity and the fields its declaration names, marked safe to send. Solid serializes an error with every field it
+     *  holds (a library's `cause`, a response's headers, the stack), so the library's own instance is never the one sent.
+     *  Undefined when nothing declares its class: it is redacted (SV-5b). */
+    markSendable(err: unknown): Error | undefined {
+      if (!err || typeof err !== "object") return undefined;
       // the nearest declared class up its prototype chain names it, whatever order the program registered its classes in;
       // the declared classes above that one go with it, so a client boundary typed with a base class matches it too
-      const ids: string[] = [];
+      const ids: string[] = []; const fields: string[] = [];
       for (let p = Object.getPrototypeOf(err); p && p !== Object.prototype; p = Object.getPrototypeOf(p))
-        for (const [k, i] of jsClassIds) if ((k as { prototype?: unknown }).prototype === p && !ids.includes(i)) ids.push(i);
-      if (!ids.length) return false;
-      (err as { $class?: string }).$class = ids[0];
-      if (ids.length > 1) (err as { $classes?: string[] }).$classes = ids;
-      markSafeError(err as Error);
-      return true;
+        for (const [k, i] of jsClassIds) if ((k as { prototype?: unknown }).prototype === p && !ids.includes(i)) { ids.push(i); for (const f of jsClassFields.get(k) ?? []) if (!fields.includes(f)) fields.push(f); }
+      if (!ids.length) return undefined;
+      if ((err as { $class?: string }).$class === ids[0] && SENT.has(err)) return err as Error;   // already the copy
+      const e = err as Error & Record<string, unknown>;
+      const sent = Object.create(Object.getPrototypeOf(err)) as Error & Record<string, unknown>;
+      Object.defineProperty(sent, "message", { value: String(e.message ?? ""), writable: true, configurable: true });
+      Object.defineProperty(sent, "name", { value: e.name, writable: true, configurable: true });
+      for (const f of fields) if (f in e && f !== "stack" && f !== "cause") sent[f] = e[f];
+      sent.$class = ids[0];
+      if (ids.length > 1) sent.$classes = ids;
+      SENT.add(sent);
+      markSafeError(sent);
+      return sent;
     },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
@@ -197,7 +208,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
      *  its class's identity; the side branch only marks it, before Solid serializes it, and changes nothing else. */
     awaited: (v: unknown) => {
       if (v instanceof Flight) return v.first;
-      if (jsClassIds.size && v && typeof (v as PromiseLike<unknown>).then === "function") (v as PromiseLike<unknown>).then(undefined, (err: unknown) => { app.markSendable(err); });
+      // a rejection of a declared class rejects on with what is sent for it (`markSendable`); anything else as it was
+      if (jsClassIds.size && v && typeof (v as PromiseLike<unknown>).then === "function") return Promise.resolve(v).then(x => x, (err: unknown) => { throw app.markSendable(err) ?? err; });
       return v;
     },
     /** `x = await f() catch (e: C) => alt` (R-f-4): a matching rejection lands `alt` as the answer; others reject on. */
@@ -321,15 +333,18 @@ export function components<T extends Record<string, unknown>>(factory: (rt: unkn
 }
 const HOST_APP = Symbol.for("reactivescript.app");
 const REQUEST_APP = Symbol.for("reactivescript.request-app");   // the app whose stream this request event is
+/** SV-5a: the copies `markSendable` made, which are what is sent. */
+const SENT = new WeakSet<object>();
 /** SV-5a, a library-cache adapter: `fn` with its rejections (and throws) of a JS error class the request's app declares
  *  marked safe to send, before anything else sees them. For a library that serializes a promise itself, as
  *  `@solidjs/router`'s `query` does: `export const getPerson = query(sendErrors(fetchPerson), "person")`. Outside an app's
  *  request, and on the client, it changes nothing. */
 export function sendErrors<F extends (...a: any[]) => unknown>(fn: F): F {
-  const mark = (e: unknown) => { const l = (getRequestEvent() as { locals?: Record<PropertyKey, unknown> } | undefined)?.locals; ((l?.[REQUEST_APP] ?? l?.[HOST_APP]) as { markSendable?: (e: unknown) => boolean } | undefined)?.markSendable?.(e); };
+  // what is sent for `e` (its sendable copy, SV-5a), or `e` itself where nothing declares its class or no app is asking
+  const sendable = (e: unknown) => { const l = (getRequestEvent() as { locals?: Record<PropertyKey, unknown> } | undefined)?.locals; return ((l?.[REQUEST_APP] ?? l?.[HOST_APP]) as { markSendable?: (e: unknown) => unknown } | undefined)?.markSendable?.(e) ?? e; };
   return ((...a: unknown[]) => {
     let r: unknown;
-    try { r = fn(...a); } catch (e) { mark(e); throw e; }
-    return r && typeof (r as PromiseLike<unknown>).then === "function" ? Promise.resolve(r).then(v => v, e => { mark(e); throw e; }) : r;
+    try { r = fn(...a); } catch (e) { throw sendable(e); }
+    return r && typeof (r as PromiseLike<unknown>).then === "function" ? Promise.resolve(r).then(v => v, e => { throw sendable(e); }) : r;
   }) as F;
 }

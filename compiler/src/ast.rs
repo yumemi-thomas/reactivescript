@@ -211,6 +211,8 @@ pub enum Decl {
         /// a JS import's declaration file (MO-8)
         declared: Option<String>,
         declared_errors: Option<Vec<String>>,
+        /// SV-5a: the declared error classes' sent fields, by class (only those that list some)
+        declared_error_fields: Option<Vec<(String, Vec<String>)>>,
         declared_pure: Option<Vec<String>>,
         declared_side: Option<Vec<(String, Side)>>,
     },
@@ -544,7 +546,7 @@ impl Decl {
                 ("type", os(ty)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_pure, declared_side, .. } => obj(vec![
+            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, .. } => obj(vec![
                 ("k", s("import")),
                 ("names", Some(Value::Array(names.iter().map(|n| obj(vec![("name", s(&n.name)), ("alias", s(&n.alias))])).collect()))),
                 ("from", s(from)),
@@ -555,6 +557,16 @@ impl Decl {
                 ("resolved", os(resolved)),
                 ("declared", os(declared)),
                 ("declaredErrors", declared_errors.as_ref().map(|f| strs(f))),
+                (
+                    "declaredErrorFields",
+                    declared_error_fields.as_ref().map(|xs| {
+                        let mut m = Map::new();
+                        for (k, v) in xs {
+                            m.insert(k.clone(), Value::Array(v.iter().map(|x| Value::String(x.clone())).collect()));
+                        }
+                        Value::Object(m)
+                    }),
+                ),
                 ("declaredPure", declared_pure.as_ref().map(|f| strs(f))),
                 (
                     "declaredSide",

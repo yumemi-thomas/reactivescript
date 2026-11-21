@@ -50,6 +50,7 @@ pub fn app_whole(entry: &str, target: Target, module_name: &str, spa: bool, libr
             json!({ "diagnostics": [d] })
         })?;
         let hosts: Vec<String> = hosts.iter().map(|h| h.replace('\\', "/")).collect();
+        let hosts = crate::modules::hosts_as_keys(&set, &hosts); // E-5a: a host is the module whose real path is its own
         let checked = if whole { crate::check::check_modules_hosts(&set, spa, true, &hosts) } else { check_modules(&set, spa) };
         if !checked.diags.is_empty() {
             return Err(json!({ "diagnostics": checked.diags.iter().map(|d| { let mut j = d.to_json(); if j["file"].is_null() { j["file"] = json!(set.entry); } j }).collect::<Vec<_>>() }));

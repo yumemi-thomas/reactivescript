@@ -13,6 +13,8 @@ export pure fn createObserver(ref elements: Element[]): readonly [ref any[], (el
 export pure fn debounce(callback: handler (...args: any[]) => void, wait?: number): (...args: any[]) => void instantiates
 // the same, drafted from a generic signature with its callback loosened to `any`: no longer a callback
 export pure fn loose(callback: any, wait?: number): (...args: any[]) => void instantiates
+// a primitive with a value parameter: its argument is read once (E-10)
+export pure fn createLabel(width: number): any instantiates
 ```
 
 TypeScript's `readonly` on a field and on a tuple is a modifier, not part
@@ -57,6 +59,35 @@ Where the declaration types the parameter `any`, nothing says the library
 calls it later: the closure is pure, and a write in it is refused. (So
 `rx-declare` keeps a callback's function type even in a generic
 signature.)
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createWindowSize, createLabel } from "./prims.js"
+export default component App() {
+  size = createWindowSize()
+  w = size.width
+  label = createLabel(w)
+  <p>{label}</p>
+}
+```
+
+The instance `createWindowSize` made never changes, but its fields track
+(MO-10b): `w` follows `size.width`, so passing it to a value parameter
+reads it once and keeps the first width (E-10). Only the instance passed
+whole is exempt, and a method called on it (`route.addChildren(…)`,
+S-module-22), which reads no field.
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createWindowSize, createLabel } from "./prims.js"
+export default component App() {
+  size = createWindowSize()
+  label = createLabel(size.width)
+  <p>{label}</p>
+}
+```
+
+The same, with the field read in the argument itself.
 
 ```rx
 -- types: TS2345

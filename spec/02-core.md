@@ -157,7 +157,10 @@ Function application `f(e…)` covers both language functions and FFI imports;
   reported, and a change to the hosts re-checks the build; Vite's answers
   are kept per plugin, since another configuration in the same process may
   resolve the same import elsewhere, and a host is matched under every name
-  the checker may key its module by, real or through a symlinked root),
+  the checker may key its module by: hosts and modules are matched by their
+  real paths, so a linked root, folder or file is one module, and the scan
+  follows linked folders, a relative import resolved from where its file
+  really is, as Node and Vite resolve it),
   whose props can change, and nothing else;
   a module known only by its signature (MO-9) is not seen. It is opt-in:
   builds and the editor check one module at a time unless asked. (Solid:
@@ -210,6 +213,10 @@ Function application `f(e…)` covers both language functions and FFI imports;
   made once and never changes, so reading it in an argument loses nothing
   and is no diagnostic (proposed 2026-11-19: `createRouter({ routeTree:
   rootRoute.addChildren(…) })`, S-module-22); a reader (`ref`) still is.
+  So is a field read through such an instance, or an equation bound to one
+  (`w = size.width`), since a primitive's fields track (MO-10b), revised
+  2026-11-21 after review: only the instance passed whole, or a method
+  called on it, which reads no field, is exempt (S-module-20).
   So is an equation that never changes (proposed 2026-11-19): one that
   awaits nothing, reads no context, and reads only pure JS imports,
   components, error classes and such equations — a validation schema built

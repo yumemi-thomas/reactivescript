@@ -33,7 +33,11 @@ process.on("exit", code => {
   }
   // TY-6: each .d.rx against the JS module it declares
   const ts = require(require.resolve("typescript"));
-  const cfg = ts.findConfigFile(process.cwd(), ts.sys.fileExists);
+  // the tsconfig tsc itself reads: `-p`/`--project` (a file, or a folder holding tsconfig.json), else the nearest above the
+  // working directory; TY-6's options and the strict setting come from the same file
+  const at = process.argv.findIndex(x => x === "-p" || x === "--project");
+  const project = at >= 0 && process.argv[at + 1] ? path.resolve(process.argv[at + 1]) : undefined;
+  const cfg = project ? (ts.sys.directoryExists(project) ? path.join(project, "tsconfig.json") : project) : ts.findConfigFile(process.cwd(), ts.sys.fileExists);
   const parsed = cfg ? ts.parseJsonConfigFileContent(ts.readConfigFile(cfg, ts.sys.readFile).config, ts.sys, path.dirname(cfg), undefined, undefined, undefined, [{ extension: ".rx", isMixedContent: true, scriptKind: ts.ScriptKind.Deferred }]) : null;
   const options = parsed ? parsed.options : {};
   // the files TY-6 and MO-8f look beside: every .rx module analysed, and every .rx or .d.rx the tsconfig names (a package

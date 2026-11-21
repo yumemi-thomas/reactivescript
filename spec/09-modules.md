@@ -270,7 +270,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   the program is read: the Vite plugin before each build, the language
   server when a module's imports change, rx-tsc as it analyses. It is
   written to `node_modules/.rx-types/<spec>.d.rx` with a first line
-  `//@ generated <package>@<version> (MO-8l, draft <n>)`, kept while that
+  `//@ generated <package>@<version> (MO-8l, draft <n>, types <hash>)`,
+  the hash of the declaration file TypeScript resolves the import to, with
+  its package.json, so a package that changes at the same version (a linked
+  workspace package) is redrafted too; kept while that
   version is installed and the drafting rules are draft `<n>`'s, and
   redrafted when either moves (a draft written under an earlier rule, one
   that guessed `pure`, is redone once though the version stands; one that

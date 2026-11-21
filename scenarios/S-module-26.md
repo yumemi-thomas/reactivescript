@@ -118,3 +118,15 @@ export default component App() {
 A generated draft never guesses `pure` (MO-8l): `readGauge` is io until a
 person declares it `pure fn` in `rx-types/@demo/gauge.d.rx`, which the
 message says.
+
+```rx
+-- reject: NOT_EXPORTED
+import { Dial } from "@demo/gauge"
+export default component App() {
+  <Dial />
+}
+```
+
+The generated draft declares no `Dial`. The message says the declaration
+is a draft from the package's types (MO-8l), which a build redrafts when
+those types change, and where to declare the package instead.

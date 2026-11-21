@@ -526,7 +526,8 @@ pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
     Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, joins: Option<String>, forwards: bool, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)> },
-    Error { name: String, line: usize },
+    /// SV-5a: `fields`, what of an instance is sent to the client (`export error HttpError(status, code)`); none, name and message only
+    Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
     Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, outlet: bool },
@@ -669,6 +670,33 @@ fn strip_draft(t: &str) -> String {
     DRAFT_WORD.replace_all(t, "$1").to_string()
 }
 /// 07 §3: a balanced `<…>` at the start of `s` followed by `(`: its text and the byte length up to the `(`.
+/// 07 §3: whether `text`, between a call's `<` and `>`, can be TypeScript type arguments: no operator a type never has
+/// (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `*`, `/`, `%`, `!`) outside a string literal. `a<b && c>(d)` is comparisons, as
+/// TypeScript reads it.
+fn looks_like_types(text: &str) -> bool {
+    let b = text.as_bytes();
+    let mut j = 0;
+    while j < b.len() {
+        let ch = b[j];
+        if ch == b'"' || ch == b'\'' || ch == b'`' {
+            j += 1;
+            while j < b.len() && b[j] != ch {
+                if b[j] == b'\\' {
+                    j += 1;
+                }
+                j += 1;
+            }
+            j += 1;
+            continue;
+        }
+        let two = &b[j..(j + 2).min(b.len())];
+        if [&b"&&"[..], b"||", b"==", b"!=", b"<=", b">="].contains(&two) || b"*/%!".contains(&ch) {
+            return false;
+        }
+        j += 1;
+    }
+    true
+}
 fn type_args_at(s: &str) -> Option<(String, usize)> {
     let b = s.as_bytes();
     if b.first() != Some(&b'<') {
@@ -682,7 +710,8 @@ fn type_args_at(s: &str) -> Option<(String, usize)> {
         } else if b")]}".contains(&ch) || (ch == b'>' && (j == 0 || b[j - 1] != b'=')) {
             depth -= 1;
             if depth == 0 {
-                return if ch == b'>' && b.get(j + 1) == Some(&b'(') { Some((s[1..j].trim().to_string(), j + 1)) } else { None };
+                let text = s[1..j].trim();
+                return if ch == b'>' && b.get(j + 1) == Some(&b'(') && looks_like_types(text) { Some((text.to_string(), j + 1)) } else { None };
             }
         }
     }
@@ -973,7 +1002,23 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         if c.keyword("error") {
             c.ws(true);
             let name = c.ident_or("error class name")?;
-            out.push(JsDecl::Error { name, line });
+            c.ws(false);
+            let mut fields = vec![];
+            if c.eat("(") {
+                let t0 = c.i;
+                let mut depth = 1;
+                while !c.eof() && depth > 0 {
+                    let ch = c.peek();
+                    if "([{<".contains(ch) {
+                        depth += 1;
+                    } else if ")]}>".contains(ch) {
+                        depth -= 1;
+                    }
+                    c.i += ch.len_utf8();
+                }
+                fields = split_top(&c.src[t0..c.i - 1], ",").iter().map(|f| f.split(':').next().unwrap_or("").trim().trim_end_matches('?').trim().to_string()).filter(|f| !f.is_empty()).collect();
+            }
+            out.push(JsDecl::Error { name, line, fields });
             continue;
         }
         if c.keyword("const") {
@@ -1687,7 +1732,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             if from.ends_with(".rx") {
                 return c.fail(&format!("import \"{}\": an .rx module is imported for what it exports, `import {{ … }} from \"{}\"`", from, from));
             }
-            return Ok(Decl::Import { names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, declared: None, declared_errors: None, declared_pure: None, declared_side: None });
+            return Ok(Decl::Import { names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None });
         }
         let side = if IMPORT_SIDE.is_match(c.rest()) {
             if c.keyword("server") {
@@ -1738,7 +1783,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         };
         let save = c.i;
         c.ws(false);
-        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, declared: None, declared_errors: None, declared_pure: None, declared_side: None };
+        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None };
         if c.keyword("fails") {
             c.ws(true);
             let fails = parse_classes(c)?.unwrap_or_else(|| vec!["Error".to_string()]);

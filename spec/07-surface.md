@@ -123,7 +123,10 @@ directly by `(`, they are TypeScript's alone too, for a generic whose
 argument leaves nothing to infer (`[]` would be `never[]`). The list may
 span lines (revised 2026-11-21), so a formatter that breaks a long type
 does not change what the call is; `a < b`, with a space, stays a
-comparison.
+comparison. What the brackets hold must be able to be a type, as
+TypeScript decides it (revised 2026-11-21, after review): with `&&`, `||`,
+`==`, `!=`, `<=`, `>=`, `*`, `/`, `%` or `!` outside a string literal, it
+is not, and `a<b && c>(d)` is two comparisons (S-surface-7).
 
 Added:
 

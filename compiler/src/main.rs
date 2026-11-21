@@ -345,7 +345,7 @@ fn main() {
                         continue;
                     }
                 };
-                let checked = check_modules_hosts(&set, spa, whole, &hosts);
+                let checked = check_modules_hosts(&set, spa, whole, &reactivescript::modules::hosts_as_keys(&set, &hosts));
                 for d in &checked.diags {
                     bad += 1;
                     if as_json {

@@ -62,6 +62,10 @@ for (const [url, want] of [["/", "People Meet Bo"], ["/people/1", "Ann engineer,
   await open(url); const got = await text();
   check(`${url}: served for its URL and hydrated`, got === `${nav} ${want}` && !problems.length, { got, problems });
 }
+// SV-5a: what the server sends for the NotFound is a copy: its message and the field its declaration names (`id`), not
+// the cause the library attached, nor the stack
+const served = await (await fetch(base + "/people/9")).text();
+check("/people/9: the NotFound is sent with its message and declared field only, not its cause or stack (SV-5a)", /no person 9/.test(served) && /id:"9"/.test(served) && !/people\.db lookup failed/.test(served) && !/people\.js:\d+/.test(served), { served: served.slice(served.indexOf("no person 9") - 400, served.indexOf("no person 9") + 400) });
 await open("/people/9");
 check("/people/9: the route's NotFound crosses as itself, to its typed boundary (SV-5a)", (await page.evaluate(() => document.querySelector("p.missing")?.textContent)) === "no person 9" && !problems.length, { got: await text(), problems });
 await page.evaluate(() => { window.__sameDocument = true; });

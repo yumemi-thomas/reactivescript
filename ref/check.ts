@@ -4,7 +4,7 @@
 // --host m.rx (with --whole-program): a module a JS host imports with ?rx-lib (CP-4d), whose components JS applies.
 // --whole-program (E-5a): the modules loaded are the whole program, so a kept peek of a prop or a provision is decided by
 // every application and provision in them, not refused because one module alone cannot tell.
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadModules } from "./src/modules.ts";
 import { checkModules } from "./src/check.ts";
@@ -15,7 +15,10 @@ let bad = 0;
 for (const f of args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--host")) {
   try {
     const set = loadModules(resolve(f), p => existsSync(p) ? readFileSync(p, "utf8") : undefined);
-    const { diags, sigs } = checkModules(set, false, whole, hosts);
+    // E-5a: a host is the module whose real path is its own (a key may go through a symlink, a host's path another way)
+    const real = (p: string) => { try { return realpathSync(p); } catch { return p; } };
+    const keyed = hosts.flatMap(h => { const ks = set.order.filter(k => k === h || real(k) === real(h)); return ks.length ? ks : [h]; });
+    const { diags, sigs } = checkModules(set, false, whole, keyed);
     const rel = (p?: string) => (p ?? resolve(f)).replace(process.cwd() + "/", "");
     if (!diags.length) console.log(`ok   ${f}${set.order.length > 1 ? ` (+${set.order.length - 1} module${set.order.length > 2 ? "s" : ""})` : ""}`);
     else { bad++; for (const d of diags) console.log(`${rel(d.file)}:${d.line}: error ${d.code} [${d.rule}] ${d.msg}`); }

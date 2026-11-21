@@ -60,11 +60,11 @@ check("RX_GENERATE=0 drafts nothing", off.length === 0 && !fs.existsSync(gen), o
 
 const first = ensureDeclarations(path.join(ws, "main.rx"));
 const text = fs.existsSync(gen) ? fs.readFileSync(gen, "utf8") : "";
-check("a typed package is drafted into node_modules/.rx-types", status(first, "kit-ui") === "written" && /^\/\/@ generated kit-ui@1\.2\.0 \(MO-8l, draft \d+\)/.test(text) && /export component Badge\(props: \{ label: string \}\)/.test(text), { first, text });
+check("a typed package is drafted into node_modules/.rx-types", status(first, "kit-ui") === "written" && /^\/\/@ generated kit-ui@1\.2\.0 \(MO-8l, draft \d+, types [0-9a-f]+\)/.test(text) && /export component Badge\(props: \{ label: string \}\)/.test(text), { first, text });
 const scratch = path.join(ws, "node_modules/.rx-types/scratch.d.rx");
 const kept = require("../src/generate.js").parsing("export pure fn ok(n: number): number\nexport pure fn broken(x: { y: number ): number\nexport component Fine(props: { a: string })\n", scratch);
 check("a row the notation cannot say is left out, the rest kept", /^export pure fn ok/m.test(kept) && /^\/\/ left out, the \.d\.rx notation cannot say it: export pure fn broken/m.test(kept) && /^export component Fine/m.test(kept), kept);
-fs.rmSync(scratch);
+fs.rmSync(scratch, { force: true });
 check("a package with no types is not drafted", status(first, "untyped") === "failed" && !fs.existsSync(path.join(ws, "node_modules/.rx-types/untyped.d.rx")), first);
 check("an import for effect (a stylesheet) is not a package", !first.some(r => r.spec.endsWith(".css")), first);
 const after = checkRx();
@@ -72,6 +72,15 @@ check("the crate reads the generated declaration (MO-8k): the program checks", a
 
 const again = ensureDeclarations(path.join(ws, "main.rx"));
 check("kept while the installed version stands", status(again, "kit-ui") === "current", again);
+
+// the package's types change at the same version (a linked workspace package): redrafted, with the new export
+const typesFile = path.join(ws, "node_modules/kit-ui/index.d.ts"), typesBefore = fs.readFileSync(typesFile, "utf8");
+fs.writeFileSync(typesFile, typesBefore + "export declare function later(): number;\n");
+const sameVersion = ensureDeclarations(path.join(ws, "main.rx"));
+check("redone when the package's types change at the same version", status(sameVersion, "kit-ui") === "written" && /^export fn later\(\): number/m.test(fs.readFileSync(gen, "utf8")), { sameVersion, draft: fs.readFileSync(gen, "utf8") });
+fs.writeFileSync(typesFile, typesBefore);
+ensureDeclarations(path.join(ws, "main.rx"));
+check("no trial file is left beside the draft", !fs.readdirSync(path.dirname(gen)).some(f => /\.trial\.d\.rx$/.test(f)), fs.readdirSync(path.dirname(gen)));
 
 const pj = path.join(ws, "node_modules/kit-ui/package.json");
 fs.writeFileSync(pj, JSON.stringify({ ...JSON.parse(fs.readFileSync(pj, "utf8")), version: "1.3.0" }));
@@ -82,7 +91,7 @@ check("redone when the installed version moves", status(moved, "kit-ui") === "wr
 fs.writeFileSync(gen, "//@ generated kit-ui@1.3.0 (MO-8l): drafted from kit-ui's TypeScript types\nexport component Badge(props: { label: string })\nexport pure fn useCount(): ref number\n");
 const stale = ensureDeclarations(path.join(ws, "main.rx"));
 const redrafted = fs.readFileSync(gen, "utf8");
-check("a draft from an earlier drafting rule is redone, though the version stands", status(stale, "kit-ui") === "written" && /\(MO-8l, draft \d+\)/.test(redrafted) && /^export fn useCount\(\): ref number/m.test(redrafted) && !/^export pure fn/m.test(redrafted), { stale, redrafted });
+check("a draft from an earlier drafting rule is redone, though the version stands", status(stale, "kit-ui") === "written" && /\(MO-8l, draft \d+, types [0-9a-f]+\)/.test(redrafted) && /^export fn useCount\(\): ref number/m.test(redrafted) && !/^export pure fn/m.test(redrafted), { stale, redrafted });
 const reused = ensureDeclarations(path.join(ws, "main.rx"));
 check("...and the redrafted file is kept on the next run", status(reused, "kit-ui") === "current", reused);
 
@@ -98,7 +107,7 @@ fs.writeFileSync(typesAt, typesKept); fs.writeFileSync(pjKit, pjKept);
 const current = ensureDeclarations(path.join(ws, "main.rx"));
 fs.rmSync(typesAt);
 const keptCurrent = ensureDeclarations(path.join(ws, "main.rx"));
-check("...while a current draft is kept, though its package's types are gone (nothing to redo)", status(current, "kit-ui") === "written" && status(keptCurrent, "kit-ui") === "current" && fs.existsSync(gen), { current, keptCurrent });
+check("...as is a current one whose package's types are then gone: what it was drafted from changed", status(current, "kit-ui") === "written" && status(keptCurrent, "kit-ui") === "failed" && keptCurrent.find(r => r.spec === "kit-ui").removed === true && !fs.existsSync(gen), { current, keptCurrent });
 fs.writeFileSync(typesAt, typesKept);
 
 fs.mkdirSync(path.join(ws, "rx-types"), { recursive: true });
@@ -199,6 +208,25 @@ fs.rmSync(path.join(ws, "node_modules/.rx-types"), { recursive: true, force: tru
     catch (e) { return { ok: false, error: String(e.message ?? e) }; } finally { if (saved === undefined) delete process.env.RX_GENERATE; else process.env.RX_GENERATE = saved; } })();
   check("a project opened through a symlink: the host is still the module the checker sees, and the peek is refused", !throughLink.ok && /SNAPSHOT_KEPT/.test(throughLink.error), throughLink);
   fs.rmSync(link);
+  // links below the root: a linked folder holding the host, show.rx itself a link, and Vite naming the real paths
+  const compileAt = (dir, resolve) => { const saved = process.env.RX_GENERATE; process.env.RX_GENERATE = "0";
+    try { const r = rx({ wholeProgram: true }).compile("", { id: path.join(dir, "main.rx"), moduleId: path.join(dir, "main.rx"), root: dir, solid: { generate: "dom", hydratable: true }, addWatchFile() {}, ...(resolve ? { resolve } : {}) });
+      return Promise.resolve(r).then(() => ({ ok: true }), e => ({ ok: false, error: String(e.message ?? e) })); }
+    catch (e) { return Promise.resolve({ ok: false, error: String(e.message ?? e) }); } finally { if (saved === undefined) delete process.env.RX_GENERATE; else process.env.RX_GENERATE = saved; } };
+  const outside = path.join(ws, "outside-pages"); fs.rmSync(outside, { recursive: true, force: true }); fs.mkdirSync(outside);
+  fs.renameSync(path.join(wp, "pages/host.tsx"), path.join(outside, "host.tsx")); fs.rmSync(path.join(wp, "pages"), { recursive: true });
+  fs.symlinkSync(outside, path.join(wp, "pages"), "dir");
+  fs.writeFileSync(path.join(outside, "host.tsx"), "import { Show } from \"../whole/show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
+  const linkedDir = await compileAt(wp);
+  check("a host in a linked folder below the root is found: the peek is refused", !linkedDir.ok && /SNAPSHOT_KEPT/.test(linkedDir.error), linkedDir);
+  fs.writeFileSync(path.join(outside, "host.tsx"), "import { Show } from \"@/show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
+  const realByVite = await compileAt(wp, async s => s === "@/show.rx" ? fs.realpathSync(path.join(wp, "show.rx")) : null);
+  check("...and with Vite naming the real paths (context.resolve)", !realByVite.ok && /SNAPSHOT_KEPT/.test(realByVite.error), realByVite);
+  const showAt = path.join(ws, "show-real.rx"); fs.renameSync(path.join(wp, "show.rx"), showAt); fs.symlinkSync(showAt, path.join(wp, "show.rx"));
+  const fileLink = await compileAt(wp, async s => s === "@/show.rx" ? showAt : null);
+  check("show.rx a file link, the host naming its target: the same module, refused", !fileLink.ok && /SNAPSHOT_KEPT/.test(fileLink.error), fileLink);
+  fs.rmSync(path.join(wp, "show.rx")); fs.renameSync(showAt, path.join(wp, "show.rx"));
+  fs.rmSync(path.join(wp, "pages")); fs.mkdirSync(path.join(wp, "pages")); fs.renameSync(path.join(outside, "host.tsx"), path.join(wp, "pages/host.tsx")); fs.rmSync(outside, { recursive: true });
   fs.writeFileSync(path.join(wp, "pages/host.tsx"), "import { Show } from \"@/show.rx?rx-lib\";\nexport const page = () => <Show value={Math.random()} />;\n");
   fs.writeFileSync(path.join(wp, "tsconfig.json"), JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@/*": ["./*"] } } }));
   const tsPaths = buildWith({ wholeProgram: true });

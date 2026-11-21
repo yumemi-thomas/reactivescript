@@ -40,20 +40,26 @@ try {
   writeFileSync(path.join(tmp, "classes.mjs"), `import { createApp } from "@reactivescript/runtime";
 import { serialize, deserialize } from "seroval";
 class Base extends Error {} class Child extends Base {} class Grand extends Child {}
-const stamp = (order, err) => { const app = createApp({}); for (const [C, id] of order) app.jsClass(C, id); const sent = app.markSendable(err); return { sent, cls: err.$class, all: err.$classes }; };
+const stamp = (order, err) => { const app = createApp({}); for (const [C, id, fields] of order) app.jsClass(C, id, fields); const sent = app.markSendable(err); return { sent: !!sent, cls: sent?.$class, all: sent?.$classes, isChild: sent instanceof Child, untouched: err.$class === undefined }; };
 const B = [Base, "k.d.rx#Base"], C = [Child, "k.d.rx#Child"];
-const wire = stamp([B, C], new Child("c"));
-const back = deserialize(serialize(Object.assign(new Error("c"), { $class: wire.cls, $classes: wire.all })));
-console.log(JSON.stringify({ baseFirst: stamp([B, C], new Child("c")), childFirst: stamp([C, B], new Child("c")), baseOnly: stamp([B], new Child("c")), grand: stamp([B, C], new Grand("g")), plain: stamp([B, C], new Error("p")), wire: { cls: back.$class, all: back.$classes } }));
+// what Solid would serialize: the copy, with only the declared fields, and none of what the library attached
+const leaky = Object.assign(new Child("not found", { cause: new Error("db password=hunter2") }), { status: 404, response: { headers: { authorization: "Bearer x" } } });
+const app = createApp({}); app.jsClass(Base, "k.d.rx#Base", ["status"]); app.jsClass(Child, "k.d.rx#Child");
+const text = serialize(app.markSendable(leaky));
+const back = deserialize(text);
+console.log(JSON.stringify({ baseFirst: stamp([B, C], new Child("c")), childFirst: stamp([C, B], new Child("c")), baseOnly: stamp([B], new Child("c")), grand: stamp([B, C], new Grand("g")), plain: stamp([B, C], new Error("p")),
+  wire: { cls: back.$class, all: back.$classes, message: back.message, status: back.status, leaked: /hunter2|authorization|Bearer|stack/.test(text) } }));
 `);
   const cls = JSON.parse(execFileSync(process.execPath, ["classes.mjs"], { cwd: tmp }).toString());
   const both = ["k.d.rx#Child", "k.d.rx#Base"];
-  check("a subclass is stamped with its own declared class, its base registered first (SV-5a)", cls.baseFirst.cls === "k.d.rx#Child" && JSON.stringify(cls.baseFirst.all) === JSON.stringify(both), JSON.stringify(cls.baseFirst));
+  check("a subclass is sent as its own declared class, its base registered first (SV-5a)", cls.baseFirst.cls === "k.d.rx#Child" && JSON.stringify(cls.baseFirst.all) === JSON.stringify(both), JSON.stringify(cls.baseFirst));
+  check("what is sent is a copy, of the instance's class; the library's instance is left as it was", cls.baseFirst.isChild && cls.baseFirst.untouched, JSON.stringify(cls.baseFirst));
   check("...and registered second", cls.childFirst.cls === "k.d.rx#Child" && JSON.stringify(cls.childFirst.all) === JSON.stringify(both), JSON.stringify(cls.childFirst));
   check("a subclass with only its base declared is stamped with the base", cls.baseOnly.sent && cls.baseOnly.cls === "k.d.rx#Base" && cls.baseOnly.all === undefined, JSON.stringify(cls.baseOnly));
   check("an undeclared subclass of a declared class is stamped with the nearest declared one", cls.grand.cls === "k.d.rx#Child", JSON.stringify(cls.grand));
   check("an undeclared class is not sent", cls.plain.sent === false && cls.plain.cls === undefined, JSON.stringify(cls.plain));
   check("the stamps survive Solid's serializer", cls.wire.cls === "k.d.rx#Child" && JSON.stringify(cls.wire.all) === JSON.stringify(both), JSON.stringify(cls.wire));
+  check("only the message and the declared fields cross: no cause, headers or stack", cls.wire.message === "not found" && cls.wire.status === 404 && cls.wire.leaked === false, JSON.stringify(cls.wire));
   writeFileSync(path.join(tmp, "client.mjs"), `import { createApp } from "@reactivescript/runtime";
 import { createRoot, createMemo } from "@solidjs/signals";
 class Base extends Error {} class Child extends Base {}

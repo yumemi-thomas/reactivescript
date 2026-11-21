@@ -1291,7 +1291,7 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
                 let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
                 (name, *line, format!("(props: {{ {} }}) => any", fs.join(" ")))
             }
-            JsDecl::Error { name, line } => (name, *line, "abstract new (...args: any[]) => Error".into()),
+            JsDecl::Error { name, line, .. } => (name, *line, "abstract new (...args: any[]) => Error".into()),
             JsDecl::Value { name, line, ty } => (name, *line, ty.clone().unwrap_or_else(|| "any".into())),
             JsDecl::Type { .. } | JsDecl::Context { .. } => continue,
         };

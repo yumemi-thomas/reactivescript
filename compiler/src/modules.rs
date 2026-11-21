@@ -197,7 +197,7 @@ impl Loader<'_> {
         };
         self.state.insert(path.to_string(), State::Busy);
         for d in p.decls.iter_mut() {
-            let Decl::Import { from, line, resolved, declared, declared_errors, declared_pure, declared_side, .. } = d else { continue };
+            let Decl::Import { from, line, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, .. } = d else { continue };
             // MO-10c: a package's declaration, beside the file it resolves to
             let pkg_dts = if !is_rx(from) && !from.starts_with('.') && !from.starts_with('/') { declaration_for(path, from, &*self.read) } else { None };
             if !is_rx(from) && (from.starts_with('.') || pkg_dts.is_some()) {
@@ -212,6 +212,10 @@ impl Loader<'_> {
                 if let Some(ds) = self.declarations.get(&dts) {
                     *declared = Some(dts.clone());
                     *declared_errors = Some(ds.iter().filter_map(|x| if let JsDecl::Error { name, .. } = x { Some(name.clone()) } else { None }).collect());
+                    let ef: Vec<(String, Vec<String>)> = ds.iter().filter_map(|x| if let JsDecl::Error { name, fields, .. } = x { (!fields.is_empty()).then(|| (name.clone(), fields.clone())) } else { None }).collect();
+                    if !ef.is_empty() {
+                        *declared_error_fields = Some(ef);
+                    }
                     *declared_pure = Some(ds.iter().filter_map(|x| if let JsDecl::Fn { name, pure: true, .. } = x { Some(name.clone()) } else { None }).collect());
                     *declared_side = Some(ds.iter().filter_map(|x| if let JsDecl::Fn { name, side: Some(s), .. } = x { Some((name.clone(), *s)) } else { None }).collect());
                 }
@@ -278,4 +282,28 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Re
     let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
     Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
+}
+
+/// E-5a: the module keys that name the hosts (`?rx-lib` imports, CP-4d). A key is the path the program reached the module
+/// by, which may go through a symlink (a linked root, folder or file), while a host is named however its importer was
+/// found: the same file is the same module, so each host is matched by its real path. A host that names no module is
+/// kept as given.
+pub fn hosts_as_keys(set: &ModuleSet, hosts: &[String]) -> Vec<String> {
+    let real = |p: &str| std::fs::canonicalize(p).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| p.to_string());
+    let keys: Vec<(String, String)> = set.order.iter().map(|k| (real(k), k.clone())).collect();
+    let mut out = vec![];
+    for h in hosts {
+        let rh = real(h);
+        let mut hit = false;
+        for (rk, k) in &keys {
+            if *rk == rh || k == h {
+                out.push(k.clone());
+                hit = true;
+            }
+        }
+        if !hit {
+            out.push(h.clone());
+        }
+    }
+    out
 }

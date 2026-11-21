@@ -139,7 +139,7 @@ export function parseProgram(src: string): Program {
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
   | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; forwards?: boolean; joins?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string }; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]> }   // drafts, partDrafts: MO-10i   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
-  | { kind: "error"; name: string; line: number }
+  | { kind: "error"; name: string; line: number; fields?: string[] }   // fields: SV-5a, what of an instance is sent (`export error HttpError(status, code)`)
   | { kind: "type"; name: string; line: number; text?: string }
   | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean }   // outlet: MO-11p   // MO-11a: a Solid component
   | { kind: "context"; name: string; line: number }
@@ -155,7 +155,12 @@ export function parseDeclarations(src: string): JsDecl[] {
     if (!c.keyword("export")) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export component …`, `export error …`, `export type …`");
     c.ws();
     if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
-    if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
+    if (c.keyword("error")) {
+      c.ws(); const name = c.ident() ?? c.fail("error class name"); c.ws(false);
+      let fields: string[] | undefined;   // SV-5a: `(status, code: string)`, the fields of an instance sent to the client; none, name and message only
+      if (c.eat("(")) { const t0 = c.i; let depth = 1; while (!c.eof() && depth) { const ch = c.peek(); if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch)) depth--; c.i++; } fields = splitTop(c.src.slice(t0, c.i - 1), ",").map(f => f.split(":")[0].replace(/\?$/, "").trim()).filter(Boolean); }
+      out.push({ kind: "error", name, line, ...(fields?.length ? { fields } : {}) }); continue;
+    }
     if (c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("const name"); c.ws(false); const type = c.eat(":") ? (c.ws(), parseType(c, false, true)) : undefined; out.push({ kind: "value", name, line, ...(type ? { type } : {}) }); continue; }   // MO-8g
     if (c.keyword("context")) { c.ws(); const name = c.ident() ?? c.fail("context name"); out.push({ kind: "context", name, line }); continue; }   // MO-12a
     if (c.keyword("component")) { out.push(parseJsComponent(c, line)); continue; }
@@ -756,12 +761,27 @@ function parseUnary(c: Cursor): Expr {
 /** 07 §3: type arguments at a call, `f<T>(…)`: a balanced `<…>` written right after the callee (no space) and followed
  *  directly by `(`; else null (`a < b` stays a comparison). The list may span lines, so a formatter that breaks a long
  *  type does not turn the call into comparisons. */
+/** 07 §3: whether `text`, between a call's `<` and `>`, can be TypeScript type arguments: no operator a type never has
+ *  (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `*`, `/`, `%`, `!`) outside a string literal. `a<b && c>(d)` is comparisons, as
+ *  TypeScript reads it. */
+function looksLikeTypes(text: string): boolean {
+  for (let j = 0; j < text.length; j++) {
+    const ch = text[j];
+    if (ch === '"' || ch === "'" || ch === "`") { for (j++; j < text.length && text[j] !== ch; j++) if (text[j] === "\\") j++; continue; }
+    const two = text.slice(j, j + 2);
+    if (["&&", "||", "==", "!=", "<=", ">="].includes(two)) return false;
+    if ("*/%!".includes(ch)) return false;
+  }
+  return true;
+}
 function typeArgsAt(s: string, i: number): { text: string; end: number } | null {
   if (s[i] !== "<") return null; let depth = 0;
   for (let j = i; j < s.length; j++) {
     const ch = s[j];
     if ("<([{".includes(ch)) depth++;
-    else if (")]}".includes(ch) || (ch === ">" && s[j - 1] !== "=")) { if (--depth === 0) return ch === ">" && s[j + 1] === "(" ? { text: s.slice(i + 1, j).trim(), end: j + 1 } : null; }
+    else if (")]}".includes(ch) || (ch === ">" && s[j - 1] !== "=")) {
+      if (--depth === 0) { const text = s.slice(i + 1, j).trim(); return ch === ">" && s[j + 1] === "(" && looksLikeTypes(text) ? { text, end: j + 1 } : null; }
+    }
   }
   return null;
 }

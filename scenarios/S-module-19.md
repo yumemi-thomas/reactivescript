@@ -17,7 +17,7 @@ export pure fn useSubmissions(action: any): { input: any; result?: any; error: a
 // the app's data module, made with the router's data layer in JS and declared with its rows: a query is the fn it
 // caches, with the same rows; a form action is a value a <form> is bound to
 export type Person = { name: string; role: string }
-export error NotFound
+export error NotFound(id: string)
 export pure fn getPerson(id: string): Promise<Person> rejects(NotFound)
 export const promoteForm: any
 ```

@@ -149,10 +149,17 @@ by default — see the list at the end.
   them in, so a `Child` of a declared `Base` is sent as `Child` when both
   are declared and as `Base` when only `Base` is; the declared classes above
   it go with it (`$classes`), so a client boundary typed with `Base` takes a
-  sent `Child`, giving it `Child`'s class where the client declares it. That instance is marked,
-  at that boundary, and no other (revised 2026-11-21: the first draft
-  marked the class's prototype, so every instance anywhere in the server
-  process was sendable once a program had declared it). A library that
+  sent `Child`, giving it `Child`'s class where the client declares it. What is sent is a copy of the instance, of its
+  class (so `instanceof` and a typed boundary still hold on the server):
+  its message, its identity, and the fields its declaration names,
+  `export error HttpError(status, code)`; a bare `export error NotFound`
+  sends the message alone (revised 2026-11-21, after review: Solid
+  serializes an error with every field it holds, a library's `cause`, a
+  response's headers, the stack, so the library's own instance is never
+  the one sent). The copy is made at a boundary the app owns, an awaited
+  promise or `sendErrors`, and nowhere else (revised 2026-11-21: the first
+  draft marked the class's prototype, so every instance anywhere in the
+  server process was sendable once a program had declared it). A library that
   serializes a rejection itself, before the program awaits it
   (`@solidjs/router`'s `query` cache), is given one more boundary, an
   adapter around the function it caches: `query(sendErrors(fetchPerson),

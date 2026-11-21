@@ -97,6 +97,7 @@ type Sym = {
   ioVia?: string;                      // 12 SF-1: a server fn that is io — the call in its body that makes it so
   serverRejects?: () => Set<string>;   // SF-6b: what a call's promise rejects with — its body's failures, and Error (transit)
   foreign?: Shape;                     // MO-10: a declared JS primitive (a fn) or an instance of one (an equation): what its result is
+  viaField?: boolean;                  // RFC 14: bound from a field of an instance (`w = size.width`), which tracks (MO-10b)
   reader?: boolean;                    // MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
   cbs?: ([boolean, string[]] | null)[];   // MO-10g: where a declared JS fn takes callbacks
   held?: [string, boolean, string[]][];   // MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
@@ -173,6 +174,26 @@ function freeNamesStmts(ss: Stmt[], bound0: Set<string>, out: Set<string>): void
   }
 }
 /** Free names outside `peek` — the reads that make an initializer a snapshot (E-4). */
+/** RFC 14: the names read outside `peek` at the root of a field or index read (`size.width`, `todos.items[0]`): a
+ *  primitive's instance never changes, but what is read through it tracks (MO-10b); a method called on it is not a read
+ *  of a field. */
+function rootedReads(e: Expr, out: Set<string>): void {
+  if (e.k === "peek" || e.k === "fn") return;
+  if (e.k === "call" && e.f.k === "member") {                            // a method called on the instance (`route.addChildren(…)`) reads
+    if (e.f.o.k !== "id") rootedReads(e.f.o, out);                       // no field of it; a field on the way does (`a.b.m()` reads b)
+    for (const x of e.args) rootedReads(x, out);
+    return;
+  }
+  if (e.k === "member" || e.k === "index") {
+    let x: Expr = e; while (x.k === "member" || x.k === "index") { if (x.k === "index") rootedReads(x.i, out); x = x.o; }
+    if (x.k === "id") out.add(x.name); else rootedReads(x, out);
+    return;
+  }
+  for (const v of Object.values(e as object)) {
+    if (Array.isArray(v)) v.forEach(x => { if (x && typeof x === "object") { if ("k" in x) rootedReads(x as Expr, out); else if ("v" in x) rootedReads((x as { v: Expr }).v, out); else if ("spread" in x) rootedReads((x as { spread: Expr }).spread, out); } });
+    else if (v && typeof v === "object" && "k" in (v as object)) rootedReads(v as Expr, out);
+  }
+}
 function readsOutsidePeek(e: Expr, out: Set<string>): void {
   if (e.k === "peek") return;
   if (e.k === "fn") return;                                             // a closure literal reads nothing now
@@ -681,7 +702,7 @@ class Checker {
       const members = decls.filter((y): y is Extract<JsDecl, { kind: "comp" }> => y.kind === "comp" && y.name.startsWith(name + "."));
       for (const m of members) bindComp(m, alias + m.name.slice(name.length));
       if (!x && members.length) { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // the object itself: a value
-      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
+      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)${generated ? `; ${file} was drafted from ${d.from}'s types (MO-8l): a build redrafts it when they change, or declare ${d.from} in rx-types/${d.from}.d.rx` : ""}`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
       if (x.kind === "type" || x.kind === "context") continue;   // MO-12a: a JS context is named only by its declaration file's rows
       if (x.kind === "value") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // MO-8g: a value, read as any import, never io
       if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
@@ -751,6 +772,7 @@ class Checker {
     else if ((e.k === "index" || e.k === "member") && e.o.k === "id") { const key = e.k === "member" ? e.p : e.i.k === "lit" ? String(e.i.v) : ""; const pd = env.lookup(e.o.name)?.partDrafts?.[key]; if (pd) sym.drafts = pd; }
     if (!shape) return;
     sym.foreign = shape;
+    if (e.k === "member") sym.viaField = true;
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; }   // MO-10f: its fields' rows come with it
     if (e.k === "member" && this.heldField(e, env)?.[1]) sym.reader = true;                // MO-10f: a part bound from a field that holds reads as a reader (MO-10d)
     if (e.k === "member" && e.o.k === "id") { const pre = `${e.p}.`; const sub = env.lookup(e.o.name)?.held?.filter(h => h[0].startsWith(pre)).map(h => [h[0].slice(pre.length), h[1], h[2]] as [string, boolean, string[]]); if (sub?.length) sym.held = sub; }   // a record part keeps its fields' rows
@@ -956,6 +978,9 @@ class Checker {
     this.constEqs.set(s, null);
     const { e, env } = s.carriedExpr;
     let ok = !/"k":"(await|latest|use|pre)"/.test(JSON.stringify(e));
+    // RFC 14: a field read of an instance tracks (MO-10b), so an equation that reads one, or is bound to one, changes
+    if (ok && s.viaField) ok = false;
+    if (ok) { const rooted = new Set<string>(); rootedReads(e, rooted); ok = ![...rooted].some(n => !!env.lookup(n)?.foreign); }
     if (ok) { const reads = new Set<string>(); readsOutsidePeek(e, reads); ok = [...reads].every(n => { const t = env.lookup(n); return !t || (t.kind === "import" && !t.io) || t.kind === "comp" || t.kind === "errclass" || this.constantEq(t); }); }   // an .rx fn may read a source: not constant
     this.constEqs.set(s, ok); return ok;
   }
@@ -963,7 +988,8 @@ class Checker {
     f.params!.forEach((p, i) => {
       const a = call.args[i]; if (!a || p.ref) return;
       const reads = new Set<string>(); readsOutsidePeek(a, reads);
-      const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !(s.foreign === "value" || s.foreign === "comp") && !this.constantEq(s); });   // E-10: an instance a primitive made (its value result) is made once and never changes; so does an equation that reads nothing that changes
+      const rooted = new Set<string>(); rootedReads(a, rooted);   // RFC 14: the instance passed whole is exempt; a field read through it is not
+      const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind) && !((s.foreign === "value" || s.foreign === "comp") && !s.viaField && !rooted.has(n)) && !this.constantEq(s); });   // E-10: an instance a primitive made (its value result) is made once and never changes; so does an equation that reads nothing that changes
       if (hit) this.err("SNAPSHOT_ARGUMENT", "E-10", `${f.name}(…): the argument for value parameter ${p.name} reads ${hit} and would be snapshotted — declare the parameter \`ref\`, or pass peek(…)`);
     });
   }

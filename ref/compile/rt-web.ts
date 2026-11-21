@@ -169,7 +169,8 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     // ---- the scenario harness's view of names (handler rows reach any live binding by name) ----
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); const h = hoistedBy.get(name); if (h && e.get) { hoistedOf.set(e.get, h); hoistedBy.delete(name); } },
     /** SV-5a: a JS module's error class, declared in its `.d.rx`: `id` is that declaration (as rt-server.ts). */
-    jsClass<T>(C: T, id: string): T { if (!jsClassIds.has(C as object)) { jsClassIds.set(C as object, id); if (!jsClassById.has(id)) jsClassById.set(id, C as object); } return C; },
+    // the fields an error class's declaration names are the server's to choose (SV-5a): nothing to do with them here
+    jsClass<T>(C: T, id: string, _fields?: string[]): T { if (!jsClassIds.has(C as object)) { jsClassIds.set(C as object, id); if (!jsClassById.has(id)) jsClassById.set(id, C as object); } return C; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) throw new Error(`unbound ${name}`); for (let i = l.length - 1; i >= 0; i--) if (l[i].w) return l[i]; return l[l.length - 1]; },
     dget(name: string, live = false) { const e = app.lookup(name); return e.get ? (live ? e.get() : app.snapshot(e.get)) : e.value; },   // live: inside a probe (R-12), the read itself
     dset(name: string, keys: (string | number)[], v: unknown, guess = false) { const w = app.lookup(name).w; if (!w) throw new Error(`W-1: write to non-source ${name}`); if (guess) w.guess(v, keys); else if (keys.length) w.path(keys, v); else w.set(v); },

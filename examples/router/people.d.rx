@@ -1,5 +1,5 @@
 export type Person = { name: string; role: string }
-export error NotFound
+export error NotFound(id: string)
 export pure fn fetchPerson(id: string): Promise<Person> rejects(NotFound)
 // the router's data layer, made in JS and declared with its rows: a query is the fn it caches, with the same rows
 export pure fn getPerson(id: string): Promise<Person> rejects(NotFound)
