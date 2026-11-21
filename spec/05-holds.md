@@ -448,7 +448,8 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   slot empty and removes the old arm (S-solid-46 instant 2: `0 d0`); ruled:
   it is born held and the old arm stays until the landing.
 - **DV-25 (a reader out of an error state does not hold the change) — a
-  Solid regression in 2.0.1, reproduced 2026-11-19; still in 2.0.2**
+  Solid regression in 2.0.1, reproduced 2026-11-19; still in 2.0.3 (99db9bce4),
+  where S-fail-2's client runners show the ruled frame and its hydrated page does not**
   (`ref/oracle/repros/dv25-errored-reask.mjs`, plain Solid: rc.21 holds,
   2.0.1 and 2.0.2 do not). After a source's question fails into a `catch` value or
   an `errored` fallback, a change that makes it ask again shows at once:
