@@ -1,0 +1,478 @@
+// Issue desk: an issue tracker, a help catalogue and the user's settings behind a row of tabs.
+// app.ts answers what this asks for; its `overlay` shows each write before the server answers it,
+// and takes it back when the server declines.
+
+shape Issue
+  id: number
+  title: string
+  assignee: option<string>
+
+// `loaded` is false only in the placeholder, so the tab's count can wait for a first answer.
+shape IssueList
+  loaded: bool
+  items: Issue[]
+
+shape IssueDetail
+  id: number
+  title: string
+  body: string
+
+// `sending` is true for a comment shown before the server has answered it.
+shape Comment
+  author: string
+  text: string
+  sending: bool
+
+shape Ack
+  id: number
+
+shape Hit
+  id: number
+  name: string
+
+// The hits for `q`: kept with their query, so results on screen say what they answer.
+shape Hits
+  q: string
+  hits: Hit[]
+
+shape HelpItem
+  id: number
+  name: string
+  blurb: string
+
+shape Settings
+  name: string
+  theme: enum<"light", "dark">
+  density: enum<"comfortable", "compact">
+
+fn issueLine(i: Issue): string = `#${i.id} ${i.title} (${match i.assignee { case some(a) => a, case none => "unassigned" }})`
+fn settingsLine(s: Settings): string = `Saved: ${s.name} · ${s.theme} · ${s.density}`
+
+routes nav
+  issues "/"
+  help "/help"
+  settings "/settings"
+
+component IssueDesk
+  derive page = top(nav).name
+
+  // The issues page
+  state user = "guest"
+  state filter = "open"
+  state sel = 0
+  state detailTry = 0
+  state titleDraft = ""
+  state commentDraft = ""
+  state labelDraft = ""
+  resource openIssues = loadIssues("open") when page == "issues" and filter == "open" as shape IssueList else empty(loaded=false)
+  resource closedIssues = loadIssues("closed") when page == "issues" and filter == "closed" as shape IssueList else empty(loaded=false)
+  resource detail = loadIssue(sel, detailTry) when page == "issues" and sel != 0 as shape option<IssueDetail>
+  resource comments = loadComments(sel) when page == "issues" and sel != 0 as shape Comment[] else empty()
+  resource labels = loadLabels(sel) when page == "issues" and sel != 0 as shape string[] else empty()
+  derive relQuery = (sel != 0 and current(detail) and not failed(detail)) ? match detail { case some(d) => d.title, case none => "" } : ""
+  resource related = searchHelp(relQuery) when page == "issues" and relQuery != "" as shape Hits else empty()
+  mutation assigned as shape Ack parallel refreshes openIssues, closedIssues
+  mutation renamed as shape Ack parallel refreshes openIssues, closedIssues, detail
+  mutation closed as shape Ack parallel refreshes openIssues, closedIssues
+  mutation rowActed as shape Ack parallel refreshes openIssues, closedIssues
+  mutation posted as shape Comment parallel refreshes comments
+  mutation labelChanged as shape string[] parallel refreshes labels
+
+  derive me = user.trim()
+  derive shownList = filter == "open" ? openIssues : closedIssues
+  derive listCurrent = filter == "open" ? current(openIssues) : current(closedIssues)
+  derive listPending = filter == "open" ? pending(openIssues) : pending(closedIssues)
+  derive listError = filter == "open" ? match failure(openIssues) { case some(f) => f.message, case none => "" } : match failure(closedIssues) { case some(f) => f.message, case none => "" }
+  derive issuesTab = openIssues.loaded ? `Issues (${openIssues.items.length})` : "Issues"
+  derive detailError = match failure(detail) { case some(f) => f.message, case none => "" }
+  derive commentsError = match failure(comments) { case some(f) => f.message, case none => "" }
+  derive labelsError = match failure(labels) { case some(f) => f.message, case none => "" }
+  derive relatedError = match failure(related) { case some(f) => f.message, case none => "" }
+  derive assignError = match failure(assigned) { case some(f) => `assign error: ${f.message}`, case none => "" }
+  derive renameError = match failure(renamed) { case some(f) => `rename error: ${f.message}`, case none => "" }
+  derive closeError = match failure(closed) { case some(f) => `close error: ${f.message}`, case none => "" }
+  derive postError = match failure(posted) { case some(f) => `post error: ${f.message}`, case none => "" }
+  derive labelError = match failure(labelChanged) { case some(f) => `label error: ${f.message}`, case none => "" }
+  derive rowError = match failure(rowActed) { case some(f) => `row error: ${f.message}`, case none => "" }
+
+  // The help page
+  state query = ""
+  state hitSel = 0
+  state itemTry = 0
+  resource results = searchHelp(query) when page == "help" and query.length >= 2 as shape Hits else empty()
+  resource item = loadItem(hitSel, itemTry) when page == "help" and hitSel != 0 as shape option<HelpItem>
+  derive resultsError = match failure(results) { case some(f) => f.message, case none => "" }
+  derive itemError = match failure(item) { case some(f) => f.message, case none => "" }
+
+  // The settings page
+  state loadTry = 0
+  state savingAs = Settings(name="", theme="light", density="comfortable")
+  resource settings = loadSettings(loadTry) when page == "settings" as shape Settings else empty()
+  mutation stored as shape Settings
+  derive loadError = match failure(settings) { case some(f) => f.message, case none => "" }
+  derive lastSaved = match stored { case some(s) => s, case none => settings }
+  derive savedLine = pending(stored) ? `${settingsLine(savingAs)} (saving…)` : settingsLine(lastSaved)
+  derive saveError = pending(stored) ? "" : match failure(stored) { case some(f) => `Save failed: ${f.message}`, case none => "" }
+
+  // Every page starts as it does at launch; the help page may start on a query and a hit.
+  action resetPages(q: string, hit: number)
+    user = "guest"
+    filter = "open"
+    sel = 0
+    titleDraft = ""
+    commentDraft = ""
+    labelDraft = ""
+    assigned = none
+    renamed = none
+    closed = none
+    rowActed = none
+    posted = none
+    labelChanged = none
+    query = q
+    hitSel = hit
+    stored = none
+
+  action pick(name: string)
+    if name != page
+      resetPages("", 0)
+      nav = open(nav, name == "help" ? path("help") : name == "settings" ? path("settings") : path("issues"))
+
+  // The browser's Back and Forward, and a typed location, arrive here.
+  action follow(url: string)
+    let n = go(nav, url)
+    if top(n).name != page
+      resetPages("", 0)
+    nav = n
+
+  action editUser(v: string)
+    user = v
+
+  action setFilter(f: string)
+    filter = f
+
+  action selectIssue(id: number)
+    sel = id
+    titleDraft = ""
+    commentDraft = ""
+    labelDraft = ""
+    assigned = none
+    renamed = none
+    closed = none
+    posted = none
+    labelChanged = none
+
+  action retryDetail
+    detailTry = detailTry + 1
+
+  action assignSelected
+    if me != ""
+      assigned = none
+      send assigned = assignIssue(sel, me)
+
+  action editTitle(v: string)
+    titleDraft = v
+
+  action renameSelected
+    if titleDraft.trim() != ""
+      renamed = none
+      send renamed = renameIssue(sel, titleDraft.trim())
+
+  action closeSelected
+    closed = none
+    send closed = closeIssue(sel)
+
+  action rowAssign(id: number)
+    if me != ""
+      rowActed = none
+      send rowActed = assignIssue(id, me)
+
+  action rowClose(id: number)
+    rowActed = none
+    send rowActed = closeIssue(id)
+
+  action editComment(v: string)
+    commentDraft = v
+
+  action postNow
+    let t = commentDraft.trim()
+    if t != ""
+      commentDraft = ""
+      posted = none
+      send posted = postComment(sel, me, t)
+
+  action editLabel(v: string)
+    labelDraft = v
+
+  action addLabelNow
+    let l = labelDraft.trim()
+    if l != "" and current(labels) and not labels.includes(l)
+      labelDraft = ""
+      labelChanged = none
+      send labelChanged = addLabel(sel, l)
+
+  action removeLabelNow(l: string)
+    labelChanged = none
+    send labelChanged = removeLabel(sel, l)
+
+  action openRelated(id: number)
+    resetPages(relQuery, id)
+    nav = open(nav, path("help"))
+
+  action editQuery(v: string)
+    query = v
+
+  action pickHit(id: number)
+    hitSel = id
+
+  action retryItem
+    itemTry = itemTry + 1
+
+  action retryLoad
+    loadTry = loadTry + 1
+
+  action saveDraft(s: Settings)
+    savingAs = s
+    send stored = saveSettings(s.name, s.theme, s.density)
+
+  view
+    main navigationKey=`${top(nav).id}` navigate=follow testId="app" width="100%" height="100%"
+      position="relative"
+      for e in [top(nav)] key=e.id
+        column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0
+          display="flex" flex-direction="column"
+          header display="flex" align-items="center" padding="8px 16px"
+            text (e.name == "help" ? "Help" : e.name == "settings" ? "Settings" : "Issues") role="heading" aria-level=1 flex=1
+          scroll id=`content-${e.id}` flex=1 min-height=0
+            if e.name == "issues"
+              column id="page-issues" gap=16 padding=16
+                row gap=12 align-items="center" flex-wrap="wrap"
+                  row gap=8 align-items="center" flex="1 1 220px" min-width=0
+                    text "Current user" color="-exact-secondary-label"
+                    input value=user input=editUser aria-label="Current user" autocapitalize="none" flex=1 min-width=0
+                      testId="user"
+                  row role="group" aria-label="Filter" gap=8
+                    button press=setFilter("open") aria-pressed=(filter == "open" ? "true" : "false") buttonStyle="bordered"
+                      testId="filter-open"
+                      text "Open"
+                    button press=setFilter("closed") aria-pressed=(filter == "closed" ? "true" : "false") buttonStyle="bordered"
+                      testId="filter-closed"
+                      text "Closed"
+                if rowError != ""
+                  text rowError color="-exact-system-red" role="alert" testId="row-error"
+                row gap=24 flex-wrap="wrap" align-items="flex-start"
+                  column role="list" aria-label="Issues" flex="1 1 320px" min-width=0 gap=8 testId="list"
+                    if listError != "" and not listPending
+                      text `list error: ${listError}` color="-exact-system-red"
+                    else if not listCurrent
+                      text `loading ${filter} issues` color="-exact-secondary-label"
+                    else if shownList.items.length == 0
+                      text `no ${filter} issues` color="-exact-secondary-label"
+                    else
+                      for i in shownList.items key=i.id
+                        row role="listitem" gap=8 align-items="center" flex-wrap="wrap"
+                          button press=selectIssue(i.id) aria-current=(i.id == sel ? "true" : "false") flex="1 1 160px"
+                            min-width=0 testId="issue"
+                            text issueLine(i)
+                          button press=rowAssign(i.id) buttonStyle="bordered" testId="row-assign"
+                            text `assign to ${me}`
+                          if filter == "open"
+                            button press=rowClose(i.id) buttonStyle="bordered" testId="row-close"
+                              text "close"
+                  column role="region" aria-label="Issue" flex="1 1 320px" min-width=0 gap=12 padding=16
+                    background-color="-exact-secondary-background" border-radius=12 testId="detail"
+                    if sel == 0
+                      text "select an issue" color="-exact-secondary-label"
+                    else
+                      if detailError != "" and not pending(detail)
+                        text `detail error: ${detailError}` color="-exact-system-red"
+                      else if not current(detail)
+                        text `loading #${sel}` color="-exact-secondary-label"
+                      else
+                        match detail
+                          case some(d)
+                            text `#${d.id} ${d.title}` role="heading" aria-level=2 font="-exact-title3" testId="detail-title"
+                            text d.body testId="detail-body"
+                          case none
+                            text `detail error: issue #${sel} not found` color="-exact-system-red"
+                      row gap=8 flex-wrap="wrap"
+                        button press=retryDetail buttonStyle="bordered" testId="retry"
+                          text "retry"
+                        button press=assignSelected buttonStyle="bordered" testId="assign"
+                          text `assign to ${me}`
+                        button press=closeSelected buttonStyle="bordered" testId="close"
+                          text "close"
+                      if assignError != ""
+                        text assignError color="-exact-system-red" role="alert" testId="assign-error"
+                      if closeError != ""
+                        text closeError color="-exact-system-red" role="alert" testId="close-error"
+                      row gap=8 align-items="center"
+                        input value=titleDraft input=editTitle submit=renameSelected placeholder="New title"
+                          aria-label="New title" flex=1 min-width=0 testId="title-input"
+                        button press=renameSelected buttonStyle="bordered" testId="rename"
+                          text "rename"
+                      if renameError != ""
+                        text renameError color="-exact-system-red" role="alert" testId="rename-error"
+                      column gap=6 role="region" aria-label="Labels" testId="labels"
+                        text "Labels" role="heading" aria-level=3 font="-exact-headline"
+                        if labelsError != "" and not pending(labels)
+                          text `labels error: ${labelsError}` color="-exact-system-red"
+                        else if not current(labels)
+                          text "loading labels" color="-exact-secondary-label"
+                        else if labels.length == 0
+                          text "no labels" color="-exact-secondary-label"
+                        else
+                          row gap=8 flex-wrap="wrap"
+                            for l in labels key=l
+                              row gap=4 align-items="center"
+                                text l testId="label"
+                                button press=removeLabelNow(l) aria-label=`remove ${l}` testId="remove-label"
+                                  text `remove ${l}`
+                      row gap=8 align-items="center"
+                        input value=labelDraft input=editLabel submit=addLabelNow placeholder="New label"
+                          aria-label="New label" autocapitalize="none" flex=1 min-width=0 testId="label-input"
+                        button press=addLabelNow buttonStyle="bordered" testId="add-label"
+                          text "add label"
+                      if labelError != ""
+                        text labelError color="-exact-system-red" role="alert" testId="label-error"
+                      column gap=6 role="region" aria-label="Comments" testId="comments"
+                        text "Comments" role="heading" aria-level=3 font="-exact-headline"
+                        if commentsError != "" and not pending(comments)
+                          text `comments error: ${commentsError}` color="-exact-system-red"
+                        else if not current(comments)
+                          text "loading comments" color="-exact-secondary-label"
+                        else if comments.length == 0
+                          text "no comments yet" color="-exact-secondary-label"
+                        else
+                          for c, ci in comments key=ci
+                            text (c.sending ? `${c.author}: ${c.text} (sending…)` : `${c.author}: ${c.text}`)
+                              color=(c.sending ? "-exact-secondary-label" : "-exact-label") testId="comment"
+                      row gap=8 align-items="center"
+                        input value=commentDraft input=editComment submit=postNow placeholder="Add a comment"
+                          aria-label="New comment" flex=1 min-width=0 testId="comment-input"
+                        button press=postNow buttonStyle="bordered" testId="post"
+                          text "post"
+                      if postError != ""
+                        text postError color="-exact-system-red" role="alert" testId="post-error"
+                      if relQuery != ""
+                        column gap=6 role="region" aria-label="Related help" testId="related"
+                          text "Related help" role="heading" aria-level=3 font="-exact-headline"
+                          if relatedError != "" and not pending(related)
+                            text `related help failed: ${relatedError}` color="-exact-system-red"
+                          else if not current(related)
+                            text "finding related help" color="-exact-secondary-label"
+                          else if related.hits.length == 0
+                            text "no related help" color="-exact-secondary-label"
+                          else
+                            row gap=8 flex-wrap="wrap"
+                              for h in related.hits.slice(0, 3) key=h.id
+                                button press=openRelated(h.id) buttonStyle="bordered" testId="related-hit"
+                                  text h.name
+            else if e.name == "help"
+              column id="page-help" gap=16 padding=16
+                input type="search" value=query input=editQuery placeholder="Search help" aria-label="Search help"
+                  autocapitalize="none" testId="query"
+                row gap=24 flex-wrap="wrap" align-items="flex-start"
+                  column gap=8 flex="1 1 280px" min-width=0 role="region" aria-label="Results" testId="results"
+                    if query.length == 1
+                      text `too short: ${query}` color="-exact-secondary-label"
+                    else if query.length >= 2
+                      if pending(results)
+                        text "searching…" color="-exact-secondary-label"
+                      else if resultsError != ""
+                        text `search failed: ${resultsError}` color="-exact-system-red"
+                      if resultsError == "" and results.q != ""
+                        text `${results.hits.length} results for ${results.q}` font="-exact-headline"
+                        column role="list" gap=4
+                          for h in results.hits key=h.id
+                            button press=pickHit(h.id) role="listitem" aria-current=(h.id == hitSel ? "true" : "false")
+                              testId="hit"
+                              text (h.id == hitSel ? `> ${h.name}` : h.name)
+                  column gap=8 flex="1 1 280px" min-width=0 padding=16 role="region" aria-label="Help item"
+                    background-color="-exact-secondary-background" border-radius=12 testId="item"
+                    if hitSel == 0
+                      text "pick a result" color="-exact-secondary-label"
+                    else if itemError != "" and not pending(item)
+                      text `failed: ${itemError}` color="-exact-system-red"
+                      button press=retryItem buttonStyle="bordered" testId="retry-item"
+                        text "retry"
+                    else if not current(item)
+                      text "loading…" color="-exact-secondary-label"
+                    else
+                      match item
+                        case some(it)
+                          text it.name role="heading" aria-level=2 font="-exact-title3"
+                          text it.blurb
+                        case none
+                          text `item ${hitSel} not found` color="-exact-secondary-label"
+            else if e.name == "settings"
+              column id="page-settings" gap=16 padding=16 max-width="36rem"
+                if loadError != "" and not pending(settings)
+                  column gap=8 testId="load"
+                    text `Could not load settings: ${loadError}` color="-exact-system-red"
+                    button press=retryLoad buttonStyle="bordered" testId="retry-load"
+                      text "Retry"
+                else if not current(settings)
+                  column testId="load"
+                    text "Loading settings…" color="-exact-secondary-label"
+                else
+                  text savedLine font="-exact-headline" testId="saved"
+                  if saveError != ""
+                    text saveError color="-exact-system-red" role="alert" testId="save-error"
+                  SettingsForm(initial=settings, save=saveDraft)
+          row role="tablist" aria-label="Pages" gap=8 padding="8px 16px" flex-wrap="wrap" justify-content="center"
+            background-color="-exact-secondary-background" testId="tabs"
+            button role="tab" aria-selected=(page == "issues") press=pick("issues")
+              testId="tab-issues"
+              text issuesTab
+            button role="tab" aria-selected=(page == "help") press=pick("help")
+              testId="tab-help"
+              text "Help"
+            button role="tab" aria-selected=(page == "settings") press=pick("settings")
+              testId="tab-settings"
+              text "Settings"
+
+// The draft: filled once from the loaded settings, then the user's.
+component SettingsForm
+  props
+    initial: Settings
+    save: action
+  state name = initial.name
+  state theme = initial.theme
+  state density = initial.density
+  derive nameError = name.trim() == "" ? "Display name is required" : name.length > 20 ? `Display name must be at most 20 characters, not ${name.length}` : ""
+
+  action editName(v: string)
+    name = v
+  action lightTheme
+    theme = "light"
+  action darkTheme
+    theme = "dark"
+  action toggleDensity
+    density = density == "compact" ? "comfortable" : "compact"
+  action submit
+    if nameError == ""
+      save(Settings(name=name, theme=theme, density=density))
+
+  view
+    column gap=16
+      column gap=6
+        text "Display name" font="-exact-subheadline" color="-exact-secondary-label"
+        input value=name input=editName submit=submit aria-label="Display name" testId="name"
+        row gap=8
+          text `${name.length}/20` font-variant-numeric="tabular-nums" color="-exact-secondary-label" testId="name-count"
+          if nameError != ""
+            text nameError color="-exact-system-red" flex=1 min-width=0 testId="name-error"
+      column gap=6
+        text "Theme" font="-exact-subheadline" color="-exact-secondary-label"
+        row role="group" aria-label="Theme" gap=8
+          button press=lightTheme aria-pressed=(theme == "light" ? "true" : "false") buttonStyle="bordered" testId="theme-light"
+            text "Light"
+          button press=darkTheme aria-pressed=(theme == "dark" ? "true" : "false") buttonStyle="bordered" testId="theme-dark"
+            text "Dark"
+      column gap=6
+        text "Density" font="-exact-subheadline" color="-exact-secondary-label"
+        button press=toggleDensity buttonStyle="bordered" testId="density-toggle"
+          text (density == "compact" ? "Compact" : "Comfortable")
+      text `Preview: ${theme} / ${density}` testId="preview"
+      button press=submit buttonStyle="filled" testId="save"
+        text "Save"

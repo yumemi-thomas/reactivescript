@@ -1,0 +1,6 @@
+I built the issue desk in ReactiveScript across `src/main.rx`, `src/issues.rx`, `src/help.rx` and `src/settings.rx`. `./check` passes and all 30 visible tests pass, using 2 of the 15 runs. One console 404 shows up in the test run, probably a missing favicon. The issues data, the edits waiting on the server (assign, rename, close, post, labels) and their errors live at module level, so they last longer than the page. Each of those edits shows at once on top of the server's lists, and on success the app asks the server again. The help and settings pages, the drafts and the user input reset whenever their page opens again, and the `Issues (n)` count is reported from inside the list.
+
+The visible tests never make the server decline, so none of the error and revert paths have been run, and neither have the retries or the help page's failure and not-found cases. Things I was unsure about:
+- The `assign`, `close` and `rename` buttons show while an issue is selected even if its detail failed to load, but the label input and `add-label` only appear once the labels have loaded.
+- Errors are tied to their issue, so an error that comes back after you've selected another issue won't show on the new one.
+- If a close is declined while another page is open, the count keeps the lower number.

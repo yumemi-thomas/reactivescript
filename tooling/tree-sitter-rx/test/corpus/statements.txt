@@ -1,0 +1,376 @@
+========================================
+Writes
+========================================
+
+action f() {
+  x := 1
+  user.name := n
+  xs[i].done := true
+  count := c => c + 1
+}
+
+---
+
+(program
+  (action_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (statement_block
+      (write_statement
+        target: (identifier)
+        value: (number))
+      (write_statement
+        target: (member_expression
+          object: (identifier)
+          property: (property_identifier))
+        value: (identifier))
+      (write_statement
+        target: (member_expression
+          object: (subscript_expression
+            object: (identifier)
+            index: (identifier))
+          property: (property_identifier))
+        value: (true))
+      (write_statement
+        target: (identifier)
+        value: (arrow_function
+          parameter: (identifier)
+          body: (binary_expression
+            left: (identifier)
+            right: (number)))))))
+
+========================================
+Write through a context
+========================================
+
+action f() {
+  use fields.x := 1
+}
+
+---
+
+(program
+  (action_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (statement_block
+      (write_statement
+        target: (member_expression
+          object: (use_expression
+            name: (identifier))
+          property: (property_identifier))
+        value: (number)))))
+
+========================================
+Guess
+========================================
+
+action like() {
+  guess liked := true
+  guess todos[i].saving := true
+}
+
+---
+
+(program
+  (action_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (statement_block
+      (guess_statement
+        target: (identifier)
+        value: (true))
+      (guess_statement
+        target: (member_expression
+          object: (subscript_expression
+            object: (identifier)
+            index: (identifier))
+          property: (property_identifier))
+        value: (true)))))
+
+========================================
+Refresh and affects
+========================================
+
+action reload() {
+  affects user
+  refresh user
+}
+
+---
+
+(program
+  (action_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (statement_block
+      (affects_statement
+        name: (identifier))
+      (refresh_statement
+        name: (identifier)))))
+
+========================================
+Inline action
+========================================
+
+component A() {
+  <button onClick={() => { action { refresh user; affects user } }}>r</button>
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (jsx_element
+        open_tag: (jsx_opening_element
+          name: (identifier)
+          attribute: (jsx_attribute
+            (property_identifier)
+            (jsx_expression
+              (arrow_function
+                parameters: (formal_parameters)
+                body: (statement_block
+                  (action_statement
+                    body: (statement_block
+                      (refresh_statement
+                        name: (identifier))
+                      (affects_statement
+                        name: (identifier)))))))))
+        (jsx_text)
+        close_tag: (jsx_closing_element
+          name: (identifier))))))
+
+========================================
+Let with await and catch
+========================================
+
+action f() {
+  let r = await save(x) catch (e: Offline) => null
+  await done()
+}
+
+---
+
+(program
+  (action_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (statement_block
+      (lexical_declaration
+        (variable_declarator
+          name: (identifier)
+          value: (catch_expression
+            value: (await_expression
+              argument: (call_expression
+                function: (identifier)
+                arguments: (arguments
+                  (identifier))))
+            parameter: (identifier)
+            type: (type_identifier)
+            alternative: (null))))
+      (expression_statement
+        (await_expression
+          argument: (call_expression
+            function: (identifier)
+            arguments: (arguments)))))))
+
+========================================
+Try, catch with classes, finally
+========================================
+
+action f() {
+  try {
+    await save()
+  } catch (e: Conflict) {
+    problem := e.message
+  } finally {
+    busy := false
+  }
+}
+
+---
+
+(program
+  (action_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (statement_block
+      (try_statement
+        body: (statement_block
+          (expression_statement
+            (await_expression
+              argument: (call_expression
+                function: (identifier)
+                arguments: (arguments)))))
+        handler: (catch_clause
+          parameter: (identifier)
+          type: (type_annotation
+            (type_identifier))
+          body: (statement_block
+            (write_statement
+              target: (identifier)
+              value: (member_expression
+                object: (identifier)
+                property: (property_identifier)))))
+        finalizer: (finally_clause
+          body: (statement_block
+            (write_statement
+              target: (identifier)
+              value: (false))))))))
+
+========================================
+If statement with a bare return
+========================================
+
+action f() {
+  if (title == "") return
+  add(title)
+}
+
+---
+
+(program
+  (action_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (statement_block
+      (if_statement
+        condition: (parenthesized_expression
+          (binary_expression
+            left: (identifier)
+            right: (string)))
+        consequence: (return_statement))
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          arguments: (arguments
+            (identifier)))))))
+
+========================================
+Statements back to back on one line
+========================================
+
+action f() {
+  optimistic x := 1
+}
+
+---
+
+(program
+  (action_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (statement_block
+      (expression_statement
+        (identifier))
+      (write_statement
+        target: (identifier)
+        value: (number)))))
+
+========================================
+Keywords, use targets and calls back to back on one line
+========================================
+
+action go() {
+  a := 1 guess b := 2 refresh rows
+  a := b use theme := 2
+  foo() bar(1).baz()
+  if (c) x := 1 else y := 2
+  a := 1 xs["]"] := 2
+  return foo(1)
+}
+
+---
+
+(program
+  (action_declaration
+    (identifier)
+    (formal_parameters)
+    (statement_block
+      (write_statement
+        (identifier)
+        (number))
+      (guess_statement
+        (identifier)
+        (number))
+      (refresh_statement
+        (identifier))
+      (write_statement
+        (identifier)
+        (identifier))
+      (write_statement
+        (use_expression
+          (identifier))
+        (number))
+      (expression_statement
+        (call_expression
+          (identifier)
+          (arguments)))
+      (expression_statement
+        (call_expression
+          (member_expression
+            (call_expression
+              (identifier)
+              (arguments
+                (number)))
+            (property_identifier))
+          (arguments)))
+      (if_statement
+        (parenthesized_expression
+          (identifier))
+        (write_statement
+          (identifier)
+          (number))
+        (else_clause
+          (write_statement
+            (identifier)
+            (number))))
+      (write_statement
+        (identifier)
+        (number))
+      (write_statement
+        (subscript_expression
+          (identifier)
+          (string
+            (string_fragment)))
+        (number))
+      (return_statement
+        (call_expression
+          (identifier)
+          (arguments
+            (number)))))))
+
+================================================================================
+Brackets in a comment on one line
+================================================================================
+
+action a() {
+  x := 1 f(/* ) { */ 2) g(2 / 1)
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (action_declaration
+    (identifier)
+    (formal_parameters)
+    (statement_block
+      (write_statement
+        (identifier)
+        (number))
+      (expression_statement
+        (call_expression
+          (identifier)
+          (arguments
+            (comment)
+            (number))))
+      (expression_statement
+        (call_expression
+          (identifier)
+          (arguments
+            (binary_expression
+              (number)
+              (number))))))))

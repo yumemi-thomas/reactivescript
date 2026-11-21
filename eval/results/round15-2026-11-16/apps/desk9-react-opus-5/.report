@@ -1,0 +1,10 @@
+I built the issue desk in React 19 and TypeScript: tabs with the open-issue count, the issues page, the help page and the settings page. `./check` passes and all 30 visible tests pass (5 of the 15 allowed runs used). Every change shows on screen at once and is undone if the server declines. Each page also ignores out-of-date answers, so a slow old reply can't overwrite a newer one, and the count is kept above the pages so it stays right while you're on another page.
+
+Where the brief was silent, I chose:
+- **Trimmed input:** what the user types is trimmed before it is checked or sent. A name of only spaces counts as empty.
+- **Repeat clicks:** clicking the issue or help hit that is already selected, or the tab already open, does nothing.
+- **Help selection:** the selected help item stays selected when the query changes.
+- **No refetch after changes:** after a post or label change succeeds, the app uses the server's answer and doesn't reload comments or labels.
+- **Opening a related hit:** the help page reuses the hits the related search already got, instead of searching again.
+
+The code is in `/tmp/claude-0/runs/r15/desk9-react-opus-5/src/`. The main files are `App.tsx`, `IssuesPage.tsx`, `Detail.tsx`, `HelpPage.tsx` and `SettingsPage.tsx`.

@@ -1,0 +1,52 @@
+// The help page: a search over the help catalogue and the picked item.
+import pure { search, fetchItem } from "./api"
+
+export component HelpPage(props: { initialQuery: string; initialPick: number | null }) {
+  source query: string := peek(props.initialQuery)
+  source picked: number | null := peek(props.initialPick)
+
+  hits = query.length < 2 ? [] : await search(query)
+  item = picked == null ? null : await fetchItem(picked)
+
+  <section class="help">
+    <input data-testid="query" value={query} placeholder="search help" onInput={(e) => { query := e.target.value }} />
+    <div data-testid="results" class="results">
+      {if query == "" {
+        {""}
+      } else if query.length < 2 {
+        <p>too short: {query}</p>
+      } else {
+        {loading fallback { <p>searching…</p> } {
+          {errored fallback(e) { <p role="alert">search failed: {e.message}</p> } {
+            {if pending? hits { <p>searching…</p> }}
+            <p>{hits.length} results for {query}</p>
+            <ul>
+              {for h in hits {
+                <li data-testid="hit" class={h.id == picked ? "hit selected" : "hit"} onClick={() => { picked := h.id }}>{h.id == picked ? "> " : ""}{h.name}</li>
+              }}
+            </ul>
+          }}
+        }}
+      }}
+    </div>
+    <div data-testid="item" class="item">
+      {if picked == null {
+        <p>pick a result</p>
+      } else {
+        {loading on(picked) fallback { <p>loading…</p> } {
+          {errored fallback(e) {
+            <p role="alert">failed: {e.message}</p>
+            <button data-testid="retry-item" onClick={() => { refresh item }}>retry</button>
+          } {
+            {if item == null {
+              <p>item {picked} not found</p>
+            } else {
+              <h3>{item.name}</h3>
+              <p>{item.blurb}</p>
+            }}
+          }}
+        }}
+      }}
+    </div>
+  </section>
+}

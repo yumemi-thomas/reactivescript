@@ -1,0 +1,17 @@
+import { Board } from "./board.rx"
+import { ArchivePage } from "./archive.rx"
+
+export default component App() {
+  source page: string := "board"
+  <main>
+    <nav>
+      <button data-testid="tab-board" onClick={() => { page := "board" }}>Board</button>{" "}
+      <button data-testid="tab-archive" onClick={() => { page := "archive" }}>Archive</button>
+    </nav>
+    {if page == "board" {
+      <Board />
+    } else {
+      <ArchivePage />
+    }}
+  </main>
+}

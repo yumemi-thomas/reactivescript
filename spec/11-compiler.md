@@ -139,9 +139,9 @@ record argued each way; this is the decision.
   | `eq(a, b)`, `fmt(v)` | `==` through a store (ST-2), a template part | — |
   | `errorClass(name, params, msg)`, `isA(e, classes)`, `PANIC` | `error C(…)` (R-f-1), a typed catch, `Panic` (R-f-10) | a subclass of `Error` |
   | `throw(e)` | `throw` as an expression (R-f-3) | — |
-  | `catchMemo(f, match, alt)` | `x = await … catch …` (R-f-4 over an equation's flight) | `createErrorBoundary` |
-  | `catchRead(f, match, alt)` | `e catch …` in reactive scope (R-f-4) | `createErrorBoundary` |
-  | `tryCatch(f, match, alt)` | `e catch …` in imperative scope | `try` |
+  | `settle(p, match, alt)` | `await … catch …` in reactive scope: a matching rejection lands `alt` as the answer where it is awaited (R-f-4), so it never becomes an errored node | `Promise.prototype.then` |
+  | `catchMemo(f, match, alt)`, `catchRead(f, match, alt)` | no source form since 2026-11-19 (`CATCH_NOT_ON_AWAIT`, R-f-4); kept in the runtime until the lowering that emits them is removed | `createErrorBoundary` |
+  | `tryCatch(f, match, alt)` | `await … catch …` in imperative scope | `try` |
   | `context(name, dflt)`, `provide(c, entry)`, `use(c, owner)`, `useGet(c, owner)`, `owner()` | contexts (RG-7) | `createContext`, `setContext`, `getContext`, `getOwner` |
   | `module(key, factory)` | an `.rx` dependency, once per app (MO-1); `key` is the file's name in a sibling-file build, the factory itself when modules are imported by source for a bundler (`rxc app`), so a module two programs share is one key | — |
   | `serverRef(name, fn)`, `serverCall(name, gen, args)` | a server fn as the client calls it, and its body (12 SF-2, SF-6, SF-7) | Solid's `"use server"` functions |

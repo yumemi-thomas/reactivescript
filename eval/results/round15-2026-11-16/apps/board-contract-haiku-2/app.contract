@@ -1,0 +1,436 @@
+// Sprint board: two pages behind a tab row. Each page is a route, so only the open one is on
+// screen, and leaving a page resets its state. The board's columns are the server's answers,
+// changed on screen at once; every write is queued and its reply reverts it when declined.
+routes nav
+  tab board "/"
+  tab archive "/archive"
+
+shape CardData
+  id: number
+  title: string
+  done: number
+  total: number
+
+shape ArchivedData
+  id: number
+  title: string
+
+shape ItemData
+  id: number
+  text: string
+  done: bool
+
+shape Card
+  id: number
+  title: string
+  done: number
+  total: number
+  column: string
+  status: string
+
+shape Board
+  todo: Card[]
+  doing: Card[]
+  done: Card[]
+
+shape ItemRow
+  id: number
+  label: string
+  done: bool
+  status: string
+
+shape ArchRow
+  id: number
+  title: string
+  status: string
+
+shape Lane
+  name: string
+  status: string
+  msg: string
+  cards: Card[]
+
+shape MoveReply
+  ok: bool
+  error: string
+  id: number
+  column: string
+  index: number
+  fromCol: string
+  fromIndex: number
+
+shape RenameReply
+  ok: bool
+  error: string
+  id: number
+  title: string
+  oldTitle: string
+
+shape ArchiveReply
+  ok: bool
+  error: string
+  id: number
+  column: string
+  index: number
+  title: string
+  done: number
+  total: number
+
+shape AddReply
+  ok: bool
+  error: string
+  tmp: number
+  id: number
+  title: string
+
+shape ToggleReply
+  ok: bool
+  error: string
+  cardId: number
+  itemId: number
+  done: bool
+
+shape AddItemReply
+  ok: bool
+  error: string
+  cardId: number
+  tmp: number
+  id: number
+  label: string
+
+shape RestoreReply
+  ok: bool
+  error: string
+  id: number
+
+fn colName(c: string): string = c == "todo" ? "To do" : c == "doing" ? "Doing" : "Done"
+fn laneStatus(loading: bool, broken: bool): string = loading ? "loading" : broken ? "error" : "ok"
+fn asCard(c: CardData, column: string): Card = Card(id=c.id, title=c.title, done=c.done, total=c.total, column=column, status="ok")
+fn allCards(b: Board): Card[] = b.todo.concat(b.doing).concat(b.done)
+fn colList(b: Board, c: string): Card[] = c == "todo" ? b.todo : c == "doing" ? b.doing : b.done
+fn setCol(b: Board, c: string, xs: Card[]): Board = c == "todo" ? Board(b, todo=xs) : c == "doing" ? Board(b, doing=xs) : Board(b, done=xs)
+fn columnOf(b: Board, id: number): string = match first(allCards(b).filter(c => c.id == id)) { case some(c) => c.column, case none => "" }
+fn positionOf(b: Board, id: number): number = colList(b, columnOf(b, id)).map(c => c.id).indexOf(id)
+fn removeCard(b: Board, id: number): Board = Board(b, todo=b.todo.filter(c => c.id != id), doing=b.doing.filter(c => c.id != id), done=b.done.filter(c => c.id != id))
+fn insertAt(b: Board, c: string, index: number, card: Card): Board = setCol(b, c, colList(b, c).slice(0, index).concat([card]).concat(colList(b, c).slice(index)))
+fn moveBoard(b: Board, id: number, to: string, index: number): Board = match first(allCards(b).filter(x => x.id == id)) { case some(card) => insertAt(removeCard(b, id), to, index, Card(card, column=to)), case none => b }
+fn retitle(b: Board, id: number, title: string): Board = Board(b, todo=b.todo.map(c => c.id == id ? Card(c, title=title) : c), doing=b.doing.map(c => c.id == id ? Card(c, title=title) : c), done=b.done.map(c => c.id == id ? Card(c, title=title) : c))
+fn adjustDone(b: Board, id: number, d: number): Board = Board(b, todo=b.todo.map(c => c.id == id ? Card(c, done=c.done + d) : c), doing=b.doing.map(c => c.id == id ? Card(c, done=c.done + d) : c), done=b.done.map(c => c.id == id ? Card(c, done=c.done + d) : c))
+fn adjustTotal(b: Board, id: number, d: number): Board = Board(b, todo=b.todo.map(c => c.id == id ? Card(c, total=c.total + d) : c), doing=b.doing.map(c => c.id == id ? Card(c, total=c.total + d) : c), done=b.done.map(c => c.id == id ? Card(c, total=c.total + d) : c))
+fn settleAdd(b: Board, tmp: number, id: number, title: string): Board = Board(b, todo=b.todo.map(c => c.id == tmp ? Card(c, id=id, title=title, status="ok") : c), doing=b.doing, done=b.done)
+fn neighbour(c: string, dir: string): string = dir == "right" ? (c == "todo" ? "doing" : c == "doing" ? "done" : c) : dir == "left" ? (c == "done" ? "doing" : c == "doing" ? "todo" : c) : c
+fn hasMove(b: Board, id: number, dir: string): bool = dir == "up" ? positionOf(b, id) > 0 : dir == "down" ? positionOf(b, id) < colList(b, columnOf(b, id)).length - 1 : neighbour(columnOf(b, id), dir) != columnOf(b, id)
+fn targetIndex(b: Board, id: number, dir: string): number = dir == "up" ? positionOf(b, id) - 1 : dir == "down" ? positionOf(b, id) + 1 : colList(b, neighbour(columnOf(b, id), dir)).length
+fn wipBlocked(b: Board, id: number, dir: string): bool = neighbour(columnOf(b, id), dir) == "doing" and columnOf(b, id) != "doing" and b.doing.length >= 3
+fn rowsSetDone(xs: ItemRow[], id: number, flag: bool): ItemRow[] = xs.map(r => r.id == id ? ItemRow(r, done=flag) : r)
+fn rowsRemove(xs: ItemRow[], id: number): ItemRow[] = xs.filter(r => r.id != id)
+fn rowsSettle(xs: ItemRow[], tmp: number, id: number, label: string): ItemRow[] = xs.map(r => r.id == tmp ? ItemRow(r, id=id, label=label, status="ok") : r)
+
+component SprintBoard
+  state snap: option<Board> = none
+  state sel = 0
+  state renameDraft = ""
+  state renErr = ""
+  state newDraft = ""
+  state addErr = ""
+  state moveErr = ""
+  state archErr = ""
+  state nextTmp = 0
+  state itemSnap: option<ItemRow[]> = none
+  state itemDraft = ""
+  state itemErr = ""
+  state arch: option<ArchRow[]> = none
+  state restoreErr = ""
+  resource todoCards = fetchCards("todo") when nav.tab == "board" as shape CardData[] else empty()
+  resource doingCards = fetchCards("doing") when nav.tab == "board" as shape CardData[] else empty()
+  resource doneCards = fetchCards("done") when nav.tab == "board" as shape CardData[] else empty()
+  resource checklist = fetchChecklist(sel) when sel != 0 and nav.tab == "board" as shape ItemData[] else empty()
+  resource archivedList = fetchArchived() when nav.tab == "archive" as shape ArchivedData[] else empty()
+  mutation moved as shape MoveReply queue then moveDone
+  mutation renamed as shape RenameReply queue then renameDone
+  mutation archived as shape ArchiveReply queue then archiveDone
+  mutation added as shape AddReply queue then addDone
+  mutation toggled as shape ToggleReply queue then toggleDone
+  mutation addedItem as shape AddItemReply queue then addItemDone
+  mutation restored as shape RestoreReply queue then restoreDone
+
+  derive baseBoard = Board(todo=todoCards.map(c => asCard(c, "todo")), doing=doingCards.map(c => asCard(c, "doing")), done=doneCards.map(c => asCard(c, "done")))
+  derive boardLive = snap != none
+  derive shown = match snap { case some(b) => b, case none => baseBoard }
+  derive todoMsg = match failure(todoCards) { case some(f) => f.message, case none => "" }
+  derive doingMsg = match failure(doingCards) { case some(f) => f.message, case none => "" }
+  derive doneMsg = match failure(doneCards) { case some(f) => f.message, case none => "" }
+  derive lanes = [Lane(name="todo", status=laneStatus(pending(todoCards), failed(todoCards)), msg=todoMsg, cards=shown.todo), Lane(name="doing", status=laneStatus(pending(doingCards), failed(doingCards)), msg=doingMsg, cards=shown.doing), Lane(name="done", status=laneStatus(pending(doneCards), failed(doneCards)), msg=doneMsg, cards=shown.done)]
+  derive ready = lanes.filter(l => l.status != "ok").length == 0
+  derive selCard = first(allCards(shown).filter(c => c.id == sel))
+  derive selRec = match selCard { case some(c) => c, case none => Card(id=0, title="", done=0, total=0, column="todo", status="ok") }
+  derive checkMsg = match failure(checklist) { case some(f) => f.message, case none => "" }
+  derive checklistReady = not pending(checklist) and not failed(checklist)
+  derive checklistRows = checklist.map(i => ItemRow(id=i.id, label=i.text, done=i.done, status="ok"))
+  derive rows = match itemSnap { case some(x) => x, case none => checklistRows }
+  derive itemLive = itemSnap != none
+  derive rowsDone = rows.filter(r => r.done).length
+  derive archMsg = match failure(archivedList) { case some(f) => f.message, case none => "" }
+  derive archBase = archivedList.map(a => ArchRow(id=a.id, title=a.title, status="ok"))
+  derive archShown = match arch { case some(x) => x, case none => archBase }
+  derive archRows = archShown.filter(r => r.status != "restoring")
+  derive moveR = match moved { case some(r) => r, case none => MoveReply(ok=true, error="", id=0, column="todo", index=0, fromCol="todo", fromIndex=0) }
+  derive renR = match renamed { case some(r) => r, case none => RenameReply(ok=true, error="", id=0, title="", oldTitle="") }
+  derive archR = match archived { case some(r) => r, case none => ArchiveReply(ok=true, error="", id=0, column="todo", index=0, title="", done=0, total=0) }
+  derive addR = match added { case some(r) => r, case none => AddReply(ok=true, error="", tmp=0, id=0, title="") }
+  derive togR = match toggled { case some(r) => r, case none => ToggleReply(ok=true, error="", cardId=0, itemId=0, done=false) }
+  derive addItemR = match addedItem { case some(r) => r, case none => AddItemReply(ok=true, error="", cardId=0, tmp=0, id=0, label="") }
+  derive restR = match restored { case some(r) => r, case none => RestoreReply(ok=true, error="", id=0) }
+
+  action openTab(name: string)
+    if name != nav.tab
+      nav = select(nav, name)
+      snap = none
+      sel = 0
+      renameDraft = ""
+      renErr = ""
+      newDraft = ""
+      addErr = ""
+      moveErr = ""
+      archErr = ""
+      itemSnap = none
+      itemDraft = ""
+      itemErr = ""
+      arch = none
+      restoreErr = ""
+  action follow(url: string)
+    nav = go(nav, url)
+  action editRename(v: string)
+    renameDraft = v
+  action editNew(v: string)
+    newDraft = v
+  action editItem(v: string)
+    itemDraft = v
+  action pickCard(id: number)
+    if id != sel
+      sel = id
+      renameDraft = ""
+      renErr = ""
+      itemErr = ""
+      itemSnap = none
+  action retryLane(name: string)
+    if name == "todo"
+      refresh todoCards
+    else if name == "doing"
+      refresh doingCards
+    else
+      refresh doneCards
+  action doMove(id: number, dir: string)
+    if ready and hasMove(shown, id, dir) and not wipBlocked(shown, id, dir)
+      let cur = columnOf(shown, id)
+      let pos = positionOf(shown, id)
+      let to = neighbour(cur, dir)
+      let index = targetIndex(shown, id, dir)
+      snap = some(moveBoard(shown, id, to, index))
+      moveErr = ""
+      send moved = moveCard(id, to, index, cur, pos)
+  action doAdd
+    let t = newDraft.trim()
+    if ready and t != ""
+      let tmp = nextTmp - 1
+      nextTmp = tmp
+      snap = some(insertAt(shown, "todo", shown.todo.length, Card(id=tmp, title=t, done=0, total=0, column="todo", status="adding")))
+      newDraft = ""
+      addErr = ""
+      send added = addCard("todo", t, tmp)
+  action doRename
+    let t = renameDraft.trim()
+    if ready and t != "" and selCard != none
+      renErr = ""
+      snap = some(retitle(shown, sel, t))
+      send renamed = renameCard(sel, t, selRec.title)
+  action doArchive
+    if ready and selCard != none
+      snap = some(removeCard(shown, selRec.id))
+      sel = 0
+      renameDraft = ""
+      renErr = ""
+      itemSnap = none
+      itemErr = ""
+      archErr = ""
+      send archived = archiveCard(selRec.id, selRec.column, positionOf(shown, selRec.id), selRec.title, selRec.done, selRec.total)
+  action doToggle(itemId: number, flag: bool)
+    if ready and checklistReady and selCard != none
+      itemErr = ""
+      itemSnap = some(rowsSetDone(rows, itemId, flag))
+      snap = some(adjustDone(shown, sel, flag ? 1 : -1))
+      send toggled = toggleItem(sel, itemId, flag)
+  action doAddItem
+    let t = itemDraft.trim()
+    if ready and checklistReady and t != "" and selCard != none
+      let tmp = nextTmp - 1
+      nextTmp = tmp
+      itemSnap = some(rows.concat([ItemRow(id=tmp, label=t, done=false, status="adding")]))
+      snap = some(adjustTotal(shown, sel, 1))
+      itemDraft = ""
+      itemErr = ""
+      send addedItem = addItem(sel, t, tmp)
+  action doRestore(id: number)
+    restoreErr = ""
+    arch = some(archShown.map(r => r.id == id ? ArchRow(r, status="restoring") : r))
+    send restored = restoreCard(id)
+
+  action moveDone
+    if not moveR.ok
+      if boardLive
+        snap = some(moveBoard(shown, moveR.id, moveR.fromCol, moveR.fromIndex))
+      moveErr = `move error: ${moveR.error}`
+  action renameDone
+    if not renR.ok
+      if boardLive
+        snap = some(retitle(shown, renR.id, renR.oldTitle))
+      renErr = `rename error: ${renR.error}`
+  action archiveDone
+    if not archR.ok
+      if boardLive
+        snap = some(insertAt(shown, archR.column, archR.index, Card(id=archR.id, title=archR.title, done=archR.done, total=archR.total, column=archR.column, status="ok")))
+      archErr = `archive error: ${archR.error}`
+  action addDone
+    if addR.ok
+      if boardLive
+        snap = some(settleAdd(shown, addR.tmp, addR.id, addR.title))
+    else
+      if boardLive
+        snap = some(removeCard(shown, addR.tmp))
+      addErr = `add error: ${addR.error}`
+  action toggleDone
+    if not togR.ok
+      if boardLive
+        snap = some(adjustDone(shown, togR.cardId, togR.done ? -1 : 1))
+      if itemLive and togR.cardId == sel
+        itemSnap = some(rowsSetDone(rows, togR.itemId, not togR.done))
+      if togR.cardId == sel
+        itemErr = `item error: ${togR.error}`
+  action addItemDone
+    if addItemR.ok
+      if itemLive and addItemR.cardId == sel
+        itemSnap = some(rowsSettle(rows, addItemR.tmp, addItemR.id, addItemR.label))
+    else
+      if boardLive
+        snap = some(adjustTotal(shown, addItemR.cardId, -1))
+      if itemLive and addItemR.cardId == sel
+        itemSnap = some(rowsRemove(rows, addItemR.tmp))
+      if addItemR.cardId == sel
+        itemErr = `item error: ${addItemR.error}`
+  action restoreDone
+    if restR.ok
+      arch = some(archShown.filter(r => r.id != restR.id))
+    else
+      arch = some(archShown.map(r => r.id == restR.id ? ArchRow(r, status="ok") : r))
+      restoreErr = `restore error: ${restR.error}`
+
+  view
+    main navigationKey=`${top(nav).id}` navigate=follow testId="app" width="100%" height="100%"
+      display="flex" flex-direction="column"
+      column role="tabpanel" id="panel-pages" flex=1 min-height=0 position="relative"
+        for e in stack(nav) key=e.id
+          if e.name == "board"
+            column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0
+              display="flex" flex-direction="column"
+              header display="flex" align-items="center" padding="8px 16px"
+                text "Sprint board" role="heading" aria-level=1 flex=1
+              scroll id=`content-${e.id}` flex=1 min-height=0 padding=16
+                row gap=12 align-items="flex-start"
+                  for l in lanes key=l.name
+                    column testId=`col-${l.name}` flex=1 min-width=0 gap=8
+                      text (l.status == "ok" ? `${colName(l.name)} (${l.cards.length})` : colName(l.name)) testId=`head-${l.name}` role="heading" aria-level=2
+                      if l.status == "loading"
+                        text "loading" color="-exact-secondary-label"
+                      else if l.status == "error"
+                        text `error: ${l.msg}` color="-exact-system-red"
+                        button press=retryLane(l.name) testId=`retry-${l.name}` buttonStyle="bordered"
+                          text "Retry"
+                      else
+                        for c in l.cards key=c.id
+                          row gap=4 align-items="center"
+                            if c.status == "adding"
+                              text `${c.title} (adding…)` testId="card" flex=1 min-width=0
+                            else
+                              button press=pickCard(c.id) testId="card" flex=1 min-width=0
+                                text `#${c.id} ${c.title} · ${c.done}/${c.total}`
+                            if ready and c.status == "ok" and hasMove(shown, c.id, "left")
+                              button press=doMove(c.id, "left") disabled=wipBlocked(shown, c.id, "left") testId="left"
+                                text "Left"
+                            if ready and c.status == "ok" and hasMove(shown, c.id, "right")
+                              button press=doMove(c.id, "right") disabled=wipBlocked(shown, c.id, "right") testId="right"
+                                text "Right"
+                            if ready and c.status == "ok" and hasMove(shown, c.id, "up")
+                              button press=doMove(c.id, "up") testId="up"
+                                text "Up"
+                            if ready and c.status == "ok" and hasMove(shown, c.id, "down")
+                              button press=doMove(c.id, "down") testId="down"
+                                text "Down"
+                      if l.name == "todo"
+                        row gap=8
+                          input value=newDraft input=editNew submit=doAdd placeholder="New card" aria-label="New card" testId="new-card" flex=1 min-width=0
+                          button press=doAdd disabled=(not ready or newDraft.trim() == "") testId="add-card" buttonStyle="bordered"
+                            text "Add"
+                        if addErr != ""
+                          text addErr testId="add-error" color="-exact-system-red"
+                if moveErr != ""
+                  text moveErr testId="move-error" color="-exact-system-red"
+                if archErr != ""
+                  text archErr testId="archive-error" color="-exact-system-red"
+                column testId="detail" gap=8 padding-top=16
+                  if selCard == none
+                    text "select a card" color="-exact-secondary-label"
+                  else
+                    text `#${selRec.id} ${selRec.title}` role="heading" aria-level=2
+                    text `in ${colName(selRec.column)}` color="-exact-secondary-label"
+                    row gap=8
+                      input value=renameDraft input=editRename submit=doRename placeholder="Title" aria-label="Title" testId="title-input" flex=1 min-width=0
+                      button press=doRename disabled=(not ready) testId="rename" buttonStyle="bordered"
+                        text "Rename"
+                    if renErr != ""
+                      text renErr testId="rename-error" color="-exact-system-red"
+                    button press=doArchive disabled=(not ready) testId="archive" buttonStyle="bordered"
+                      text "Archive"
+                    text "Checklist" role="heading" aria-level=3
+                    column testId="checklist" gap=6
+                      if pending(checklist)
+                        text "loading checklist" color="-exact-secondary-label"
+                      else if failed(checklist)
+                        text `checklist error: ${checkMsg}` color="-exact-system-red"
+                      else
+                        for r in rows key=r.id
+                          row gap=8 align-items="center"
+                            text (r.status == "adding" ? `[ ] ${r.label} (adding…)` : r.done ? `[x] ${r.label}` : `[ ] ${r.label}`) testId="item" flex=1 min-width=0
+                            if r.status == "ok"
+                              button press=doToggle(r.id, not r.done) disabled=(not ready) testId="toggle" aria-label=(r.done ? "Mark not done" : "Mark done")
+                                image (r.done ? "symbol:checkmark" : "symbol:circle")
+                        text `${rowsDone}/${rows.length} done` testId="progress" color="-exact-secondary-label"
+                        row gap=8
+                          input value=itemDraft input=editItem submit=doAddItem placeholder="Add an item" aria-label="New checklist item" testId="item-input" flex=1 min-width=0
+                          button press=doAddItem disabled=(not ready or itemDraft.trim() == "") testId="add-item" buttonStyle="bordered"
+                            text "Add"
+                    if itemErr != ""
+                      text itemErr testId="item-error" color="-exact-system-red"
+          if e.name == "archive"
+            column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0
+              display="flex" flex-direction="column"
+              header display="flex" align-items="center" padding="8px 16px"
+                text "Archive" role="heading" aria-level=1 flex=1
+              scroll id=`content-${e.id}` flex=1 min-height=0 padding=16
+                column testId="archived" gap=8
+                  if pending(archivedList)
+                    text "loading archive" color="-exact-secondary-label"
+                  else if failed(archivedList)
+                    text `archive error: ${archMsg}` color="-exact-system-red"
+                  else
+                    for r in archRows key=r.id
+                      row gap=8 align-items="center"
+                        text `#${r.id} ${r.title}` testId="archived-card" flex=1 min-width=0
+                        button press=doRestore(r.id) testId="restore" buttonStyle="bordered"
+                          text "Restore"
+                if restoreErr != ""
+                  text restoreErr testId="restore-error" color="-exact-system-red"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel-pages" aria-selected=(nav.tab == "board") press=openTab("board") testId="tab-board" flex=1
+          text "Board"
+        button role="tab" aria-controls="panel-pages" aria-selected=(nav.tab == "archive") press=openTab("archive") testId="tab-archive" flex=1
+          text "Archive"

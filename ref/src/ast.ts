@@ -52,7 +52,7 @@ export type Decl =
   | { k: "typedecl"; name: string; line: number; text?: string; exported?: boolean }                                                           // `type T = …`: text only
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
   | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number; ret?: string; exported?: boolean }       // body: decls then a value
-  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; exported?: boolean; isDefault?: boolean }  // body: decls then a view; isDefault: `export default component App` — the app's entry (MO-1c)
+  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; noProps?: boolean; exported?: boolean; isDefault?: boolean }  // body: decls then a view; noProps: `component C()` (RG-4b); isDefault: `export default component App` — the app's entry (MO-1c)
   | { k: "action"; name: string; params: string[]; ptypes?: (string | undefined)[]; body: Stmt[]; line: number; exported?: boolean }                   // AC-1
   | { k: "server"; name: string; params: string[]; ptypes?: (string | undefined)[]; ret?: string; body: Stmt[]; line: number; exported?: boolean }   // 12 SF-1: `server fn f(a) { … }` — the body runs on the server; it is io when its body is
   | { k: "provide"; name: string; e: Expr; line: number }                                        // RG-7a: `name` resolves to a context declaration

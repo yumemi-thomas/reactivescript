@@ -32,6 +32,8 @@ export declare function wire<A extends unknown[], R>(f: (...a: A) => Promise<R>,
 /** 07 §6: a view (`props.children: View`); R-f-10: the class a panic is. */
 export type View = JSX.Element;
 export type Panic = Error;
+/** CP-4a: an entry's default export, a function of the app (`createApp`'s, either build) giving the view `app.mount` takes. */
+export type Main = (app: object) => () => View;
 export interface Ctx<T> { readonly __ctx: T }
 export declare function ctx<T>(d?: T): Ctx<T>;
 export declare function use<T>(c: Ctx<T>): T;

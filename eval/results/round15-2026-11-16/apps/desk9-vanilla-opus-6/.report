@@ -1,0 +1,9 @@
+I built the issue desk in plain TypeScript and DOM code under `src/` (`main.ts`, `issues.ts`, `store.ts`, `help.ts`, `settings.ts`, `dom.ts`); `./check` passes and `./test` passes 30/30. Every quick change (assign, rename, close, comments, labels, saves) shows at once and is rolled back by the server's answer. Late or outdated replies are ignored, and the issue changes are kept app-wide, so one still waiting shows over a freshly loaded list. The count goes back when a close is declined.
+
+Choices I was unsure about:
+- **Related hit:** opening it fills the help page with the search results the issue already has, instead of searching again.
+- **Late errors:** an error from an earlier request is still shown even when a newer one has started.
+- **Rename input:** `title-input` is not emptied after a rename, because the brief only says to empty the comment and label inputs.
+- **Stray text:** a few lines the brief doesn't mention appear on screen, such as "no comments yet".
+
+The only console error was a 404 for a missing resource (in the first test); I didn't look into it.

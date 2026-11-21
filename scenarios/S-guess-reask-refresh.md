@@ -40,7 +40,7 @@ effect's view too.
 export default component App() {
   source detail = await fetch("d")
   action rename(t) { try { guess detail.title := t; await fetch("save"); refresh detail } catch (e) {} }
-  effect (detail.title catch (e) => "err") { log($0) }
+  effect (detail.title) { log($0) }
   <p>x</p>
 }
 ```
@@ -57,10 +57,3 @@ D-34): it logs the guess once and nothing after, since the re-ask confirms it.
 | 4 | resolve "d" {"title":"Old"} | `x` | — |
 | 5 | resolve "save" 0 | `x` | — |
 | 6 | resolve "d" {"title":"New"} | `x` | — |
-
-## Divergences (DV-20)
-
-Fixed in Solid 2.0.1 (the repin of 2026-11-19): every runner shows the ruled frames, so nothing is recorded.
-
-Found reviewing PR #31: an effect over a source nothing renders is a legal `.rx` program, so #4690 is reachable.
-Fixed on `next` (2026-11-05); the divergence stays recorded until the repin.

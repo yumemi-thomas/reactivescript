@@ -1,0 +1,7 @@
+I built the issue desk across five files in `/tmp/claude-0/runs/r15/desk9-rx-opus-3/src`. `main.rx` holds the tabs, the `Issues (<n>)` label and the hand-off from a related hit to the help page. `issues.rx` holds the issue data and every write: assign, rename, close, post and labels each show at once over the server's answer, are taken back if the server declines, and re-ask the server if it accepts. `IssuesPage.rx`, `HelpPage.rx` and `SettingsPage.rx` are the three pages. All 30 visible tests pass, and so did 14 more I added for declined writes, the row error, `not found` with retry, the list error, the count across pages, a failed save, item retry and two closes at once; I then put the test file back as it was.
+
+Things I was unsure about:
+- **Leaving mid-write:** the issue data lives at app level so a write still in flight can finish after you leave the page. An error from such a write could then show up when the page is opened again.
+- **Clicking the open tab:** clicking the tab of the page already open does nothing; I read "opening" a page as switching to it from another tab.
+- **Whitespace-only input:** titles, comments, labels and display names made only of spaces count as empty.
+- **Wrong issue:** an error only shows on the issue it belongs to, so a rename declined after you've selected another issue doesn't appear on that one.

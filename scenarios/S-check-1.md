@@ -137,6 +137,30 @@ export default component App() {
 `Row` sees its declaration site, not its caller (RG-7a).
 
 ```rx
+-- reject: UNBOUND
+component Lane() { <h3>{props.col}</h3> }
+
+export default component App() {
+  <Lane col="todo" />
+}
+```
+
+`component Lane()` declares no props, so `props` is not a name in it
+(RG-4b): the read was `undefined` on screen.
+
+```rx
+-- reject: ARGUMENT_COUNT
+export default component App() {
+  source n := 0
+  action go(by: number) { n := n + by }
+
+  <button onClick={() => { go(1, 2) }}>{n}</button>
+}
+```
+
+`go` takes one argument (AC-1f); `go()` is refused the same way.
+
+```rx
 -- reject: UNKNOWN_COMPONENT
 export default component App() {
   <Nope />
@@ -204,16 +228,6 @@ export default component App() {
   source name := "Ann"
   source shown = name
   effect (name) { guess shown := "Zed" }
-
-  <p>{shown}</p>
-}
-```
-
-```rx
--- reject: GUESS_NO_QUESTION
-export default component App() {
-  source shown := "Ann"
-  action fix() { guess shown := "Zed"; await fetch("x") }
 
   <p>{shown}</p>
 }

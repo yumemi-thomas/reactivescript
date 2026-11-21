@@ -1,0 +1,431 @@
+========================================
+Braced if inside an element
+========================================
+
+component A() {
+  <div>
+    {if open { <p>open</p> } else { <p>closed</p> }}
+  </div>
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (jsx_element
+        open_tag: (jsx_opening_element
+          name: (identifier))
+        (jsx_expression
+          (if_block
+            condition: (identifier)
+            consequence: (view_block
+              (jsx_element
+                open_tag: (jsx_opening_element
+                  name: (identifier))
+                (jsx_text)
+                close_tag: (jsx_closing_element
+                  name: (identifier))))
+            alternative: (else_block
+              (view_block
+                (jsx_element
+                  open_tag: (jsx_opening_element
+                    name: (identifier))
+                  (jsx_text)
+                  close_tag: (jsx_closing_element
+                    name: (identifier)))))))
+        close_tag: (jsx_closing_element
+          name: (identifier))))))
+
+========================================
+Bare if with else if
+========================================
+
+component A() {
+  if a {
+    <p>a</p>
+  } else if b {
+    <p>b</p>
+  } else {
+    <p>c</p>
+  }
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (if_block
+        condition: (identifier)
+        consequence: (view_block
+          (jsx_element
+            open_tag: (jsx_opening_element
+              name: (identifier))
+            (jsx_text)
+            close_tag: (jsx_closing_element
+              name: (identifier))))
+        alternative: (else_block
+          (if_block
+            condition: (identifier)
+            consequence: (view_block
+              (jsx_element
+                open_tag: (jsx_opening_element
+                  name: (identifier))
+                (jsx_text)
+                close_tag: (jsx_closing_element
+                  name: (identifier))))
+            alternative: (else_block
+              (view_block
+                (jsx_element
+                  open_tag: (jsx_opening_element
+                    name: (identifier))
+                  (jsx_text)
+                  close_tag: (jsx_closing_element
+                    name: (identifier)))))))))))
+
+========================================
+For with declarations in its body
+========================================
+
+component A() {
+  <ul>
+    {for row in rows {
+      source hits := 0
+      <li onClick={() => { hits := hits + 1 }}>{row.name} {hits}</li>
+    }}
+  </ul>
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (jsx_element
+        open_tag: (jsx_opening_element
+          name: (identifier))
+        (jsx_expression
+          (for_block
+            name: (identifier)
+            value: (identifier)
+            body: (view_block
+              (source_declaration
+                name: (identifier)
+                value: (number))
+              (jsx_element
+                open_tag: (jsx_opening_element
+                  name: (identifier)
+                  attribute: (jsx_attribute
+                    (property_identifier)
+                    (jsx_expression
+                      (arrow_function
+                        parameters: (formal_parameters)
+                        body: (statement_block
+                          (write_statement
+                            target: (identifier)
+                            value: (binary_expression
+                              left: (identifier)
+                              right: (number))))))))
+                (jsx_expression
+                  (member_expression
+                    object: (identifier)
+                    property: (property_identifier)))
+                (jsx_text)
+                (jsx_expression
+                  (identifier))
+                close_tag: (jsx_closing_element
+                  name: (identifier))))))
+        close_tag: (jsx_closing_element
+          name: (identifier))))))
+
+========================================
+Loading with on
+========================================
+
+component A() {
+  loading on(id) fallback { <Spinner/> } {
+    <Details data={await fetchDetails(id)} />
+  }
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (loading_block
+        trigger: (identifier)
+        fallback: (view_block
+          (jsx_self_closing_element
+            name: (identifier)))
+        body: (view_block
+          (jsx_self_closing_element
+            name: (identifier)
+            attribute: (jsx_attribute
+              (property_identifier)
+              (jsx_expression
+                (await_expression
+                  argument: (call_expression
+                    function: (identifier)
+                    arguments: (arguments
+                      (identifier))))))))))))
+
+========================================
+Errored with a parameter and classes
+========================================
+
+component A() {
+  {errored fallback(e: BadId | Gone) { <p>{e.message}</p> } { <Risky/> }}
+  errored fallback { <p>down</p> } { <Risky/> }
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (jsx_expression
+        (errored_block
+          parameter: (identifier)
+          type: (type_identifier)
+          type: (type_identifier)
+          fallback: (view_block
+            (jsx_element
+              open_tag: (jsx_opening_element
+                name: (identifier))
+              (jsx_expression
+                (member_expression
+                  object: (identifier)
+                  property: (property_identifier)))
+              close_tag: (jsx_closing_element
+                name: (identifier))))
+          body: (view_block
+            (jsx_self_closing_element
+              name: (identifier)))))
+      (errored_block
+        fallback: (view_block
+          (jsx_element
+            open_tag: (jsx_opening_element
+              name: (identifier))
+            (jsx_text)
+            close_tag: (jsx_closing_element
+              name: (identifier))))
+        body: (view_block
+          (jsx_self_closing_element
+            name: (identifier)))))))
+
+========================================
+Portal
+========================================
+
+component A() {
+  portal to(document.body) { <Modal/> }
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (portal_block
+        target: (member_expression
+          object: (identifier)
+          property: (property_identifier))
+        body: (view_block
+          (jsx_self_closing_element
+            name: (identifier)))))))
+
+========================================
+Reads and spreads
+========================================
+
+component A(props) {
+  {props.children}{" "}
+  <Inner {...rest} name="x" />
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters
+      (required_parameter
+        pattern: (identifier)))
+    body: (view_block
+      (jsx_expression
+        (member_expression
+          object: (identifier)
+          property: (property_identifier)))
+      (jsx_expression
+        (string
+          (string_fragment)))
+      (jsx_self_closing_element
+        name: (identifier)
+        attribute: (jsx_expression
+          (spread_element
+            (identifier)))
+        attribute: (jsx_attribute
+          (property_identifier)
+          (string
+            (string_fragment)))))))
+
+========================================
+Scoped style
+========================================
+
+component Card() {
+  <style>
+    .card { border: 1px solid }
+    h2 { margin: 0 }
+  </style>
+  <div class="card"></div>
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (style_element
+        (identifier)
+        (raw_text)
+        (identifier))
+      (jsx_element
+        open_tag: (jsx_opening_element
+          name: (identifier)
+          attribute: (jsx_attribute
+            (property_identifier)
+            (string
+              (string_fragment))))
+        close_tag: (jsx_closing_element
+          name: (identifier))))))
+
+========================================
+Markup after an equation
+========================================
+
+component A() {
+  x = a
+  <p>{x}</p>
+  y = b
+  {y}
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (equation
+        name: (identifier)
+        value: (identifier))
+      (jsx_element
+        open_tag: (jsx_opening_element
+          name: (identifier))
+        (jsx_expression
+          (identifier))
+        close_tag: (jsx_closing_element
+          name: (identifier)))
+      (equation
+        name: (identifier)
+        value: (identifier))
+      (jsx_expression
+        (identifier)))))
+
+========================================
+Text with > and a bare &
+========================================
+
+component App() {
+  <p>Fish & chips -> a > b &amp; c</p>
+}
+
+---
+
+(program
+  (component_declaration
+    (identifier)
+    (formal_parameters)
+    (view_block
+      (jsx_element
+        (jsx_opening_element
+          (identifier))
+        (jsx_text)
+        (html_character_reference)
+        (jsx_text)
+        (jsx_closing_element
+          (identifier))))))
+
+========================================
+A style inside an element
+========================================
+
+component App() {
+  <div>
+    <style>.a { color: red }</style>
+  </div>
+}
+
+---
+
+(program
+  (component_declaration
+    (identifier)
+    (formal_parameters)
+    (view_block
+      (jsx_element
+        (jsx_opening_element
+          (identifier))
+        (style_element
+          (identifier)
+          (raw_text)
+          (identifier))
+        (jsx_closing_element
+          (identifier))))))
+
+========================================
+An attribute value without braces
+========================================
+
+component App() {
+  <input value=1 name=field checked=true disabled />
+}
+
+---
+
+(program
+  (component_declaration
+    (identifier)
+    (formal_parameters)
+    (view_block
+      (jsx_self_closing_element
+        (identifier)
+        (jsx_attribute
+          (property_identifier)
+          (number))
+        (jsx_attribute
+          (property_identifier)
+          (identifier))
+        (jsx_attribute
+          (property_identifier)
+          (true))
+        (jsx_attribute
+          (property_identifier))))))

@@ -137,10 +137,38 @@ pub enum Code {
     HeldWrite,
     StaleOwnRead,
     StaleWriteBack,
+    StaleCapture,
 }
 pub struct Finding {
     pub code: Code,
     pub name: String,
+    /// AC-1g: the local or parameter the write takes
+    pub via: Option<String>,
+}
+
+/// AC-1g: a parameter type that names a plain value (an id, a title, a position), not a row: `number`, `string`,
+/// `boolean`, literals, `null` (`scalarType` in `ref/src/infer.ts`).
+pub fn scalar_type(t: &str) -> bool {
+    t.split('|').all(|m| {
+        let m = m.trim();
+        let quoted = m.len() >= 2 && ((m.starts_with('"') && m.ends_with('"') && !m[1..m.len() - 1].contains('"')) || (m.starts_with('\'') && m.ends_with('\'') && !m[1..m.len() - 1].contains('\'')));
+        let num = {
+            let d = m.strip_prefix('-').unwrap_or(m);
+            let mut parts = d.splitn(2, '.');
+            let a = parts.next().unwrap_or("");
+            let b = parts.next();
+            !a.is_empty() && a.chars().all(|c| c.is_ascii_digit()) && b.map_or(true, |b| !b.is_empty() && b.chars().all(|c| c.is_ascii_digit()))
+        };
+        matches!(m, "number" | "string" | "boolean" | "null" | "undefined") || quoted || num
+    })
+}
+/// AC-1g's inputs: a declared action's parameter types, and which names are sources with a question (answers).
+#[derive(Default)]
+pub struct RunOpts<'o> {
+    pub ptypes: Vec<Option<String>>,
+    pub answered: Option<&'o dyn Fn(&str) -> bool>,
+    /// names of sources and equations in scope
+    pub stateful: Option<&'o dyn Fn(&str) -> bool>,
 }
 
 /// keys from the source; "*" a computed key
@@ -197,16 +225,21 @@ fn lit_key(e: &Expr) -> String {
     }
 }
 
-struct Walker {
+struct Walker<'o> {
     out: Vec<Finding>,
     said: HashSet<(Code, String)>,
     action: bool,
     inferred: bool,
+    answered: Option<&'o dyn Fn(&str) -> bool>,
+    stateful: Option<&'o dyn Fn(&str) -> bool>,
 }
-impl Walker {
+impl<'o> Walker<'o> {
     fn report(&mut self, code: Code, name: String) {
+        self.report_via(code, name, None);
+    }
+    fn report_via(&mut self, code: Code, name: String, via: Option<String>) {
         if self.said.insert((code, name.clone())) {
-            self.out.push(Finding { code, name });
+            self.out.push(Finding { code, name, via });
         }
     }
     fn read<'a>(&mut self, e: &'a Expr, st: &mut State, sh: &IndexSet<String>, local: &Closures<'a>, depth: &[*const Expr]) {
@@ -442,11 +475,25 @@ impl Walker {
                     }
                     let k = key(&target.name, target.is_ctx());
                     let path: Path = target.path.iter().map(|p| match p { PathSeg::Name(n) => n.clone(), PathSeg::Expr(e) => lit_key(e) }).collect();
+                    let mut back = false;
                     if matches!(s.k, StmtKind::Write { .. }) && !matches!(e.k, ExprKind::Fn { .. }) {
                         let mut d = vec![];
                         self.deps(e, &st, &sh, &mut d);
                         if d.iter().any(|(dk, dp, ep)| *dk == k && *ep < st.epoch && overlaps(dp, &path)) {
                             self.report(Code::StaleWriteBack, k.clone());
+                            back = true;
+                        }
+                    }
+                    // AC-1g: the answer takes the server's answer, plain arguments and its own value at the write (the closure's
+                    // argument): a row parameter, a local read from any source (before the `await` or after it), or a source
+                    // read here, closures included, is not the server's
+                    if !back && matches!(s.k, StmtKind::Write { .. }) && st.epoch > 0 && !target.is_ctx() && self.answered.map_or(false, |a| a(&target.name)) {
+                        let mut ns = IndexSet::new();
+                        crate::check::free_names(e, &HashSet::new(), &mut ns);
+                        let local = ns.iter().find(|n| sh.contains(*n) && st.taint.get(*n).map_or(false, |t| !t.is_empty()));
+                        let hit = local.or_else(|| ns.iter().find(|n| !sh.contains(*n) && self.stateful.map_or(false, |f| f(n))));
+                        if let Some(n) = hit {
+                            self.report_via(Code::StaleCapture, k.clone(), Some(n.clone()));
                         }
                     }
                     st.written.entry(k.clone()).or_default().push(path);
@@ -500,12 +547,20 @@ impl Walker {
     }
 }
 
-/// AC-1c, AC-1d and AC-1e over one imperative run (`runFindings` in `ref/src/infer.ts`). `action`: the body is one change across
+/// AC-1c…AC-1e and AC-1g over one imperative run (`runFindings` in `ref/src/infer.ts`). `action`: the body is one change across
 /// its awaits (AC-1); a plain run's change ends at each `await`. `inferred`: an action by AC-1b, the only kind HELD_WRITE
 /// applies to. `bound`: the run's parameters. Each finding once per name, in source order.
-pub fn run_findings(stmts: &[Stmt], action: bool, bound: &[String], inferred: bool) -> Vec<Finding> {
-    let mut w = Walker { out: vec![], said: HashSet::new(), action, inferred };
+pub fn run_findings(stmts: &[Stmt], action: bool, bound: &[String], inferred: bool, opts: &RunOpts) -> Vec<Finding> {
+    let mut w = Walker { out: vec![], said: HashSet::new(), action, inferred, answered: opts.answered, stateful: opts.stateful };
     let sh: IndexSet<String> = bound.iter().cloned().collect();
-    w.walk(stmts, State { written: IndexMap::new(), held: IndexSet::new(), dead: false, taint: IndexMap::new(), epoch: 0 }, &sh, &IndexMap::new(), &[]);
+    let mut taint: IndexMap<String, Vec<Dep>> = IndexMap::new();
+    for (i, p) in bound.iter().enumerate() {
+        if let Some(Some(t)) = opts.ptypes.get(i) {
+            if !scalar_type(t) {
+                taint.insert(p.clone(), vec![(format!("param {}", p), vec![], 0)]);
+            }
+        }
+    }
+    w.walk(stmts, State { written: IndexMap::new(), held: IndexSet::new(), dead: false, taint, epoch: 0 }, &sh, &IndexMap::new(), &[]);
     w.out
 }

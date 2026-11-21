@@ -1,0 +1,11 @@
+I built the issue desk in `/tmp/claude-0/runs/r15/desk9-contract-opus-4/app.contract` and `/tmp/claude-0/runs/r15/desk9-contract-opus-4/app.ts`, and all 30 visible tests pass. The three pages are separate routes, only the open one is drawn, and leaving a page resets it. Every write (assign, rename, close, comments, labels, row actions) shows straight away through the data module's `overlay` and drops back when the server declines. I also added 10 decline, failure and retry checks to `tests/visible.mjs`, ran them and they passed (40/40), then put the file back as it was; I used 7 of the 15 `./check`/`./test` runs.
+
+Things I was unsure about:
+- **Extra requests:** after a write is answered, or declined, the app asks the server for that list, detail, comments or labels again (the `landIfAsked` calls in the visible tests suggest this is expected).
+- **Related help after a rename:** it searches for the title as currently shown, so a pending rename starts a new search.
+- **Assign error text:** the brief only says the detail shows the server's message, so I show `assign error: <message>`.
+- **Empty values do nothing:**
+  - Assign does nothing when the current user is empty.
+  - Rename, post and add-label do nothing when their input is empty.
+  - Save does nothing when the name is only spaces.
+  - None of these buttons is disabled.

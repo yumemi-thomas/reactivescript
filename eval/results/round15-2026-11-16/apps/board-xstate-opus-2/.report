@@ -1,0 +1,10 @@
+I built the sprint board in React 19 and XState v5, and the visible tests pass (26/26, with `./check` clean). I used 3 of the 15 runs. The app has a tab machine and one machine per page, so leaving a page stops everything on it. The board machine loads each column and the selected card's checklist, and every change goes to the server through its own small child actor. What the board shows is always the server-confirmed data plus the changes still waiting for an answer, so a declined request undoes only its own change, even when several are in flight at once (the core is in `src/boardMachine.ts` and `src/boardModel.ts`).
+
+The brief left a few things open, and I chose:
+- A card still being added stays at the bottom of To do and counts in the heading. Cards moved into To do go just above it, and their index counts only real cards.
+- Move buttons into a column that hasn't loaded yet are disabled.
+- An error from a rename or checklist change only shows if that card is still selected when the server declines.
+- The rename input keeps its text after you click rename.
+- I added a retry button on the archive page.
+
+One known gap: if two toggles on the same item are in flight and the first is declined, the card's done count on the board can be off by one until the board reloads. The test run also logged one "404 Not Found" while loading the page; I didn't trace it, but it looks like a missing favicon rather than an app error.

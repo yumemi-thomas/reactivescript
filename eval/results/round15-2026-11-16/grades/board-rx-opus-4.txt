@@ -1,0 +1,28 @@
+== hidden
+✗ two adds show both, each taking its own id
+44/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ one of two moves declined puts back only its card
+✗ an item added while the checklist reloads shows once
+✗ a move into Doing that fills it while a move out is pending disables the rest
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+19/26 passed
+== fuzz
+board-rx-opus-4: 7/20 seeds found a hole
+  seed 6 step 39: page error: Invalid array length
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; fail fetchCards:doing ; land fetchCards:done ; land fetchCards:todo ; select #1 ; rename Bravo ; up #2 ; archive #1 ; land archiveCard:1 ; retry-doing ; tab archive ; tab board ; add Alpha 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; add Delta 3 ; (move failed: locator.click: Timeout 2
+  seed 9 step 14: count: card "#5 Delta · 3/4", progress "3/5 done"
+    land fetchCards:done ; select #5 ; add Alpha 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; rename Delta ; rename Alpha ; fail renameCard:5,Alpha ; land renameCard:5,Delta ; land fetchCards:todo ; land fetchChecklist:5 ; add-item docs 3 ; land addItem:5,docs 3
+  seed 11 step 42: duplicate card: #5 shows in doing and done
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Alpha 3 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:doing ; select #4 ; down #3 ; rename Alpha ; up #3 ; archive #4 ; land fetchCards:done ; land moveCard:3,doing,1 ; 
+  seed 14 step 17: count: card "#2 Fix login · 1/4", progress "2/4 done"
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; select #2 ; up #2 ; select #2 ; land fetchCards:done ; land fetchChecklist:2 ; down #2 ; add-item ship 2 ; land fetchCards:doing ; land moveCard:2,todo,0 ; land moveCard:2,todo,1 ; toggle 2 ; right #3 ; select #4 ; toggle 0
+  seed 17 step 25: count: card "#4 Alpha · 1/3", progress "0/3 done"
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; land fetchCards:done ; add Alpha 2 ; land fetchCards:doing ; right #3 ; right #4 ; right #2 ; land addCard:todo,Alpha 2 ; land moveCard:4,done,2 ; select #10 ; select #4 ; land moveCard:3,done,1 ; land fetchChecklist:10 ; land fetchChecklist:4 ; add-item docs 3 ; land moveCard:2,doing,0 ; rename Alpha
+  seed 18 step 38: duplicate card: #5 shows in todo and doing
+    land fetchCards:doing ; land fetchCards:done ; select #3 ; right #4 ; land fetchChecklist:3 ; land moveCard:4,done,1 ; add Alpha 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; down #5 ; fail moveCard:5,done,1 ; land fetchCards:todo ; right #1 ; down #3 ; rename Delta ; land renameCard:3,Delta ; land moveCard:1,doing,1 ; left #4 ; add-item ship 2 ; rename Bravo ; fail moveCard:3,d
+  seed 20 step 41: page error: Maximum call stack size exceeded
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:doing ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; select #3 ; land fetchCards:done ; land fetchChecklist:3 ; land fetchCards:todo ; right #2 ; add-item qa 3 ; left #4 ; left #5 ; select #1 ; land fetchChecklist:1 ; toggle 1 ; rename Delta ; land moveCard:2,doing,2 ; tab archive ;

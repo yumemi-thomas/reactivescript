@@ -8,7 +8,7 @@
 
 use crate::ast::*;
 use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
-use crate::infer::{inferred_action, run_findings, trigger_text, Code};
+use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
 use crate::parse::{js_trim, JsDecl, Part, Shape as FShape};
@@ -289,6 +289,10 @@ struct Sym<'a> {
     reader: bool,
     /// E-5a: an .rx import's `file#name`, whose changing the whole-program pass knows
     export_key: Option<String>,
+    /// an action declared here: how many arguments a call passes (AC-1f)
+    arity: Option<usize>,
+    /// RG-4b: the props of `component C()`, which declares none — C's name: reading them is UNBOUND
+    no_props: Option<String>,
 }
 impl<'a> Sym<'a> {
     fn new(kind: SymKind, name: &str, region: RId, line: i64) -> Self {
@@ -346,6 +350,8 @@ impl<'a> Sym<'a> {
             factory: None,
             reader: false,
             export_key: None,
+            arity: None,
+            no_props: None,
         }
     }
 }
@@ -521,7 +527,7 @@ pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
 
 // ---------------------------------------------------------------- free names
 /// Free identifiers of an expression (`pre:x` for `pre x`), minus names bound inside it.
-fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<String>) {
+pub(crate) fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<String>) {
     let go = |x: &Expr, out: &mut IndexSet<String>| free_names(x, bound, out);
     match &e.k {
         ExprKind::Lit(_) | ExprKind::Use(_) => {}
@@ -1081,6 +1087,8 @@ pub struct Checker<'a> {
     factory_values: HashMap<SId, Vec<String>>,
     /// MO-11f: the factories being expanded, per walk (markup, content, shape); a factory may be given itself (C-1 reports it)
     expanding: [HashSet<SId>; 3],
+    /// AC-1g: local type aliases of a plain value
+    scalar_aliases: HashSet<String>,
     /// MO-10d: CN-3e asks what may hold, where a foreign reader counts (R-8 asks what may be absent, where it does not)
     holds_mode: Cell<bool>,
     pub diags: Vec<Diagnostic>,
@@ -1232,6 +1240,7 @@ impl<'a> Checker<'a> {
             handlers: vec![],
             apps: vec![],
             actions: vec![],
+            scalar_aliases: HashSet::new(),
             provisions: vec![],
             import_syms: HashSet::new(),
             later: vec![],
@@ -1447,7 +1456,15 @@ impl<'a> Checker<'a> {
                     }
                     continue;
                 }
-                Decl::Effect { .. } | Decl::Provide { .. } | Decl::TypeDecl { .. } => continue,
+                Decl::TypeDecl { name, text, .. } => {
+                    // AC-1g: a local alias of a plain value
+                    let rhs = text.splitn(2, '=').nth(1).map(|r| r.trim());
+                    if text.trim_start().starts_with("type") && rhs.map_or(false, scalar_type) {
+                        self.scalar_aliases.insert(name.clone());
+                    }
+                    continue;
+                }
+                Decl::Effect { .. } | Decl::Provide { .. } => continue,
                 Decl::Context { name, ty, source, dflt, line, exported, .. } => {
                     if self.envs[env].vars.contains_key(name) {
                         self.err("DUPLICATE_DECLARATION", "E-7", format!("{} is declared twice in one block", name));
@@ -1499,7 +1516,10 @@ impl<'a> Checker<'a> {
             match d {
                 Decl::Server { params, .. } => sym.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None }).collect()),
                 Decl::Source { question, .. } => sym.question = *question,
-                Decl::Action { .. } => sym.io = true,
+                Decl::Action { params, .. } => {
+                    sym.io = true; // R-io-2: an action is io
+                    sym.arity = Some(params.len()); // AC-1f: its parameters
+                }
                 Decl::Fn { params, decls: fdecls, .. } => {
                     sym.params = Some(params.iter().map(|p| SigParam { name: p.name.clone(), r#ref: p.r#ref, ty: p.ty.clone() }).collect());
                     sym.instantiating = params.iter().any(|p| p.r#ref) || !fdecls.is_empty();
@@ -2415,7 +2435,7 @@ impl<'a> Checker<'a> {
                 });
                 self.own_source_writes(inputs, body, env);
             }
-            Decl::Action { name, params, body, line, .. } => {
+            Decl::Action { name, params, ptypes, body, line, .. } => {
                 let region = self.reg(env);
                 let inner = self.env(Some(env), region);
                 for p in params {
@@ -2423,7 +2443,8 @@ impl<'a> Checker<'a> {
                 }
                 self.comp("action", env, Some(name.clone()), None, |c| c.stmts(body, inner, Ctx { in_action: true, ..Ctx::imperative() }));
                 self.actions.push(ActionRec { name: name.clone(), body, env: inner, line: *line as i64 });
-                self.run_checks(body, true, params, false);
+                let ptypes: Vec<Option<String>> = ptypes.iter().map(|t| t.as_ref().map(|t| if self.scalar_aliases.contains(t.trim()) { "string".to_string() } else { t.clone() })).collect();
+                self.run_checks_with(body, true, params, false, ptypes, Some(inner));
             }
             Decl::Server { name, params, body, line, .. } => {
                 let region = self.reg(env);
@@ -2461,11 +2482,15 @@ impl<'a> Checker<'a> {
                 sym.fails_t = Some(FailsT::Expr { e: tail, env: inner, cache: None, busy: false });
                 sym.rows = Some(RowsT::Expr { e: tail, env: inner, cache: None, busy: false });
             }
-            Decl::Component { name, props, decls, view, line, .. } => {
+            Decl::Component { name, props, decls, view, line, no_props, .. } => {
                 let s = self.lookup(env, name).unwrap();
                 let r = self.syms[s].comp_region.unwrap();
                 let inner = self.env(Some(env), r);
-                self.bind(inner, props, Sym::new(SymKind::Props, props, r, *line as i64));
+                let mut ps = Sym::new(SymKind::Props, props, r, *line as i64);
+                if *no_props {
+                    ps.no_props = Some(name.clone());
+                }
+                self.bind(inner, props, ps);
                 self.syms[s].comp_env = Some(inner);
                 self.block(decls, view, inner, Ctx::reactive());
                 self.later.push(Later::Content { ms: view, env: inner, anc: vec![] });
@@ -2840,6 +2865,9 @@ impl<'a> Checker<'a> {
     // ---- expressions ----
     fn resolve(&mut self, name: &str, env: EId, ctx: Ctx) -> Option<SId> {
         if let Some(s) = self.lookup(env, name) {
+            if let Some(c) = self.syms[s].no_props.clone() {
+                self.err("UNBOUND", "RG-4b", format!("{} is not declared here: component {} declares no props — declare what it takes, `component {}(props: {{ … }})`, and pass it where it is applied", name, c, c));
+            }
             self.sided(s, ctx);
             return Some(s);
         }
@@ -3020,6 +3048,13 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Throw(x) => self.expr(x, env, ctx, None),
             ExprKind::Catch { e: inner, name, classes, alt } => {
+                if !matches!(&inner.k, ExprKind::Await { .. }) {
+                    self.err(
+                        "CATCH_NOT_ON_AWAIT",
+                        "R-f-4",
+                        format!("`{} catch …`: a catch follows an `await` — its rejection becomes an answer. A failure read from a value belongs to its own section: show it under `errored fallback(e) {{ … }} {{ … }}` where it is read", show(inner)),
+                    );
+                }
                 self.expr(inner, env, ctx, None);
                 if let Some(cs) = classes {
                     for n in cs {
@@ -3123,9 +3158,9 @@ impl<'a> Checker<'a> {
                         return;
                     }
                     let s = self.lookup(env, fname);
-                    let (io, kind, side, io_via, instantiating) = match s {
-                        Some(s) => (self.syms[s].io, Some(self.syms[s].kind), self.syms[s].side, self.syms[s].io_via.clone(), self.syms[s].instantiating),
-                        None => (false, None, None, None, false),
+                    let (io, kind, side, io_via, instantiating, arity) = match s {
+                        Some(s) => (self.syms[s].io, Some(self.syms[s].kind), self.syms[s].side, self.syms[s].io_via.clone(), self.syms[s].instantiating, self.syms[s].arity),
+                        None => (false, None, None, None, false, None),
                     };
                     if !ctx.imperative && (io || (s.is_none() && fname == "log")) {
                         if ctx.in_fn {
@@ -3150,6 +3185,16 @@ impl<'a> Checker<'a> {
                     }
                     if let Some(s) = s {
                         self.mark_callbacks(args, s);
+                    }
+                    if let (Some(SymKind::Action), Some(n)) = (kind, arity) {
+                        if args.len() != n {
+                            let takes = match n {
+                                0 => "no arguments".to_string(),
+                                1 => "1 argument".to_string(),
+                                n => format!("{} arguments", n),
+                            };
+                            self.err("ARGUMENT_COUNT", "AC-1f", format!("{} takes {} and is called with {}: an action's parameters are its whole input — pass each one, and nothing it does not declare", fname, takes, args.len()));
+                        }
                     }
                     self.model.call(s, kind.map(|k| k.as_str()).unwrap_or(""));
                     if s.is_some_and(|s| self.unplaced_fn(s)) {
@@ -3225,9 +3270,20 @@ impl<'a> Checker<'a> {
     // ---- imperative scope (SC-2) ----
     /// AC-1c, AC-1d, AC-1e over one imperative run (`crate::infer`).
     fn run_checks(&mut self, stmts: &[Stmt], action: bool, bound: &[String], inferred: bool) {
-        for f in run_findings(stmts, action, bound, inferred) {
+        self.run_checks_with(stmts, action, bound, inferred, vec![], None);
+    }
+    /// `answers_in`: a declared action's scope, where AC-1g asks which names are sources with a question.
+    fn run_checks_with(&mut self, stmts: &[Stmt], action: bool, bound: &[String], inferred: bool, ptypes: Vec<Option<String>>, answers_in: Option<EId>) {
+        let answered = |n: &str| answers_in.and_then(|env| self.lookup(env, n)).map_or(false, |t| self.syms[t].kind == SymKind::Source && self.syms[t].question);
+        let stateful = |n: &str| answers_in.and_then(|env| self.lookup(env, n)).map_or(false, |t| self.syms[t].kind == SymKind::Source || self.syms[t].kind == SymKind::Eq);
+        let found = run_findings(stmts, action, bound, inferred, &RunOpts { ptypes, answered: if answers_in.is_some() { Some(&answered) } else { None }, stateful: if answers_in.is_some() { Some(&stateful) } else { None } });
+        for f in found {
             let n = &f.name;
             match f.code {
+                Code::StaleCapture => {
+                    let v = f.via.clone().unwrap_or_default();
+                    self.err("STALE_CAPTURE", "AC-1g", format!("{n} := … after an `await` writes {v}, which is not the server's: {n} is the server's answer, and after the `await` it takes only what the server answered, plain arguments (an id, a title, an index) and its own value at the write (`{n} := rs => …`, finding rows there by id). A row passed in, or read from a source before the `await` or after it, is what the screen showed, and may be stale by now (a rename accepted, a reload, an earlier write declined, a write another action holds) — when the answer alone doesn't say where a row is now, re-ask the answers it left and joined (`refresh`)"))
+                }
                 Code::HeldWrite => self.err("HELD_WRITE", "AC-1c", format!("{n} := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `guess {n} := …` (a source with a question, ST-5c); for a reset that lands now, `onFlush(() => {{ {n} := … }})` (EF-8); to hold it on purpose, declare the action (`action name() {{ … }}`); or write it after the `await`")),
                 Code::StaleOwnRead => self.err("STALE_OWN_READ", "AC-1d", format!("{n} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; {n} := v`) and read that, or write functionally (`{n} := v => …`, W-6)")),
                 Code::StaleWriteBack => self.err("STALE_WRITE_BACK", "AC-1e", format!("{n} := … after an `await` is computed from {n} as it was read before that `await`: whatever changed {n} in between (another action, a reload) is overwritten — write functionally (`{n} := v => …`, W-6), which applies to {n} as it stands at the write, or guess it (`guess`, AC-3) and let the answer replace the guess")),
@@ -3346,15 +3402,6 @@ impl<'a> Checker<'a> {
                     if op == "optimistic" {
                         if !ctx.in_action {
                             self.err("GUESS_OUTSIDE_HOLD", "AC-3", "a guess outside an action: it needs a hold to live in — an apply block is never an action (its return is the cleanup, EF-5): declare one, `action save(v) { guess … }`, and call it from the block".into());
-                        }
-                        if let Some(t) = tsym {
-                            if self.syms[t].kind == SymKind::Source && !self.syms[t].question {
-                                self.err(
-                                    "GUESS_NO_QUESTION",
-                                    "AC-3",
-                                    format!("{} is declared with := — a guess needs a question to confirm it (source {} = …, ST-5c)", target.name, target.name),
-                                );
-                            }
                         }
                     }
                     for p in &target.path {
@@ -4658,7 +4705,7 @@ impl<'a> Checker<'a> {
                         if need_hold { "sees no value" } else { "throws its error" },
                         n,
                         n,
-                        if need_catch { format!(", or catch the failure (`… catch (e) => …`)") } else { String::new() }
+                        if need_catch { format!(", or read it inside `try {{ … }} catch (e) {{ … }}`") } else { String::new() }
                     ),
                 );
             }
@@ -5529,8 +5576,8 @@ impl<'a> Checker<'a> {
                 "UNHANDLED_FAILURE",
                 "R-f-5",
                 format!(
-                    "a reader of {} can fail with {} and no catch or errored boundary above it discharges {} — wrap it in `errored fallback(e{}) {{ … }} {{ … }}`, or catch it: `… catch (e{}) => …`",
-                    it.what, it.cls, it.cls, suffix, suffix
+                    "a reader of {} can fail with {} and no catch or errored boundary above it discharges {} — show it where it is read: `errored fallback(e{}) {{ … }} {{ … }}` around the reader (or `await … catch (e) => …` at the await, to make the rejection an answer)",
+                    it.what, it.cls, it.cls, suffix
                 ),
             );
         }
@@ -6030,5 +6077,29 @@ export default component App() {
         // the effect (line 8) and the detail read under a plain `loading` (line 24); not `latest`/`pending?`, not the
         // outer `on(sel)` region's own read of `detail` beside the inner one
         assert_eq!(got, vec![8, 24]);
+    }
+
+    /// 06 AC-1f: a call of a declared action passes one argument per parameter; 03 RG-4b: `component C()` has no
+    /// `props` (the eval board's check-accepts-arity-and-missing-props.rx).
+    #[test]
+    fn argument_count_and_missing_props() {
+        let src = r#"component Lane() { <h3>{props.col}</h3> }
+component Card(props: { col: string }) { <p>{props.col}</p> }
+export default component App() {
+  source n := 0
+  action go() { n := 1 }
+  action by(k: number, m: number) { n := k + m }
+  <div>
+    <Lane col="todo" />
+    <Card col="done" />
+    <button onClick={() => { go(1, 2) }}>a</button>
+    <button onClick={() => { go() }}>b</button>
+    <button onClick={() => { by(1) }}>c</button>
+    <button onClick={() => { by(1, 2) }}>d</button>
+  </div>
+}
+"#;
+        let got: Vec<(i64, String)> = codes(src, false).into_iter().filter(|(_, c)| c == "ARGUMENT_COUNT" || c == "UNBOUND").collect();
+        assert_eq!(got, vec![(1, "UNBOUND".to_string()), (10, "ARGUMENT_COUNT".to_string()), (12, "ARGUMENT_COUNT".to_string())], "{:?}", codes(src, false));
     }
 }

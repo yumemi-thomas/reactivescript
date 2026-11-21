@@ -1,0 +1,7 @@
+I built the sprint board in XState v5, and `./check` and all 26 visible tests in `./test` now pass, using 4 of the 15 allowed runs. The app machine (`src/appMachine.ts`) runs the board and archive pages as child machines that exist only while their tab is open, so leaving a page throws it away. The board machine (`src/board/boardMachine.ts`, logic in `src/board/model.ts`) loads each column and the checklist with `fromPromise`, and sends every move, rename, archive, add, toggle and item-add to the server as a separately spawned actor. The screen is redrawn as server data plus the changes still waiting, so a declined change is undone without touching the others or their order; a quick manual check of two overlapping moves, the first declined, behaved correctly.
+
+I was unsure about a few things the brief doesn't settle:
+- I treated the four move buttons, `toggle` and `restore` as `data-testid`s as well as button text, because the tests didn't find them by text alone.
+- I chose to leave `title-input` holding its text after a rename.
+- Move buttons are disabled when the column they'd move into isn't loaded, or when the card would swap with a card that is still being added.
+- Toggling the same item twice quickly, with the first toggle declined, can leave the card's count on the board off by one.

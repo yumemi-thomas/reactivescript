@@ -1,0 +1,25 @@
+:root { font-family: system-ui, sans-serif; color: #1d232b; background: #f5f6f8; }
+body { margin: 0; }
+.app { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tabs button[aria-selected="true"] { font-weight: 600; border-bottom: 2px solid #2463eb; }
+.board-page { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+.notices { grid-column: 1 / -1; }
+.columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.column, .detail, .archive-page { background: #fff; border-radius: 8px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.column h2, .detail h2 { font-size: 1rem; margin: 0 0 8px; }
+.cards, .items { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 6px; }
+.cards li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.cards li.selected .card { outline: 2px solid #2463eb; }
+.card { flex: 1 1 100%; text-align: left; padding: 6px 8px; background: #f0f2f5; border: 1px solid #d8dde3; border-radius: 6px; cursor: pointer; }
+.card:disabled { opacity: .6; cursor: default; }
+.moves { display: flex; gap: 4px; }
+.items li { display: flex; gap: 8px; align-items: center; }
+.add, .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.add input, .row input { flex: 1; min-width: 0; }
+.error { color: #b42318; }
+.muted { color: #667085; }
+@media (max-width: 800px) {
+  .board-page { grid-template-columns: 1fr; }
+  .columns { grid-template-columns: 1fr; }
+}

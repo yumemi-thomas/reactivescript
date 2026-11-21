@@ -1,0 +1,7 @@
+The app is built in `/tmp/claude-0/runs/r15/board-xstate-haiku-5/src`: `App.tsx` default-exports the root, with the board, archive and tab logic as XState v5 machines (`boardMachine.ts`, `archiveMachine.ts`, `tabsMachine.ts`, `requests.ts`) and the pure model in `model.ts`. Each optimistic server call is a spawned request actor that reports back to its parent, which applies or rolls back the change. `./check` is clean and `./test` passes 26 of 26 visible tests (7 of the 15 runs used).
+
+Unsure points:
+- Under React StrictMode in development, `@xstate/react` restarts the board actor, so column loads may be requested twice; the production build should not.
+- The brief does not say what happens to a move or add into a column still loading or failed. I disabled those buttons.
+- The rename input keeps its text after submit, since the brief does not say to clear it.
+- The visible run logs one console 404, probably a favicon request; I did not confirm it.

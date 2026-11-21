@@ -1,0 +1,12 @@
+== hidden
+45/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ a toggle declined after another card was selected puts the first card's count back
+24/26 passed
+== fuzz
+board-xstate-haiku-3: 2/20 seeds found a hole
+  seed 8 step 43: settled: card: "#3 Bravo · 2/2", server "#3 Delta · 2/2"
+    land fetchCards:doing ; up #4 ; select #3 ; fail moveCard:4,doing,0 ; up #4 ; rename Alpha ; land fetchCards:todo ; rename Delta ; land moveCard:4,doing,0 ; up #2 ; land moveCard:2,todo,0 ; add-item docs 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; rename Bravo ; land fetchChecklist:3 ; land renameCard:3,Bravo ; select #1 ; add-item ship 2 ; (move failed: locator.fill: Timeout 2
+  seed 15 step 37: card count: card "#2 Fix login · 1/3", server 0/3 with 0 toggle(s) and 0 item add(s) of it in the air
+    land fetchCards:doing ; select #4 ; up #4 ; land fetchCards:done ; fail moveCard:4,doing,0 ; land fetchCards:todo ; archive #4 ; land fetchChecklist:4 ; fail archiveCard:4 ; add Alpha 1 ; up #2 ; select #4 ; select #2 ; land fetchChecklist:2 ; rename Delta ; fail renameCard:2,Delta ; land fetchChecklist:4 ; land moveCard:2,todo,0 ; land addCard:todo,Alpha 1 ; toggle 0 ; land toggleItem:2,21,fa

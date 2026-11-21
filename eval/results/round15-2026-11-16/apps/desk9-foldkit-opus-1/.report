@@ -1,0 +1,12 @@
+I built the issue desk in Foldkit 0.170, and all 30 visible tests pass. I used 3 of the 15 `./check`/`./test` runs. The issues, help and settings pages sit behind tabs, and leaving a page throws it away. The issues page keeps what the server has confirmed separately from the changes still waiting on it. That way a declined assign, rename, close, label change or comment undoes only itself, and the row, heading, labels and `Issues (n)` count go back on their own. Every request carries a number that only goes up, so a late answer from a page you left, an old filter, an earlier selection or an old search is ignored.
+
+Places where the brief was unclear, and what I chose:
+- **Rename input:** `title-input` keeps its text after a rename, because the brief says to empty the comment and label inputs but not this one.
+- **Blank input:** titles, comments and labels are trimmed, and whitespace-only input does nothing.
+- **Clicking twice:** a second `close` on an issue already being closed sends nothing. Clicking the selected issue, the selected hit, the open tab or the current filter does nothing.
+- **Opening a related hit:** the help page reuses the related search's hits instead of searching again.
+- **Two saves at once:** an older save that fails while a newer one is in flight is ignored.
+
+One gap remains: closing an open issue while the list shows closed issues doesn't change the count.
+
+The app is in `/tmp/claude-0/runs/r15/desk9-foldkit-opus-1/src/`: `main.ts` re-exports `Model`, `init`, `update` and `view`, the logic is in `update.ts` and `view.ts`, and `entry.ts` boots it into `#app`.

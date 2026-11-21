@@ -1,0 +1,8 @@
+I built the issue desk as a tree of XState v5 machines, and `./check` is clean and `./test` passes 30/30 (5 of the 15 runs used). The app machine owns the tabs, the open-issue count and the in-flight assign, rename and close requests, so those still finish if you leave the page. It starts the issues, help and settings pages, and the issues page starts one detail machine per selected issue. The detail handles comments, labels and related help, and every screen change shown straight away is laid over the server's last answer and undone only for the request that failed.
+
+Where I had to guess:
+- **Help tab while already on help:** clicking it does nothing rather than starting the page again.
+- **Opening a related hit:** it reuses the search results already loaded instead of searching again.
+- **Text inputs:** typed text is trimmed, and blank names, titles, comments and labels are ignored.
+- **Assign error wording:** the detail shows `assign error: <message>`, since the brief only says to show the server's message.
+- **Stale answers:** I also guard against answers that were asked before a change landed but arrive after it, which the brief doesn't ask for.

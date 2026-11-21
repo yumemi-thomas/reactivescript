@@ -1,0 +1,44 @@
+== hidden
+✗ base: a failing list leaves the detail alone
+✗ base: a declined post removes the row and shows the message
+✗ base: help: a failing detail leaves the results alone
+✗ a declined add removes the label and shows the message
+✗ a declined remove puts the label back where it was and shows the message
+72/77 passed
+== overlap
+✗ base: a list that loads while an assignment is out keeps the new assignee
+✗ base: a list that loads while a rename is out keeps the new title
+✗ base: a detail that loads while a rename is out keeps the new title
+✗ base: an earlier rename declined after a later one was accepted keeps the later title
+✗ base: a list that loads while a close is out keeps the row out
+✗ base: comments that load while a post is out keep the post
+✗ base: a post declined while an assignment is out leaves the assignment
+✗ base: settings: a later save failing while an earlier one is out shows its error and then the earlier result
+✗ labels that load while an add is out keep the add
+✗ a label change declined while a rename is out leaves the rename
+✗ open issues that load while a close is out keep it off the count
+✗ rows: a row assign and a newer detail assign on one issue: a declined older one leaves the newer
+✗ rows: open issues that load while a row close is out keep the row out
+25/38 passed
+== fuzz
+desk9-xstate-haiku-1: 10/20 seeds found a hole
+  seed 1 step 9: dropped guess: #4 assignee: showed "bob" while it was in flight, now "dana"
+    user bob ; focus ; land fetchIssues:open ; row-assign 2 ; row-close 0 ; row-assign 0 ; select #3 ; rename Alpha ; land fetchIssues:open
+  seed 2 step 32: at rest: detail: "retryassign to guestrenamerename error: declinedcloseclose e", server "#2 Old bug"
+    filter closed ; land fetchIssues:closed ; row-assign 0 ; select #2 ; land fetchIssues:closed ; assign ; rename Delta ; fail renameIssue:2,Delta ; fail fetchIssues:open ; close ; focus ; land fetchComments:2 ; fail fetchLabels:2 ; land closeIssue:2 ; fail fetchIssue:2 ; close ; fail closeIssue:2 ; filter open ; close ; assign ; focus ; add-label ui ; land closeIssue:2 ; rename Delta ; close ; l
+  seed 4 step 24: closed row shown: #1 is closed on the server
+    filter closed ; land fetchIssues:open ; user guest ; tab help ; tab issues ; focus ; tab help ; tab issues ; focus ; filter closed ; land fetchIssues:open ; tab help ; fail fetchIssues:closed ; tab issues ; focus ; land fetchIssues:open ; row-assign 1 ; fail assign:3,guest ; row-close 0 ; filter closed ; filter open ; land fetchIssues:closed ; land fetchIssues:open ; land closeIssue:1
+  seed 8 step 24: dropped guess: #1 title: showed "Delta" while it was in flight, now "Login fails"
+    land fetchIssues:open ; row-close 1 ; filter closed ; fail fetchIssues:closed ; user bob ; land closeIssue:3 ; tab help ; tab issues ; land fetchIssues:open ; row-assign 1 ; select #1 ; land fetchIssue:1 ; assign ; rename Delta ; row-assign 1 ; row-close 0 ; land assign:4,guest ; row-assign 0 ; land search:Login fails ; rename Delta ; land assign:1,guest ; land fetchLabels:1 ; land assign:4,gu
+  seed 12 step 11: dropped guess: #4 assignee: showed "guest" while it was in flight, now "dana"
+    land fetchIssues:open ; focus ; select #1 ; row-close 1 ; select #4 ; land closeIssue:3 ; row-assign 1 ; rename Alpha ; close ; rename Alpha ; land fetchIssues:open
+  seed 13 step 12: dropped guess: #3 open: showed false while it was in flight, now true
+    filter closed ; fail fetchIssues:open ; land fetchIssues:closed ; row-assign 0 ; filter open ; land assign:2,guest ; land fetchIssues:open ; select #3 ; row-close 1 ; land fetchLabels:3 ; fail fetchIssue:3 ; land fetchIssues:open
+  seed 15 step 18: dropped guess: #3 open: showed false while it was in flight, now true
+    land fetchIssues:open ; row-assign 0 ; focus ; land assign:1,guest ; row-assign 0 ; fail assign:1,guest ; row-assign 0 ; focus ; row-assign 0 ; select #3 ; land fetchComments:3 ; close ; row-assign 0 ; row-close 0 ; land assign:1,guest ; row-assign 0 ; select #4 ; land fetchIssues:open
+  seed 16 step 37: dropped guess: #2 assignee: showed "guest" while it was in flight, now "eve"
+    user guest ; fail fetchIssues:open ; focus ; tab help ; tab issues ; filter closed ; land fetchIssues:open ; focus ; land fetchIssues:closed ; select #2 ; land fetchComments:2 ; close ; post me too ; fail addComment:2,guest,me too ; row-assign 0 ; close ; post fixed? ; post ping ; assign ; land addComment:2,guest,fixed? ; land fetchIssue:2 ; fail addComment:2,guest,ping ; select #2 ; rename Br
+  seed 17 step 19: dropped guess: #1 open: showed false while it was in flight, now true
+    user bob ; land fetchIssues:open ; row-assign 1 ; land assign:3,bob ; row-assign 0 ; land assign:1,bob ; row-assign 1 ; row-close 1 ; row-close 0 ; land assign:3,bob ; land closeIssue:3 ; select #4 ; assign ; rename Alpha ; assign ; fail assign:4,bob ; rename Delta ; close ; land fetchIssues:open
+  seed 18 step 13: row title: #4 shows "Typo in footer", server "Delta"
+    land fetchIssues:open ; select #4 ; row-close 0 ; land fetchComments:4 ; assign ; row-close 0 ; row-close 0 ; assign ; rename Delta ; fail assign:4,guest ; fail closeIssue:4 ; land fetchLabels:4 ; land renameIssue:4,Delta

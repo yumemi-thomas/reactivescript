@@ -1,0 +1,6 @@
+I built the issue desk in ReactiveScript, and `./check` and all 30 visible tests pass after 4 of the 15 allowed runs. The entry is `src/main.rx`, with the pages in `src/IssuesPage.rx`, `src/HelpPage.rx` and `src/SettingsPage.rx`. The issues page's data, in-flight writes, errors and the tab's open count live in `src/issues.rx`, which resets each time the page is reopened. Paths that aren't in the visible tests are untested: server declines, retries after a failure, and leaving the issues page while a write is still waiting.
+
+My guesses where the brief was silent:
+- **Titles and labels:** a rename or label is trimmed before it is sent, and a comment is sent exactly as typed.
+- **Late errors:** an error that arrives after another issue has been selected is not shown.
+- **Current tab:** clicking the tab of the page already open does not restart it.

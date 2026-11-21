@@ -1,0 +1,8 @@
+I built the sprint board in `/tmp/claude-0/runs/r15/board-react-opus-5/src/`: tabs in `App.tsx`, the board and detail in `Board.tsx`, the archive page in `Archive.tsx`, and the state logic in `board.ts`. `./check` passes and `./test` passes 26/26; the only console message was one 404 for a missing resource, probably the favicon. The board keeps what the server has confirmed plus a list of changes still waiting on it and always shows the two combined, so a declined change undoes only itself while other changes in flight stay on screen, and late replies from old column or checklist loads are ignored.
+
+Choices the brief doesn't settle, which hidden tests might read differently:
+- **Trimming:** titles and item text are trimmed before sending, and whitespace-only input does nothing.
+- **Rename input:** `title-input` empties after a rename, like the other inputs.
+- **Disabled moves:** `left`/`right` are disabled when the target column isn't loaded.
+- **Cards being added:** a card waiting on `addCard` counts as nowhere to go for the `down` button of the card above it, and cards moved into To do go above it.
+- **Extras:** the checklist and archive list have retry buttons, and an empty archive says "nothing archived".

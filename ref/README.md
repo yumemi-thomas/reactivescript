@@ -8,12 +8,13 @@ Why TypeScript and not OCaml: it runs in the playground later, and it can
 import `@solidjs/signals` to diff the interpreter against the real runtime on
 the same scenario.
 
-Solid comes from its `next` branch, built from source at the commit in
+Solid comes from its `main` branch, built from source at the commit in
 `ref/SOLID_NEXT`: `sh ref/scripts/solid-next.sh` checks it out beside this
 repository (`../solid-next`), builds `@solidjs/signals`, `solid-js`,
 `@solidjs/web`, `@solidjs/universal` and the native `@solidjs/compiler`
 (pnpm and a Rust toolchain), and `ref/package.json` links them
-(`--latest` moves the pin to `next`'s HEAD). Views are JSX that
+(`--latest` moves the pin to `main`'s HEAD, or to another branch's with
+`SOLID_BRANCH=<branch>`). Views are JSX that
 `@solidjs/compiler` lowers (`compile/jsx.ts`): `universal` over a string-tree
 renderer for the compiled runner, `ssr` and `dom` (hydratable) for the server
 runner.

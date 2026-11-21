@@ -1,4 +1,4 @@
-# S-fail-1 — typed failures: a class becomes a value, a typed boundary takes its class, another class passes it
+# S-fail-1 — typed failures: each typed boundary takes its class, another class passes it
 
 Rules: R-f-1, R-f-3, R-f-4, R-f-5, H-12, D-41.
 
@@ -14,16 +14,16 @@ name = user == null ? throw NotFound(id) : user.name
 export default component App() {
   errored fallback(e) { <p>down: {e.message}</p> } {
     <div><p>#{id}</p> {errored fallback(e: BadId) { <p>{e.message}</p> } {
-      <p>{name catch (e: NotFound) => "(nobody)"}</p>
+      errored fallback(e: NotFound) { <p>(nobody)</p> } { <p>{name}</p> }
     }}</div>
   }
 }
 ```
 
 `name`'s row is `fails(Error | BadId | NotFound)`: `Error` from the fetch
-(a JS promise, R-f-8), `BadId` and `NotFound` from its `throw`s. The reader
-catches `NotFound` into a value; the inner boundary takes `BadId`; the root
-boundary takes the rest. Remove any one of the three and the program is
+(a JS promise, R-f-8), `BadId` and `NotFound` from its `throw`s. The
+innermost boundary takes `NotFound`, the next `BadId`, and the root the
+rest. Remove any one of the three and the program is
 refused (below).
 
 ## Frames
@@ -40,8 +40,8 @@ refused (below).
 | 7       | handler `id := 4`              | `down: offline`   |
 | 8       | resolve user { name: "Dee" }   | `#4 Dee`          |
 
-Instant 3: `NotFound` is caught into a value — the reader shows
-`(nobody)` and no boundary moves. Instant 4: `BadId` is thrown with no
+Instant 3: `NotFound` is taken by the innermost boundary — it shows
+`(nobody)` and no other boundary moves. Instant 4: `BadId` is thrown with no
 await; the typed boundary takes it in the same frame as `#0`. Instant 5:
 the content is pending behind an error fallback, which holds nothing
 (H-4) and stays until an answer replaces the error (D-41). Instant 6: the
@@ -60,7 +60,7 @@ name = user == null ? throw NotFound(id) : user.name
 
 export default component App() {
   errored fallback(e: Error | NotFound) { <p>down: {e.message}</p> } {
-    <p>{name catch (e: NotFound) => "(nobody)"}</p>
+    errored fallback(e: NotFound) { <p>(nobody)</p> } { <p>{name}</p> }
   }
 }
 ```
@@ -87,7 +87,7 @@ name = user == null ? throw NotFound(id) : user.name
 export default component App() {
   <p>#{id}</p>
   errored fallback(e: BadId) { <p>{e.message}</p> } {
-    <p>{name catch (e: NotFound) => "(nobody)"}</p>
+    errored fallback(e: NotFound) { <p>(nobody)</p> } { <p>{name}</p> }
   }
 }
 ```
@@ -110,7 +110,24 @@ export default component App() {
 }
 ```
 
-Neither `NotFound` (no catch on the reader) nor `Error` is discharged.
+Neither `NotFound` (no boundary for it) nor `Error` is discharged.
+
+```rx
+-- reject: CATCH_NOT_ON_AWAIT
+error NotFound(id) => `no user ${id}`
+source id := 1
+user = await fetch("u:" + id)
+name = user == null ? throw NotFound(id) : user.name
+
+export default component App() {
+  errored fallback(e) { <p>down</p> } {
+    <p>{name catch (e: NotFound) => "(nobody)"}</p>
+  }
+}
+```
+
+R-f-4: a `catch` follows an `await`. A failure read from a value is shown
+by a boundary where it is read.
 
 ```rx
 -- reject: NOT_AN_ERROR_CLASS

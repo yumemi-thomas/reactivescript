@@ -1,0 +1,3 @@
+The app is built and passes `./check` and all 30 visible tests (2 of the 15 runs used). It has the three tabs (issues, help, settings) under `src/`, with `App.tsx` as the root. Things I was unsure about: the "not found" and "declined" messages use the exact wording from the brief, but assign errors read `assign error: <message>`, since the brief gives no prefix for them. A whitespace-only display name counts as empty, which the brief does not say. The visible run logged one 404 resource error that I did not trace; it is most likely a favicon request, but I did not confirm that.
+
+Files are in /tmp/claude-0/runs/r15/desk9-react-haiku-6/src: App.tsx, IssuesPage.tsx, HelpPage.tsx, SettingsPage.tsx, errors.ts.

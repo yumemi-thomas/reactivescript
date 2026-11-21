@@ -41,7 +41,7 @@ Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | fn (x*) => Expr                 -- pure function value
             | { Decl* ; Expr }                -- reactive block: local declarations, then value
             | throw Expr                      -- R-f-3: the value is the error (E-12)
-            | Expr catch (x [: C|…]) => Expr  -- R-f-4: a failure of those classes becomes a value
+            | await Expr catch (x [: C|…]) => Expr  -- R-f-4: a rejection of those classes becomes the answer
 
 Markup    ::= Element | Control                  -- at block level, control forms are bare
 Element   ::= <tag attr={Expr}*> (Element | text | {Expr} | {Control})* </tag>
@@ -181,8 +181,8 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **E-12 (Errors are values).** An equation whose evaluation throws has an
   *error value* in the frame. An equation or reader reaching an errored input
   is errored. There is no `try` statement in reactive scope: an error becomes
-  a value through `e catch (x: C) => alt`, or fallback content at an
-  `errored` boundary (03 RG-5, 05); which classes may reach a reader is its
+  fallback content at an `errored` boundary (03 RG-5, 05), and a rejection
+  becomes an answer through `await e catch (x: C) => alt` (04 R-f-4); which classes may reach a reader is its
   `fails` row, and every one must be discharged (04 R-f). (Solid F-12.) An
   error in an apply block is imperative and ordinary.
 - **E-10 (Snapshot arguments).** At an instantiation, a value parameter
@@ -310,6 +310,12 @@ Function application `f(e…)` covers both language functions and FFI imports;
   has settled (§4). An `eᵢ` that derives from a guess or a lane value
   (H-7, H-11) fires with the lane's reveal — now, not at the hold's commit —
   and again when the guess reverts (S-ai-feed instant 4; both runners).
+- **EF-2a (A failure doesn't fire).** [2026-11-19, from Ryan's rule that a failure
+  is shown where it's read] An instant in which some `eᵢ` is an error (E-12) does
+  not run `B`: the failure is shown by the region that reads it (R-f-5), and an
+  apply has nothing to show it with. The next instant in which every `eᵢ` has a
+  value runs `B`, even if the values equal the last ones it received. Lowered as
+  Solid's `createEffect` with an `error` arm that only forgets the last value.
 - **EF-3 (Once, completely).** `B` runs at most once per instant and is never
   interrupted by that instant's settling; its writes begin a new instant.
 - **EF-4 (No inputs).** `effect () B` runs once, in the instant the effect is

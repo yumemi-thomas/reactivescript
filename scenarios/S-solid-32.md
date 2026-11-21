@@ -49,17 +49,3 @@ A guess outside a hold does not exist (D-33). A handler with a guess is an
 action (AC-1b), so this compiles; the action's change opens and commits in
 the same instant, and the guess ends with it before any frame shows it.
 The `effect` form, which is never an action, is still rejected (S-check-1).
-
-## Rejected variants
-
-
-```rx
--- reject: GUESS_NO_QUESTION
--- handler: fix()
-export default component App() {
-  source shown := "Ann"
-  action fix() { try { guess shown := "Zed"; await fetch("x") } catch {} }
-
-  <p>{shown}</p>
-}
-```

@@ -1840,6 +1840,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.ws(true);
         // RG-4b: `component C({ a, b })` — each name a projection of props
         let sig = if c.peek() == '{' { Some(parse_pattern(c)?) } else { None };
+        let no_props = sig.is_none() && c.peek() == ')'; // `component C()`: no props (RG-4b)
         let props = if sig.is_some() || c.peek() == ')' { "props".to_string() } else { c.ident_or("props name")? };
         let props_type = opt_type(c, false)?;
         c.ws(true);
@@ -1853,7 +1854,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             let pre: Vec<Decl> = names.into_iter().map(|(name, e, line, span)| Decl::Eq { name, e, line, span, deferred: false, key: None, ty: None, exported: false }).collect();
             decls.splice(0..0, pre);
         }
-        return Ok(Decl::Component { name, props, decls, view, line, span: Span::NONE, props_type, exported: false, is_default: false });
+        return Ok(Decl::Component { name, props, decls, view, line, span: Span::NONE, props_type, no_props, exported: false, is_default: false });
     }
     let save = c.i;
     let name = c.ident();

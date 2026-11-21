@@ -1,0 +1,9 @@
+I built the sprint board in plain TypeScript and DOM code, in `src/main.ts` (tabs), `src/board.ts`, `src/archive.ts` and `src/dom.ts`. `./check` passes and `./test` passes all 26 visible tests, using 3 of the 15 runs. Every action shows its change straight away while the server call is pending. If a call fails, the app replays the remaining pending changes over the last state the server accepted. That way overlapping actions roll back correctly, the Doing limit counts moves the server hasn't answered, and server answers that arrive after you leave a page are ignored.
+
+A few points the brief left open, where I made a choice:
+- **Adding cards:** a card still being added counts in the To do heading. It stays at the bottom of To do and is left out when working out move positions.
+- **Late errors:** a rename or item error that comes back after you've selected a different card is not shown, though the board still rolls back.
+- **Rename box:** `title-input` keeps its text after a rename, because the brief says to empty only the other two inputs.
+- **Extra pieces I added:** retry buttons for the checklist and the archive list, Enter to submit in the text boxes, and move buttons that are disabled while the column they'd move into hasn't loaded.
+
+The test run logged one 404 for a missing resource. It didn't affect any test, and I didn't track down which file it was.

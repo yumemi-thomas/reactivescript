@@ -1,0 +1,541 @@
+// Issue desk: three pages behind a row of tabs. The data module (app.ts) answers each source
+// from the backend's API; every page is discarded when left, so a visit starts fresh.
+shape Issue
+  id: number
+  title: string
+  assignee: string
+
+shape IssueDetail
+  found: bool
+  id: number
+  title: string
+  body: string
+
+shape Comment
+  author: string
+  text: string
+
+shape Hit
+  id: number
+  name: string
+
+shape HelpItem
+  found: bool
+  id: number
+  name: string
+  blurb: string
+
+shape Settings
+  name: string
+  theme: string
+  density: string
+
+// One write's answer: a refusal is a reply (ok false), so the queue always moves on.
+shape Ack
+  key: string
+  ok: bool
+  error: string
+
+// A write in flight or accepted, shown over the server's answer until it is refused.
+shape Op
+  key: string
+  kind: string
+  id: number
+  value: string
+  who: string
+  done: bool
+
+routes nav
+  tab issues "/"
+  tab help "/help"
+  tab settings "/settings"
+
+fn closing(ops: Op[], id: number): bool = ops.filter(o => (o.kind == "close" or o.kind == "rowClose") and o.id == id).length > 0
+fn titleOf(ops: Op[], id: number, base: string): string = match ops.filter(o => o.kind == "rename" and o.id == id).at(-1) { case some(o) => o.value, case none => base }
+fn assigneeOf(ops: Op[], id: number, base: string): string = match ops.filter(o => (o.kind == "assign" or o.kind == "rowAssign") and o.id == id).at(-1) { case some(o) => o.value, case none => base }
+fn whoLabel(name: string): string = name == "" ? "unassigned" : name
+fn latestFor(all: Op[], label: string): string = match all.filter(o => o.value == label).at(-1) { case some(o) => o.key, case none => "" }
+fn latestOps(all: Op[]): Op[] = all.filter(o => latestFor(all, o.value) == o.key)
+fn labelOps(ops: Op[], id: number): Op[] = latestOps(ops.filter(o => (o.kind == "addLabel" or o.kind == "removeLabel") and o.id == id))
+fn labelsShown(base: string[], ops: Op[], id: number): string[] = base.filter(l => labelOps(ops, id).filter(o => o.value == l and o.kind == "removeLabel").length == 0).concat(labelOps(ops, id).filter(o => o.kind == "addLabel" and not base.includes(o.value)).map(o => o.value))
+fn postsOf(ops: Op[], id: number, base: Comment[]): Op[] = ops.filter(o => o.kind == "post" and o.id == id and base.filter(c => c.author == o.who and c.text == o.value).length == 0)
+
+component IssueDesk
+  state filterMode = "open"
+  state user = "guest"
+  state sel = 0
+  state titleDraft = ""
+  state commentDraft = ""
+  state labelDraft = ""
+  state query = ""
+  state hitSel = 0
+  state nameText = ""
+  state nameEdited = false
+  state themeChoice = ""
+  state densityChoice = ""
+  state sentLine = ""
+  state goodLine = ""
+  state ops: Op[] = []
+  state seq = 0
+  state assignErr = ""
+  state renameErr = ""
+  state closeErr = ""
+  state postErr = ""
+  state labelErr = ""
+  state rowErr = ""
+  state heldCount = -1
+
+  resource openIssues = listIssues("open") when (filterMode == "open" and nav.tab == "issues") as shape Issue[] else empty()
+  resource closedIssues = listIssues("closed") when (filterMode == "closed" and nav.tab == "issues") as shape Issue[] else empty()
+  resource detailIssue = issueDetail(sel) when (sel != 0 and nav.tab == "issues") as shape IssueDetail else empty()
+  resource commentList = issueComments(sel) when (sel != 0 and nav.tab == "issues") as shape Comment[] else empty()
+  resource labelList = issueLabels(sel) when (sel != 0 and nav.tab == "issues") as shape string[] else empty()
+  resource relatedHits = searchHelp(detailIssue.title) when (detailLoaded and nav.tab == "issues") as shape Hit[] else empty()
+  resource helpHits = searchHelp(query) when (query.length >= 2 and nav.tab == "help") as shape Hit[] else empty()
+  resource helpItem = loadHelpItem(hitSel) when (hitSel != 0 and nav.tab == "help") as shape HelpItem else empty()
+  resource settingsLoaded = settingsLoad() when nav.tab == "settings" as shape Settings else empty()
+
+  // One ordered queue per kind of write: an assign never waits for a close, but two closes go in order.
+  mutation assigned as shape Ack queue
+    then settleAssigned
+  mutation renamed as shape Ack queue
+    then settleRenamed
+  mutation closed as shape Ack queue
+    then settleClosed
+  mutation posted as shape Ack queue
+    then settlePosted
+  mutation labeled as shape Ack queue
+    then settleLabeled
+  mutation saved as shape Settings
+    then rememberSaved
+
+  derive openShowing = nav.tab == "issues" and filterMode == "open" and current(openIssues) and not pending(openIssues)
+  derive openCount = openShowing ? openIssues.filter(i => not closing(ops, i.id)).length : heldCount
+  derive tabLabel = openCount < 0 ? "Issues" : `Issues (${openCount})`
+  derive openRows = openIssues.filter(i => not closing(ops, i.id))
+  derive openErr = match failure(openIssues) { case some(f) => f.message, case none => "" }
+  derive closedErr = match failure(closedIssues) { case some(f) => f.message, case none => "" }
+  derive listBusy = filterMode == "open" ? (pending(openIssues) or not current(openIssues)) : (pending(closedIssues) or not current(closedIssues))
+  derive listErr = filterMode == "open" ? openErr : closedErr
+
+  derive detailBusy = pending(detailIssue) or not current(detailIssue)
+  derive detailErr = match failure(detailIssue) { case some(f) => f.message, case none => "" }
+  derive detailLoaded = sel != 0 and not detailBusy and detailErr == "" and detailIssue.found
+  derive relBusy = pending(relatedHits) or not current(relatedHits)
+  derive relErr = match failure(relatedHits) { case some(f) => f.message, case none => "" }
+  derive commentsBusy = pending(commentList) or not current(commentList)
+  derive commentsErr = match failure(commentList) { case some(f) => f.message, case none => "" }
+  derive labelsBusy = pending(labelList) or not current(labelList)
+  derive labelsErr = match failure(labelList) { case some(f) => f.message, case none => "" }
+  derive labelsNow = labelsShown(labelList, ops, sel)
+
+  derive helpBusy = pending(helpHits) or not current(helpHits)
+  derive helpErr = match failure(helpHits) { case some(f) => f.message, case none => "" }
+  derive helpItemBusy = pending(helpItem) or not current(helpItem)
+  derive helpItemErr = match failure(helpItem) { case some(f) => f.message, case none => "" }
+
+  derive settingsBusy = pending(settingsLoaded) or not current(settingsLoaded)
+  derive settingsErr = match failure(settingsLoaded) { case some(f) => f.message, case none => "" }
+  derive draftName = nameEdited ? nameText : settingsLoaded.name
+  derive draftTheme = themeChoice == "" ? settingsLoaded.theme : themeChoice
+  derive draftDensity = densityChoice == "" ? settingsLoaded.density : densityChoice
+  derive nameError = draftName.trim() == "" ? "Display name is required" : draftName.length > 20 ? `Display name must be at most 20 characters, not ${draftName.length}` : ""
+  derive loadedLine = `${settingsLoaded.name} · ${settingsLoaded.theme} · ${settingsLoaded.density}`
+  derive savedLine = pending(saved) ? `Saved: ${sentLine} (saving…)` : `Saved: ${goodLine == "" ? loadedLine : goodLine}`
+  derive saveErr = match failure(saved) { case some(f) => `Save failed: ${f.message}`, case none => "" }
+
+  action pick(name: string)
+    if name != nav.tab
+      heldCount = openCount
+      filterMode = "open"
+      user = "guest"
+      sel = 0
+      titleDraft = ""
+      commentDraft = ""
+      labelDraft = ""
+      assignErr = ""
+      renameErr = ""
+      closeErr = ""
+      postErr = ""
+      labelErr = ""
+      rowErr = ""
+      ops = []
+      query = ""
+      hitSel = 0
+      nameText = ""
+      nameEdited = false
+      themeChoice = ""
+      densityChoice = ""
+      goodLine = ""
+      sentLine = ""
+      nav = select(nav, name)
+
+  action setFilter(f: string)
+    heldCount = openCount
+    filterMode = f
+
+  action setUser(v: string)
+    user = v
+
+  action selectIssue(id: number)
+    sel = id
+    titleDraft = ""
+    assignErr = ""
+    renameErr = ""
+    closeErr = ""
+    postErr = ""
+    labelErr = ""
+
+  action editTitle(v: string)
+    titleDraft = v
+
+  action editComment(v: string)
+    commentDraft = v
+
+  action editLabel(v: string)
+    labelDraft = v
+
+  action assignSel
+    assignErr = ""
+    let n = seq + 1
+    seq = n
+    ops = ops.concat([Op(key=`op${n}`, kind="assign", id=sel, value=user, who=user, done=false)])
+    send assigned = writeOp(`op${n}`, "assign", sel, user, user)
+
+  action assignRow(id: number)
+    rowErr = ""
+    let n = seq + 1
+    seq = n
+    ops = ops.concat([Op(key=`op${n}`, kind="rowAssign", id=id, value=user, who=user, done=false)])
+    send assigned = writeOp(`op${n}`, "rowAssign", id, user, user)
+
+  action renameSel
+    if titleDraft.trim() != ""
+      renameErr = ""
+      let t = titleDraft.trim()
+      let n = seq + 1
+      seq = n
+      ops = ops.concat([Op(key=`op${n}`, kind="rename", id=sel, value=t, who=user, done=false)])
+      send renamed = writeOp(`op${n}`, "rename", sel, t, user)
+
+  action closeSel
+    closeErr = ""
+    let n = seq + 1
+    seq = n
+    ops = ops.concat([Op(key=`op${n}`, kind="close", id=sel, value="", who=user, done=false)])
+    send closed = writeOp(`op${n}`, "close", sel, "", user)
+
+  action closeRow(id: number)
+    rowErr = ""
+    let n = seq + 1
+    seq = n
+    ops = ops.concat([Op(key=`op${n}`, kind="rowClose", id=id, value="", who=user, done=false)])
+    send closed = writeOp(`op${n}`, "rowClose", id, "", user)
+
+  action postComment
+    if commentDraft.trim() != ""
+      postErr = ""
+      let t = commentDraft.trim()
+      let n = seq + 1
+      seq = n
+      ops = ops.concat([Op(key=`op${n}`, kind="post", id=sel, value=t, who=user, done=false)])
+      commentDraft = ""
+      send posted = writeOp(`op${n}`, "post", sel, t, user)
+
+  action addLabelNow
+    let l = labelDraft.trim()
+    if l != "" and not labelsNow.includes(l)
+      labelErr = ""
+      let n = seq + 1
+      seq = n
+      ops = ops.concat([Op(key=`op${n}`, kind="addLabel", id=sel, value=l, who=user, done=false)])
+      labelDraft = ""
+      send labeled = writeOp(`op${n}`, "addLabel", sel, l, user)
+
+  action removeLabelNow(l: string)
+    labelErr = ""
+    let n = seq + 1
+    seq = n
+    ops = ops.concat([Op(key=`op${n}`, kind="removeLabel", id=sel, value=l, who=user, done=false)])
+    send labeled = writeOp(`op${n}`, "removeLabel", sel, l, user)
+
+  action retryDetail
+    refresh detailIssue
+
+  action settleAssigned
+    match assigned
+      case some(r)
+        applyAck(r)
+      case none
+        rowErr = rowErr
+
+  action settleRenamed
+    match renamed
+      case some(r)
+        applyAck(r)
+      case none
+        rowErr = rowErr
+
+  action settleClosed
+    match closed
+      case some(r)
+        applyAck(r)
+      case none
+        rowErr = rowErr
+
+  action settlePosted
+    match posted
+      case some(r)
+        applyAck(r)
+      case none
+        rowErr = rowErr
+
+  action settleLabeled
+    match labeled
+      case some(r)
+        applyAck(r)
+      case none
+        rowErr = rowErr
+
+  // Settles the write that answered `r`: an accepted write stays (done), a refused one goes and shows its error.
+  action applyAck(r: Ack)
+    match first(ops.filter(o => o.key == r.key))
+      case some(o)
+        if r.ok
+          ops = ops.map(p => p.key == r.key ? Op(p, done=true) : p)
+        else
+          ops = ops.filter(p => p.key != r.key)
+          if o.kind == "rowAssign" or o.kind == "rowClose"
+            rowErr = r.error
+          else if o.kind == "assign"
+            assignErr = r.error
+          else if o.kind == "close"
+            closeErr = r.error
+          else if o.kind == "rename"
+            renameErr = r.error
+          else if o.kind == "post"
+            postErr = r.error
+          else
+            labelErr = r.error
+      case none
+        rowErr = rowErr
+
+  action openRelated(id: number)
+    heldCount = openCount
+    sel = 0
+    titleDraft = ""
+    assignErr = ""
+    renameErr = ""
+    closeErr = ""
+    postErr = ""
+    labelErr = ""
+    query = detailIssue.title
+    hitSel = id
+    nav = select(nav, "help")
+
+  action editQuery(v: string)
+    query = v
+
+  action chooseHit(id: number)
+    hitSel = id
+
+  action retryItem
+    refresh helpItem
+
+  action setName(v: string)
+    nameEdited = true
+    nameText = v
+
+  action setTheme(t: string)
+    themeChoice = t
+
+  action toggleDensity
+    densityChoice = draftDensity == "compact" ? "comfortable" : "compact"
+
+  action retryLoad
+    refresh settingsLoaded
+
+  action saveDraft
+    if nameError == ""
+      sentLine = `${draftName} · ${draftTheme} · ${draftDensity}`
+      send saved = saveSettingsNow(draftName, draftTheme, draftDensity)
+
+  action rememberSaved
+    goodLine = sentLine
+
+  view
+    main testId="app" width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        if nav.tab == "issues"
+          scroll id="issues" flex=1 min-height=0 padding=16
+            column gap=12
+              text "Issues" role="heading" aria-level=1
+              row gap=8 align-items="center"
+                text "User"
+                input value=user input=setUser testId="user" aria-label="Current user"
+              row gap=8
+                button press=setFilter("open") testId="filter-open" aria-pressed=(filterMode == "open")
+                  text "Open"
+                button press=setFilter("closed") testId="filter-closed" aria-pressed=(filterMode == "closed")
+                  text "Closed"
+              column testId="list" gap=4
+                if listErr != ""
+                  text `list error: ${listErr}`
+                else if listBusy
+                  text `loading ${filterMode} issues`
+                else
+                  for i in (filterMode == "open" ? openRows : closedIssues) key=i.id
+                    row gap=8 align-items="center"
+                      button press=selectIssue(i.id) testId="issue" flex=1
+                        text `#${i.id} ${titleOf(ops, i.id, i.title)} (${whoLabel(assigneeOf(ops, i.id, i.assignee))})`
+                      button press=assignRow(i.id) testId="row-assign"
+                        text `assign to ${user}`
+                      if filterMode == "open"
+                        button press=closeRow(i.id) testId="row-close"
+                          text "close"
+              if rowErr != ""
+                text `row error: ${rowErr}` testId="row-error"
+              column testId="detail" gap=8
+                if sel == 0
+                  text "select an issue"
+                else
+                  if detailErr != ""
+                    text `detail error: ${detailErr}`
+                  else if detailBusy
+                    text `loading #${sel}`
+                  else if not detailIssue.found
+                    text `detail error: issue #${sel} not found`
+                  else
+                    text `#${detailIssue.id} ${titleOf(ops, sel, detailIssue.title)}` role="heading" aria-level=2
+                    text detailIssue.body
+                  button press=retryDetail testId="retry"
+                    text "Retry"
+                  row gap=8
+                    button press=assignSel testId="assign"
+                      text `assign to ${user}`
+                    button press=closeSel testId="close"
+                      text "Close"
+                  if assignErr != ""
+                    text assignErr testId="assign-error"
+                  if closeErr != ""
+                    text `close error: ${closeErr}` testId="close-error"
+                  row gap=8
+                    input value=titleDraft input=editTitle testId="title-input" aria-label="New title" flex=1 min-width=0
+                    button press=renameSel testId="rename"
+                      text "Rename"
+                  if renameErr != ""
+                    text `rename error: ${renameErr}` testId="rename-error"
+                  column testId="comments" gap=4
+                    if commentsBusy
+                      text "loading comments"
+                    else if commentsErr != ""
+                      text `comments error: ${commentsErr}`
+                    else
+                      for c, i in commentList key=i
+                        text `${c.author}: ${c.text}` testId="comment"
+                      for o in postsOf(ops, sel, commentList) key=o.key
+                        text `${o.who}: ${o.value}${o.done ? "" : " (sending…)"}` testId="comment"
+                  row gap=8
+                    input value=commentDraft input=editComment testId="comment-input" aria-label="Comment" flex=1 min-width=0
+                    button press=postComment testId="post"
+                      text "Post"
+                  if postErr != ""
+                    text `post error: ${postErr}` testId="post-error"
+                  column testId="labels" gap=4
+                    if labelsBusy
+                      text "loading labels"
+                    else if labelsErr != ""
+                      text `labels error: ${labelsErr}`
+                    else
+                      for l in labelsNow key=l
+                        row gap=8 align-items="center"
+                          text l testId="label"
+                          button press=removeLabelNow(l) testId="remove-label"
+                            text `remove ${l}`
+                  row gap=8
+                    input value=labelDraft input=editLabel testId="label-input" aria-label="Label" flex=1 min-width=0
+                    button press=addLabelNow testId="add-label"
+                      text "Add label"
+                  if labelErr != ""
+                    text `label error: ${labelErr}` testId="label-error"
+                  if detailLoaded
+                    column testId="related" gap=4
+                      if relBusy
+                        text "finding related help"
+                      else if relErr != ""
+                        text `related help failed: ${relErr}`
+                      else if relatedHits.length == 0
+                        text "no related help"
+                      else
+                        for h in relatedHits.slice(0, 3) key=h.id
+                          button press=openRelated(h.id) testId="related-hit"
+                            text h.name
+        else if nav.tab == "help"
+          scroll id="help" flex=1 min-height=0 padding=16
+            column gap=12
+              text "Help" role="heading" aria-level=1
+              input type="search" value=query input=editQuery testId="query" aria-label="Search help"
+              column testId="results" gap=8
+                if query.length == 1
+                  text `too short: ${query}`
+                else if query.length >= 2
+                  if helpErr != ""
+                    text `search failed: ${helpErr}`
+                  else
+                    if helpBusy
+                      text "searching…"
+                    else
+                      text `${helpHits.length} results for ${query}`
+                    for h in helpHits key=h.id
+                      button press=chooseHit(h.id) testId="hit"
+                        text `${hitSel == h.id ? "> " : ""}${h.name}`
+              column testId="item" gap=4
+                if hitSel == 0
+                  text "pick a result"
+                else if helpItemErr != ""
+                  text `failed: ${helpItemErr}`
+                  button press=retryItem testId="retry-item"
+                    text "Retry"
+                else if helpItemBusy
+                  text "loading…"
+                else if not helpItem.found
+                  text `item ${hitSel} not found`
+                else
+                  text helpItem.name role="heading" aria-level=2
+                  text helpItem.blurb
+        else
+          scroll id="settings" flex=1 min-height=0 padding=16
+            column gap=12
+              text "Settings" role="heading" aria-level=1
+              if settingsErr != ""
+                text `Could not load settings: ${settingsErr}` testId="load"
+                button press=retryLoad testId="retry-load"
+                  text "Retry"
+              else if settingsBusy
+                text "Loading settings…" testId="load"
+              else
+                text savedLine testId="saved"
+                if saveErr != ""
+                  text saveErr testId="save-error"
+                column gap=8 testId="form"
+                  input value=draftName input=setName testId="name" aria-label="Display name"
+                  text `${draftName.length}/20` testId="name-count"
+                  if nameError != ""
+                    text nameError testId="name-error"
+                  row gap=8
+                    button press=setTheme("light") testId="theme-light"
+                      text "Light"
+                    button press=setTheme("dark") testId="theme-dark"
+                      text "Dark"
+                    button press=toggleDensity testId="density-toggle"
+                      text "Density"
+                  text `Preview: ${draftTheme} / ${draftDensity}` testId="preview"
+                  button press=saveDraft testId="save" buttonStyle="filled"
+                    text "Save"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-selected=(nav.tab == "issues") press=pick("issues") testId="tab-issues" flex=1
+          text tabLabel
+        button role="tab" aria-selected=(nav.tab == "help") press=pick("help") testId="tab-help" flex=1
+          text "Help"
+        button role="tab" aria-selected=(nav.tab == "settings") press=pick("settings") testId="tab-settings" flex=1
+          text "Settings"

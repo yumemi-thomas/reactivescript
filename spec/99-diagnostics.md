@@ -89,8 +89,9 @@ named.
 | `SHADOWED_IMPORT` (new)           | S   | MO-1d | S-module-1 |
 | `CYCLE`                           | S   | C-1 (CN-3a: union of branches; only an equation's own `pre` breaks it) | S-check-1, S-core-1 |
 | `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
-| `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a) | S-check-1 |
-| `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories | S-check-1, S-region-5, S-module-5, S-module-6 |
+| `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a; `props` of a component that declares none, RG-4b) | S-check-1 |
+| `ARGUMENT_COUNT` (new)            | S   | AC-1f: a call of a declared action with another number of arguments than its parameters | S-check-1 |
+| `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories; MO-11s, a component given to JS that says nothing of where it renders it, is checked under a root of its own | S-check-1, S-region-5, S-module-5, S-module-6, S-module-27 |
 | `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k (render props) | S-module-14 |
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
@@ -107,7 +108,8 @@ named.
 | `HELD_WRITE`                      | S   | AC-1c | S-infer-2 |
 | `STALE_OWN_READ`                  | S   | AC-1d | S-infer-5 |
 | `STALE_WRITE_BACK`                | S   | AC-1e | S-infer-6 |
-| `GUESS_NO_QUESTION`          | S   | AC-3 / ST-5c | S-check-1, S-solid-32 |
+| `STALE_CAPTURE`                   | S   | AC-1g | S-infer-7 |
+| `GUESS_NO_QUESTION`          | —   | retired 2026-11-20: any source takes a guess (AC-3, ST-5c; 07 decision 21) | S-guess-writable-1, -2 |
 | `GUESS_ON_DEFERRED`          | S   | AC-3 / ST-5c (a deferred equation lags its truth, V-16) | S-guess-equation |
 | `GUESS_WHILE_LOADING`        | S   | AC-3a (Solid's `OPTIMISTIC_WRITE_WHILE_LOADING`, at compile time) | S-guess-equation, check.rs unit test |
 | `INVALID_REFRESH_TARGET`, `INVALID_AFFECTS_TARGET` | S | AC-4, AC-5 | S-check-1 |
@@ -117,6 +119,7 @@ named.
 | `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written); R-f-9 for `fails(…)` | S-check-1, S-fail-1 |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3 (directly or through equations; not closures the apply creates) | S-check-2 |
 | `UNHANDLED_FAILURE`               | S   | R-f-5 / CN-6a (over the static application tree; props where read, children where rendered) | S-fail-1, S-fail-2 |
+| `CATCH_NOT_ON_AWAIT` (new)        | S   | R-f-4: a `catch` after anything but an `await` (a failed value is shown by an `errored` region where it is read; 2026-11-19) | S-fail-1, S-catch-snapshot |
 | `UNCAUGHT_ACTION_FAILURE`         | S   | R-f-6 / CN-6a (incl. a prop the action reads, checked at each application) | S-action-1, S-fail-2 |
 | `NOT_AN_ERROR_CLASS`              | S   | R-f-1 | S-fail-1 |
 | `WRITE_TO_NON_SOURCE` (MO-2)      | S   | MO-2a: an imported source is read-only | S-module-1 |

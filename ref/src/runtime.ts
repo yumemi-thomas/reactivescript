@@ -109,7 +109,7 @@ export class Region {
     this.parent?.children.delete(this);
   }
 }
-type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void; last: unknown[] };
+type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void; last: unknown[]; erred?: boolean };
 type Write = { node: Node; path: (string | number)[]; value: unknown };
 
 // view instances: structure has a committed and an in-flight version (H-2, H-8)
@@ -378,7 +378,9 @@ export class Runtime {
       const settled = e.computes.every(c => !(c.value instanceof PendingVal) && ![...c.taint].some(t => this.openChanges.has(this.find(t))) && !this.laneHeld(c));   // E-12: an error is an answer; D-34: a corrected guess's effects wait for the commit, as its views do
       const differs = (c: Node, i: number) => { if (!e.ran) return true; const d = new Set<Path>(); diffPaths(e.last[i], c.value, "", d); return d.size > 0; };
       const fire = settled && (!e.ran || e.computes.some((c, i) => c.changedSinceCommit && differs(c, i)));   // EF-2: a value differing from the one last received (pending → equal is not a change)
-      if (!fire) continue;
+      if (settled && e.computes.some(c => c.value instanceof ErrVal)) { if (fire) e.erred = true; continue; }   // EF-2a: a failed input doesn't fire the apply; the next answer does
+      if (!fire && !(settled && e.erred)) continue;
+      e.erred = false;
       for (const c of e.computes) c.changedSinceCommit = false;
       e.last = e.computes.map(c => c.value);
       e.cleanup?.(); e.cleanup = undefined; e.ran = true;
@@ -1105,7 +1107,7 @@ export class Runtime {
     else if (s.k === "optimistic") {
       if (!run.action) throw new RuleError("GUESS_OUTSIDE_HOLD", "a guess outside an action body");
       const n = this.nodeNamed(s.target.name, region);
-      if (!n || !(n.question || (n.kind === "eq" && !n.deferred && n.compute))) throw new RuleError("GUESS_NO_QUESTION", `${s.target.name} is not a source with a question (source x = e)`);
+      if (!n || !(n.kind === "source" || n.question || (n.kind === "eq" && !n.deferred && n.compute))) throw new RuleError("W-1", `guess on ${s.target.name}, which is neither a source nor an equation`);
       const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, env)));
       this.pendingGuesses.push({ node: n, path, value: this.ev(s.e, region, env) });
     } else if (s.k === "write") {

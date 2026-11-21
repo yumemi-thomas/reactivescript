@@ -37,20 +37,13 @@ function boundaryRead(f: () => unknown, match: (err: unknown) => boolean, alt: (
 /** A boundary's fallback that is decided when read, so a failure that changes class while the fallback shows is re-decided. */
 class Fallback { get: () => unknown; constructor(g: () => unknown) { this.get = g; } }
 function unwrapFallback(v0: unknown): unknown { let v = v0; if (v instanceof Fallback) v = v.get(); if (v instanceof Forward) throw v.err; return v; }
-/** A keyed answer is merged into the draft by key: a row whose key is still there keeps its object and takes the new
- *  leaves, so an equal answer changes nothing and a changed one changes only its leaves (#51). Any other answer is
- *  assigned.
- *  TODO(Solid rc.22): return the keyed answer from the derive and let Solid reconcile it, dropping this merge. On
- *  2.0.0-rc.21 that path throws in holdStaging (memo over latest() of the rows); fixed on Solid next (dba2aad). */
-function landDraft(draft: any, v: unknown, key: string | undefined) {
-  if (!key || !Array.isArray(v) || !Array.isArray(draft)) return assignDraft(draft, v);
-  const had = new Map<unknown, any>(); for (const row of draft) if (row && typeof row === "object") had.set(row[key], row);
-  v.forEach((x: any, i) => { const row = x && typeof x === "object" ? had.get(x[key]) : undefined; if (row) { mergeLeaves(row, x); if (draft[i] !== row) draft[i] = row; } else draft[i] = x; });
-  draft.length = v.length;
-}
-function mergeLeaves(o: any, v: any) {
-  for (const k of Object.keys(o)) if (!(k in v)) delete o[k];
-  for (const k of Object.keys(v)) { const a = o[k], b = v[k]; if (a && b && typeof a === "object" && typeof b === "object" && Array.isArray(a) === Array.isArray(b)) { if (Array.isArray(a)) { a.length = b.length; } mergeLeaves(a, b); } else if (a !== b) o[k] = b; }
+/** A keyed answer is returned from the derive, and Solid reconciles it by key at any depth (ST-4a): a row whose key is
+ *  still there keeps its object and takes the new leaves, so an equal answer changes nothing (#51, #64). Any other
+ *  answer is assigned to the draft. */
+function landDraft(draft: any, v: unknown, key: string | undefined): unknown {
+  if (key && v && typeof v === "object") return v;
+  assignDraft(draft, v);
+  return undefined;
 }
 /** A store draft becomes `v`: keys `v` lacks are removed, the rest assigned (an array's length follows). */
 function assignDraft(draft: any, v: unknown) {
@@ -111,7 +104,7 @@ export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_
 // ---------------------------------------------------------------- scopes
 type Binding =
   | { k: "sig"; get: () => unknown; set: (v: unknown) => void; question: boolean; optimistic: boolean; setGuess?: (v: unknown) => void; truth?: () => unknown }
-  | { k: "store"; get: () => any; set: (v: unknown) => void; setPath: (f: (d: any) => any) => void; question: boolean; setGuess?: (f: (d: any) => any) => void }
+  | { k: "store"; get: () => any; set: (v: unknown) => void; setPath: (f: (d: any) => any) => void; question: boolean; setGuess?: (f: (d: any) => any) => void; truth?: () => any }
   | { k: "memo"; get: () => unknown }
   | { k: "const"; value: unknown }
   | { k: "jfn"; f: (...a: unknown[]) => unknown; refs: boolean[]; shape: Shape }   // MO-10: a declared JS primitive
@@ -166,6 +159,7 @@ export class Oracle {
   root!: N;
   dispose!: () => void;
   optimisticTargets = new Set<string>();
+  plainTargets = new Set<string>();
   rootScope!: Scope;
   program: Program;
   scanHandlers: Stmt[][] | undefined;
@@ -186,6 +180,7 @@ export class Oracle {
       if (Array.isArray(x)) { x.forEach(walk); return; }
       const o = x as Record<string, any>;
       if (o.k === "optimistic") this.optimisticTargets.add(o.target.name);
+      if (o.k === "write" && !o.target.ctx) this.plainTargets.add(o.target.name);
       if ((o.k === "write" || o.k === "optimistic") && o.target.path.length) this.pathTargets.add(o.target.name);
       if (o.k === "pending" && (o.e.k === "member" || o.e.k === "index")) { let y = o.e; while (y.k === "member" || y.k === "index") y = y.o; if (y.k === "id") this.pathTargets.add(y.name); }
       for (const v of Object.values(o)) walk(v);
@@ -271,9 +266,16 @@ export class Oracle {
           if (d.question) {                                             // ST-5: createSignal(fn) / createOptimistic(fn) / createStore(fn, seed)
             this.hoistAwaits(d.name, d.init, scope);
             const compute = this.computeOf(d.name, d.init, scope);
-            if (this.optimisticTargets.has(d.name) && this.pathTargets.has(d.name)) {   // AC-3 path targets over ST-5 structured: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
-              const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; landDraft(draft, v, d.key); };
-              const [store, setStore] = (createOptimisticStore as any)(derive, d.key ? [] : {}, d.key ? { key: d.key } : undefined);
+            if (this.optimisticTargets.has(d.name) && this.pathTargets.has(d.name) && this.plainTargets.has(d.name)) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
+              const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; return landDraft(draft, v, d.key); };
+              const seed = () => d.key && (d.init ?? d.e)?.k !== "rec" ? [] : {};
+              const [truth, setTruth] = (createStore as any)(derive, seed(), d.key ? { key: d.key } : undefined);
+              const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), d.key ? { key: d.key } : undefined);
+              scope.vars.set(d.name, { k: "store", get: () => view, set: (v: unknown) => setTruth((x: any) => typeof v === "function" ? (v as (y: unknown) => unknown)(x) : v), setPath: setTruth, question: true, setGuess: setView, truth: () => truth });   // AC-4: `refresh` re-asks the truth
+            }
+            else if (this.optimisticTargets.has(d.name) && this.pathTargets.has(d.name)) {   // AC-3 path targets over ST-5 structured: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
+              const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; return landDraft(draft, v, d.key); };
+              const [store, setStore] = (createOptimisticStore as any)(derive, d.key && (d.init ?? d.e)?.k !== "rec" ? [] : {}, d.key ? { key: d.key } : undefined);
               const plain = () => { throw new Unsupported("a plain write to an optimistic store"); };
               scope.vars.set(d.name, { k: "store", get: () => store, set: plain, setPath: plain, question: true, setGuess: setStore });
             }
@@ -288,7 +290,15 @@ export class Oracle {
             const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
               const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
-              scope.vars.set(d.name, { k: "store", get, set: (v: unknown) => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v); set(store); } else set(v); }, setPath: setStore, question: false });   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
+              const w = { set: (v: unknown) => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v); set(store); } else set(v); }, setPath: setStore };   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
+              if (this.optimisticTargets.has(d.name)) {                     // AC-3 over a := store: createOptimisticStore(() => truth) over createStore(v); writes go to the truth, guesses to the layer
+                const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {});
+                scope.vars.set(d.name, { k: "store", get: () => view, ...w, question: false, setGuess: setView });
+              } else scope.vars.set(d.name, { k: "store", get, ...w, question: false });
+            }
+            else if (this.optimisticTargets.has(d.name)) {                  // AC-3 over a := signal: createOptimistic(() => truth()) over createSignal(v)
+              const [truth, set] = createSignal(init); const [get, setGuess] = createOptimistic(() => truth());
+              scope.vars.set(d.name, { k: "sig", get, set: set as any, setGuess: setGuess as any, question: false, optimistic: true });
             }
             else { const [get, set] = createSignal(init); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: false, optimistic: false }); }
           }
@@ -309,8 +319,8 @@ export class Oracle {
             const compute = this.computeOf(d.name, d.e, scope);
             const plain = () => { throw new Unsupported("a plain write to an equation"); };
             if (this.pathTargets.has(d.name) || d.key) {
-              const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; landDraft(draft, v, d.key); };
-              const [store, setStore] = (createOptimisticStore as any)(derive, d.key ? [] : {}, d.key ? { key: d.key } : undefined);
+              const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; return landDraft(draft, v, d.key); };
+              const [store, setStore] = (createOptimisticStore as any)(derive, d.key && (d.init ?? d.e)?.k !== "rec" ? [] : {}, d.key ? { key: d.key } : undefined);
               scope.vars.set(d.name, { k: "store", get: () => store, set: plain, setPath: plain, question: true, setGuess: setStore });
             } else {
               const [get, setGuess] = createOptimistic(compute as any, this.loadingValue(d.e, scope) as any);
@@ -327,6 +337,13 @@ export class Oracle {
           }
           const fnDecl = this.fnOf(d.e, scope);
           if (fnDecl && (fnDecl.params.some(p => p.ref) || fnDecl.decls.length > 0)) { scope.vars.set(d.name, { k: "memo", get: this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, fnDecl, scope) }); break; }   // RG-6
+          if (d.e.k === "catch" && d.e.e.k === "await" && !d.deferred) {   // R-f-4 over a tail await: a matching rejection is the answer, where it is awaited (as the compiled `settle`)
+            const c = d.e; const classes = this.classValues(c.classes, scope); const compute = this.computeOf(d.name, c.e, scope) as (p: unknown) => unknown;
+            const alt = (err: unknown) => { const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return untrack(() => this.ev(c.alt, scope, en)); };
+            const get = createMemo(((prev: unknown) => { const r0 = compute(prev); const r = r0 instanceof Flight ? r0.first : r0; return r instanceof Promise ? r.then(v => v, err => { if (isA(err, classes)) return alt(err); throw err; }) : r; }) as any, this.loadingValue(c.e, scope) as any);
+            scope.vars.set(d.name, { k: "memo", get });
+            break;
+          }
           if (d.e.k === "catch" && !d.deferred) {                      // R-f-4 over a tail await: the equation's flight is an inner memo, read through a boundary
             const c = d.e; const classes = this.classValues(c.classes, scope);
             const inner = createMemo(this.computeOf(d.name, c.e, scope) as any, this.loadingValue(c.e, scope) as any);
@@ -346,7 +363,7 @@ export class Oracle {
           let last: unknown[] | null = null;
           createEffect(() => inputs.map(e => { const v = this.ev(e, scope); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v; }), {   // a store enters whole, as a snapshot
             effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last![i]))) return; last = vals; return apply(vals); },   // EF-3: fires when an input changed (an error in between is a change)
-            error: () => { last = null; return apply(inputs.map(() => ERR)); },   // E-12: an error is an answer the apply receives
+            error: () => { last = null; },   // EF-2a: a failed input doesn't fire the apply; the next answer does
           } as any);
           break;
         }
@@ -522,7 +539,7 @@ export class Oracle {
       }
       case "throw": throw untrack(() => this.ev(s.e, scope, env));
       case "action": this.lowerAction([], s.body, scope, env)(); return;
-      case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); const d = Scope.all.find(x => x.vars.get(s.name) === b); for (const h of (d && this.hoistedByName.get(d)?.get(s.name)) ?? []) refresh(h as any); refresh((b.k === "store" ? b.get() : ((b.k === "sig" || b.k === "memo") && (b as any).truth) || b.get) as any); return; }
+      case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); const d = Scope.all.find(x => x.vars.get(s.name) === b); for (const h of (d && this.hoistedByName.get(d)?.get(s.name)) ?? []) refresh(h as any); refresh((b.k === "store" ? (b.truth ?? b.get)() : ((b.k === "sig" || b.k === "memo") && (b as any).truth) || b.get) as any); return; }
       case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects((b.k === "store" ? b.get() : b.get) as any); return; }   // a store binding's get wraps the store: Solid takes the store (#50)
       case "optimistic": case "write": {
         const b = s.target.ctx ? this.provision(s.target.name, scope) : scope.lookup(s.target.name);
@@ -532,7 +549,7 @@ export class Oracle {
         if (b.k === "store") {
           const path = s.target.path.map(p => typeof p === "string" ? p : String(untrack(() => this.ev(p, scope, env))));
           if (s.k === "optimistic") {
-            if (!b.setGuess) throw new Error("GUESS_NO_QUESTION");
+            if (!b.setGuess) throw new Error(`a guess on ${s.target.name}, which the oracle did not mark as guessed`);
             b.setGuess((d: any) => { if (path.length === 0) return typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v; /* a whole guess is the setter\'s return, which Solid diffs shallowly against the view as guesses */ let o = d; for (const k of path.slice(0, -1)) o = o[k]; const last = path[path.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; });   // W-6 per key
             return;
           }

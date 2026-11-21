@@ -99,7 +99,7 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
   await served$; await nav;
   for (let i = 0; i < 40 && chunks === 0 && !ended && !renderError; i++) await wait(10);
   await wait(40);
-  if (renderError) { lines.push(`  ✗ ${title}: server render threw: ${(renderError as Error).message}`); return false; }
+  if (renderError) { lines.push(`  ✗ ${title}: server render threw: ${(renderError as Error).message}${process.env.SSR_STACK ? " " + String((renderError as Error).stack ?? renderError) : ""}`); return false; }
   got.push(norm(await textOf()));
   for (const r of rows.slice(1)) {
     const m = /^(resolve|reject)\s+(\S+)\s+([\s\S]*)$/.exec(r.action);

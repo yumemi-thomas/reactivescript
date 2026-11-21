@@ -1,0 +1,37 @@
+import pure { fetchArchived } from "./api"
+import { restoreCard } from "./api"
+import { Archived } from "./api"
+
+// The archive page: lists archived cards and restores them. Mounted fresh each time the tab opens.
+export component Archive() {
+  source archived: Archived[] key id = await fetchArchived()
+  source restoreError := ""
+
+  action restore(id: number) {
+    onFlush(() => { restoreError := "" })
+    guess archived := as => as.filter(a => a.id != id)
+    try {
+      await restoreCard(id)
+      archived := as => as.filter(a => a.id != id)
+    } catch (e) {
+      restoreError := e.message
+    }
+  }
+
+  <section>
+    <h2>Archive</h2>
+    {loading fallback { <p data-testid="archived">loading archive</p> } {
+      {errored fallback(e) { <p data-testid="archived">archive error: {e.message}</p> } {
+        <ul data-testid="archived">
+          {for a in archived {
+            <li>
+              <span data-testid="archived-card">#{a.id} {a.title}</span>{" "}
+              <button onClick={() => { restore(a.id) }}>restore</button>
+            </li>
+          }}
+        </ul>
+      }}
+    }}
+    {if restoreError != "" { <p data-testid="restore-error">restore error: {restoreError}</p> }}
+  </section>
+}

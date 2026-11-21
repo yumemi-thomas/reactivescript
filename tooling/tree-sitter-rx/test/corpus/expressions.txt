@@ -1,0 +1,305 @@
+========================================
+Await with a first paint
+========================================
+
+xs = await fetchRows(q) -> []
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (await_expression
+      argument: (call_expression
+        function: (identifier)
+        arguments: (arguments
+          (identifier)))
+      initial: (array))))
+
+========================================
+Stream
+========================================
+
+source messages = await* stream(room) -> []
+
+---
+
+(program
+  (source_declaration
+    name: (identifier)
+    value: (await_expression
+      argument: (call_expression
+        function: (identifier)
+        arguments: (arguments
+          (identifier)))
+      initial: (array))))
+
+========================================
+Pending and latest are unary
+========================================
+
+busy = pending? a || b
+next = latest x * 2
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (binary_expression
+      left: (pending_expression
+        argument: (identifier))
+      right: (identifier)))
+  (equation
+    name: (identifier)
+    value: (binary_expression
+      left: (latest_expression
+        argument: (identifier))
+      right: (number))))
+
+========================================
+Pending in a conditional
+========================================
+
+label = pending? x ? "saving" : "idle"
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (ternary_expression
+      condition: (pending_expression
+        argument: (identifier))
+      consequence: (string
+        (string_fragment))
+      alternative: (string
+        (string_fragment)))))
+
+========================================
+Peek
+========================================
+
+source draft := peek(props.x)
+
+---
+
+(program
+  (source_declaration
+    name: (identifier)
+    value: (peek_expression
+      argument: (parenthesized_expression
+        (member_expression
+          object: (identifier)
+          property: (property_identifier))))))
+
+========================================
+Pre
+========================================
+
+changed = x != pre x
+first = pre x -> 0
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (binary_expression
+      left: (identifier)
+      right: (pre_expression
+        name: (identifier))))
+  (equation
+    name: (identifier)
+    value: (pre_expression
+      name: (identifier)
+      initial: (number))))
+
+========================================
+Use
+========================================
+
+palette = (use theme).palette
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (member_expression
+      object: (parenthesized_expression
+        (use_expression
+          name: (identifier)))
+      property: (property_identifier))))
+
+========================================
+Throw expression
+========================================
+
+name = user == null ? throw NotFound(id) : user.name
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (ternary_expression
+      condition: (binary_expression
+        left: (identifier)
+        right: (null))
+      consequence: (throw_expression
+        argument: (call_expression
+          function: (identifier)
+          arguments: (arguments
+            (identifier))))
+      alternative: (member_expression
+        object: (identifier)
+        property: (property_identifier)))))
+
+========================================
+Catch expression
+========================================
+
+shown = name catch (e: NotFound | Gone) => "(nobody)"
+safe = risky catch => 0
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (catch_expression
+      value: (identifier)
+      parameter: (identifier)
+      type: (type_identifier)
+      type: (type_identifier)
+      alternative: (string
+        (string_fragment))))
+  (equation
+    name: (identifier)
+    value: (catch_expression
+      value: (identifier)
+      alternative: (number))))
+
+========================================
+Catch on the next line
+========================================
+
+shown = load(id)
+  catch (e) => null
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (catch_expression
+      value: (call_expression
+        function: (identifier)
+        arguments: (arguments
+          (identifier)))
+      parameter: (identifier)
+      alternative: (null))))
+
+========================================
+Draft
+========================================
+
+selected = draft(pre selected -> {}) { d[id] := true }
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (draft_expression
+      value: (pre_expression
+        name: (identifier)
+        initial: (object))
+      body: (statement_block
+        (write_statement
+          target: (subscript_expression
+            object: (identifier)
+            index: (identifier))
+          value: (true))))))
+
+========================================
+Fn expression
+========================================
+
+add = fn (a, b) => a + b
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (fn_expression
+      parameters: (formal_parameters
+        (required_parameter
+          pattern: (identifier))
+        (required_parameter
+          pattern: (identifier)))
+      body: (binary_expression
+        left: (identifier)
+        right: (identifier)))))
+
+========================================
+Server fn expression
+========================================
+
+save = server fn (id: number) { await db(id) }
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (server_fn_expression
+      parameters: (formal_parameters
+        (required_parameter
+          pattern: (identifier)
+          type: (type_annotation
+            (predefined_type))))
+      body: (statement_block
+        (expression_statement
+          (await_expression
+            argument: (call_expression
+              function: (identifier)
+              arguments: (arguments
+                (identifier)))))))))
+
+========================================
+Style class map
+========================================
+
+styles = <style>.a { color: red }</style>
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (style_element
+      (identifier)
+      (raw_text)
+      (identifier))))
+
+========================================
+A chain of catches folds left
+========================================
+
+x = a catch => b catch (e: NotFound) => c
+
+---
+
+(program
+  (equation
+    (identifier)
+    (catch_expression
+      (catch_expression
+        (identifier)
+        (identifier))
+      (identifier)
+      (type_identifier)
+      (identifier))))

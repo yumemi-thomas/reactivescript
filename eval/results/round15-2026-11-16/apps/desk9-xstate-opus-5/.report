@@ -1,0 +1,8 @@
+I built the issue desk in React 19 and XState v5. A root machine in `src/machines/app.ts` starts one page machine for the open tab (issues, help or settings), so leaving a tab stops that page and opening it again starts it fresh. The root machine also keeps the `Issues (n)` count. Each page loads its data with `fromPromise` requests that are cancelled when the user moves on. Every change sent to the server (assign, rename, close, comment, label, save) shows on screen straight away while it waits, and undoes itself if the server declines. `./check` passes and all 30 visible tests pass; I used 3 of the 15 runs.
+
+Things I was unsure about:
+- **Assign error text:** the brief only asks for the server's message, so the detail shows `assign error: <message>`.
+- **Trimmed input:** typed titles, comments and labels have surrounding spaces removed before they are sent, and a display name of only spaces counts as empty.
+- **Related help:** opening a related hit reuses the related search's results instead of searching again.
+- **Count after leaving the list:** if a close is declined after the list has switched to closed issues or the page has been left, the count stays down until the open issues load again.
+- **Console error:** each test run logs one 404 for a missing resource, which is probably the favicon.

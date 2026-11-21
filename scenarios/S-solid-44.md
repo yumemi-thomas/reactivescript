@@ -37,13 +37,10 @@ of solidjs/solid#4695). Instant 5: the post's body settles; its `refresh`
 re-asks issue 1, so nothing commits yet. Instant 6: one frame. Any `1 …`
 frame before instant 6 is a tear.
 
-## Divergences (DV-19, DV-22)
+## Divergences (DV-22)
 
 - oracle "Frames" instant 3: `3 9 9 false`
 
-Solid 2.0.1 (the repin of 2026-11-19) builds the `latest` half (instants 4 and 5 now show the ruled frames); `pending? comments` under the new question still reads `false` (DV-22).
-
-Solid's S-44 is ruled, not built (#4695): today `pending? comments` reads
-`false` under the new question (DV-22), and `latest comments` answers the new
-question's answer instead of the displayed guess (DV-19, #4689). The screen
-is the ruled one on every runner.
+Solid's S-44 `pending?` verdict is ruled, not built (#4695): on rc.22 `pending? comments` still reads `false` under the
+new question (DV-22). `latest comments` keeps the displayed guess there now (DV-19, fixed in rc.22). The screen is
+the ruled one on every runner.

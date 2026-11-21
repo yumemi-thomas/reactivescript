@@ -1,0 +1,532 @@
+========================================
+Source with a seed
+========================================
+
+source count := 0
+
+---
+
+(program
+  (source_declaration
+    name: (identifier)
+    value: (number)))
+
+========================================
+Source with a type and a question
+========================================
+
+source user: User = await fetchUser(id)
+
+---
+
+(program
+  (source_declaration
+    name: (identifier)
+    type: (type_annotation
+      (type_identifier))
+    value: (await_expression
+      argument: (call_expression
+        function: (identifier)
+        arguments: (arguments
+          (identifier))))))
+
+========================================
+Source with a key
+========================================
+
+source todos: Row[] key id = server.map(row)
+source xs key id := []
+
+---
+
+(program
+  (source_declaration
+    name: (identifier)
+    type: (type_annotation
+      (array_type
+        (type_identifier)))
+    (key_clause
+      name: (identifier))
+    value: (call_expression
+      function: (member_expression
+        object: (identifier)
+        property: (property_identifier))
+      arguments: (arguments
+        (identifier))))
+  (source_declaration
+    name: (identifier)
+    (key_clause
+      name: (identifier))
+    value: (array)))
+
+========================================
+Equations
+========================================
+
+double = count * 2
+label: string = `${user.name} (${count})`
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (binary_expression
+      left: (identifier)
+      right: (number)))
+  (equation
+    name: (identifier)
+    type: (type_annotation
+      (predefined_type))
+    value: (template_string
+      (template_substitution
+        (member_expression
+          object: (identifier)
+          property: (property_identifier)))
+      (string_fragment)
+      (template_substitution
+        (identifier))
+      (string_fragment))))
+
+========================================
+Equation named like a contextual keyword
+========================================
+
+server = await loadTodos()
+error = latest problem
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    value: (await_expression
+      argument: (call_expression
+        function: (identifier)
+        arguments: (arguments))))
+  (equation
+    name: (identifier)
+    value: (latest_expression
+      argument: (identifier))))
+
+========================================
+Keyed and deferred equations
+========================================
+
+rows key id = items
+deferred preview = await render(doc)
+
+---
+
+(program
+  (equation
+    name: (identifier)
+    (key_clause
+      name: (identifier))
+    value: (identifier))
+  (equation
+    (deferred)
+    name: (identifier)
+    value: (await_expression
+      argument: (call_expression
+        function: (identifier)
+        arguments: (arguments
+          (identifier))))))
+
+========================================
+Destructuring equations
+========================================
+
+{ name, age = 0, ...rest } = user
+[first, , third] = list
+
+---
+
+(program
+  (equation
+    name: (object_pattern
+      (shorthand_property_identifier_pattern)
+      (object_assignment_pattern
+        left: (shorthand_property_identifier_pattern)
+        right: (number))
+      (rest_pattern
+        (identifier)))
+    value: (identifier))
+  (equation
+    name: (array_pattern
+      (identifier)
+      (identifier))
+    value: (identifier)))
+
+========================================
+Arrow fn
+========================================
+
+fn area(w: number, h: number): number => w * h
+
+---
+
+(program
+  (fn_declaration
+    name: (identifier)
+    parameters: (formal_parameters
+      (required_parameter
+        pattern: (identifier)
+        type: (type_annotation
+          (predefined_type)))
+      (required_parameter
+        pattern: (identifier)
+        type: (type_annotation
+          (predefined_type))))
+    return_type: (type_annotation
+      (predefined_type))
+    body: (binary_expression
+      left: (identifier)
+      right: (identifier))))
+
+========================================
+Block fn with ref parameter
+========================================
+
+fn Counter(ref start: number) {
+  source n := peek(start)
+  next = n + 1
+  next
+}
+
+---
+
+(program
+  (fn_declaration
+    name: (identifier)
+    parameters: (formal_parameters
+      (required_parameter
+        (ref_modifier)
+        pattern: (identifier)
+        type: (type_annotation
+          (predefined_type))))
+    body: (fn_body
+      (source_declaration
+        name: (identifier)
+        value: (peek_expression
+          argument: (parenthesized_expression
+            (identifier))))
+      (equation
+        name: (identifier)
+        value: (binary_expression
+          left: (identifier)
+          right: (number)))
+      value: (identifier))))
+
+========================================
+Server fn
+========================================
+
+server fn listNotes(q: string): Promise<Note[]> {
+  let rows = await dbNotes(q)
+  return rows
+}
+
+---
+
+(program
+  (server_function_declaration
+    (side)
+    name: (identifier)
+    parameters: (formal_parameters
+      (required_parameter
+        pattern: (identifier)
+        type: (type_annotation
+          (predefined_type))))
+    return_type: (type_annotation
+      (generic_type
+        name: (type_identifier)
+        type_arguments: (type_arguments
+          (array_type
+            (type_identifier)))))
+    body: (statement_block
+      (lexical_declaration
+        (variable_declarator
+          name: (identifier)
+          value: (await_expression
+            argument: (call_expression
+              function: (identifier)
+              arguments: (arguments
+                (identifier))))))
+      (return_statement
+        (identifier)))))
+
+========================================
+Action
+========================================
+
+action save(n: string) {
+  name := n
+}
+
+---
+
+(program
+  (action_declaration
+    name: (identifier)
+    parameters: (formal_parameters
+      (required_parameter
+        pattern: (identifier)
+        type: (type_annotation
+          (predefined_type))))
+    body: (statement_block
+      (write_statement
+        target: (identifier)
+        value: (identifier)))))
+
+========================================
+Effect
+========================================
+
+effect (count, user.name) { log($0, $1) }
+effect () { start() }
+
+---
+
+(program
+  (effect_declaration
+    inputs: (effect_inputs
+      (identifier)
+      (member_expression
+        object: (identifier)
+        property: (property_identifier)))
+    body: (statement_block
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          arguments: (arguments
+            (identifier)
+            (identifier))))))
+  (effect_declaration
+    inputs: (effect_inputs)
+    body: (statement_block
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          arguments: (arguments))))))
+
+========================================
+Error classes
+========================================
+
+error NotFound(id: number) => `no user ${id}`
+error Offline
+
+---
+
+(program
+  (error_declaration
+    name: (type_identifier)
+    parameters: (formal_parameters
+      (required_parameter
+        pattern: (identifier)
+        type: (type_annotation
+          (predefined_type))))
+    message: (template_string
+      (string_fragment)
+      (template_substitution
+        (identifier))))
+  (error_declaration
+    name: (type_identifier)))
+
+========================================
+Context and provide
+========================================
+
+context theme: Theme = defaultTheme
+context session: source Session
+provide theme = settings.theme
+
+---
+
+(program
+  (context_declaration
+    name: (identifier)
+    type: (type_identifier)
+    value: (identifier))
+  (context_declaration
+    name: (identifier)
+    type: (type_identifier))
+  (provide_declaration
+    name: (identifier)
+    value: (member_expression
+      object: (identifier)
+      property: (property_identifier))))
+
+========================================
+Component with props
+========================================
+
+component Row(props: { item: Item }) {
+  <li>{props.item.name}</li>
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters
+      (required_parameter
+        pattern: (identifier)
+        type: (type_annotation
+          (object_type
+            (property_signature
+              name: (property_identifier)
+              type: (type_annotation
+                (type_identifier)))))))
+    body: (view_block
+      (jsx_element
+        open_tag: (jsx_opening_element
+          name: (identifier))
+        (jsx_expression
+          (member_expression
+            object: (member_expression
+              object: (identifier)
+              property: (property_identifier))
+            property: (property_identifier)))
+        close_tag: (jsx_closing_element
+          name: (identifier))))))
+
+========================================
+Component with destructured props
+========================================
+
+component Card({ title, open = false }) {
+  <h2>{title}</h2>
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters
+      (required_parameter
+        pattern: (object_pattern
+          (shorthand_property_identifier_pattern)
+          (object_assignment_pattern
+            left: (shorthand_property_identifier_pattern)
+            right: (false)))))
+    body: (view_block
+      (jsx_element
+        open_tag: (jsx_opening_element
+          name: (identifier))
+        (jsx_expression
+          (identifier))
+        close_tag: (jsx_closing_element
+          name: (identifier))))))
+
+========================================
+Component body: declarations then markup
+========================================
+
+component Counter() {
+  source n := 0
+  doubled = n * 2
+  <button onClick={() => { n := n + 1 }}>{doubled}</button>
+}
+
+---
+
+(program
+  (component_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (view_block
+      (source_declaration
+        name: (identifier)
+        value: (number))
+      (equation
+        name: (identifier)
+        value: (binary_expression
+          left: (identifier)
+          right: (number)))
+      (jsx_element
+        open_tag: (jsx_opening_element
+          name: (identifier)
+          attribute: (jsx_attribute
+            (property_identifier)
+            (jsx_expression
+              (arrow_function
+                parameters: (formal_parameters)
+                body: (statement_block
+                  (write_statement
+                    target: (identifier)
+                    value: (binary_expression
+                      left: (identifier)
+                      right: (number))))))))
+        (jsx_expression
+          (identifier))
+        close_tag: (jsx_closing_element
+          name: (identifier))))))
+
+========================================
+Declarations back to back on one line
+========================================
+
+source a := 1; b = a + 1
+
+---
+
+(program
+  (source_declaration
+    name: (identifier)
+    value: (number))
+  (equation
+    name: (identifier)
+    value: (binary_expression
+      left: (identifier)
+      right: (number))))
+
+========================================
+A fn body on the next line
+========================================
+
+fn f(a: number): number
+{
+  a + 1
+}
+
+server fn load(id: number): Row
+{
+  return db(id)
+}
+
+---
+
+(program
+  (fn_declaration
+    (identifier)
+    (formal_parameters
+      (required_parameter
+        (identifier)
+        (type_annotation
+          (predefined_type))))
+    (type_annotation
+      (predefined_type))
+    (fn_body
+      (binary_expression
+        (identifier)
+        (number))))
+  (server_function_declaration
+    (side)
+    (identifier)
+    (formal_parameters
+      (required_parameter
+        (identifier)
+        (type_annotation
+          (predefined_type))))
+    (type_annotation
+      (type_identifier))
+    (statement_block
+      (return_statement
+        (call_expression
+          (identifier)
+          (arguments
+            (identifier)))))))

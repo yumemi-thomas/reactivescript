@@ -1,0 +1,7 @@
+I built the sprint board in `src/main.rx`, with the board in `src/board.rx`, the columns in `src/column.rx` and the archive page in `src/archive.rx`. `./check` is clean and all 26 visible tests pass; I used 4 of the 15 runs. Each column has its own loading, error and retry; moves, adds, archives and restores show at once and revert if the server declines. Renames, item toggles and item adds are laid over both the cards and the checklist, so the two views always agree.
+
+The two choices I'm least sure of:
+- **Accepted writes:** these copy the server's answer into the loaded data instead of fetching the column again. That makes the result show the moment the server answers, but it goes against the language guide's advice to fetch again after a write. The one exception is restore, which fetches the archive again.
+- **Work-in-progress limit:** the limit and the target position of a move come from counts each column reports up after it draws, which keeps the columns independent but updates one tick after the card moves.
+
+A 404 for a missing resource shows in the browser console during the tests; it didn't affect any of them.

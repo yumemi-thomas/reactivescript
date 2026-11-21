@@ -1,0 +1,7 @@
+I built the sprint board in Foldkit 0.170, and all 26 visible tests pass. I used 2 of the 15 `./check`/`./test` runs. `src/main.ts` holds the two tabs; the board lives in `src/board/` and the archive page in `src/archive.ts`. Every quick change (move, rename, add, archive, toggle, add item, restore) is queued on top of the server's last answer. So when one is declined, only that change is undone and any others still waiting stay put. Each page opening gets a session number, so answers that arrive after you leave a page, or that belong to a card you've since unselected, are ignored.
+
+The brief left a few things open, and these are my calls:
+- **Unloaded columns:** if the next column is still loading or failed, the `left`/`right` button stays visible but disabled. `add-card` and `add-item` are disabled until their list has loaded.
+- **Pending new cards:** a card still being added counts in its column's heading. Cards next to it don't get an `up`/`down` button that would swap with it.
+- **Rename:** `title-input` keeps its text after a rename, because the brief only says the other two inputs empty. Typed text is trimmed before it's sent.
+- **Selecting the same card again** does nothing; it doesn't reload the checklist.

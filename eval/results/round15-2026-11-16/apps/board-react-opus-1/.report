@@ -1,0 +1,8 @@
+I built the sprint board in `src/App.tsx`, `src/Board.tsx`, `src/Archive.tsx`, `src/rebase.ts` and `src/styles.ts`, and `./check` and all 26 visible tests pass. The test run logged one 404 for a resource it couldn't load, which I took to be the favicon but didn't check. Every optimistic change is a queued operation on top of what the server has confirmed: a declined one is dropped and the rest stay applied, and answers that arrive out of order still end in the right state.
+
+Calls I made where the brief was silent:
+- Reselecting a card keeps its loaded checklist on screen and asks for it again in the background, instead of going back to `loading checklist`.
+- A rename or item error that comes back after you've selected a different card isn't shown.
+- `left`/`right` are disabled while the column they'd move into is loading or failed, and `add-card` is disabled until To do has loaded.
+- Titles and item text are trimmed, and blank ones are ignored.
+- `rename` does not clear `title-input`.

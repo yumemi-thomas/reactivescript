@@ -1,0 +1,303 @@
+import pure { fetchCards, fetchChecklist } from "./api"
+import { moveCard, renameCard, addCard, archiveCard, toggleItem, addItem } from "./api"
+import { Card, Item } from "./api"
+
+// A toggle in flight or accepted: the item's shown done state, over the server's checklist.
+type Flip = { id: number; done: boolean }
+// A checklist item added on this visit: negative id while its add is in flight.
+type Added = { id: number; text: string; done: boolean; cardId: number }
+
+// Pure helpers over one column's cards.
+fn without(cs: Card[], id: number): Card[] => cs.filter(x => x.id != id)
+fn put(cs: Card[], c: Card, i: number): Card[] => [...cs.slice(0, i), c, ...cs.slice(i)]
+// The column `col` after card `c` moved from `from` to `to` at `index`.
+fn placed(cs: Card[], col: string, c: Card, from: string, to: string, index: number): Card[] =>
+  col == to ? put(without(cs, c.id), c, index) : col == from ? without(cs, c.id) : cs
+fn counted(cs: Card[], id: number, dd: number, dt: number): Card[] =>
+  cs.map(x => (x.id == id ? { ...x, done: x.done + dd, total: x.total + dt } : x))
+fn renamed(cs: Card[], id: number, title: string): Card[] =>
+  cs.map(x => (x.id == id ? { ...x, title: title } : x))
+// The smallest client id so far, minus one: a new negative id that no list in view uses.
+fn lowest(ids: number[]): number => ids.reduce((m, x) => (x < m ? x : m), 0) - 1
+fn flipped(fs: Flip[], id: number, done: boolean): boolean =>
+  fs.reduce((d, f) => (f.id == id ? f.done : d), done)
+fn itemsFor(server: Item[], extra: Added[], fs: Flip[], card: number): Item[] =>
+  [...server, ...extra.filter(a => a.cardId == card)].map(i => ({ id: i.id, text: i.text, done: flipped(fs, i.id, i.done) }))
+fn doneOf(items: Item[]): number => items.filter(i => i.done).length
+fn colLabel(c: string): string => (c == "todo" ? "To do" : c == "doing" ? "Doing" : "Done")
+
+// The board page. All of its state lives here, so leaving the page discards it.
+export component Board() {
+  // Each column is its own answer from the server, asked when the page opens.
+  source todoCol: Card[] key id = await fetchCards("todo")
+  source doingCol: Card[] key id = await fetchCards("doing")
+  source doneCol: Card[] key id = await fetchCards("done")
+  source tryTodo := 0
+  source tryDoing := 0
+  source tryDone := 0
+
+  // Card counts for the cross-column buttons: -1 while a column is loading or has failed.
+  source todoN := -1
+  source doingN := -1
+  source doneN := -1
+  effect (todoCol catch (e) => null) { todoN := $0 == null ? -1 : $0.length }
+  effect (doingCol catch (e) => null) { doingN := $0 == null ? -1 : $0.length }
+  effect (doneCol catch (e) => null) { doneN := $0 == null ? -1 : $0.length }
+
+  source moveError := ""
+  source addError := ""
+  source archiveError := ""
+  source renameError := ""
+  source itemError := ""
+
+  // The selected card: its id, title and column as shown.
+  source selId := 0
+  source selTitle := ""
+  source selCol := "todo"
+  source renameText := ""
+  source itemText := ""
+  source newCardTitle := ""
+
+  // The checklist of the selected card, from the server. Writes lay over it through flips and adds.
+  source checkAns: Item[] key id = selId == 0 ? [] : await fetchChecklist(selId)
+  source flips: Flip[] = []
+  source adds: Added[] = []
+  shownItems = itemsFor(checkAns, adds, flips, selId)
+
+  action pick(id: number, title: string, col: string) {
+    onFlush(() => {
+      selId := id
+      selTitle := title
+      selCol := col
+      renameText := ""
+      renameError := ""
+      itemError := ""
+    })
+  }
+
+  action place(c: Card, from: string, to: string, index: number) {
+    onFlush(() => { moveError := "" })
+    if (selId == c.id) { onFlush(() => { selCol := to }) }
+    if (from == "todo" || to == "todo") { guess todoCol := cs => placed(cs, "todo", c, from, to, index) }
+    if (from == "doing" || to == "doing") { guess doingCol := cs => placed(cs, "doing", c, from, to, index) }
+    if (from == "done" || to == "done") { guess doneCol := cs => placed(cs, "done", c, from, to, index) }
+    try {
+      await moveCard(c.id, to, index)
+      if (from == "todo" || to == "todo") { todoCol := cs => placed(cs, "todo", c, from, to, index) }
+      if (from == "doing" || to == "doing") { doingCol := cs => placed(cs, "doing", c, from, to, index) }
+      if (from == "done" || to == "done") { doneCol := cs => placed(cs, "done", c, from, to, index) }
+    } catch (e) {
+      moveError := e.message
+      if (selId == c.id) { selCol := from }
+    }
+  }
+
+  action rename(col: string, id: number, title: string, prev: string) {
+    onFlush(() => { renameError := "" })
+    if (selId == id) { onFlush(() => { selTitle := title }) }
+    if (col == "todo") { guess todoCol := cs => renamed(cs, id, title) }
+    if (col == "doing") { guess doingCol := cs => renamed(cs, id, title) }
+    if (col == "done") { guess doneCol := cs => renamed(cs, id, title) }
+    try {
+      await renameCard(id, title)
+      if (col == "todo") { todoCol := cs => renamed(cs, id, title) }
+      if (col == "doing") { doingCol := cs => renamed(cs, id, title) }
+      if (col == "done") { doneCol := cs => renamed(cs, id, title) }
+    } catch (e) {
+      renameError := e.message
+      if (selId == id) { selTitle := prev }
+    }
+  }
+
+  action archive(col: string, id: number) {
+    onFlush(() => { archiveError := "" })
+    if (selId == id) { onFlush(() => { selId := 0 }) }
+    if (col == "todo") { guess todoCol := cs => without(cs, id) }
+    if (col == "doing") { guess doingCol := cs => without(cs, id) }
+    if (col == "done") { guess doneCol := cs => without(cs, id) }
+    try {
+      await archiveCard(id)
+      if (col == "todo") { todoCol := cs => without(cs, id) }
+      if (col == "doing") { doingCol := cs => without(cs, id) }
+      if (col == "done") { doneCol := cs => without(cs, id) }
+    } catch (e) {
+      archiveError := e.message
+    }
+  }
+
+  action addTo(title: string, tmpId: number) {
+    onFlush(() => {
+      newCardTitle := ""
+      addError := ""
+    })
+    guess todoCol := cs => [...cs, { id: tmpId, title: title, done: 0, total: 0 }]
+    try {
+      let answer = await addCard("todo", title)
+      todoCol := cs => cs.map(x => (x.id == tmpId ? { id: answer.id, title: x.title, done: 0, total: 0 } : x))
+    } catch (e) {
+      addError := e.message
+    }
+  }
+
+  action flip(cardId: number, col: string, itemId: number, done: boolean) {
+    onFlush(() => { itemError := "" })
+    let dd = done ? 1 : -1
+    guess flips := fs => [...fs.filter(f => f.id != itemId), { id: itemId, done: done }]
+    if (col == "todo") { guess todoCol := cs => counted(cs, cardId, dd, 0) }
+    if (col == "doing") { guess doingCol := cs => counted(cs, cardId, dd, 0) }
+    if (col == "done") { guess doneCol := cs => counted(cs, cardId, dd, 0) }
+    try {
+      await toggleItem(cardId, itemId, done)
+      flips := fs => [...fs.filter(f => f.id != itemId), { id: itemId, done: done }]
+    } catch (e) {
+      itemError := e.message
+    }
+  }
+
+  action addItemTo(cardId: number, col: string, text: string, tmpId: number) {
+    onFlush(() => {
+      itemText := ""
+      itemError := ""
+    })
+    guess adds := as => [...as, { id: tmpId, text: text, done: false, cardId: cardId }]
+    if (col == "todo") { guess todoCol := cs => counted(cs, cardId, 0, 1) }
+    if (col == "doing") { guess doingCol := cs => counted(cs, cardId, 0, 1) }
+    if (col == "done") { guess doneCol := cs => counted(cs, cardId, 0, 1) }
+    try {
+      let answer = await addItem(cardId, text)
+      adds := as => as.map(a => (a.id == tmpId ? { id: answer.id, text: answer.text, done: answer.done, cardId: cardId } : a))
+      if (col == "todo") { todoCol := cs => counted(cs, cardId, 0, 1) }
+      if (col == "doing") { doingCol := cs => counted(cs, cardId, 0, 1) }
+      if (col == "done") { doneCol := cs => counted(cs, cardId, 0, 1) }
+    } catch (e) {
+      itemError := e.message
+    }
+  }
+
+  <div>
+    <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
+
+      {loading on(tryTodo) fallback {
+        <section data-testid="col-todo"><h3 data-testid="head-todo">To do</h3><p>loading</p></section>
+      } {
+        {errored fallback(e) {
+          <section data-testid="col-todo">
+            <h3 data-testid="head-todo">To do</h3>
+            <p>error: {e.message}</p>
+            <button data-testid="retry-todo" onClick={() => { tryTodo := tryTodo + 1; refresh todoCol }}>retry</button>
+          </section>
+        } {
+          <section data-testid="col-todo">
+            <h3 data-testid="head-todo">To do ({todoCol.length})</h3>
+            <ul>
+              {for c in todoCol {
+                <li>
+                  {if c.id < 0 { <span data-testid="card">{c.title} (adding…)</span> } else { <span data-testid="card" onClick={() => { pick(c.id, c.title, "todo") }}>#{c.id} {c.title} · {c.done}/{c.total}</span> }}
+                  {if c.id > 0 && c.id != todoCol[0].id { <button onClick={() => { let i = todoCol.findIndex(x => x.id == c.id); place(c, "todo", "todo", i - 1) }}>up</button> }}
+                  {if c.id > 0 && c.id != todoCol[todoCol.length - 1].id { <button onClick={() => { let i = todoCol.findIndex(x => x.id == c.id); place(c, "todo", "todo", i + 1) }}>down</button> }}
+                  {if c.id > 0 { <button disabled={doingN < 0 || doingN >= 3} onClick={() => { place(c, "todo", "doing", doingN) }}>right</button> }}
+                </li>
+              }}
+            </ul>
+            <input data-testid="new-card" value={newCardTitle} onInput={(e) => { newCardTitle := e.target.value }} />
+            <button data-testid="add-card" onClick={() => { if (newCardTitle.trim() != "") { addTo(newCardTitle.trim(), lowest(todoCol.map(x => x.id))) } }}>add</button>
+          </section>
+        }}
+      }}
+
+      {loading on(tryDoing) fallback {
+        <section data-testid="col-doing"><h3 data-testid="head-doing">Doing</h3><p>loading</p></section>
+      } {
+        {errored fallback(e) {
+          <section data-testid="col-doing">
+            <h3 data-testid="head-doing">Doing</h3>
+            <p>error: {e.message}</p>
+            <button data-testid="retry-doing" onClick={() => { tryDoing := tryDoing + 1; refresh doingCol }}>retry</button>
+          </section>
+        } {
+          <section data-testid="col-doing">
+            <h3 data-testid="head-doing">Doing ({doingCol.length})</h3>
+            <ul>
+              {for c in doingCol {
+                <li>
+                  <span data-testid="card" onClick={() => { pick(c.id, c.title, "doing") }}>#{c.id} {c.title} · {c.done}/{c.total}</span>
+                  <button disabled={todoN < 0} onClick={() => { place(c, "doing", "todo", todoN) }}>left</button>
+                  <button disabled={doneN < 0} onClick={() => { place(c, "doing", "done", doneN) }}>right</button>
+                  {if c.id != doingCol[0].id { <button onClick={() => { let i = doingCol.findIndex(x => x.id == c.id); place(c, "doing", "doing", i - 1) }}>up</button> }}
+                  {if c.id != doingCol[doingCol.length - 1].id { <button onClick={() => { let i = doingCol.findIndex(x => x.id == c.id); place(c, "doing", "doing", i + 1) }}>down</button> }}
+                </li>
+              }}
+            </ul>
+          </section>
+        }}
+      }}
+
+      {loading on(tryDone) fallback {
+        <section data-testid="col-done"><h3 data-testid="head-done">Done</h3><p>loading</p></section>
+      } {
+        {errored fallback(e) {
+          <section data-testid="col-done">
+            <h3 data-testid="head-done">Done</h3>
+            <p>error: {e.message}</p>
+            <button data-testid="retry-done" onClick={() => { tryDone := tryDone + 1; refresh doneCol }}>retry</button>
+          </section>
+        } {
+          <section data-testid="col-done">
+            <h3 data-testid="head-done">Done ({doneCol.length})</h3>
+            <ul>
+              {for c in doneCol {
+                <li>
+                  <span data-testid="card" onClick={() => { pick(c.id, c.title, "done") }}>#{c.id} {c.title} · {c.done}/{c.total}</span>
+                  <button disabled={doingN < 0 || doingN >= 3} onClick={() => { place(c, "done", "doing", doingN) }}>left</button>
+                  {if c.id != doneCol[0].id { <button onClick={() => { let i = doneCol.findIndex(x => x.id == c.id); place(c, "done", "done", i - 1) }}>up</button> }}
+                  {if c.id != doneCol[doneCol.length - 1].id { <button onClick={() => { let i = doneCol.findIndex(x => x.id == c.id); place(c, "done", "done", i + 1) }}>down</button> }}
+                </li>
+              }}
+            </ul>
+          </section>
+        }}
+      }}
+
+      <aside data-testid="detail" style={{ minWidth: "16rem" }}>
+        {if selId == 0 {
+          <p>select a card</p>
+        } else {
+          <h2>#{selId} {selTitle}</h2>
+          <p>in {colLabel(selCol)}</p>
+          <input data-testid="title-input" value={renameText} onInput={(e) => { renameText := e.target.value }} />
+          <button data-testid="rename" onClick={() => { if (renameText.trim() != "") { rename(selCol, selId, renameText.trim(), selTitle) } }}>rename</button>
+          {if renameError != "" { <p data-testid="rename-error">rename error: {renameError}</p> }}
+          <button data-testid="archive" onClick={() => { archive(selCol, selId) }}>archive</button>
+          {if itemError != "" { <p data-testid="item-error">item error: {itemError}</p> }}
+          <section data-testid="checklist">
+            {loading on(selId) fallback {
+              <p>loading checklist</p>
+            } {
+              {errored fallback(e) {
+                <p>checklist error: {e.message}</p>
+              } {
+                <div>
+                  <ul>
+                    {for it in shownItems {
+                      <li>
+                        <span data-testid="item">{it.done ? "[x] " : "[ ] "}{it.text}{it.id < 0 ? " (adding…)" : ""}</span>{" "}
+                        {if it.id > 0 { <button onClick={() => { flip(selId, selCol, it.id, !it.done) }}>toggle</button> }}
+                      </li>
+                    }}
+                  </ul>
+                  <p data-testid="progress">{doneOf(shownItems)}/{shownItems.length} done</p>
+                  <input data-testid="item-input" value={itemText} onInput={(e) => { itemText := e.target.value }} />
+                  <button data-testid="add-item" onClick={() => { if (itemText.trim() != "") { addItemTo(selId, selCol, itemText.trim(), lowest(shownItems.map(i => i.id))) } }}>add item</button>
+                </div>
+              }}
+            }}
+          </section>
+        }}
+      </aside>
+    </div>
+
+    {if moveError != "" { <p data-testid="move-error">move error: {moveError}</p> }}
+    {if addError != "" { <p data-testid="add-error">add error: {addError}</p> }}
+    {if archiveError != "" { <p data-testid="archive-error">archive error: {archiveError}</p> }}
+  </div>
+}

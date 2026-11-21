@@ -3,8 +3,8 @@
 // names it explicitly.
 //
 // The crate (its Node-API build, `src/node.rs`: what `rxc app` does) already hands each module to Solid's compiler
-// (spec/11 CP-1), so a `.rx` module comes back as Solid's output for the environment's `generate`, with its source map onto the `.rx` and, on a
-// program's entry, the program's stylesheet. Solid's plugin then takes it the way it takes lowered `.tsrx`: primitive
+// (spec/11 CP-1), so a `.rx` module comes back as Solid's output for the environment's `generate`, with its source map onto the `.rx` and
+// its own stylesheet. Solid's plugin then takes it the way it takes lowered `.tsrx`: primitive
 // names, `lazy()`, the HMR refresh pass, server functions (12 SF-7a), the stylesheet as a CSS module.
 //
 // Entries find themselves. JavaScript imports only a program's entry (its default export mounts the app); an `.rx`
@@ -23,7 +23,7 @@
 // Declarations (09 MO-8l): before a program is read, each package it imports that nothing declares (no `rx-types/` file,
 // none shipped, no `@rx-types` package) gets a draft from its TypeScript types in `node_modules/.rx-types/`, with the
 // language server's generator. `rx({ generate: false })` or RX_GENERATE=0 turns it off.
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -69,6 +69,29 @@ function generator(entry) {
   return existsSync(local) ? createRequire(import.meta.url)(local) : undefined;
 }
 
+const RX_IMPORT = /^import\b[^"']*?\bfrom\s+(["'])(\.{1,2}\/[^"'?]*\.rx)\1/gm;
+/** The `.rx` files under `root` from which `file` is reached by imports: first those no other `.rx` file imports. */
+function entriesOf(file, root) {
+  const importers = new Map();
+  const walk = dir => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".rx")) for (const [, , spec] of readFileSync(p, "utf8").matchAll(RX_IMPORT)) {
+        const dep = path.resolve(path.dirname(p), spec);
+        importers.set(dep, [...(importers.get(dep) ?? []), p]);
+      }
+    }
+  };
+  walk(root);
+  const seen = new Set([file]);
+  for (const f of seen) for (const i of importers.get(f) ?? []) seen.add(i);
+  seen.delete(file);
+  const top = f => !importers.has(f);
+  return [...seen].sort().sort((a, b) => top(b) - top(a));
+}
+
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx(options = {}) {
   const flag = process.env.RX_TYPECHECK;
@@ -92,15 +115,25 @@ export default function rx(options = {}) {
     builds.set(key, b);
     return b;
   }
+  const built = (file, target, moduleName, spa) =>
+    [...builds.values()].filter(b => b.target === target && b.moduleName === moduleName && b.spa === spa && b.out.modules?.[file]);
   /** A dependency: from a build of a program that has it, rebuilt if that program changed. */
-  function containing(file, target, moduleName, spa) {
-    const has = [...builds.values()].filter(b => b.target === target && b.moduleName === moduleName && b.spa === spa && b.out.modules?.[file]);
+  function containing(file, target, moduleName, spa, root) {
+    const has = built(file, target, moduleName, spa);
     const b = has.find(fresh) ?? has[0];
-    if (!b) throw new Error(`${file} is imported as an .rx dependency, but no program built so far contains it`);
-    return build(b.entry, target, moduleName, spa);
+    if (b) return build(b.entry, target, moduleName, spa);
+    // the entry's compile was skipped (Vitest's `fsModuleCache` served it), so find the program from the files
+    let failed;
+    for (const entry of entriesOf(file, root)) {
+      const found = build(entry, target, moduleName, spa);
+      if (found.out.modules?.[file]) return found;
+      if (!failed && found.out.diagnostics) failed = found;   // the program holds it but does not compile: report why
+    }
+    if (failed) return failed;
+    throw new Error(`${file} is imported as an .rx dependency, but no program under ${root} contains it`);
   }
   return {
-    compile(_source, { id, moduleId, solid, addWatchFile }) {
+    compile(_source, { id, moduleId, root, solid, addWatchFile }) {
       const file = path.resolve(id);
       const target = solid.generate === "ssr" ? "ssr" : solid.generate === "universal" ? "universal" : "dom";
       const moduleName = solid.moduleName ?? "@solidjs/web";
@@ -114,18 +147,18 @@ export default function rx(options = {}) {
         if (t === undefined) console.warn(`[reactivescript] types not checked: no tsconfig.json above ${path.relative(process.cwd(), file)}, or no @reactivescript/language-server to run rx-tsc with (13 TY-1a)`);
         else if (t) throw new Error(`type errors (rx-tsc):\n${t}`);
       }
-      const { entry, out } = dep ? containing(file, target, moduleName, spa) : build(file, target, moduleName, spa, lib);
+      const { entry, out } = dep ? containing(file, target, moduleName, spa, path.resolve(root ?? process.cwd())) : build(file, target, moduleName, spa, lib);
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];
       for (const p of Object.keys(out.modules)) if (p !== file) addWatchFile(p);
-      // CSS-4: the program's stylesheet, linked once, from its entry
+      // CSS-4: each module links its own stylesheet, so a module several programs share links it once
       // CP-4d: a library's components by name, bound to the host's app (`import { PersonCard } from "./pages.rx?rx-lib"`);
       // the default export stays the module, for `components(pages)`. Appended, so the source map's lines still hold.
       const named = lib && file === entry && out.components?.length
         ? `\nimport { components as __rxComponents } from "@reactivescript/runtime";\nconst __rx = __rxComponents(module);\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n`
         : "";
-      return { code: tagDeps(m.code) + named, map: m.map, css: !dep && file === entry ? out.css : "" };
+      return { code: tagDeps(m.code) + named, map: m.map, css: m.css ?? "" };
     },
   };
 }

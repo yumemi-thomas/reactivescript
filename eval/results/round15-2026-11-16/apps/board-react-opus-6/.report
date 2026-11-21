@@ -1,0 +1,7 @@
+I built the sprint board in React 19 and TypeScript, and `./check` passes along with all 26 visible tests. Every change shows on screen at once as a pending step on top of the server's last answer. A decline removes only that step, an accepted step is merged in only once every earlier one has settled, and late or stale answers (a reload, a re-selected card's checklist, a page you have left) are ignored. The main logic is in `/tmp/claude-0/runs/r15/board-react-opus-6/src/model.ts`, with the pages in `src/Board.tsx`, `src/Archive.tsx` and `src/App.tsx` under the same directory.
+
+Where the brief was unclear I chose:
+- `title-input` keeps its text after a rename, since the brief only says the other two inputs empty.
+- `left`/`right` and `add-card` are disabled until the target column has loaded.
+- A rename or item error that comes back after you have selected a different card is not shown.
+- A card still being added (no id yet) can't be selected, and a card moved into To do lands above any such cards.

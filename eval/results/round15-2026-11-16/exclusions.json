@@ -1,0 +1,106 @@
+{
+ "_": "Traced by-design holds (PREREG-15 Grading): each test listed was shown, by trace/holds.mjs or trace/holds9.mjs, to hold consistently and settle right. Kinds: H-11, shared-list (Ryan 2026-11-15).",
+ "board-rx-haiku-2": {
+  "tests": [
+   "a toggle declined after another card was selected puts the first card's count back",
+   "a toggle and an item add out together: the progress and the card's count agree",
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "an earlier move declined while a later move of the card is out leaves it where the later one put it"
+  ]
+ },
+ "board-rx-haiku-3": {
+  "tests": [
+   "a toggle declined after another card was selected puts the first card's count back",
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "an earlier move declined while a later move of the card is out leaves it where the later one put it"
+  ]
+ },
+ "board-rx-haiku-4": {
+  "tests": [
+   "two adds show both, each taking its own id"
+  ]
+ },
+ "board-rx-haiku-5": {
+  "tests": [
+   "a toggle declined after another card was selected puts the first card's count back",
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "an earlier move declined while a later move of the card is out leaves it where the later one put it"
+  ]
+ },
+ "board-rx-haiku-6": {
+  "tests": [
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "an earlier move declined while a later move of the card is out leaves it where the later one put it",
+   "a toggle declined after another card was selected puts the first card's count back"
+  ]
+ },
+ "board-rx-opus-1": {
+  "tests": [
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "a toggle declined after another card was selected puts the first card's count back"
+  ]
+ },
+ "board-rx-opus-2": {
+  "tests": [
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "a toggle declined after another card was selected puts the first card's count back",
+   "a toggle and an item add out together: the progress and the card's count agree"
+  ]
+ },
+ "board-rx-opus-3": {
+  "tests": [
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "a toggle declined after another card was selected puts the first card's count back",
+   "a toggle and an item add out together: the progress and the card's count agree",
+   "an earlier move declined while a later move of the card is out leaves it where the later one put it"
+  ]
+ },
+ "board-rx-opus-4": {
+  "tests": [
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "a toggle declined after another card was selected puts the first card's count back"
+  ]
+ },
+ "board-rx-opus-5": {
+  "tests": [
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "a toggle and an item add out together: the progress and the card's count agree",
+   "a toggle declined after another card was selected puts the first card's count back",
+   "an earlier move declined while a later move of the card is out leaves it where the later one put it"
+  ]
+ },
+ "board-rx-opus-6": {
+  "tests": [
+   "two adds show both, each taking its own id",
+   "one of two moves declined puts back only its card",
+   "a move into Doing that fills it while a move out is pending disables the rest",
+   "a toggle declined after another card was selected puts the first card's count back",
+   "a toggle and an item add out together: the progress and the card's count agree"
+  ]
+ },
+ "desk9-rx-haiku-5": {
+  "tests": [
+   "base: a declined assignment keeps a rename in flight on the same issue",
+   "base: a declined rename keeps an assignment in flight on the same issue",
+   "rows: a declined row close leaves a rename out on another issue"
+  ]
+ }
+}

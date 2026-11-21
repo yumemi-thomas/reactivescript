@@ -1,0 +1,44 @@
+import pure { fetchArchived } from "./api"
+import { restoreCard } from "./api"
+import { Archived } from "./api"
+
+export component ArchivePage() {
+  answer = await fetchArchived()
+  source restoring: number[] = []          // restores in flight (guesses)
+  source restored: number[] := []          // restores the server accepted, this visit
+  source restoreError: string := ""
+  rows key id = answer.filter(a => !restoring.includes(a.id) && !restored.includes(a.id))
+
+  action restore(id: number) {
+    onFlush(() => { restoreError := "" })
+    guess restoring := rs => [...rs, id]
+    try {
+      await restoreCard(id)
+      restored := rs => [...rs, id]
+    } catch (e) {
+      restoreError := e.message
+      onFlush(() => { restoreError := e.message })
+    }
+  }
+
+  <section>
+    <h2>Archive</h2>
+    {if restoreError != "" {
+      <p data-testid="restore-error">restore error: {restoreError}</p>
+    }}
+    <div data-testid="archived">
+      {loading fallback { <p>loading archive</p> } {
+        {errored fallback(e) { <p>archive error: {e.message}</p> } {
+          <ul>
+            {for a in rows {
+              <li>
+                <span data-testid="archived-card">#{a.id} {a.title}</span>{" "}
+                <button data-testid="restore" onClick={() => { restore(a.id) }}>restore</button>
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </div>
+  </section>
+}

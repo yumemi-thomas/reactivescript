@@ -1,0 +1,16 @@
+== hidden
+✗ two adds show both, each taking its own id
+44/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a move into Doing that fills it while a move out is pending disables the rest
+23/26 passed
+== fuzz
+board-rx-opus-5: 3/20 seeds found a hole
+  seed 3 step 12: duplicate card: "Alpha 2 (adding…)" shows 1 time(s) with 0 add(s) of it in the air, beside its added card
+    add Bravo 1 ; land addCard:todo,Bravo 1 ; add Alpha 2 ; add Alpha 3 ; add Delta 4 ; add Delta 5 ; land addCard:todo,Alpha 3 ; add Alpha 6 ; add Delta 7 ; add Delta 8 ; land addCard:todo,Alpha 2 ; land fetchCards:todo
+  seed 10 step 12: duplicate card: "# · / (adding…)" shows 1 time(s) with 0 add(s) of it in the air
+    tab archive ; tab board ; add Alpha 1 ; land fetchCards:todo ; select #1 ; land fetchArchived: ; land fetchChecklist:1 ; land fetchCards:done ; up #2 ; land addCard:todo,Alpha 1 ; fail moveCard:2,todo,0 ; land fetchCards:doing
+  seed 16 step 35: duplicate card: "Bravo 9 (adding…)" shows 1 time(s) with 0 add(s) of it in the air, beside its added card
+    add Delta 1 ; fail fetchCards:doing ; add Alpha 2 ; add Alpha 3 ; land addCard:todo,Delta 1 ; retry-doing ; tab archive ; land fetchCards:doing ; tab board ; add Delta 4 ; add Alpha 5 ; add Delta 6 ; tab archive ; tab board ; tab archive ; land addCard:todo,Delta 6 ; tab board ; land fetchCards:done ; select #5 ; land addCard:todo,Alpha 3 ; fail fetchCards:doing ; land fetchArchived: ; tab arc

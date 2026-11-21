@@ -143,7 +143,7 @@ Added:
 | `use name` | the nearest provision above (a unary form: `(use x) == y`) | RG-7 |
 | `type T = …` | a TS type declaration, kept as text | — |
 | `throw e` | a failure, in either scope: `x > 0 ? x : throw BadInput(x)` (TC39's throw expression) | R-f-3 |
-| `e catch (x: A \| B) => alt` | `alt` when `e` fails with `A` or `B`; `catch (x) =>` takes every class; looser than `?:` | R-f-4 |
+| `await e catch (x: A \| B) => alt` | `alt` is the answer when the promise rejects with `A` or `B`; `catch (x) =>` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
 
 `await` may appear anywhere in an expression of reactive scope — an
 equation, a reader `{…}`, an attribute or prop, an `if` condition, a `for`
@@ -564,7 +564,8 @@ Expr      ::= TSExpr with §3's removals and additions
     `createOptimistic`, which it still lowers to. A guess on state nothing
     will answer reads wrong on its face (`guess saveError := …`: the eval's
     pilot runs wrote that nine times as `optimistic`, `GUESS_NO_QUESTION`).
-    `optimistic` is not reserved: Solid's primitive keeps its name, and the
+    (A guess on a `:=` source became legal on 2026-11-20, decision 21, so
+    that misuse is now a "while it runs" value that reverts.) `optimistic` is not reserved: Solid's primitive keeps its name, and the
     keyword need not. `source` was weighed against `state`
     and `signal` the same day and kept (decision 2): `signal` reads as atomic
     beside stores, and an equation is state too.
@@ -586,3 +587,13 @@ Expr      ::= TSExpr with §3's removals and additions
     object rest `{ a, ...rest } = e` is Solid's `omit(e, "a")`, a live view
     of the other fields (`rest.b` stays `e.b`), and an array rest
     `[x, ...rest] = e` is `e.slice(1)`; in a `let`, each is a copy.
+21. **A guess may sit over a writable** (ruled 2026-11-20): `guess x := v`
+    on a source declared with `:=`, signal or store, and on a source with a
+    question that is also written plainly, by path or whole. The truth is
+    the writable: plain writes land with the action's change, and the guess
+    ends when that change commits, showing them (06 AC-3, S-guess-writable-1
+    to -3). Lowers to an optimistic layer derived from the writable
+    (`createOptimistic(() => truth())`, `createOptimisticStore(() => truth,
+    seed)`). Re-asking after a save (`refresh x`) stays the absolute form;
+    a client-owned source over one fetch, written by the action after the
+    server accepts, is the same layering with the client keeping the truth.

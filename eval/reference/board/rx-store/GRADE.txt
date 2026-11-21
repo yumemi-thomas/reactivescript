@@ -1,0 +1,10 @@
+rx-store (one flat keyed store, placeholder in the store), Solid next fab8bd9a4, TASK=board FUZZ_ROUND=--r15
+== hidden
+✗ two adds show both, each taking its own id            (legal H-11)
+44/45 passed
+== overlap
+✗ a toggle declined after another card was selected puts the first card's count back   (legal)
+25/26 passed
+== fuzz
+seeds 1-20: 1 hole (11)
+seeds 21-60: 8 holes (24, 28, 34, 36, 41, 46, 57, 60); 46 = Solid, repro/selection-memo-misses-guess.spec.tsx

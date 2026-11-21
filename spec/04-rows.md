@@ -230,13 +230,23 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
     every class. At run time a failure of another class passes the boundary
     to the next one up — the boundary does not show its fallback for it, and
     re-decides when the failure it shows changes class (S-fail-1 instant 6).
-  - `e catch (x: A | B) => alt`, an expression: when `e` fails with `A` or
-    `B` its value is `alt`, with `x` the error; other failures and pending
-    pass through untouched. `catch (x) => alt` discharges every class. It
-    binds looser than every operator, `?:` included — `c ? a : b catch …`
-    catches the conditional; parenthesise to catch one arm. Over an
-    equation's `await`, a matching rejection is an answer:
-    `user = await fetchUser(id) catch (e: NotFound) => null` lands `null`.
+  - `await e catch (x: A | B) => alt`, at the `await` only: when the
+    promise rejects with `A` or `B` the answer is `alt`, with `x` the error;
+    other failures and pending pass through untouched. `catch (x) => alt`
+    discharges every class. It binds looser than every operator, `?:`
+    included. A matching rejection is an answer, so it never becomes an
+    errored value: `user = await fetchUser(id) catch (e: NotFound) => null`
+    lands `null`. In imperative scope it follows a statement-level `await`
+    (AC-1); `try`/`catch` (AC-7) takes any other failure there, a snapshot
+    read's included (R-f-7).
+    A `catch` after anything but an `await` is `CATCH_NOT_ON_AWAIT` (bin S;
+    ruled 2026-11-19, Ryan: "only for things with await"). Principle: a
+    failure belongs to its own section. A value that failed is shown by an
+    `errored` region where it is read, whose retry re-asks the question that
+    failed; a catch over a read turned one pane's failure into another's
+    value (S-fail-4) and gave handlers a quiet way to read another pane's
+    failed data (found by the eval board, r15prep: the board reference
+    needed no catch once handlers read only their own pane).
   - An effect: its apply receives the failure as a value (`$0…`, H-12), so
     its inputs are discharged.
   - `pending? e` is a verdict and never reads `e`'s failure; `latest e` and
@@ -346,8 +356,9 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
 - `S-row-5`: `fn load(id) => await fetch(id)`; `x = load(id)` pending (R-3).
 - `S-fail-1` ✓: typed classes — a class caught into a value, a typed
   boundary taking its class, another class passing it to the root, recovery
-  through both (R-f-1..5, R-f-9); four rejected variants.
+  through both (R-f-1..5, R-f-9); five rejected variants incl.
+  `CATCH_NOT_ON_AWAIT`.
 - `S-fail-2` ✓: failures through components — children under the
-  component's boundary, a prop checked where it is read, a tail `await …
+  component's boundary, a prop checked where it is read, an `await …
   catch` (R-f-4, R-f-5); five rejected variants incl. R-f-6.
 - `S-action-1` ✓: a panic ends a body (DV-2); two R-f-6 rejections.

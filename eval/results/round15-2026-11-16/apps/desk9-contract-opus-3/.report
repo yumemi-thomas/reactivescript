@@ -1,0 +1,12 @@
+I built the issue desk in `/tmp/claude-0/runs/r15/desk9-contract-opus-3/app.contract` and `app.ts`. It has three tabs, and each page is reset when you leave it. All 30 visible tests pass and `./check` is clean. I also added 11 tests of my own for the failure paths (declined writes, failed and `null` loads, retries, the kept count, the search keeping old results), which all passed; I then put `tests/visible.mjs` back as it was.
+
+Every change shows on screen straight away, is undone if the server declines it, and refetches the affected list or detail once the reply lands. Each detail error only shows for the issue it belongs to, and the issue count is held by a separate open-issues list that keeps its last answer while hidden or reloading.
+
+Things I was unsure about:
+- **Fresh loads:** every new selection, query or retry asks the server again rather than showing an earlier answer.
+- **Trimming:** typed titles, labels, comments and the user name are trimmed before sending, and empty input does nothing.
+- **Related help:** it searches the issue's current title, so it searches again while a rename is pending.
+- **Help results:** after a too-short query, the previous results come back while a new search runs.
+- **Rename box:** it is not emptied after a rename, since the brief only says to empty the comment and label inputs.
+
+I used 6 of the 15 `./check` and `./test` runs.

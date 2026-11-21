@@ -1,0 +1,10 @@
+I built the sprint board in Foldkit 0.170 (in `/tmp/claude-0/runs/r15/board-foldkit-opus-2/src/`: `domain.ts`, `model.ts`, `message.ts`, `command.ts`, `update.ts`, `view.ts` and `main.ts`), and all 26 visible tests pass, with `./check` also clean. The board keeps the server's confirmed state separate from a queue of changes still waiting for an answer, and shows the two combined. A declined move, rename, add, archive, toggle or item add drops only its own change, so other changes still in flight survive it. Every request and change carries an id, so answers that arrive late, for a page the user has left or a card no longer selected, are ignored.
+
+Things I was unsure about:
+- **Rename input:** it is not emptied after a rename, because the brief only says the add inputs empty.
+- **Trimmed input:** titles and item text are trimmed, and blank ones are ignored.
+- **Columns still loading:** `left`/`right` stay disabled while the column they point to is loading or failed, and `add-card` stays disabled until To do loads.
+- **Retry after a failed checklist:** clicking the selected card again fetches its checklist again.
+- **Board counts:** once a card's checklist has loaded, the card's `<done>/<total>` comes from that checklist rather than from `fetchCards`.
+
+One console error appears in the test run, a 404 for a resource the app never asks for (probably the favicon).

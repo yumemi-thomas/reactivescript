@@ -1,0 +1,325 @@
+========================================
+Import, io
+========================================
+
+import { saveUser } from "./api"
+
+---
+
+(program
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))))
+    source: (string
+      (string_fragment))))
+
+========================================
+Import pure with alias
+========================================
+
+import pure { fetchUser, format as fmt } from "./api"
+
+---
+
+(program
+  (import_statement
+    (pure)
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))
+        (import_specifier
+          name: (identifier)
+          alias: (identifier))))
+    source: (string
+      (string_fragment))))
+
+========================================
+Import server and client sides
+========================================
+
+import server pure { db } from "./db"
+import client { viewport } from "./browser"
+
+---
+
+(program
+  (import_statement
+    side: (side)
+    (pure)
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))))
+    source: (string
+      (string_fragment)))
+  (import_statement
+    side: (side)
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))))
+    source: (string
+      (string_fragment))))
+
+========================================
+Import with a fails row
+========================================
+
+import pure { getUser, NotFound } from "./api" fails NotFound | Gone
+
+---
+
+(program
+  (import_statement
+    (pure)
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))
+        (import_specifier
+          name: (identifier))))
+    source: (string
+      (string_fragment))
+    (fails_clause
+      (type_identifier)
+      (type_identifier))))
+
+========================================
+Default import
+========================================
+
+import Chart from "./chart.js"
+
+---
+
+(program
+  (import_statement
+    (import_clause
+      (identifier))
+    source: (string
+      (string_fragment))))
+
+========================================
+Export default component
+========================================
+
+export default component App() {
+  <p>hi</p>
+}
+
+---
+
+(program
+  (export_statement
+    declaration: (component_declaration
+      name: (identifier)
+      parameters: (formal_parameters)
+      body: (view_block
+        (jsx_element
+          open_tag: (jsx_opening_element
+            name: (identifier))
+          (jsx_text)
+          close_tag: (jsx_closing_element
+            name: (identifier)))))))
+
+========================================
+Exported declarations
+========================================
+
+export source count := 0
+export total = count * 2
+export type Id = number
+export action reset() { count := 0 }
+
+---
+
+(program
+  (export_statement
+    declaration: (source_declaration
+      name: (identifier)
+      value: (number)))
+  (export_statement
+    declaration: (equation
+      name: (identifier)
+      value: (binary_expression
+        left: (identifier)
+        right: (number))))
+  (export_statement
+    declaration: (type_alias_declaration
+      name: (type_identifier)
+      value: (predefined_type)))
+  (export_statement
+    declaration: (action_declaration
+      name: (identifier)
+      parameters: (formal_parameters)
+      body: (statement_block
+        (write_statement
+          target: (identifier)
+          value: (number))))))
+
+========================================
+Declaration file rows
+========================================
+
+export type NoteRow = { id: number }
+export error Conflict
+export server pure fn dbNotes(q: string): Promise<NoteRow[]>
+export server fn dbSave(id: number): Promise<NoteRow> rejects(Conflict)
+export client pure fn viewport(): Promise<number>
+export pure fn counter(ref start: number): number instantiates
+
+---
+
+(program
+  (export_statement
+    declaration: (type_alias_declaration
+      name: (type_identifier)
+      value: (object_type
+        (property_signature
+          name: (property_identifier)
+          type: (type_annotation
+            (predefined_type))))))
+  (export_statement
+    declaration: (error_declaration
+      name: (type_identifier)))
+  (export_statement
+    declaration: (fn_signature
+      side: (side)
+      (pure)
+      name: (identifier)
+      parameters: (formal_parameters
+        (required_parameter
+          pattern: (identifier)
+          type: (type_annotation
+            (predefined_type))))
+      return_type: (type_annotation
+        (generic_type
+          name: (type_identifier)
+          type_arguments: (type_arguments
+            (array_type
+              (type_identifier)))))))
+  (export_statement
+    declaration: (fn_signature
+      side: (side)
+      name: (identifier)
+      parameters: (formal_parameters
+        (required_parameter
+          pattern: (identifier)
+          type: (type_annotation
+            (predefined_type))))
+      return_type: (type_annotation
+        (generic_type
+          name: (type_identifier)
+          type_arguments: (type_arguments
+            (type_identifier))))
+      (rejects_clause
+        (type_identifier))))
+  (export_statement
+    declaration: (fn_signature
+      side: (side)
+      (pure)
+      name: (identifier)
+      parameters: (formal_parameters)
+      return_type: (type_annotation
+        (generic_type
+          name: (type_identifier)
+          type_arguments: (type_arguments
+            (predefined_type))))))
+  (export_statement
+    declaration: (fn_signature
+      (pure)
+      name: (identifier)
+      parameters: (formal_parameters
+        (required_parameter
+          (ref_modifier)
+          pattern: (identifier)
+          type: (type_annotation
+            (predefined_type))))
+      return_type: (type_annotation
+        (predefined_type)))))
+
+========================================
+A default import named server or client
+========================================
+
+import server from "./x"
+import client, { a } from "./api"
+import server { b } from "./y"
+
+---
+
+(program
+  (import_statement
+    (import_clause
+      (identifier))
+    (string
+      (string_fragment)))
+  (import_statement
+    (import_clause
+      (identifier)
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (import_statement
+    (side)
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment))))
+
+========================================
+A signature that returns an accessor
+========================================
+
+export pure fn createDebounced(ref source: string, ms: number): ref string
+export pure fn createToggle(initial: boolean): [ref boolean, (v: boolean) => void]
+
+---
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (ref_modifier)
+          (identifier)
+          (type_annotation
+            (predefined_type)))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (ref_type
+          (ref_modifier)
+          (predefined_type)))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (tuple_type
+          (ref_type
+            (ref_modifier)
+            (predefined_type))
+          (function_type
+            (formal_parameters
+              (required_parameter
+                (identifier)
+                (type_annotation
+                  (predefined_type))))
+            (predefined_type)))))))

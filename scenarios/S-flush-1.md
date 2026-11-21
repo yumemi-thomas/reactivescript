@@ -8,11 +8,11 @@ Rules exercised: EF-8, W-3, H-2, AC-1; Solid `onFlush` (solidjs/solid#4292).
 export default component App() {
   source open := true
   source page := 1
-  details = await fetch("p" + str(page))
+  details = await fetch("p" + str(page)) catch (e) => "failed"
 
   <div>
     {if open { <p>menu:</p> } else { <p>closed:</p> }}
-    {loading fallback { <p>loading</p> } { <p>{details catch (e) => "failed"}</p> }}
+    {loading fallback { <p>loading</p> } { <p>{details}</p> }}
   </div>
 }
 ```

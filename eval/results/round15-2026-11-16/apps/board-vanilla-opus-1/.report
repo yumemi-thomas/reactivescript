@@ -1,0 +1,6 @@
+I built the sprint board in plain TypeScript in `/tmp/claude-0/runs/r15/board-vanilla-opus-1/src/main.ts`. It passes `./check` and all 26 visible tests, using 2 of the 15 allowed runs. Changes show at once, and each failed server call is undone without disturbing other changes still waiting on the server. Leaving a page discards it, and any late server answers for it are ignored.
+
+I was unsure about three cases the brief doesn't cover:
+- **Columns not loaded yet:** `left`/`right` and `add-card` are disabled while the column they would move or add into hasn't loaded.
+- **Rename box:** `title-input` keeps its text after a rename.
+- **Errors from another card:** rename and item errors only show if that card is still selected when the server declines.

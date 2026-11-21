@@ -1,0 +1,8 @@
+I built the issue desk in Foldkit across `src/domain.ts`, `message.ts`, `command.ts`, `model.ts`, `main.ts` and `view.ts`, and `./check` and all 30 visible tests pass (4 of the 15 runs used). Every request carries an id, so a late or out-of-date answer is ignored, including one from a page you have left. Optimistic assign, rename, close, comment and label changes are kept as pending changes on top of the server's data. A declined change therefore restores the row, label or count where it was without undoing other changes still waiting, and the issue count is worked out from the open rows actually shown.
+
+Where the brief was silent, I chose:
+- The assign error shows just the server's message.
+- The rename input empties after a rename.
+- Assigning or posting with a blank user does nothing.
+- Clicking the tab you are on does nothing, except the help tab, which resets the page.
+- A related hit opens the help page using the search answer it already has, without searching again.

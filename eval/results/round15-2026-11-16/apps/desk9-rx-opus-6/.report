@@ -1,0 +1,9 @@
+I built the issue desk in /tmp/claude-0/runs/r15/desk9-rx-opus-6/src/main.rx. It passes `./check` and all 30 visible tests. I also added 16 tests of my own for the declined and failure paths, and those passed too; I then removed them and put `tests/visible.mjs` back as it was. That was 5 of the 15 runs.
+
+The issues state sits at the module level: a visit counter that opening the page moves, and the server's answers with the in-flight assigns, renames, closes, posts and label changes laid over them as guesses. Errors are kept separately, tagged with the visit and the issue. The tab count comes from an effect inside the open-list region. The help and settings pages are components, so opening one starts it fresh; a related hit opens the help page already filled in.
+
+I was unsure about a few things the brief leaves open:
+- **Rename input:** it keeps its text after a rename.
+- **Trimming:** comment, label and title inputs are trimmed before sending, and a name of only spaces counts as empty.
+- **Label input:** it only appears once the labels have loaded, because the check for an already-shown label needs them.
+- **Detail error test ids:** the error lines carry ids I made up (`assign-error`, `rename-error`, …), since the brief names none.

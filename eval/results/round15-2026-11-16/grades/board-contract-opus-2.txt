@@ -1,0 +1,15 @@
+== hidden
+✗ a move error stays when another move is accepted
+44/45 passed
+== overlap
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+22/26 passed
+== fuzz
+board-contract-opus-2: 2/20 seeds found a hole
+  seed 7 step 41: count: card "#5 Kickoff · 3/3", progress "3/4 done"
+    land fetchCards:todo ; right #2 ; select #1 ; right #1 ; rename Alpha ; land fetchCards:done ; fail renameCard:1,Alpha ; left #5 ; land moveCard:2,doing,0 ; add Delta 1 ; tab archive ; tab board ; tab archive ; tab board ; land moveCard:1,doing,1 ; land fetchCards:doing ; land fetchCards:todo ; up #3 ; land fetchCards:done ; land moveCard:3,doing,2 ; land fetchCards:todo ; land fetchCards:doin
+  seed 10 step 39: count: card "#1 Alpha · 1/4", progress "2/4 done"
+    tab archive ; tab board ; add Alpha 1 ; land fetchCards:todo ; select #1 ; land fetchArchived: ; land fetchChecklist:1 ; land fetchCards:done ; add Alpha 2 ; land addCard:todo,Alpha 1 ; fail addCard:todo,Alpha 2 ; land fetchCards:doing ; land fetchCards:todo ; add Bravo 3 ; toggle 0 ; add-item ship 4 ; rename Alpha ; toggle 1 ; land renameCard:1,Alpha ; toggle 1 ; land addItem:1,ship 4 ; land 

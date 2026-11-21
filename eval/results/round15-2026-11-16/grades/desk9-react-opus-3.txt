@@ -1,0 +1,12 @@
+== hidden
+77/77 passed
+== overlap
+✗ base: comments that load while a post is out keep the post
+✗ labels that load while an add is out keep the add
+36/38 passed
+== fuzz
+desk9-react-opus-3: 2/20 seeds found a hole
+  seed 9 step 40: at rest: row title: #4 "Delta"
+    land fetchIssues:open ; filter closed ; tab help ; land fetchIssues:closed ; tab issues ; tab help ; land fetchIssues:open ; tab issues ; filter closed ; focus ; filter open ; user guest ; land fetchIssues:open ; land fetchIssues:closed ; select #4 ; assign ; land fetchComments:4 ; rename Bravo ; row-assign 0 ; rename Bravo ; row-assign 1 ; row-close 1 ; land closeIssue:3 ; row-assign 1 ; filt
+  seed 18 step 41: at rest: detail: "#4 Alphafooter says 2019retryassign to guestcloserenameLabel", server "#4 Delta"
+    land fetchIssues:open ; select #4 ; row-close 0 ; land fetchLabels:4 ; assign ; row-close 0 ; row-close 0 ; assign ; rename Delta ; fail closeIssue:3 ; fail closeIssue:4 ; land fetchComments:4 ; land renameIssue:4,Delta ; user bob ; row-assign 0 ; add-label ui ; rename Delta ; assign ; row-close 0 ; fail closeIssue:1 ; rename Alpha ; close ; fail closeIssue:4 ; focus ; close ; focus ; row-assi

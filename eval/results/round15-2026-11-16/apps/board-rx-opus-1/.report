@@ -1,0 +1,6 @@
+I built the sprint board in ReactiveScript. `./check` passes and all 26 visible tests pass; one run logged a 404 for a resource it couldn't load, which looks like a missing icon but I didn't confirm that. The app is split into `src/main.rx` (tabs), `src/board.rx` and `src/archive.rx` (data and actions), and `src/BoardPage.rx` and `src/ArchivePage.rx` (pages); every in-flight move, rename, archive, toggle, add or restore shows straight away and reverts if the server declines. Accepted answers are written straight into the board's data rather than reloading it, a Doing count disables the blocked buttons, and each tab click starts its page fresh.
+
+Things I was unsure about:
+- **Heading count:** I count a card that is still being added in "To do (n)".
+- **Two writes of the same kind at once:** a declined one stays up until the other finishes, which the guide calls intended.
+- **Columns not loaded:** move buttons that point at a column that hasn't loaded or failed are disabled, which the brief doesn't ask for.

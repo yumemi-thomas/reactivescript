@@ -1,0 +1,40 @@
+import { Board, openBoard } from "./board.rx"
+import { ArchivePage, openArchive } from "./archive.rx"
+
+export default component App() {
+  source page: string := "board"
+  <style>
+    :global(.app) { font-family: system-ui, sans-serif; color: #1d2330; background: #f6f7f9; min-height: 100vh; padding: 16px; box-sizing: border-box; }
+    :global(.tabs) { display: flex; gap: 8px; margin-bottom: 16px; }
+    :global(.tabs button) { padding: 6px 14px; border: 1px solid #c8ccd4; background: #fff; border-radius: 6px; cursor: pointer; }
+    :global(.tabs button.on) { background: #1d2330; color: #fff; border-color: #1d2330; }
+    :global(.board) { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+    :global(.columns) { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    :global(.col) { background: #fff; border: 1px solid #e1e4ea; border-radius: 8px; padding: 8px 10px; min-height: 120px; }
+    :global(.col h2), :global(.detail h2), :global(.archive h2) { font-size: 15px; margin: 4px 0 8px; }
+    :global(.cards), :global(.items) { list-style: none; margin: 0; padding: 0; }
+    :global(.card) { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px; padding: 6px; border-radius: 6px; border: 1px solid #eceef2; margin-bottom: 6px; }
+    :global(.card.sel) { border-color: #3b6fd8; background: #eef3fd; }
+    :global(.card.adding) { opacity: .6; font-style: italic; }
+    :global(.card .title) { cursor: pointer; flex: 1 1 auto; }
+    :global(.moves button) { font-size: 11px; padding: 2px 5px; margin-left: 2px; }
+    :global(.add), :global(.row) { display: flex; gap: 6px; margin-top: 8px; }
+    :global(.add input), :global(.row input) { flex: 1; min-width: 0; padding: 4px 6px; }
+    :global(.detail) { background: #fff; border: 1px solid #e1e4ea; border-radius: 8px; padding: 10px; }
+    :global(.items li) { display: flex; justify-content: space-between; padding: 3px 0; }
+    :global(.err) { color: #b3261e; }
+    :global(.muted) { color: #6b7280; }
+    @media (max-width: 800px) { :global(.board), :global(.columns) { grid-template-columns: 1fr; } }
+  </style>
+  <div class="app">
+    <nav class="tabs">
+      <button data-testid="tab-board" class={page == "board" ? "on" : ""} onClick={() => {
+        if (page != "board") { openBoard(); page := "board" }
+      }}>Board</button>
+      <button data-testid="tab-archive" class={page == "archive" ? "on" : ""} onClick={() => {
+        if (page != "archive") { openArchive(); page := "archive" }
+      }}>Archive</button>
+    </nav>
+    {if page == "board" { <Board /> } else { <ArchivePage /> }}
+  </div>
+}

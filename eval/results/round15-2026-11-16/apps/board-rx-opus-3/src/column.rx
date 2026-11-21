@@ -1,0 +1,79 @@
+import { Card } from "./api"
+
+export type Move = { id: number; card: Card; from: string; to: string; index: number }
+export type Row = {
+  key: string; id: number; title: string; done: number; total: number
+  adding: boolean; pos: number; last: boolean; base: Card
+}
+
+fn leftOf(col: string): string => col == "done" ? "doing" : "todo"
+fn rightOf(col: string): string => col == "todo" ? "doing" : "done"
+fn label(r: Row): string => r.adding ? `${r.title} (adding…)` : `#${r.id} ${r.title} · ${r.done}/${r.total}`
+
+export component Column(props: {
+  col: string; name: string; rows: Row[] | null; tries: number
+  leftN: number; rightN: number; leftOk: boolean; rightOk: boolean
+  onRetry: () => void; onMove: (m: Move) => void; onSelect: (id: number) => void
+  children: View
+}) {
+  list = props.rows ?? []
+  <div class={"col col-" + props.col} data-testid={"col-" + props.col}>
+    {loading on(props.tries) fallback {
+      <h2 data-testid={"head-" + props.col}>{props.name}</h2>
+      <p>loading</p>
+    } {
+      {errored fallback(e) {
+        <h2 data-testid={"head-" + props.col}>{props.name}</h2>
+        <p>error: {e.message}</p>
+        <button data-testid={"retry-" + props.col} onClick={() => { props.onRetry() }}>retry</button>
+      } {
+        {if props.rows == null {
+          <h2 data-testid={"head-" + props.col}>{props.name}</h2>
+          <p>loading</p>
+        } else {
+          <h2 data-testid={"head-" + props.col}>{props.name} ({list.length})</h2>
+          <ul>
+            {for r in list {
+              <li>
+                <span data-testid="card" onClick={() => { if (!r.adding) { props.onSelect(r.id) } }}>{label(r)}</span>
+                {if !r.adding {
+                  {if props.col != "todo" {
+                    {" "}
+                    {loading fallback { <button data-testid="left" disabled={true}>left</button> } {
+                      <button data-testid="left" disabled={!props.leftOk} onClick={() => {
+                      if (!props.leftOk) { return }
+                      props.onMove({ id: r.id, card: r.base, from: props.col, to: leftOf(props.col), index: props.leftN })
+                    }}>left</button>
+                    }}
+                  }}
+                  {if props.col != "done" {
+                    {" "}
+                    {loading fallback { <button data-testid="right" disabled={true}>right</button> } {
+                      <button data-testid="right" disabled={!props.rightOk} onClick={() => {
+                      if (!props.rightOk) { return }
+                      props.onMove({ id: r.id, card: r.base, from: props.col, to: rightOf(props.col), index: props.rightN })
+                    }}>right</button>
+                    }}
+                  }}
+                  {if r.pos > 0 {
+                    {" "}
+                    <button data-testid="up" onClick={() => {
+                      props.onMove({ id: r.id, card: r.base, from: props.col, to: props.col, index: r.pos - 1 })
+                    }}>up</button>
+                  }}
+                  {if !r.last {
+                    {" "}
+                    <button data-testid="down" onClick={() => {
+                      props.onMove({ id: r.id, card: r.base, from: props.col, to: props.col, index: r.pos + 1 })
+                    }}>down</button>
+                  }}
+                }}
+              </li>
+            }}
+          </ul>
+          {props.children}
+        }}
+      }}
+    }}
+  </div>
+}

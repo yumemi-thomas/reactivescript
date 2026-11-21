@@ -1,0 +1,22 @@
+import { Board } from "./board.rx"
+import { ArchivePage } from "./archive.rx"
+
+export default component App() {
+  source page: string := "board"
+
+  <style>
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px }
+    .tabs button[aria-pressed="true"] { font-weight: bold }
+  </style>
+  <main>
+    <nav class="tabs">
+      <button data-testid="tab-board" aria-pressed={page == "board" ? "true" : "false"} onClick={() => { page := "board" }}>Board</button>
+      <button data-testid="tab-archive" aria-pressed={page == "archive" ? "true" : "false"} onClick={() => { page := "archive" }}>Archive</button>
+    </nav>
+    {if page == "board" {
+      <Board />
+    } else {
+      <ArchivePage />
+    }}
+  </main>
+}

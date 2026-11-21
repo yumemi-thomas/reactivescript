@@ -1,0 +1,19 @@
+== hidden
+✗ two adds show both, each taking its own id
+✗ a renamed card keeps its new title when it moves
+43/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ one of two moves declined puts back only its card
+✗ a move into Doing that fills it while a move out is pending disables the rest
+23/26 passed
+== fuzz
+board-rx-opus-2: 4/20 seeds found a hole
+  seed 8 step 38: settled: card: "#1 Write spec · 0/2", server "#1 Alpha · 0/2"
+    land fetchCards:doing ; up #4 ; select #3 ; fail moveCard:4,doing,0 ; up #4 ; tab archive ; fail fetchCards:todo ; tab board ; tab archive ; land moveCard:4,doing,0 ; tab board ; add Delta 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; down #1 ; up #1 ; land fetchChecklist:3 ; up #2 ; add Delta 2 ; fail addCard:todo,Delta 2 ; up #1 ; select #1 ; rename Alph
+  seed 11 step 44: duplicate card: #5 shows in doing and done
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Alpha 3 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:doing ; select #4 ; down #3 ; rename Alpha ; up #3 ; archive #4 ; land fetchCards:done ; land moveCard:3,doing,1 ; 
+  seed 17 step 35: duplicate card: "Alpha 6 (adding…)" shows 1 time(s) with 0 add(s) of it in the air, beside its added card
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; land fetchCards:done ; add Alpha 2 ; land fetchCards:doing ; right #3 ; right #4 ; right #2 ; land addCard:todo,Alpha 2 ; land moveCard:4,done,2 ; select #2 ; select #4 ; land moveCard:3,done,1 ; land fetchChecklist:2 ; land fetchChecklist:4 ; add-item docs 3 ; land moveCard:2,doing,0 ; rename Alpha ;
+  seed 18 step 38: duplicate card: #5 shows in doing and done
+    land fetchCards:doing ; land fetchCards:done ; select #3 ; right #4 ; land fetchChecklist:3 ; land moveCard:4,done,1 ; add Alpha 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; down #5 ; fail moveCard:5,done,1 ; land fetchCards:todo ; right #1 ; down #3 ; rename Delta ; land renameCard:3,Delta ; land moveCard:1,doing,1 ; left #4 ; add-item ship 2 ; rename Bravo ; fail moveCard:3,d

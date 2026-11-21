@@ -1,0 +1,24 @@
+== hidden
+✗ two adds show both, each taking its own id
+44/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ one of two moves declined puts back only its card
+✗ an item added while the checklist reloads shows once
+✗ a move into Doing that fills it while a move out is pending disables the rest
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+19/26 passed
+== fuzz
+board-rx-opus-1: 5/20 seeds found a hole
+  seed 3 step 12: duplicate card: "Alpha 2 (adding…)" shows 1 time(s) with 0 add(s) of it in the air, beside its added card
+    add Bravo 1 ; land addCard:todo,Bravo 1 ; add Alpha 2 ; add Alpha 3 ; add Delta 4 ; add Delta 5 ; land addCard:todo,Alpha 3 ; add Alpha 6 ; add Delta 7 ; add Delta 8 ; land addCard:todo,Alpha 2 ; land fetchCards:todo
+  seed 12 step 26: card count: card "#11 Alpha 2 · 0/0", server 0/1 with 0 toggle(s) and 0 item add(s) of it in the air
+    land fetchCards:todo ; select #1 ; tab archive ; tab board ; land fetchCards:todo ; down #1 ; add Delta 1 ; land fetchCards:done ; land fetchArchived: ; fail fetchChecklist:1 ; land fetchCards:doing ; land addCard:todo,Delta 1 ; land moveCard:1,todo,1 ; select #10 ; left #3 ; add Alpha 2 ; land addCard:todo,Alpha 2 ; land fetchChecklist:10 ; select #4 ; land moveCard:3,todo,3 ; fail fetchCheck
+  seed 14 step 30: detail column: #2 shows in Doing, the detail says "#2 Alphain To dorename archive[x] repro toggle[ ] patch toggle[x] test toggle[ ]"
+    add Bravo 1 ; land fetchCards:todo ; select #2 ; up #2 ; select #2 ; land addCard:todo,Bravo 1 ; land fetchChecklist:2 ; down #1 ; add-item ship 2 ; land fetchCards:doing ; land fetchCards:done ; land moveCard:2,todo,0 ; toggle 2 ; right #3 ; select #1 ; rename Alpha ; select #4 ; land toggleItem:2,23,true ; land moveCard:3,done,1 ; land fetchChecklist:4 ; land fetchChecklist:1 ; archive #4 ; 
+  seed 16 step 35: duplicate card: "Delta 1 (adding…)" shows 1 time(s) with 0 add(s) of it in the air, beside its added card
+    add Delta 1 ; fail fetchCards:doing ; add Alpha 2 ; add Alpha 3 ; land addCard:todo,Delta 1 ; retry-doing ; tab archive ; land fetchCards:doing ; tab board ; add Delta 4 ; add Alpha 5 ; add Delta 6 ; tab archive ; tab board ; tab archive ; land addCard:todo,Delta 6 ; tab board ; land fetchCards:done ; select #5 ; land addCard:todo,Alpha 3 ; fail fetchCards:doing ; land fetchArchived: ; tab arc
+  seed 17 step 40: detail column: #4 shows in Done, the detail says "#2 Fix loginin Doingrename archive[x] repro toggle[ ] patch toggle[ ] test toggl"
+    add Bravo 1 ; land fetchCards:todo ; land fetchCards:done ; add Alpha 2 ; land fetchCards:doing ; right #3 ; right #4 ; right #2 ; land addCard:todo,Bravo 1 ; land moveCard:3,done,1 ; select #2 ; select #4 ; land addCard:todo,Alpha 2 ; land moveCard:2,doing,0 ; land fetchChecklist:4 ; add-item docs 3 ; land moveCard:4,done,2 ; rename Alpha ; add-item docs 4 ; select #3 ; left #5 ; select #11 ;

@@ -1,0 +1,10 @@
+== hidden
+45/45 passed
+== overlap
+26/26 passed
+== fuzz
+board-xstate-opus-4: 2/20 seeds found a hole
+  seed 8 step 43: settled: card: "#3 Bravo · 2/2", server "#3 Delta · 2/2"
+    land fetchCards:doing ; up #4 ; select #3 ; fail moveCard:4,doing,0 ; up #4 ; rename Alpha ; land fetchCards:todo ; rename Delta ; land moveCard:4,doing,0 ; up #2 ; land moveCard:2,todo,0 ; add-item docs 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; rename Bravo ; land fetchChecklist:3 ; land renameCard:3,Bravo ; select #1 ; add-item ship 2 ; (move failed: locator.click: Timeout
+  seed 11 step 41: settled: doing: shows [4], server [3,4] (order not checked)
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Alpha 3 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:doing ; select #4 ; down #3 ; rename Alpha ; up #3 ; add-item ship 4 ; (move failed: locator.click: Timeout 2000ms 

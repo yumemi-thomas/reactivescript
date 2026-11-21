@@ -54,6 +54,10 @@ function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err:
 function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
   try { return f(); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); }
 }
+/** As the client's: with no observer the read is a snapshot (04 R-8) and the client builds no boundary, so no ids. */
+function catchRead(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
+  return getObserver() ? catchAcc(f, match, alt)() : tryCatch(f, match, alt);
+}
 
 // ---------------------------------------------------------------- the wire (12 SF-6; a copy of ref/src/failure.ts's)
 function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
@@ -149,14 +153,16 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
 
     // ---- declarations: the same primitives, from the server build. Writes do not happen on the server (SV-2). ----
-    source(name: string, init: unknown): [Acc, Writer] {
+    source(name: string, init: unknown, guessed = false): [Acc, Writer] {   // guessed: the client's optimistic layer over the writable (AC-3), so the owner trees (and hydration keys) match
       void name;
-      if (typeof init === "object" && init !== null) { const [store] = createStore(init as any); const [get] = createSignal<unknown>(store); return ro(get as Acc); }
-      const [get] = createSignal(init); return ro(get as Acc);
+      if (typeof init === "object" && init !== null) { const [store] = createStore(init as any); const [get] = createSignal<unknown>(store); if (guessed) { const [view] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); return ro(() => view); } return ro(get as Acc); }
+      const [get] = createSignal(init); if (guessed) { const [view] = createOptimistic(() => (get as Acc)()); return ro(view as Acc); } return ro(get as Acc);
     },
-    question(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean }, key?: string): [Acc, Writer] {
+    question(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
-      if (mode.optimistic && mode.structured) { const [store] = (createOptimisticStore as any)((draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); landDraft(draft, r, key); }, key ? [] : {}, key ? { key } : undefined); return ro(() => store); }
+      const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
+      if (mode.optimistic && mode.structured && mode.plain && !mode.derived) { const [truth] = (createStore as any)(derive, key && !mode.record ? [] : {}, key ? { key } : undefined); (createOptimisticStore as any)(() => (key && !mode.record ? [] : {}), key && !mode.record ? [] : {}, key ? { key } : undefined); return ro(() => truth); }   // the client's layer, created for its owner slot only: the server shows the truth (it has no guesses), since Solid's server runs a projection's fn at once and one over a pending store throws NotReadyError out of the component (solidjs/solid#5097)
+      if (mode.optimistic && mode.structured) { const [store] = (createOptimisticStore as any)(derive, key && !mode.record ? [] : {}, key ? { key } : undefined); return ro(() => store); }
       if (mode.optimistic && mode.derived) { const [get] = createOptimistic(fn as any, o as any); return ro(get as Acc); }   // AC-3 over an equation: the client's createOptimistic(fn), so the owner trees (and hydration keys) match
       if (mode.optimistic) { const [truth] = createSignal(fn as any, o as any); const [get] = createOptimistic(() => (truth as Acc)()); return ro(get as Acc); }
       if (mode.structured) {
@@ -167,7 +173,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     memo: (name: string | null, fn: (prev: unknown) => unknown, o?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, o as any) as Acc,
     deferred: (name: string, fn: (prev: unknown) => unknown, o?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, o as any) as Acc,
-    keyed: (name: string, key: string, fn: () => unknown): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, [] as any, { key } as any); return () => p; },
+    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); return () => p; },
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
     pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
@@ -188,6 +194,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       });
       return v;
     },
+    /** `x = await f() catch (e: C) => alt` (R-f-4): a matching rejection lands `alt` as the answer; others reject on. */
+    settle: (p: unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => p && typeof (p as Promise<unknown>).then === "function" ? (p as Promise<unknown>).then(v => v, err => { if (match(err)) return alt(err); throw err; }) : p,
     /** RG-8: Solid's Portal — client-only: the server renders nothing for it, the browser renders it once it has the page. */
     Portal: WebPortal,
     /** CSS-2: a dynamic class with the view's scope class after it. */
@@ -248,7 +256,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
-    isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
+    isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => a === b,
     /** MO-10h: a `signal` parameter's argument: a Solid signal of the value, which the library is handed. */
@@ -273,20 +281,13 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 }
 export type ServerApp = ReturnType<typeof createApp>;
 
-/** A keyed answer is merged into the draft by key: a row whose key is still there keeps its object and takes the new
- *  leaves, so an equal answer changes nothing and a changed one changes only its leaves (#51). Any other answer is
- *  assigned.
- *  TODO(Solid rc.22): return the keyed answer from the derive and let Solid reconcile it, dropping this merge. On
- *  2.0.0-rc.21 that path throws in holdStaging (memo over latest() of the rows); fixed on Solid next (dba2aad). */
-function landDraft(draft: any, v: unknown, key: string | undefined) {
-  if (!key || !Array.isArray(v) || !Array.isArray(draft)) return assignDraft(draft, v);
-  const had = new Map<unknown, any>(); for (const row of draft) if (row && typeof row === "object") had.set(row[key], row);
-  v.forEach((x: any, i) => { const row = x && typeof x === "object" ? had.get(x[key]) : undefined; if (row) { mergeLeaves(row, x); if (draft[i] !== row) draft[i] = row; } else draft[i] = x; });
-  draft.length = v.length;
-}
-function mergeLeaves(o: any, v: any) {
-  for (const k of Object.keys(o)) if (!(k in v)) delete o[k];
-  for (const k of Object.keys(v)) { const a = o[k], b = v[k]; if (a && b && typeof a === "object" && typeof b === "object" && Array.isArray(a) === Array.isArray(b)) { if (Array.isArray(a)) { a.length = b.length; } mergeLeaves(a, b); } else if (a !== b) o[k] = b; }
+/** A keyed answer is returned from the derive, and Solid reconciles it by key at any depth (ST-4a): a row whose key is
+ *  still there keeps its object and takes the new leaves, so an equal answer changes nothing (#51, #64). Any other
+ *  answer is assigned to the draft. */
+function landDraft(draft: any, v: unknown, key: string | undefined): unknown {
+  if (key && v && typeof v === "object") return v;
+  assignDraft(draft, v);
+  return undefined;
 }
 /** A store draft becomes `v`: keys `v` lacks are removed, the rest assigned (an array's length follows). */
 function assignDraft(draft: any, v: unknown) {

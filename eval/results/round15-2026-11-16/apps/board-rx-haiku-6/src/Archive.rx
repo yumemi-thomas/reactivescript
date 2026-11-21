@@ -1,0 +1,45 @@
+import pure { fetchArchived } from "./api"
+import { restoreCard } from "./api"
+import { Archived } from "./api"
+
+export component Archive() {
+  source restoreError: string := ""
+  srvArchived = await fetchArchived()
+  source archived: Archived[] = srvArchived
+
+  action restoreAct(id: number) {
+    onFlush(() => { restoreError := "" })
+    guess archived := xs => xs.filter(a => a.id != id)
+    try {
+      await restoreCard(id)
+      archived := xs => xs.filter(a => a.id != id)
+    } catch (e) {
+      restoreError := e.message
+    }
+  }
+
+  <div>
+    <h1>Archive</h1>
+    <section data-testid="archived">
+      {errored fallback(e) {
+        <p>archive error: {e.message}</p>
+      } {
+        {loading fallback {
+          <p>loading archive</p>
+        } {
+          <ul>
+            {for a in archived {
+              <li>
+                <span data-testid="archived-card">#{a.id} {a.title}</span>{" "}
+                <button data-testid="restore" onClick={() => { restoreAct(a.id) }}>restore</button>
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </section>
+    {if restoreError != "" {
+      <p data-testid="restore-error">restore error: {restoreError}</p>
+    }}
+  </div>
+}

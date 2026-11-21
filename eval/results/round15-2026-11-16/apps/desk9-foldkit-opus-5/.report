@@ -1,0 +1,20 @@
+I built the issue desk in Foldkit 0.170. `./check` passes, and all 30 visible tests pass in `./test` (3 of the 15 allowed runs used). The run printed one console error, a 404 for a missing resource, which I did not track down.
+
+The app is split into a root in `src/main.ts` that owns the tabs and the `Issues (n)` count, and three page Submodels under `src/page/`. Leaving a page throws it away, and any server answer meant for a page that is no longer open is ignored. Instant changes (assign, rename, close, posting, labels) are held as pending changes on top of the last server data, so a decline puts things back exactly where they were. Each request carries an id, so an answer that arrives late or out of order can't overwrite a newer one.
+
+A few cases the brief doesn't settle, so I chose:
+- **A close declined after you leave the page:** the count is not restored. It corrects itself the next time the open issues load.
+- **Blank text:** assign, post, rename and add-label do nothing when the user name or the text is only spaces, and titles, comments and labels are trimmed before sending. In settings, a name made only of spaces counts as empty.
+- **Name counter:** `name-count` counts characters rather than UTF-16 units, so an emoji counts as one.
+- **Assign error text:** it shows as `assign error: <message>`, since the brief only says the detail shows the server's message.
+
+I didn't write any story or scene tests, because vitest isn't installed.
+
+Files are in `/tmp/claude-0/runs/r15/desk9-foldkit-opus-5/src`:
+- `main.ts`
+- `entry.ts`
+- `domain.ts`
+- `request.ts`
+- `page/help.ts`
+- `page/settings.ts`
+- `page/issues/` (`model.ts`, `message.ts`, `update.ts`, `view.ts`, `index.ts`)

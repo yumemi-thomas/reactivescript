@@ -1,0 +1,7 @@
+I built the issue desk in `/tmp/claude-0/runs/r15/desk9-contract-opus-5/app.contract` and `/tmp/claude-0/runs/r15/desk9-contract-opus-5/app.ts`, and all 30 visible tests pass. I also ran 12 tests of my own covering the declined cases (row and count going back, each page's error lines, settings save failure and retry). Those passed too, and I then deleted them, leaving `tests/visible.mjs` as it was. The data module shows every write (assign, rename, close, post, labels, row actions) before the server answers, drops it on a decline, and keeps each error only until the next action of its kind or a new selection; leaving a tab resets that page and loads it again, while the `Issues (n)` count keeps its last number when the open list isn't showing.
+
+Choices the brief left open, which I was unsure about:
+- After a rename, related help searches the new title right away.
+- After a write, the app reloads the affected list from the server.
+- Assign does nothing when the user name is blank.
+- A name of only spaces counts as empty for "Display name is required".

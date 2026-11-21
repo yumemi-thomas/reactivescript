@@ -1,0 +1,34 @@
+== hidden
+✗ the new-card input starts empty when the board opens again
+44/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ an add accepted while To do reloads shows the card once
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a move into Doing that fills it while a move out is pending disables the rest
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+17/26 passed
+== fuzz
+board-rx-opus-3: 9/20 seeds found a hole
+  seed 2 step 39: detail column: #3 shows in Doing, the detail says "loading"
+    add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; land fetchArchived: ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Delta 4 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; fail fetchCards:done ; fail fetchCards:todo ; retry-done ; tab archi
+  seed 3 step 4: detail column: #5 shows in Done, the detail says "loading"
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:done ; select #5
+  seed 8 step 3: detail column: #4 shows in Doing, the detail says "loading"
+    land fetchCards:doing ; right #3 ; select #4
+  seed 11 step 12: detail column: #4 shows in Doing, the detail says "loading"
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:doing ; select #4
+  seed 12 step 9: duplicate card: #1 shows in doing and doing
+    land fetchCards:todo ; select #1 ; add Bravo 1 ; select #2 ; land fetchChecklist:1 ; down #1 ; right #1 ; right #2 ; land fetchCards:doing
+  seed 14 step 11: duplicate card: #1 shows in doing and doing
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo ; select #2 ; right #1 ; select #2 ; land fetchCards:done ; land fetchChecklist:2 ; right #2 ; rename Alpha ; land fetchCards:doing
+  seed 15 step 2: detail column: #4 shows in Doing, the detail says "loading"
+    land fetchCards:doing ; select #4
+  seed 18 step 3: detail column: #3 shows in Doing, the detail says "loading"
+    land fetchCards:doing ; land fetchCards:done ; select #3
+  seed 20 step 6: detail column: #3 shows in Doing, the detail says "loading"
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:doing ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; select #3

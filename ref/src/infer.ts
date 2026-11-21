@@ -1,9 +1,10 @@
 // 06 AC-1b…AC-1e: what the compiler reads off an imperative body. Which arrows are actions without the keyword (AC-1b), and
 // the checks every imperative run gets: a plain write an action holds across an `await` (HELD_WRITE, AC-1c), a read of a
 // source the same change already wrote (STALE_OWN_READ, AC-1d), and a write after an `await` computed from the same source
-// as read before it (STALE_WRITE_BACK, AC-1e). Solid sees none of them: a TypeScript body's promises and reads are not
+// as read before it (STALE_WRITE_BACK, AC-1e), and a write into an answer after an `await` of anything but the server's (STALE_CAPTURE, AC-1g). Solid sees none of them: a TypeScript body's promises and reads are not
 // visible to it, which is why it asks for `action(function* …)` and lets a stale read or a lost update through.
 import type { Expr, Stmt } from "./ast.ts";
+import { freeNames } from "./check.ts";
 
 export type Trigger = "optimistic" | "affects" | "write+await";
 type Fn = Extract<Expr, { k: "fn" }>;
@@ -43,7 +44,10 @@ export function inferredAction(stmts: Stmt[]): Trigger | null {
 }
 export const triggerText = (t: Trigger): string => t === "write+await" ? "it writes and awaits" : `it has \`${t === "optimistic" ? "guess" : t}\``;
 
-export type Finding = { code: "HELD_WRITE" | "STALE_OWN_READ" | "STALE_WRITE_BACK"; name: string };
+export type Finding = { code: "HELD_WRITE" | "STALE_OWN_READ" | "STALE_WRITE_BACK" | "STALE_CAPTURE"; name: string; via?: string };
+/** A parameter type that names a plain value (an id, a title, a position), not a row: `number`, `string`, `boolean`, literals, `null`. */
+export const scalarType = (t?: string): boolean => !!t && t.split("|").every(m => /^\s*(number|string|boolean|null|undefined|"[^"]*"|'[^']*'|-?\d+(\.\d+)?)\s*$/.test(m));
+export type RunOpts = { ptypes?: (string | undefined)[]; answered?: (name: string) => boolean; stateful?: (name: string) => boolean };
 type Path = string[];                                                   // keys from the source; "*" a computed key
 type Dep = { k: string; path: Path; epoch: number };                    // AC-1e: a source read, and the awaits passed when it was read
 // taint: the source reads each local's value was computed from; epoch: the awaits passed on this path (the most, after a merge)
@@ -60,16 +64,19 @@ const merge = (...ss: State[]): State => {
 };
 const overlaps = (a: Path, b: Path): boolean => { for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i] && a[i] !== "*" && b[i] !== "*") return false; return true; };
 
-/** AC-1c, AC-1d and AC-1e over one imperative run. `action`: the body is one change across its awaits (AC-1); a plain run's change
+/** AC-1c…AC-1e and AC-1g over one imperative run. `action`: the body is one change across its awaits (AC-1); a plain run's change
  *  ends at each `await` (07 §5). `inferred`: an action by AC-1b, the only kind HELD_WRITE applies to — a declared `action`
  *  holds an early write on purpose (a transition: `action go() { id := 2; await prefetch() }`, S-solid-20). `bound`: the
  *  run's parameters. In source order, per path: a plain write that reaches an `await` in an inferred action is HELD_WRITE;
- *  a read of a source this change wrote, at an overlapping key, is STALE_OWN_READ; a plain write after an `await` whose value comes from a read of the same source (at an overlapping key) taken before that `await`, directly or through a local, is STALE_WRITE_BACK. A guess is not a held write (it shows now, H-11) but is a write a read does not see (H-10). A
+ *  a read of a source this change wrote, at an overlapping key, is STALE_OWN_READ; a plain write after an `await` whose value comes from a read of the same source (at an overlapping key) taken before that `await`, directly or through a local, is STALE_WRITE_BACK.
+ *  In a declared action (`opts`), a write after an `await` into a source with a question (an answer) whose value — closures
+ *  included — names a source or equation, a local read from one, or a parameter typed as a row (not a plain value), is
+ *  STALE_CAPTURE (AC-1g): it takes only the `await`'s value, plain arguments, and its own value at the write. A guess is not a held write (it shows now, H-11) but is a write a read does not see (H-10). A
  *  functional write (`x := v => …`, W-6) reads nothing now; a closure's body runs later, unless it is a local closure called
  *  here; `pending?` and `latest` are probes, not snapshots. Each finding once per name. */
-export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = [], inferred = false): Finding[] {
+export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = [], inferred = false, opts: RunOpts = {}): Finding[] {
   const out: Finding[] = []; const said = new Set<string>();
-  const report = (code: Finding["code"], name: string) => { const k = code + name; if (!said.has(k)) { said.add(k); out.push({ code, name }); } };
+  const report = (code: Finding["code"], name: string, via?: string) => { const k = code + name; if (!said.has(k)) { said.add(k); out.push({ code, name, ...(via ? { via } : {}) }); } };
   const key = (name: string, ctx?: boolean) => (ctx ? "use " : "") + name;
   const walk = (ss: Stmt[], st: State, shadow: Set<string>, cl: Closures, depth: Set<Fn>): State => {
     const sh = new Set(shadow); const local = new Map(cl);
@@ -115,6 +122,9 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
           return out;
       }
     };
+    // AC-1g: the locals and parameters a write's value names, closures included (a functional write's closure runs at the
+    // write, but a local it names was fixed before it) — with each one's taint.
+    const caps = (e: Expr): { via: string; d: Dep }[] => { const ns = new Set<string>(); freeNames(e, new Set(), ns); return [...ns].filter(n => sh.has(n)).flatMap(n => (st.taint.get(n) ?? []).map(d => ({ via: n, d }))); };
     const onAwait = () => { if (action) { st.held.forEach(h => report("HELD_WRITE", h)); st.held.clear(); } else st.written.clear(); };
     for (const s of ss) {
       if (st.dead) break;
@@ -131,7 +141,15 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
           if (s.e.k !== "fn") read(s.e);
           const k = key(s.target.name, s.target.ctx);
           const wpath = s.target.path.map(p => typeof p === "string" ? p : p.k === "lit" && typeof p.v === "string" ? p.v : "*");
-          if (s.k === "write" && s.e.k !== "fn" && deps(s.e).some(d => d.k === k && d.epoch < st.epoch && overlaps(d.path, wpath))) report("STALE_WRITE_BACK", k);
+          const back = s.k === "write" && s.e.k !== "fn" && deps(s.e).some(d => d.k === k && d.epoch < st.epoch && overlaps(d.path, wpath));
+          if (back) report("STALE_WRITE_BACK", k);
+          else if (s.k === "write" && st.epoch > 0 && !s.target.ctx && opts.answered?.(s.target.name)) {
+            // the answer takes the server's answer, plain arguments and its own value at the write (the closure's argument):
+            // a row parameter, a local read from any source (before the `await` or after it), or another source read here is not the server's
+            const c = caps(s.e)[0]?.via; const ns = new Set<string>(); freeNames(s.e, new Set(), ns);
+            const o = c ?? [...ns].find(n => !sh.has(n) && !!opts.stateful?.(n));
+            if (o) report("STALE_CAPTURE", k, o);
+          }
           st.written.set(k, [...(st.written.get(k) ?? []), wpath]);
           if (s.k === "write" && inferred) st.held.add(k);
           break;
@@ -153,7 +171,8 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
     }
     return st;
   };
-  walk(stmts, { written: new Map(), held: new Set(), dead: false, taint: new Map(), epoch: 0 }, new Set(bound), new Map(), new Set());
+  const taint0 = new Map<string, Dep[]>(); bound.forEach((p, i) => { const t = opts.ptypes?.[i]; if (t && !scalarType(t)) taint0.set(p, [{ k: "param " + p, path: [], epoch: 0 }]); });
+  walk(stmts, { written: new Map(), held: new Set(), dead: false, taint: taint0, epoch: 0 }, new Set(bound), new Map(), new Set());
   return out;
 }
 

@@ -1,5 +1,7 @@
 // `rx-tsc` (bin/tsc.js) on a copy of examples/shop: a clean program passes; a TypeScript type error, a parse error and a
-// checker error each fail it, placed on the .rx. Same prerequisites as test/run.js.
+// checker error each fail it, placed on the .rx. The README's entry (`app.mount(main(app))`) type-checks against the
+// runtime's types, and a `.d.rx` in `include` is no file of the program's. Same prerequisites as test/run.js, and the
+// runtime built (`npm run build` in runtime/).
 //   node test/tsc.js            VERBOSE=1 prints each run's output
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -16,21 +18,32 @@ fs.writeFileSync(path.join(ws, "api.d.ts"), [
   "export declare function validateCoupon(code: string): Promise<number>;",
   "",
 ].join("\n"));
-fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(ws, "node_modules"), "dir");
+const nm = path.join(ws, "node_modules");
+fs.mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
+for (const f of fs.readdirSync(path.join(repo, "ref/node_modules")).filter(f => !f.startsWith("."))) fs.symlinkSync(path.join(repo, "ref/node_modules", f), path.join(nm, f), "dir");
+fs.symlinkSync(path.join(repo, "runtime"), path.join(nm, "@reactivescript/runtime"), "dir");
 // TY-6: a JS module with its own types and a .d.rx that declares it
 fs.writeFileSync(path.join(ws, "lib.js"), "export const twice = n => n * 2;\n");
 fs.writeFileSync(path.join(ws, "lib.d.ts"), "export declare function twice(n: number): number;\n");
 const libDecl = "export pure fn twice(n: number): number\n";
 fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
-fs.writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({
+const tsconfig = include => fs.writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({
   compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] },
-  include: ["*.rx", "*.ts"],
+  include,
 }, null, 2));
 
 const original = Object.fromEntries(fs.readdirSync(ws).filter(f => f.endsWith(".rx") && !f.endsWith(".d.rx")).map(f => [f, fs.readFileSync(path.join(ws, f), "utf8")]));
-function run(edit) {
+const added = new Set();
+function run(...edits) {
+  for (const f of added) fs.rmSync(path.join(ws, f));
+  added.clear();
+  tsconfig(["*.rx", "*.ts"]);
   for (const [f, t] of Object.entries(original)) fs.writeFileSync(path.join(ws, f), t);
-  if (edit) fs.writeFileSync(path.join(ws, edit.file), edit.text(original[edit.file]));
+  for (const edit of edits) {
+    if (edit.include) { tsconfig(edit.include); continue; }
+    if (!(edit.file in original)) added.add(edit.file);
+    fs.writeFileSync(path.join(ws, edit.file), edit.text(original[edit.file]));
+  }
   const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: ws, encoding: "utf8" });
   return { status: r.status, out: r.stdout + r.stderr };
 }
@@ -55,10 +68,10 @@ const write = run({ file: "main.rx", text: t => t + "\naction wipe() { products 
 check("a checker error fails, with its rule", write.status !== 0 && /main\.rx:\d+:\d+ - error WRITE_TO_NON_SOURCE: .*\(MO-2\)/.test(write.out), write);
 
 fs.writeFileSync(path.join(ws, "lib.d.rx"), "export pure fn twice(n: string): number\nexport pure fn thrice(n: number): number\n");
-const decl = run();
+const declBad = run();
 fs.writeFileSync(path.join(ws, "lib.d.rx"), libDecl);
 check("a .d.rx that disagrees with its module's types fails, on the declaration's line (TY-6)",
-  decl.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_MISMATCH: twice: /.test(decl.out) && /lib\.d\.rx:2:1 - error DECLARATION_MISMATCH: thrice: .*does not exist/.test(decl.out), decl);
+  declBad.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_MISMATCH: twice: /.test(declBad.out) && /lib\.d\.rx:2:1 - error DECLARATION_MISMATCH: thrice: .*does not exist/.test(declBad.out), declBad);
 
 fs.writeFileSync(path.join(ws, "lib.d.rx"), "//@ for typescript ^1.0.0\n" + libDecl);
 const pin = run();
@@ -104,6 +117,26 @@ const pkType = pkRun(appRx.replace("twice(2)", 'twice("2")'));
 check("rx-types: a package with no types of its own is typed by its rx-types declaration (TS2345 on the .rx)", pkType.status !== 0 && /main\.rx\(4,\d+\): error TS2345/.test(pkType.out), pkType);
 const pkMismatch = pkRun(appRx, { "typed-kit.d.rx": "export pure fn half(n: string): number\n" });
 check("rx-types: a declaration that disagrees with the package's own types fails, on its line (TY-6)", pkMismatch.status !== 0 && /rx-types[\\/]typed-kit\.d\.rx:1:1 - error DECLARATION_MISMATCH: half: /.test(pkMismatch.out), pkMismatch);
+
+// the README's entry, as written: a compiled entry's default export is `main(__rt)` (spec/11 CP-4a)
+const readme = fs.readFileSync(path.join(repo, "README.md"), "utf8").match(/```js\n\/\/ src\/main\.js\n([^]*?)```/)[1].replace("./app.rx", "./main.rx");
+const entry = run({ file: "entry.ts", text: () => readme });
+check("the README's entry type-checks (the projection's default is the app's main)", entry.status === 0 && entry.out.trim() === "", entry);
+
+const server = run({ file: "entry.ts", text: () => 'import { createApp } from "@reactivescript/runtime/server";\nimport main from "./main.rx";\nconst app = createApp();\napp.stream(main(app), { write() {}, end() {} });\n' });
+check("so does the server's (`app.stream(main(app), sink)`)", server.status === 0 && server.out.trim() === "", server);
+
+const uncalled = run({ file: "entry.ts", text: () => readme.replace("main(app)", "main") });
+check("the default is typed: mounting `main` uncalled fails", uncalled.status !== 0 && /entry\.ts\(\d+,\d+\): error TS2345/.test(uncalled.out), uncalled);
+
+// MO-8a: a `.d.rx` in `include` (the README's `"include": ["src"]`), with the JS module it declares
+const decl = run(
+  { include: ["."] },
+  { file: "names.d.rx", text: () => "export pure fn shout(s: string): string\n" },
+  { file: "names.ts", text: () => "export const shout = (s: string): string => s.toUpperCase();\n" },
+  { file: "main.rx", text: t => t.replace('import { Row, Panel } from "./ui.rx"', 'import { Row, Panel } from "./ui.rx"\nimport { shout } from "./names"').replace('title="The shop"', 'title={shout("The shop")}') },
+);
+check("a .d.rx in include passes", decl.status === 0 && decl.out.trim() === "", decl);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

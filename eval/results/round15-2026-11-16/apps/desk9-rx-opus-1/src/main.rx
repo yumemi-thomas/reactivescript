@@ -1,0 +1,48 @@
+import { IssuesPage } from "./IssuesPage.rx"
+import { HelpPage } from "./HelpPage.rx"
+import { SettingsPage } from "./SettingsPage.rx"
+import { openIssues } from "./issues.rx"
+
+export default component App() {
+  source page: string := "issues"
+  source openCount: number | null := null
+  source helpQuery: string := ""
+  source helpPick: number | null := null
+
+  issuesLabel = openCount == null ? "Issues" : `Issues (${openCount})`
+
+  <div>
+    <nav>
+      <button data-testid="tab-issues" onClick={() => {
+        if (page == "issues") return
+        openIssues()
+        page := "issues"
+      }}>{issuesLabel}</button>{" "}
+      <button data-testid="tab-help" onClick={() => {
+        if (page == "help") return
+        helpQuery := ""
+        helpPick := null
+        page := "help"
+      }}>Help</button>{" "}
+      <button data-testid="tab-settings" onClick={() => {
+        if (page == "settings") return
+        page := "settings"
+      }}>Settings</button>
+    </nav>
+    <main>
+      {if page == "issues" {
+        <IssuesPage
+          onCount={n => { openCount := n }}
+          onOpenHelp={(q, id) => {
+            helpQuery := q
+            helpPick := id
+            page := "help"
+          }} />
+      } else if page == "help" {
+        <HelpPage seedQuery={helpQuery} seedId={helpPick} />
+      } else {
+        <SettingsPage />
+      }}
+    </main>
+  </div>
+}

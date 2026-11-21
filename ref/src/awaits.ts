@@ -6,6 +6,7 @@ import type { Expr, Markup } from "./ast.ts";
 
 export type Guard = { e: Expr; neg?: boolean; nullish?: boolean };
 export type Hoisted = { node: Extract<Expr, { k: "await" }>; guards: Guard[] };
+export type HoistedCatch = { node: Extract<Expr, { k: "catch" }>; guards: Guard[] };
 
 /** `tail = false`: every await of `root` — a reader of a view, an effect's input or a provision, whose expression is not an
  *  equation's own memo, so even its result-position `await` is a flight of its own (07 §3). */
@@ -51,4 +52,33 @@ export function viewReaders(ms: Markup[]): Expr[] {
       default: return [];
     }
   });
+}
+
+/** R-f-4 inside an equation: each `x catch alt` that is not the equation's result and holds no `await` — the compiler gives it
+ *  one boundary of its own, made once beside the equation, not a new boundary on every run of the equation's memo. Its guards
+ *  are the conditions under which the equation reaches it. Closures and drafts keep theirs. */
+export function innerCatches(root: Expr): HoistedCatch[] {
+  const out: HoistedCatch[] = [];
+  const hasAwait = (x: unknown): boolean => { if (!x || typeof x !== "object") return false; if (Array.isArray(x)) return x.some(hasAwait); const o = x as Record<string, unknown>; if (o.k === "fn") return false; if (o.k === "await" || o.k === "pre") return true; return Object.values(o).some(hasAwait); };
+  const walk = (x: Expr, root: boolean, g: Guard[]): void => {
+    switch (x.k) {
+      case "catch": if (root) { walk(x.e, false, g); walk(x.alt, false, g); } else if (!hasAwait(x)) out.push({ node: x, guards: g }); return;
+      case "if": walk(x.c, false, g); walk(x.t, false, [...g, { e: x.c }]); walk(x.f, false, [...g, { e: x.c, neg: true }]); return;
+      case "bin":
+        walk(x.l, false, g);
+        if (x.op === "&&") walk(x.r, false, [...g, { e: x.l }]);
+        else if (x.op === "||") walk(x.r, false, [...g, { e: x.l, neg: true }]);
+        else if (x.op === "??") walk(x.r, false, [...g, { e: x.l, nullish: true }]);
+        else walk(x.r, false, g);
+        return;
+      case "fn": case "draft": case "await": case "pre": return;
+      default:
+        for (const v of Object.values(x as object)) {
+          if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr, false, g); else if ("v" in y) walk((y as { v: Expr }).v, false, g); else if ("spread" in y) walk((y as { spread: Expr }).spread, false, g); } });
+          else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr, false, g);
+        }
+    }
+  };
+  walk(root, true, []);
+  return out;
 }

@@ -1,0 +1,117 @@
+// The issues the desk shows, and every write on them. This is app state, not the issues page's: a write the user
+// made outlives the page it was made on, so its refresh reaches the list and detail on screen when it lands, even
+// after the page was left and opened again.
+//
+// One shape (guide/async.md): `issues` and `detail` are the server's answers, and every write guesses on the answers
+// it shows in, as the server will make them. Accepted, it re-asks them, and guesses what the server answered on a row
+// that wasn't on screen to guess before; its guesses stay until the new answers land (D-34). Declined, they revert
+// with its message, in one frame (AC-7).
+
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign, renameIssue, closeIssue } from "./api"
+
+export error NotFound(id: number) => `issue #${id} not found`
+
+fn found(it, id: number) => it == null ? throw NotFound(id) : it
+
+// opening the issues page starts it as the app starts: a new visit asks for the list again
+export source visit: number := 0
+export source filter: string := "open"
+export source selected: number | null := null
+
+issues key id = visit >= 0 ? await fetchIssues(filter) : []
+export detail = selected == null ? null : found(await fetchIssue(selected), selected)
+
+export rows = issues
+
+// where an issue is in the list on screen, worked out in the handler (a snapshot, R-8) and passed to the action
+export fn indexOf(rs: { id: number }[], id: number): number => rs.findIndex(r => r.id == id)
+export heading = detail == null ? "" : detail.title
+
+export source assignError: string := ""
+export source renameError: string := ""
+export source closeError: string := ""
+// the newest row action's failure; row actions and the detail's leave each other's errors alone
+export source rowError: string := ""
+
+export action openPage() {
+  visit := visit + 1
+  filter := "open"
+  selected := null
+  onFlush(() => {
+    assignError := ""
+    renameError := ""
+    closeError := ""
+    rowError := ""
+  })
+}
+
+export action showFilter(f: string) {
+  filter := f
+}
+
+export action select(id: number) {
+  selected := id
+  onFlush(() => {
+    assignError := ""
+    renameError := ""
+    closeError := ""
+  })
+}
+
+export action assignTo(id: number, who: string, fromRow: boolean, at: number) {
+  if (fromRow) {
+    onFlush(() => { rowError := "" })
+  } else {
+    onFlush(() => { assignError := "" })
+  }
+  try {
+    if (at >= 0) { guess issues[at].assignee := who }
+    let r = await assign(id, who)
+    if (at < 0) { guess issues := rs => rs.map(x => x.id == r.id ? { ...x, assignee: r.assignee } : x) }
+    refresh issues
+  } catch (e) {
+    if (fromRow) {
+      rowError := e.message
+    } else {
+      assignError := e.message
+    }
+  }
+}
+
+export action renameTo(id: number, title: string, at: number) {
+  onFlush(() => { renameError := "" })
+  try {
+    if (at >= 0) { guess issues[at].title := title }
+    guess detail.title := title
+    let r = await renameIssue(id, title)
+    if (at < 0) { guess issues := rs => rs.map(x => x.id == r.id ? { ...x, title: r.title } : x) }
+    refresh issues
+    refresh detail
+  } catch (e) {
+    renameError := e.message
+  }
+}
+
+export action closeOne(id: number, fromRow: boolean, open: boolean) {
+  if (fromRow) {
+    onFlush(() => { rowError := "" })
+  } else {
+    onFlush(() => { closeError := "" })
+  }
+  try {
+    if (open) { guess issues := rs => rs.filter(r => r.id != id) }
+    await closeIssue(id)
+    refresh issues
+  } catch (e) {
+    if (fromRow) {
+      rowError := e.message
+    } else {
+      closeError := e.message
+    }
+  }
+}
+
+export action refreshDetail() {
+  refresh detail
+}

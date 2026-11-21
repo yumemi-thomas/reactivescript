@@ -1,0 +1,42 @@
+== hidden
+✗ a move error stays when another move is accepted
+✗ add-card with an empty input adds nothing
+✗ two adds show both, each taking its own id
+✗ add-item with an empty input adds nothing
+41/45 passed
+== overlap
+✗ two moves of one card answered in order leave it where the second put it
+✗ a card moved right twice ends in Done
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ a later move declined after an earlier one was accepted puts the card where the earlier one put it
+✗ a move into To do while a card is being added there keeps both
+✗ a column that reloads while a move into it is out keeps the moved card
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ toggles keep showing while the checklist reloads
+18/26 passed
+== fuzz
+board-contract-haiku-4: 12/20 seeds found a hole
+  seed 3 step 28: detail column: #5 shows in Done, the detail says "#5 Kickoffin DoingRenameArchiveloading checklistAdd"
+    add Bravo 1 ; land addCard:todo,Bravo 1 ; add Alpha 2 ; add Alpha 3 ; add Delta 4 ; add Delta 5 ; land fetchCards:done ; left #5 ; add Delta 6 ; add Delta 7 ; land fetchCards:doing ; land fetchCards:todo ; down #1 ; up #3 ; land addCard:todo,Alpha 2 ; up #10 ; down #1 ; up #10 ; up #11 ; add Delta 8 ; tab archive ; tab board ; land fetchArchived: ; fail addCard:todo,Alpha 3 ; add Bravo 9 ; lan
+  seed 7 step 22: detail column: #5 shows in Done, the detail says "#5 Kickoffin DoingRenameArchiveloading checklistAdd"
+    land fetchCards:todo ; right #2 ; select #1 ; right #1 ; rename Alpha ; land fetchCards:done ; fail renameCard:1,Alpha ; left #5 ; land fetchCards:doing ; select #4 ; tab archive ; tab board ; tab archive ; tab board ; land fetchChecklist:4 ; land moveCard:2,doing,0 ; land fetchCards:todo ; land fetchChecklist:1 ; land fetchCards:done ; land moveCard:1,doing,1 ; add Bravo 1 ; select #5
+  seed 8 step 20: card count: card "#4 Bravo · 0/1", server 0/2 with 0 toggle(s) and 0 item add(s) of it in the air
+    land fetchCards:doing ; right #3 ; select #4 ; fail moveCard:3,done,0 ; left #3 ; rename Alpha ; land fetchCards:todo ; rename Delta ; land fetchCards:doing ; right #4 ; land renameCard:4,Alpha ; add-item docs 1 ; rename Bravo ; land fetchChecklist:4 ; land addItem:4,docs 1 ; select #1 ; add-item ship 2 ; select #1 ; right #2 ; land fetchCards:done
+  seed 9 step 37: heading: head-doing counts 3, the column shows 0 cards
+    land fetchCards:done ; left #5 ; fail moveCard:5,doing,0 ; left #5 ; fail moveCard:5,doing,0 ; left #5 ; tab archive ; tab board ; add Delta 1 ; land fetchCards:todo ; land moveCard:5,doing,0 ; land fetchCards:todo ; land fetchCards:doing ; land fetchArchived: ; tab archive ; tab board ; add Bravo 2 ; add Bravo 3 ; add Bravo 4 ; land fetchCards:doing ; up #3 ; tab archive ; fail fetchCards:tod
+  seed 10 step 18: card count: card "#1 Alpha · 2/3", server 0/2 with 1 toggle(s) and 1 item add(s) of it in the air
+    tab archive ; tab board ; add Alpha 1 ; land fetchCards:todo ; select #1 ; land fetchArchived: ; land fetchChecklist:1 ; land fetchCards:done ; add Alpha 2 ; land fetchCards:doing ; fail addCard:todo,Alpha 1 ; fail addCard:todo,Alpha 2 ; land fetchCards:todo ; add Bravo 3 ; toggle 0 ; add-item ship 4 ; rename Alpha ; toggle 1
+  seed 12 step 27: duplicate card: #3 shows in todo and doing
+    land fetchCards:todo ; select #1 ; tab archive ; tab board ; land fetchCards:todo ; up #2 ; add Delta 1 ; land fetchCards:done ; land fetchArchived: ; fail fetchChecklist:1 ; land fetchCards:doing ; land addCard:todo,Delta 1 ; land fetchCards:todo ; land moveCard:2,todo,0 ; land fetchCards:todo ; select #2 ; left #5 ; land fetchCards:done ; land moveCard:5,doing,2 ; fail fetchChecklist:2 ; sel
+  seed 14 step 18: card count: card "#2 Alpha · 2/3", server 1/4 with 1 toggle(s) and 0 item add(s) of it in the air
+    add Bravo 1 ; land fetchCards:todo ; select #2 ; right #1 ; select #2 ; land addCard:todo,Bravo 1 ; fail moveCard:1,doing,0 ; down #2 ; add-item ship 2 ; land fetchCards:doing ; land fetchCards:done ; land fetchChecklist:2 ; toggle 2 ; right #3 ; select #2 ; rename Alpha ; select #4 ; land addItem:2,ship 2
+  seed 15 step 13: heading: head-doing counts 1, the column shows 0 cards
+    land fetchCards:doing ; select #4 ; left #3 ; land fetchCards:done ; fail moveCard:3,todo,0 ; land fetchCards:todo ; archive #4 ; land fetchChecklist:4 ; land fetchCards:done ; select #3 ; land archiveCard:4 ; land fetchCards:todo ; fail fetchCards:doing
+  seed 17 step 15: duplicate card: #3 shows in done and done
+    add Bravo 1 ; land fetchCards:todo ; land fetchCards:done ; add Alpha 2 ; land fetchCards:doing ; right #3 ; up #2 ; right #1 ; land addCard:todo,Bravo 1 ; land fetchCards:todo ; select #10 ; select #3 ; land moveCard:3,done,1 ; land fetchChecklist:3 ; land fetchCards:done
+  seed 18 step 12: duplicate card: #3 shows in done and done
+    land fetchCards:doing ; land fetchCards:done ; select #3 ; right #3 ; land fetchChecklist:3 ; land moveCard:3,done,1 ; add Alpha 1 ; down #5 ; fail addCard:todo,Alpha 1 ; fail moveCard:5,done,1 ; land fetchCards:doing ; land fetchCards:done
+  seed 19 step 33: heading: head-todo counts 3, the column shows 0 cards
+    land fetchCards:todo ; tab archive ; land fetchCards:done ; tab board ; land fetchArchived: ; fail fetchCards:todo ; land fetchCards:done ; left #5 ; land fetchCards:doing ; land moveCard:5,doing,0 ; land fetchCards:done ; select #5 ; archive #5 ; land fetchCards:doing ; right #3 ; land fetchChecklist:5 ; land archiveCard:5 ; tab archive ; tab board ; land fetchCards:done ; tab archive ; land 
+  seed 20 step 12: heading: head-todo counts 3, the column shows 0 cards
+    add Bravo 1 ; land fetchCards:doing ; add Bravo 2 ; select #3 ; fail addCard:todo,Bravo 1 ; land addCard:todo,Bravo 2 ; land fetchCards:todo ; land fetchCards:done ; add-item qa 3 ; land fetchChecklist:3 ; land addItem:3,qa 3 ; fail fetchCards:todo

@@ -25,7 +25,7 @@ does (`export action select(id) { selected := id }`, or an action passed as a pr
 
 ```rx
 source count: number := 0                  // state; written only with `:=` in imperative code
-source user = await fetchUser(id)          // state with a question: re-asked when `id` changes, can take a guess
+source user = await fetchUser(id)          // state with a question: re-asked when `id` changes
 double = count * 2                         // an equation: always equal to its right side, never written
 label = `${user.name} (${count})`
 rows key id = items                        // a keyed collection (rows keep identity by `id`)
@@ -54,7 +54,7 @@ values. Arrays and strings have their usual methods: `xs.filter(f)`, `xs.map(f)`
 | `pending? x` | `true` while `x` is being re-asked or written by an action in flight |
 | `latest x` | the value `x` is moving toward (what was typed, before the answer lands) |
 | `peek(x)` | `x` read once, without depending on it |
-| `e catch (err) => alt` | `alt` when `e` fails |
+| `await e catch (err) => alt` | `alt` is the answer when the `await` rejects (only after an `await`) |
 | `c ? a : throw NotFound(id)` | a failure as a value of an arm |
 | `use name` / `provide name = e` | context: the nearest provision above, read-only (provide actions to let readers write) |
 

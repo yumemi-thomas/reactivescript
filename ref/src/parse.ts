@@ -542,10 +542,11 @@ function parseDecl(c: Cursor): Decl {
   if (c.keyword("component")) {
     c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();
     const sig = c.peek() === "{" ? parsePattern(c) : null;           // RG-4b: `component C({ a, b })` — each name a projection of props
+    const noneDeclared = !sig && c.peek() === ")";
     const props = sig || c.peek() === ")" ? "props" : (c.ident() ?? c.fail("props name")); const propsType = optType(c); c.ws(); c.expect(")"); c.ws(); c.expect("{");   // `component C()`: no props (found by S-ai2-tracker)
     const { decls, body } = parseBlockBody(c);
     if (sig) { const names: { name: string; e: Expr; line: number }[] = []; expandPattern(sig, { k: "id", name: props }, names); decls.unshift(...names.map(n => ({ k: "eq" as const, name: n.name, e: n.e, line: n.line }))); }
-    return { k: "component", name, props, decls, view: body, line, propsType };
+    return { k: "component", name, props, decls, view: body, line, propsType, ...(!sig && props === "props" && noneDeclared ? { noProps: true } : {}) };
   }
   const save = c.i;
   const name = c.ident();

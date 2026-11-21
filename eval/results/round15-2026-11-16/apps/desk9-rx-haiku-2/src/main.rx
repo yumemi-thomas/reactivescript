@@ -1,0 +1,382 @@
+import pure { fetchIssues, fetchIssue, fetchComments, fetchLabels, search, fetchItem, loadSettings } from "./api"
+import { assign, renameIssue, closeIssue, addComment, addLabel, removeLabel, saveSettings } from "./api"
+import { IssueDetail, Item, Settings } from "./api"
+
+export error IssueNotFound(id: number) => `issue #${id} not found`
+export error ItemNotFound(id: number) => `item ${id} not found`
+
+fn found(it: IssueDetail | null, id: number): IssueDetail => it == null ? throw IssueNotFound(id) : it
+fn foundItem(it: Item | null, id: number): Item => it == null ? throw ItemNotFound(id) : it
+fn overTitle(rs: { id: number; title: string }[], id: number, t: string): string =>
+  rs.reduce((n, r) => (r.id == id ? r.title : n), t)
+fn overAssignee(xs: { id: number; assignee: string }[], id: number, a: string | null): string | null =>
+  xs.reduce((n, r) => (r.id == id ? r.assignee : n), a)
+
+component OpenCount(props: { n: number; onCount: (n: number) => void }) {
+  effect (props.n) { props.onCount($0) }
+  <span />
+}
+
+component Related(props: { title: string; onOpenHelp: (q: string, id: number) => void }) {
+  hits = await search(props.title)
+  <div data-testid="related">
+    {loading fallback { <p>finding related help</p> } {
+      errored fallback(e) { <p>related help failed: {e.message}</p> } {
+        if hits.length == 0 {
+          <p>no related help</p>
+        } else {
+          <div>
+            {for h in hits.slice(0, 3) {
+              <button data-testid="related-hit" onClick={() => { props.onOpenHelp(props.title, h.id) }}>{h.name}</button>
+            }}
+          </div>
+        }
+      }
+    }}
+  </div>
+}
+
+component IssuesPage(props: { onCount: (n: number) => void; onOpenHelp: (q: string, id: number) => void }) {
+  source user: string := "guest"
+  source filter: string := "open"
+  source selected: number | null := null
+  source titleDraft: string := ""
+  source commentDraft: string := ""
+  source labelDraft: string := ""
+  source rowError: string := ""
+  source assignError: string := ""
+  source renameError: string := ""
+  source closeError: string := ""
+  source postError: string := ""
+  source labelError: string := ""
+  // writes in flight, each laid over the answers it changes (constant questions: guesses never hold a selection)
+  source assigning: { id: number; assignee: string }[] = []
+  source renaming: { id: number; title: string }[] = []
+  source closing: number[] = []
+  source posting: { id: number; author: string; text: string }[] = []
+  source adding: { id: number; label: string }[] = []
+  source removing: { id: number; label: string }[] = []
+
+  listed = await fetchIssues(filter)
+  rows key id = listed.filter(i => filter != "open" || !closing.some(c => c == i.id)).map(i => ({ id: i.id, title: overTitle(renaming, i.id, i.title), assignee: overAssignee(assigning, i.id, i.assignee) }))
+  issue = selected == null ? null : found(await fetchIssue(selected), selected)
+  comments = selected == null ? [] : await fetchComments(selected)
+  labels = selected == null ? [] : await fetchLabels(selected)
+  shownComments = [
+    ...comments.map(c => ({ author: c.author, text: c.text, sending: false })),
+    ...posting.filter(p => p.id == selected).map(p => ({ author: p.author, text: p.text, sending: true })),
+  ]
+  shownLabels = [
+    ...labels.filter(l => !removing.some(r => r.id == selected && r.label == l)),
+    ...adding.filter(a => a.id == selected).map(a => a.label),
+  ]
+
+  action assignIssueAct(id: number, who: string, fromRow: boolean) {
+    onFlush(() => { if (fromRow) { rowError := "" } else { assignError := "" } })
+    try {
+      guess assigning := xs => [...xs, { id: id, assignee: who }]
+      await assign(id, who)
+      refresh listed
+    } catch (e) {
+      if (fromRow) { rowError := e.message } else { assignError := e.message }
+    }
+  }
+
+  action renameRow(id: number, title: string) {
+    onFlush(() => { renameError := "" })
+    try {
+      guess renaming := xs => [...xs, { id: id, title: title }]
+      await renameIssue(id, title)
+      refresh listed
+      refresh issue
+    } catch (e) {
+      renameError := e.message
+    }
+  }
+
+  action closeIssueAct(id: number, fromRow: boolean) {
+    onFlush(() => { if (fromRow) { rowError := "" } else { closeError := "" } })
+    try {
+      guess closing := xs => [...xs, id]
+      await closeIssue(id)
+      refresh listed
+    } catch (e) {
+      if (fromRow) { rowError := e.message } else { closeError := e.message }
+    }
+  }
+
+  action postComment(id: number, author: string, text: string) {
+    onFlush(() => { postError := "" })
+    try {
+      guess posting := xs => [...xs, { id: id, author: author, text: text }]
+      await addComment(id, author, text)
+      refresh comments
+    } catch (e) {
+      postError := e.message
+    }
+  }
+
+  action addLabelAct(id: number, label: string) {
+    onFlush(() => { labelError := "" })
+    try {
+      guess adding := xs => [...xs, { id: id, label: label }]
+      await addLabel(id, label)
+      refresh labels
+    } catch (e) {
+      labelError := e.message
+    }
+  }
+
+  action removeLabelAct(id: number, label: string) {
+    onFlush(() => { labelError := "" })
+    try {
+      guess removing := xs => [...xs, { id: id, label: label }]
+      await removeLabel(id, label)
+      refresh labels
+    } catch (e) {
+      labelError := e.message
+    }
+  }
+
+  <section>
+    <div>
+      <input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} />
+      <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    </div>
+
+    <section data-testid="list">
+      {loading on(filter) fallback { <p>loading {filter} issues</p> } {
+        errored fallback(e) { <p>list error: {e.message}</p> } {
+          <div>
+            {if filter == "open" { <OpenCount n={rows.length} onCount={props.onCount} /> }}
+            <ul>
+              {for r in rows {
+                <li>
+                  <button data-testid="issue" onClick={() => {
+                    onFlush(() => { assignError := ""; renameError := ""; closeError := ""; postError := ""; labelError := "" })
+                    titleDraft := ""
+                    commentDraft := ""
+                    labelDraft := ""
+                    selected := r.id
+                  }}>#{r.id} {r.title} ({r.assignee == null ? "unassigned" : r.assignee})</button>
+                  <button data-testid="row-assign" onClick={() => { assignIssueAct(r.id, user, true) }}>assign to {user}</button>
+                  {if filter == "open" {
+                    <button data-testid="row-close" onClick={() => { closeIssueAct(r.id, true) }}>close</button>
+                  }}
+                </li>
+              }}
+            </ul>
+            {if rowError != "" { <p data-testid="row-error">row error: {rowError}</p> }}
+          </div>
+        }
+      }}
+    </section>
+
+    <section data-testid="detail">
+      {if selected == null {
+        <p>select an issue</p>
+      } else {
+        <div>
+          <button data-testid="retry" onClick={() => { refresh issue }}>retry</button>
+          {loading on(selected) fallback { <p>loading #{selected}</p> } {
+            errored fallback(e) { <p>detail error: {e.message}</p> } {
+              <div>
+                <h2>#{issue.id} {overTitle(renaming, issue.id, issue.title)}</h2>
+                <p>{issue.body}</p>
+
+                <button data-testid="assign" onClick={() => { assignIssueAct(issue.id, user, false) }}>assign to {user}</button>
+                {if assignError != "" { <p data-testid="assign-error">assign error: {assignError}</p> }}
+
+                <div>
+                  <input data-testid="title-input" value={titleDraft} onInput={(e) => { titleDraft := e.target.value }} />
+                  <button data-testid="rename" onClick={() => { if (titleDraft != "") { renameRow(issue.id, titleDraft) } }}>rename</button>
+                  {if renameError != "" { <p data-testid="rename-error">rename error: {renameError}</p> }}
+                </div>
+
+                <button data-testid="close" onClick={() => { closeIssueAct(issue.id, false) }}>close</button>
+                {if closeError != "" { <p data-testid="close-error">close error: {closeError}</p> }}
+
+                <div data-testid="comments">
+                  {loading fallback { <p>loading comments</p> } {
+                    errored fallback(e) { <p>comments error: {e.message}</p> } {
+                      <ul>
+                        {for c in shownComments {
+                          <li data-testid="comment">{c.author}: {c.text}{c.sending ? " (sending…)" : ""}</li>
+                        }}
+                      </ul>
+                    }
+                  }}
+                  <input data-testid="comment-input" value={commentDraft} onInput={(e) => { commentDraft := e.target.value }} />
+                  <button data-testid="post" onClick={() => {
+                    let t = commentDraft
+                    if (t != "") {
+                      onFlush(() => { commentDraft := "" })
+                      postComment(issue.id, user, t)
+                    }
+                  }}>post</button>
+                  {if postError != "" { <p data-testid="post-error">post error: {postError}</p> }}
+                </div>
+
+                <div data-testid="labels">
+                  {loading fallback { <p>loading labels</p> } {
+                    errored fallback(e) { <p>labels error: {e.message}</p> } {
+                      <div>
+                        {for l in shownLabels {
+                          <span>
+                            <span data-testid="label">{l}</span>{" "}
+                            <button data-testid="remove-label" onClick={() => { removeLabelAct(issue.id, l) }}>remove {l}</button>
+                          </span>
+                        }}
+                        <input data-testid="label-input" value={labelDraft} onInput={(e) => { labelDraft := e.target.value }} />
+                        <button data-testid="add-label" onClick={() => {
+                          let l = labelDraft
+                          if (l != "" && !shownLabels.some(x => x == l)) {
+                            onFlush(() => { labelDraft := "" })
+                            addLabelAct(issue.id, l)
+                          }
+                        }}>add label</button>
+                        {if labelError != "" { <p data-testid="label-error">label error: {labelError}</p> }}
+                      </div>
+                    }
+                  }}
+                </div>
+
+                <Related title={issue.title} onOpenHelp={props.onOpenHelp} />
+              </div>
+            }
+          }}
+        </div>
+      }}
+    </section>
+  </section>
+}
+
+component HelpPage(props: { start: { q: string; id: number } | null }) {
+  source query: string := peek(props.start == null ? "" : props.start.q)
+  source picked: number | null := peek(props.start == null ? null : props.start.id)
+  answer = { q: query, hits: query.length < 2 ? [] : await search(query) }
+  item = picked == null ? null : foundItem(await fetchItem(picked), picked)
+
+  <section>
+    <input data-testid="query" value={query} onInput={(e) => { query := e.target.value }} />
+    <section data-testid="results">
+      {if query.length == 1 {
+        <p>too short: {query}</p>
+      } else if query.length >= 2 {
+        loading fallback { <p>searching…</p> } {
+          errored fallback(e) { <p>search failed: {e.message}</p> } {
+            <div>
+              {if pending? answer { <p>searching…</p> }}
+              <p>{answer.hits.length} results for {answer.q}</p>
+              <ul>
+                {for h in answer.hits {
+                  <li data-testid="hit" onClick={() => { picked := h.id }}>{picked == h.id ? "> " : ""}{h.name}</li>
+                }}
+              </ul>
+            </div>
+          }
+        }
+      }}
+    </section>
+    <section data-testid="item">
+      {if picked == null {
+        <p>pick a result</p>
+      } else {
+        loading on(picked) fallback { <p>loading…</p> } {
+          errored fallback(e) {
+            <div>
+              <p>failed: {e.message}</p>
+              <button data-testid="retry-item" onClick={() => { refresh item }}>retry</button>
+            </div>
+          } {
+            errored fallback(e: ItemNotFound) { <p>{e.message}</p> } {
+              <div><h3>{item.name}</h3><p>{item.blurb}</p></div>
+            }
+          }
+        }
+      }}
+    </section>
+  </section>
+}
+
+component SettingsForm(props: { s: Settings }) {
+  source name: string := peek(props.s.name)
+  source theme: string := peek(props.s.theme)
+  source density: string := peek(props.s.density)
+  source savedS: Settings := peek(props.s)
+  source inFlight: Settings[] = []
+  source saveError: string := ""
+  nameError = name.length == 0 ? "Display name is required" : name.length > 20 ? `Display name must be at most 20 characters, not ${name.length}` : ""
+  shown = inFlight.length > 0 ? inFlight[inFlight.length - 1] : savedS
+
+  action saveDraft(s: Settings) {
+    onFlush(() => { saveError := "" })
+    try {
+      guess inFlight := xs => [...xs, s]
+      let answer = await saveSettings(s)
+      savedS := answer
+    } catch (e) {
+      saveError := e.message
+    }
+  }
+
+  <section>
+    <p data-testid="saved">Saved: {shown.name} · {shown.theme} · {shown.density}{inFlight.length > 0 ? " (saving…)" : ""}</p>
+    <div>
+      <input data-testid="name" value={name} onInput={(e) => { name := e.target.value }} />
+      <span data-testid="name-count">{name.length}/20</span>
+    </div>
+    {if nameError != "" { <p data-testid="name-error">{nameError}</p> }}
+    <div>
+      <button data-testid="theme-light" onClick={() => { theme := "light" }}>light</button>
+      <button data-testid="theme-dark" onClick={() => { theme := "dark" }}>dark</button>
+      <button data-testid="density-toggle" onClick={() => { density := density == "compact" ? "comfortable" : "compact" }}>density</button>
+    </div>
+    <p data-testid="preview">Preview: {theme} / {density}</p>
+    <button data-testid="save" onClick={() => {
+      if (nameError == "") { saveDraft({ name: name, theme: theme, density: density }) }
+    }}>save</button>
+    {if saveError != "" { <p data-testid="save-error">Save failed: {saveError}</p> }}
+  </section>
+}
+
+component SettingsPage() {
+  loaded = await loadSettings()
+
+  <section>
+    {loading fallback { <p data-testid="load">Loading settings…</p> } {
+      errored fallback(e) {
+        <div data-testid="load">
+          <p>Could not load settings: {e.message}</p>
+          <button data-testid="retry-load" onClick={() => { refresh loaded }}>retry</button>
+        </div>
+      } {
+        <SettingsForm s={loaded} />
+      }
+    }}
+  </section>
+}
+
+export default component App() {
+  source page: string := "issues"
+  source openCount: number | null := null
+  source handoff: { q: string; id: number } | null := null
+
+  <div>
+    <nav>
+      <button data-testid="tab-issues" onClick={() => { page := "issues" }}>{openCount == null ? "Issues" : `Issues (${openCount})`}</button>
+      <button data-testid="tab-help" onClick={() => { handoff := null; page := "help" }}>Help</button>
+      <button data-testid="tab-settings" onClick={() => { page := "settings" }}>Settings</button>
+    </nav>
+    {if page == "issues" {
+      <IssuesPage
+        onCount={n => { openCount := n }}
+        onOpenHelp={(q, id) => { handoff := { q: q, id: id }; page := "help" }} />
+    } else if page == "help" {
+      <HelpPage start={handoff} />
+    } else {
+      <SettingsPage />
+    }}
+  </div>
+}

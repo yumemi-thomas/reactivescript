@@ -1,0 +1,8 @@
+== hidden
+77/77 passed
+== overlap
+38/38 passed
+== fuzz
+desk9-rx-one: 1/20 seeds found a hole
+  seed 10 step 30: open row missing: #1
+    focus ; focus ; filter closed ; fail fetchIssues:open ; focus ; land fetchIssues:closed ; row-assign 0 ; land assign:2,guest ; land fetchIssues:closed ; row-assign 0 ; land assign:2,guest ; select #2 ; land fetchIssues:closed ; land fetchIssue:2 ; close ; row-assign 0 ; land search:Old bug ; land assign:2,guest ; land closeIssue:2 ; select #2 ; row-assign 0 ; rename Alpha ; assign ; fail fetch

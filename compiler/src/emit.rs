@@ -5,7 +5,7 @@
 //! module is a tree (`js.rs`), never text (CP-3).
 
 use crate::ast::{Decl, Expr, ExprKind, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind};
-use crate::awaits::{is_handler, non_tail_awaits, view_readers};
+use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
 use crate::modules::ModuleSet;
@@ -100,6 +100,8 @@ struct Usage {
     optimistic: HashSet<String>,
     paths: HashSet<String>,
     prev_of: HashSet<String>,
+    /// plain writes (not guesses): a question source that is guessed by path and written plainly lowers to a layer over a writable truth
+    plain: HashSet<String>,
 }
 fn usage(programs: &[&Program], extra: &[Vec<Stmt>]) -> Usage {
     let mut u = Usage::default();
@@ -112,6 +114,9 @@ fn usage(programs: &[&Program], extra: &[Vec<Stmt>]) -> Usage {
                 let tname = || target.and_then(|t| t["name"].as_str()).unwrap_or_default().to_string();
                 if k == Some("optimistic") {
                     u.optimistic.insert(tname());
+                }
+                if k == Some("write") && !target.and_then(|t| t["ctx"].as_bool()).unwrap_or(false) {
+                    u.plain.insert(tname());
                 }
                 if matches!(k, Some("write" | "optimistic")) && target.and_then(|t| t["path"].as_array()).is_some_and(|p| !p.is_empty()) {
                     u.paths.insert(tname());
@@ -182,6 +187,8 @@ pub struct Compiled {
     pub entry: String,
     /// CSS-4: the modules' stylesheets, beside their JavaScript
     pub css: String,
+    /// CSS-4: each module's own stylesheet, by its output name
+    pub module_css: IndexMap<String, String>,
 }
 
 /// 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per
@@ -204,8 +211,10 @@ pub fn compile_linked_as(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, 
     g.by_source = by_source;
     let mut files = IndexMap::new();
     let mut paths = IndexMap::new();
+    let mut module_css = IndexMap::new();
     for path in &set.order {
         let p = &set.programs[path];
+        let css0 = g.css.len();
         g.begin_module(path, &p.decls);
         let mut deps: Vec<&str> = vec![];
         for d in &p.decls {
@@ -239,10 +248,11 @@ pub fn compile_linked_as(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, 
             fbody.append(&mut inner);
             body.push(S::ExportDefault(Func { name: Some("module".into()), params: vec![P::Id("__rt".into())], directives: vec![], body: fbody, is_async: false, generator: false }));
         }
+        module_css.insert(g.out(path), g.css[css0..].join("\n"));
         files.insert(g.out(path), body);
         paths.insert(g.out(path), path.clone());
     }
-    Ok(Compiled { files, paths, entry: g.out(&set.entry), css: g.css.join("\n") })
+    Ok(Compiled { files, paths, entry: g.out(&set.entry), css: g.css.join("\n"), module_css })
 }
 
 struct Gen<'p> {
@@ -262,6 +272,7 @@ struct Gen<'p> {
     /// CSS-2: the scope class of the view being emitted
     style_hash: Option<String>,
     hoisted: HashMap<*const Expr, String>,
+    hoisted_catch: HashMap<*const Expr, String>,
     hoist_seq: usize,
     frames: Vec<Frame>,
     style_ids: u32,
@@ -304,6 +315,7 @@ impl<'p> Gen<'p> {
             sf_seq: 0,
             style_hash: None,
             hoisted: HashMap::new(),
+            hoisted_catch: HashMap::new(),
             hoist_seq: 0,
             frames: vec![],
             style_ids: 0,
@@ -974,7 +986,11 @@ impl<'p> Gen<'p> {
         let b = self.frames[env].vars.get(name).unwrap().clone();
         let mut out = match d {
             Decl::Source { question: true, init, .. } => self.hoist(Some(name), init, env, true)?,
-            Decl::Eq { e, .. } if !matches!(&e.k, ExprKind::Draft { .. }) => self.hoist(Some(name), e, env, true)?,
+            Decl::Eq { e, .. } if !matches!(&e.k, ExprKind::Draft { .. }) => {
+                let mut v = self.hoist(Some(name), e, env, true)?;
+                v.append(&mut self.hoist_catches(name, e, env)?);
+                v
+            }
             _ => vec![],
         };
         out.append(&mut self.value1(d, env, &b)?);
@@ -1016,6 +1032,39 @@ impl<'p> Gen<'p> {
         }
         Ok(out)
     }
+    /// R-f-4: each catch inside an equation gets one boundary, made once beside it (awaits.rs `inner_catches`).
+    fn hoist_catches(&mut self, name: &str, e: &Expr, env: Env) -> R<Vec<S>> {
+        let mut out = vec![];
+        for h in inner_catches(e) {
+            let ExprKind::Catch { e: x, name: cn, classes, alt } = &h.node.k else { unreachable!() };
+            let v = format!("c${}${}", name, self.hoist_seq);
+            self.hoist_seq += 1;
+            let mut guards = vec![];
+            for g in &h.guards {
+                let x = self.expr(g.e, env, &reactive())?;
+                guards.push(if g.nullish { bin("==", x, E::Null) } else if g.neg { not(x) } else { x });
+            }
+            let inner = self.new_env(Some(env));
+            if let Some(n) = cn {
+                self.set(inner, n, val(mg(n)));
+            }
+            let body = self.expr(x, env, &reactive())?;
+            let cls = self.classes(classes.as_deref(), env)?;
+            let a = self.expr(alt, inner, &reactive())?;
+            let p = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+            let f = if guards.is_empty() {
+                body
+            } else {
+                let mut it = guards.into_iter();
+                let first = it.next().unwrap();
+                let c = it.fold(first, |a, b| bin("&&", a, b));
+                E::Cond(Box::new(c), Box::new(body), Box::new(undef()))
+            };
+            self.hoisted_catch.insert(h.node as *const Expr, v.clone());
+            out.push(konst(v, rtc("catchMemo", vec![thunk(f), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&p], a)])));
+        }
+        Ok(out)
+    }
     fn hoist_all(&mut self, es: &[&Expr], env: Env) -> R<Vec<S>> {
         let mut out = vec![];
         for x in es {
@@ -1033,13 +1082,17 @@ impl<'p> Gen<'p> {
         match d {
             Decl::Source { name, init, question: false, .. } => {
                 let x = self.expr(init, env, &reactive())?;
-                let mut out = vec![S::Const(pair(), rtc("source", vec![str(name.clone()), rtc("untrack", vec![thunk(x)])])), self.reg(name, b, true)];
+                let mut args = vec![str(name.clone()), rtc("untrack", vec![thunk(x)])];
+                if self.u.optimistic.contains(name) {
+                    args.push(E::Bool(true)); // AC-3: a guess over a writable — an optimistic layer derived from it
+                }
+                let mut out = vec![S::Const(pair(), rtc("source", args)), self.reg(name, b, true)];
                 prev(&mut out);
                 Ok(out)
             }
             Decl::Source { name, init, key, .. } => {
                 let lv = self.loading_value(init, env)?;
-                let mode = obj(vec![("optimistic", E::Bool(self.u.optimistic.contains(name))), ("structured", E::Bool(self.u.paths.contains(name)))]);
+                let mode = obj(vec![("optimistic", E::Bool(self.u.optimistic.contains(name))), ("structured", E::Bool(self.u.paths.contains(name))), ("record", E::Bool(matches!(init.k, ExprKind::Rec(_)))), ("plain", E::Bool(self.u.plain.contains(name)))]);
                 let x = self.expr(init, env, &Ctx { tail: true, self_: Some(name.clone()), ..Ctx::default() })?;
                 let mut args = vec![str(name.clone()), arrow(&["__prev"], x), lv, mode];
                 if let Some(k) = key {
@@ -1052,7 +1105,9 @@ impl<'p> Gen<'p> {
             Decl::Eq { name, e, key, deferred, .. } if self.guessed_eq(name, e, *deferred) => {
                 // AC-3 over an equation: createOptimistic(fn) / createOptimisticStore(fn, seed) — derived, its setter only guesses
                 let lv = self.loading_value(e, env)?;
-                let mode = obj(vec![("optimistic", E::Bool(true)), ("structured", E::Bool(self.u.paths.contains(name) || key.is_some())), ("derived", E::Bool(true))]);
+                // ST-4a: a key applies at any depth (Solid's); a record result is the store's root, its keyed lists inside it
+                let record = matches!(e.k, ExprKind::Rec(_));
+                let mode = obj(vec![("optimistic", E::Bool(true)), ("structured", E::Bool(self.u.paths.contains(name) || key.is_some())), ("derived", E::Bool(true)), ("record", E::Bool(record))]);
                 let x = self.expr(e, env, &Ctx { tail: true, self_: Some(name.clone()), ..Ctx::default() })?;
                 let mut args = vec![str(name.clone()), arrow(&["__prev"], x), lv, mode];
                 if let Some(k) = key {
@@ -1098,7 +1153,7 @@ impl<'p> Gen<'p> {
                 }
                 if let Some(k) = key {
                     let x = self.expr(e, env, &Ctx { tail: true, ..Ctx::default() })?;
-                    return fin(vec![konst(b.js.clone(), rtc("keyed", vec![str(name.clone()), str(k.clone()), thunk(x)]))], self);
+                    return fin(vec![konst(b.js.clone(), rtc("keyed", vec![str(name.clone()), str(k.clone()), thunk(x), E::Bool(matches!(e.k, ExprKind::Rec(_)))]))], self);
                 }
                 // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
                 if let (ExprKind::Catch { e: ce, name: cn, classes, alt }, false) = (&e.k, deferred) {
@@ -1111,13 +1166,20 @@ impl<'p> Gen<'p> {
                     let i = format!("i${name}");
                     let cls = self.classes(classes.as_deref(), env)?;
                     let a = self.expr(alt, inner, &reactive())?;
+                    let pn = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+                    // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary
+                    let body = if matches!(ce.k, ExprKind::Await { .. }) {
+                        rtc("settle", vec![x, arrow(&["__e"], rtc("isA", vec![id("__e"), cls.clone()])), arrow(&[&pn], a.clone())])
+                    } else {
+                        x
+                    };
                     let out = vec![
-                        konst(i.clone(), rtc("memo", vec![str(name.clone()), arrow(&["__prev"], x), lv])),
+                        konst(i.clone(), rtc("memo", vec![str(name.clone()), arrow(&["__prev"], body), lv])),
                         konst(
                             b.js.clone(),
                             rtc(
                                 "catchMemo",
-                                vec![thunk(call(id(i), vec![])), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into())], a)],
+                                vec![thunk(call(id(i), vec![])), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a)],
                             ),
                         ),
                     ];
@@ -1397,6 +1459,7 @@ impl<'p> Gen<'p> {
             // R-f-3
             ExprKind::Throw(x) => rtc("throw", vec![self.expr(x, env, &sub)?]),
             // R-f-4: over a sync value, or the tail await's promise/stream
+            ExprKind::Catch { .. } if !ctx.imp && self.hoisted_catch.contains_key(&(e as *const Expr)) => call(id(self.hoisted_catch[&(e as *const Expr)].clone()), vec![]),
             ExprKind::Catch { e: x, name, classes, alt } => {
                 if ctx.imp && has_await_json(&x.to_json()) {
                     return fail("`await … catch` inside an expression of imperative scope (AWAIT_IN_EXPRESSION, AC-1)");

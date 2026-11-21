@@ -23,7 +23,7 @@ spec diverges from Solid, the divergence is recorded as a `DV-n` in
 
 ## Running the suite
 
-Solid is built from its `next` branch at the pinned commit (needs pnpm and a
+Solid is built from its `main` branch at the pinned commit (needs pnpm and a
 Rust toolchain):
 
 ```sh

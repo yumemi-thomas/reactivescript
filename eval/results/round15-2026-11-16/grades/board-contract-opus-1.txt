@@ -1,0 +1,13 @@
+== hidden
+✗ a move error stays when another move is accepted
+✗ add-card with an empty input adds nothing
+✗ rename with an empty title-input asks nothing
+✗ add-item with an empty input adds nothing
+41/45 passed
+== overlap
+✗ a move into a column that is still loading shows once it loads, or waits for it
+25/26 passed
+== fuzz
+board-contract-opus-1: 1/20 seeds found a hole
+  seed 8 step 35: card count: card "#2 Fix login · 1/3", server 1/4 with 0 toggle(s) and 0 item add(s) of it in the air
+    land fetchCards:doing ; right #3 ; select #4 ; fail moveCard:3,done,0 ; left #3 ; rename Alpha ; land fetchCards:todo ; rename Delta ; land fetchCards:doing ; right #4 ; land moveCard:4,done,0 ; add-item docs 1 ; rename Bravo ; fail moveCard:3,todo,0 ; land renameCard:4,Bravo ; select #2 ; add-item ship 2 ; select #2 ; right #2 ; land fetchChecklist:4 ; left #3 ; add Delta 3 ; left #2 ; up #2 

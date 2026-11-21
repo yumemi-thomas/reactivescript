@@ -1,0 +1,27 @@
+== hidden
+✗ add-card with an empty input adds nothing
+✗ two adds show both, each taking its own id
+✗ add-item with an empty input adds nothing
+42/45 passed
+== overlap
+✗ two moves of one card answered in order leave it where the second put it
+✗ a card moved right twice ends in Done
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ a column that reloads while a move into it is out keeps the moved card
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ toggles keep showing while the checklist reloads
+20/26 passed
+== fuzz
+board-contract-haiku-5: 6/20 seeds found a hole
+  seed 5 step 36: settled: todo: shows [1,2,10,8,11,12], server [1,2,10,8,11,12,13]
+    tab archive ; fail fetchCards:done ; tab board ; tab archive ; land fetchCards:done ; tab board ; add Delta 1 ; land fetchCards:done ; land fetchCards:todo ; land fetchCards:doing ; tab archive ; land fetchArchived: ; land addCard:todo,Delta 1 ; restore 0 ; land restoreCard:8 ; tab board ; tab archive ; tab board ; add Alpha 2 ; add Alpha 3 ; add Bravo 4 ; add Alpha 5 ; add Delta 6 ; land fetc
+  seed 7 step 24: card count: card "#3 Delta · 2/4", server 2/2 with 0 toggle(s) and 1 item add(s) of it in the air
+    land fetchCards:todo ; right #2 ; select #1 ; right #1 ; rename Alpha ; land fetchCards:done ; fail renameCard:1,Alpha ; left #5 ; land fetchCards:doing ; select #4 ; add Delta 1 ; add Delta 2 ; select #3 ; fail fetchChecklist:4 ; land fetchChecklist:3 ; add Delta 3 ; rename Alpha ; fail moveCard:2,doing,0 ; left #4 ; left #3 ; add-item docs 4 ; rename Delta ; land renameCard:3,Alpha ; add-ite
+  seed 12 step 33: settled: todo: shows [], server [2]
+    land fetchCards:todo ; select #1 ; add Bravo 1 ; select #2 ; land fetchChecklist:1 ; down #1 ; right #1 ; right #2 ; land fetchCards:doing ; fail addCard:todo,Bravo 1 ; land fetchCards:done ; right #3 ; land fetchChecklist:2 ; select #4 ; left #4 ; land fetchChecklist:4 ; land moveCard:1,todo,1 ; select #3 ; land moveCard:1,doing,0 ; fail moveCard:2,doing,1 ; land moveCard:3,done,1 ; left #5 ;
+  seed 13 step 23: settled: todo: shows [1,2], server [1,2,10]
+    add Alpha 1 ; fail fetchCards:todo ; land fetchCards:done ; retry-todo ; left #5 ; add Bravo 2 ; add Bravo 3 ; add Bravo 4 ; land fetchCards:todo ; fail fetchCards:doing ; land addCard:todo,Alpha 1 ; fail addCard:todo,Bravo 2 ; land moveCard:5,doing,0 ; fail addCard:todo,Bravo 3 ; fail addCard:todo,Bravo 4 ; select #1 ; select #1 ; select #1 ; land fetchChecklist:1 ; archive #1 ; fail archiveC
+  seed 15 step 42: settled: todo: shows [1,2], server [1,2,10,11]
+    land fetchCards:doing ; select #4 ; left #3 ; land fetchCards:done ; fail moveCard:3,todo,0 ; land fetchCards:todo ; rename Bravo ; fail fetchChecklist:4 ; select #4 ; land fetchChecklist:4 ; rename Alpha ; rename Alpha ; land renameCard:4,Bravo ; rename Bravo ; select #5 ; land renameCard:4,Alpha ; up #4 ; left #5 ; rename Alpha ; land moveCard:4,doing,0 ; land fetchChecklist:5 ; tab archive 
+  seed 17 step 19: card count: card "#3 Alpha · 2/4", server 2/2 with 0 toggle(s) and 1 item add(s) of it in the air
+    add Bravo 1 ; land fetchCards:todo ; land fetchCards:done ; add Alpha 2 ; land fetchCards:doing ; right #3 ; up #2 ; right #1 ; land addCard:todo,Bravo 1 ; land moveCard:3,done,1 ; select #4 ; select #3 ; land addCard:todo,Alpha 2 ; land fetchChecklist:4 ; land fetchChecklist:3 ; add-item docs 3 ; land moveCard:2,todo,0 ; rename Alpha ; add-item docs 4

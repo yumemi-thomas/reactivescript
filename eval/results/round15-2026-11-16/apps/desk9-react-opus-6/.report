@@ -1,0 +1,7 @@
+I built the issue desk in React 19 and TypeScript. The issues page lives in `src/IssuesPage.tsx` and `src/Detail.tsx`, help in `src/HelpPage.tsx`, settings in `src/SettingsPage.tsx`, and `src/App.tsx` holds the tabs and the open-issue count. Every quick change shows at once and is undone if the server declines; when answers come back out of order, older ones are ignored. `./check` passes and `./test` passes 30/30, using 2 of the 15 runs. The test browser logged one 404 resource error, which I didn't track down.
+
+Where the brief was unclear, I chose:
+- **Labels:** trying to add a label the issue already has does nothing, and leaves the text in the input.
+- **Rename:** the rename input keeps its text after a rename.
+- **Related help:** it searches on the title the server has confirmed, not on a rename still waiting for an answer.
+- **Count after leaving the page:** if you leave the issues page while a close is still waiting and the server then declines, the count stays down. I read "keeps the last number while another page is open" as taking priority over "the count goes back".

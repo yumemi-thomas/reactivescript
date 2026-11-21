@@ -1,0 +1,8 @@
+I built the sprint board in XState v5. A root machine (`src/appMachine.ts`) runs each tab as an invoked actor, so leaving a page stops it and opening it again starts a fresh one. The board machine (`src/boardMachine.ts`) has a parallel region per column and one for the detail, loading data with `fromPromise`. Every change goes into a queue of operations shown on top of what the server has confirmed (`src/model.ts`), so a declined request undoes only its own change and confirmed ones are saved in the order you made them. `./check` passes and all 26 visible tests pass.
+
+Where the brief was silent, I made these calls:
+- **Positions near unsaved cards:** a move's position counts cards still being added, because the brief says "as shown". The server may not have those cards yet.
+- **Unloaded columns:** move buttons into a column that hasn't loaded are disabled.
+- **Errors after switching cards:** a rename or item error that arrives after you've selected another card isn't shown on the new card's detail.
+- **Rename input:** `title-input` keeps its text after a rename.
+- **Retry buttons:** I added a retry button for a failed checklist and a failed archive list.

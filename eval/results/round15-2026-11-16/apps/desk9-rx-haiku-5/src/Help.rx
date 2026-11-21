@@ -1,0 +1,65 @@
+import pure { search, fetchItem } from "./api"
+import { Item } from "./api"
+
+error NoItem(id: number) => `item ${id} not found`
+
+fn needItem(it: Item | null, id: number): Item => it == null ? throw NoItem(id) : it
+
+// Starts empty, unless it was opened from a related hit: then it starts with that query and that hit selected.
+// The query is read ahead (`latest`) for the question and for the text, so typing shows at once; the answers
+// are read inside their own regions, so the page's first show never waits for them.
+export component HelpPage(props: { seedQuery: string; seedHit: number }) {
+  source query := ""
+  source picked: number := 0
+  effect (props.seedQuery) { query := $0 }
+  effect (props.seedHit) { picked := $0 }
+
+  hits = (latest query).length < 2 ? [] : await search(latest query)
+  itemAns = picked == 0 ? throw NoItem(0) : needItem(await fetchItem(picked), picked)
+
+  <div data-testid="help-page">
+    <input data-testid="query" value={query} onInput={(e) => { query := e.target.value }} />
+    <div data-testid="results">
+      {if (latest query).length == 1 {
+        <p>too short: {latest query}</p>
+      } else if (latest query).length > 1 {
+        <div>
+          {if (pending? hits) { <p>searching…</p> }}
+          {loading fallback { <span hidden></span> } {
+            errored fallback(e) { <p>search failed: {e.message}</p> } {
+              <div>
+                <p>{hits.length} results for {latest query}</p>
+                <ul>
+                  {for h in hits {
+                    <li data-testid="hit" onClick={() => { picked := h.id }}>{picked == h.id ? "> " : ""}{h.name}</li>
+                  }}
+                </ul>
+              </div>
+            }
+          }}
+        </div>
+      }}
+    </div>
+    <div data-testid="item">
+      {if picked == 0 {
+        <p>pick a result</p>
+      } else {
+        {loading on(picked) fallback { <p>loading…</p> } {
+          errored fallback(e) {
+            <div>
+              <p>failed: {e.message}</p>
+              <button data-testid="retry-item" onClick={() => { refresh itemAns }}>retry</button>
+            </div>
+          } {
+            errored fallback(e: NoItem) { <p>{e.message}</p> } {
+              <div>
+                <h3>{itemAns.name}</h3>
+                <p>{itemAns.blurb}</p>
+              </div>
+            }
+          }
+        }}
+      }}
+    </div>
+  </div>
+}

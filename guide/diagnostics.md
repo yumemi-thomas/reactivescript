@@ -268,6 +268,39 @@ export default component App() {
 }
 ```
 
+
+### STALE_CAPTURE
+
+After an `await`, a write into a source with a question (the server's answer) takes only what the server answered,
+plain arguments (an id, a title, an index) and the answer's own value at the write (`x := rs => …`, finding rows there
+by id). A row the action was given, or read from a source before the `await` or after it, is what the screen showed:
+by then it may have changed (a rename accepted), be somewhere else (an earlier move declined) or carry a write another
+action still holds, so the screen loses the edit or shows the row twice. When the answer doesn't say where a row is now
+(a move answers only where it went), re-ask the answers it left and joined with `refresh`.
+
+```rx before
+type Card = { id: number; title: string }
+export default component App() {
+  source done = await fetch("done") -> "" catch (e) => ""
+  action finish(card: Card) {
+    let r = await fetch("move") catch (e) => ""
+    done := v => v + card.title
+  }
+  <button onClick={() => { finish({ id: 1, title: "a" }) }}>{done}</button>
+}
+```
+
+```rx after
+export default component App() {
+  source done = await fetch("done") -> "" catch (e) => ""
+  action finish(id: number) {
+    await fetch("move") catch (e) => ""
+    refresh done
+  }
+  <button onClick={() => { finish(1) }}>{done}</button>
+}
+```
+
 ### SNAPSHOT_INITIALIZER
 
 A source's `:=` seed is read once. Reading another reactive value there takes a snapshot, which must say so with
@@ -523,28 +556,6 @@ export default component App() {
 }
 ```
 
-### GUESS_NO_QUESTION
-
-A guess is confirmed or replaced by the answer to a question, so `guess` writes an equation or a source declared
-with `=` (a source with a question, ST-5c). A source seeded with `:=` has no question; write it plainly, or with
-`onFlush` if it is a reset that should land now (EF-8).
-
-```rx before
-export default component App() {
-  source shown := "Ann"
-  action fix() { guess shown := "Zed"; await fetch("x") catch (e) => null }
-  <button onClick={() => { fix() }}>{shown}</button>
-}
-```
-
-```rx after
-export default component App() {
-  source shown = await fetch("name") catch (e) => "Ann"
-  action fix() { guess shown := "Zed"; await fetch("x") catch (e) => null }
-  <button onClick={() => { fix() }}>{shown}</button>
-}
-```
-
 ### GUESS_ON_DEFERRED
 
 A `deferred` equation is a lagging copy of another value (V-16), so nothing would confirm a guess on it. Guess the
@@ -719,6 +730,27 @@ export default component App() {
 }
 ```
 
+### ARGUMENT_COUNT
+
+A call of an action passes one argument per parameter (AC-1f). A missing argument is `undefined` in the body and an
+extra one is dropped, both silently, so the count is checked where the action is declared in the module.
+
+```rx before
+export default component App() {
+  source n := 0
+  action go(by: number) { n := n + by }
+  <button onClick={() => { go(1, 2) }}>{n}</button>
+}
+```
+
+```rx after
+export default component App() {
+  source n := 0
+  action go(by: number) { n := n + by }
+  <button onClick={() => { go(1) }}>{n}</button>
+}
+```
+
 ### IO_IN_FN
 
 A `fn` is pure by definition (R-io-2). Code that calls io is an `action`, or the io call moves into the handler.
@@ -786,8 +818,8 @@ export default component App() {
 
 ### UNHANDLED_FAILURE
 
-A value that can fail is read where nothing handles the failure (R-f-5). Wrap the reader in an `errored` region, or
-catch the failure where it is read, `e catch (err) => alt`.
+A value that can fail is read where nothing handles the failure (R-f-5). Wrap the reader in an `errored` region where
+it is read. To make a rejection an answer instead, catch it at the `await`: `await f(x) catch (err) => alt`.
 
 ```rx before
 export default component App() {
@@ -802,6 +834,28 @@ export default component App() {
   source id := 1
   user = await fetch("u:" + id)
   {errored fallback(e) { <p>failed: {e.message}</p> } { <p>{user}</p> }}
+}
+```
+
+### CATCH_NOT_ON_AWAIT
+
+A `catch` follows something other than an `await` (R-f-4). A value that failed is shown where it is read, by an
+`errored` region around its readers; a `catch` belongs on the `await`, where it makes the rejection the answer. A rule
+the user breaks is a value (`""` or a message), not a failure.
+
+```rx before
+export default component App() {
+  source id := 1
+  user = await fetch("u:" + id)
+  <p>{user catch (e) => "unknown"}</p>
+}
+```
+
+```rx after
+export default component App() {
+  source id := 1
+  user = await fetch("u:" + id)
+  {errored fallback(e) { <p>unknown</p> } { <p>{user}</p> }}
 }
 ```
 
@@ -878,7 +932,7 @@ export default component App() {
 
 A handler reads a value as a snapshot when it can have no value yet (a first load) or can fail, so the click sees no
 value or throws (R-8). Put the element inside the `loading` / `errored` regions whose content reads the value, with
-`disabled={pending? x}` while a new question is out; or catch the failure in the handler. The region must read the
+`disabled={pending? x}` while a new question is out; or read it in the handler inside `try { … } catch (e) { … }`. The region must read the
 value itself, not only `pending? x`: a probe takes no failure, so a region that reads `x` only through `pending?` stays
 on its content when `x` fails, and the click throws.
 
@@ -910,6 +964,13 @@ while it loads (AC-3a). The guess composes on the previous answer, and the new a
 user's change disappears while its action is out. Put the element inside the value's `loading` region, give it
 `disabled={pending? x}`, or keep the pending change in a source of its own until it lands. Solid warns
 `OPTIMISTIC_WRITE_WHILE_LOADING` at run time for the same case.
+
+Neither cover holds when the selection changes while a guess on `x` is out. That change joins the guess's hold
+(H-11), so a `loading on(sel)` region keeps its content (H-6), and `pending? x` read in that region's markup is
+`false` on Solid today although the rule says `true` (05 DV-22): the control stays enabled and a second click guesses
+on the old answer. The check accepts it, since the element is covered. Test the verdict in the handler too, where it
+reads `true` (R-12): `onClick={() => { if (!(pending? x)) { flip(it.id) } }}`, or keep the pending change in a source
+of its own.
 
 ```rx before
 export default component App() {
@@ -1046,6 +1107,23 @@ component List(props) {
 }
 export default component App() {
   <List />
+}
+```
+
+`props` is a name only in a component that declares it: `component Lane()` has none (RG-4b), and a read of
+`props.col` there would be `undefined`. Declare what it takes.
+
+```rx before
+component Lane() { <h3>{props.col}</h3> }
+export default component App() {
+  <Lane col="todo" />
+}
+```
+
+```rx after
+component Lane(props: { col: string }) { <h3>{props.col}</h3> }
+export default component App() {
+  <Lane col="todo" />
 }
 ```
 

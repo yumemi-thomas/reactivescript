@@ -1,0 +1,29 @@
+// The archive's data: asked on each visit to the archive page; restores in flight laid over it.
+import pure { fetchArchived } from "./api"
+import { restoreCard } from "./api"
+import { Archived } from "./api"
+
+export source archiveVisit: number := -1
+source archived: Archived[] = archiveVisit >= 0 ? await fetchArchived() : []
+source restoring: number[] = []
+export source restoreError: string := ""
+
+export archivedShown: Archived[] key id = archived.filter(a => !restoring.includes(a.id))
+
+export action openArchive() {
+  archiveVisit := archiveVisit + 1
+  restoreError := ""
+}
+
+export action restore(id: number) {
+  onFlush(() => { restoreError := "" })
+  try {
+    guess restoring := xs => [...xs, id]
+    await restoreCard(id)
+    let there = archived.some(a => a.id == id) catch (x) => false
+    if (there) { archived := xs => xs.filter(a => a.id != id) }
+  } catch (e) {
+    restoreError := e.message
+    onFlush(() => { restoreError := e.message })
+  }
+}

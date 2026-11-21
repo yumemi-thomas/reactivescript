@@ -1,0 +1,6 @@
+I built the three-page issue desk in XState v5 with React 19: a root machine invokes one child actor per tab, and each server write runs in its own child actor so its result can be routed back and rolled back. `./check` passes and all 30 visible tests pass. The 404 console error appears to be a missing resource (probably a favicon), and I did not investigate it.
+
+Things I was unsure about:
+- The brief gives no exact text for a detail-assign error, so it shows the server message bare (`declined`).
+- Leaving the issues page stops any in-flight writes, so a close that fails after leaving leaves the tab count one lower.
+- I used 4 of the 15 `./check` and `./test` runs.

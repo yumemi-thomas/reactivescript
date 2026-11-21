@@ -1,0 +1,15 @@
+== hidden
+77/77 passed
+== overlap
+✗ base: an earlier rename declined after a later one was accepted keeps the later title
+✗ base: comments that load while a post is out keep the post
+✗ base: settings: an earlier save failing after a later one succeeded leaves the later one
+✗ base: settings: a later save failing while an earlier one is out shows its error and then the earlier result
+✗ base: settings: an earlier save landing while a later one is out keeps showing the later one
+✗ labels that load while an add is out keep the add
+✗ rows: a row assign and a newer detail assign on one issue: a declined older one leaves the newer
+31/38 passed
+== fuzz
+desk9-react-haiku-5: 1/20 seeds found a hole
+  seed 2 step 15: row assignee: #2 shows guest, server eve
+    filter closed ; land fetchIssues:closed ; row-assign 0 ; select #2 ; land fetchComments:2 ; assign ; rename Delta ; fail renameIssue:2,Delta ; fail fetchIssues:open ; close ; focus ; land fetchLabels:2 ; fail fetchIssue:2 ; land closeIssue:2 ; fail assign:2,guest

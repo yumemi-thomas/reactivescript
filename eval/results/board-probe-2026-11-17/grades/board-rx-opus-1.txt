@@ -1,0 +1,15 @@
+== hidden
+✗ the new-card input starts empty when the board opens again
+✗ two adds show both, each taking its own id
+43/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ an item added while the checklist reloads shows once
+✗ a move into Doing that fills it while a move out is pending disables the rest
+23/26 passed
+== fuzz
+board-rx-opus-1: 2/20 seeds found a hole
+  seed 9 step 14: count: card "#5 Delta · 3/4", progress "3/5 done"
+    land fetchCards:done ; select #5 ; add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; rename Delta ; rename Alpha ; fail renameCard:5,Alpha ; land renameCard:5,Delta ; land fetchCards:todo ; land fetchChecklist:5 ; add-item docs 3 ; land addItem:5,docs 3
+  seed 11 step 43: settled: card: "#3 Review PR · 2/2", server "#3 Alpha · 2/2"
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:doing ; select #4 ; down #3 ; rename Alpha ; up #3 ; archive #4 ; land fetchCards:done ; land moveCard:3,doing,1 ; sel

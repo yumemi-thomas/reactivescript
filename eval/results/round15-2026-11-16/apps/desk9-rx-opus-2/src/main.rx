@@ -1,0 +1,45 @@
+// Issue desk: three pages behind a row of tabs.
+import { IssuesPage, openIssuesPage } from "./issues.rx"
+import { HelpPage } from "./help.rx"
+import { SettingsPage } from "./settings.rx"
+
+export default component App() {
+  source page: string := "issues"
+  source openCount: number | null := null
+  source helpQuery: string := ""
+  source helpPick: number | null := null
+
+  <main class="desk">
+    <nav class="tabs">
+      <button data-testid="tab-issues" class={page == "issues" ? "tab active" : "tab"} onClick={() => {
+        if (page != "issues") {
+          page := "issues"
+          openIssuesPage()
+        }
+      }}>{openCount == null ? "Issues" : `Issues (${openCount})`}</button>{" "}
+      <button data-testid="tab-help" class={page == "help" ? "tab active" : "tab"} onClick={() => {
+        if (page != "help") {
+          helpQuery := ""
+          helpPick := null
+          page := "help"
+        }
+      }}>Help</button>{" "}
+      <button data-testid="tab-settings" class={page == "settings" ? "tab active" : "tab"} onClick={() => {
+        page := "settings"
+      }}>Settings</button>
+    </nav>
+    {if page == "issues" {
+      <IssuesPage
+        onCount={(n) => { openCount := n }}
+        onOpenHelp={(q, id) => {
+          helpQuery := q
+          helpPick := id
+          page := "help"
+        }} />
+    } else if page == "help" {
+      <HelpPage initialQuery={helpQuery} initialPick={helpPick} />
+    } else {
+      <SettingsPage />
+    }}
+  </main>
+}

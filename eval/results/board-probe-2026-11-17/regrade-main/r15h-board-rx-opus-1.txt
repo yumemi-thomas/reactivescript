@@ -1,0 +1,23 @@
+== hidden
+45/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ one of two moves declined puts back only its card
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ a move into Doing that fills it while a move out is pending disables the rest
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+19/26 passed
+== fuzz
+board-rx-opus-1: 5/20 seeds found a hole
+  seed 2 step 40: duplicate card: #3 shows in doing and done
+    add Alpha 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; land fetchArchived: ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add Alpha 3 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add Delta 4 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; fail fetchCards:done ; fail fetchCards:todo ; retry-done ; tab a
+  seed 9 step 7: settled: doing: shows [3,4], server [4,3]
+    land fetchCards:done ; select #5 ; land fetchChecklist:5 ; land fetchCards:doing ; down #3 ; land moveCard:3,doing,1 ; land fetchCards:todo
+  seed 10 step 41: duplicate card: "Delta 3 (adding…)" shows 1 time(s) with 0 add(s) of it in the air
+    tab archive ; tab board ; add Alpha 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; select #1 ; land fetchCards:done ; land fetchChecklist:1 ; land fetchCards:doing ; add Alpha 2 ; land fetchArchived: ; fail addCard:todo,Alpha 2 ; select #2 ; land fetchChecklist:2 ; toggle 1 ; rename Delta ; land toggleItem:2,22,true ; land fetchCards:todo ; land fetchCheckl
+  seed 12 step 20: detail column: #5 shows in Doing, the detail says "error: declined"
+    land fetchCards:todo ; select #1 ; add Bravo 1 ; select #2 ; land fetchChecklist:1 ; down #1 ; up #1 ; up #2 ; land fetchCards:doing ; fail addCard:todo,Bravo 1 ; land fetchCards:done ; right #3 ; land moveCard:1,todo,1 ; select #2 ; left #5 ; land fetchCards:todo ; land moveCard:1,todo,0 ; select #5 ; land moveCard:2,todo,0 ; fail fetchCards:todo
+  seed 18 step 11: settled: doing: shows [3,4], server [3]
+    land fetchCards:doing ; land fetchCards:done ; select #3 ; right #4 ; land fetchChecklist:3 ; land moveCard:4,done,1 ; left #5 ; select #5 ; fail moveCard:5,doing,2 ; land fetchChecklist:5 ; land fetchCards:todo

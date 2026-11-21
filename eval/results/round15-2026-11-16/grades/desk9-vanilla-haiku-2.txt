@@ -1,0 +1,16 @@
+== hidden
+77/77 passed
+== overlap
+✗ base: a list that loads while an assignment is out keeps the new assignee
+✗ base: a list that loads while a rename is out keeps the new title
+✗ base: a detail that loads while a rename is out keeps the new title
+✗ base: an earlier rename declined after a later one was accepted keeps the later title
+✗ base: comments that load while a post is out keep the post
+✗ labels that load while an add is out keep the add
+✗ rows: a detail assign and a newer row assign on one issue: the newer shows while the older answers
+✗ rows: a row assign and a newer detail assign on one issue: a declined older one leaves the newer
+30/38 passed
+== fuzz
+desk9-vanilla-haiku-2: 1/20 seeds found a hole
+  seed 3 step 39: at rest: labels: #4 shows [docs], server [docs,ui]
+    user bob ; land fetchIssues:open ; row-close 0 ; fail closeIssue:1 ; select #4 ; add-label p1 ; land fetchLabels:4 ; row-assign 2 ; select #4 ; land assign:4,bob ; add-label bug ; fail addLabel:4,bug ; land fetchIssue:4 ; row-close 2 ; row-close 0 ; land closeIssue:4 ; row-assign 0 ; remove-label 0 ; close ; row-close 0 ; filter closed ; add-label p1 ; assign ; land closeIssue:4 ; fail removeL

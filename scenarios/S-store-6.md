@@ -84,16 +84,3 @@ Beside S-solid-37's row 2′ (a held *plain* path write: `1 1 a! -`): the
 guess shows now and pends nothing. Nothing re-asks `state`, so at the
 body's end the guess reverts to the truth.
 
-## Rejected variants
-
-```rx
--- reject: GUESS_NO_QUESTION
-export default component App() {
-  source todos: { done: boolean }[] := [{ done: false }]
-  action toggle(i) { try { guess todos[i].done := true; await fetch("save") } catch {} }
-
-  <p>{len(todos)}</p>
-}
-```
-
-A path guess is a guess: its source needs a question to confirm it.

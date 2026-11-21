@@ -218,7 +218,7 @@ pub enum Decl {
     TypeDecl { name: String, line: usize, span: Span, text: String, exported: bool },
     Effect { inputs: Vec<Expr>, body: Vec<Stmt>, line: usize, span: Span },
     Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, span: Span, ret: Option<String>, exported: bool },
-    Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, exported: bool, is_default: bool },
+    Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, no_props: bool, exported: bool, is_default: bool },
     Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Server { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Provide { name: String, e: Expr, line: usize, span: Span },
@@ -588,7 +588,7 @@ impl Decl {
                 ("ret", os(ret)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Component { name, props, decls, view, line, props_type, exported, is_default, .. } => obj(vec![
+            Decl::Component { name, props, decls, view, line, props_type, no_props, exported, is_default, .. } => obj(vec![
                 ("k", s("component")),
                 ("name", s(name)),
                 ("props", s(props)),
@@ -596,6 +596,7 @@ impl Decl {
                 ("view", Some(markups_json(view))),
                 ("line", num(*line)),
                 ("propsType", os(props_type)),
+                ("noProps", flag(*no_props)),
                 ("exported", flag(*exported)),
                 ("isDefault", flag(*is_default)),
             ]),

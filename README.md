@@ -82,7 +82,7 @@ export default component Profile() {
 Leave out the `errored` boundary and it does not compile:
 
 ```
-profile.rx:10: error UNHANDLED_FAILURE [R-f-5] a reader of user.name (in <Profile>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+profile.rx:10: error UNHANDLED_FAILURE [R-f-5] a reader of user.name (in <Profile>) can fail with Error and no catch or errored boundary above it discharges Error — show it where it is read: `errored fallback(e) { … } { … }` around the reader (or `await … catch (e) => …` at the await, to make the rejection an answer)
 ```
 
 Beyond this the language has structured stores with per-path writes
@@ -177,7 +177,7 @@ node --experimental-strip-types ref/check.ts examples/todo.rx   # check a progra
 node --experimental-strip-types ref/run.ts                      # run every scenario
 ```
 
-Running the scenarios on Solid itself needs Solid's `next` branch built from
+Running the scenarios on Solid itself needs Solid's `main` branch built from
 source (pnpm and a Rust toolchain); see [CONTRIBUTING.md](CONTRIBUTING.md) and
 [`ref/README.md`](ref/README.md). The compiler builds with Cargo
 ([`compiler/README.md`](compiler/README.md)). To try an unreleased editor build, install a `.vsix` from a run of the

@@ -1,0 +1,22 @@
+== hidden
+✗ the new-card input starts empty when the board opens again
+✗ a column's retry shows loading, then the cards
+✗ two adds show both, each taking its own id
+42/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ an item added while the checklist reloads shows once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ a rename and a move out together, the move declined: the card goes back with its new title
+✗ a declined archive of a card whose rename is out brings it back with the new title
+✗ a move into Doing that fills it while a move out is pending disables the rest
+19/26 passed
+== fuzz
+board-rx-haiku-5: 3/20 seeds found a hole
+  seed 4 step 42: detail column: #3 shows in Doing, the detail says "#3 in renamearchive[x] readtoggle[x] approvetoggle2/2 doneadd"
+    add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo ; land fetchCards:done ; tab archive ; land fetchArchived: ; tab board ; add Delta 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Delta 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Bravo 4 ; (move failed: locator.fill: Timeout 2000ms exceeded.
+  seed 8 step 7: detail column: #4 shows in Doing, the detail says "#4 in renamearchiveloading checklist"
+    land fetchCards:doing ; right #3 ; select #4 ; fail fetchCards:done ; left #3 ; retry-done ; fail fetchCards:todo
+  seed 17 step 27: settled: card: "#4 Deploy · 0/1", server "#4 Delta · 0/1"
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo ; land fetchCards:done ; tab archive ; land fetchCards:doing ; tab board ; land fetchCards:todo ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:done ; add Bravo 4 ; (move failed: locator.fill: Ti

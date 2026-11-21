@@ -1,0 +1,60 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+import { Settings } from "./api"
+
+component SettingsForm(props: { initial: Settings; error: string; onSave: (s: Settings) => void }) {
+  source name: string := peek(props.initial.name)
+  source theme: string := peek(props.initial.theme)
+  source density: string := peek(props.initial.density)
+
+  nameError = name.trim() == "" ? "Display name is required" : name.length > 20 ? `Display name must be at most 20 characters, not ${name.length}` : ""
+
+  <div>
+    <label>Display name <input data-testid="name" value={name} onInput={(e) => { name := e.target.value }} /></label>{" "}
+    <span data-testid="name-count">{name.length}/20</span>
+    {if nameError != "" { <p data-testid="name-error">{nameError}</p> }}
+    <div>
+      <button data-testid="theme-light" onClick={() => { theme := "light" }}>light</button>{" "}
+      <button data-testid="theme-dark" onClick={() => { theme := "dark" }}>dark</button>{" "}
+      <button data-testid="density-toggle" onClick={() => { density := density == "compact" ? "comfortable" : "compact" }}>density</button>
+    </div>
+    <p data-testid="preview">Preview: {theme} / {density}</p>
+    <button data-testid="save" onClick={() => {
+      if (nameError != "") return
+      props.onSave({ name: name, theme: theme, density: density })
+    }}>save</button>
+    {if props.error != "" { <p data-testid="save-error">Save failed: {props.error}</p> }}
+  </div>
+}
+
+export component SettingsPage() {
+  source settings = await loadSettings()
+  source saveError: string := ""
+
+  action save(next: Settings) {
+    guess settings := next
+    onFlush(() => { saveError := "" })
+    affects settings
+    try {
+      let answer = await saveSettings(next)
+      settings := answer
+    } catch (e) {
+      saveError := e.message
+      onFlush(() => { saveError := e.message })
+    }
+  }
+
+  <section>
+    <div data-testid="load">
+      {errored fallback(e) {
+        <p>Could not load settings: {e.message}</p>
+        <button data-testid="retry-load" onClick={() => { refresh settings }}>retry</button>
+      } {
+        loading fallback { <p>Loading settings…</p> } {
+          <p data-testid="saved">Saved: {settings.name} · {settings.theme} · {settings.density}{pending? settings ? " (saving…)" : ""}</p>
+          <SettingsForm initial={settings} error={saveError} onSave={s => { save(s) }} />
+        }
+      }}
+    </div>
+  </section>
+}

@@ -1,0 +1,7 @@
+I built the sprint board in `src/main.rx`, `src/board.rx`, `src/column.rx` and `src/archive.rx`, and the last run passed all 26 visible tests. Each view is built the same way: the server's column lists, then what the server accepted during this visit, then the writes still waiting for an answer, which show at once and roll back if declined. So the card, its heading count and the detail always agree, and nothing is re-fetched after a write.
+
+Things I was unsure about:
+- **Heading counts:** `To do (<n>)` counts "(adding…)" placeholders as cards.
+- **Rename input:** `title-input` keeps its text after a rename, because the brief doesn't say to clear it.
+- **First paint:** my first build used the `await … -> v` form to give each column an empty starting value, and no column ever left `loading`. I dropped it. Instead, `left`/`right` show disabled until the column they move into has loaded.
+- **Leaving mid-write:** if you leave the board while a write is waiting, the page reopens from a fresh load and doesn't show that write. Also, two waiting writes of the same kind finish together, so a declined one can stay on screen until the other is answered.

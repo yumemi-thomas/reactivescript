@@ -1,0 +1,40 @@
+import { openCount, openPage } from "./issues.rx"
+import { IssuesPage } from "./IssuesPage.rx"
+import { HelpPage } from "./HelpPage.rx"
+import { SettingsPage } from "./SettingsPage.rx"
+
+export default component App() {
+  source page := "issues"
+  source helpQ := ""
+  source helpPick: number | null := null
+
+  <div>
+    <nav>
+      <button data-testid="tab-issues" onClick={() => {
+        if (page != "issues") {
+          openPage()
+          page := "issues"
+        }
+      }}>{openCount < 0 ? "Issues" : `Issues (${openCount})`}</button>{" "}
+      <button data-testid="tab-help" onClick={() => {
+        if (page != "help") {
+          helpQ := ""
+          helpPick := null
+          page := "help"
+        }
+      }}>Help</button>{" "}
+      <button data-testid="tab-settings" onClick={() => { page := "settings" }}>Settings</button>
+    </nav>
+    {if page == "issues" {
+      <IssuesPage onOpenHelp={(q, id) => {
+        helpQ := q
+        helpPick := id
+        page := "help"
+      }} />
+    } else if page == "help" {
+      <HelpPage q={helpQ} pick={helpPick} />
+    } else {
+      <SettingsPage />
+    }}
+  </div>
+}

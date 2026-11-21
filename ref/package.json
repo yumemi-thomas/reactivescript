@@ -2,7 +2,7 @@
   "name": "reactivescript-ref",
   "private": true,
   "type": "module",
-  "description": "The executable spec: parser, checker, interpreter (src/), the Solid oracle (oracle/), the compiler (compile/), the server and hydration runner (ssr/). Solid comes from its next branch at SOLID_NEXT (scripts/solid-next.sh).",
+  "description": "The executable spec: parser, checker, interpreter (src/), the Solid oracle (oracle/), the compiler (compile/), the server and hydration runner (ssr/). Solid is built from source at the commit in SOLID_NEXT (scripts/solid-next.sh).",
   "scripts": {
     "test": "node --experimental-strip-types run.ts",
     "oracle": "node --experimental-strip-types --conditions=browser --conditions=development oracle/run.ts",
