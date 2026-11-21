@@ -2,8 +2,9 @@
 // package or a shared `@rx-types` package (MO-8k) gets one drafted from its TypeScript types, written to
 // `node_modules/.rx-types/<spec>.d.rx`, the last place the compiler looks. The Vite plugin, the language server and rx-tsc
 // call `ensureDeclarations(entry)` before they read the program; `RX_GENERATE=0` (or the plugin's `generate: false`) turns
-// it off. The draft is rx-declare's, from types alone (the package is not run): a `create*`/`use*` fn is pure and the rest
-// io. What types cannot show is left out. Where a component renders what it is given then takes the cautious reading
+// it off. The draft is rx-declare's, from types alone (the package is not run). Its fns are io: a name is a convention, not
+// a fact, so no draft guesses `pure` (an import nothing reviewed cannot make the checker accept more). What types cannot
+// show is left out. Where a component renders what it is given then takes the cautious reading
 // (MO-11s); a hook's context (`uses`) and a field that waits or throws (`pending`, `fails`) go unchecked, failing at run
 // time as they would in TypeScript, until a project declaration says them. Strict mode counts no generated row verified.
 // A draft is redone when the installed version changes; one that cannot be drafted (no types) is not written.
@@ -81,8 +82,8 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     fs.mkdirSync(path.dirname(file), { recursive: true });
     text = parsing(text, file);
     fs.writeFileSync(file, [
-      `//@ generated ${pkg}@${version} (MO-8l): drafted from ${spec}'s TypeScript types, the package not run. What types`,
-      `// cannot show is left out: a component it is given is checked under a root of its own (MO-11s), a hook's context and`,
+      `//@ generated ${pkg}@${version} (MO-8l): drafted from ${spec}'s TypeScript types, the package not run. Its fns are io`,
+      `// (no draft guesses \`pure\`); a component it is given is checked under a root of its own (MO-11s); a hook's context and`,
       `// a field that waits or throws are not checked. To say them, write rx-types/${spec}.d.rx, which comes first (MO-8k):`,
       `// npx rx-declare ${spec} --out rx-types/${spec}.d.rx (it also runs the package to find the contexts).`,
       text.trimEnd(),

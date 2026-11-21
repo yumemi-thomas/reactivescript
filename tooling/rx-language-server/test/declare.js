@@ -57,10 +57,10 @@ const draft = fs.existsSync(path.join(ws, "lib.d.rx")) ? fs.readFileSync(path.jo
 if (process.env.VERBOSE) console.log(draft);
 const has = line => draft.split("\n").includes(line);
 check("an Error subclass is an error", has("export error NotFound"), draft);
-check("an accessor parameter and result are ref", has("export pure fn createDebounced(ref source: string, ms: number): ref string"), draft);
-check("a tuple keeps its ref part and its setter (instantiates is inferred from the ref)", has("export pure fn createToggle(initial: boolean): [ref boolean, (...args: any[]) => void]"), draft);
+check("an accessor parameter and result are ref", has("export fn createDebounced(ref source: string, ms: number): ref string"), draft);
+check("a tuple keeps its ref part and its setter (instantiates is inferred from the ref)", has("export fn createToggle(initial: boolean): [ref boolean, (...args: any[]) => void]"), draft);
 check("a plain result gets no store TODO", !/TODO useTheme: is the result a store/.test(draft), draft);
-check("a hook is pure and instantiates, with a TODO for its context", has("export pure fn useTheme(): string instantiates") && /\/\/ TODO useTheme: which context does this hook read\?/.test(draft), draft);
+check("a hook instantiates, is io until a person writes `pure` (a TODO suggests it), with a TODO for its context", has("export fn useTheme(): string instantiates") && /\/\/ TODO useTheme: pure\? its name is a primitive's/.test(draft) && /\/\/ TODO useTheme: which context does this hook read\?/.test(draft), draft);
 check("a component's JSX children are a View", has("export component Card(props: { title: string; children?: View })"), draft);
 check("a function-typed children prop is a render prop (MO-11k)", has("export component List(props: { items: string[]; children: (item: any, index: any) => View })"), draft);
 check("a callback parameter is a function type; an optional one keeps its `?` (MO-8e)", has("export fn onIdle(run: (...args: any[]) => any, delay?: number): void"), draft);
@@ -88,14 +88,14 @@ fs.writeFileSync(path.join(ws, "ctx.d.mts"), [
   "export declare function ThemeProvider(props: { children?: JSX.Element }): JSX.Element;",
   "",
 ].join("\n"));
-const r2 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./ctx.mjs"], { cwd: ws, encoding: "utf8" });
+const r2 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./ctx.mjs", "--run"], { cwd: ws, encoding: "utf8" });
 const ran = r2.stdout;
 if (process.env.VERBOSE) console.log(ran, r2.stderr);
 const hasRan = line => ran.split("\n").some(l => l.split("   //")[0] === line);
 check("running: the exported context is named from its export", hasRan("export context theme"), ran + r2.stderr);
-check("running: a hook that throws with no provider uses it", hasRan("export pure fn useTheme(): string uses(theme)"), ran);
+check("running: a hook that throws with no provider uses it", hasRan("export fn useTheme(): string uses(theme)"), ran);
 check("running: a provider that lets it run provides it", hasRan("export component ThemeProvider(props: { children?: View }) provides(theme)"), ran);
-check("running: a hook that reads its context only when its result is read uses it too", /export pure fn useLazy\(\): .* uses\(theme\)/.test(ran), ran);
+check("running: a hook that reads its context only when its result is read uses it too", /export fn useLazy\(\): .* uses\(theme\)/.test(ran), ran);
 check("running: a hook that throws under every context gets no invented one", /TODO useBroken: run with no provider it throws, and under each of this module's contexts too/.test(ran) && !/useBroken\(\).*uses\(/.test(ran), ran);
 check("running: a hook that never throws keeps a TODO, not a claim", /TODO useFree: run with no provider, and its result read, it does not throw/.test(ran), ran);
 
@@ -119,7 +119,7 @@ fs.writeFileSync(path.join(ws, "kit.d.mts"), [
   "export declare const normalizeProps: { button: (x: object) => object };",
   "",
 ].join("\n"));
-const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./kit.mjs"], { cwd: ws, encoding: "utf8" });
+const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./kit.mjs", "--run"], { cwd: ws, encoding: "utf8" });
 const kit = r3.stdout;
 if (process.env.VERBOSE) console.log(kit, r3.stderr);
 const kitHas = line => kit.split("\n").includes(line);
@@ -143,11 +143,11 @@ fs.writeFileSync(path.join(ws, "jsxkit.d.ts"), [
   "export declare function Panel(props: { children?: JSX.Element }): JSX.Element;",
   "",
 ].join("\n"));
-const r4 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./jsxkit.jsx"], { cwd: ws, encoding: "utf8" });
+const r4 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./jsxkit.jsx", "--run"], { cwd: ws, encoding: "utf8" });
 if (process.env.VERBOSE) console.log(r4.stdout, r4.stderr);
-check("a .jsx module runs compiled; its hook's context is named after the hook", /^rx-declare: ran 1 hook: 1 read a context/m.test(r4.stderr) && r4.stdout.split("\n").includes("export pure fn usePanelContext(): object uses(panel)") && /^export context panel /m.test(r4.stdout), r4.stdout + r4.stderr);
-const r5 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./jsxkit.jsx", "--context", "sidePanel"], { cwd: ws, encoding: "utf8" });
-check("--context names it", r5.stdout.split("\n").includes("export pure fn usePanelContext(): object uses(sidePanel)"), r5.stdout + r5.stderr);
+check("a .jsx module runs compiled; its hook's context is named after the hook", /^rx-declare: ran 1 hook: 1 read a context/m.test(r4.stderr) && r4.stdout.split("\n").includes("export fn usePanelContext(): object uses(panel)") && /^export context panel /m.test(r4.stdout), r4.stdout + r4.stderr);
+const r5 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./jsxkit.jsx", "--context", "sidePanel", "--run"], { cwd: ws, encoding: "utf8" });
+check("--context names it", r5.stdout.split("\n").includes("export fn usePanelContext(): object uses(sidePanel)"), r5.stdout + r5.stderr);
 
 // a hook that warns, not throws, with no provider reads its context too
 fs.writeFileSync(path.join(ws, "warns.mjs"), [
@@ -157,8 +157,8 @@ fs.writeFileSync(path.join(ws, "warns.mjs"), [
   "",
 ].join("\n"));
 fs.writeFileSync(path.join(ws, "warns.d.mts"), ["import type { Context } from \"solid-js\";", "export declare const RouterContext: Context<object | undefined>;", "export declare function useRouter(): object | undefined;", ""].join("\n"));
-const r6 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./warns.mjs"], { cwd: ws, encoding: "utf8" });
-check("running: a hook that warns with no provider uses the context it warns about", /^export pure fn useRouter\(\): .* uses\(router\)$/m.test(r6.stdout), r6.stdout + r6.stderr);
+const r6 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./warns.mjs", "--run"], { cwd: ws, encoding: "utf8" });
+check("running: a hook that warns with no provider uses the context it warns about", /^export fn useRouter\(\): .* uses\(router\)$/m.test(r6.stdout), r6.stdout + r6.stderr);
 
 const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: ws, encoding: "utf8" });
 check("the draft parses and passes rx-tsc against the module's own types (TY-6)", t.status === 0 && t.stdout.trim() === "", { status: t.status, out: t.stdout + t.stderr });

@@ -49,17 +49,21 @@ package that has none from it.
 
 A package you import with no declaration anywhere gets one drafted for you. Before a build (and in the editor), the
 plugin reads the package's TypeScript types and writes `node_modules/.rx-types/<package>.d.rx`: its components with
-their props, `create*`/`use*` functions as pure, the rest as io, accessors as `ref`. It's redrafted when you upgrade
+their props, its functions as io, accessors as `ref`. A draft never guesses that a function is `pure` (a name like
+`useX` is a convention, not a fact), so calling one where a component computes is refused until you say it is, and the
+error says where. It's redrafted when you upgrade
 the package. So `import { Badge } from "some-solid-kit"` just works.
 
 A draft says only what types show:
 
 - a component you hand to one of its functions is checked under a root of its own (MO-11s): give it its own
   `errored`/`loading` and the contexts it reads;
-- a hook's provider and a field that suspends or throws are **not** checked: as in TypeScript, they fail at run time.
+- a hook's provider and a field that suspends or throws are **not** checked: as in TypeScript, they fail at run time;
+- a function is io until a person writes `pure` for it.
 
 To say those, write `rx-types/<package>.d.rx` (it wins over the draft): `npx rx-declare <package> --out
-rx-types/<package>.d.rx` starts from the same draft and also runs the package to find which hooks need a provider.
+rx-types/<package>.d.rx` starts from the same draft, with a `// TODO` for each guess to confirm (`pure`, `handler`);
+`--run` also runs the package to find which hooks need a provider (it executes the package's code).
 Turn drafting off with `RX_GENERATE=0` or `rx({ generate: false })`.
 
 ## Use it

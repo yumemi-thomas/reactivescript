@@ -84,7 +84,7 @@ async function runRows(draft, spec, from, opts = {}) {
   const lines = draft.split("\n");
   const hooks = [];
   // a hook every parameter of which is optional (`useQueryClient(client?: …)`) runs with none
-  const bare = l => { const m = /^export pure fn (use[A-Z]\w*)\(([^)]*)\)/.exec(l); return m && (!m[2].trim() || m[2].split(",").every(q => /^\s*(ref\s+)?[\w$]+\?/.test(q))) ? m[1] : null; };
+  const bare = l => { const m = /^export (?:pure )?fn (use[A-Z]\w*)\(([^)]*)\)/.exec(l); return m && (!m[2].trim() || m[2].split(",").every(q => /^\s*(ref\s+)?[\w$]+\?/.test(q))) ? m[1] : null; };
   lines.forEach((l, i) => { const n = bare(l); if (n && typeof mod[n] === "function") hooks.push({ name: n, i }); });
   const contexts = Object.entries(mod).filter(([, v]) => v && typeof v === "function" && "id" in v && "defaultValue" in v);   // Solid 2's createContext
   // the name of a context the module does not export: `--context <name>`, else what its hooks call it (`useDialogContext`

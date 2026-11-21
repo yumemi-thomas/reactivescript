@@ -74,13 +74,15 @@ there; write the `rx-types/` file (this command, then its TODOs) to check them. 
 
 What the types show becomes rows: an accessor parameter or result is `ref`, a function of props to a JSX element is a
 component (its JSX props are `View`, its component props `Component`), a tuple keeps its `ref` parts, an `Error`
-subclass is an `error`, a function that hands back a component is a factory. `create*`, `use*`, `define*` and
-`*Options` fns are `pure` (Solid's convention for primitives and config helpers); every other fn stays io. What types
+subclass is an `error`, a function that hands back a component is a factory. Every fn is drafted io: a `create*`,
+`use*`, `define*` or `*Options` name (Solid's convention for primitives and config helpers) only suggests `pure`, as a
+`// TODO`, as an `on…` callback suggests `handler`; a name is a convention, not a fact, so a person decides. What types
 cannot show is a `// TODO` line above the declaration it concerns: which context a hook reads (`uses(…)`), whether a
 result's fields wait or throw (`pending fails(…)`), what a promise rejects with. `rx-tsc` then checks the draft against
 the same types (spec/13 TY-6).
 
-Then it runs the module (`--no-run` skips this; run it with `node --conditions=browser`) to settle what running can:
+With `--run` it then runs the module (it executes the package's code, so only when asked; run it with
+`node --conditions=browser`) to settle what running can:
 a hook whose parameters are all optional is called with nothing providing anything, and its result read (fields,
 accessors), since a hook may look its context up only then. One that throws reads a context: the module's exported
 contexts are tried around it (with a placeholder value) and the one under which it runs is named (`QueryClientContext`

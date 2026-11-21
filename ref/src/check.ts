@@ -102,6 +102,7 @@ type Sym = {
   held?: [string, boolean, string[]][];   // MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
+  generated?: string;                  // MO-8l: a JS fn declared by a generated draft (node_modules/.rx-types): its package's specifier
   forwards?: boolean;                  // MO-11g: a declared JS fn that, inside a factory's arguments, hands the components it is given on
   undeclared?: string;                 // MO-8k: a JS import with no declaration in any of the four places: its specifier
   carrier?: boolean;                   // MO-11o: a declared fn whose result carries the components in its arguments
@@ -660,6 +661,7 @@ class Checker {
    *  `fails` is refused, and a name it does not declare is not exported. */
   private importDeclared(d: Extract<Decl, { k: "import" }>, env: Env) {
     const decls = this.opts.declarations?.get(d.declared!) ?? []; const file = d.declared!.split("/").pop();
+    const generated = /(^|\/)node_modules\/\.rx-types\//.test(d.declared!) ? d.from : undefined;   // MO-8l
     const jsKeys = (names?: string[]) => (names ?? []).map(n => {                          // MO-12a: a JS context's key is its declaration file's
       if (!decls.some(y => y.kind === "context" && y.name === n)) this.err("NOT_EXPORTED", "MO-12", `${file} names context ${n} in uses(…) or provides(…) but declares none: add \`export context ${n}\``);
       return `${d.declared}#${n}`;
@@ -687,7 +689,7 @@ class Checker {
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
       if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.forwards ? { forwards: true } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.kind === "fn" && x.forwards ? { forwards: true } : {}) });
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.kind === "fn" && x.forwards ? { forwards: true } : {}), ...(generated ? { generated } : {}) });
     }
   }
   /** CN-3d: `e` can have no value on the first load: it awaits without a first paint, here or in an equation it reads,
@@ -1160,7 +1162,7 @@ class Checker {
           const s = env.lookup(e.f.name);
           if (ctx.scope === "reactive" && (s?.io || (!s && e.f.name === "log"))) {
             if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${e.f.name}(…) is io; a fn is pure by definition`);
-            else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${e.f.name}(…) is io and is called in reactive scope (R-io-3)${s?.ioVia ? ` — its server body calls ${s.ioVia}` : ""}`);
+            else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${e.f.name}(…) is io and is called in reactive scope (R-io-3)${s?.ioVia ? ` — its server body calls ${s.ioVia}` : ""}${s?.generated ? ` — its declaration is a draft generated from ${s.generated}'s types, which never guesses \`pure\`: if calling it writes nothing, declare it \`pure fn\` in rx-types/${s.generated}.d.rx (MO-8l)` : ""}`);
           }
           if (s?.side === "client" && ctx.scope === "reactive" && !ctx.server && !this.awaitedCalls.has(e)) this.err("CLIENT_NOT_AWAITED", "SF-5b", `${e.f.name}(…) is \`client\` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now`);
           if (s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);

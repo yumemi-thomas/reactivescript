@@ -52,6 +52,7 @@ export component Bars(props: { points: number[] })
 -- module: ./node_modules/.rx-types/@demo/gauge.d.rx
 //@ generated from @demo/gauge's types (MO-8l)
 export component Gauge(props: { value: number })
+export fn readGauge(): number
 ```
 
 ## Program
@@ -104,3 +105,16 @@ export default component App() {
 
 `@demo/dial` has no declaration in any of the four places: a JS import with
 none is not a component (MO-11a).
+
+```rx
+-- reject: IO_IN_REACTIVE
+import { readGauge } from "@demo/gauge"
+export default component App() {
+  v = readGauge()
+  <p>{v}</p>
+}
+```
+
+A generated draft never guesses `pure` (MO-8l): `readGauge` is io until a
+person declares it `pure fn` in `rx-types/@demo/gauge.d.rx`, which the
+message says.

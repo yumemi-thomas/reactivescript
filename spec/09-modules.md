@@ -272,8 +272,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   and redrafted when it moves; a package with no types gets none, and a row
   the notation cannot say is left out as a comment, not the whole file.
   The draft is `rx-declare`'s from types alone (the package is not run):
-  `create*` and `use*` fns are `pure`, the rest io, `ref` where the types
-  show an accessor, components with their props. What types cannot show is
+  every fn io (revised 2026-11-21: a name such as `use…` is a convention,
+  not a fact, so no draft guesses `pure`, and an import nothing reviewed
+  cannot make the checker accept more; `IO_IN_REACTIVE` on such a call
+  says where to declare it `pure`), `ref` where the types show an
+  accessor, components with their props. What types cannot show is
   left out: where a component it is given is rendered then takes the
   cautious reading (MO-11s); a hook's context (`uses`) and a field that
   waits or throws (`pending`, `fails`) are not checked, and fail at run time

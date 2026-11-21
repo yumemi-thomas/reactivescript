@@ -263,6 +263,8 @@ struct Sym<'a> {
     undeclared: Option<String>,
     /// MO-11g: a declared JS fn that, inside a factory's arguments, hands the components it is given on to the factory
     forwards: bool,
+    /// MO-8l: a JS fn declared by a generated draft (node_modules/.rx-types): its package's specifier
+    generated: Option<String>,
     /// MO-11o: a declared fn whose result carries the components in its arguments
     carrier: bool,
     /// MO-11o: on an equation bound to such a call, those arguments and their scope
@@ -339,6 +341,7 @@ impl<'a> Sym<'a> {
             carries: vec![],
             undeclared: None,
             forwards: false,
+            generated: None,
             carrier: false,
             carried: None,
             carried_under: None,
@@ -1795,6 +1798,7 @@ impl<'a> Checker<'a> {
         let declared = declared.as_ref().unwrap();
         let decls: &[JsDecl] = self.opts.declarations.get(declared).map(|v| v.as_slice()).unwrap_or(&[]);
         let file = declared.split('/').last().unwrap_or("").to_string();
+        let generated = (declared.starts_with("node_modules/.rx-types/") || declared.contains("/node_modules/.rx-types/")).then(|| from.clone()); // MO-8l
         // MO-12a: a JS context's key is its declaration file's
         let js_keys = |c: &mut Self, ns: &[String]| -> Vec<String> {
             ns.iter()
@@ -1937,6 +1941,7 @@ impl<'a> Checker<'a> {
                     s.drafts = xdrafts.clone();
                     s.part_drafts = xpart_drafts.clone();
                     s.forwards = *xforwards;
+                    s.generated = generated.clone();
                     self.bind(env, alias, s);
                 }
             }
@@ -3172,7 +3177,8 @@ impl<'a> Checker<'a> {
                             self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io; a fn is pure by definition", fname));
                         } else {
                             let code = if kind == Some(SymKind::Action) { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" };
-                            self.err(code, "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3){}", fname, io_via.map(|v| format!(" — its server body calls {}", v)).unwrap_or_default()));
+                            let gen = s.and_then(|s| self.syms[s].generated.clone()).map(|g| format!(" — its declaration is a draft generated from {g}'s types, which never guesses `pure`: if calling it writes nothing, declare it `pure fn` in rx-types/{g}.d.rx (MO-8l)")).unwrap_or_default();
+                            self.err(code, "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3){}{}", fname, io_via.map(|v| format!(" — its server body calls {}", v)).unwrap_or_default(), gen));
                         }
                     }
                     if side == Some(Side::Client) && !ctx.imperative && !ctx.server && !self.awaited_calls.contains(&(e as *const Expr)) {

@@ -199,8 +199,11 @@ function declare(ts, spec, from, options = {}) {
     if (/^use[A-Z]/.test(name)) todos.unshift("which context does this hook read? add uses(<context>) (MO-12b)");
     const factory = ret === "Component";
     if (factory) todos.unshift("does its component provide a context, or nest what it is given? add provides(<context>), nests(<kids> in <component>) (MO-12c, MO-11i)");
+    // RFC 26: a name is a convention, not a fact, so it suggests `pure` (a TODO for a person) and never writes it: a draft
+    // states only what the types show, and an unreviewed row stays io, the checker's cautious reading (R-io-4)
+    if (primitive || factory || config) todos.push(`pure? its name is a ${factory ? "factory's" : config ? "config helper's" : "primitive's"} (${factory ? "it hands back a Component" : config ? "define…/…Options" : "create…/use…"}): if calling it writes nothing but its own state, write \`pure fn\` (MO-8a)`);
     for (const t of todos) lines.push(`// TODO ${name}: ${t}`);   // on lines of their own: a declaration's line is read to its end
-    lines.push(`export ${primitive || factory || config ? "pure " : ""}fn ${name}(${ps.join(", ")}): ${ret}${primitive && !/\bref\b/.test(ps.join(" ") + ret) && !factory ? " instantiates" : ""}`);
+    lines.push(`export fn ${name}(${ps.join(", ")}): ${ret}${primitive && !/\bref\b/.test(ps.join(" ") + ret) && !factory ? " instantiates" : ""}`);
   }
   if (contexts.length) out.push(`// TODO: the module's contexts (${contexts.join(", ")}): name each with \`export context <name>\` and add uses(<name>) to the hooks that read it (MO-12)`);
   return [...out, ...lines].join("\n") + "\n";
