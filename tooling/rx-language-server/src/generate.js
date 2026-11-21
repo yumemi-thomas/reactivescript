@@ -85,7 +85,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
       `//@ generated ${pkg}@${version} (MO-8l): drafted from ${spec}'s TypeScript types, the package not run. Its fns are io`,
       `// (no draft guesses \`pure\`); a component it is given is checked under a root of its own (MO-11s); a hook's context and`,
       `// a field that waits or throws are not checked. To say them, write rx-types/${spec}.d.rx, which comes first (MO-8k):`,
-      `// npx rx-declare ${spec} --out rx-types/${spec}.d.rx (it also runs the package to find the contexts).`,
+      `// npx rx-declare ${spec} --out rx-types/${spec}.d.rx (add --run to run the package and find the contexts).`,
       text.trimEnd(),
       "",
     ].join("\n"));
