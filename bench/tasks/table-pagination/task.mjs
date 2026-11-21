@@ -24,11 +24,13 @@ export default {
     h.check("next: the second page, through the pager's handler", await h.until(async () => /Cy\s*27 years.*page 2 of 2/.test(await h.text(page)) && !/Ann/.test(await h.text(page))), await h.text(page));
     h.check("the pager's props follow the table (next is disabled on the last page)", await page.locator(".next").isDisabled(), "enabled");
     await page.click(".add");
-    h.check("the table follows the source it was made from", await h.until(async () => /page 2 of 3/.test(await h.text(page)) && /Di\s*52 years/.test(await h.text(page))), await h.text(page));
+    h.check("the table follows the source it was made from (five rows: three pages, back on the first)", await h.until(async () => /Ann.*page 1 of 3/.test(await h.text(page))), await h.text(page));
+    await page.click(".next"); await page.click(".next");
+    h.check("the last page holds the row that was added", await h.until(async () => /Ed\s*19 years.*page 3 of 3/.test(await h.text(page))), await h.text(page));
     await page.click(".row");
     h.check("a row's id, handed up through the prop's callback", await h.until(async () => /picked row \d/.test(await h.text(page))), await h.text(page));
     await page.click(".prev");
-    h.check("prev", await h.until(async () => /Ann.*page 1 of 3/.test(await h.text(page))), await h.text(page));
+    h.check("prev", await h.until(async () => /Cy.*page 2 of 3/.test(await h.text(page))), await h.text(page));
     h.check("no console errors or warnings", h.problems.length === 0, h.problems);
   },
 };

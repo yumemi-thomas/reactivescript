@@ -3,5 +3,7 @@
 export type CellContext<T, V> = import("@tanstack/table-core").CellContext<T, V>
 export pure fn getCoreRowModel(): any
 export pure fn getPaginationRowModel(): any
-export pure fn createTable(ref options: { data: any[]; columns: { accessorKey: string; header: string; cell?: Component }[]; getCoreRowModel: any; getPaginationRowModel?: any; initialState?: any }): any renders
+// The result's type is what the app reads of the table (MO-10k): what is a primitive there — a page count, a row's id —
+// leaves the view it is rendered in; the rest is the table's.
+export pure fn createTable(ref options: { data: any[]; columns: { accessorKey: string; header: string; cell?: Component }[]; getCoreRowModel: any; getPaginationRowModel?: any; initialState?: any }): { getHeaderGroups: () => { headers: { column: { columnDef: { header?: any } }; getContext: () => any }[] }[]; getRowModel: () => { rows: { id: string; getVisibleCells: () => { column: { columnDef: { cell?: any } }; getContext: () => any }[] }[] }; getState: () => { pagination: { pageIndex: number; pageSize: number } }; getPageCount: () => number; getCanNextPage: () => boolean; getCanPreviousPage: () => boolean; nextPage: () => void; previousPage: () => void } renders
 export pure fn flexRender(comp: any, props: any): View

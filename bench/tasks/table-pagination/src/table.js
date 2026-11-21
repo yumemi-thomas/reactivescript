@@ -1,17 +1,21 @@
-// A Solid 2 adapter over @tanstack/table-core, as @tanstack/solid-table is for Solid 1: the table's state is a signal,
-// so what the view reads from the table follows it; `options` is an accessor, so the table follows its data too.
+// A Solid 2 adapter over @tanstack/table-core, as @tanstack/solid-table is for Solid 1: the table's state is a signal
+// and its options a lazy merge, so what the view reads from the table follows the state and the data it was made from.
 import { createTable as createCoreTable } from "@tanstack/table-core";
-import { createSignal, untrack, createComponent } from "solid-js";
+import { createSignal, createMemo, merge, untrack, createComponent } from "solid-js";
 export { getCoreRowModel, getPaginationRowModel } from "@tanstack/table-core";
 
 export function createTable(options) {
-  const first = untrack(options);
-  const table = createCoreTable({ state: {}, onStateChange: () => {}, renderFallbackValue: null, ...first });
+  const lazy = (defaults, opts) => merge(defaults, opts);
+  const table = untrack(() => createCoreTable(merge({ state: {}, onStateChange: () => {}, renderFallbackValue: null, mergeOptions: lazy }, options)));
   const [state, setState] = createSignal(table.initialState);
-  const live = { onStateChange: updater => { setState(prev => (typeof updater === "function" ? updater(prev) : updater)); } };
-  for (const k of Object.keys(first)) Object.defineProperty(live, k, { enumerable: true, get: () => options()[k] });
-  Object.defineProperty(live, "state", { enumerable: true, get: () => ({ ...state(), ...options().state }) });
-  table.setOptions(prev => Object.defineProperties({ ...prev }, Object.getOwnPropertyDescriptors(live)));
+  // table-core knows its data changed by its identity, and a Solid 2 store (an .rx source of records is one) keeps one
+  // identity for its life: the table is given a fresh array whenever the rows change
+  const data = createMemo(() => [...options().data]);
+  table.setOptions(prev => merge(prev, options, {
+    get data() { return data(); },
+    get state() { return { ...state(), ...options().state }; },
+    onStateChange: updater => { setState(old => (typeof updater === "function" ? updater(old) : updater)); },
+  }));
   return table;
 }
 /** Renders a column's cell or header: a component is applied with the cell's context, anything else is shown. */

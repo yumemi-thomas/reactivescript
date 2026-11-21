@@ -397,7 +397,7 @@ impl<'p> Gen<'p> {
         }
         // a package's JS (`@solidjs/web/server-functions`): a real import at module level, where a hoisted server fn's wrappers are
         for d in decls {
-            if let Decl::Import { resolved: None, from, names, .. } = d {
+            if let Decl::Import { resolved: None, from, names, declared, .. } = d {
                 if !self.js_import(from) {
                     continue;
                 }
@@ -406,7 +406,9 @@ impl<'p> Gen<'p> {
                     self.top.push(S::ImportBare(from.clone()));
                     continue;
                 }
-                let ns: Vec<(String, String)> = names.iter().filter(|n| !builtin(&n.name) && n.name != "log").map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
+                // a type its declaration file declares binds nothing: the JS module exports no such name
+                let is_type = |n: &str| declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name, .. } if name == n)));
+                let ns: Vec<(String, String)> = names.iter().filter(|n| !builtin(&n.name) && n.name != "log" && !is_type(&n.name)).map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
                 if !ns.is_empty() {
                     self.top.push(S::ImportNamed(ns, from.clone()));
                 }
@@ -762,6 +764,10 @@ impl<'p> Gen<'p> {
             let n0 = out.len();
             for n in names {
                 let (name, alias) = (&n.name, &n.alias);
+                // a type its declaration file declares binds nothing
+                if declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name: tn, .. } if tn == name))) {
+                    continue;
+                }
                 let v = if self.js_import(from) && !builtin(name) && name != "log" {
                     if declared_errors.as_ref().is_some_and(|e| e.contains(name)) {
                         // SV-5a: a declared JS error class, by its declaration's identity (the same on server and client)
@@ -1375,9 +1381,13 @@ impl<'p> Gen<'p> {
                 // R-f-5, MO-10f (revised 2026-11-21 after review): the result as a value whose parts are read where they are
                 // read, each a getter on the result (a `ref` part called): reading `q.isFetching` does not read `q.data`,
                 // which may fail or hold, as the checker counts it
+                // …and a result none of whose parts is an accessor is the library's own object, read as it is (2026-11-22):
+                // a field read is that field's read on it, its methods are called on it, and a field its declaration
+                // leaves out is still there
                 let whole = match fb.shape.as_ref().unwrap() {
                     FShape::Comp => unreachable!(),
                     FShape::Part(p) => part(id(r.clone()), *p),
+                    sh if !sh.has_ref() => part(id(r.clone()), Part::Value),
                     FShape::Items(items) => rtc(
                         "lazy",
                         vec![id(r.clone()), E::Arr((0..items.len()).map(|i| E::Num(i as f64)).collect()), E::Arr(items.iter().enumerate().filter(|(_, p)| **p == Part::Ref).map(|(i, _)| E::Num(i as f64)).collect())],

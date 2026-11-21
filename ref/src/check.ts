@@ -1724,6 +1724,25 @@ class Checker {
       this.err("DRAFT_ESCAPES", "MO-10i", `${what} hands its callback a library's draft: it is called here, with the callback written in the call (\`${what}((d) => { … })\`), and not passed or stored — a function that travels would be given a callback the checker cannot see; share the change as an action`);
     }
   }
+  /** MO-10b: a method of a declared JS result whose declared type answers nothing, `() => void`. */
+  private voidMethod(f: Expr, env: Env): boolean {
+    if (f.k !== "member" && f.k !== "index") return false;
+    const t = this.declTy(f, env); const r = t === undefined ? undefined : tyStep(t, "call");
+    return r !== undefined && tyClean(r) === "void";
+  }
+  /** SC-4 (2026-11-22): a handler is a function, called when its event happens. An attribute that takes one, given a call
+   *  of something that is io — an action, an io import, a setter, a method declared to answer nothing — would make that
+   *  call while the view computes, and hand the handler its result: `onClick={save()}` for `onClick={() => { save() }}`.
+   *  The arms of a condition are read the same way. */
+  private handlerCalled(e: Expr, env: Env, attr: string) {
+    if (e.k === "call") {
+      let code: string | undefined;
+      if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io ? "IO_IN_REACTIVE" : !s && e.f.name === "log" ? "IO_IN_REACTIVE" : undefined; }
+      else if (this.voidMethod(e.f, env)) code = "IO_IN_REACTIVE";
+      if (code) this.err(code, "SC-4", `${attr}={${show(e)}} calls ${show(e.f)}(…) while the view computes, and gives the handler what it answers: a handler is a function, called when its event happens — \`${attr}={() => { ${show(e)} }}\``);
+    } else if (e.k === "if") { this.handlerCalled(e.t, env, attr); this.handlerCalled(e.f, env, attr); }
+    else if (e.k === "bin" && (e.op === "&&" || e.op === "||" || e.op === "??")) { if (e.op !== "&&") this.handlerCalled(e.l, env, attr); this.handlerCalled(e.r, env, attr); }
+  }
   /** MO-10i: a read through a draft: its name, a path below it, or what a method called on one answers. */
   private draftChain(e: Expr, env: Env): boolean {
     if (e.k === "id") return !!env.lookup(e.name)?.jsDraft;
@@ -1794,6 +1813,12 @@ class Checker {
       case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
       case "call": {
         this.callMarks(e.f, e.args, env);
+        // MO-10b (2026-11-22): a function part of a declared result that answers nothing (`nextPage: () => void`) is called
+        // for what it does: it is io, called from imperative scope
+        if (ctx.scope !== "imperative" && this.voidMethod(e.f, env)) {
+          if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (its declaration says it answers nothing: it is called for what it does); a fn is pure by definition`);
+          else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (\`() => void\`), so it is called for what it does — from a handler or an action`);
+        }
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
           if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited");
           const p = e.args[0];
@@ -2057,7 +2082,7 @@ class Checker {
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
             const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; return !!d?.callback || (n !== "ref" && !d?.pure && isHandler(n)); };   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element only (07 §4): on a component, a handler only when declared one
-            for (const a of args) { this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" })); if (!handles(a.name)) this.keep(a.e, env); }   // R-2: an argument is read where the component reads it
+            for (const a of args) { if (handles(a.name)) this.handlerCalled(a.e, env, a.name); this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" })); if (!handles(a.name)) this.keep(a.e, env); }   // R-2: an argument is read where the component reads it
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
               this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: args.filter(a => !handles(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: args.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
@@ -2079,7 +2104,7 @@ class Checker {
             } else this.markup(m.children, env);
             break;
           }
-          for (const a of m.attrs) { this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.keep(a.e, env); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
+          for (const a of m.attrs) { if (isHandler(a.name) && a.name !== "ref") this.handlerCalled(a.e, env, a.name); this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.keep(a.e, env); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
           this.markup(m.children, env);
           break;
         }

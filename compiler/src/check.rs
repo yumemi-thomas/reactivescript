@@ -4339,6 +4339,44 @@ impl<'a> Checker<'a> {
             self.err("DRAFT_ESCAPES", "MO-10i", format!("{what} hands its callback a library's draft: it is called here, with the callback written in the call (`{what}((d) => {{ … }})`), and not passed or stored — a function that travels would be given a callback the checker cannot see; share the change as an action"));
         }
     }
+    /// MO-10b: a method of a declared JS result whose declared type answers nothing, `() => void`.
+    fn void_method(&self, f: &Expr, env: EId) -> bool {
+        matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| ty_clean(&r) == "void")
+    }
+    /// SC-4 (2026-11-22): a handler is a function, called when its event happens. An attribute that takes one, given a
+    /// call of something that is io — an action, an io import, a setter, a method declared to answer nothing — would make
+    /// that call while the view computes, and hand the handler its result: `onClick={save()}` for `onClick={() => {
+    /// save() }}`. The arms of a condition are read the same way.
+    fn handler_called(&mut self, e: &'a Expr, env: EId, attr: &str) {
+        match &e.k {
+            ExprKind::Call { f, .. } => {
+                let code = match &f.k {
+                    ExprKind::Id(n) => match self.lookup(env, n) {
+                        Some(s) if self.syms[s].kind == SymKind::Action => Some("ACTION_CALLED_IN_OWNED_SCOPE"),
+                        Some(s) if self.syms[s].io => Some("IO_IN_REACTIVE"),
+                        None if n == "log" => Some("IO_IN_REACTIVE"),
+                        _ => None,
+                    },
+                    _ if self.void_method(f, env) => Some("IO_IN_REACTIVE"),
+                    _ => None,
+                };
+                if let Some(code) = code {
+                    self.err(code, "SC-4", format!("{attr}={{{}}} calls {}(…) while the view computes, and gives the handler what it answers: a handler is a function, called when its event happens — `{attr}={{() => {{ {} }}}}`", show(e), show(f), show(e)));
+                }
+            }
+            ExprKind::If { t, f, .. } => {
+                self.handler_called(t, env, attr);
+                self.handler_called(f, env, attr);
+            }
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "&&" | "||" | "??") => {
+                if op != "&&" {
+                    self.handler_called(l, env, attr);
+                }
+                self.handler_called(r, env, attr);
+            }
+            _ => {}
+        }
+    }
     /// MO-10i: a read through a draft: its name, a path below it, or what a method called on one answers.
     fn draft_chain(&self, e: &Expr, env: EId) -> bool {
         match &e.k {
@@ -4546,6 +4584,15 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Call { f, args, .. } => {
                 self.call_marks(f, args, env);
+                // MO-10b (2026-11-22): a function part of a declared result that answers nothing (`nextPage: () => void`)
+                // is called for what it does: it is io, called from imperative scope
+                if !ctx.imperative && self.void_method(f, env) {
+                    if ctx.in_fn {
+                        self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io (its declaration says it answers nothing: it is called for what it does); a fn is pure by definition", show(f)));
+                    } else {
+                        self.err("IO_IN_REACTIVE", "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (`() => void`), so it is called for what it does — from a handler or an action", show(f)));
+                    }
+                }
                 if let ExprKind::Id(fname) = &f.k {
                     if fname == "until" && self.lookup(env, "until").is_none() {
                         if !ctx.imperative {
@@ -5274,6 +5321,9 @@ impl<'a> Checker<'a> {
                         let handles = |n: &str| cbs.contains(n) || (n != "ref" && !pures.contains(n) && is_handler(n));
                         for a in &args {
                             let h = handles(&a.name);
+                            if h {
+                                self.handler_called(&a.e, env, &a.name);
+                            }
                             let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };
                             self.comp(if h { "handler" } else { "prop" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
                             if !h {
@@ -5328,6 +5378,9 @@ impl<'a> Checker<'a> {
                     }
                     for a in attrs {
                         let h = is_handler(&a.name);
+                        if h && a.name != "ref" {
+                            self.handler_called(&a.e, env, &a.name);
+                        }
                         let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };
                         self.comp(if h { "handler" } else { "reader" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
                         if !h {

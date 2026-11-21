@@ -107,7 +107,8 @@ class Gen {
     // a package's JS (\`@solidjs/web/server-functions\`): a real import at module level, where a hoisted server fn's wrappers are
     for (const d of decls) if (d.k === "import" && !d.resolved && !d.from.startsWith(".")) {
       if (!d.names.length) { this.top.push(`import ${J(d.from)};`); continue; }   // 07 §1a: for its effect
-      const names = d.names.filter(n => !BUILTINS.has(n.name) && n.name !== "log");
+      const isType = (n: string) => !!d.declared && !!this.mods?.set.declarations?.get(d.declared)?.some(y => y.kind === "type" && y.name === n);   // a type its declaration file declares binds nothing: the JS module exports no such name
+      const names = d.names.filter(n => !BUILTINS.has(n.name) && n.name !== "log" && !isType(n.name));
       if (names.length) this.top.push(`import { ${names.map(n => `${n.name} as w$${n.alias}`).join(", ")} } from ${J(d.from)};`);
     }
   }
@@ -249,6 +250,7 @@ class Gen {
       if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; if (jf?.kind === "jfn" && jf.shape === "comp") { env.vars.set(d.name, { kind: "comp", js: cm(d.name), inst: cm(d.name), shape: "comp" }); continue; } env.vars.set(d.name, { kind: "acc", js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}), ...this.draftsOfBinding(d.e, env) }); }
     }
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
+      if (d.declared && this.mods?.set.declarations?.get(d.declared)?.some(y => y.kind === "type" && y.name === name)) continue;   // a type its declaration file declares binds nothing
       const v = !d.from.startsWith(".") && !BUILTINS.has(name) && name !== "log" ? (d.declaredErrors?.includes(name) ? `__rt.jsClass(w$${alias}, ${J(`${d.from}#${name}`)}${d.declaredErrorFields?.[name] ? `, ${J(d.declaredErrorFields[name])}` : ""})` : `w$${alias}`) /* SV-5a: a declared JS error class, by its declaration's identity */ : name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       const js = env.lookup(alias)?.kind === "comp" ? cm(alias) : mg(alias);
@@ -419,7 +421,10 @@ class Gen {
       const r = b.inst!; const sh = f.shape!;
       if (sh === "comp") return `${pad}const ${b.js} = ${f.js}(${args.join(", ")});`;                 // MO-11f: the component the factory hands back
       // R-f-5, MO-10f (revised 2026-11-21 after review): the result as a value whose parts are read where they are read
-      const whole = typeof sh === "string" ? part(r, sh) : "items" in sh ? `__rt.lazy(${r}, [${sh.items.map((_, i) => i).join(", ")}], [${sh.items.flatMap((p, i) => p === "ref" ? [i] : []).join(", ")}])` : `__rt.lazy(${r}, [${sh.fields.map(([k]) => J(k)).join(", ")}], [${sh.fields.flatMap(([k, p]) => p === "ref" ? [J(k)] : []).join(", ")}])`;
+      // …and a result none of whose parts is an accessor is the library's own object, read as it is (2026-11-22): a field
+      // read is that field's read on it, its methods are called on it, and a field its declaration leaves out is still there
+      const noRef = typeof sh !== "string" && !("items" in sh ? sh.items : sh.fields.map(f => f[1])).includes("ref");
+      const whole = typeof sh === "string" ? part(r, sh) : noRef ? part(r, "value") : "items" in sh ? `__rt.lazy(${r}, [${sh.items.map((_, i) => i).join(", ")}], [${sh.items.flatMap((p, i) => p === "ref" ? [i] : []).join(", ")}])` : `__rt.lazy(${r}, [${sh.fields.map(([k]) => J(k)).join(", ")}], [${sh.fields.flatMap(([k, p]) => p === "ref" ? [J(k)] : []).join(", ")}])`;
       return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${whole};`;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {
