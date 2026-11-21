@@ -128,6 +128,9 @@ named.
 | `WRITE_TO_NON_SOURCE` (MO-2)      | S   | MO-2a: an imported source is read-only | S-module-1 |
 | `IMPORT_ROW_MISMATCH`             | S   | MO-4a: `pure` / `fails` on an `.rx` import | S-module-1 |
 | `MODULE_CYCLE`                    | S   | MO-5  | S-module-1 |
+| `MUTATION_IN_PLACE` (new)         | S   | 02 W-1a: an Array's mutating method on the value of a source, an equation, a prop, a provision or a row (Solid: a signal's array pushed to, a store written outside its setter — silent, or a dev warning) | guide/diagnostics.md, `bench/tasks/source-mutation` |
+| `DISPOSER_DROPPED` (new)          | S   | 02 EF-5a: a declared JS call whose result is `() => void`, dropped | guide/diagnostics.md, `bench/tasks/listener-cleanup` |
+| `DUPLICATE_KEY` (new)             | S/R | 06 ST-4d: two rows of a keyed list written with one key (S); keys computed at run time are the data's (R, unreported) | guide/diagnostics.md, `bench/tasks/duplicate-keys` |
 | `DUPLICATE_WIRE_ID` (new)         | S   | 10 SV-5a: two declared error classes, in packages with no name, that would cross to the client under one identity (refused where the declarations are loaded) | `a_wire_id_does_not_depend_on_the_entry_and_two_classes_never_share_one` (crate, `ref/units.ts`) |
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a; MO-12a for an undeclared JS context | S-module-1, S-module-7 |
 | `NOT_A_CONTEXT`, `CONTEXT_AS_VALUE` | S | RG-7a | S-context-1 |
@@ -151,6 +154,16 @@ named.
 | `TSnnnn`                          | S   | 13 TY-1: TypeScript's errors over the projection, on `.rx` lines | S-types-1 |
 
 ## The advisory rows (ruled 2026-10-23, in part)
+
+(2026-11-22: the advisory tool's first row exists. The checker returns
+`advice` beside its diagnostics — `rxc check` prints `advice CODE …`
+lines and `--json` an `advice` list, `ref/check.ts` the same, and the
+two are compared as the diagnostics are. `ASYNC_WATERFALL`: in one
+imperative run, an `await` of a pure question written after another's,
+reading nothing bound since the first — the second waits for the first
+for nothing; ask both and await them together, or make each an equation,
+which Solid asks side by side. Two awaited io calls are not advised:
+their order may be the point. S-await-1, `bench/tasks/sequential-awaits`.)
 
 Under CN-1a there is no warning tier, so an S row is a compile error or it
 is not a diagnostic. `ASYNC_WATERFALL`, `HUGE_FAN_IN`, `HUGE_FAN_OUT`,

@@ -2,7 +2,8 @@
 //!
 //!   rxc check file.rx...   diagnostics, as `ref/check.ts` prints them (`--spa`, `--whole-program`: see below)
 //!   rxc check --json file.rx...
-//!                          the same as `{diagnostics: [{file, line, range, code, rule, message}]}`, ranges per CP-8
+//!                          the same as `{diagnostics: [{file, line, range, code, rule, message}], advice: […]}`, ranges per CP-8;
+//!                          `advice` (99, the advisory rows) is about a correct program and never fails the check
 //!   rxc project app.rx     TY-1c: the program's TSX projection, each file with its mappings onto the `.rx`
 //!                          (`[generated offset, source offset, length]`, CP-8), and the prelude it imports; with no
 //!                          file, reads `[{id, entry, files}]` on stdin, as `conform` does (`ref/crate.ts --project`)
@@ -87,6 +88,7 @@ fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool, whole: b
         "order": set.order,
         "asts": asts,
         "diags": checked.diags.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
+        "advice": checked.advice.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
         "sigs": sigs,
         "models": models,
     })
@@ -336,6 +338,7 @@ fn main() {
             let mut bad = 0;
             let as_json = cmd == "check" && args.iter().any(|a| a == "--json");
             let mut found: Vec<Value> = vec![];
+            let mut advice: Vec<Value> = vec![];
             for f in args[1..].iter().enumerate().filter(|(i, a)| !a.starts_with("--") && args[*i] != "--host").map(|(_, a)| a) {
                 // a file that is not there is an error, not an empty program that checks
                 if read_disk(&abs(f)).is_none() {
@@ -369,6 +372,14 @@ fn main() {
                         eprintln!("{}:{}: error {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
                     }
                 }
+                // 99, the advisory rows: advice about a correct program — printed, never counted
+                for d in &checked.advice {
+                    if as_json {
+                        advice.push(serve::diagnostic_json(&set, d));
+                    } else {
+                        eprintln!("{}:{}: advice {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
+                    }
+                }
                 if cmd == "model" {
                     let cwd = std::env::current_dir().map(|p| p.to_string_lossy().into_owned() + "/").unwrap_or_default();
                     let ms: Vec<Value> = set
@@ -386,7 +397,7 @@ fn main() {
                 }
             }
             if as_json {
-                println!("{}", serde_json::to_string_pretty(&json!({ "diagnostics": found })).unwrap());
+                println!("{}", serde_json::to_string_pretty(&json!({ "diagnostics": found, "advice": advice })).unwrap());
             }
             std::process::exit(if bad > 0 { 1 } else { 0 });
         }

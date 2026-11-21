@@ -6,6 +6,9 @@ const hydrate = async h => {
 };
 export default {
   title: "SSR: what only the browser knows is a client question, not a value computed on both sides",
+  known: {
+    "a `pure` JS call that answers differently on each side": "10 SV-7c (ruled 2026-10-24), 08 CN-5: `pure` is the author's assertion at the JS boundary, the one unchecked word, and that the function answers alike on both machines is part of it. What only the browser knows is `client` JS, which is checked (SV-7b: the good program). Solid's development build adopts the server's text without comparing it, so nothing reports this mismatch, and the language adds no run-time comparison of its own.",
+  },
   types: [
     { name: "the client question's answer keeps its type", edit: ["rendered in {place}", "rendered in {place.toFixed(1)}"], expect: /TS2339|TS2551/ },
   ],

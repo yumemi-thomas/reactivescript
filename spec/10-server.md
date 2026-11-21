@@ -340,7 +340,13 @@ author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
   also gives the same result on both machines is the author's assertion
   too (CN-5), and when it does not — `toLocaleString` with the server's
   locale and time zone is the classic case — Solid's runtime reports
-  `HYDRATION_MISMATCH` (bin R). The language's remedies are the ones it
+  `HYDRATION_MISMATCH` (bin R) where the structure differs. (Measured
+  2026-11-22, `bench/tasks/ssr-divergence`: where only a text differs —
+  the usual case for a formatted value — Solid 2.0's development build
+  adopts the server's node and says nothing, so that mismatch is silent.
+  The ruling stands: `pure` is the one unchecked word, and a run-time
+  comparison of every text would be a check the language does not add;
+  the benchmark records the variant as a known limit.) The language's remedies are the ones it
   already has: what depends on the browser is `client` JS (a client
   question, SV-7b), and a locale or a time zone can be an argument the
   server receives.

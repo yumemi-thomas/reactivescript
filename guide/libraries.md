@@ -84,8 +84,13 @@ export component Search(props: { start: boolean, q: string }) {
 A result that is a store whose field waits or throws when read (a query's `data`) says so on that field:
 `export pure fn useQuery(ref options: { … }): { data: pending fails(Error) any; isFetching: boolean }`. A read of
 `todos.data` then needs an `errored` (or a `catch`) above it, and in a client-only build a `loading`, like an `await`.
-Such a result is read a field at a time: pass `todos.data` to a component, not `todos` (`RESULT_AS_VALUE`). The
-field carries what it needs to where it is read; the whole result would be a plain value on the other side.
+Such a result is read a field at a time: pass `todos.data` to a component, and the field carries what it needs to
+where it is read. To pass the whole result, the component says so in its prop's type, with the same words on the
+fields: `component Panel(props: { query: { data: pending fails(Error) Todo[]; status: string } })`. Then
+`<Panel query={todos} />` is accepted, and `props.query.data` in `Panel` is checked as `todos.data` is. Given to a
+prop typed any other way, the whole result is `RESULT_AS_VALUE`: on the other side it would be a plain value. What
+is read from the result is a field its declaration names: `todos.valueOf()` and a field the `.d.rx` leaves out are
+refused too (declare the field).
 
 `isOn`, `query` and `wide` are equations like any other: read them without calling them. They may hold, like a
 value from an `await` (Solid promises nothing about an accessor), so `latest`, `pending?` and `loading` apply.
@@ -97,7 +102,10 @@ What the compiler catches:
 | `createToggle(props.start)` | `SNAPSHOT_ARGUMENT`: a value argument is read once; write `peek props.start`, or the library should take `ref` |
 | `x = setOn(true)` | `IO_IN_REACTIVE`: a setter is called from an action or handler |
 | `<p>{createMediaQuery(q)}</p>` | `INSTANTIATION_NOT_BOUND`: bind it, `wide = createMediaQuery(q)` |
-| `<List query={todos} />` for a result with a `pending` or `fails` field | `RESULT_AS_VALUE`: pass the field, `items={todos.data}` |
+| `<List query={todos} />` for a result with a `pending` or `fails` field | `RESULT_AS_VALUE`: pass the field, `items={todos.data}`, or type the prop with the fields' rows |
+| `onClick={setOn(true)}`, `onNext={table.nextPage()}` | `IO_IN_REACTIVE`: a handler is passed, not called: `onClick={() => { setOn(true) }}` |
+| `rows.push(x)` on a source, `props.items.sort()` | `MUTATION_IN_PLACE`: write it (`rows := rs => [...rs, x]`), or take a copy (`toSorted()`) |
+| `listen(…)` as a statement, when `listen` is declared `(): () => void` | `DISPOSER_DROPPED`: keep what it answers and call it in the effect's cleanup |
 
 ## What stays the library's
 
@@ -125,6 +133,20 @@ What the compiler catches:
   called inside a computation is a mismatch, and it reports which unmarked functions could be either word.
 - **Callbacks you pass are plain functions.** An action passed as `handler` is checked as an action; a plain closure
   is not checked beyond what any closure is.
+- **A store's updater can have a name.** `setTodos((d) => { d.done := d.done + 1 })` writes the library's draft (a
+  parameter declared `draft`). To share one change between handlers, name the closure and give the name to the setter:
+  `bump = (d) => { d.done := d.done + 1 }`, then `setTodos(bump)` wherever it is needed. The name is used for
+  nothing else (`DRAFT_ESCAPES`). Inside an updater the draft's own methods work as in JS (`d.items.push(x)`,
+  `d.items.forEach((row) => { row.done := true })`), and whatever is read out of it to keep is a copy.
+- **What a library's value answers is its declaration's.** A table or a client is declared with the type of what the
+  app reads of it: `createTable(…): { getPageCount: () => number; nextPage: () => void; getRowModel: () => { rows:
+  { id: string }[] } } renders`. A part declared a primitive (`table.getPageCount()`, a row's `id`) can be passed to
+  a child or a callback as it is; a method declared to answer nothing (`nextPage`) is called from a handler; the
+  rest stays in the view the value is bound in (`RENDERS_ESCAPES`). `rx-tsc` checks the declared type against the
+  library's own.
+- **A store has one identity.** An `.rx` source of records is a Solid store: a write changes what it holds, not which
+  object it is. A library that sees a change by identity (TanStack Table's `data`) is given a fresh list,
+  `data: [...rows]`.
 - **Without a declaration,** an import is io unless you import it `pure`, and `import pure` of a primitive is
   unchecked: the call is then an equation, re-run (and the primitive rebuilt) whenever an argument changes. Declare
   primitives instead.
@@ -177,6 +199,10 @@ export default component App() {
   puts above `props.children` covers it. Without the word, put them above `<Router />`.
 - **A router can live in its own module.** `export Router = createRouter(…)` exports it; whoever applies `<Router />`
   gets its pages' needs through its signature, so the `errored` or `provide` they need goes above `<Router />` there.
+- **A provider can be wrapped.** With a router that travels in a value (TanStack's `<RouterProvider router={…} />`),
+  the app's own frame can take the router as a prop and give it on: `component Shell(props: { router: AnyRouter })
+  { <header>…</header> <RouterProvider router={props.router} /> }`. The pages are checked where `Shell` is applied,
+  under what `Shell` puts around the provider; pass the prop on as it is (`props.router`).
 - **Say which context a hook needs.** `export context router` names the library's context; `uses(router)` on a hook
   makes a call with no router above it `CONTEXT_NOT_FOUND`, instead of a run-time throw, and `provides(router)` on
   `createRouter` (or on a provider component) says where it comes from. A hook that uses a context is called once, where

@@ -71,6 +71,7 @@ function refOf(r: Req) {
     order: set.order,
     asts: Object.fromEntries(set.order.map(p => [p, set.programs.get(p)])),
     diags: checked.diags,
+    advice: checked.advice,
     sigs: Object.fromEntries(set.order.map(p => [p, printSignature(checked.sigs.get(p)!)])),
     models: Object.fromEntries(checked.models),
   });

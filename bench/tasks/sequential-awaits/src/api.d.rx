@@ -1,4 +1,4 @@
-export fn loadUser(id: number): Promise<{ id: number; team: string }>
-export fn loadTeam(team: string): Promise<{ name: string; size: number }>
-export fn loadNews(): Promise<string[]>
-export fn all(ps: any[]): Promise<any[]>
+export pure fn loadUser(id: number): Promise<{ id: number; team: string }>
+export pure fn loadTeam(team: string): Promise<{ name: string; size: number }>
+export pure fn loadNews(): Promise<string[]>
+export pure fn all(ps: any[]): Promise<any[]>

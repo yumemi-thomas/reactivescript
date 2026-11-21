@@ -16,10 +16,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 0,
+      "pass": 1,
       "total": 2,
       "fails": [
-        "two rows written with one key (DUPLICATE_KEY)",
         "rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY)"
       ]
     }
@@ -63,14 +62,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 1,
+      "pass": 5,
       "total": 5,
-      "fails": [
-        "the formatter read under a kept peek: the view shows the first value for ever (SNAPSHOT_KEPT)",
-        "a kept peek of it in an equation (SNAPSHOT_KEPT)",
-        "the formatter's value given to a value parameter: the primitive is made from the first value (SNAPSHOT_ARGUMENT)",
-        "the same through an array of formatters (SNAPSHOT_ARGUMENT)"
-      ]
+      "fails": []
     }
   },
   "kobalte-dialog": {
@@ -112,82 +106,53 @@
       "fails": []
     },
     "bad": {
-      "pass": 1,
+      "pass": 4,
       "total": 4,
-      "fails": [
-        "the disposer dropped in the mount effect (DISPOSER_DROPPED)",
-        "the disposer dropped in a click handler: a listener added per click (DISPOSER_DROPPED)",
-        "the disposer kept in a local, and never called nor returned (DISPOSER_DROPPED)"
-      ]
+      "fails": []
     }
   },
   "query-forward": {
     "good": {
-      "pass": 1,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "main.rx: accepted by the crate",
-        "main.rx: accepted by ref/"
-      ]
+      "fails": []
     },
     "types": {
-      "pass": 1,
+      "pass": 5,
       "total": 5,
-      "fails": [
-        "rx-tsc: clean with the library's types",
-        "a row of the query's data is the fetcher's Todo: a field it has not is refused (TS2551|TS2339)",
-        "the result's own fields are the library's: `isFetching` is a boolean (TS2339)",
-        "the options are the library's: a queryKey must be an array (TS2322|TS2769|TS2345)"
-      ]
+      "fails": []
     },
     "runtime": {
-      "pass": 0,
-      "total": 1,
-      "fails": [
-        "the good program runs"
-      ]
+      "pass": 3,
+      "total": 3,
+      "fails": []
     },
     "bad": {
-      "pass": 3,
+      "pass": 6,
       "total": 6,
-      "fails": [
-        "the result handed on by an inherited method: `todos.valueOf()` is the result itself (RESULT_AS_VALUE)",
-        "the result stored in a record (RESULT_AS_VALUE)",
-        "the whole result given to a child whose interface does not say `data` waits and fails (RESULT_AS_VALUE)"
-      ]
+      "fails": []
     }
   },
   "router-provider": {
     "good": {
-      "pass": 1,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "main.rx: accepted by the crate",
-        "main.rx: accepted by ref/"
-      ]
+      "fails": []
     },
     "types": {
-      "pass": 4,
+      "pass": 5,
       "total": 5,
-      "fails": [
-        "rx-tsc: clean with the library's types"
-      ]
+      "fails": []
     },
     "runtime": {
-      "pass": 0,
-      "total": 1,
-      "fails": [
-        "the good program runs"
-      ]
+      "pass": 4,
+      "total": 4,
+      "fails": []
     },
     "bad": {
-      "pass": 3,
+      "pass": 6,
       "total": 6,
-      "fails": [
-        "a page that can fail, with no errored boundary around the outlet (UNHANDLED_FAILURE)",
-        "the router built, and never rendered (COMPONENT_AS_VALUE)",
-        "a client-only build with no loading above a page that waits (ASYNC_OUTSIDE_LOADING_BOUNDARY)"
-      ]
+      "fails": []
     }
   },
   "sequential-awaits": {
@@ -207,11 +172,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 2,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "two independent loads awaited one after the other (advice: ASYNC_WATERFALL)"
-      ]
+      "fails": []
     }
   },
   "source-mutation": {
@@ -231,13 +194,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 1,
+      "pass": 4,
       "total": 4,
-      "fails": [
-        "the source's array pushed to in a handler: the view never hears of it (MUTATION_IN_PLACE)",
-        "a prop's array sorted in place while the view computes: the parent's source is reordered under it (MUTATION_IN_PLACE)",
-        "the list spliced inside a functional write's own argument (MUTATION_IN_PLACE)"
-      ]
+      "fails": []
     }
   },
   "ssr-divergence": {
@@ -281,78 +240,53 @@
       "fails": []
     },
     "bad": {
-      "pass": 2,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "the page's data read with no errored boundary around it (UNHANDLED_FAILURE)"
-      ]
+      "fails": []
     }
   },
   "store-updater": {
     "good": {
-      "pass": 1,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "main.rx: accepted by the crate",
-        "main.rx: accepted by ref/"
-      ]
+      "fails": []
     },
     "types": {
-      "pass": 4,
+      "pass": 5,
       "total": 5,
-      "fails": [
-        "rx-tsc: clean with the library's types"
-      ]
+      "fails": []
     },
     "runtime": {
-      "pass": 0,
-      "total": 1,
-      "fails": [
-        "the good program runs"
-      ]
+      "pass": 5,
+      "total": 5,
+      "fails": []
     },
     "bad": {
-      "pass": 3,
+      "pass": 7,
       "total": 7,
-      "fails": [
-        "the setter called while the view computes (IO_IN_REACTIVE)",
-        "the shared updater also called by hand, with something that is no draft (DRAFT_ESCAPES)",
-        "live rows of the draft kept by a forEach callback (DRAFT_ESCAPES, or harmless)",
-        "the draft's iterator kept (DRAFT_ESCAPES, or harmless)"
-      ]
+      "fails": []
     }
   },
   "table-pagination": {
     "good": {
-      "pass": 1,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "main.rx: accepted by the crate",
-        "main.rx: accepted by ref/"
-      ]
+      "fails": []
     },
     "types": {
-      "pass": 6,
+      "pass": 7,
       "total": 7,
-      "fails": [
-        "rx-tsc: clean with the library's types"
-      ]
+      "fails": []
     },
     "runtime": {
-      "pass": 0,
-      "total": 1,
-      "fails": [
-        "the good program runs"
-      ]
+      "pass": 8,
+      "total": 8,
+      "fails": []
     },
     "bad": {
-      "pass": 4,
+      "pass": 7,
       "total": 7,
-      "fails": [
-        "a row of the table handed up through a prop's callback (RENDERS_ESCAPES)",
-        "the table sent up through a callback kept in a record (RENDERS_ESCAPES)",
-        "a page turned while the view computes (the handler called, not passed) (IO_IN_REACTIVE)"
-      ]
+      "fails": []
     }
   }
 }

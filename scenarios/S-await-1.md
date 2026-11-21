@@ -109,3 +109,20 @@ export default component App() {
 
 R-f-6: the typed catch discharges `Declined` only; `fetch` fails with
 `Error`, which the body lets out.
+
+Two questions awaited one after the other, the second reading nothing the
+first answered, are a correct program — and a slow one: the second waits
+for the first for nothing (Solid's `ASYNC_WATERFALL`). That is advice, not
+an error (99, the advisory rows): the checker lists it beside its
+diagnostics and the program is accepted. A second question that reads the
+first's answer is no waterfall.
+
+```rx
+-- accept
+import pure { fetch } from "./prelude"
+export default component App() {
+  source n := 0
+  action load() { try { let a = await fetch("a"); let b = await fetch("b"); let c = await fetch(a); n := a + b + c } catch (e) { n := 0 } }
+  <button onClick={() => { load() }}>{n}</button>
+}
+```

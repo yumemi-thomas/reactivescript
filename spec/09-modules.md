@@ -76,6 +76,15 @@ A component's summary is what the static application tree needs from it
   `children`, the same holds for provisions. A prop an action reads also
   records what the action catches: an argument with another class is
   refused at the application (R-f-6);
+- **what a prop renders (MO-11o):** a prop the component gives on, as it
+  is, to a prop that renders what its value carries (a router handed to
+  the library's provider) is one the component renders in turn: the
+  importer names the components its argument carries and checks them
+  under what the summary discharges above that place. `.d.rx`: `router:
+  renders provides(./tsr.d.rx#router)`;
+- **what a prop takes (MO-10f):** the fields of a prop that its type says
+  hold or fail where they are read, so that a JS result with such fields
+  may be given whole. `.d.rx`: `query: takes(data pending fails(Error))`;
 - **what it stores (O-3):** each prop it stores where the stored value
   outlives the component (in a source of its module, or through a
   provision above it), passed on to a component that does included. A
@@ -404,8 +413,11 @@ export component Search(props: { start: boolean, q: string }) {
 - **MO-10a (Instantiating JS functions).** A JS declaration's `fn` may end
   with `instantiates`. As E-9 infers it for an `.rx` fn, it is inferred when a
   parameter is `ref` or the return has a `ref` part (a reader handed back means
-  the call made nodes), so it is written only for a primitive with neither —
-  one that registers a listener, or returns a store. A call is an
+  the call made nodes), or when a function part of the result hands its
+  callback a draft (2026-11-22: a setter that hands out drafts is state
+  the call made, `createStore(init): [T, (update: (draft state: T) => …)
+  => void]`), so it is written only for a primitive with none of these —
+  one that registers a listener. A call is an
   instantiation (RG-6): once, in the caller's region, never re-evaluated; the
   primitive's owner is that region, so its cleanups run with it. Value
   arguments are snapshots (E-10); a `ref` argument is passed as an accessor,
@@ -424,12 +436,28 @@ export component Search(props: { start: boolean, q: string }) {
     equation's.
   - A function type is `io` (R-io-3): callable only in imperative scope.
     A primitive's functions write, so `pure` on a part is not offered.
+    That is a part bound by a name (`[isOn, setOn] = …`). A function
+    field read off a result where it is called is told apart by what its
+    type answers (2026-11-22): one that answers nothing, `nextPage: ()
+    => void`, is called for what it does, so `table.nextPage()` in
+    reactive scope is `IO_IN_REACTIVE`; one that answers a value
+    (`getRowModel: () => { … }`) is a read, called anywhere.
   - Anything else, a store or a plain value, is a value. A store's fields
     track at run time as Solid's do. A store passed *in* is likewise passed as
     itself; an `.rx` structured source is a store behind a signal slot (11), so
     a whole write (`todos := next`) swaps it, and a value parameter misses
     that: `SNAPSHOT_ARGUMENT` stands (`peek todos` says it is meant), and an
-    API that takes an accessor of a store declares `ref`.
+    API that takes an accessor of a store declares `ref`. The store keeps
+    one identity for its life (Solid's does): a write changes what it
+    holds, not which object it is. A library that knows its data changed
+    by the data's identity (TanStack Table's `data`) is given a fresh
+    list — `[...rows]`, or its adapter makes one — as a Solid app gives
+    it one (`bench/tasks/table-pagination`).
+  - A record or a tuple none of whose parts is an accessor is the
+    library's own object, as it is (2026-11-22; it was a copy with a
+    getter per declared part, which hid every field the declaration left
+    out and called the library's methods on the copy): only a result with
+    a `ref` part is wrapped, to call the accessor where the part is read.
   - Only the return and its tuple or object parts are declared; an accessor
     nested deeper is a value.
   - TypeScript's `readonly` is a modifier, not a shape (proposed
@@ -533,9 +561,33 @@ export component Search(props: { start: boolean, q: string }) {
   void`, then `q.refetch()` from a handler): it is the library's, and
   what it answers is its declared type. So the only values an accepted
   program reads out of the result are its declared fields', and no
-  expression's value is the result. The compiled result has those fields
-  and no others (`__rt.lazy`), so a field the declaration leaves out
-  reads `undefined` at run time too: the refusal says to declare it.
+  expression's value is the result. A field the declaration leaves out
+  has no rows the checker could ask a boundary for: the refusal says to
+  declare it.
+
+  **The whole result, through an interface that keeps its fields' rows
+  (2026-11-22).** A Solid app passes a query down, and "pass the field"
+  is not always what the child is: a panel that shows the data, the
+  status and a retry reads several. A component says a prop is such a
+  result in the prop's type, with the row words on the fields: `props:
+  { query: { data: pending fails(Error) Todo[]; status: string } }`.
+  In that component `props.query` (and another name for it, or a
+  record of held fields below it) is held to the result's closed set —
+  read a field at a time, each held read checked as a question's reader
+  is, where it is — and at an application a result, or a record of held
+  fields below one, is given whole to such a prop when the prop's type
+  marks every field the result holds or fails with, at least as its
+  declaration does (`pending` where it holds; every class it fails with,
+  `Error` covering all). Anything less is still `RESULT_AS_VALUE`: a prop
+  typed `any`, a field typed without its words, `pending` alone for a
+  field that fails. The interface is in the component's summary (MO-3:
+  `query: takes(data pending fails(Error))`), so it holds for an
+  imported component; the row words are `.rx`'s and are dropped from the
+  type TypeScript sees (13 TY-1c), where the library's result is
+  assignable to the record. *Guarantee:* unchanged — a held field is
+  read only by a path written from a name bound to the result, or from a
+  prop whose type declares it held, and each such read is checked.
+  S-module-11; `bench/tasks/query-forward`.
   `each_confined_value_has_a_closed_set_of_operations` (the crate,
   `ref/units.ts`); `compiler/test/confined.mjs`.
 - **MO-10g (Callbacks) — proposed 2026-11-18, revised 2026-11-21.** A
@@ -672,7 +724,21 @@ export component Search(props: { start: boolean, q: string }) {
      holding one is read a part at a time (`st[1]((d) => …)`), and the
      argument at the draft's position is a closure literal: so every
      callback that is ever handed the draft has a parameter the checker
-     knows is one. A change is shared as an action that calls the setter.
+     knows is one. A change is shared as an action that calls the setter
+     — or as a *named callback* (2026-11-22): a closure bound by an
+     equation or a local (`bump = (d) => { d.done := d.done + 1 }`) whose
+     name is written only as the argument, at the draft's position, of a
+     function that hands that position a draft, and which is called by
+     that function's own name (`setTodos(bump)`). Its parameter is then
+     the draft and its body the callback's, checked as one where it is
+     written; every other use of the name — a call by hand, an argument
+     elsewhere, a value stored, shown or exported — is `DRAFT_ESCAPES`
+     where it is written, so the closure is never handed anything but a
+     draft, and never by anything but the library. The uses are read off
+     what is written, before the body is walked; the walk holds the name
+     to them. A function that is not such a closure (a prop, a
+     parameter, what a call answers, a closure that answers a closure)
+     is refused as before.
 
   4. *What is called on a draft is a method of plain data, by name
      (closed 2026-11-22).* `draft` says the library hands out plain data
@@ -1147,9 +1213,30 @@ export default component App() {
   followed to the carrying calls it was bound to — through a branch, a
   call, a closure's result, a row — and a name whose value comes from
   where the checker cannot look is `RENDERS_ESCAPES` at the prop: a value
-  imported from another `.rx` module or made by its fn, a prop, a
-  parameter, a source, a provision. The carried components are checked in
-  the module that builds them, at its own `renders` props. *Guarantee:*
+  imported from another `.rx` module or made by its fn, a parameter, a
+  source, a provision. The carried components are checked in
+  the module that builds them, at its own `renders` props.
+
+  **A prop given on (2026-11-22).** A component that takes a carrying
+  value as a prop and gives it on, as it is, to a prop that renders it —
+  the app's own frame around the library's provider, `component
+  Shell(props: { router: AnyRouter }) { <RouterProvider
+  router={props.router} /> }` — renders what the prop carries. So the
+  prop is itself one that renders: in the component's summary, and in
+  its signature (`router: renders provides(…#router)`, MO-3), which is
+  what an importer reads. The components are named where the checker can
+  name them — at the application, `<Shell router={router} />`, whose
+  argument is held to the rule above — and checked as applied where
+  `Shell` renders the prop: under the boundaries and provisions around
+  the provider inside `Shell`, then those above each application of
+  `Shell` (the same continuation a component's `children` take, by
+  the prop's name instead). A component that gives the prop on to
+  another such component forwards in turn. It is read from what is
+  written: `props.x` given, as it is, to such a prop in the component's
+  own view; a prop that reaches one any other way (through a local, a
+  record, a call) cannot be named and is `RENDERS_ESCAPES` as before,
+  and what the frame is given must still be a value whose components the
+  checker can name. S-module-22; `bench/tasks/router-provider`. *Guarantee:*
   every component an `.rx` program hands a `renders(later)` fn is checked
   as applied at each `renders` prop the program gives a value that may
   carry it, or is `COMPONENT_AS_VALUE` if it gives none; no `renders`

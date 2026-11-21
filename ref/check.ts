@@ -20,10 +20,11 @@ for (const f of args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--
     // E-5a: a host is the module whose real path is its own (a key may go through a symlink, a host's path another way)
     const real = (p: string) => { try { return realpathSync(p); } catch { return p; } };
     const keyed = hosts.flatMap(h => { const ks = set.order.filter(k => k === h || real(k) === real(h)); return ks.length ? ks : [h]; });
-    const { diags, sigs } = checkModules(set, false, whole, keyed);
+    const { diags, sigs, advice } = checkModules(set, false, whole, keyed);
     const rel = (p?: string) => (p ?? resolve(f)).replace(process.cwd() + "/", "");
     if (!diags.length) console.log(`ok   ${f}${set.order.length > 1 ? ` (+${set.order.length - 1} module${set.order.length > 2 ? "s" : ""})` : ""}`);
     else { bad++; for (const d of diags) console.log(`${rel(d.file)}:${d.line}: error ${d.code} [${d.rule}] ${d.msg}`); }
+    for (const d of advice) console.log(`${rel(d.file)}:${d.line}: advice ${d.code} [${d.rule}] ${d.msg}`);   // 99, the advisory rows: never an error
     if (sigOut) for (const p of set.order) console.log(printSignature(sigs.get(p)!));
   } catch (e) { bad++; console.log(`${f}: parse error: ${(e as Error).message}`); }
 }

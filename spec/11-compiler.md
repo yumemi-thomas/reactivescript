@@ -184,7 +184,14 @@ record argued each way; this is the decision.
   none passed throws (proposed 2026-11-21: one app for the process would
   share module state across unrelated renders). The
   module is checked as an entry is (its components' failures reach their
-  own boundaries, or are refused); what the host passes in is typed by
+  own boundaries, or are refused: with the hosts known — a whole-program
+  build, `rxc check --whole-program --host m.rx` — each component a host's
+  module exports is checked as applied under a root of its own, 09
+  MO-11s's cautious placement, so a failure, a context or a first load
+  that its own view does not handle is `UNHANDLED_FAILURE`,
+  `CONTEXT_NOT_FOUND` or the loading error, in that module; implemented
+  2026-11-22, when the benchmark's Start task found such a page accepted);
+  what the host passes in is typed by
   the module's projection: `rx-tsc` resolves `pages.rx?rx-lib` to
   declarations of its exported components (13 TY-1c), so a TSX host
   passing `PersonCard` a number is a type error on its own line. A

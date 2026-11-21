@@ -15,7 +15,11 @@ runtime check.
 - **CN-1a (Errors only).** Bins U (unwritable) and S (static) in
   `99-diagnostics.md` are compile errors. There is no warning tier. Bin R
   is not a constraint: it is the runtime's attribution report (timing,
-  holds, waterfalls) and never fails a build. (Ruled 2026-10-22.)
+  holds, waterfalls) and never fails a build. (Ruled 2026-10-22.) Advice
+  about a correct program (99, the advisory rows) is neither: the checker
+  lists it apart from its diagnostics (`advice`), it is printed, and it
+  never fails a check or a build (2026-11-22: `ASYNC_WATERFALL` over an
+  imperative run is the first).
 - **CN-1b (Diagnostics keep Solid's names).** A static error carries the
   code the dev runtime would have raised for the same shape, so a reader
   who knows one knows the other.
@@ -193,11 +197,13 @@ runtime check.
   (13 TY-6, `rx-verify`).
 - **CN-7b (Stricter, on purpose, and said).** This is CN-3a's stance, an
   over-approximation that rejects some fine programs and never admits a
-  wrong one: a path read out of a `renders` value is confined with it,
-  and a result with held fields cannot be passed to a child (its field
-  can). The way round is in the language, not an escape: make a
-  primitive (`str(row.id)`), pass the field, share a change as an action,
-  loop with the statement.
+  wrong one: a path read out of a `renders` value is confined with it
+  unless its declaration types it a primitive, and a result with held
+  fields is passed to a child only through a prop whose type keeps its
+  fields' rows (its field can go anywhere). The way round is in the
+  language, not an escape: make a primitive (`str(row.name)`), pass the
+  field or declare the interface, share a change as an action or a named
+  callback, loop with the statement.
 - **CN-7c (The boundary).** What JS does with a value it is given is its
   declaration's to say (CN-3b, CN-5): `pure` keeps nothing, `io` may keep
   anything, `draft` and the field rows are trusted as written and checked

@@ -65,11 +65,26 @@ a rule in `spec/`, never from a task.
 | `table-pagination` | a TanStack Table: cell components, pagination buttons, a pager component given page numbers and handlers, a row's id handed up | the table or a row handed to a child or up through a callback, kept in state, a cell's context missing, a page turned while the view computes |
 | `kobalte-dialog` | a controlled Kobalte dialog | a part outside its root, a part the kit has not, a write while the view computes, a stale read of an own write |
 | `frozen-read` | formatters kept in a record, read by the view, by a primitive and by a seed | a formatter read under a kept `peek`, given to a value parameter, used as a seed, through an array |
-| `source-mutation` | a list in a source, added to by a write and sorted for display | `rows.push(…)`, a prop sorted in place, a row written through a local alias |
+| `source-mutation` | a list in a source, added to by a write and sorted for display | `rows.push(…)`, a prop sorted in place, a row written through a local alias, the value a functional write is given reversed in place |
 | `listener-cleanup` | a JS listener whose disposer the mount effect returns | the disposer dropped: in the effect, in a handler, in a local never used |
 | `duplicate-keys` | a keyed list whose rows keep their state across a reorder | two literal rows with one key; a row added at run time with a key the list has |
 | `sequential-awaits` | an action whose second load needs the first's answer, the independent one asked beside them | two independent loads awaited one after the other (advice) |
 | `ssr-divergence` | a value only the browser knows, asked as a client question | the question read with nothing to hold it, client JS called for its value, a `pure` JS call that answers differently on each side |
+
+## What the suite decided
+
+Every task but two is green. The two that are not are kept red on purpose,
+each with its reason in its task's `known` and in the spec:
+
+- `duplicate-keys`, a key computed at run time: only keys written out in
+  the program are the checker's (06 ST-4d); nothing reports the rest at run
+  time, in Solid or here.
+- `ssr-divergence`, a `pure` JS call that answers differently on the server:
+  `pure` is the one unchecked word (08 CN-5, 10 SV-7c); what only the
+  browser knows is `client` JS, which is checked.
+
+`spec/rfc-revisions-2026-11-22.md` lists what each task changed in the
+language.
 
 ## The scorecard
 

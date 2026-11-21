@@ -81,6 +81,16 @@ Function application `f(e…)` covers both language functions and FFI imports;
   regardless of the enclosing view; a named function there must be `io` or
   pure. The event is the function's parameter. An arrow there, as anywhere
   in imperative scope, is a plain run or an action by its body (06 AC-1b).
+  *A handler is passed, not called (2026-11-22).* The attribute takes a
+  function; `onClick={save()}` calls `save` while the view computes and
+  hands the event what it answered. Where what is called is io — an
+  action, an io import, a setter a library handed back, a method its
+  declaration says answers nothing — the call is refused there
+  (`ACTION_CALLED_IN_OWNED_SCOPE`, `IO_IN_REACTIVE`), on an element and on
+  a component's handler prop, in the arms of a condition too, with the
+  closure it meant: `onClick={() => { save() }}`. A call of a pure fn that
+  answers a handler (`onClick={pick(id)}`) is an expression like any
+  other.
 
 ---
 
@@ -311,6 +321,26 @@ Function application `f(e…)` covers both language functions and FFI imports;
   declaration (`source x := e`) it is the initializer (E-4). An equation, a `peek`, a function
   parameter, or an imperative local written with `:=` is a plain local, not a
   source.
+- **W-1a (Nothing is changed in place) — 2026-11-22.** A write is the
+  only change of a value `.rx` holds: it is what tells the readers. An
+  Array's method that changes it in place — `push`, `pop`, `shift`,
+  `unshift`, `splice`, `sort`, `reverse`, `fill`, `copyWithin` — called on
+  the value of a source, an equation, a prop, a provision, a row of one
+  (a `for`'s, a loop's), the value a functional write is given (`rows :=
+  rs => rs.reverse()`), or a local that names a path of one (`let first =
+  rows[0]`) is `MUTATION_IN_PLACE` (bin S), in either scope: `rows.push(x)`
+  in a handler changes the array and no reader hears of it;
+  `props.items.sort()` in an equation reorders the parent's source under
+  it. This is Solid's own trap (a signal's array pushed to, a store
+  written outside its setter, a memo's value sorted), made a refusal. The
+  ways through are the language's: a write (`rows := rs => [...rs, x]`),
+  and the methods that answer a copy (`toSorted`, `toReversed`,
+  `toSpliced`, `slice`, a spread). What the code made itself is its own
+  to change (`let xs = [...rows]; xs.push(x)`), a library's draft is
+  changed by its methods (09 MO-10i), and a JS instance's methods are its
+  declaration's. The check reads names, as 09 MO-10k's do, and the method
+  by its name: a Map's or a Set's `set`, `add`, `delete` and `clear` are
+  left out, their names being any object's.
 - **W-2 (No writes in reactive scope).** Reactive scope has no statement
   position; a bare `x := e` there (without `source`) is a parse error, not a
   semantic one.
@@ -422,6 +452,21 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **EF-5 (Cleanup).** `B` may return a function — `return () => { … }`, or a
   closure as its last expression; both are the cleanup — and it runs before
   the next run of `B` and when the effect's region ends.
+- **EF-5a (What a call set up is undone) — 2026-11-22.** A JS function
+  that subscribes — to a DOM event, a store, a timer — answers the
+  function that unsubscribes, and its declaration says so: a result of
+  `() => void` (`export fn onShortcut(key: string, run: handler () =>
+  void): () => void`). A call of it whose result is dropped is
+  `DISPOSER_DROPPED` (bin S): the call written as a statement, or its
+  result bound to a local that the rest of the block never names. What it
+  set up would outlive the region (a listener after the component is
+  gone; one more on every click, from a handler). The result is kept and
+  called: by an effect's cleanup (`effect () { let stop = onShortcut(…);
+  return () => { stop() } }`), or by the handler that ends it. There is
+  no way to say "dropped on purpose": a subscription with no end is one
+  whose cleanup the region runs. The evidence is the declared type, as
+  09 MO-10k's is; a function that answers anything else, or takes
+  arguments, is not read as a disposer.
 - **EF-6 (Order is unspecified).** The order in which apply blocks run within
   one instant's observe phase is not specified. A program whose behavior
   depends on it is incorrect. (`ref/` uses declaration order; scenarios must

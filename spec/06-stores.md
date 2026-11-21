@@ -72,6 +72,16 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   an unkeyed `for` over records that are rebuilt on every change (`map`
   into fresh objects) is a diagnostic (`UNSTABLE_LIST_IDENTITY`, bin S).
 - **ST-4c.** Solid: `createProjection(fn, seed, { key })`, `<For keyed>`.
+- **ST-4d (One row per key) — 2026-11-22.** Rows with one key are one row
+  to Solid: the second takes the first's region and its state, or is
+  dropped. Where a keyed list's rows are written out — the seed of a
+  keyed source, a keyed equation whose expression is a list of records —
+  two with the same literal key are `DUPLICATE_KEY` (bin S). Rows that
+  come from data (an answer, a write computed at run time) are the
+  data's to keep distinct: the key's value is not known before the
+  program runs, so that half is bin R, and neither Solid nor this
+  language's runtime reports it (08 CN-2: a static check does not become
+  a run-time one).
 
 ## ST-5 — A source with a standing question
 

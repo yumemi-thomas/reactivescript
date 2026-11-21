@@ -1629,6 +1629,8 @@ pub struct Checker<'a> {
     updater_ok: HashSet<*const Expr>,
     /// W-1a: the functions of functional writes of a source (`x := xs => …`): their parameter is the slot's value
     write_fns: HashSet<*const Expr>,
+    /// 99, the advisory rows: what the checker says about a correct program
+    pub advice: Vec<Diagnostic>,
     /// E-10: equations decided constant (None while being decided)
     const_eqs: HashMap<SId, Option<bool>>,
     carried_rendered: HashSet<*const Expr>,
@@ -1685,6 +1687,8 @@ pub struct Checker<'a> {
 
 pub struct CheckResult {
     pub diags: Vec<Diagnostic>,
+    /// 99, the advisory rows: advice about a correct program, never an error
+    pub advice: Vec<Diagnostic>,
     pub sig: ModSig,
     pub model: serde_json::Value,
     pub peeks: PeekFacts,
@@ -1697,11 +1701,13 @@ pub fn check_with_signature(p: &Program, opts: Opts) -> CheckResult {
     let sig = c.signature(p);
     let model = c.build_model(&file);
     let peeks = c.peek_facts(p);
-    CheckResult { diags: c.diags, sig, model, peeks }
+    CheckResult { diags: c.diags, advice: c.advice, sig, model, peeks }
 }
 
 pub struct Checked {
     pub diags: Vec<Diagnostic>,
+    /// 99, the advisory rows: advice about a correct program — it never fails a build
+    pub advice: Vec<Diagnostic>,
     pub sigs: IndexMap<String, ModSig>,
     pub models: IndexMap<String, serde_json::Value>,
 }
@@ -1720,9 +1726,11 @@ pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[Str
     let mut diags = set.diags.clone();
     let mut models = IndexMap::new();
     let mut facts = vec![];
+    let mut advice = vec![];
     for path in &set.order {
         let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole });
         diags.extend(r.diags);
+        advice.extend(r.advice);
         sigs.insert(path.clone(), r.sig);
         models.insert(path.clone(), r.model);
         facts.push((path.clone(), r.peeks));
@@ -1731,7 +1739,7 @@ pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[Str
         diags.extend(resolve_peeks(&facts, set, hosts));
         diags.extend(host_exports(&sigs, hosts, spa));
     }
-    Checked { diags, sigs, models }
+    Checked { diags, advice, sigs, models }
 }
 
 /// 11 CP-4d: a component a JS host renders (`pages.rx?rx-lib`) is applied where the checker cannot see, so nothing
@@ -1800,6 +1808,7 @@ impl<'a> Checker<'a> {
             arg_calls: HashMap::new(),
             updater_ok: HashSet::new(),
             write_fns: HashSet::new(),
+            advice: vec![],
             prop_held: HashMap::new(),
             const_eqs: HashMap::new(),
             carried_rendered: HashSet::new(),
@@ -5055,7 +5064,27 @@ impl<'a> Checker<'a> {
     fn stmts(&mut self, ss: &'a [Stmt], env0: EId, ctx: Ctx) {
         let region = self.reg(env0);
         let env = self.env(Some(env0), region);
+        // 99, advice (ASYNC_WATERFALL): the last question this run awaited, and the locals bound since
+        let mut asked: Option<(String, HashSet<String>)> = None;
         for (at, s) in ss.iter().enumerate() {
+            if let StmtKind::Let { e, .. } | StmtKind::Expr(e) = &s.k {
+                let t = if let ExprKind::Catch { e: inner, .. } = &e.k { &**inner } else { e };
+                if let ExprKind::Await { e: q, .. } = &t.k {
+                    let question = matches!(&q.k, ExprKind::Call { f, .. } if matches!(&f.k, ExprKind::Id(n) if self.lookup(env, n).is_some_and(|t| self.syms[t].kind == SymKind::Import && !self.syms[t].io)));
+                    if let (Some((first, bound)), true) = (&asked, question) {
+                        let mut names = IndexSet::new();
+                        free_names(q, &HashSet::new(), &mut names);
+                        if !names.iter().any(|n| bound.contains(strip_pre(n))) {
+                            let msg = format!("`await {}` reads nothing that `await {first}` answered: asked one after the other, the second waits for the first for nothing — ask both first and await them together (a JS helper over `Promise.all`: `let [a, b] = await all([f(…), g(…)])`), or make each an equation (`a = await f(…)`), which Solid asks side by side", show(q));
+                            self.advice.push(Diagnostic { code: "ASYNC_WATERFALL".into(), rule: "R-pending".into(), line: self.line, msg, file: self.opts.file.clone() });
+                        }
+                    }
+                    asked = question.then(|| (show(q), HashSet::new()));
+                }
+            }
+            if let (Some((_, bound)), StmtKind::Let { name, .. }) = (&mut asked, &s.k) {
+                bound.insert(name.clone());
+            }
             // EF-5a (2026-11-22): a call that answers the function that undoes it (`onShortcut(…): () => void`), with
             // that function dropped — the statement's value, or a local the rest of the block never names
             if let StmtKind::Let { e, .. } | StmtKind::Expr(e) = &s.k {

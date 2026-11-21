@@ -1,6 +1,7 @@
 # The representative-task benchmark (bench/README.md): each task is a job a Solid user does with a library of the
 # ecosystem — its good program accepted by both checkers, typed by the library's own types and run in Chromium, its
-# one-line mistakes refused. The run is compared with bench/scorecard.json: a check that is green there may not turn red.
+# one-line mistakes refused. The run is compared with bench/scorecard.json: a check that is green there may not turn
+# red, and a check that is red is one its task's `known` gives the reason for.
 name: bench
 
 on:
@@ -38,4 +39,4 @@ jobs:
           mkdir -p bench/.out/ws && cp bench/package.json bench/.out/ws/package.json
           (cd bench/.out/ws && npm install --no-audit --no-fund --legacy-peer-deps && npx playwright install --with-deps chromium)
       - name: The benchmark, against bench/scorecard.json
-        run: node bench/run.mjs --check
+        run: node bench/run.mjs --check --strict

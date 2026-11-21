@@ -94,6 +94,51 @@ added never ended). The spec's reading stands — it is the rule of every
 run, that a run does not see what it writes — and the emitters now loop
 over `[...e]`, as the interpreter did.
 
+## Composition given back (the fourth review's other half)
+
+The rules are local; what a program composes of them was not. Each of
+these is a summary the checker now keeps, read from what is written or
+from a declaration, never from what JS does:
+
+| what a Solid app writes | was | the summary | now |
+| --- | --- | --- | --- |
+| the library's provider inside the app's own `Shell`, the router passed as a prop | `RENDERS_ESCAPES`: a prop cannot be named | a prop given on as it is to a prop that renders is one the component renders: in its summary and its signature (`router: renders provides(…)`) | the components are named at `<Shell router={router} />` and checked where `Shell` renders them (09 MO-11o) |
+| a query passed down to a panel | `RESULT_AS_VALUE`: pass the field | a prop's type with the row words on its fields (`query: { data: pending fails(Error) T; … }`) is an interface that keeps them: in the signature, `takes(data pending fails(Error))` | the result is given whole to such a prop; the child's reads are checked as the result's are (09 MO-10f) |
+| one store updater, shared by two handlers | `DRAFT_ESCAPES`: write the callback at the call | a closure whose name is written only as a draft-handing function's argument is that function's callback | `bump = (d) => { … }; setTodos(bump)` (09 MO-10i) |
+| `<Pager pages={table.getPageCount()} />`, `props.onPick(row.id)` | `RENDERS_ESCAPES`: make a primitive, `str(…)` | the declared result type, read a step at a time | a part declared a primitive leaves, with its type (09 MO-11l) |
+| formatters kept in a record | accepted, and frozen under `peek` | a callee read out of a value calls the closures that value holds | `SNAPSHOT_KEPT`, `SNAPSHOT_ARGUMENT`; the slot named by what is written stays precise (02 E-10) |
+| `createLabel([clock, 5][1])` | `SNAPSHOT_ARGUMENT` | a literal's own slot is that slot | accepted |
+
+With them: a record result with no accessor part is the library's own
+object (it was a copy with a getter per declared field, on which the
+library's methods ran and undeclared fields read `undefined`); a type a
+`.d.rx` declares is not imported from the JS module as a value; a
+declared fn whose result hands out drafts is a primitive, so its setter
+is io.
+
+## Mistakes the benchmark found unprotected
+
+`bench/` (the representative tasks) asks of each job what a Solid user
+gets wrong in it. Six were accepted and silent. Each is decided by the
+spec's stance — a static check where the program text decides it; the
+declaration's word where only the library knows; advice where the
+program is correct; nothing at run time that Solid does not do:
+
+| mistake | decision | rule |
+| --- | --- | --- |
+| a function kept in a record, read under a kept `peek`, by a value parameter or as a seed | **refused** | 02 E-10, E-5a (above) |
+| `rows.push(2)` on a source; `props.items.sort()` | **refused**: `MUTATION_IN_PLACE` | 02 W-1a |
+| the disposer a declared JS listener answers, dropped | **refused**: `DISPOSER_DROPPED`, on the declared type `() => void` | 02 EF-5a |
+| two rows of a keyed list with one key | **refused** where the rows are written out (`DUPLICATE_KEY`); keys computed at run time are the data's, unreported, as in Solid | 06 ST-4d |
+| independent questions awaited one after the other | **advice**, never an error: `ASYNC_WATERFALL` in the checker's `advice` list | 99, the advisory rows; 08 CN-1a |
+| a `pure` JS call that answers differently on the server and in the browser | **out of the checker's scope**: `pure` is the one unchecked word (CN-5), and what only the browser knows is `client` JS, which is checked (SV-7b). Solid reports a structural mismatch and is silent on a text's; the language adds no run-time comparison | 10 SV-7c |
+
+and three more the tasks turned up: a handler attribute given a call
+(`onClick={save()}`, 02 SC-4), a method declared to answer nothing
+called while the view computes (`table.nextPage()` in a view, 09
+MO-10b), and a page a JS host renders with a failure nothing in it
+handles (11 CP-4d, implemented).
+
 ## RFC 06 — fields of a JS result that wait or fail
 
 **Revised.** A result with field rows is read a field at a time. Its

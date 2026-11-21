@@ -485,15 +485,15 @@ export type ModSig = { file: string; exports: Map<string, ExportSig> };
 type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean };   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
-export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
+export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; advice: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, advice: c.advice, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
-export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: string[] = []): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {   // whole: E-5a, the modules are the whole program
+export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: string[] = []): { diags: Diagnostic[]; advice: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {   // whole: E-5a, the modules are the whole program
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
-  const facts: [string, PeekFacts][] = [];
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
+  const facts: [string, PeekFacts][] = []; const advice: Diagnostic[] = [];   // advice: 99, the advisory rows — about a correct program, never an error
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
   if (whole) { diags.push(...resolvePeeks(facts, set, hosts)); diags.push(...hostExports(sigs, hosts, spa)); }
-  return { diags, sigs, models };
+  return { diags, advice, sigs, models };
 }
 
 /** 11 CP-4d: a component a JS host renders (`pages.rx?rx-lib`) is applied where the checker cannot see, so nothing above
@@ -516,6 +516,7 @@ function hostExports(sigs: Map<string, ModSig>, hosts: string[], spa: boolean): 
 
 class Checker {
   diags: Diagnostic[] = [];
+  advice: Diagnostic[] = [];                                             // 99, the advisory rows: what the checker says about a correct program
   model = new ModelBuilder();                                           // CP-6: the resolved facts, recorded as the walk resolves them
   private opts: Opts;
   private rootEnv: Env | null = null;
@@ -2017,7 +2018,20 @@ class Checker {
   private stmtAwaits = new WeakSet<Expr>();
   private stmts(ss: Stmt[], env0: Env, ctx: Ctx) {
     const env = new Env(env0, env0.region);
+    let asked: { first: string; bound: Set<string> } | undefined;        // 99, advice (ASYNC_WATERFALL): the last question this run awaited, and the locals bound since
     for (const [at, s] of ss.entries()) {
+      if (s.k === "let" || s.k === "expr") {
+        const t = s.e.k === "catch" ? s.e.e : s.e;
+        if (t.k === "await") {
+          const q = t.e; const f = q.k === "call" && q.f.k === "id" ? env.lookup(q.f.name) : undefined; const question = f?.kind === "import" && !f.io;
+          if (asked && question) {
+            const names = new Set<string>(); freeNames(q, new Set(), names);
+            if (![...names].some(n => asked!.bound.has(n.replace(/^pre:/, "")))) this.advice.push({ code: "ASYNC_WATERFALL", rule: "R-pending", line: this.line, msg: `\`await ${show(q)}\` reads nothing that \`await ${asked.first}\` answered: asked one after the other, the second waits for the first for nothing — ask both first and await them together (a JS helper over \`Promise.all\`: \`let [a, b] = await all([f(…), g(…)])\`), or make each an equation (\`a = await f(…)\`), which Solid asks side by side`, ...(this.opts.file ? { file: this.opts.file } : {}) });
+          }
+          asked = question ? { first: show(q), bound: new Set() } : undefined;
+        }
+      }
+      if (asked && s.k === "let") asked.bound.add(s.name);
       // EF-5a (2026-11-22): a call that answers the function that undoes it (`onShortcut(…): () => void`), with that
       // function dropped — the statement's value, or a local the rest of the block never names
       if ((s.k === "let" || s.k === "expr") && s.e.k === "call" && s.e.f.k === "id" && env.lookup(s.e.f.name)?.disposer) {

@@ -611,6 +611,34 @@ export default component App() {
 }
 ```
 
+
+### ASYNC_WATERFALL
+
+Advice, not an error: the program is correct and the build goes on (`rxc check` prints it as `advice`). In one action
+or handler, a question awaited after another that reads nothing the first answered waits for the first for nothing:
+the two could have been out at once.
+
+```rx
+action load() {
+  try {
+    let user = await fetchUser(id)
+    let news = await fetchNews()        // advice: reads nothing `await fetchUser(…)` answered
+    shown := `${user.name}: ${len(news)}`
+  } catch (e) { shown := "failed" }
+}
+```
+
+Ask both, then await them together (a JS helper over `Promise.all`), or make each an equation, which Solid asks side
+by side:
+
+```rx
+user = await fetchUser(id)
+news = await fetchNews()
+```
+
+A second question that needs the first's answer (`await fetchTeam(user.team)`) is no waterfall, and two awaited io
+calls (`await save(a); await notify(b)`) are left alone: their order may be the point.
+
 ### GUESS_OUTSIDE_HOLD
 
 A guess lives in an action's hold until the server answers it (AC-3). An effect's apply block is never an action, so
@@ -921,7 +949,10 @@ read what a later closure needs into a local first; loop with the statement, `fo
 closure handed to `forEach`. The same code is reported for the other ways a draft could be kept: an `await` in the
 callback (the library's call ends there), a callback made elsewhere (`setTodos(update)`: write the closure in the call,
 so its parameter is known to be the draft), and the setter itself passed, stored or given another name (share the change
-as an action that calls it).
+as an action that calls it). A closure given a name and used for nothing but the setter's argument is fine
+(`bump = (d) => { … }`, `setTodos(bump)`): any other use of that name is this error. And what is called on a draft is a
+method of plain data (an array's, a Map's, a Set's, a string's); a function one of them calls (`forEach`, `map`,
+`sort`) is written in the call.
 
 ```rx before
 -- module: ./store.d.rx
@@ -1312,8 +1343,10 @@ record or an array holding it, a field read out of it (`table.rows`), a row of a
 returns — stays in the region it is bound in: passed to a component, provided, exported, written to a source, thrown, or
 handed to a call that may keep it, it could be rendered under other boundaries and providers than the ones it was
 checked under. Render it in the view where it is bound. What leaves that view is a primitive made of it: `str(row.id)`,
-a template, arithmetic, a comparison, `len(table.rows)`; and a handler that only calls it,
-`onPress={() => { table.nextPage() }}`, gives nothing away. A library whose result is rendered elsewhere declares
+a template, arithmetic, a comparison, `len(table.rows)`; a part its declaration types as a primitive
+(`getPageCount: () => number`, `rows: { id: string }[]`); and a handler that only calls it,
+`onPress={() => { table.nextPage() }}`, gives nothing away. A method is taken to keep nothing of what it is given only
+when the declaration names it (`methods(setSorting)`) and it is called on the value's own name. A library whose result is rendered elsewhere declares
 where: `renders(later)` with a component prop that `renders` it, or `renders(root, …)` for a root of its own. The same
 code is reported where a prop that `renders` (MO-11o) is given a value the checker cannot name the components of: a
 prop, a parameter, a source, a provision, or a value another `.rx` module made.
@@ -1359,7 +1392,10 @@ The result itself is therefore not a value. Passed to a component, returned by a
 a source, spread or put in a record, it would be read on the other side as a plain value, with no `errored` or `loading`
 asked for. Read the field where the result is bound and pass that: the field carries its rows (a prop, a provision and
 an export all do). Another name for the result is an equation (`q = todos`); comparing or testing it (`todos == null`)
-reads no field.
+reads no field. To pass the whole result to a component, type the prop with the rows on its fields
+(`props: { query: { data: pending fails(Error) T; isFetching: boolean } }`): the component then reads it as the result
+is read. The same code is reported for a read that is not a field the declaration names: an inherited method
+(`todos.valueOf()` answers the result itself), or a field the `.d.rx` leaves out (declare it).
 
 ```rx before
 -- module: ./query.d.rx
