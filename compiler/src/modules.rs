@@ -18,8 +18,8 @@ pub struct ModuleSet {
     /// MO-8, TY-6: each declaration the program consumed, with the module that imported it and the import's own text:
     /// what a version pin, strict mode and the boundary check apply to, resolved as the importer resolves it
     pub declaration_uses: Vec<DeclarationUse>,
-    /// SV-5a: each declaration's identity, the same from every entry and every checkout: its path from the folder of the
-    /// nearest package.json above it, after that package's name (`app/src/err.d.rx`); none when no package.json is found
+    /// SV-5a: each declaration's identity, the same in every checkout and on every machine (`package_relative`): after
+    /// the nearest named package's name (`shop/src/err.d.rx`), else its path below the project root (`err.d.rx`)
     pub declaration_ids: HashMap<String, String>,
     /// MO-9, by `.rx` path
     pub signatures: IndexMap<String, ModSig>,
@@ -73,6 +73,7 @@ enum State {
 
 struct Loader<'r> {
     read: &'r dyn Fn(&str) -> Option<String>,
+    entry: String,
     programs: HashMap<String, Program>,
     order: Vec<String>,
     diags: Vec<Diagnostic>,
@@ -198,32 +199,49 @@ pub fn declaration_for(from_file: &str, spec: &str, read: &dyn Fn(&str) -> Optio
         .or_else(|| up(&format!("node_modules/@rx-types/{shared}/{sub}.d.rx")))
         .or_else(|| up(&format!("node_modules/.rx-types/{spec}.d.rx")))
 }
-/// SV-5a: `file` named from the nearest folder above it whose package.json has a name, after that name: what a declared
-/// error class is identified by, so a server and a client built from different entries, or in checkouts at different
-/// paths, name it alike. A package.json with no name (a `{"type":"module"}` scope) names nothing: two such scopes side
-/// by side would both give `err.d.rx`, so it is passed over, and with no named one above, the path is kept from the
-/// outermost package.json's folder, that folder's own name first (`app/a/err.d.rx`, `app/b/err.d.rx`). None when no
-/// package.json is above it.
-pub fn package_relative(file: &str, read: &dyn Fn(&str) -> Option<String>) -> Option<String> {
-    let segs: Vec<&str> = file.split('/').collect();
-    let lo = if file.starts_with('/') { 1 } else { 0 };
-    let mut i = segs.len() as i64 - 1;
-    let mut outermost: Option<usize> = None;
-    while i >= lo {
-        let dir = segs[..i as usize].join("/");
-        let pj = if dir.is_empty() { "package.json".to_string() } else { format!("{dir}/package.json") };
-        if let Some(text) = read(&pj) {
-            let name = serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string));
-            if let Some(n) = name.filter(|n| !n.is_empty()) {
-                return Some(format!("{n}/{}", segs[i as usize..].join("/")));
-            }
-            outermost = Some(i as usize);
+/// SV-5a (revised 2026-11-21 after review): what a declared error class is identified by, so a server and a client built
+/// from different entries, or in checkouts at different paths or on different machines, name it alike. First match wins:
+/// 1. the nearest folder above `file` whose package.json has a name: that name, then the path below it
+///    (`shop/src/err.d.rx`);
+/// 2. the project root — the folder of the nearest package.json above `entry`, else the entry's own folder — when
+///    `file` is inside it: the path below it (`err.d.rx`; two unnamed `{"type":"module"}` scopes side by side under
+///    it, `a/err.d.rx` and `b/err.d.rx`);
+/// 3. the folder of the nearest package.json above `file`: the path below it.
+///
+/// A folder's own name, or any folder above the root, is never part of it, so it never holds a machine path and does
+/// not depend on what the checkout is called. None when none applies (the emitter then names it from the entry).
+pub fn package_relative(file: &str, entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    let pj = |dir: &str| if dir.is_empty() { "package.json".to_string() } else { format!("{dir}/package.json") };
+    // the folders above a path, nearest first, with whether each has a package.json and its name
+    let above = |path: &str| -> Vec<(String, Option<Option<String>>)> {
+        let segs: Vec<&str> = path.split('/').collect();
+        let lo = if path.starts_with('/') { 1 } else { 0 };
+        let mut out = vec![];
+        let mut i = segs.len() as i64 - 1;
+        while i >= lo {
+            let dir = segs[..i as usize].join("/");
+            let found = read(&pj(&dir)).map(|text| serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string)).filter(|n| !n.is_empty()));
+            out.push((dir, found));
+            i -= 1;
         }
-        i -= 1;
+        out
+    };
+    let below = |dir: &str| -> Option<String> {
+        if dir.is_empty() {
+            return (!file.starts_with('/')).then(|| file.to_string());
+        }
+        file.strip_prefix(dir).and_then(|r| r.strip_prefix('/')).map(str::to_string)
+    };
+    let mine = above(file);
+    if let Some((dir, Some(Some(name)))) = mine.iter().find(|(_, f)| matches!(f, Some(Some(_)))) {
+        return below(dir).map(|r| format!("{name}/{r}"));
     }
-    let at = outermost?;
-    let from = if at as i64 > lo { at - 1 } else { at };
-    Some(segs[from..].join("/"))
+    let roots = above(entry);
+    let root = roots.iter().find(|(_, f)| f.is_some()).map(|(d, _)| d.clone()).or_else(|| roots.first().map(|(d, _)| d.clone()));
+    if let Some(r) = root.as_deref().and_then(below) {
+        return Some(r);
+    }
+    mine.iter().find(|(_, f)| f.is_some()).and_then(|(d, _)| below(d))
 }
 static PKG_EXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.(m?js|cjs|jsx|ts|tsx)$").unwrap());
 
@@ -261,7 +279,7 @@ impl Loader<'_> {
                     if let Some(src) = (self.read)(&dts) {
                         let ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", dts, e.0), e.1, Some(dts.clone()), e.3))?;
                         self.declarations.insert(dts.clone(), ds);
-                        if let Some(id) = package_relative(&dts, &*self.read) {
+                        if let Some(id) = package_relative(&dts, &self.entry, &*self.read) {
                             self.declaration_ids.insert(dts.clone(), id);
                         }
                     }
@@ -340,7 +358,7 @@ pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String
     load(entry, read, true)
 }
 fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
-    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
+    let mut l = Loader { read, entry: entry.to_string(), programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
     Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
 }
@@ -377,21 +395,42 @@ mod tests {
     }
     #[test]
     fn unnamed_package_scopes_side_by_side_name_their_classes_apart() {
-        // SV-5a: two `{"type":"module"}` scopes with no name, each declaring `err.d.rx#Gone`
+        // SV-5a: two `{"type":"module"}` scopes with no name under the project, each declaring `err.d.rx#Gone`
         let read = files(&[("/w/app/a/package.json", r#"{"type":"module"}"#), ("/w/app/b/package.json", r#"{"type":"module"}"#)]);
-        let a = package_relative("/w/app/a/err.d.rx", &read).unwrap();
-        let b = package_relative("/w/app/b/err.d.rx", &read).unwrap();
-        assert_ne!(a, b);
+        let a = package_relative("/w/app/a/err.d.rx", "/w/app/main.rx", &read).unwrap();
+        let b = package_relative("/w/app/b/err.d.rx", "/w/app/main.rx", &read).unwrap();
         assert_eq!((a.as_str(), b.as_str()), ("a/err.d.rx", "b/err.d.rx"));
-        // under an unnamed project root: kept from the root's folder
+        // under an unnamed project root: kept from the root's folder, never with the root's own name
         let read = files(&[("/w/app/package.json", "{}"), ("/w/app/a/package.json", r#"{"type":"module"}"#), ("/w/app/b/package.json", r#"{"type":"module"}"#)]);
-        assert_eq!(package_relative("/w/app/a/err.d.rx", &read).unwrap(), "app/a/err.d.rx");
-        assert_eq!(package_relative("/w/app/b/err.d.rx", &read).unwrap(), "app/b/err.d.rx");
+        assert_eq!(package_relative("/w/app/a/err.d.rx", "/w/app/main.rx", &read).unwrap(), "a/err.d.rx");
+        assert_eq!(package_relative("/w/app/b/err.d.rx", "/w/app/src/main.rx", &read).unwrap(), "b/err.d.rx");
         // a named package above wins, wherever the unnamed scope is
         let read = files(&[("/w/app/package.json", r#"{"name":"shop"}"#), ("/w/app/a/package.json", r#"{"type":"module"}"#)]);
-        assert_eq!(package_relative("/w/app/a/err.d.rx", &read).unwrap(), "shop/a/err.d.rx");
+        assert_eq!(package_relative("/w/app/a/err.d.rx", "/w/app/main.rx", &read).unwrap(), "shop/a/err.d.rx");
         let read = files(&[("/w/app/package.json", r#"{"name":"shop"}"#)]);
-        assert_eq!(package_relative("/w/app/src/err.d.rx", &read).unwrap(), "shop/src/err.d.rx");
-        assert_eq!(package_relative("/w/x/err.d.rx", &read), None);
+        assert_eq!(package_relative("/w/app/src/err.d.rx", "/w/app/main.rx", &read).unwrap(), "shop/src/err.d.rx");
+    }
+    #[test]
+    fn a_wire_id_holds_no_machine_path_and_no_checkout_name() {
+        // SV-5a: the only package.json has no name — the id is the same whatever the checkout is called and wherever it is
+        for root in ["/private/tmp/x/my-app", "/home/ci/build-101", "/Users/a/dev/proj"] {
+            let pj = format!("{root}/package.json");
+            let read = move |p: &str| (p == pj).then(|| r#"{"type":"module","private":true}"#.to_string());
+            assert_eq!(package_relative(&format!("{root}/err.d.rx"), &format!("{root}/main.rx"), &read).unwrap(), "err.d.rx");
+            assert_eq!(package_relative(&format!("{root}/lib/err.d.rx"), &format!("{root}/src/main.rx"), &read).unwrap(), "lib/err.d.rx");
+        }
+        // a stray unnamed package.json in a home folder above the project is not its root
+        let read = files(&[("/home/u/package.json", "{}"), ("/home/u/work/proj/package.json", r#"{"type":"module"}"#)]);
+        assert_eq!(package_relative("/home/u/work/proj/err.d.rx", "/home/u/work/proj/main.rx", &read).unwrap(), "err.d.rx");
+        // no package.json anywhere: relative to the entry's folder; a relative entry stays relative
+        let read = files(&[]);
+        assert_eq!(package_relative("/w/x/err.d.rx", "/w/x/main.rx", &read).unwrap(), "err.d.rx");
+        assert_eq!(package_relative("a/err.d.rx", "main.rx", &read).unwrap(), "a/err.d.rx");
+        // outside the root, under a package.json of its own: below that one
+        let read = files(&[("/w/lib/package.json", "{}"), ("/w/app/package.json", "{}")]);
+        assert_eq!(package_relative("/w/lib/err.d.rx", "/w/app/main.rx", &read).unwrap(), "err.d.rx");
+        // outside the root and under no package.json: none (the emitter names it from the entry)
+        let read = files(&[("/w/app/package.json", "{}")]);
+        assert_eq!(package_relative("/w/x/err.d.rx", "/w/app/main.rx", &read), None);
     }
 }

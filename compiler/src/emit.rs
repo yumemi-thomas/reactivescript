@@ -291,9 +291,8 @@ impl<'p> Gen<'p> {
         !from.starts_with('.') || (self.by_source && !from.ends_with("/api"))
     }
     /// SV-5a: the module a declared JS error class is identified by: a package's specifier, or the app's own `.d.rx`
-    /// named from its package (the nearest package.json above it: the same from every entry, a library's in `nested/`
-    /// as the server's at the root, and in every checkout), else relative to the entry's directory. No machine path in a
-    /// client bundle.
+    /// as `modules::package_relative` names it (after its named package, else below the project root: the same in every
+    /// checkout and on every machine), else relative to the entry's directory. No machine path in a client bundle.
     fn class_module(&self, from: &str, declared: Option<&str>) -> String {
         if let Some(id) = declared.filter(|_| from.starts_with('.')).and_then(|d| self.set.declaration_ids.get(d)) {
             return id.clone();

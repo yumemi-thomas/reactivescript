@@ -145,10 +145,14 @@ by default — see the list at the end.
   specifier, or the app's `.d.rx` named from the nearest `package.json`
   above it that has a name, after that name; a `package.json` with no name
   (a `{"type":"module"}` scope) is passed over, and with no named one
-  above, the path is kept from the outermost one's folder, that folder's
-  own name first, so two unnamed scopes side by side (`a/err.d.rx#Gone`,
-  `b/err.d.rx#Gone`) name two classes (revised 2026-11-21 after review);
-  with none, relative to the entry,
+  above, the path is kept from the project root (the folder of the
+  nearest `package.json` above the entry, else the entry's folder), never
+  with that folder's own name or any folder above it, so a checkout names
+  it `err.d.rx#Gone` wherever it is and whatever it is called, and two
+  unnamed scopes side by side under the root (`a/err.d.rx#Gone`,
+  `b/err.d.rx#Gone`) name two classes; outside the root, from the nearest
+  `package.json` above the declaration (revised 2026-11-21 after review,
+  twice); with none, relative to the entry,
   `../` included; never a machine path), so both builds agree whatever each
   imports, from any entry (a library entry in `nested/` and the app's at
   the root name `../err.d.rx` alike, revised 2026-11-21 after review: the

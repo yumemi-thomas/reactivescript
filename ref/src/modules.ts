@@ -6,7 +6,7 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
 
-export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig> };   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
+export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; declarationIds?: Map<string, string> };   // declarationIds: SV-5a, `packageRelative`   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
 
 export const isRx = (from: string) => /\.rx$/.test(from);
 
@@ -68,9 +68,40 @@ export function declarationFor(fromFile: string, spec: string, read: (path: stri
   return up(`rx-types/${spec}.d.rx`) ?? (shipped !== undefined && read(shipped) !== undefined ? shipped : undefined) ?? up(`node_modules/@rx-types/${shared}/${sub}.d.rx`) ?? up(`node_modules/.rx-types/${spec}.d.rx`);
 }
 
+/** SV-5a (revised 2026-11-21 after review): what a declared error class is identified by, so a server and a client built
+ *  from different entries, or in checkouts at different paths or on different machines, name it alike. First match wins:
+ *  1. the nearest folder above `file` whose package.json has a name: that name, then the path below it (`shop/src/err.d.rx`);
+ *  2. the project root — the folder of the nearest package.json above `entry`, else the entry's own folder — when `file` is
+ *     inside it: the path below it (`err.d.rx`; two unnamed scopes side by side under it, `a/err.d.rx` and `b/err.d.rx`);
+ *  3. the folder of the nearest package.json above `file`: the path below it.
+ *  A folder's own name, or any folder above the root, is never part of it. Undefined when none applies. */
+export function packageRelative(file: string, entry: string, read: (path: string) => string | undefined): string | undefined {
+  const pj = (dir: string) => dir === "" ? "package.json" : `${dir}/package.json`;
+  const above = (path: string): [string, string | null | undefined][] => {         // nearest first: [folder, name | null (unnamed) | undefined (none)]
+    const segs = path.split("/"); const lo = path.startsWith("/") ? 1 : 0; const out: [string, string | null | undefined][] = [];
+    for (let i = segs.length - 1; i >= lo; i--) {
+      const dir = segs.slice(0, i).join("/"); const text = read(pj(dir));
+      let name: string | null | undefined = undefined;
+      if (text !== undefined) { name = null; try { const v = JSON.parse(text); if (typeof v?.name === "string" && v.name) name = v.name; } catch { /* unnamed */ } }
+      out.push([dir, name]);
+    }
+    return out;
+  };
+  const below = (dir: string): string | undefined => dir === "" ? (file.startsWith("/") ? undefined : file) : file.startsWith(dir + "/") ? file.slice(dir.length + 1) : undefined;
+  const mine = above(file);
+  const named = mine.find(([, n]) => typeof n === "string");
+  if (named) { const r = below(named[0]); return r === undefined ? undefined : `${named[1]}/${r}`; }
+  const roots = above(entry);
+  const root = roots.find(([, n]) => n !== undefined)?.[0] ?? roots[0]?.[0];
+  const inRoot = root === undefined ? undefined : below(root);
+  if (inRoot !== undefined) return inRoot;
+  const own = mine.find(([, n]) => n !== undefined);
+  return own ? below(own[0]) : undefined;
+}
+
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
-  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>();
+  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>(); const declarationIds = new Map<string, string>();
   const state = new Map<string, "busy" | "done">();
   const visit = (path: string, stack: string[]) => {
     if (state.get(path) === "done") return;
@@ -83,7 +114,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
       const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? declarationFor(path, d.from, read) : undefined;   // MO-8k, MO-10c
       if (d.k === "import" && !isRx(d.from) && (d.from.startsWith(".") || pkgDts)) {             // MO-8: a JS module with a declaration file beside it
         const dts = pkgDts ?? joinPath(path, d.from.replace(/\.(m?js|cjs|ts)$/, "") + ".d.rx");
-        if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try { declarations.set(dts, parseDeclarations(src)); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; } } }
+        if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try { declarations.set(dts, parseDeclarations(src)); const id = packageRelative(dts, entry, read); if (id !== undefined) declarationIds.set(dts, id); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; } } }
         const ds = declarations.get(dts);
         if (ds) { d.declared = dts; d.declaredErrors = ds.filter(x => x.kind === "error").map(x => x.name); const ef = ds.flatMap(x => x.kind === "error" && x.fields ? [[x.name, x.fields]] : []); if (ef.length) d.declaredErrorFields = Object.fromEntries(ef); d.declaredPure = ds.filter(x => x.kind === "fn" && x.pure).map(x => x.name); d.declaredSide = Object.fromEntries(ds.flatMap(x => x.kind === "fn" && x.side ? [[x.name, x.side]] : [])); }
         continue;
@@ -102,7 +133,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
-  return { entry, programs, order, diags, declarations, signatures };
+  return { entry, programs, order, diags, declarations, signatures, declarationIds };
 }
 
 /** One program with no `.rx` imports — the common case, and every scenario before 09. */
