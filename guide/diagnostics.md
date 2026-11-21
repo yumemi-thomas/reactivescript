@@ -1194,6 +1194,47 @@ export default component App() {
 A kit's compound part is a member of an object, `<Dialog.Trigger>`: the `.d.rx` declares each member by its written
 name, `export component Dialog.Trigger(props: { … })` (MO-11q), and a member it does not declare is unknown.
 
+### RENDERS_ESCAPES
+
+A JS fn declared `renders` (a headless table) has the components it is given checked where its result is bound, so
+that is where the result must be rendered (MO-11l). Passed to a component, provided, exported, written to a source or
+handed to a call, it could be rendered under other boundaries and providers than the ones it was checked under. Render
+it in the view where it is bound; a library whose result is rendered elsewhere declares where: `renders(later)` with a
+component prop that `renders` it, or `renders(root, …)` for a root of its own.
+
+```rx before
+-- module: ./table.d.rx
+export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders
+export pure fn flexRender(comp: any, props: any): any
+-- main
+import { createTable, flexRender } from "./table.js"
+component Cell() {
+  <b>cell</b>
+}
+component Grid(props: { table: any }) {
+  <p>{for c in props.table.cells { <span>{flexRender(c, {})}</span> }}</p>
+}
+export default component App() {
+  table = createTable({ columns: [{ cell: Cell }] })
+  <Grid table={table} />
+}
+```
+
+```rx after
+-- module: ./table.d.rx
+export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders
+export pure fn flexRender(comp: any, props: any): any
+-- main
+import { createTable, flexRender } from "./table.js"
+component Cell() {
+  <b>cell</b>
+}
+export default component App() {
+  table = createTable({ columns: [{ cell: Cell }] })
+  <p>{for c in table.cells { <span>{flexRender(c, {})}</span> }}</p>
+}
+```
+
 ### COMPONENT_AS_VALUE
 
 A component is applied in markup, `<Greeting name="x" />`, not stored or called as a function (RG-4a). The exception is

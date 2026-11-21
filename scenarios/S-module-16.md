@@ -33,6 +33,17 @@ applied where its result is bound, among that region's children, which is
 where the app renders the table (DV-24's assumption, at the binding instead
 of an application). `renders` implies `instantiates`.
 
+So the result is rendered where it is bound, and nowhere else (revised
+2026-11-21 after review): the binding is where its components were
+checked. A result that travels — passed to a component's prop, provided,
+exported, written to a source, passed to a call, or aliased by an equation
+that does one of those — could be rendered under other boundaries and
+providers, so it is refused (`RENDERS_ESCAPES`). A library whose result is
+rendered somewhere else says where: `renders(later)` with a component prop
+that `renders` it (MO-11o, the requirements carried to that render), or
+`renders(root, …)` for a root of its own (MO-11n). Reading through it
+(`table.rows`, `cell.column.cell`) is rendering it here.
+
 ## Program
 
 ```rx
@@ -96,3 +107,36 @@ export default component App() {
 declared `renders`), so `NameCell` is checked the most cautious way: under
 a root of its own (MO-11s), where the `accent` provided above the call does
 not reach.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  <Grid table={table} />
+}
+```
+
+`Grid` renders the cells, not `App`'s view: whatever `Grid` is under (a
+boundary of its own, or none, a provider or none) is where they run.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+context grid: any
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  t = table
+  provide grid = t
+  <p>{len(t.rows)}</p>
+}
+```
+
+An alias travels as the value does.

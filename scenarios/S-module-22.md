@@ -18,6 +18,19 @@ export pure fn useParams(opts: { from: string }): ref any uses(router)
 ```
 
 ```rx
+-- module: ./routes.rx
+import { createRootRoute, createRouter, RouterProvider, Outlet } from "./tsr.js"
+component Root() {
+  <main><Outlet /></main>
+}
+rootRoute = createRootRoute({ component: Root })
+export router = createRouter({ routeTree: rootRoute.addChildren([]) })
+export component Here() {
+  <RouterProvider router={router} />
+}
+```
+
+```rx
 -- module: ./people.d.rx
 export error NotFound
 export pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)
@@ -141,3 +154,19 @@ export default component App() {
 ```
 
 The hooks still need the router above them.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { RouterProvider } from "./tsr.js"
+import { router } from "./routes.rx"
+export default component App() {
+  <RouterProvider router={router} />
+}
+```
+
+`routes.rx` checks the components its router carries where it renders it
+(`Here`); exported (as `examples/tanstack` exports its router, for its
+type), the router may be imported, but rendering it in another module is
+refused: that module's signature does not say what the carried components
+need, so nothing would check them under this provider (MO-11o, revised
+2026-11-21).

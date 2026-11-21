@@ -795,7 +795,13 @@ export default component App() {
   render, and its boundaries would be credited wrongly: declare
   `renders(later)` and the consuming prop's `renders T` (MO-11o), which put
   the check where they do render, or nothing, which takes the cautious
-  placement (MO-11s). (Revised 2026-11-21.)
+  placement (MO-11s). (Revised 2026-11-21.) The checker holds the program
+  to it (revised 2026-11-21 after a second review): the bound value, and an
+  equation that only names it, may be read through (`table.rows`) and
+  rendered in the binding's own view, but not passed to a component's
+  prop, provided, exported, written to a source, or passed to a call;
+  each is `RENDERS_ESCAPES`, since the components would render under other
+  boundaries and providers than the binding's (S-module-16).
 - **MO-11n (Components a library renders under its own root) — proposed
   2026-11-19.** `renders(root)` is `renders` (MO-11l) for a library that
   mounts the components it is given with a root of its own (`render()`,
@@ -828,7 +834,12 @@ export default component App() {
   children (MO-11c), so its `provides(…)` reaches them and the boundaries
   above it hold their failures. A carried component that no `renders` prop
   reaches is checked nowhere, so it is `COMPONENT_AS_VALUE` where it is
-  passed. Without MO-11p, a route's nested components are checked as
+  passed. A carrying value may be exported (for its type, as
+  `examples/tanstack` registers its router), but a module's signature
+  says nothing of what it carries, so a `renders` prop given a value
+  imported from another `.rx` module is `RENDERS_ESCAPES` (revised
+  2026-11-21): the carried components are checked in the module that
+  builds them, at its own `renders` props. Without MO-11p, a route's nested components are checked as
   siblings under the provider, which errs strict (a boundary inside the
   parent's component is not credited to them). S-module-22; `examples/tanstack` runs on `@tanstack/solid-router` 2.0 (rc)
   in the Vite suite, with TanStack's registered route types checked by the
@@ -893,6 +904,33 @@ export default component App() {
   | `renders(later)` | where a JS component's prop declared `renders` renders the value carrying them | MO-11o |
   | `nests(children in component)` | each entry of a record's `children` field among its `component`'s children | MO-11i |
   | `nests(component under parent)` | each value's `component` among its `parent` value's component's children, at that one's `outlet` | MO-11p |
+
+  One model covers every row (consolidated 2026-11-21 after review). A
+  component a program gives a library is a *value* from the literal it is
+  written in until the place the library renders it, and it is checked
+  once, as applied, at that place, under the boundaries, providers and
+  content model there, and nowhere else:
+
+  1. *Where it is checked* is the row's answer in the table: the made
+     component (a factory), the binding (`renders`), a fresh root with the
+     carried contexts (`renders(root, …)`), or the consuming render — a JS
+     component's prop that `renders` the value (`renders(later)`).
+  2. *The tree* (`nests(…)`) only rearranges the values inside that place:
+     a nested entry is applied among its parent's children (`… in …`) or
+     at the parent component's `outlet` (`… under …`); a parent the
+     checker cannot find leaves the entry a sibling at the same place,
+     crediting nothing of the parent's.
+  3. *Travel.* A value checked at the binding (`renders`) stays there:
+     one that leaves is `RENDERS_ESCAPES` (MO-11l). A carried value
+     (`renders(later)`) may travel freely through equations, records and
+     carrying calls (`rootRoute.addChildren(…)`, `createRouter(…)`) within
+     its module; each `renders` prop it reaches is a consuming render,
+     checked there, as often as it is rendered. It may not be rendered in
+     another module (MO-11o).
+  4. *Consumption.* A carried value no `renders` prop reaches is checked
+     nowhere: `COMPONENT_AS_VALUE` where its component is written. A
+     component given to a call with no row takes the cautious placement
+     (MO-11s), a root of its own with nothing carried.
 
   On the other side, two words say where a JS component renders what it
   is given: a prop's type `renders T` (the components its value carries)

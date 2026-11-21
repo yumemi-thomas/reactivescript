@@ -92,6 +92,7 @@ type Sym = {
   fnTail?: Expr; fnEnv?: Env;          // a fn: its result, for what an `await` of a call to it rejects with
   rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
   imported?: string;                   // a source imported from an .rx module: read-only here (MO-2)
+  fromModule?: string;                 // MO-11o: an equation or source imported from this .rx module
   ctx?: { key: string; source: boolean; dflt: boolean; contract: { rows: Set<string>; fails: Set<string> } | null };
   side?: "server" | "client";          // 12 SF-5: JS that runs on one side only
   ioVia?: string;                      // 12 SF-1: a server fn that is io — the call in its body that makes it so
@@ -114,6 +115,7 @@ type Sym = {
   partDrafts?: Record<string, [number, number[]][]>;   // MO-10i: the same, for its result's function parts (tuple index or field)
   jsDraft?: boolean;                   // MO-10i: a callback's parameter the library declares a draft: its paths are written
   draftFn?: number;                    // MO-10i: the closure whose parameter the draft is (its fnStack id)
+  localRenders?: boolean;              // MO-11l (revised 2026-11-21): components `renders` checked where this was bound — it may not travel
   outlet?: boolean;                    // MO-11p: a JS component that renders, where it is written, what nests under its component
   carriedExpr?: { e: Expr; env: Env };   // MO-11o: every equation's expression, looked through for what it carries
   rendersRoot?: boolean;               // MO-11n: renders(root), under a root of the library's own
@@ -612,7 +614,7 @@ class Checker {
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); sym.compRegion.key = `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${sym.compRegion.id}` : ""}`; }   // E-5a
       if (d.k === "eq") sym.eqDecl = d;
-      if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.carrier) { const by = env.lookup(d.e.f.name)!; sym.carried = { args: d.e.args, env, ...(by.under ? { under: by.under } : {}) }; } sym.carriedExpr = { e: d.e, env }; }   // MO-11o
+      if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); if (d.e.k === "id" && env.lookup(d.e.name)?.localRenders) sym.localRenders = true;   /* MO-11l: an alias of one is one */ if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.carrier) { const by = env.lookup(d.e.f.name)!; sym.carried = { args: d.e.args, env, ...(by.under ? { under: by.under } : {}) }; } sym.carriedExpr = { e: d.e, env }; }   // MO-11o
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
       this.bind(env, d.name, sym);
     }
@@ -661,8 +663,8 @@ class Checker {
       const failsOf = (f: string[]) => () => ({ cls: new Set(f), props: [] as PropRef[] });
       let sym: Sym;
       switch (x.kind) {
-        case "source": sym = { kind: "source", name: alias, region: env.region, line: d.line, question: x.question, imported: d.from, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
-        case "eq": sym = { kind: "eq", name: alias, region: env.region, line: d.line, io: x.io, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
+        case "source": sym = { kind: "source", name: alias, region: env.region, line: d.line, question: x.question, imported: d.from, fromModule: d.from, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
+        case "eq": sym = { kind: "eq", name: alias, region: env.region, line: d.line, io: x.io, fromModule: d.from, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
         case "fn": sym = { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params, instantiating: x.instantiating, rows: rowsOf(x.rows), failsT: failsOf(x.fails), rejects: new Set(x.rejects) }; break;
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
@@ -803,7 +805,7 @@ class Checker {
       }
       if (sub.length) sym.held = sub;
     }
-    if (shape !== "comp" && e.k === "call" && e.f.k === "id" && env.lookup(e.f.name)?.renders) sym.factory = { args: e.args, env, here: true, ...(env.lookup(e.f.name)?.rendersRoot ? { root: true, carries: env.lookup(e.f.name)?.carries ?? [] } : {}) };   // MO-11l: its component values are applied here
+    if (shape !== "comp" && e.k === "call" && e.f.k === "id" && env.lookup(e.f.name)?.renders) { sym.factory = { args: e.args, env, here: true, ...(env.lookup(e.f.name)?.rendersRoot ? { root: true, carries: env.lookup(e.f.name)?.carries ?? [] } : {}) }; if (!env.lookup(e.f.name)?.rendersRoot) sym.localRenders = true; }   // MO-11l: its component values are applied here
     if (shape === "comp" && e.k === "call") {                                              // MO-11f: the bound name is a component
       const gives = e.f.k === "id" ? env.lookup(e.f.name)?.gives ?? [] : [];                 // MO-12c: what it provides to what it renders
       const r = this.region(null, "imported", { component: true, name: sym.name }); r.sig = { own: [], requires: [], props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: { roots: [], closesP: false, a: false, form: false, childrenAt: [[]] } };   // it renders what it was given where it is applied
@@ -900,11 +902,12 @@ class Checker {
         const kind = d.deferred ? "deferred" : d.key ? "keyed" : "memo";
         const made = env.vars.get(d.name);
         if (made?.carried) this.carriedValues(made.carried.args, made.carried.env, true, [], d.e.k === "call" && d.e.f.k === "id" ? d.e.f.name : "");   // MO-11o: its component values are values, applied where a prop renders them
-        if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (made.factory.here) this.markup(this.factoryTree(made, d.line), made.factory.root ? new Env(env, this.rootOf(made.factory.carries ?? [])) : env);   /* MO-11n: under a root of its own, nothing above the binding reaches them */ else if (d.exported) this.exportMade(made, d.name, d.line); }   // MO-11l: applied where it is bound
+        if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (made.factory.here) this.markup(this.factoryTree(made, d.line), made.factory.root ? new Env(env, this.rootOf(made.factory.carries ?? [])) : env);   /* MO-11n: under a root of its own, nothing above the binding reaches them */ else if (d.exported) this.exportMade(made, d.name, d.line); if (made.factory.here && !made.factory.root && d.exported) this.rendersEscapeMsg(d.name, "exported, for importers to render elsewhere"); }   // MO-11l: applied where it is bound
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && !f.renders && !f.carrier && f.foreign !== "comp") this.unplaced(call.args, env);   /* MO-11s */ this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
+        this.rendersEscape(d.e, env, `provided as ${d.name}, for the components below to render`);
         this.comp("provide", env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env);
         const c = this.ctxOf(d.name, env); if (!c) return;
         env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env });
@@ -1186,6 +1189,11 @@ class Checker {
     }
     return null;
   }
+  /** MO-11l (revised 2026-11-21 after review): bare `renders` checks a call's components where its result is bound, so
+   *  that result must be rendered there; one that travels (a component's prop, a provision, an export, a source, a call,
+   *  or an alias doing one of those) would render them under other boundaries and providers. */
+  private rendersEscape(e: Expr, env: Env, why: string) { if (e.k === "id" && env.lookup(e.name)?.localRenders) this.rendersEscapeMsg(e.name, why); }
+  private rendersEscapeMsg(n: string, why: string) { this.err("RENDERS_ESCAPES", "MO-11l", `${n} holds components \`renders\` checked where ${n} is bound, and here it is ${why}: render it in the view where it is bound, or declare the library \`renders(later)\` with a prop that \`renders\` it (MO-11o), or \`renders(root, …)\` if it mounts them under a root of its own (MO-11n)`); }
   /** MO-10i: the closures being walked (ids, innermost last) — a library's draft is its callback's alone */
   private fnStack: number[] = []; private fnSeq = 0;
   /** MO-10i (lifetime, 2026-11-21): a draft is its callback's while that call runs; a closure made inside the callback may
@@ -1264,6 +1272,7 @@ class Checker {
           if (s?.kind === "action" && s.arity !== undefined && e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
           this.model.call(s);
           if (s && (s.kind === "import" || (s.kind === "fn" && s.foreign !== undefined)) && !s.renders && !s.carrier && s.foreign !== "comp") this.unplaced(e.args, env);   // MO-11s
+          if (s && (s.kind === "import" || s.kind === "fn" || s.kind === "action" || s.kind === "server")) for (const a of e.args) this.rendersEscape(a, env, `passed to ${e.f.name}(…)`);   // MO-11l: a call may keep it, or hand it on
         }
         go(e.f); e.args.forEach(go); return;
       }
@@ -1320,6 +1329,7 @@ class Checker {
         case "expr": case "throw": this.expr(s.e, env, ctx); break;
         case "return": if (s.e) this.expr(s.e, env, ctx); break;
         case "write": case "optimistic": {
+          this.rendersEscape(s.e, env, `written to ${s.target.name}`);
           if (ctx.server) {                                                                  // SF-4: return the value; the action that awaited the call writes it
             this.err("SERVER_WRITE", "SF-4", `a server function writes ${s.target.ctx ? "use " : ""}${s.target.name}: return the value, and write it in the action that awaited the call (\`let r = await f(…); ${s.target.name} := r\`)`);
             s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx)); this.expr(s.e, env, ctx); break;
@@ -1480,6 +1490,9 @@ class Checker {
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? unknownJsComponent(m.tag, s.undeclared) : `<${m.tag}> is not a component declared here`); }
+            for (const a of m.attrs) this.rendersEscape(a.e, env, `passed to <${m.tag}> as ${a.name}`);
+            { const cp = s?.compRegion ? this.carriedProps.get(s.compRegion) : undefined;   // MO-11o (revised 2026-11-21): a value another .rx module made carries what that module checked; its signature does not say
+              if (cp) for (const a of m.attrs) if (cp.has(a.name) && a.e.k === "id") { const from = env.lookup(a.e.name)?.fromModule; if (from) this.err("RENDERS_ESCAPES", "MO-11o", `<${m.tag}> renders what ${a.e.name} carries, and ${a.e.name} is imported from ${from}: the components it carries were checked where that module renders it, not here, and its signature does not say what they need — render it in the module that builds it`); } }
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
             const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; return !!d?.callback || (n !== "ref" && !d?.pure && isHandler(n)); };   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element only (07 §4): on a component, a handler only when declared one

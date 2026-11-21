@@ -234,6 +234,8 @@ struct Sym<'a> {
     fn_tail: Option<(&'a Expr, EId)>,
     rejects: Option<IndexSet<String>>,
     imported: Option<String>,
+    /// MO-11o: an equation or source imported from this `.rx` module
+    from_module: Option<String>,
     ctx: Option<CtxInfo>,
     side: Option<Side>,
     io_via: Option<String>,
@@ -261,6 +263,9 @@ struct Sym<'a> {
     renders: bool,
     /// MO-11n: `renders(root)`, applied under a root of the library's own
     renders_root: bool,
+    /// MO-11l (revised 2026-11-21): a value whose components `renders` checked where it was bound — bound from a bare
+    /// `renders` call, or an alias of one; it may not travel to where something else would render it
+    local_renders: bool,
     /// MO-11n: the JS contexts (keys) it carries into that root
     carries: Vec<String>,
     /// MO-8k: a JS import with no declaration in any of the four places: its specifier
@@ -330,6 +335,7 @@ impl<'a> Sym<'a> {
             fn_tail: None,
             rejects: None,
             imported: None,
+            from_module: None,
             ctx: None,
             side: None,
             io_via: None,
@@ -346,6 +352,7 @@ impl<'a> Sym<'a> {
             nests: None,
             renders: false,
             renders_root: false,
+            local_renders: false,
             carries: vec![],
             undeclared: None,
             forwards: false,
@@ -1642,6 +1649,12 @@ impl<'a> Checker<'a> {
                         }
                     }
                     self.foreign_part(&mut sym, e, env);
+                    // MO-11l: an alias of a value `renders` checked where it was bound is one too
+                    if let ExprKind::Id(n) = &e.k {
+                        if self.lookup(env, n).is_some_and(|t| self.syms[t].local_renders) {
+                            sym.local_renders = true;
+                        }
+                    }
                     // MO-11o: a carrying call's arguments; every equation's expression, looked through later
                     if let ExprKind::Call { f, args, .. } = &e.k {
                         if let ExprKind::Id(n) = &f.k {
@@ -1679,6 +1692,7 @@ impl<'a> Checker<'a> {
                                     sym.factory = Some((args.as_slice(), env));
                                     sym.renders = true;
                                     sym.renders_root = self.syms[t].renders_root;
+                                    sym.local_renders = !self.syms[t].renders_root;
                                     sym.carries = self.syms[t].carries.clone();
                                 }
                             }
@@ -1805,6 +1819,7 @@ impl<'a> Checker<'a> {
                     let mut s = Sym::new(SymKind::Source, alias, region, line);
                     s.question = *question;
                     s.imported = Some(from.clone());
+                    s.from_module = Some(from.clone());
                     s.rows = Some(RowsT::Fixed(set(rows)));
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s
@@ -1812,6 +1827,7 @@ impl<'a> Checker<'a> {
                 ExportSig::Eq { rows, fails, io } => {
                     let mut s = Sym::new(SymKind::Eq, alias, region, line);
                     s.io = *io;
+                    s.from_module = Some(from.clone());
                     s.rows = Some(RowsT::Fixed(set(rows)));
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s
@@ -2490,6 +2506,9 @@ impl<'a> Checker<'a> {
                         } else if d.exported() {
                             self.export_made(made, name, d.line() as i64);
                         }
+                        if self.syms[made].renders && !self.syms[made].renders_root && d.exported() {
+                            self.renders_escape_msg(name, "exported, for importers to render elsewhere");
+                        }
                     }
                 }
                 let kind = if *deferred {
@@ -2543,6 +2562,7 @@ impl<'a> Checker<'a> {
                 self.row_check(name, ty.as_deref(), env);
             }
             Decl::Provide { name, e, .. } => {
+                self.renders_escape(e, env, &format!("provided as {name}, for the components below to render"));
                 self.comp("provide", env, Some(name.clone()), None, |c| c.expr(e, env, reactive, None));
                 self.keep(e, env);
                 let Some(c) = self.ctx_of(name, env) else { return };
@@ -3204,6 +3224,19 @@ impl<'a> Checker<'a> {
     /// MO-10i (lifetime, 2026-11-21): a library's draft is its callback's while that call runs, and the library may take
     /// it back when the callback returns; a closure made inside the callback may run later, so a draft it captures is
     /// refused, as a read or as a write of its paths.
+    /// MO-11l (revised 2026-11-21 after review): bare `renders` checks the components a call is given where its result is
+    /// bound, so that result must be rendered there; a value that travels elsewhere — to a component's prop, a provision,
+    /// an export, a source, a JS call, or an equation doing one of those — would have them rendered under other
+    /// boundaries and providers than the ones they were checked under.
+    fn renders_escape(&mut self, e: &Expr, env: EId, why: &str) {
+        let ExprKind::Id(n) = &e.k else { return };
+        if self.lookup(env, n).is_some_and(|t| self.syms[t].local_renders) {
+            self.renders_escape_msg(n, why);
+        }
+    }
+    fn renders_escape_msg(&mut self, n: &str, why: &str) {
+        self.err("RENDERS_ESCAPES", "MO-11l", format!("{n} holds components `renders` checked where {n} is bound, and here it is {why}: render it in the view where it is bound, or declare the library `renders(later)` with a prop that `renders` it (MO-11o), or `renders(root, …)` if it mounts them under a root of its own (MO-11n)"));
+    }
     fn draft_here(&mut self, s: SId, name: &str) {
         if let Some(own) = self.syms[s].draft_fn {
             if self.fn_stack.last() != Some(&own) {
@@ -3449,6 +3482,12 @@ impl<'a> Checker<'a> {
                     if s.is_some_and(|s| self.unplaced_fn(s)) {
                         self.unplaced(args, env); // MO-11s
                     }
+                    // MO-11l: a call may keep what it is given, or hand it to what renders it elsewhere
+                    if s.is_some_and(|s| matches!(self.syms[s].kind, SymKind::Import | SymKind::Fn | SymKind::Action | SymKind::Server)) {
+                        for a in args {
+                            self.renders_escape(a, env, &format!("passed to {fname}(…)"));
+                        }
+                    }
                 }
                 self.expr(f, env, ctx, None);
                 for a in args {
@@ -3569,6 +3608,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                    self.renders_escape(e, env, &format!("written to {}", target.name));
                     let op = if matches!(&s.k, StmtKind::Optimistic { .. }) { "optimistic" } else { "write" };
                     if ctx.server {
                         self.err(
@@ -4028,6 +4068,19 @@ impl<'a> Checker<'a> {
                                 self.err("UNKNOWN_COMPONENT", "RG-4a", msg);
                             } else {
                                 self.err("UNKNOWN_COMPONENT", "RG-4a", format!("<{}> is not a component declared here", tag));
+                            }
+                        }
+                        for a in attrs.iter() {
+                            self.renders_escape(&a.e, env, &format!("passed to <{tag}> as {}", a.name));
+                        }
+                        // MO-11o (revised 2026-11-21): a value another .rx module made carries what that module's own
+                        // render checked; its signature says nothing of it, so rendering it here would be unchecked
+                        let carried_props = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.carried_props.get(&r).cloned()).unwrap_or_default();
+                        for a in attrs.iter().filter(|a| carried_props.contains(&a.name)) {
+                            if let ExprKind::Id(n) = &a.e.k {
+                                if let Some(from) = self.lookup(env, n).and_then(|t| self.syms[t].from_module.clone()) {
+                                    self.err("RENDERS_ESCAPES", "MO-11o", format!("<{tag}> renders what {n} carries, and {n} is imported from {from}: the components it carries were checked where that module renders it, not here, and its signature does not say what they need — render it in the module that builds it"));
+                                }
                             }
                         }
                         let values = self.component_values(tag, attrs, env);
