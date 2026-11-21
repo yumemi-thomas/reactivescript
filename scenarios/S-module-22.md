@@ -170,3 +170,26 @@ type), the router may be imported, but rendering it in another module is
 refused: that module's signature does not say what the carried components
 need, so nothing would check them under this provider (MO-11o, revised
 2026-11-21).
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { RouterProvider } from "./tsr.js"
+import { router } from "./routes.rx"
+export default component App() {
+  alias = router
+  <RouterProvider router={alias} />
+}
+```
+
+An alias of the imported router, or a record field holding it, is the
+imported router.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { RouterProvider } from "./tsr.js"
+import { router } from "./routes.rx"
+export default component App() {
+  box = { r: router }
+  <RouterProvider router={box.r} />
+}
+```

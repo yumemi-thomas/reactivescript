@@ -3271,9 +3271,63 @@ impl<'a> Checker<'a> {
     /// an export, a source, a JS call, or an equation doing one of those — would have them rendered under other
     /// boundaries and providers than the ones they were checked under.
     fn renders_escape(&mut self, e: &Expr, env: EId, why: &str) {
-        let ExprKind::Id(n) = &e.k else { return };
-        if self.lookup(env, n).is_some_and(|t| self.syms[t].local_renders) {
-            self.renders_escape_msg(n, why);
+        let mut out = vec![];
+        self.placed(e, env, &[], &mut HashSet::new(), &mut out);
+        if let Some(&t) = out.iter().find(|&&t| self.syms[t].local_renders) {
+            let n = match &e.k {
+                ExprKind::Id(n) => n.clone(),
+                _ => self.syms[t].name.clone(),
+            };
+            self.renders_escape_msg(&n, why);
+        }
+    }
+    /// MO-11l, MO-11o (placement, revised 2026-11-21 after review): the names a value may be — through an alias, a record
+    /// or array literal that holds one, and a field read back out of such a record (`box = { table }`, then `box.table`).
+    /// A field read through anything else (`table.rows`) is a read of it, not it. In order: the name itself first.
+    fn placed(&self, e: &Expr, env: EId, path: &[String], seen: &mut HashSet<(SId, Vec<String>)>, out: &mut Vec<SId>) {
+        match &e.k {
+            ExprKind::Id(n) => {
+                let Some(s) = self.lookup(env, n) else { return };
+                if !seen.insert((s, path.to_vec())) {
+                    return;
+                }
+                if path.is_empty() && !out.contains(&s) {
+                    out.push(s);
+                }
+                if self.syms[s].kind == SymKind::Eq {
+                    if let Some((x, xenv)) = self.syms[s].carried_expr {
+                        self.placed(x, xenv, path, seen, out);
+                    }
+                }
+            }
+            ExprKind::Member { o, p, .. } => {
+                let mut q = vec![p.clone()];
+                q.extend_from_slice(path);
+                self.placed(o, env, &q, seen, out);
+            }
+            ExprKind::Index { o, i, .. } => {
+                if let Some(k) = lit_key(i) {
+                    let mut q = vec![k];
+                    q.extend_from_slice(path);
+                    self.placed(o, env, &q, seen, out);
+                }
+            }
+            ExprKind::Rec(fields) => {
+                for f in fields {
+                    match f {
+                        Field::Spread(x) => self.placed(x, env, path, seen, out),
+                        Field::Kv { v, .. } if path.is_empty() => self.placed(v, env, &[], seen, out),
+                        Field::Kv { key, v } if *key == path[0] => self.placed(v, env, &path[1..], seen, out),
+                        _ => {}
+                    }
+                }
+            }
+            ExprKind::Arr(items) => {
+                for x in items {
+                    self.placed(x, env, if path.is_empty() { &[] } else { &path[1..] }, seen, out);
+                }
+            }
+            _ => {}
         }
     }
     fn renders_escape_msg(&mut self, n: &str, why: &str) {
@@ -4144,10 +4198,15 @@ impl<'a> Checker<'a> {
                         // render checked; its signature says nothing of it, so rendering it here would be unchecked
                         let carried_props = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.carried_props.get(&r).cloned()).unwrap_or_default();
                         for a in attrs.iter().filter(|a| carried_props.contains(&a.name)) {
-                            if let ExprKind::Id(n) = &a.e.k {
-                                if let Some(from) = self.lookup(env, n).and_then(|t| self.syms[t].from_module.clone()) {
-                                    self.err("RENDERS_ESCAPES", "MO-11o", format!("<{tag}> renders what {n} carries, and {n} is imported from {from}: the components it carries were checked where that module renders it, not here, and its signature does not say what they need — render it in the module that builds it"));
-                                }
+                            let mut out = vec![];
+                            self.placed(&a.e, env, &[], &mut HashSet::new(), &mut out);
+                            if let Some(&t) = out.iter().find(|&&t| self.syms[t].from_module.is_some()) {
+                                let from = self.syms[t].from_module.clone().unwrap();
+                                let n = match &a.e.k {
+                                    ExprKind::Id(n) => n.clone(),
+                                    _ => self.syms[t].name.clone(),
+                                };
+                                self.err("RENDERS_ESCAPES", "MO-11o", format!("<{tag}> renders what {n} carries, and {n} is imported from {from}: the components it carries were checked where that module renders it, not here, and its signature does not say what they need — render it in the module that builds it"));
                             }
                         }
                         let values = self.component_values(tag, attrs, env);

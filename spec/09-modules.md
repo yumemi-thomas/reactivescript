@@ -805,7 +805,10 @@ export default component App() {
   rendered in the binding's own view, but not passed to a component's
   prop, provided, exported, written to a source, or passed to a call;
   each is `RENDERS_ESCAPES`, since the components would render under other
-  boundaries and providers than the binding's (S-module-16).
+  boundaries and providers than the binding's (S-module-16). The value is
+  followed wherever an equation puts it: an alias, a record or array
+  literal that holds it, and a field read back out of such a record
+  (`box = { table }`, then `box.table`) are the value.
 - **MO-11n (Components a library renders under its own root) — proposed
   2026-11-19.** `renders(root)` is `renders` (MO-11l) for a library that
   mounts the components it is given with a root of its own (`render()`,
@@ -841,8 +844,9 @@ export default component App() {
   passed. A carrying value may be exported (for its type, as
   `examples/tanstack` registers its router), but a module's signature
   says nothing of what it carries, so a `renders` prop given a value
-  imported from another `.rx` module is `RENDERS_ESCAPES` (revised
-  2026-11-21): the carried components are checked in the module that
+  imported from another `.rx` module — directly, or through an alias or a
+  record field that holds it, as MO-11l follows a value — is
+  `RENDERS_ESCAPES` (revised 2026-11-21): the carried components are checked in the module that
   builds them, at its own `renders` props. Without MO-11p, a route's nested components are checked as
   siblings under the provider, which errs strict (a boundary inside the
   parent's component is not credited to them). S-module-22; `examples/tanstack` runs on `@tanstack/solid-router` 2.0 (rc)

@@ -140,3 +140,35 @@ export default component App() {
 ```
 
 An alias travels as the value does.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  box = { table: table }
+  <Grid table={box.table} />
+}
+```
+
+So does a record that holds it, and a field read back out of that record:
+`box.table` is `table`.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Grid(props: { box: any }) {
+  <table><tbody>{for row in props.box.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  <Grid box={{ table: table }} />
+}
+```

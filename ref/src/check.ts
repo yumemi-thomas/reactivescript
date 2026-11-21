@@ -1207,7 +1207,33 @@ class Checker {
   /** MO-11l (revised 2026-11-21 after review): bare `renders` checks a call's components where its result is bound, so
    *  that result must be rendered there; one that travels (a component's prop, a provision, an export, a source, a call,
    *  or an alias doing one of those) would render them under other boundaries and providers. */
-  private rendersEscape(e: Expr, env: Env, why: string) { if (e.k === "id" && env.lookup(e.name)?.localRenders) this.rendersEscapeMsg(e.name, why); }
+  private rendersEscape(e: Expr, env: Env, why: string) { const s = this.placed(e, env).find(x => x.localRenders); if (s) this.rendersEscapeMsg(e.k === "id" ? e.name : s.name, why); }
+  /** MO-11l, MO-11o (placement, revised 2026-11-21 after review): the names a value may be — through an alias, a record or
+   *  array literal that holds one, and a field read back out of such a record (`box = { table }`, then `box.table`). A field
+   *  read through anything else (`table.rows`) is a read of it, not it. In order: the name itself first. */
+  private placed(e: Expr, env: Env, path: string[] = [], seen = new Set<string>(), out: Sym[] = []): Sym[] {
+    switch (e.k) {
+      case "id": {
+        const s = env.lookup(e.name); if (!s) return out;
+        const key = `${this.symIds.get(s) ?? this.symIds.set(s, this.symIds.size).get(s)}|${path.join(".")}`; if (seen.has(key)) return out; seen.add(key);
+        if (!path.length && !out.includes(s)) out.push(s);
+        if (s.kind === "eq" && s.carriedExpr) this.placed(s.carriedExpr.e, s.carriedExpr.env, path, seen, out);
+        return out;
+      }
+      case "member": return this.placed(e.o, env, [e.p, ...path], seen, out);
+      case "index": { const k = litKey(e.i); if (k !== undefined) this.placed(e.o, env, [k, ...path], seen, out); return out; }
+      case "rec":
+        for (const f of e.fields) {
+          if ("spread" in f) this.placed(f.spread, env, path, seen, out);
+          else if (!path.length) this.placed(f.v, env, [], seen, out);
+          else if (f.key === path[0]) this.placed(f.v, env, path.slice(1), seen, out);
+        }
+        return out;
+      case "arr": for (const x of e.items) this.placed(x, env, path.length ? path.slice(1) : [], seen, out); return out;
+      default: return out;
+    }
+  }
+  private symIds = new Map<Sym, number>();
   private rendersEscapeMsg(n: string, why: string) { this.err("RENDERS_ESCAPES", "MO-11l", `${n} holds components \`renders\` checked where ${n} is bound, and here it is ${why}: render it in the view where it is bound, or declare the library \`renders(later)\` with a prop that \`renders\` it (MO-11o), or \`renders(root, …)\` if it mounts them under a root of its own (MO-11n)`); }
   /** MO-10i: the closures being walked (ids, innermost last) — a library's draft is its callback's alone */
   private fnStack: number[] = []; private fnSeq = 0;
@@ -1517,7 +1543,7 @@ class Checker {
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? unknownJsComponent(m.tag, s.undeclared) : `<${m.tag}> is not a component declared here`); }
             for (const a of m.attrs) this.rendersEscape(a.e, env, `passed to <${m.tag}> as ${a.name}`);
             { const cp = s?.compRegion ? this.carriedProps.get(s.compRegion) : undefined;   // MO-11o (revised 2026-11-21): a value another .rx module made carries what that module checked; its signature does not say
-              if (cp) for (const a of m.attrs) if (cp.has(a.name) && a.e.k === "id") { const from = env.lookup(a.e.name)?.fromModule; if (from) this.err("RENDERS_ESCAPES", "MO-11o", `<${m.tag}> renders what ${a.e.name} carries, and ${a.e.name} is imported from ${from}: the components it carries were checked where that module renders it, not here, and its signature does not say what they need — render it in the module that builds it`); } }
+              if (cp) for (const a of m.attrs) if (cp.has(a.name)) { const imp = this.placed(a.e, env).find(x => x.fromModule); const from = imp?.fromModule; const n = a.e.k === "id" ? a.e.name : imp?.name; if (from) this.err("RENDERS_ESCAPES", "MO-11o", `<${m.tag}> renders what ${n} carries, and ${n} is imported from ${from}: the components it carries were checked where that module renders it, not here, and its signature does not say what they need — render it in the module that builds it`); } }
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
             const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; return !!d?.callback || (n !== "ref" && !d?.pure && isHandler(n)); };   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element only (07 §4): on a component, a handler only when declared one
