@@ -4,7 +4,8 @@
 // --host m.rx (with --whole-program): a module a JS host imports with ?rx-lib (CP-4d), whose components JS applies.
 // --whole-program (E-5a): the modules loaded are the whole program, so a kept peek of a prop or a provision is decided by
 // every application and provision in them, not refused because one module alone cannot tell.
-import { readFileSync, existsSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
+import { isFile, readDisk } from "./disk.ts";
 import { resolve } from "node:path";
 import { loadModules } from "./src/modules.ts";
 import { checkModules } from "./src/check.ts";
@@ -13,9 +14,9 @@ const args = process.argv.slice(2); const sigOut = args.includes("--signature");
 const hosts = args.flatMap((a, i) => args[i - 1] === "--host" ? [resolve(a)] : []);   // E-5a: modules a JS host imports with ?rx-lib (CP-4d)
 let bad = 0;
 for (const f of args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--host")) {
-  if (!existsSync(resolve(f))) { bad++; console.log(`${f}: error MODULE_NOT_FOUND [MO-6] no module ${f}: the file does not exist or cannot be read`); continue; }   // never an empty program that checks
+  if (!isFile(resolve(f))) { bad++; console.log(`${f}: error MODULE_NOT_FOUND [MO-6] no module ${f}: the file does not exist or cannot be read`); continue; }   // never an empty program that checks
   try {
-    const set = loadModules(resolve(f), p => existsSync(p) ? readFileSync(p, "utf8") : undefined);
+    const set = loadModules(resolve(f), readDisk);
     // E-5a: a host is the module whose real path is its own (a key may go through a symlink, a host's path another way)
     const real = (p: string) => { try { return realpathSync(p); } catch { return p; } };
     const keyed = hosts.flatMap(h => { const ks = set.order.filter(k => k === h || real(k) === real(h)); return ks.length ? ks : [h]; });

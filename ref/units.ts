@@ -1,6 +1,12 @@
 // Unit checks for what the scenarios cannot reach (the crate holds the same cases as #[test]s, under the same names).
 // Run by run.ts after the scenarios; exits non-zero on the first failure.
 import { deepStrictEqual } from "node:assert";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readDisk } from "./disk.ts";
 import { packageRelative, besideDeclaration } from "./src/modules.ts";
 import { looksLikeTypes, parseProgram } from "./src/parse.ts";
 import { loadModules } from "./src/modules.ts";
@@ -127,5 +133,15 @@ export const units: [string, () => void][] = [
     deepStrictEqual(["./v.jsx", "./old.cjs"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/v.jsx.d.rx", "/w/old.d.rx"]);
     read = files({ "/w/x.d.rx": "", "/w/y.tsx.d.rx": "", "/w/y.d.rx": "", "/w/z.d.rx": "" });   // TypeScript's are JavaScript's (RFC 23)
     deepStrictEqual(["./x.tsx", "./y.tsx", "./z.mts", "./z.cts"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/x.d.rx", "/w/y.tsx.d.rx", "/w/z.d.rx", "/w/z.d.rx"]);
+  }],
+  ["a_folder_named_as_a_module_is_no_module", () => {   // MO-6: MODULE_NOT_FOUND, as the crate says, not a read error (EISDIR)
+    const dir = mkdtempSync(join(tmpdir(), "rx-dir-"));
+    try {
+      mkdirSync(join(dir, "x.rx")); writeFileSync(join(dir, "main.rx"), 'import { a } from "./x.rx"\nexport default component App() {\n  <p>{a}</p>\n}\n');
+      deepStrictEqual(readDisk(join(dir, "x.rx")), undefined);
+      const run = (f: string) => { try { return execFileSync(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./check.ts", import.meta.url)), f], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); } catch (e) { return String((e as { stdout?: string }).stdout); } };
+      deepStrictEqual([/error MODULE_NOT_FOUND \[MO-6\]/.test(run("x.rx")), /EISDIR|parse error/.test(run("x.rx"))], [true, false]);
+      deepStrictEqual([/MODULE_NOT_FOUND/.test(run("main.rx")), /EISDIR|parse error/.test(run("main.rx"))], [true, false]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   }],
 ];
