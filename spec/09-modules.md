@@ -531,8 +531,9 @@ export component Search(props: { start: boolean, q: string }) {
   the checker accepts, a held field of a declared JS result is read only
   by a path written from a name bound to that result, and each such read
   is checked as a question's reader is; the compiled result reads each
-  field where it is read (a getter per field, `__rt.lazy`), so a read of
-  one field is no read of another. It rests on the declaration alone
+  field where it is read (the library's own object, read by its fields;
+  with an accessor among its parts, a getter per part, `__rt.lazy`), so a
+  read of one field is no read of another. It rests on the declaration alone
   (which fields hold or fail), as every row at the JS boundary does; a
   row word written where no record field takes it — a tuple's part, a
   member of a union, a type argument — is refused in the `.d.rx`

@@ -8484,7 +8484,7 @@ pub fn ty_scalar(t: &str) -> bool {
     !ms.is_empty()
         && ms.iter().all(|m| {
             matches!(m.as_str(), "string" | "number" | "boolean" | "bigint" | "null" | "undefined" | "void" | "never" | "true" | "false")
-                || m.parse::<f64>().is_ok()
+                || (!m.is_empty() && m.trim_start_matches('-').chars().all(|c| c.is_ascii_digit() || c == '.') && m.chars().any(|c| c.is_ascii_digit()))
                 || (m.len() >= 2 && ((m.starts_with('"') && m.ends_with('"')) || (m.starts_with('\'') && m.ends_with('\''))) && !m[1..m.len() - 1].contains(['"', '\'']))
         })
 }

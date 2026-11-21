@@ -27,9 +27,9 @@ program compiles to ordinary Solid 2.0 code over a small runtime of Solid's
 own primitives ([spec/11](spec/11-compiler.md)). In three places a rule is
 kept by construction instead of by refusal, and there the compiled code does
 a little more than hand-written Solid would: a value read out of a library's
-draft is a copy, a JS result whose fields wait or fail is read through a
-getter per field, and a loop runs over the values its list held when it
-started ([spec/09](spec/09-modules.md) MO-10i, MO-10f;
+draft is a copy, a JS result with an accessor among its parts is read
+through a getter per part, and a loop runs over the values its list held
+when it started ([spec/09](spec/09-modules.md) MO-10i, MO-10b;
 [spec/07](spec/07-surface.md) §5).
 
 It is also meant to be easy for an AI to write correctly. The rules are

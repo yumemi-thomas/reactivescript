@@ -2873,7 +2873,7 @@ export function tyStep(t: string, s: TStep): string | undefined {
  *  literal, or a union of those: a value of it holds nothing. */
 export function tyScalar(t: string): boolean {
   const ms = tyMembers(t, false);
-  return ms.length > 0 && ms.every(m => ["string", "number", "boolean", "bigint", "null", "undefined", "void", "never", "true", "false"].includes(m) || (m !== "" && !Number.isNaN(Number(m))) || (m.length >= 2 && ((m.startsWith('"') && m.endsWith('"')) || (m.startsWith("'") && m.endsWith("'"))) && !/["']/.test(m.slice(1, -1))));
+  return ms.length > 0 && ms.every(m => ["string", "number", "boolean", "bigint", "null", "undefined", "void", "never", "true", "false"].includes(m) || /^-*[\d.]*\d[\d.]*$/.test(m) || (m.length >= 2 && ((m.startsWith('"') && m.endsWith('"')) || (m.startsWith("'") && m.endsWith("'"))) && !/["']/.test(m.slice(1, -1))));
 }
 /** Whether a declared result is a function that takes nothing and answers nothing, `() => void`: what undoes a call. */
 export function tyDisposer(t: string): boolean { const c = tyClean(t); const r = tyStep(c, "call"); return c.startsWith("()") && r !== undefined && tyClean(r) === "void"; }

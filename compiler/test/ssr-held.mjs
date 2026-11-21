@@ -1,7 +1,7 @@
 // R-f-5, MO-10f (RFC 06, ruled 2026-11-22): a JS fn's result whose fields hold or fail is read a field at a time, by a
 // path the checker sees. So a program it accepts cannot read the failing `data` where no boundary is — and that is what
 // this runs, on the server (Node), with a query whose `data` throws:
-//  - accepted programs render: what reads only `isFetching` reads no `data` (a getter per field, `__rt.lazy`), directly,
+//  - accepted programs render: what reads only `isFetching` reads no `data` (the result is the library's own object, read by its fields), directly,
 //    through another name, through a field passed to a component, in a handler a component is given;
 //  - a read of `data` under an `errored` region is caught by it, on the server too, wherever the field went (a prop):
 //    the fallback is what is rendered (with the message the server lets out, SV-5);

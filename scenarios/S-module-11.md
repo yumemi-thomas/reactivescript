@@ -510,9 +510,9 @@ export default component App() {
 }
 ```
 
-The compiled result reads each field where it is read (a getter per
-field), so `q.status` and `r.at` read no `data`: the program does what the
-checker counts.
+The compiled result reads each field where it is read (it is the
+library's own object), so `q.status` and `r.at` read no `data`: the
+program does what the checker counts.
 
 ```rx
 -- accept
