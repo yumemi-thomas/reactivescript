@@ -41,7 +41,7 @@ try {
     for (const d of copied) cpSync(path.join(here, "node_modules", d), path.join(dup, "node_modules", d), { recursive: true, dereference: true });
     writeFileSync(path.join(dup, "todo.mjs"), Object.values(out.modules)[0].code); writeFileSync(path.join(dup, "twice.mjs"), twice);
     const r = spawnSync(process.execPath, ["twice.mjs"], { cwd: dup, encoding: "utf8" });
-    check(name, r.stdout.trim() === keyed && warnings(r) === warned && (!warned || /different copies of Solid \(solid-js/.test(r.stderr)), (r.stdout + r.stderr).slice(0, 300));
+    check(name, r.stdout.trim() === keyed && warnings(r) === warned && (!warned || (/different copies \(solid-js/.test(r.stderr) && /may not be able to hydrate/.test(r.stderr))), (r.stdout + r.stderr).slice(0, 300));
   }
   // CP-4d: a ?rx-lib component rendered on the server outside a request throws, unless the host passes the app
   writeFileSync(path.join(tmp, "lib.rx"), "export component Hello() {\n  <b>hi</b>\n}\n");
