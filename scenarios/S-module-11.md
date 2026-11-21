@@ -160,3 +160,102 @@ In a client-only build (`-- spa`, CN-3d) the first load waits on
 `todos.data`, and with no `loading` above it nothing would show until it
 answers.
 
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <ul>{for t in todos["data"] { <li>{t}</li> }}</ul>
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    {loading fallback { <p>loading…</p> } { <Todos /> }}
+  </QueryClientProvider>
+}
+```
+
+The field's rows do not depend on how the read is spelled: `todos["data"]`
+is `todos.data`.
+
+```rx
+-- reject: ASYNC_OUTSIDE_LOADING_BOUNDARY
+-- spa
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <ul>{for t in todos["data"] { <li>{t}</li> }}</ul>
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    {errored fallback(e) { <p>failed: {e.message}</p> } { <Todos /> }}
+  </QueryClientProvider>
+}
+```
+
+It holds too.
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  key = "data"
+  <ul>{for t in todos[key] { <li>{t}</li> }}</ul>
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    {loading fallback { <p>loading…</p> } { <Todos /> }}
+  </QueryClientProvider>
+}
+```
+
+A key the checker cannot name may be any field of the result, so the read
+has every field's rows at that depth: here `data`'s.
+
+```rx
+-- reject: ASYNC_OUTSIDE_LOADING_BOUNDARY
+-- spa
+import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  key = "data"
+  <ul>{for t in todos[key] { <li>{t}</li> }}</ul>
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    {errored fallback(e) { <p>failed: {e.message}</p> } { <Todos /> }}
+  </QueryClientProvider>
+}
+```
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+export default component App() {
+  q = useThing()
+  <p>{q["result"]["data"]}</p>
+}
+```
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import { useThing } from "./thing.js"
+export default component App() {
+  q = useThing()
+  k = "result"
+  r = q[k]
+  <p>{r["data"]}</p>
+}
+```
+
+An alias of a part named by a dynamic key keeps the rows of every part it
+may be.

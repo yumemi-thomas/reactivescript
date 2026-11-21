@@ -524,7 +524,7 @@ class Checker {
       const go = (x: Expr): boolean => {
         if (x.k === "fn" || x.k === "peek") return false;
         if (x.k === "await") return !x.init;
-        if (x.k === "member" && this.heldField(x, env)?.[1]) return true;                  // MO-10f: a field that holds
+        if ((x.k === "member" || x.k === "index") && this.heldField(x, env)?.[1]) return true;   // MO-10f: a field that holds
         if (x.k === "id") { const u = env.lookup(x.name); return !!u && u !== t && (u.kind === "eq" || u.kind === "source") && (!!u.reader || absent(u, busy)); }   // MO-10d: a foreign reader may hold
         return subExprs(x).some(go);
       };
@@ -728,7 +728,7 @@ class Checker {
         case "if": stack.push(x.c); continue;
         case "bin": if (x.op === "&&" || x.op === "||" || x.op === "??") { stack.push(x.l); continue; } break;
         case "catch": stack.push(x.e); continue;
-        case "member": if (this.heldField(x, env)?.[1]) return true; break;   // MO-10f: a field that holds
+        case "member": case "index": if (this.heldField(x, env)?.[1]) return true; break;   // MO-10f: a field that holds
         case "id": { const t = env.lookup(x.name); if (t && t !== own && (t.kind === "eq" || t.kind === "source") && this.symFirstAbsent(t, memo, busy)) return true; continue; }
       }
       stack.push(...subExprs(x));
@@ -753,31 +753,48 @@ class Checker {
   }
   /** MO-10f: the declared rows of a field read, `x.data` where `x` was bound from a JS fn's result. */
   private heldField(e: Expr, env: Env): [string, boolean, string[]] | undefined {
-    if (e.k !== "member") return undefined;
-    const path: string[] = []; let x: Expr = e;                                         // `q.result.data`: the path from the bound name
-    while (x.k === "member") { path.unshift(x.p); x = x.o; }
-    if (x.k !== "id") return undefined;
-    const p = path.join(".");
-    return env.lookup(x.name)?.held?.find(h => h[0] === p);
+    const fp = fieldPath(e); if (!fp) return undefined;                                // `q.result.data`: the path from the bound name; `q["data"]` is `q.data`, `q[k]` any field there
+    return heldMatch(env.lookup(fp.root)?.held ?? [], fp.path);
+  }
+  /** MO-10f: a field that fails, at any depth, read by `.` or `[…]` */
+  private heldFails(e: Expr, env: Env, bound: Map<string, Set<string>>, out: Fails) {
+    const fp = fieldPath(e); if (!fp || bound.has(fp.root)) return;
+    const h = this.heldField(e, env); if (h) for (const c of h[2]) out.cls.add(c);
   }
   /** MO-10b: an equation bound from a primitive's result, or from a part of it (`[a, b] = f(…)`, `x.k`): a `ref` part is a
    *  reader (it may hold, MO-10d), a function part is io (R-io-3), anything else is a value. */
   private foreignPart(sym: Sym, e: Expr, env: Env) {
     let shape: Shape | undefined;
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.kind === "fn" && f.foreign) shape = f.foreign; }
-    else if ((e.k === "index" && e.i.k === "lit" && typeof e.i.v === "number") || e.k === "member") {
+    else if (e.k === "index" || e.k === "member") {
       const t = e.o.k === "id" ? env.lookup(e.o.name) : undefined; const s = t?.foreign;
-      if (s && typeof s === "object") shape = e.k === "index" ? ("items" in s ? s.items[(e.i as { v: number }).v] : undefined) : ("fields" in s ? s.fields.find(f => f[0] === e.p)?.[1] : undefined);
+      // `x["k"]` is `x.k`; `x[k]` may be any part, so it is the most changing of them (a reader, else io, else a value)
+      const strongest = (ps: ("ref" | "fn" | "value")[]) => ps.find(p => p === "ref") ?? ps.find(p => p === "fn") ?? ps[0];
+      if (s && typeof s === "object") {
+        if (e.k === "member") shape = "fields" in s ? s.fields.find(f => f[0] === e.p)?.[1] : undefined;
+        else { const key = litKey(e.i);
+          if ("items" in s) shape = key === undefined ? strongest(s.items) : e.i.k === "lit" && typeof e.i.v === "number" ? s.items[e.i.v] : undefined;
+          else shape = key === undefined ? strongest(s.fields.map(f => f[1])) : s.fields.find(f => f[0] === key)?.[1]; }
+      }
     }
     // MO-10i: a result's function parts that take drafts, and a part bound from them
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.partDrafts) sym.partDrafts = f.partDrafts; }
-    else if ((e.k === "index" || e.k === "member") && e.o.k === "id") { const key = e.k === "member" ? e.p : e.i.k === "lit" ? String(e.i.v) : ""; const pd = env.lookup(e.o.name)?.partDrafts?.[key]; if (pd) sym.drafts = pd; }
+    else if ((e.k === "index" || e.k === "member") && e.o.k === "id") { const key = e.k === "member" ? e.p : litKey(e.i) ?? ""; const pd = env.lookup(e.o.name)?.partDrafts?.[key]; if (pd) sym.drafts = pd; }
     if (!shape) return;
     sym.foreign = shape;
-    if (e.k === "member") sym.viaField = true;
+    if (e.k === "member" || (e.k === "index" && e.o.k === "id" && (() => { const f = env.lookup((e.o as { name: string }).name)?.foreign; return !!f && typeof f === "object" && "fields" in f; })())) sym.viaField = true;
     if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.held) sym.held = f.held; }   // MO-10f: its fields' rows come with it
-    if (e.k === "member" && this.heldField(e, env)?.[1]) sym.reader = true;                // MO-10f: a part bound from a field that holds reads as a reader (MO-10d)
-    if (e.k === "member" && e.o.k === "id") { const pre = `${e.p}.`; const sub = env.lookup(e.o.name)?.held?.filter(h => h[0].startsWith(pre)).map(h => [h[0].slice(pre.length), h[1], h[2]] as [string, boolean, string[]]); if (sub?.length) sym.held = sub; }   // a record part keeps its fields' rows
+    if ((e.k === "member" || e.k === "index") && this.heldField(e, env)?.[1]) sym.reader = true;   // MO-10f: a part bound from a field that holds reads as a reader (MO-10d)
+    if ((e.k === "member" || e.k === "index") && e.o.k === "id") {                          // a record part keeps its fields' rows; `x[k]`: whichever part it is, each suffix's combined
+      const key = e.k === "member" ? e.p : litKey(e.i); const sub: [string, boolean, string[]][] = [];
+      for (const h of env.lookup(e.o.name)?.held ?? []) {
+        const dot = h[0].indexOf("."); if (dot < 0) continue;
+        const first = h[0].slice(0, dot), rest = h[0].slice(dot + 1); if (key !== undefined && key !== first) continue;
+        const x = sub.find(y => y[0] === rest);
+        if (x) { x[1] ||= h[1]; for (const c of h[2]) if (!x[2].includes(c)) x[2].push(c); } else sub.push([rest, h[1], [...h[2]]]);
+      }
+      if (sub.length) sym.held = sub;
+    }
     if (shape !== "comp" && e.k === "call" && e.f.k === "id" && env.lookup(e.f.name)?.renders) sym.factory = { args: e.args, env, here: true, ...(env.lookup(e.f.name)?.rendersRoot ? { root: true, carries: env.lookup(e.f.name)?.carries ?? [] } : {}) };   // MO-11l: its component values are applied here
     if (shape === "comp" && e.k === "call") {                                              // MO-11f: the bound name is a component
       const gives = e.f.k === "id" ? env.lookup(e.f.name)?.gives ?? [] : [];                 // MO-12c: what it provides to what it renders
@@ -834,7 +851,7 @@ class Checker {
         switch (x.k) {
           case "await": rows.add("pending"); if (!x.init && this.clientCall(x.e, env)) rows.add("client"); break;   // SV-7b: a client question (no first paint)
           case "latest": case "pending": rows.add("lane"); break;
-          case "member": if (this.heldField(x, env)?.[1]) rows.add("pending"); break;   // MO-10f: a field that holds
+          case "member": case "index": if (this.heldField(x, env)?.[1]) rows.add("pending"); break;   // MO-10f: a field that holds
           case "fn": case "serverfn": return;                                               // a closure's body is not this value's
           case "use": {                                                                     // RG-7e
             const c = env.lookup(x.name)?.ctx; if (!c) return;
@@ -1741,9 +1758,13 @@ class Checker {
       }
       case "member": {
         if (e.o.k === "id" && !bound.has(e.o.name)) { const s = env.lookup(e.o.name); if (s?.kind === "props") { out.props.push({ comp: s.region, field: e.p, pre: [] }); return out; } }
-        let root: Expr = e; while (root.k === "member") root = root.o;
-        const h = root.k === "id" && !bound.has(root.name) ? this.heldField(e, env) : undefined; if (h) for (const c of h[2]) out.cls.add(c);   // MO-10f: a field that fails, at any depth
+        this.heldFails(e, env, bound, out);
         go(e.o); return out;
+      }
+      case "index": {
+        if (e.o.k === "id" && !bound.has(e.o.name)) { const s = env.lookup(e.o.name); if (s?.kind === "props") { out.props.push({ comp: s.region, field: litKey(e.i) ?? "*", pre: [] }); go(e.i); return out; } }   // `props["x"]` is `props.x`; `props[k]` may be any
+        this.heldFails(e, env, bound, out);
+        go(e.o); go(e.i); return out;
       }
       case "use": {                                                                        // RG-7e: the declared rows, else what this module's provisions of it can fail with
         const c = env.lookup(e.name)?.ctx; if (!c) return out;
@@ -1944,4 +1965,29 @@ class Checker {
     };
   }
   compSig: ((G: Region) => CompSig) | null = null;
+}
+
+/** MO-10f: the field path of a read from a bound name — `q.a`, `q["a"]`, `q[0]` name a field; `q[k]` is any field (undefined). */
+export function fieldPath(e: Expr): { root: string; path: (string | undefined)[] } | undefined {
+  const path: (string | undefined)[] = []; let x: Expr = e;
+  for (;;) { if (x.k === "member") { path.unshift(x.p); x = x.o; } else if (x.k === "index") { path.unshift(litKey(x.i)); x = x.o; } else break; }
+  if (!path.length || x.k !== "id") return undefined;
+  return { root: x.name, path };
+}
+/** a key an index names for certain: a string, or a whole number */
+export function litKey(i: Expr): string | undefined {
+  if (i.k === "lit" && typeof i.v === "string") return i.v;
+  if (i.k === "lit" && typeof i.v === "number" && i.v >= 0 && Number.isInteger(i.v)) return String(i.v);
+  if (i.k === "tpl" && i.parts.length === 1 && typeof i.parts[0] === "string") return i.parts[0];
+  return undefined;
+}
+/** the declared rows of every held field a path can name: a dynamic segment matches any field there */
+function heldMatch(held: [string, boolean, string[]][], path: (string | undefined)[]): [string, boolean, string[]] | undefined {
+  if (path.every(p => p !== undefined)) { const p = path.join("."); return held.find(h => h[0] === p); }
+  let out: [string, boolean, string[]] | undefined;
+  for (const h of held) {
+    const segs = h[0].split("."); if (segs.length !== path.length || !segs.every((a, i) => path[i] === undefined || path[i] === a)) continue;
+    out ??= [h[0], false, []]; out[1] ||= h[1]; for (const c of h[2]) if (!out[2].includes(c)) out[2].push(c);
+  }
+  return out;
 }

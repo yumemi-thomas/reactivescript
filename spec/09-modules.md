@@ -440,7 +440,11 @@ export component Search(props: { start: boolean, q: string }) {
   (`{ data } = useQuery(…)`) is a reader with the same rows. A nested
   record field has them too, kept by its path (`{ result: { data: pending T }
   }`: `q.result.data`), and a record part bound from the result keeps its
-  fields' (`r = q.result`, then `r.data`). This is a store
+  fields' (`r = q.result`, then `r.data`). The spelling of the read does
+  not matter: `q["data"]` (a string or whole-number key, or a template with
+  no holes) is `q.data`, and a key the checker cannot name (`q[k]`) may be
+  any field at that depth, so the read has every such field's rows combined,
+  as a part bound from it does (`r = q[k]`). This is a store
   whose property read suspends and throws, as `@tanstack/solid-query` 6's
   `data` does; nothing changes at run time. A result with field rows is
   instantiated (MO-10a, inferred). The words are taken out of the type text

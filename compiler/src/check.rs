@@ -2031,10 +2031,7 @@ impl<'a> Checker<'a> {
             ExprKind::Index { o, .. } | ExprKind::Member { o, .. } => {
                 let key = match &e.k {
                     ExprKind::Member { p, .. } => Some(p.clone()),
-                    ExprKind::Index { i, .. } => match &i.k {
-                        ExprKind::Lit(Lit::Num(v)) if *v >= 0.0 && v.fract() == 0.0 => Some((*v as usize).to_string()),
-                        _ => None,
-                    },
+                    ExprKind::Index { i, .. } => lit_key(i),
                     _ => None,
                 };
                 if let (Some(key), ExprKind::Id(on)) = (key, &o.k) {
@@ -2052,11 +2049,20 @@ impl<'a> Checker<'a> {
                 ExprKind::Id(n) => self.lookup(env, n).and_then(|t| if self.syms[t].kind == SymKind::Fn { self.syms[t].foreign.clone() } else { None }),
                 _ => None,
             },
-            ExprKind::Index { o, i, .. } => match (&o.k, &i.k) {
-                (ExprKind::Id(on), ExprKind::Lit(Lit::Num(v))) => match self.lookup(env, on).and_then(|t| self.syms[t].foreign.clone()) {
-                    Some(FShape::Items(items)) if *v >= 0.0 && v.fract() == 0.0 => items.get(*v as usize).map(|p| FShape::Part(*p)),
-                    _ => None,
-                },
+            // `x["k"]` is `x.k`; `x[k]` may be any part, so it is the most changing of them (a reader, else io, else a value)
+            ExprKind::Index { o, i, .. } => match &o.k {
+                ExprKind::Id(on) => {
+                    let key = lit_key(i);
+                    let strongest = |ps: Vec<Part>| ps.iter().copied().find(|p| *p == Part::Ref).or_else(|| ps.iter().copied().find(|p| *p == Part::Fn)).or(ps.first().copied()).map(FShape::Part);
+                    match (self.lookup(env, on).and_then(|t| self.syms[t].foreign.clone()), key) {
+                        (Some(FShape::Items(items)), Some(k)) if matches!(&i.k, ExprKind::Lit(Lit::Num(_))) => k.parse::<usize>().ok().and_then(|n| items.get(n)).map(|p| FShape::Part(*p)),
+                        (Some(FShape::Items(_)), Some(_)) => None,
+                        (Some(FShape::Fields(fields)), Some(k)) => fields.iter().find(|f| f.0 == k).map(|f| FShape::Part(f.1)),
+                        (Some(FShape::Items(items)), None) => strongest(items),
+                        (Some(FShape::Fields(fields)), None) => strongest(fields.iter().map(|f| f.1).collect()),
+                        _ => None,
+                    }
+                }
                 _ => None,
             },
             ExprKind::Member { o, p, .. } => match &o.k {
@@ -2069,7 +2075,7 @@ impl<'a> Checker<'a> {
             _ => None,
         };
         let Some(shape) = shape else { return };
-        if matches!(e.k, ExprKind::Member { .. }) {
+        if matches!(e.k, ExprKind::Member { .. }) || matches!(&e.k, ExprKind::Index { o, .. } if matches!(self.lookup_foreign(o, env), Some(FShape::Fields(_)))) {
             sym.via_field = true;
         }
         // MO-10f: its fields' rows come with it; a part bound from a field that holds reads as a reader (MO-10d)
@@ -2086,11 +2092,33 @@ impl<'a> Checker<'a> {
             sym.reader = true;
         }
         // a record part keeps its fields' rows
-        if let ExprKind::Member { o, p, .. } = &e.k {
+        let part_key = match &e.k {
+            ExprKind::Member { o, p, .. } => Some((o, Some(p.clone()))),
+            ExprKind::Index { o, i, .. } => Some((o, lit_key(i))),
+            _ => None,
+        };
+        if let Some((o, key)) = part_key {
             if let ExprKind::Id(on) = &o.k {
                 if let Some(t) = self.lookup(env, on) {
-                    let pre = format!("{}.", p);
-                    let sub: Vec<(String, bool, Vec<String>)> = self.syms[t].held.iter().filter(|h| h.0.starts_with(&pre)).map(|h| (h.0[pre.len()..].to_string(), h.1, h.2.clone())).collect();
+                    // `x[k]`: the rows of whichever part it is — each suffix's, combined
+                    let mut sub: Vec<(String, bool, Vec<String>)> = vec![];
+                    for h in &self.syms[t].held {
+                        let Some((first, rest)) = h.0.split_once('.') else { continue };
+                        if key.as_deref().is_some_and(|k| k != first) {
+                            continue;
+                        }
+                        match sub.iter_mut().find(|x| x.0 == rest) {
+                            Some(x) => {
+                                x.1 |= h.1;
+                                for c in &h.2 {
+                                    if !x.2.contains(c) {
+                                        x.2.push(c.clone());
+                                    }
+                                }
+                            }
+                            None => sub.push((rest.to_string(), h.1, h.2.clone())),
+                        }
+                    }
                     if !sub.is_empty() {
                         sym.held = sub;
                     }
@@ -2126,19 +2154,26 @@ impl<'a> Checker<'a> {
         }
     }
     /// MO-10f: the declared rows of a field read, `x.data` where `x` was bound from a JS fn's result.
+    /// `q["data"]` is `q.data`; `q[k]` may be any field at that depth, so it carries every one's rows (MO-10f).
     fn held_field(&self, e: &Expr, env: EId) -> Option<(String, bool, Vec<String>)> {
         // `q.result.data`: the path from the bound name
-        let ExprKind::Member { .. } = &e.k else { return None };
-        let mut path: Vec<&str> = vec![];
-        let mut x = e;
-        while let ExprKind::Member { o, p, .. } = &x.k {
-            path.insert(0, p);
-            x = o;
-        }
-        let ExprKind::Id(on) = &x.k else { return None };
+        let (on, path) = field_path(e)?;
         let t = self.lookup(env, on)?;
-        let p = path.join(".");
-        self.syms[t].held.iter().find(|h| h.0 == p).cloned()
+        held_match(&self.syms[t].held, &path)
+    }
+    fn lookup_foreign(&self, o: &Expr, env: EId) -> Option<FShape> {
+        let ExprKind::Id(on) = &o.k else { return None };
+        self.lookup(env, on).and_then(|t| self.syms[t].foreign.clone())
+    }
+    /// MO-10f: a field that fails, at any depth, read by `.` or `[…]`
+    fn held_fails(&self, e: &Expr, env: EId, bound: &HashMap<String, IndexSet<String>>, out: &mut Fails) {
+        let Some((rn, _)) = field_path(e) else { return };
+        if bound.contains_key(rn) {
+            return;
+        }
+        if let Some(h) = self.held_field(e, env) {
+            out.cls.extend(h.2);
+        }
     }
     /// MO-3: this module's signature — every export as an importer sees it.
     pub fn signature(&mut self, p: &'a Program) -> ModSig {
@@ -2295,7 +2330,7 @@ impl<'a> Checker<'a> {
                 ExprKind::Latest(_) | ExprKind::Pending(_) => {
                     rows.insert("lane".into());
                 }
-                ExprKind::Member { .. } if self.held_field(e, env).is_some_and(|h| h.1) => {
+                ExprKind::Member { .. } | ExprKind::Index { .. } if self.held_field(e, env).is_some_and(|h| h.1) => {
                     rows.insert("pending".into()); // MO-10f: a field that holds
                 }
                 ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return,
@@ -5030,7 +5065,7 @@ impl<'a> Checker<'a> {
                     ExprKind::Peek(_) if !first => continue,
                     ExprKind::Await { init: None, .. } => return true,
                     ExprKind::Await { init: Some(_), .. } => continue,
-                    ExprKind::Member { .. } if self.held_field(x, env).is_some_and(|h| h.1) => return true, // MO-10f: a field that holds
+                    ExprKind::Member { .. } | ExprKind::Index { .. } if self.held_field(x, env).is_some_and(|h| h.1) => return true, // MO-10f: a field that holds
                     ExprKind::If { c, .. } if first => {
                         stack.push(Node::E(c));
                         continue;
@@ -5349,18 +5384,29 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                let mut root: &Expr = o;
-                while let ExprKind::Member { o: inner, .. } = &root.k {
-                    root = inner;
-                }
-                if let ExprKind::Id(rn) = &root.k {
-                    if !bound.contains_key(rn) {
-                        if let Some(h) = self.held_field(e, env) {
-                            out.cls.extend(h.2); // MO-10f: a field that fails, at any depth
+                self.held_fails(e, env, bound, &mut out);
+                let f = self.fails_of(o, env, imp, bound);
+                out.add(f);
+                out
+            }
+            ExprKind::Index { o, i, .. } => {
+                if let ExprKind::Id(on) = &o.k {
+                    if !bound.contains_key(on) {
+                        if let Some(s) = self.lookup(env, on) {
+                            if self.syms[s].kind == SymKind::Props {
+                                // `props["x"]` is `props.x`; `props[k]` may be any of them
+                                out.props.push(PropRef { comp: self.syms[s].region, field: lit_key(i).unwrap_or_else(|| "*".into()), pre: vec![] });
+                                let f = self.fails_of(i, env, imp, bound);
+                                out.add(f);
+                                return out;
+                            }
                         }
                     }
                 }
+                self.held_fails(e, env, bound, &mut out);
                 let f = self.fails_of(o, env, imp, bound);
+                out.add(f);
+                let f = self.fails_of(i, env, imp, bound);
                 out.add(f);
                 out
             }
@@ -6254,4 +6300,62 @@ export default component App() {
         let got: Vec<(i64, String)> = codes(src, false).into_iter().filter(|(_, c)| c == "ARGUMENT_COUNT" || c == "UNBOUND").collect();
         assert_eq!(got, vec![(1, "UNBOUND".to_string()), (10, "ARGUMENT_COUNT".to_string()), (12, "ARGUMENT_COUNT".to_string())], "{:?}", codes(src, false));
     }
+}
+
+/// MO-10f: the field path of a read from a bound name — `q.a`, `q["a"]`, `q[0]` name a field; `q[k]` is any field (None).
+pub(crate) fn field_path(e: &Expr) -> Option<(&str, Vec<Option<String>>)> {
+    let mut path: Vec<Option<String>> = vec![];
+    let mut x = e;
+    loop {
+        match &x.k {
+            ExprKind::Member { o, p, .. } => {
+                path.insert(0, Some(p.clone()));
+                x = o;
+            }
+            ExprKind::Index { o, i, .. } => {
+                path.insert(0, lit_key(i));
+                x = o;
+            }
+            _ => break,
+        }
+    }
+    if path.is_empty() {
+        return None;
+    }
+    let ExprKind::Id(on) = &x.k else { return None };
+    Some((on.as_str(), path))
+}
+/// a key an index names for certain: a string, or a whole number
+pub(crate) fn lit_key(i: &Expr) -> Option<String> {
+    match &i.k {
+        ExprKind::Lit(Lit::Str(v)) => Some(v.clone()),
+        ExprKind::Lit(Lit::Num(v)) if *v >= 0.0 && v.fract() == 0.0 => Some((*v as usize).to_string()),
+        ExprKind::Tpl(parts) if parts.len() == 1 => match &parts[0] {
+            crate::ast::TplPart::Str(v) => Some(v.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+/// the declared rows of every held field a path can name: a dynamic segment matches any field there
+fn held_match(held: &[(String, bool, Vec<String>)], path: &[Option<String>]) -> Option<(String, bool, Vec<String>)> {
+    if path.iter().all(|s| s.is_some()) {
+        let p = path.iter().map(|s| s.as_deref().unwrap()).collect::<Vec<_>>().join(".");
+        return held.iter().find(|h| h.0 == p).cloned();
+    }
+    let mut out: Option<(String, bool, Vec<String>)> = None;
+    for h in held {
+        let segs: Vec<&str> = h.0.split('.').collect();
+        if segs.len() != path.len() || !segs.iter().zip(path).all(|(a, b)| b.as_deref().is_none_or(|b| b == *a)) {
+            continue;
+        }
+        let o = out.get_or_insert_with(|| (h.0.clone(), false, vec![]));
+        o.1 |= h.1;
+        for c in &h.2 {
+            if !o.2.contains(c) {
+                o.2.push(c.clone());
+            }
+        }
+    }
+    out
 }
