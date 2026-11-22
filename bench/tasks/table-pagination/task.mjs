@@ -1,4 +1,8 @@
-// A TanStack Table with pagination buttons and cell components (RFC 17, 09 MO-11l). The table handed to a pagination
+// A TanStack Table with pagination buttons and cell components (RFC 17; 09 MO-11s, MO-8r). Until 2026-11-23 the adapter's
+// row said `renders` (MO-11l, withdrawn: one library wrote it): its cells were checked where the table is bound, so a
+// cell could read the app's context, and the table could not leave that view. Three variants were refused by it and are
+// given up: a row handed up through a callback and the table kept in app state (the table is a plain value now: neither
+// is a mistake), and a cell's context provided nowhere above the table (a cell reads no context now). The table handed to a pagination
 // component of the app's own is part of the good program: it is shadcn/ui's `<DataTablePagination table={table} />`.
 export default {
   title: "TanStack Table: cell components, pagination, a pager component, the table handed to a child",
@@ -11,15 +15,12 @@ export default {
     { name: "a column's options are the library's", edit: ['{ accessorKey: "age", header: "Age", cell: AgeCell }', '{ accessorKey: "age", header: 5, cell: AgeCell }'], expect: /TS2322|TS2769|TS2345/ },
   ],
   bad: [
-    { name: "a row of the table handed up through a prop's callback", edit: ["<tr class=\"row\" onClick={() => { props.onPick(row.id) }}>{for cell in row.getVisibleCells() {", "<tr class=\"row\" onClick={() => { props.onPick(row) }}>{for cell in row.getVisibleCells() {"], expect: "RENDERS_ESCAPES" },
-    { name: "the table kept in app state", edit: ["onClick={() => { people := ps => [...ps, { name: \"Di\", age: 52 }, { name: \"Ed\", age: 19 }] }}", "onClick={() => { people := [table] }}"], expect: "RENDERS_ESCAPES" },
-    { name: "a cell component's context provided nowhere above the table", edit: ['  provide accent = "dark"\n', ""], expect: "CONTEXT_NOT_FOUND" },
     { name: "a page turned while the view computes (the handler called, not passed)", edit: ["onNext={() => { table.nextPage() }} />", "onNext={table.nextPage()} />"], expect: "IO_IN_REACTIVE" },
     { name: "the table made from data read once: it would not follow the source", edit: ["createTable<T>(ref options", "createTable<T>(options"], file: "table.d.rx", expect: "SNAPSHOT_ARGUMENT" },
   ],
   async run(h) {
     const base = await h.serve(); const page = await h.open(base);
-    h.check("the first page: headers, and cells rendered by the cell components with the context above the table", await h.until(async () => /Name\s*Age\s*Ann\s*31 years\s*Bo\s*44 years.*page 1 of 2/.test(await h.text(page))) && await page.locator("strong.dark").count() === 2, await h.text(page));
+    h.check("the first page: headers, and cells rendered by the cell components", await h.until(async () => /Name\s*Age\s*Ann\s*31 years\s*Bo\s*44 years.*page 1 of 2/.test(await h.text(page))) && await page.locator("table.dark strong").count() === 2, await h.text(page));
     await page.click(".next");
     h.check("next: the second page, through the pager's handler", await h.until(async () => /Cy\s*27 years.*page 2 of 2/.test(await h.text(page)) && !/Ann/.test(await h.text(page))), await h.text(page));
     h.check("the pager's props follow the table (next is disabled on the last page)", await page.locator(".next").isDisabled(), "enabled");

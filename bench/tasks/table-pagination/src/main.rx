@@ -6,9 +6,9 @@ import { createTable, flexRender, getCoreRowModel, getPaginationRowModel, CellCo
 type Person = { name: string; age: number }
 context accent: string
 
+// a cell is given its context by the table and stands by itself: the table's row says nothing of where it renders it
 component NameCell(props: CellContext<Person, unknown>) {
-  tone = use accent
-  <strong class={tone}>{props.row.original.name}</strong>
+  <strong>{props.row.original.name}</strong>
 }
 component AgeCell(props: CellContext<Person, unknown>) {
   <em>{props.row.original.age} years</em>
@@ -34,7 +34,7 @@ component People(props: { onPick: (id: string) => void }) {
     getPaginationRowModel: getPaginationRowModel(),
     initialState: { pagination: { pageIndex: 0, pageSize: 2 } },
   })
-  <table>
+  <table class={use accent}>
     <thead>{for group in table.getHeaderGroups() {
       <tr>{for header in group.headers { <th>{flexRender(header.column.columnDef.header, header.getContext())}</th> }}</tr>
     }}</thead>

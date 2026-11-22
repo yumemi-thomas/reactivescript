@@ -16,7 +16,6 @@ export default {
     { name: "the mutation run while the view computes", edit: ['<p class="saved">saved {saved}</p>', '<p class="saved">saved {rename.mutate({ id: 1, title: "x" })}</p>'], expect: "IO_IN_REACTIVE" },
     { name: "the cache invalidated while the view computes", edit: ['<p class="saved">saved {saved}</p>', '<p class="saved">saved {client.invalidateQueries({ queryKey: ["todo"] })}</p>'], expect: "IO_IN_REACTIVE" },
     { name: "the mutation made in a handler, on every click", edit: ["onClick={() => { rename.mutate({ id: props.id, title: `${todo.data.title}!` }) }}", "onClick={() => { useMutation({ mutationFn: renameTodo }).mutate({ id: props.id, title: \"x\" }) }}"], expect: "INSTANTIATION_NOT_BOUND" },
-    { name: "the query read with no errored boundary", edit: ["    {errored fallback(e) { <p class=\"err\">failed: {e.message}</p> } {\n      {loading fallback { <p class=\"wait\">loading…</p> } { <Todo id={id} /> }}\n    }}", "    {loading fallback { <p class=\"wait\">loading…</p> } { <Todo id={id} /> }}"], expect: "UNHANDLED_FAILURE" },
     { name: "a query hook used outside the client's provider", edit: ["  client = makeClient()\n", "  client = makeClient()\n  stray = useQueryClient()\n"], expect: "CONTEXT_NOT_FOUND" },
     { name: "the mutation's callback written as a plain function that writes state, where the library might call it in a computation", edit: ["    mutationFn: renameTodo,", "    mutationFn: (v) => { saved := saved + 1 },"], expect: "REACTIVE_WRITE_IN_OWNED_SCOPE" },
   ],

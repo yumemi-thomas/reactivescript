@@ -602,17 +602,17 @@
       "fails": []
     },
     "decl": {
-      "words": 5,
+      "words": 22,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 177,
+        "rows": 178,
         "any": 37,
         "vendor": 37,
         "introduced": 0,
-        "places": 12
+        "places": 14
       }
     }
   },
@@ -633,8 +633,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 6,
-      "total": 6,
+      "pass": 5,
+      "total": 5,
       "fails": []
     },
     "unrep": {
@@ -643,17 +643,17 @@
       "fails": []
     },
     "decl": {
-      "words": 5,
+      "words": 22,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 179,
+        "rows": 180,
         "any": 56,
         "vendor": 56,
         "introduced": 0,
-        "places": 12
+        "places": 14
       }
     }
   },
@@ -838,8 +838,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 6,
-      "total": 6,
+      "pass": 7,
+      "total": 7,
       "fails": []
     },
     "unrep": {
@@ -1127,8 +1127,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 5,
-      "total": 5,
+      "pass": 2,
+      "total": 2,
       "fails": []
     },
     "unrep": {

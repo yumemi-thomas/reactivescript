@@ -14,6 +14,8 @@
 //                                             green there is not now (the ratchet CI runs)
 //        node bench/run.mjs --check --strict  and when a failure is not one the task's `known` gives a reason for
 //        node bench/run.mjs --write           writes bench/scorecard.json and bench/scorecard.txt from this run
+//        node bench/run.mjs --tasks-only | --coverage-only [--shard i/n]
+//                                             the tasks alone; the coverage suite alone, or its i-th n-th (CI runs them apart)
 //        VERBOSE=1                            prints every check, not only the failures
 // Needs: the crate (`cargo build --release` in compiler/), the runtime (`npm run build` in runtime/), the language
 // server's packages (`npm ci` in tooling/rx-language-server), Node 22.6+, and the network once (bench/package.json).
@@ -164,7 +166,7 @@ if (cover) {
 }
 
 workspace();
-const filters = args.filter(a => !a.startsWith("--"));
+const filters = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard");
 const ids = readdirSync(path.join(here, "tasks"), { withFileTypes: true }).filter(e => e.isDirectory() && existsSync(path.join(here, "tasks", e.name, "task.mjs"))).map(e => e.name).sort().filter(id => !filters.length || filters.some(f => id.includes(f)));
 const results = [];
 for (const id of flag("--coverage-only") ? [] : ids) {
@@ -224,7 +226,9 @@ const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.leng
 console.log("\n" + card + wholeCard);
 
 // the coverage suite (bench/coverage.mjs): every package of the libraries it lists, drafted whole and used once
-const coverage = flag("--tasks-only") ? { problems: [] } : await runCoverage({ filters, check: flag("--check"), strict: flag("--strict"), write: flag("--write") });
+const shard = args.includes("--shard") ? args[args.indexOf("--shard") + 1].split("/").map(Number) : null;   // `--shard 2/3`: the coverage suite's second third (CI)
+if (shard && !(shard.length === 2 && shard[0] >= 1 && shard[0] <= shard[1])) { console.error("--shard i/n: 1 ≤ i ≤ n"); process.exit(2); }
+const coverage = flag("--tasks-only") ? { problems: [] } : await runCoverage({ filters, check: flag("--check"), strict: flag("--strict"), write: flag("--write"), shard });
 
 const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places, draft: r.decl.draft } }]));
 if (flag("--write") && !flag("--coverage-only")) {

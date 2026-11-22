@@ -1,6 +1,6 @@
 //@ for @tanstack/solid-query ^6.0.0-rc.6
 // @tanstack/solid-query 6 (Solid 2.0) in rows, as rx-declare drafts it — what its types cannot show, it knows of this
-// release: the client's context and its provider, a query whose `data` waits and throws where it is read (MO-10f), a
+// release: the client's context and its provider, a
 // mutation whose callbacks are called later (MO-10g) and whose `mutate` answers a promise, and the client by the method
 // the app calls (the draft lists every method that answers nothing or a promise, MO-10b): each is called from a handler.
 export context queryClient
@@ -9,5 +9,4 @@ export type InvalidateQueryFilters<TQueryKey extends QueryKey = QueryKey> = impo
 export type QueryKey = import("@tanstack/solid-query").QueryKey
 export component QueryClientProvider(props: { client: import("@tanstack/solid-query").QueryClient; children?: View }) provides(queryClient)
 export pure fn useQueryClient(queryClient?: import("@tanstack/solid-query").QueryClient): { invalidateQueries: (filters?: InvalidateQueryFilters<QueryKey>, options?: InvalidateOptions) => Promise<void> } uses(queryClient)
-export pure fn useQuery<TData = unknown>(ref options: { queryKey: import("@tanstack/solid-query").QueryKey; queryFn: () => Promise<TData> }): { data: pending fails(Error) TData | undefined; isFetching: boolean; status: string; refetch: () => Promise<unknown> } uses(queryClient)
 export pure fn useMutation<TData = unknown, TVariables = void>(ref options: { mutationFn: (v: TVariables) => Promise<TData>; onSuccess?: handler () => void }): { mutate: (v: TVariables) => Promise<TData>; isPending: boolean; status: string; reset: () => void } uses(queryClient)

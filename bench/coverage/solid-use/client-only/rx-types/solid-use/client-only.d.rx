@@ -1,4 +1,4 @@
 //@ for solid-use ^1.0.0
 export type ClientOnlyProps = import("solid-use/client-only").ClientOnlyProps
 export pure fn createClientSignal(): ref boolean
-export component ClientOnly(props: ClientOnlyProps)
+export component ClientOnly(props: ClientOnlyProps & { fallback?: View })

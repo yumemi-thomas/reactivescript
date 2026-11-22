@@ -1,0 +1,4 @@
+// query.js in rows. By hand: every word (the module is the app's own). The context is the library's, named from here
+// (MO-12e): the hook reads the client the library's provider provides.
+export context queryClient from "@tanstack/solid-query"
+export pure fn useQuery<TData = unknown>(ref options: { queryKey: import("@tanstack/solid-query").QueryKey; queryFn: () => Promise<TData> }): { data: ref TData; isFetching: ref boolean; status: ref string; refetch: (options?: import("@tanstack/solid-query").RefetchOptions) => Promise<unknown> } uses(queryClient)

@@ -13,6 +13,7 @@ node bench/run.mjs --check         # compared with bench/scorecard.json: a green
 node bench/run.mjs --check --strict  # and every failure is one its task's `known` gives a reason for
 node bench/run.mjs --write         # write bench/scorecard.json and bench/scorecard.txt from this run (and the coverage suite's record)
 node bench/run.mjs --tasks-only    # the tasks alone; --coverage-only: the coverage suite alone (below)
+node bench/run.mjs --coverage-only --shard 2/3   # the coverage suite's second third: CI runs it in three jobs beside the tasks
 ```
 
 It needs the crate (`cargo build --release` and `npm run build` in
@@ -121,6 +122,9 @@ words nor hold more `any`s, no draft may write an `any` of its own (or say more 
 itself is held — every module `libraries.json` names is drafted, every one it says a program must import is imported
 by an entry, each package is at its recorded version in `bench/package.json` and still accepts Solid 2. Entries run
 several at once (`BENCH_JOBS`, 8 by default); a module no entry's program imports is drafted in a process of its own.
+`--shard i/n` runs every n-th entry and drafts every n-th such module, and holds the whole list (what an entry drafts
+and imports is read off its `use.mjs`): in one CI job with the tasks the run took 31 minutes, 7 of them the tasks', so
+`.github/workflows/bench.yml` runs the tasks and three shards as four jobs.
 
 To add a package: its name and version in `bench/package.json` (and the lock), its modules in `libraries.json`, and an
 entry. `use(import.meta, { pkg, title, ssr: /what the server's render says/, dom: /what the page says/ | async (h,
@@ -132,20 +136,20 @@ page) => { … } })` is all an entry's `use.mjs` is.
 | --- | --- | --- |
 | `formisch-field-path` | a Formisch form whose fields are named by typed paths into a valibot schema | a schema that reads state, a form made in the view; *(unrepresentable)* a write while the view computes, state assigned with `=` |
 | `formisch-field-array` | a Formisch array field: rows inserted, removed and moved by the library's methods | a method called while the view computes or given to a button called, the form made in the view, the row ids changed in place |
-| `query-forward` | a TanStack Query result passed down: its data to a list, a flag to a badge, the whole result to a panel; a refetch; a failing query | `data` read under no boundary, the result in a record, to a child that takes it for plain data |
+| `query-forward` | a TanStack Query result passed down: its data to a list, a flag to a badge, the data and the status to a panel; a refetch; a failing query. The query's hook is a module of the app's own over the library's, its `data` an accessor (09 MO-8r, MO-12e) | the query made in the view, its hook beside the provider, a refetch while the view computes or called where the handler is given, the data written |
 | `query-mutation` | a TanStack Query mutation that invalidates its query; the cache sent from the server and taken up in the browser (dehydrate / hydrate) | a query key that lacks what the query's function reads, the mutation run or the cache invalidated while the view computes, a hook outside the provider |
 | `router-provider` | TanStack Router's provider inside the app's own `Shell` component, in a module of its own | a page that fails with no boundary at the outlet, a hook outside the provider, a router never rendered |
 | `router-data` | `@solidjs/router` 2.0's data layer: a `query()` a page reads, a form action, `useSubmissions`, `revalidate` (2.0 has no `createAsync` nor `useSubmission`: a query is read by an equation that awaits it) | an async read with no boundary, `revalidate` called while the view computes, a submission's input or a query's answer kept in state |
 | `start-route` | a TanStack Start file route rendering `.rx` components, served and hydrated at `/people/2?tab=role` | the page's data with no boundary, a param copied into state; *(unrepresentable)* state written while a page renders |
 | `store-updater` | a Solid store updater written once and used by two handlers; a snapshot read out of the draft | the store written outside its setter, the updater called by hand, an `await` in the updater, a closure that writes the draft later |
 | `store-helper` | a Solid store's draft changed in place by a helper written in JS (`moveItem(d.columns, from, to)`) | the helper given the store itself, called while the view computes, the draft kept by a closure |
-| `table-pagination` | a TanStack Table: cell components, pagination buttons, a pager given page numbers and handlers, and — shadcn/ui's `DataTablePagination` — a component given the table itself | a row handed up through a callback, the table kept in state, a cell's context missing, a page turned while the view computes |
+| `table-pagination` | a TanStack Table: cell components, pagination buttons, a pager given page numbers and handlers, and — shadcn/ui's `DataTablePagination` — a component given the table itself | a page turned while the view computes, the table made from data read once |
 | `ui-sdk-dialog` | UI SDK for Solid (`@ui-sdk/solid`): a controlled dialog whose parts are flat exports, a change the app's callback cancels through the library's details, a toggle whose child is a function of its state | a part outside its root, the open state written while the view computes or from the function of state, a handler called where it is passed, a stale read of an own write, the controlled state copied by an effect; *(unrepresentable)* a part the library has not |
 | `ui-sdk-forms` | UI SDK's form controls: a checkbox and a radio group whose values the app holds, a button its state enables | a radio beside its group, the change handler called where it is passed, a stale read of an own write, the controlled value copied by an effect; *(unrepresentable)* a function the program has not, a part the library has not |
 | `wardic-values` | Wardic's values: a number derived from a prop, a size that cycles, an element that animates to them, under the provider | the meter beside the provider, a value made in a handler, the cycle turned while the view computes, a transform that writes, the derived value written or kept in a source by an effect |
 | `wardic-motion` | Wardic (`@wardic/solid`, Motion's API on Solid 2): a motion element whose target follows app state, a tap heard from the element's ward, an exit animation under `<AnimatePresence>` | a motion element beside its provider, a ward made in the view or in a handler, the hearing started while the component computes, the ward's end let out of the action, taps counted by an effect; *(unrepresentable)* a prop read once into a local |
 | `solid-use-state` | solid-use's atom and its own injection, each behind a module of the app's own: a reader and a setter, a scope and a hook whose context the declaration names | the hook's reader beside its scope, the atom's setter called while the view computes, its value written, an atom made in a handler or seeded from state, the count copied by an effect |
-| `solid-use-primitives` | solid-use's primitives: media query, colour scheme, network and page visibility as values; a client-only part; a value the server makes and the browser takes (served and hydrated) | a primitive made in the view or in a handler, its query computed from state, its value written, a layout kept in a source by an effect, the server's value asked for in the view; *(unrepresentable)* the accessor called, as in Solid |
+| `solid-use-primitives` | solid-use's primitives: media query, colour scheme, network and page visibility as values; a client-only part whose fallback is an element (a component given by name, 09 MO-11t); a value the server makes and the browser takes (served and hydrated) | a primitive made in the view or in a handler, its query computed from state, its value written, a layout kept in a source by an effect, the server's value asked for in the view, the fallback's component called; *(unrepresentable)* the accessor called, as in Solid |
 | `primitives-sensors` | solid-primitives' browser sensors (`media`, `connectivity`, `keyboard`, `mouse`): accessors and a store read as values, a shortcut whose callback writes; served and hydrated | a primitive made in the view or in a handler, a query computed from state, a sensor's value written, a layout kept in a source by an effect, the callback called where it is given; *(unrepresentable)* the accessor called, as in Solid |
 | `primitives-listeners` | solid-primitives' listeners and schedulers (`focus`, `event-bus`, `scheduled`, `raf`): a listener kept by its effect, a bus, a debounced save, an animation-frame loop | a disposer dropped or kept and never called, a debounced function made in a handler, a source read after its own write, a function a primitive handed back called while the view computes or given called to a handler |
 | `primitives-state` | solid-primitives' state helpers (`storage`, `static-store`, `memo`, `sortable`, `pagination`): a persisted signal, a store's fields, a sorted and paged list, a writable memo; served and hydrated | a setter called in the view or given called to a handler, a source's list sorted in place, a memo's function that writes, a value copied by an effect, a primitive's value written, a page read once under `peek` |
@@ -209,3 +213,35 @@ primitive's own owner). Now (32 tasks): good 96/96, types 155/155, runtime 207/2
 11/11, 215 words, 41 inherited, 0 introduced, 27 by place. The coverage suite beside them: 120 programs, 120 green;
 190 modules drafted whole (4877 rows), 1195 `any`s the libraries' own, none introduced, 1519 by place; 253
 hand-written words.
+
+On 2026-11-23 the vocabulary's three forms kept on one library's evidence were settled (09 MO-8r, *Settled*), and
+the suite follows the decision. **Given up, each a variant that a withdrawn form refused, and none caught another
+way:**
+
+| task | the variant | was | why it is given up |
+| --- | --- | --- | --- |
+| `query-forward` | `data` read with no `errored` region above it | `UNHANDLED_FAILURE` | `pending` and `fails(…)` before a declared result's field (MO-10f) were one library's. The query's `data` is an accessor now, through a module of the app's own, and an accessor asks for no region (MO-10d): what every other library's waiting value already got |
+| `query-forward` | a client-only build with no `loading` above the data | `ASYNC_OUTSIDE_LOADING_BOUNDARY` | the same |
+| `query-forward` | the result stored in a record | `RESULT_AS_VALUE` | a result with accessor parts is a value: there is no field-at-a-time reading left to protect |
+| `query-forward` | the whole result given to a child that takes it for plain data | `RESULT_AS_VALUE` | the same (the program passes the data and the status, each a value) |
+| `query-mutation` | the query read with no `errored` region | `UNHANDLED_FAILURE` | as the first |
+| `table-pagination` | a row of the table handed up through a prop's callback | `RENDERS_ESCAPES` | `renders` alone (MO-11l) was one library's. With no word a cell is checked under a root of its own and the table is a plain value: handing a row up is no mistake |
+| `table-pagination` | the table kept in app state | `RENDERS_ESCAPES` | the same |
+| `table-pagination` | a cell component's context provided nowhere above the table | `CONTEXT_NOT_FOUND` | a cell reads no context of the app now (the good program's `NameCell` no longer does: its tone is on the table), so there is no variant to make |
+
+Eight variants, in three tasks. Four came in that the new shapes make: the query's hook beside the provider
+(`CONTEXT_NOT_FOUND`, through the wrapper's `export context … from`, MO-12e), a refetch while the view computes and
+one called where the handler is given (`IO_IN_REACTIVE`), the query's data written (`WRITE_TO_NON_SOURCE`); and one
+for the element in a prop, the fallback's component called as a function (`COMPONENT_AS_VALUE`, `solid-use-primitives`).
+`router-provider` keeps its three variants: `renders(later)` and the words beside it are one library's too, and their
+removal is a change of its own (MO-8r).
+
+The totals, before (at `b9fe0d4`) and now, both from a fresh `npm ci`. Tasks (32): good 96/96 and 96/96, types
+155/155 and 155/155, runtime 207/207 and 207/207, bad 161/163 and 158/160 (the same two red, with their reasons; eight
+variants given up, five in), unrepresentable 11/11 and 11/11, hand-written words 215 and 249 (the two query tasks'
+wrapper is a module of the app's own, so its row is by hand: 17 words each, where the library's row had been
+`known.js`'s), `any` inherited 41 and 41, introduced 0 and 0, by place 27 and 27. Coverage: 120 programs and 121
+(`ui-sdk/overlays`), all green; 190 modules drafted whole (4877 rows), 1195 `any`s the libraries' own, none introduced,
+1519 by place, as before; hand-written words 253 and 268 (`primitives/range` declares `<Range>` by hand for its
+fallback, +8; `wardic/gestures` names Wardic's context, +7); four programs run one or two checks more (each shows its
+fallback's element).

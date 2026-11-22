@@ -1,7 +1,6 @@
 //@ for @tanstack/solid-query ^6.0.0-rc.6
 // @tanstack/solid-query 6 (Solid 2.0) in rows, as rx-declare drafts it — what its types cannot show, it knows of this
-// release: the client's context, its provider, and a query whose `data` waits and throws where it is read (MO-10f).
+// release: the client's context, its provider, and its provider. The query's hook is the app's own module's (src/query.js).
 // The types are the package's own.
 export context queryClient
 export component QueryClientProvider(props: { client: import("@tanstack/solid-query").QueryClient; children?: View }) provides(queryClient)
-export pure fn useQuery<TData = unknown>(ref options: { queryKey: import("@tanstack/solid-query").QueryKey; queryFn: () => Promise<TData> }): { data: pending fails(Error) TData | undefined; isFetching: boolean; status: string; refetch: () => Promise<unknown> } uses(queryClient)

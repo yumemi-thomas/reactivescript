@@ -1,0 +1,22 @@
+// UI SDK's overlays: `toast()` and `confirm()` open from anywhere in the app into a registry, and <OverlayHost>, mounted
+// once, renders what they open. Nothing the program writes is rendered there: a toast's message is a value, a
+// confirmation's answer a promise.
+import { OverlayHost } from "@ui-sdk/solid/overlays"
+import { toast } from "@ui-sdk/solid/toast"
+import { confirm } from "@ui-sdk/solid/alert-dialog"
+
+export default component App() {
+  source answer := "not asked"
+  action ask() {
+    try {
+      let ok = await confirm({ title: "Delete this project?" })
+      answer := ok ? "deleted" : "kept"
+    } catch (e) {
+      answer := "failed"
+    }
+  }
+  <button class="save" onClick={() => { toast("Saved") }}>save</button>
+  <button class="ask" onClick={ask}>delete</button>
+  <p class="answer">{answer}</p>
+  <OverlayHost />
+}

@@ -1547,8 +1547,8 @@
     "fails": []
    },
    "runtime": {
-    "pass": 3,
-    "total": 3,
+    "pass": 4,
+    "total": 4,
     "fails": []
    },
    "server": true,
@@ -1621,8 +1621,8 @@
     "fails": []
    },
    "runtime": {
-    "pass": 3,
-    "total": 3,
+    "pass": 4,
+    "total": 4,
     "fails": []
    },
    "server": true,
@@ -2509,8 +2509,8 @@
     "fails": []
    },
    "runtime": {
-    "pass": 3,
-    "total": 3,
+    "pass": 5,
+    "total": 5,
     "fails": []
    },
    "server": true,
@@ -2519,7 +2519,7 @@
     "@solid-primitives/range"
    ],
    "decl": {
-    "words": 2,
+    "words": 10,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3575,8 +3575,8 @@
     "fails": []
    },
    "runtime": {
-    "pass": 2,
-    "total": 2,
+    "pass": 3,
+    "total": 3,
     "fails": []
    },
    "server": false,
@@ -4119,6 +4119,38 @@
    },
    "modules": {}
   },
+  "ui-sdk/overlays": {
+   "good": {
+    "pass": 3,
+    "total": 3,
+    "fails": []
+   },
+   "types": {
+    "pass": 2,
+    "total": 2,
+    "fails": []
+   },
+   "runtime": {
+    "pass": 4,
+    "total": 4,
+    "fails": []
+   },
+   "server": false,
+   "hydrates": false,
+   "uses": [
+    "@ui-sdk/solid/alert-dialog",
+    "@ui-sdk/solid/overlays",
+    "@ui-sdk/solid/toast"
+   ],
+   "decl": {
+    "words": 0,
+    "any": 0,
+    "inherited": 0,
+    "introduced": 0,
+    "places": 1
+   },
+   "modules": {}
+  },
   "ui-sdk/popups": {
    "good": {
     "pass": 3,
@@ -4331,7 +4363,7 @@
     "@wardic/solid"
    ],
    "decl": {
-    "words": 14,
+    "words": 21,
     "any": 0,
     "inherited": 0,
     "introduced": 0,

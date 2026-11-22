@@ -8,6 +8,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { here, ws } from "./harness.mjs";
 
 const root = path.join(here, "coverage");
@@ -34,9 +35,12 @@ const draft = spec => new Promise(res => {
 });
 const cols = [["good", "accepted"], ["types", "types"], ["runtime", "runs"]];
 
-export async function runCoverage({ filters = [], check = false, strict = false, write = false } = {}) {
+export async function runCoverage({ filters = [], check = false, strict = false, write = false, shard = null } = {}) {
   const all = entries();
-  const ids = all.filter(id => !filters.length || filters.some(f => id.includes(f) || `cover-${id.replaceAll("/", "-")}`.includes(f)));
+  // `--shard i/n` (CI: the suite over several machines): every n-th entry, and every n-th module no entry drafts. What
+  // an entry drafts and imports is read off its `use.mjs`, so the list (below) is held whole by every shard
+  const mine = k => !shard || k % shard[1] === shard[0] - 1;
+  const ids = all.filter((id, k) => filters.length ? filters.some(f => id.includes(f) || `cover-${id.replaceAll("/", "-")}`.includes(f)) : mine(k));
   if (!ids.length) return { problems: [] };
   // entries are independent programs in folders of their own: several at once
   const results = new Array(ids.length); let next = 0;
@@ -47,8 +51,10 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   // every module the libraries list is drafted whole: the ones no entry drafted (a large library's entries draft none
   // themselves), each in a process of its own, with the entries' pool. Only in a whole run: a filtered one is its entries'
   const listed = Object.entries(libs).flatMap(([lib, l]) => Object.values(l.packages ?? {}).flatMap(v => v.modules.map(m => ({ lib, spec: m }))));
-  const had = new Set(results.flatMap(r => (r.modules ?? []).map(m => m.spec)));
-  const todo = filters.length ? [] : listed.filter(x => !had.has(x.spec));
+  const stated = filters.length ? [] : await Promise.all(all.map(async id => { try { const t = (await import(pathToFileURL(path.join(root, id, "use.mjs")).href)).default; return { id, modules: t.modules ?? [], uses: t.uses ?? [] }; } catch { return { id, modules: [], uses: [] }; } }));
+  const had = new Set(stated.flatMap(e => e.modules));
+  const unowned = listed.filter(x => !had.has(x.spec));
+  const todo = filters.length ? [] : unowned.filter((x, k) => mine(k));
   const extra = new Array(todo.length); next = 0;
   await Promise.all(Array.from({ length: Math.max(1, Math.min(workers, todo.length)) }, async () => { while (next < todo.length) { const i = next++; extra[i] = { ...(await draft(todo[i].spec)), lib: todo[i].lib }; } }));
   const groupOf = lib => results.find(r => !r.crash && r.pkgs?.some(p => Object.keys(libs[lib].packages).includes(p)))?.entry.split("/")[0] ?? lib;
@@ -94,7 +100,7 @@ export async function runCoverage({ filters = [], check = false, strict = false,
 
   const drafts = Object.fromEntries(extra.filter(m => !m.crash).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places }]));
   const snapshot = Object.fromEntries(results.map(r => [r.entry, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), server: r.server === true, hydrates: r.hydrates === true, uses: r.uses, decl: { words: r.decl.words, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places }, modules: Object.fromEntries((r.modules ?? []).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places }])) }]));
-  if (write && !filters.length) {
+  if (write && !filters.length && !shard) {
     writeFileSync(path.join(root, "coverage.json"), JSON.stringify({ entries: snapshot, drafts }, null, 1) + "\n");
     writeFileSync(path.join(root, "coverage.txt"), card.replaceAll(ws, "bench/.out/ws") + "\n");
   }
@@ -131,7 +137,8 @@ export async function runCoverage({ filters = [], check = false, strict = false,
       // the list is held: every module the libraries list is drafted by an entry, and every one that must be used is
       // imported by an entry's program; a package named "not on Solid 2" still is not (its installed peer range, where
       // it is installed, would say otherwise); an entry recorded and gone is a problem too
-      const drafted = new Set([...results.flatMap(r => (r.modules ?? []).map(m => m.spec)), ...extra.filter(m => !m.crash && m.drafted).map(m => m.spec)]), used = new Set(results.flatMap(r => r.uses ?? []));
+      // (what each entry drafts and imports is what its `use.mjs` states; that a draft was made is asked of each, above)
+      const drafted = new Set([...had, ...unowned.map(x => x.spec)]), used = new Set(stated.flatMap(e => e.uses));
       const pj = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).dependencies;
       for (const [lib, l] of Object.entries(libs)) {
         for (const [pkg, v] of Object.entries(l.packages ?? {})) {

@@ -1,6 +1,7 @@
 // solid-use's primitives (lxsmnsyc; 09 MO-10a, MO-10b, MO-10d, 10 SV): accessors a hook hands back, read as values; a
 // signal that is false on the server and through hydration; a value the server makes and the browser takes from it.
-// Solid: `const wide = useMediaQuery("(min-width: 600px)")`, `<ClientOnly fallback="…">`, `useServerValue(() => …)`.
+// Solid: `const wide = useMediaQuery("(min-width: 600px)")`, `<ClientOnly fallback={<p>…</p>}>`, `useServerValue(() => …)`.
+// The fallback is an element in a prop: a component of the app's given by name (09 MO-11t).
 // Half of the package's modules export their utility as the default (`solid-use/online-status`): src/use.js names them.
 const ticketOf = text => /ticket (\w+)/.exec(text)?.[1];
 export default {
@@ -8,7 +9,7 @@ export default {
   types: [
     { name: "a primitive's value keeps its type: a boolean, not a string", edit: ['layout = compact || !wide ? "narrow" : "wide"', 'layout = compact || !wide.startsWith("w") ? "narrow" : "wide"'], expect: /TS2339|TS2551/ },
     { name: "a primitive's parameter is the library's", edit: ['useMediaQuery("(min-width: 600px)")', "useMediaQuery(600)"], expect: /TS2345|TS2769/ },
-    { name: "a component's props are the library's", edit: ['<ClientOnly fallback="measuring…">', '<ClientOnly fallbak="measuring…">'], expect: /TS2322|TS2769|TS2353/ },
+    { name: "a component's props are the library's", edit: ["<ClientOnly fallback={Measuring}>", '<ClientOnly fallbak="measuring…">'], expect: /TS2322|TS2769|TS2353/ },
     { name: "the server's value keeps its type", edit: ["ticket {ticket}", "ticket {ticket.toFixed(1)}"], expect: /TS2339|TS2551/ },
   ],
   bad: [
@@ -18,12 +19,13 @@ export default {
     { name: "a primitive's value written", edit: ["onClick={() => { compact := c => !c }}", "onClick={() => { wide := false }}"], expect: "WRITE_TO_NON_SOURCE" },
     { name: "the layout kept in a source by an effect, not derived", edit: ['  layout = compact || !wide ? "narrow" : "wide"', '  source layout: string := "narrow"\n  effect (wide) { layout := $0 && !compact ? "wide" : "narrow" }'], expect: "EFFECT_RELAY_TEAR" },
     { name: "the server's value asked for where the view reads it", edit: ["ticket {ticket}", "ticket {useTicket()}"], expect: "INSTANTIATION_NOT_BOUND" },
+    { name: "the fallback's component called as a function, not given", edit: ["<ClientOnly fallback={Measuring}>", "<ClientOnly fallback={Measuring()}>"], expect: "COMPONENT_AS_VALUE" },
     { name: "the accessor called, as in Solid", edit: ['{online ? "online" : "offline"}', '{online() ? "online" : "offline"}'], ts: /TS2349|TS6234/ },
   ],
   async run(h) {
     const r = await h.ssr("/");
     h.check("server: no window, no system, no network — the primitives' server values", !r.error && /narrow, light/.test(r.text) && /online, in view/.test(r.text), r.error?.message ?? r.text);
-    h.check("server: the client signal is false, the client-only part is its fallback", /from the server/.test(r.text) && /measuring…/.test(r.text) && !/column/.test(r.text), r.text);
+    h.check("server: the client signal is false, the client-only part is its fallback", /from the server/.test(r.text) && /measuring/.test(r.text) && !/column/.test(r.text), r.text);
     const base = await h.serve({ ssr: true });
     const page = await h.page(); await page.setViewportSize({ width: 800, height: 600 });
     const res = await page.goto(base + "/"); const sent = ticketOf((await res.text()).replace(/<!--.*?-->/g, ""));

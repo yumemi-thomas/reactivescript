@@ -1,7 +1,8 @@
 // One todo, read and renamed with TanStack Query: a query keyed by the todo's id, a mutation that renames it and
 // invalidates the query when the server has taken it, and — rendered on the server — the client's cache sent with the
 // page (dehydrate) and taken up in the browser (hydrate), so the page is not asked for again once it is there.
-import { QueryClientProvider, useQuery, useMutation, useQueryClient } from "@tanstack/solid-query"
+import { QueryClientProvider, useMutation, useQueryClient } from "@tanstack/solid-query"
+import { useQuery } from "./query.js"
 import { makeClient, dehydrated, fetchTodo, renameTodo } from "./api.js"
 
 component Todo(props: { id: number }) {

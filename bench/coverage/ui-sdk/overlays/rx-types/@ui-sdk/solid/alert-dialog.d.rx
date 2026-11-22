@@ -1,0 +1,2 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export fn confirm(payload?: { title: string; description?: string | undefined; confirmLabel?: string | undefined; cancelLabel?: string | undefined; }): Promise<boolean>

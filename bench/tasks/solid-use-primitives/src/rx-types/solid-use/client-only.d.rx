@@ -3,4 +3,4 @@
 // signal and an effect that sets it once, src/client-only.ts:15).
 export pure fn createClientSignal(): ref boolean
 export type ClientOnlyProps = import("solid-use/client-only").ClientOnlyProps
-export component ClientOnly(props: ClientOnlyProps)
+export component ClientOnly(props: ClientOnlyProps & { fallback?: View })

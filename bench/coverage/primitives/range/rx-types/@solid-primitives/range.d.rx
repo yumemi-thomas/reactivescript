@@ -1,2 +1,3 @@
 //@ for @solid-primitives/range ^1.0.0
+export component Range(props: { start?: number; to: number; step?: number; fallback?: View; children: (number: number) => View })
 export component Repeat(props: { times: number; fallback?: View; children: (index: number) => View })

@@ -1,6 +1,6 @@
-Coverage: 120 programs, 120 green; 190 modules drafted whole (4877 rows): 1195 `any` the libraries' own, 0 introduced, 1519 by place; 253 hand-written words, 109 `any` inherited and 0 introduced in the kept rows, 195 by place
+Coverage: 121 programs, 121 green; 190 modules drafted whole (4877 rows): 1195 `any` the libraries' own, 0 introduced, 1519 by place; 268 hand-written words, 109 `any` inherited and 0 introduced in the kept rows, 196 by place
 
-primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 introduced, 264 by place); 98 programs, 98 green; 148 hand-written words
+primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 introduced, 264 by place); 98 programs, 98 green; 156 hand-written words
   module                                        version  rows drafted  `any` library's  introduced  by place  used by                           hand words  accepted  types  runs  server  hydrated
   --------------------------------------------  -------  ------------  ---------------  ----------  --------  --------------------------------  ----------  --------  -----  ----  ------  --------
   @solid-primitives/a11y                        1.0.0    12            0                0           0         primitives/a11y                   2           3/3       2/2    3/3   yes     yes     
@@ -47,9 +47,9 @@ primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 intr
   @solid-primitives/intersection-observer       3.0.0    19            0                0           2         primitives/intersection-observer  1           3/3       2/2    3/3   yes     no      
   @solid-primitives/jsx-tokenizer               3.0.0    9             1                0           0         primitives/jsx-tokenizer          1           3/3       2/2    2/2   no      no      
   @solid-primitives/keyboard                    2.0.0    10            0                0           0         primitives/keyboard               3           3/3       2/2    4/4   yes     yes     
-  @solid-primitives/keyed                       3.0.0    7             1                0           0         primitives/keyed                  0           3/3       2/2    3/3   yes     no      
+  @solid-primitives/keyed                       3.0.0    7             1                0           0         primitives/keyed                  0           3/3       2/2    4/4   yes     no      
   @solid-primitives/lifecycle                   1.0.0    3             0                0           0         primitives/lifecycle              1           3/3       2/2    3/3   yes     yes     
-  @solid-primitives/list                        1.0.0    3             3                0           0         primitives/list                   0           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/list                        1.0.0    3             3                0           0         primitives/list                   0           3/3       2/2    4/4   yes     yes     
   @solid-primitives/list-state                  1.0.0    9             0                0           0         primitives/list-state             1           3/3       2/2    4/4   yes     yes     
   @solid-primitives/map                         1.0.0    3             0                0           0         primitives/map                    3           3/3       2/2    3/3   yes     yes     
   @solid-primitives/marker                      2.0.0    2             0                0           0         primitives/marker                 1           3/3       2/2    3/3   yes     yes     
@@ -73,7 +73,7 @@ primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 intr
   @solid-primitives/props                       4.0.0    9             4                0           0         primitives/props                  2           3/3       2/2    3/3   no      no      
   @solid-primitives/queue                       1.0.0    11            0                0           12        primitives/queue                  1           3/3       2/2    4/4   yes     yes     
   @solid-primitives/raf                         4.0.0    8             3                0           1         primitives/raf                    2           3/3       2/2    4/4   yes     yes     
-  @solid-primitives/range                       1.0.0    8             0                0           0         primitives/range                  2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/range                       1.0.0    8             0                0           0         primitives/range                  10          3/3       2/2    5/5   yes     yes     
   @solid-primitives/refs                        3.0.0    10            0                0           1         primitives/refs                   3           3/3       2/2    3/3   yes     no      
   @solid-primitives/resize-observer             4.0.0    11            0                0           1         primitives/resize-observer        1           3/3       2/2    4/4   yes     yes     
   @solid-primitives/rootless                    2.0.0    11            2                0           6         primitives/rootless               1           3/3       2/2    3/3   yes     yes     
@@ -106,7 +106,7 @@ primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 intr
   @solid-primitives/utils/immutable             7.0.1    41            5                0           2         — (primitives/utils)                                                                 
   @solid-primitives/vibrate                     1.0.0    9             0                0           0         primitives/vibrate                1           3/3       2/2    4/4   yes     yes     
   @solid-primitives/video                       1.0.0    14            0                0           0         primitives/video                  1           3/3       2/2    3/3   yes     yes     
-  @solid-primitives/virtual                     1.0.1    2             2                0           3         primitives/virtual                0           3/3       2/2    2/2   no      no      
+  @solid-primitives/virtual                     1.0.1    2             2                0           3         primitives/virtual                0           3/3       2/2    3/3   no      no      
   @solid-primitives/websocket                   2.0.0    16            0                0           2         primitives/websocket              2           3/3       2/2    2/2   no      no      
   @solid-primitives/workers                     2.0.1    12            0                0           3         primitives/workers                1           3/3       2/2    2/2   no      no      
   @solid-primitives/workers/worker              2.0.1    2             0                0           0         — (primitives/workers)                                                               
@@ -125,7 +125,7 @@ solid-use: 10 modules drafted (28 rows, 6 `any` the libraries' own, 0 introduced
   solid-use/server-value     1.0.0    0             0                0           0         solid-use/server-value     1           3/3       2/2    3/3   yes     yes     
   solid-use/string           1.0.0    0             0                0           0         solid-use/string           1           3/3       2/2    3/3   yes     yes     
 
-ui-sdk: 69 modules drafted (2861 rows, 1052 `any` the libraries' own, 0 introduced, 1159 by place); 6 programs, 6 green; 9 hand-written words
+ui-sdk: 69 modules drafted (2861 rows, 1052 `any` the libraries' own, 0 introduced, 1159 by place); 7 programs, 7 green; 9 hand-written words
   module                           version        rows drafted  `any` library's  introduced  by place  used by  hand words  accepted  types  runs  server  hydrated
   -------------------------------  -------------  ------------  ---------------  ----------  --------  -------  ----------  --------  -----  ----  ------  --------
   @ui-sdk/solid                    0.1.0-beta.13  1329          522              0           577       —                                                           
@@ -198,7 +198,7 @@ ui-sdk: 69 modules drafted (2861 rows, 1052 `any` the libraries' own, 0 introduc
   @ui-sdk/solid/trigger-menu       0.1.0-beta.13  55            17               0           17        —                                                           
   @ui-sdk/solid/waterfall          0.1.0-beta.13  36            21               0           30        —                                                           
 
-wardic: 4 modules drafted (751 rows, 10 `any` the libraries' own, 0 introduced, 96 by place); 6 programs, 6 green; 78 hand-written words
+wardic: 4 modules drafted (751 rows, 10 `any` the libraries' own, 0 introduced, 96 by place); 6 programs, 6 green; 85 hand-written words
   module                     version  rows drafted  `any` library's  introduced  by place  used by  hand words  accepted  types  runs  server  hydrated
   -------------------------  -------  ------------  ---------------  ----------  --------  -------  ----------  --------  -----  ----  ------  --------
   @wardic/dom                1.2.0    30            0                0           0         —                                                           
@@ -208,7 +208,7 @@ wardic: 4 modules drafted (751 rows, 10 `any` the libraries' own, 0 introduced, 
 
 All green.
 
-What the entries say of their packages (49):
+What the entries say of their packages (50):
   primitives/context: A JS module of the app's own: the factory given to createContextProvider makes state (a component's body, in a callback), and `.rx` has `context` and `provide` of its own.
   primitives/controlled-props: not rendered on the server — the control is the library's JSX, compiled for the DOM alone (one build): it calls a client-only API of @solidjs/web on the server, in any app. A JS module of the app's own: createControlledProp hands back a component as a part of a tuple, and a component is rendered by its own name.
   primitives/date: CreateTimeAgo and createTimeDifferenceFromNow are not used: their effect reads `diff`, a const declared after it, and Solid 2 computes an effect where it is made — `Cannot access 'diff' before initialization`, in any app.
@@ -248,6 +248,7 @@ What the entries say of their packages (49):
   solid-use/string: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and it is a tagged template, which `.rx` has no call for.
   ui-sdk/disclosure: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
   ui-sdk/forms: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
+  ui-sdk/overlays: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it. The second library `renders(later)` was said to have (09 MO-8r, 2026-11-23): it has not. `toast()` and `confirm()` are given values (a message, a title) and answer an id and a promise; nothing they are given is a component, and nothing they answer is given to the host, which reads a registry of the library's own. The three rows are the draft's, with no word.
   ui-sdk/popups: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
   ui-sdk/selection: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
   ui-sdk/status: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
