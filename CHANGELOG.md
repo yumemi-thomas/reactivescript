@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+**The vocabulary of a declaration, pruned** (spec/09 MO-8r)
+
+A word or a form of a `.d.rx` is kept only if, without it, a correct Solid program people commonly write cannot be
+written, or a mistake Solid programs really make cannot be refused — for more than one library. What one package does
+is said without a word: leave the function undeclared, write a few lines of JavaScript of the app's own and declare
+those, or let the library's own types say it (guide/libraries.md, *When no word says what a library does*). Eight
+went, none of them released; a row written with one is refused by name, with what says it now.
+
+- `signal init: T` on a parameter: make the signal in a module of your own, `export const persisted = (init, o) =>
+  makePersisted(createSignal(init), o)`. It was the one word that changed the compiled call (`__rt.signal` is gone
+  from the runtime).
+- `tracked` before a function type: leave it out. A function type without `handler` was already read as that.
+- `forwards` after a signature: leave it out. A `pure` fn that makes nothing hands the components in its arguments on
+  to the factory it is written in.
+- `joins(path)` beside `nests(…)`: leave it out. A page under a route that has the param declares it optional, as in
+  TSX.
+- `methods(m, …)`: write `peek` where a method's answer is read once (`routeTree: peek rootRoute.addChildren([…])`).
+- `renders(root, ctx…)`: leave it out. A fn that says nothing of where it renders what it is given is read so.
+- `trusted`: gone. Strict declarations (`--rx-strict`) have no opt-out in a row.
+- Several rows of one fn's name: one row. A fn with several signatures is declared by one of them, and your calls are
+  typed by the library's own overloads.
+
+**Fixed**
+
+- `<wardic.div>` — a tag that begins with a small letter and has a `.` — was compiled, with no diagnostic, as an HTML
+  element named `wardic.div`. It is `UNKNOWN_COMPONENT` in both checkers, and the message gives the spelling that
+  works: `import { wardic as Wardic }`, `<Wardic.div>` (spec/09 MO-11q).
+- `rx-declare` fails, with the line and the parser's reason, when the crate cannot read the draft it wrote. It wrote
+  `any` for every row and said so only under `--explain` (a `readonly` prop did that to a whole library: 726 `any`s).
+- What `rx-declare` names of a dependency's types no longer depends on how npm laid the install out. A type of a
+  package the library depends on (`import("@solid-primitives/utils").Many<T>`) was looked for from the app's folder,
+  so it was named where npm had hoisted that package and written out where it had not; it is found from where the
+  library is installed now, and `rx-tsc` resolves what a row names the same way (spec/09 MO-8o). The benchmark
+  installs from a lockfile (`bench/package-lock.json`, `npm ci`), so a local run and CI have the same tree.
+
 **New**
 
 - A library written in `.rx` can be published and used from `.rx` apps and from `.tsx` Solid 2 apps (spec/09 MO-13).
@@ -62,9 +97,6 @@
   details: DialogOpenChangeDetails) => void }) provides(dialog)`. The checker reads the record as it read a record of props; a
   prop it does not list is passed as any undeclared prop is. TypeScript reads the intersection; the boundary check
   (TY-6) finds the row's type parameters from the type alone. Props that are a union of records are written as they are.
-- A declaration may hold several rows of one fn's name, one for each of its signatures (spec/09 MO-8p). The checker
-  reads the first; a later row that says another word (on the row, a parameter, the result) is a parse error. The
-  declaration's `.d.ts` writes an overload per row, and TY-6 holds each.
 - `rx-declare` writes a row's types from the library's own declaration (spec/09 MO-8o): the annotation of each parameter,
   result and prop, with every name rewritten to a module the app can import it from — any subpath the package exports
   (`@formisch/solid/v2/internals`), the packages it depends on — under the name it has there (a bundle's `Store$1` is
@@ -88,14 +120,15 @@
   `--any` drafts as before. Generated declarations are redrafted (draft 4).
 - `rx-declare --source [<checkout>]` reads the library's own TypeScript source — a checkout, the `src/` the package
   publishes, or the sources its source maps carry — and writes what it shows of the words types cannot (`handler`,
-  `tracked`, `ref`, `uses`, `provides`, `instantiates`, a result that undoes the call) as `// SOURCE` comments above
+  `ref`, `uses`, `provides`, `instantiates`, a result that undoes the call; a callback called inside a computation,
+  which takes no word) as `// SOURCE` comments above
   the rows, each with its file and line (spec/09 MO-8n). It never writes a word into a row.
 - Values the checker confines have a closed set of operations (spec/09 MO-10k, spec/08 CN-7d). A JS result whose
   fields wait or fail is read by the fields its declaration names: `q.valueOf()`, `q.toJSON()`, an undeclared field and
   `q[k]()` are `RESULT_AS_VALUE`. What is called on a library's draft is a method of plain data; a callback given to one
   (`d.items.forEach((row) => { … })`) has parameters that are places of the draft, an iterator read out of one is kept
   as an iterator over copies, and any other method is `DRAFT_ESCAPES`. A method keeps nothing of a `renders` value only
-  when `methods(…)` names it and it is called on the value's own name. A call through a record, an array or a call
+  when it is given no part of that value. A call through a record, an array or a call
   (`box.read()`, `fs[0]()`, `mk()()`) reads what the closures it may call read (`SNAPSHOT_KEPT`, `SNAPSHOT_ARGUMENT`).
 - `@rx-types/solid-js` (in `declarations/solid-js`): the declaration of Solid itself, found as an `@types` package is
   (09 MO-8k): `createStore` with its draft setter, `snapshot`, `merge`, `omit`, `flush`.
@@ -103,7 +136,7 @@
   `ref`, a function by what it answers), a class instance by the methods that answer nothing or a promise; an accessor of
   an options object lists its callbacks; the module's own types are named; a generic type is declared with its
   parameters. For `@tanstack/solid-router`, `@solidjs/router` and `@tanstack/solid-query` it also drafts what types
-  cannot show (`renders(later)`, `nests(…)`, contexts, `pending fails(Error)`, `tracked`/`handler`, `pure`), from
+  cannot show (`renders(later)`, `nests(…)`, contexts, `pending fails(Error)`, `handler`, `pure`), from
   `src/known.js`, for the version range each entry was checked against. Generated declarations stay types-only.
 - A function field of a declared result that answers a promise (`mutate`, `refetch`) and is not awaited in reactive
   scope is `IO_IN_REACTIVE` (09 MO-10b): `{rename.mutate(v)}` in a view started the mutation on every computation.

@@ -585,6 +585,40 @@ program could be.
   and had no member row to put it above.
 - *`rx-verify` on `rx-types/`* (above).
 
+### Decided (2026-11-22, the same day: 09 MO-8r)
+
+The round above asked for words. The answer is the other way: the
+vocabulary is held to a bar — a word or a form is kept only if, without
+it, a correct Solid program people commonly write cannot be written, or a
+mistake Solid programs really make cannot be refused, for more than one
+library — and what one package does is said without a word: leave the
+function undeclared, a few lines of the app's own JavaScript declared in
+the words there are, or the library's own types. Applied to what was
+already there, eight went (`signal`, `tracked`, `forwards`, `joins`,
+`methods`, `renders(root, …)`, `trusted`, a row a signature; MO-8r has
+each with its use and its reason). Applied to the gaps:
+
+| gap | decision | what is written instead |
+| --- | --- | --- |
+| 1. a module's default export | no row for it | `export { default as useOnlineStatus } from "solid-use/online-status"` in a module of the app's own, declared `export pure fn useOnlineStatus(): ref boolean`: one line, and the task has it. It is the gap that touches most programs of a package in this style, and still one package of the benchmark's |
+| 2. one function that reads and writes (`atom`) | no word | two functions over it, a reader and a setter, in the same module of the app's own: `[ref T, (v: T) => void]`, which is what `.rx` reads of any signal |
+| 3. a callback called once, while the call is made (`wardRef`, `useServerValue`, `provide`) | no third function word | unmarked, the closure is a pure function, which is safe however it is called; what must do io there, or make a primitive, is three lines of JavaScript (the task's `useTicket`). Three rows of two libraries, each doing something else with the callback |
+| 4a. `<wardic.div>` compiled as an element | **fixed**: `UNKNOWN_COMPONENT` in both checkers | `import { wardic as Wardic }`, `<Wardic.div>`; the message says so (MO-11q) |
+| 4b. a family of member components | no row for a family | a row a member the app uses (`export component wardic.div(…)`): the family is a mapped type, which TypeScript reads from the library |
+| 5. an element in a prop that is not `children` | not now | a render prop where the library has one (`{view fallback () { … }}`), a string, or a component of the app's own JavaScript around the library's. It is the nearest to the bar — every kit has an `icon` — and it is a form of `.rx`'s markup, not a word of a declaration; taken up when a second library of the benchmark needs it |
+| 6. `children` that is a view or a function of state | no union read | the row narrows `children` to the one the app writes (MO-8o) |
+| 7. a library's object with accessor parts, a method that instantiates | no field words on an opaque result | the object stays the library's, typed by TypeScript; a part that must be an accessor is a function of the app's own (`export const tapped = (w) => () => w.tapped()`, declared `ref boolean`) |
+| 8. tagged templates | nothing | an `.rx` template is the same value |
+| 9. a result whose every field is an accessor | nothing | `.rx` reads props where they are used |
+
+And the two things under *What the tools should do* that were defects
+rather than wishes are done: a draft the crate cannot read fails, with
+the line and the parser's reason (it was 726 `any`s and a line under
+`--explain`); and a draft no longer depends on the install's layout (a
+dependency's type was named where npm had hoisted the package and written
+out where it had not: found on CI, where a fresh install moved
+`primitives-virtual` from 8 hand-written words to 11).
+
 ### Outside the vocabulary, found on the way
 
 - An action that starts itself again without awaiting (`action hear() {

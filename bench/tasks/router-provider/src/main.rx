@@ -22,7 +22,7 @@ component Person() {
 rootRoute = createRootRoute({ component: Root })
 indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: Home })
 personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-export router = createRouter({ routeTree: rootRoute.addChildren([indexRoute, personRoute]) })   // exported for its type (register.d.ts)
+export router = createRouter({ routeTree: peek rootRoute.addChildren([indexRoute, personRoute]) })   // exported for its type (register.d.ts). `peek`: the tree is made once (E-10)
 
 export default component App() {
   <Shell router={router} title="Directory" />

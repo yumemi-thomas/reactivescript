@@ -275,14 +275,10 @@
   "provides"
   "renders"
   "nests"
-  "joins"
-  "methods"
   "under"
   "later"
-  "root"
   "shape"
   "handler"
-  "tracked"
   "pending"
   "catches"
 ] @keyword
@@ -291,7 +287,6 @@
 (pure) @keyword
 (deferred) @keyword
 (ref_modifier) @keyword
-(signal_modifier) @keyword
 (draft_modifier) @keyword
 (row_word) @keyword
 
@@ -370,9 +365,6 @@
   name: (identifier) @constant)
 
 (provides_clause
-  name: (identifier) @constant)
-
-(renders_clause
   name: (identifier) @constant)
 
 ; Writes: the target of `:=` and `guess`

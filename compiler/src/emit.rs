@@ -51,8 +51,6 @@ enum Kind {
 struct FnRef {
     params: Vec<(String, bool)>,
     decl: Option<*const Decl>,
-    /// MO-10h: the parameters that take a Solid signal of the value passed
-    sigs: Vec<bool>,
 }
 #[derive(Clone)]
 struct Bind {
@@ -518,7 +516,7 @@ impl<'p> Gen<'p> {
                 // a value fn (SF-3: it reads nothing reactive)
                 Decl::Fn { name, params, decls: ds, .. } if !params.iter().any(|p| p.r#ref) && ds.is_empty() => {
                     let mut b = bind(Kind::Fn, mg(name));
-                    b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(x as *const Decl), sigs: vec![] });
+                    b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(x as *const Decl) });
                     self.set(env, name, b);
                 }
                 _ => {}
@@ -699,9 +697,9 @@ impl<'p> Gen<'p> {
                     for n in names {
                         // MO-10a: a declared primitive
                         let x = declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).and_then(|ds| ds.iter().find(|y| y.name() == n.name));
-                        if let Some(JsDecl::Fn { params, refs, shape, instantiates: true, sigs, drafts, part_drafts, .. }) = x {
+                        if let Some(JsDecl::Fn { params, refs, shape, instantiates: true, drafts, part_drafts, .. }) = x {
                             let mut b = bind(Kind::Jfn, mg(&n.alias));
-                            b.f = Some(FnRef { params: params.iter().enumerate().map(|(i, p)| (p.clone(), refs.get(i).copied().unwrap_or(false))).collect(), decl: None, sigs: sigs.clone() });
+                            b.f = Some(FnRef { params: params.iter().enumerate().map(|(i, p)| (p.clone(), refs.get(i).copied().unwrap_or(false))).collect(), decl: None });
                             b.shape = Some(shape.clone());
                             b.drafts = drafts.clone();
                             b.part_drafts = part_drafts.clone();
@@ -730,7 +728,7 @@ impl<'p> Gen<'p> {
                 }
                 Decl::Fn { name, params, decls: ds, .. } => {
                     let mut b = bind(if params.iter().any(|p| p.r#ref) || !ds.is_empty() { Kind::Ifn } else { Kind::Fn }, mg(name));
-                    b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl), sigs: vec![] });
+                    b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                     self.set(env, name, b);
                 }
                 Decl::Component { name, .. } => self.set(env, name, bind(Kind::Comp, cm(name))),
@@ -997,7 +995,7 @@ impl<'p> Gen<'p> {
                 return match sig {
                     ExportSig::Fn { params, instantiating, .. } => {
                         let mut b = bind(if *instantiating || params.iter().any(|p| p.r#ref) { Kind::Ifn } else { Kind::Fn }, js);
-                        b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: None, sigs: vec![] });
+                        b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: None });
                         b
                     }
                     ExportSig::Comp { sig } => {
@@ -1018,7 +1016,7 @@ impl<'p> Gen<'p> {
         match d {
             Decl::Fn { params, decls, .. } => {
                 let mut b = bind(if params.iter().any(|p| p.r#ref) || !decls.is_empty() { Kind::Ifn } else { Kind::Fn }, js);
-                b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl), sigs: vec![] });
+                b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                 b
             }
             Decl::Component { .. } => bind(Kind::Comp, cm(alias)),
@@ -1388,14 +1386,8 @@ impl<'p> Gen<'p> {
                 let ExprKind::Id(fname) = &f.k else { return Ok(None) };
                 let Some(fb) = self.lookup(env, fname).filter(|x| x.kind == Kind::Jfn) else { return Ok(None) };
                 let refs: Vec<bool> = fb.f.as_ref().unwrap().params.iter().map(|p| p.1).collect();
-                let sigs: Vec<bool> = fb.f.as_ref().unwrap().sigs.clone();
                 let mut out = vec![];
                 for (i, a) in args.iter().enumerate() {
-                    if sigs.get(i).copied().unwrap_or(false) {
-                        // MO-10h: a signal of the value, read once
-                        out.push(rtc("signal", vec![rtc("untrack", vec![thunk(self.expr(a, env, &reactive())?)])]));
-                        continue;
-                    }
                     if !refs.get(i).copied().unwrap_or(false) {
                         out.push(rtc("untrack", vec![thunk(self.expr(a, env, &reactive())?)]));
                         continue;

@@ -44,7 +44,6 @@ module.exports = grammar(tsx, {
     [$.primary_expression, $.render_block],
     // `(draft) => …`, `(draft state: T) => …` and `(draft)`: as TSX's own parameter conflicts
     [$.primary_expression, $.draft_modifier],
-    [$.primary_expression, $.signal_modifier],
     [$.primary_expression, $.draft_expression, $.draft_modifier],
   ]),
 
@@ -299,13 +298,10 @@ module.exports = grammar(tsx, {
       $.provides_clause,
       $.renders_clause,
       $.nests_clause,
-      $.joins_clause,
-      $.methods_clause,
     ),
 
-    // `instantiates`, `forwards` (MO-11g), `trusted` (MO-8j), a component's `outlet` (MO-11p), a fn's bare `renders`
-    // (MO-11l)
-    row_word: _ => choice('instantiates', 'forwards', 'trusted', 'outlet', 'renders'),
+    // `instantiates`, a component's `outlet` (MO-11p), a fn's bare `renders` (MO-11l)
+    row_word: _ => choice('instantiates', 'outlet', 'renders'),
 
     rejects_clause: $ => seq('rejects', '(', $._error_classes, ')'),
 
@@ -314,11 +310,11 @@ module.exports = grammar(tsx, {
     provides_clause: $ => seq('provides', $._context_names),
     _context_names: $ => seq('(', optional(seq(commaSep1(field('name', $.identifier)), optional(','))), ')'),
 
-    // `renders(later)`, `renders(root, ctx)` (MO-11r)
+    // `renders(later)` (MO-11r)
     renders_clause: $ => seq(
       'renders',
       token.immediate('('),
-      choice('later', seq('root', repeat(seq(',', field('name', $.identifier))))),
+      'later',
       ')',
     ),
 
@@ -331,12 +327,6 @@ module.exports = grammar(tsx, {
       field('of', alias($.identifier, $.property_identifier)),
       ')',
     ),
-
-    // `joins(path)` (MO-11i)
-    joins_clause: $ => seq('joins', '(', field('field', alias($.identifier, $.property_identifier)), ')'),
-
-    // `methods(addChildren)`: the methods of the instance a primitive makes that make a value once (02 E-10)
-    methods_clause: $ => seq('methods', '(', commaSep1(field('name', alias($.identifier, $.property_identifier))), optional(','), ')'),
 
     // A declaration file's component: `component Dialog.Title(props: { id?: string }) uses(coreDialog)` (MO-11a,
     // MO-11q). As a fn's row, it does not end at a newline that a `{` follows: that is a component's body
@@ -667,15 +657,14 @@ module.exports = grammar(tsx, {
       field('body', $.statement_block),
     ),
 
-    // `fn area(ref w: number)`: an instantiation parameter (E-9). In a declaration file, `signal init: string` takes
-    // a Solid signal (MO-10h) and a callback's `draft state: T` is a library's draft (MO-10i)
+    // `fn area(ref w: number)`: an instantiation parameter (E-9). In a declaration file, a callback's `draft state: T`
+    // is a library's draft (MO-10i)
     _parameter_name: ($, previous) => seq(
-      optional(choice($.ref_modifier, $.signal_modifier, $.draft_modifier)),
+      optional(choice($.ref_modifier, $.draft_modifier)),
       previous,
     ),
 
     ref_modifier: _ => 'ref',
-    signal_modifier: _ => 'signal',
     draft_modifier: _ => 'draft',
 
     // `): ref string`, `): [ref boolean, (v: boolean) => void]`: an accessor in a signature's return (MO-10b); and a
@@ -725,9 +714,8 @@ module.exports = grammar(tsx, {
 
     ref_type: $ => prec.right(seq($.ref_modifier, $.type)),
 
-    // `onSubmit: handler (e: Event) => void` (called later, MO-10g), `queryFn: tracked () => T` (called inside a
-    // computation, MO-10j)
-    callback_type: $ => seq(field('kind', choice('handler', 'tracked')), $.function_type),
+    // `onSubmit: handler (e: Event) => void`: called later, outside any computation (MO-10g)
+    callback_type: $ => seq(field('kind', 'handler'), $.function_type),
 
     // a result's field rows: `data: pending fails(Error) any` (MO-10f)
     row_type: $ => prec.right(seq(choice('pending', $.fails_row), $.type)),
@@ -744,7 +732,6 @@ module.exports = grammar(tsx, {
       'client',
       'error',
       'draft',
-      'signal',
       'view',
     ),
   },

@@ -306,13 +306,9 @@ struct Sym<'a> {
     /// MO-11l: a declared JS fn that renders the components in its arguments where its result is bound; on the bound
     /// name, that its factory record's values are applied there
     renders: bool,
-    /// MO-11n: `renders(root)`, applied under a root of the library's own
-    renders_root: bool,
     /// MO-11l (revised 2026-11-21): a value whose components `renders` checked where it was bound — bound from a bare
     /// `renders` call, or an alias of one; it may not travel to where something else would render it
     local_renders: bool,
-    /// E-10 (RFC 14, bounded): a primitive's declared `methods(…)`, and on an instance it made, its own
-    methods: Vec<String>,
     /// MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a
     /// draft: the parameter positions that are drafts
     updater: Option<Vec<usize>>,
@@ -322,12 +318,11 @@ struct Sym<'a> {
     /// MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or
     /// of a part of it, that part's: the closed set of what the value answers (`ty_step`)
     ret_ty: Option<String>,
-    /// MO-11n: the JS contexts (keys) it carries into that root
-    carries: Vec<String>,
     /// MO-8k: a JS import with no declaration in any of the four places: its specifier
     undeclared: Option<String>,
-    /// MO-11g: a declared JS fn that, inside a factory's arguments, hands the components it is given on to the factory
-    forwards: bool,
+    /// MO-11g: a JS fn declared or imported `pure` that makes nothing: it keeps nothing, and what it is given comes back
+    /// only in its result (MO-10k), so among a factory's arguments it hands the components it is given on to the factory
+    pure_fn: bool,
     /// MO-8l: a JS fn declared by a generated draft (node_modules/.rx-types): its package's specifier
     generated: Option<String>,
     /// MO-11o: a declared fn whose result carries the components in its arguments
@@ -429,15 +424,12 @@ impl<'a> Sym<'a> {
             gives: vec![],
             nests: None,
             renders: false,
-            renders_root: false,
             local_renders: false,
-            methods: vec![],
             updater: None,
             disposer: None,
             ret_ty: None,
-            carries: vec![],
             undeclared: None,
-            forwards: false,
+            pure_fn: false,
             generated: None,
             carrier: false,
             carried: None,
@@ -1688,6 +1680,20 @@ fn peeks_in<'a>(n: Node<'a>, out: &mut Vec<&'a Expr>) {
         }
     }
 }
+/// MO-11q, 07 §4: `<wardic.div>` — a tag that begins with a small letter is an element's, and no element's name has a `.`
+/// (a custom element's has a `-`). A member component is applied through a name with a capital. `bound`: the head is a
+/// name of this module.
+fn member_tag_lowercase(tag: &str, bound: bool) -> String {
+    let dot = tag.find('.').unwrap_or(tag.len());
+    let (head, rest) = tag.split_at(dot);
+    let mut cs = head.chars();
+    let cap: String = cs.next().map(|c| c.to_uppercase().collect::<String>() + cs.as_str()).unwrap_or_default();
+    if bound {
+        format!("<{tag}> is not {head}'s member {}: a tag is a component's by its capital (07 §4), so this is an element named \"{tag}\", which no element is — import {head} under a capital, `import {{ {head} as {cap} }}`, and apply the member, <{cap}{rest}> (declared `export component {tag}(…)`, MO-11q)", rest.trim_start_matches('.'))
+    } else {
+        format!("<{tag}> is no element (no element's name has a `.`) and no component: a tag is a component's by its capital (07 §4) — a member component is applied through a name with a capital, <{cap}{rest}>")
+    }
+}
 /// MO-11a, MO-8k: what UNKNOWN_COMPONENT says for a JS import — where its declaration goes, and for a package how to draft one.
 pub fn unknown_js_component(tag: &str, from: Option<&str>) -> String {
     match from {
@@ -2312,6 +2318,7 @@ impl<'a> Checker<'a> {
                         let mut s = Sym::new(SymKind::Import, &n.alias, region, *line as i64);
                         s.undeclared = Some(from.clone());
                         s.io = !pure;
+                        s.pure_fn = *pure;
                         s.rejects = Some(fails.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
                         s.side = *side;
                         let s = self.bind(env, &n.alias, s);
@@ -2450,9 +2457,8 @@ impl<'a> Checker<'a> {
                                 if let Some(t) = self.lookup(env, n).filter(|t| self.syms[*t].renders) {
                                     sym.factory = Some((args.as_slice(), env));
                                     sym.renders = true;
-                                    sym.renders_root = self.syms[t].renders_root;
-                                    sym.local_renders = !self.syms[t].renders_root;
-                                    sym.carries = self.syms[t].carries.clone();
+                                    let _ = t;
+                                    sym.local_renders = true;
                                 }
                             }
                         }
@@ -2798,7 +2804,7 @@ impl<'a> Checker<'a> {
                     bind_comp(self, x, alias);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, forwards: xforwards, methods: xmethods, ret: xret, draft_args: xdraft_args, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, ret: xret, draft_args: xdraft_args, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -2815,16 +2821,12 @@ impl<'a> Checker<'a> {
                         s.gives = js_keys(self, xprovides);
                         s.nests = xnests.clone();
                         s.renders = *xrenders;
-                        s.renders_root = *xroot;
-                        s.carries = js_keys(self, xcarries);
                         s.carrier = *xcarrier;
                         s.under = xunder.clone();
                         s.drafts = xdrafts.clone();
                         s.part_drafts = xpart_drafts.clone();
-                        s.forwards = *xforwards;
                         s.held = xheld.clone();
                         s.cbs = xcbs.clone();
-                        s.methods = xmethods.clone();
                         s.ret_ty = xret.clone();
                         self.bind(env, alias, s);
                         continue;
@@ -2850,7 +2852,7 @@ impl<'a> Checker<'a> {
                     s.drafts = xdrafts.clone();
                     s.draft_args = xdraft_args.clone();
                     s.part_drafts = xpart_drafts.clone();
-                    s.forwards = *xforwards;
+                    s.pure_fn = *xpure;
                     s.generated = generated.clone();
                     self.bind(env, alias, s);
                 }
@@ -2861,7 +2863,7 @@ impl<'a> Checker<'a> {
     /// MO-10b: an equation bound from a primitive's result, or from a part of it (`[a, b] = f(…)`, `x.k`): a `ref` part is
     /// a reader (it may hold, MO-10d), a function part is io (R-io-3), anything else is a value.
     fn foreign_part(&self, sym: &mut Sym<'a>, e: &Expr, env: EId) {
-        // MO-10b, MO-10f: an alias of a result is the result — its shape, its fields' rows, its methods and draft parts
+        // MO-10b, MO-10f: an alias of a result is the result — its shape, its fields' rows and draft parts
         if let ExprKind::Id(n) = &e.k {
             let Some(t) = self.lookup(env, n) else { return };
             let t = &self.syms[t];
@@ -2877,9 +2879,6 @@ impl<'a> Checker<'a> {
             sym.foreign = t.foreign.clone();
             if !t.held.is_empty() {
                 sym.held = t.held.clone();
-            }
-            if !t.methods.is_empty() {
-                sym.methods = t.methods.clone();
             }
             if !t.part_drafts.is_empty() {
                 sym.part_drafts = t.part_drafts.clone();
@@ -2980,7 +2979,6 @@ impl<'a> Checker<'a> {
         if let ExprKind::Call { f, .. } = &e.k {
             if let ExprKind::Id(n) = &f.k {
                 if let Some(t) = self.lookup(env, n) {
-                    sym.methods = self.syms[t].methods.clone(); // E-10: its declared methods
                     sym.ret_ty = self.syms[t].ret_ty.clone(); // MO-10k: its declared type
                     if !self.syms[t].held.is_empty() {
                         sym.held = self.syms[t].held.clone();
@@ -3356,17 +3354,9 @@ impl<'a> Checker<'a> {
                         // the call runs once, here: its failures and holds are a reader's
                         self.readers.push(ReaderRec { region: self.reg(env), e, env, line: self.line });
                         if self.syms[made].renders {
-                            // MO-11l: applied where it is bound; MO-11n: under a root of its own, nothing above the binding reaches them
+                            // MO-11l: applied where it is bound
                             let trees = self.factory_tree(made);
-                            let at = if self.syms[made].renders_root {
-                                let r = self.region(None, "root", false, None);
-                                for k in self.syms[made].carries.clone() {
-                                    self.regions[r].provides.insert(k);
-                                }
-                                self.env(Some(env), r)
-                            } else {
-                                env
-                            };
+                            let at = env;
                             for t in trees {
                                 self.apply_tree(&t, Some(d.line()), at);
                             }
@@ -4071,9 +4061,9 @@ impl<'a> Checker<'a> {
         out
     }
     /// E-10, E-5a (ruled 2026-11-22): the first read, in `e`, through a value that may be the instance a primitive made
-    /// (MO-10k, by mention) — as written. An instance never changes, so naming it, passing it whole and calling a method
-    /// its declaration names (`methods(…)`) on its own name read nothing that does; a field of it tracks (MO-10b), and
-    /// what any other method answers the declaration does not say. So a field read, an index or a method call on
+    /// (MO-10k, by mention) — as written. An instance never changes, so naming it and passing it whole
+    /// read nothing that does; a field of it tracks (MO-10b), and
+    /// what a method of it answers the declaration does not say. So a field read, an index or a method call on
     /// anything that may be the instance — an alias's record, an array holding it, what a call given it returns, a
     /// parameter of a closure handed it — is a read of what may change, and so is handing it to a function of `.rx`
     /// that the checker cannot see into. A JS fn takes it whole (the exemption). A closure reads when it is called: one
@@ -4082,17 +4072,6 @@ impl<'a> Checker<'a> {
         self.inst_read(Node::E(e), env, peeks, &HashSet::new(), &mut HashSet::new())
     }
     fn may_be_instance(&mut self, e: &Expr, env: EId, tp: &HashSet<String>) -> bool {
-        // what a declared method of the instance answers is a value made once from what it is given (E-10), not the
-        // instance: `clock.format().length` reads through nothing that changes
-        if let ExprKind::Call { f, args, .. } = &e.k {
-            if let Some((o, m)) = method_callee(f) {
-                if let ExprKind::Id(on) = &o.k {
-                    if !tp.contains(on) && self.lookup(env, on).is_some_and(|t| self.taint_root(t, Taint::Instance) && self.syms[t].methods.iter().any(|x| *x == m)) {
-                        return args.iter().any(|a| self.may_be_instance(a, env, tp));
-                    }
-                }
-            }
-        }
         let names = self.flow_names(e, env);
         names.iter().any(|n| tp.contains(n) || self.lookup(env, n).is_some_and(|t| self.tainted(t, Taint::Instance).is_some()))
     }
@@ -4110,11 +4089,7 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Call { f, args, .. } => {
-                // a method the instance's declaration names, called on its own name, reads nothing
-                let own = method_callee(f).and_then(|(o, m)| match &o.k {
-                    ExprKind::Id(on) if !tp.contains(on) => self.lookup(env, on).filter(|&t| self.taint_root(t, Taint::Instance) && self.syms[t].methods.iter().any(|x| *x == m)),
-                    _ => None,
-                });
+                let own: Option<SId> = None;
                 let recv: Option<&'a Expr> = match &f.k {
                     ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => Some(o),
                     _ => None,
@@ -4219,13 +4194,12 @@ impl<'a> Checker<'a> {
             rooted_reads(a, &mut rooted);
             // E-10: an instance a primitive made (its value result) is made once and never changes, when it is passed
             // whole; a field read through it, or a name bound to one, tracks (RFC 14, MO-10b)
-            // a method called on it keeps it stable only when the primitive's declaration names it, `methods(addChildren)`:
-            // what an undeclared method gives back the declaration does not say, and may track (RFC 14, bounded 2026-11-21)
+            // a method called on it is a call whose answer may change: what a method gives back the declaration does not
+            // say, and may track (RFC 14, bounded 2026-11-21)
             let mut methods = vec![];
             method_calls(a, &mut methods);
-            let declared_method = |s: SId, m: &str| self.syms[s].methods.iter().any(|x| x == m);
             let instance = |s: SId| matches!(self.syms[s].foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value)) | Some(crate::parse::Shape::Comp) | Some(crate::parse::Shape::Fields(_)));
-            let undeclared = |s: SId, n: &String| methods.iter().find(|(r, m)| r == n && !declared_method(s, m)).map(|(_, m)| m.clone());
+            let undeclared = |_s: SId, n: &String| methods.iter().find(|(r, _)| r == n).map(|(_, m)| m.clone());
             let constant = |s: SId, n: &String| instance(s) && !self.syms[s].via_field && !rooted.contains(n) && undeclared(s, n).is_none();
             let cands: Vec<(String, SId, Option<String>)> = reads
                 .iter()
@@ -4236,7 +4210,7 @@ impl<'a> Checker<'a> {
             for (n, s, m) in cands {
                 if !self.constant_eq(s) {
                     hit = Some(match m {
-                        Some(m) => format!("{n}.{m}(…), a method its declaration does not name (declare it, `methods({m})` on the fn that made {n}, for its value to count as made once)"),
+                        Some(m) => format!("{n}.{m}(…), a method of the instance {n}: what a method answers may change (where it is made once, say so: `peek {n}.{m}(…)`)"),
                         None => n,
                     });
                     break;
@@ -4259,7 +4233,7 @@ impl<'a> Checker<'a> {
             }
             // and a read through anything that may be an instance is a read of what may change
             if hit.is_none() {
-                hit = self.instance_read(a, env, false).map(|r| format!("{r}, through a value that may be the instance a primitive made: a field of it tracks, and what a method its declaration does not name answers may change (name the instance and call a method declared in `methods(…)`, or read it where it is used)"));
+                hit = self.instance_read(a, env, false).map(|r| format!("{r}, through a value that may be the instance a primitive made: a field of it tracks, and what a method answers may change (read it where it is used, or say it is read once: `peek`)"));
             }
             if let Some(h) = hit {
                 self.err(
@@ -4350,9 +4324,9 @@ impl<'a> Checker<'a> {
                         if let ExprKind::Id(on) = &o.k {
                             if counting {
                                 let s = self.lookup(env, on);
-                                // E-10 (bounded): a method a primitive's instance does not declare (`methods(…)`) may answer
-                                // something that changes
-                                if s.is_some_and(|s| self.syms[s].kind == SymKind::Eq && self.syms[s].foreign.is_some() && !self.syms[s].methods.iter().any(|m| m == p)) {
+                                // E-10 (bounded): a method of a primitive's instance may answer something that changes
+                                let _ = p;
+                                if s.is_some_and(|s| self.syms[s].kind == SymKind::Eq && self.syms[s].foreign.is_some()) {
                                     acc.yes = true;
                                 }
                                 let c = self.sym_ch(s);
@@ -4949,7 +4923,7 @@ impl<'a> Checker<'a> {
     }
     fn renders_escape_msg(&mut self, n: &str, root: &str, why: &str) {
         let what = if n == root { format!("{n} holds components `renders` checked where {n} is bound") } else { format!("{n} may hold a part of {root}, whose components `renders` checked where {root} is bound") };
-        self.err("RENDERS_ESCAPES", "MO-11l", format!("{what}, and here it is {why}: render it in the view where {root} is bound — what leaves that view is a primitive made of it (`str(…)`, a template, arithmetic, a comparison, `len(…)`) — or declare the library `renders(later)` with a prop that `renders` it (MO-11o), or `renders(root, …)` if it mounts them under a root of its own (MO-11n)"));
+        self.err("RENDERS_ESCAPES", "MO-11l", format!("{what}, and here it is {why}: render it in the view where {root} is bound — what leaves that view is a primitive made of it (`str(…)`, a template, arithmetic, a comparison, `len(…)`) — or declare the library `renders(later)` with a prop that `renders` it (MO-11o); a library that mounts them under a root of its own says nothing of where (MO-11s)"));
     }
     /// MO-11l: whether a call may keep an argument, or hand it to what the checker cannot see. It does not when what is
     /// called is known to keep nothing: a builtin; a `pure` JS fn, or a method of a `pure` JS import (the declaration's
@@ -4981,19 +4955,8 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => {
-                // a method of the value itself keeps nothing only where the checker knows which method is called: one
-                // its declaration names (`methods(…)`), on the value's own name (closed 2026-11-22). A record or an
-                // array that mentions the value is not the value: `({ send: props.onSend, t: table }).send(table)`
-                let key = match &f.k {
-                    ExprKind::Member { p, .. } => Some(p.clone()),
-                    ExprKind::Index { i, .. } => lit_key(i),
-                    _ => None,
-                };
-                if let (ExprKind::Id(on), Some(m)) = (&o.k, key) {
-                    if self.lookup(env, on).is_some_and(|t| self.syms[t].local_renders && self.syms[t].methods.iter().any(|x| *x == m)) {
-                        return false;
-                    }
-                }
+                // a method of the value keeps nothing only where it is given nothing of the value (below): a receiver says
+                // nothing of what is called (`({ send: props.onSend, t: table }).send(table)` hands the table to the parent)
                 let mut root: &Expr = o;
                 while let ExprKind::Member { o, .. } | ExprKind::Index { o, .. } = &root.k {
                     root = o;
@@ -6584,6 +6547,14 @@ impl<'a> Checker<'a> {
                         }
                         continue;
                     }
+                    // MO-11q, 07 §4: `<wardic.div>` is no element (none has a `.` without a `-`) and, by its small letter, no
+                    // member component: it was compiled as an element of that name, silently
+                    if let Some(dot) = tag.find('.').filter(|d| *d > 0) {
+                        let bound = self.lookup(env, &tag[..dot]).is_some();
+                        if bound || !tag.contains('-') {
+                            self.err("UNKNOWN_COMPONENT", "MO-11q", member_tag_lowercase(tag, bound));
+                        }
+                    }
                     for a in attrs {
                         let h = is_handler(&a.name);
                         if h && a.name != "ref" {
@@ -7024,7 +6995,7 @@ impl<'a> Checker<'a> {
                 }
                 ExprKind::Call { f, args, .. } => {
                     if let ExprKind::Id(g) = &f.k {
-                        if c.lookup(env, g).is_some_and(|t| (c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) && c.syms[t].forwards) {
+                        if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import && c.syms[t].pure_fn) {
                             for a in args {
                                 walk(c, a, env, mark, out);
                             }
@@ -7069,7 +7040,7 @@ impl<'a> Checker<'a> {
                 }
                 ExprKind::Call { f, args, .. } => {
                     if let ExprKind::Id(g) = &f.k {
-                        if c.lookup(env, g).is_some_and(|t| (c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) && c.syms[t].forwards) {
+                        if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import && c.syms[t].pure_fn) {
                             for a in args {
                                 names_in(c, a, env, out);
                             }
@@ -7229,7 +7200,7 @@ impl<'a> Checker<'a> {
                 ExprKind::Call { f, args, .. } => {
                     // MO-11g: a JS call inside the arguments (`defineRoute({ … })`) hands what it is given on to the factory
                     if let ExprKind::Id(g) = &f.k {
-                        if c.lookup(fenv, g).is_some_and(|t| (c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) && c.syms[t].forwards) {
+                        if c.lookup(fenv, g).is_some_and(|t| c.syms[t].kind == SymKind::Import && c.syms[t].pure_fn) {
                             for a in args {
                                 walk(c, a, fenv, out);
                             }
@@ -7326,7 +7297,7 @@ impl<'a> Checker<'a> {
             match &e.k {
                 ExprKind::Arr(items) => items.iter().filter(|x| !matches!(x.k, ExprKind::Spread(_))).flat_map(|x| walk(c, x, fenv, nests)).collect(),
                 ExprKind::Call { f, args, .. } => match &f.k {
-                    ExprKind::Id(g) if c.lookup(fenv, g).is_some_and(|t| (c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) && c.syms[t].forwards) => args.iter().flat_map(|a| walk(c, a, fenv, nests)).collect(),
+                    ExprKind::Id(g) if c.lookup(fenv, g).is_some_and(|t| c.syms[t].kind == SymKind::Import && c.syms[t].pure_fn) => args.iter().flat_map(|a| walk(c, a, fenv, nests)).collect(),
                     _ => vec![],
                 },
                 ExprKind::Rec(fields) => {
@@ -8812,7 +8783,7 @@ mod tests {
     // ---- MO-10k (ruled 2026-11-22): the guarantees, over every way a value is handed on ----
     // Not a list of cases: each confined value is put through every wrapper below and every pair of them (one inside
     // the other), and each result into every way out. The reference runs the same matrix (`ref/units.ts`).
-    const LIB: &str = "export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders\nexport pure fn flexRender(comp: any, props: any): any\nexport fn stashJs(x: any): void\nexport pure fn createClock(): any instantiates methods(format)\nexport pure fn createLabel(width: number): any instantiates\nexport pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport fn later(f: handler () => void): void\n";
+    const LIB: &str = "export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders\nexport pure fn flexRender(comp: any, props: any): any\nexport fn stashJs(x: any): void\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: number): any instantiates\nexport pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport fn later(f: handler () => void): void\n";
     /// The ways an expression hands a value on: `X` is the value.
     const WRAPS: &[&str] = &[
         "X", "[X]", "[X][0]", "({ a: X })", "({ a: X }).a", "keep(X)", "keep(keep(X))", "id(id(X))", "o.f(X)", "[(y) => y][0](X)", "(true ? keep : keep)(X)", "mk(X)()",
@@ -8953,7 +8924,7 @@ mod tests {
     /// in a value. The safe forms beside each are accepted.
     #[test]
     fn each_confined_value_has_a_closed_set_of_operations() {
-        const LIB2: &str = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders methods(setPage)\nexport pure fn createClock(): any instantiates methods(format)\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
+        const LIB2: &str = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
         let run = |main: &str| -> Vec<String> {
             let main = format!("import {{ useQ, createStore, createTable, createClock, createLabel, later, stashJs }} from \"./lib.js\"\nsource held: any := null\nsource n := 0\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any; onF: (x: any) => void }}) {{ <button onClick={{() => {{ held := props.t }}}}>ok</button> }}\n{main}");
             let read = |p: &str| match p {
@@ -8983,13 +8954,13 @@ mod tests {
         }
         let src = format!("export default component App() {{\n{store}  <button onClick={{() => {{ setTodos((d) => {{ d.items.forEach((row) => {{ held := row; row.n := 1 }}); held := d.items.values(); held := d.items.map((row) => row).filter((row) => row.n > 0); d.items.push({{ n: 1 }}); d.items.sort((a, b) => a.n - b.n); held := d.items.valueOf() }}) }}}}>x</button>\n}}\n");
         assert_eq!(run(&src), Vec::<String>::new(), "{src}");
-        // MO-11l: a method keeps nothing only when the declaration names it and it is called on the value's own name
-        for call in ["({ f: props.onF, t: table }).f(table)", "[props.onF, table][0](table)", "box.f(table)", "table.meta.f(table)", "table.rows.push(table)", "table.other(table.rows)", "alias.f(table.rows[0])"] {
+        // MO-11l: a method given a part of the value may keep it, whatever it is called on — the value's own name too
+        for call in ["({ f: props.onF, t: table }).f(table)", "[props.onF, table][0](table)", "box.f(table)", "table.meta.f(table)", "table.rows.push(table)", "table.other(table.rows)", "table.setPage(table.rows)", "alias.f(table.rows[0])"] {
             let src = format!("component Host(props: {{ onF: (x: any) => void }}) {{\n  table = createTable({{ columns: [{{ cell: Cell }}] }})\n  box = {{ f: props.onF, t: table }}\n  alias = box\n  <button onClick={{() => {{ {call} }}}}>x</button>\n}}\nexport default component App() {{\n  <Host onF={{(x) => {{ held := x }}}} />\n}}\n");
             assert!(run(&src).iter().any(|c| c == "RENDERS_ESCAPES"), "accepted:\n{src}");
         }
-        // …and a declared method on its own name, a declared scalar, a primitive made of a part are free
-        let src = "component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <button onClick={() => { table.setPage(table.rows); props.onF(table.label); props.onF(table.count()); props.onF(table.rows[0].id); props.onF(len(table.rows)) }}>x</button>\n  <Grid t={table.label} onF={(x) => {}} />\n  {for row in table.rows { <Grid t={row.id} onF={(x) => {}} /> }}\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n";
+        // …and a method given nothing of the value, a declared scalar, a primitive made of a part are free
+        let src = "component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <button onClick={() => { table.setPage(2); props.onF(table.label); props.onF(table.count()); props.onF(table.rows[0].id); props.onF(len(table.rows)) }}>x</button>\n  <Grid t={table.label} onF={(x) => {}} />\n  {for row in table.rows { <Grid t={row.id} onF={(x) => {}} /> }}\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n";
         assert_eq!(run(src), Vec::<String>::new(), "{src}");
         // …but an undeclared field of it, or a part whose type is not a primitive's, is the value's
         for arg in ["table.meta", "table.rows[0]", "table.rows[0].cells", "table.rows", "table.other"] {
@@ -9065,7 +9036,7 @@ mod tests {
             }
         }
         // and the instance itself stays one: named, passed whole, its declared method called
-        let src = format!("export default component App() {{\n  clock = createClock()\n  c = clock\n{LOCALS}  a = createLabel(clock.format())\n  b = createLabel(c.format())\n  d = peek clock.format()\n  <p>{{a}} {{b}} {{d}}</p>\n}}\n");
+        let src = format!("export default component App() {{\n  clock = createClock()\n  c = clock\n{LOCALS}  a = createLabel(peek clock.format())\n  b = createLabel(peek c.format())\n  d = createLabel(clock)\n  <p>{{a}} {{b}} {{d}}</p>\n}}\n");
         assert_eq!(codes_of(&src), Vec::<String>::new(), "{src}");
     }
     /// MO-10f: a result whose fields hold or fail is never a value: however it is handed on, it is refused, so a held
@@ -9335,7 +9306,7 @@ fn ty_clean(t: &str) -> &str {
     let mut t = js_trim(t);
     loop {
         let before = t;
-        for w in ["readonly ", "handler ", "tracked "] {
+        for w in ["readonly ", "handler "] {
             if let Some(r) = t.strip_prefix(w) {
                 t = js_trim(r);
             }

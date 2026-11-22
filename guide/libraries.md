@@ -19,8 +19,9 @@ It never writes the word for you.
 
 A component's props can be the library's own type, with only the fields that carry a word written after it —
 `export component Dialog(props: import("@ui-sdk/solid/dialog").DialogProps & { onOpenChange?: handler (open: boolean,
-details: DialogOpenChangeDetails) => void }) provides(dialog)` — and a function with several signatures has a row for each
-(the same words on every row). A field in that record is the library's prop written again: `rx-tsc` refuses one the
+details: DialogOpenChangeDetails) => void }) provides(dialog)`. A function with several signatures (TypeScript's
+overloads) has one row, as every export has: one of its signatures, with the words, which are the function's — your
+calls are typed by the library's own overloads either way. A field in that record is the library's prop written again: `rx-tsc` refuses one the
 props' type has no prop for, or one given another type than the library's (it may be narrower). Don't write `any` where the library has a type: name the type (`rx-declare --explain`
 says which `any`s are the library's own and which are the draft's).
 
@@ -150,10 +151,11 @@ What the compiler catches:
   The same holds for a JS component's props, whatever their names: `onChange: handler (v: string) => void` takes a
   writing closure, `onChange: (v: string) => void` does not. Only a prop the declaration leaves untyped (or does not
   name) is read by its name, an `on…` one as an event handler.
-- **A function the library calls inside its own computation is `tracked`.** TanStack Query runs `queryFn` while it
-  computes `data`, so `queryFn: tracked () => Promise<any>`: a closure there is a pure one, as anywhere in reactive
-  scope (no writes; its reads are tracked by the library). `rx-verify` tells the three apart by running: a `handler`
-  called inside a computation is a mismatch, and it reports which unmarked functions could be either word.
+- **A function the library calls inside its own computation takes no word.** TanStack Query runs `queryFn` while it
+  computes `data`: `queryFn: () => Promise<any>`, a function type without `handler`, is already what that needs — a
+  closure there is a pure one, as anywhere in reactive scope (no writes; its reads are tracked by the library).
+  `rx-verify` tells the two apart by running: a `handler` called inside a computation is a mismatch, and it reports
+  which unmarked functions the library calls later, where `handler` would let a closure write.
 - **Callbacks you pass are plain functions.** An action passed as `handler` is checked as an action; a plain closure
   is not checked beyond what any closure is.
 - **A store's updater can have a name.** `setTodos((d) => { d.done := d.done + 1 })` writes the library's draft (a
@@ -189,6 +191,51 @@ What the compiler catches:
   unchecked: the call is then an equation, re-run (and the primitive rebuilt) whenever an argument changes. Declare
   primitives instead.
 
+## When no word says what a library does
+
+A declaration has few words on purpose (spec/09 MO-8r): one is there only when more than one library needs it to be
+used correctly. What a single package does, you say without one, in one of three ways.
+
+- **Leave it undeclared.** An import with no row is io and can fail with `Error`: call it from a handler or an action,
+  and TypeScript still types the call from the library's own `.d.ts`. A component you give such a function is checked
+  under a root of its own (it must bring its own boundaries and contexts), which is also exactly right for a toaster or
+  a modal manager that mounts what it is given itself.
+- **A few lines of your own JavaScript, declared in the words there are.** A module beside your app (`./storage.js`
+  with `./storage.d.rx`, and a `.d.ts` or TypeScript source for its types) turns the library's shape into one a row
+  can say:
+
+  ```js
+  // a primitive that wraps a Solid signal: make the signal here
+  import { createSignal } from "solid-js"
+  import { makePersisted } from "@solid-primitives/storage"
+  export const persisted = (init, options) => makePersisted(createSignal(init), options)
+  // a module's default export: give it a name
+  export { default as useOnlineStatus } from "solid-use/online-status"
+  // one function that reads and writes (an "atom"): a reader and a setter
+  import atom from "solid-use/atom"
+  export const createAtom = (init) => { const a = atom(init); return [() => a(), (v) => { a(v) }] }
+  // a callback the library runs once, on the server, and that is impure on purpose: write it in JavaScript
+  import useServerValue from "solid-use/server-value"
+  export const useTicket = () => useServerValue(() => Math.random().toString(36).slice(2))
+  ```
+
+  ```rx
+  export pure fn persisted(init: string, options?: { name?: string }): [ref string, (v: string) => void]
+  export pure fn useOnlineStatus(): ref boolean
+  export pure fn createAtom<T>(init: T): [ref T, (v: T) => void]
+  export pure fn useTicket(): string
+  ```
+
+- **The library's own types.** A row restates no more of a type than its words need: props can be the library's type
+  (`props: DialogProps & { onOpenChange?: handler (…) => void }`), a result its name, and of several signatures one.
+  `rx-tsc` checks your calls against the library's `.d.ts`, not against the row.
+
+Two things the language says itself. A method of a library's object that makes its value once is read once with
+`peek`: `createRouter({ routeTree: peek rootRoute.addChildren([indexRoute, personRoute]) })` (without it the checker
+cannot know the answer never changes, `SNAPSHOT_ARGUMENT`). And an object of components exported under a small letter
+(Motion's `motion`, Wardic's `wardic`) is imported under a capital — `import { wardic as Wardic }`, then
+`<Wardic.div>` — because a tag is a component's by its capital; `<wardic.div>` is refused, with that spelling.
+
 ## Components and routers
 
 A Solid component from JS is declared the same way, with its props as TypeScript types. A function that hands back a
@@ -198,7 +245,7 @@ component (a router's `createRouter`) is declared with `Component` as its result
 // router.d.rx, beside router.js: export { createRouter, useParams, useNavigate } from "@solidjs/router"
 export type RouteDefinition = { path?: string; component?: Component; children?: RouteDefinition[] }
 export context router
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component)
 export pure fn useParams(): Record<string, string> uses(router)
 export pure fn useNavigate(): (to: string) => void uses(router)
 
@@ -280,7 +327,7 @@ type gives each route's component the params its path supplies:
 // router.d.rx: the router's own types, and defineRoute's type parameter, as TypeScript text
 export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
 export type RouteDefinition = import("@solidjs/router").RouteDefinition
-export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition forwards
+export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition
 ```
 
 ```rx
@@ -297,8 +344,10 @@ Then `rx-tsc` refuses
 `defineRoute({ path: "/people", component: Person })` on that line: `/people` has no `id`. Write
 `defineRoute(…)` inside the `createRouter({ … })` call: bound on its own, it is not part of a route table the checker can
 see, so its component is checked under a root of its own (MO-11s), with no `errored`, `loading` or `provide` from above
-`<Router />`. Under a router declared `nests(…)` (MO-11i), a child route is typed from its whole path, its parents' joined
-in front, so it sees their params.
+`<Router />`. (`defineRoute` hands its component on to the router because it is `pure` and makes nothing: what it is
+given can only come back in its result, MO-11g.) A child route is typed from its own path, as in TSX — the router's
+types do not join it with its parents' — so a page under a parent that has the param declares it optional:
+`component Member(props: { params: { id?: string } })`.
 
 ### Typed search params
 

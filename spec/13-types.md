@@ -182,8 +182,13 @@ does for `.tsrx`. Nothing here is a second type system.
   fields that carry words (09 MO-8o) is a function of their intersection,
   its type parameters found from the type alone (`props: P &
   NoInfer<{ … }>`), and each field of the record is held against the
-  type's prop of that name (TY-6f); a fn with several rows (09 MO-8p) is
-  held to each.
+  type's prop of that name (TY-6f). A fn has one row (09 MO-8b): of a
+  library's overloads, the row is held by the one that fits it.
+  A package a row names by a bare specifier (`import("dep").T`) in a
+  package's declaration is resolved as the declared library resolves it,
+  from the library's location and then from beside the declaration (09
+  MO-8o), so whether a row holds does not depend on how the install laid
+  the library's dependencies out.
 - **TY-6b.** The direction is the boundary's: the real export must fit the
   declared one, so `.rx` code checked against the declaration is right
   about the module. A declaration may say less than the types (`any`, an
@@ -263,13 +268,14 @@ does for `.tsrx`. Nothing here is a second type system.
   in the tsconfig), `rx-tsc` reads, beside each `.d.rx` the program
   imports (as the loader resolved it, TY-6e) or the tsconfig names, the record `rx-verify --record` wrote (09 MO-8j). A row is
   accepted when the record shows it held (`ok`) or had nothing to run
-  (`n/a`), by the hash of its text, or when the row says `trusted`. Any
+  (`n/a`), by the hash of its text. Any
   other row is `UNVERIFIED_ROW`, on the row's line: nothing verified it,
   it changed since the record, rx-verify found a mismatch, or rx-verify
   could not check it (no probe, no scene).
 - **TY-7b.** TY-6 checks what types can see; TY-7 asks that the rest
   (`pure`, `uses`, `provides`, `pending`, `fails`, placement, drafts,
-  callbacks) was run, or that someone said in the row they trust it.
+  callbacks) was run. (A row could say `trusted` and pass: withdrawn
+  2026-11-22, 09 MO-8r.)
 
 ## Found by the type layer (2026-10-25)
 

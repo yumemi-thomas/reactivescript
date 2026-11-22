@@ -12,16 +12,26 @@ export const repo = path.resolve(here, "..");
 export const ws = path.join(here, ".out/ws");
 export const rxc = process.env.RXC || path.join(repo, "compiler/target/release/rxc");
 
-/** The workspace: bench/package.json installed from npm (once; again when it changes), with this repository's compiler,
- *  runtime and language server linked as installed. Every task is a folder under it, so each resolves the same Solid. */
+/** An install from a lockfile (`npm ci`), so that every machine has the same tree: `from` holds package.json and
+ *  package-lock.json, `at` is where they are installed — once, and again when either changes. A tree npm resolved on
+ *  its own (`npm install` with no lock) hoists what it likes, and what `rx-declare` drafts was once read off that. */
+function installLocked(from, at) {
+  mkdirSync(at, { recursive: true });
+  const files = ["package.json", "package-lock.json"];
+  for (const f of files) if (!existsSync(path.join(from, f))) throw new Error(`${path.relative(repo, path.join(from, f))} is missing: the benchmark installs from a lockfile (npm install --package-lock-only --legacy-peer-deps, in a copy of its folder, makes one)`);
+  const same = f => existsSync(path.join(at, f)) && readFileSync(path.join(at, f), "utf8") === readFileSync(path.join(from, f), "utf8");
+  // .installed holds the lock the tree was installed from: an install by hand (or an older harness) is redone once
+  const stamp = path.join(at, "node_modules/.installed-from-lock");
+  if (existsSync(path.join(at, "node_modules/solid-js")) && files.every(same) && existsSync(stamp) && readFileSync(stamp, "utf8") === readFileSync(path.join(from, "package-lock.json"), "utf8")) return;
+  for (const f of files) writeFileSync(path.join(at, f), readFileSync(path.join(from, f), "utf8"));
+  execFileSync("npm", ["ci", "--no-audit", "--no-fund", "--silent", "--legacy-peer-deps"], { cwd: at, stdio: "inherit" });
+  writeFileSync(stamp, readFileSync(path.join(from, "package-lock.json"), "utf8"));
+}
+/** The workspace: bench/package.json installed from bench/package-lock.json (once; again when either changes), with this
+ *  repository's compiler, runtime and language server linked as installed. Every task is a folder under it, so each
+ *  resolves the same Solid. */
 export function workspace() {
-  const pkg = readFileSync(path.join(here, "package.json"), "utf8");
-  mkdirSync(ws, { recursive: true });
-  const at = path.join(ws, "package.json");
-  if (!existsSync(path.join(ws, "node_modules/solid-js")) || !existsSync(at) || readFileSync(at, "utf8") !== pkg) {
-    writeFileSync(at, pkg);
-    execFileSync("npm", ["install", "--no-audit", "--no-fund", "--silent", "--legacy-peer-deps"], { cwd: ws, stdio: "inherit" });
-  }
+  installLocked(here, ws);
   linkOwn(path.join(ws, "node_modules"));
 }
 /** This repository's packages in a node_modules, as an app installs them: the compiler and the language server linked,
@@ -36,16 +46,13 @@ function linkOwn(nm) {
   const shared = path.join(nm, "@rx-types"); rmSync(path.join(shared, "solid-js"), { recursive: true, force: true }); mkdirSync(shared, { recursive: true });
   cpSync(path.join(repo, "declarations/solid-js"), path.join(shared, "solid-js"), { recursive: true });
 }
-/** A task with a package.json of its own (beside its task.mjs) has an install of its own, for a library that pins
- *  another version of what the workspace holds: installed once into bench/.out/ws/deps/<id> (again when it changes). */
+/** A task with a package.json of its own (beside its task.mjs, with its package-lock.json) has an install of its own,
+ *  for a library that pins another version of what the workspace holds: installed from that lock into
+ *  bench/.out/ws/deps/<id> (once; again when either changes). */
 function ownInstall(id) {
-  const from = path.join(here, "tasks", id, "package.json"); if (!existsSync(from)) return null;
-  const pkg = readFileSync(from, "utf8"); const at = path.join(ws, "deps", id); mkdirSync(at, { recursive: true });
-  const had = path.join(at, "package.json");
-  if (!existsSync(path.join(at, "node_modules/solid-js")) || !existsSync(had) || readFileSync(had, "utf8") !== pkg) {
-    writeFileSync(had, pkg);
-    execFileSync("npm", ["install", "--no-audit", "--no-fund", "--silent", "--legacy-peer-deps"], { cwd: at, stdio: "inherit" });
-  }
+  const from = path.join(here, "tasks", id); if (!existsSync(path.join(from, "package.json"))) return null;
+  const at = path.join(ws, "deps", id);
+  installLocked(from, at);
   linkOwn(path.join(at, "node_modules"));
   return path.join(at, "node_modules");
 }
@@ -204,7 +211,7 @@ export function anysWritten(dir) {
 // ---- the declarations a task's checker reasons with (its `.d.rx` files) ----
 const tokens = line => line.match(/[A-Za-z_$][\w$]*|\d+|[^\s\w]/g) ?? [];
 const isWord = t => /^[\w$]/.test(t);
-const exported = line => /^export\s+(?:(?:pure|server|client|trusted)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(line.trim())?.[1];
+const exported = line => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(line.trim())?.[1];
 /** The words of `hand` that are not `draft`'s: the tokens of `hand` outside a longest common subsequence of the two. */
 function written(hand, draft) {
   const a = tokens(hand), b = tokens(draft);
@@ -263,7 +270,7 @@ export function declarations(dir, flagsFor = {}) {
     const { spec, from } = declares(dir, p);
     const draft = draftOf(spec, from, flagsFor[spec] ?? []);
     const whole = new Set(draft), byName = new Map(draft.map(l => [exported(l), l]).filter(([n]) => n));
-    // a fn with several rows (09 MO-8p): each is measured against the draft's row for the same name it is nearest to
+    // a name the draft has more than one line for: each row is measured against the nearest of them
     const allByName = new Map(); for (const l of draft) { const n = exported(l); if (n) allByName.set(n, [...(allByName.get(n) ?? []), l]); }
     let words = 0, places = 0; const anyBy = new Map();
     for (const line of code(readFileSync(p, "utf8")).map(l => l.trim()).filter(Boolean)) {

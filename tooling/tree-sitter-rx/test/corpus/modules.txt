@@ -331,12 +331,12 @@ Declaration file rows: contexts, placement and type parameters
 
 export context router
 export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]
-export pure fn defineRoute<const S extends string>(route: { path: S }): RouteDefinition forwards
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)
-export pure fn createRoute(options: { path: string }): any renders(later) methods(addChildren) nests(component under getParentRoute)
-export pure fn mount(app: Component): void renders(root, router) trusted
+export pure fn defineRoute<const S extends string>(route: { path: S }): RouteDefinition
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component)
+export pure fn createRoute(options: { path: string }): any renders(later) nests(component under getParentRoute)
+export pure fn mount(app: Component): void renders
 export pure fn useParams(): ref any uses(router)
-export pure fn makePersisted(signal init: string, signal?: number): [ref string, (v: string) => void]
+export pure fn persisted(init: string, signal?: number): [ref string, (v: string) => void]
 export const promoteForm: any
 export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
 
@@ -396,8 +396,7 @@ export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
                 (type_annotation
                   (type_identifier)))))))
       (type_annotation
-        (type_identifier))
-      (row_word)))
+        (type_identifier))))
   (export_statement
     (fn_signature
       (pure)
@@ -418,8 +417,6 @@ export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
         (identifier))
       (nests_clause
         (property_identifier)
-        (property_identifier))
-      (joins_clause
         (property_identifier))))
   (export_statement
     (fn_signature
@@ -437,8 +434,6 @@ export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
       (type_annotation
         (predefined_type))
       (renders_clause)
-      (methods_clause
-        (property_identifier))
       (nests_clause
         (property_identifier)
         (property_identifier))))
@@ -453,8 +448,6 @@ export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
             (type_identifier))))
       (type_annotation
         (predefined_type))
-      (renders_clause
-        (identifier))
       (row_word)))
   (export_statement
     (fn_signature
@@ -473,7 +466,6 @@ export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
       (identifier)
       (formal_parameters
         (required_parameter
-          (signal_modifier)
           (identifier)
           (type_annotation
             (predefined_type)))
@@ -520,7 +512,7 @@ Declaration file rows: callbacks and field rows
 ========================================
 
 export pure fn debounce(callback: handler (...args: any[]) => void, wait?: number): (...args: any[]) => void instantiates
-export pure fn useQuery(ref options: { queryFn: tracked () => Promise<any> }): { data: pending fails(Error) any; isFetching: pending boolean } uses(queryClient)
+export pure fn useQuery(ref options: { queryFn: () => Promise<any>; onSettled?: handler () => void }): { data: pending fails(Error) any; isFetching: pending boolean } uses(queryClient)
 
 ---
 
@@ -571,13 +563,19 @@ export pure fn useQuery(ref options: { queryFn: tracked () => Promise<any> }): {
               (property_signature
                 (property_identifier)
                 (type_annotation
+                  (function_type
+                    (formal_parameters)
+                    (generic_type
+                      (type_identifier)
+                      (type_arguments
+                        (predefined_type))))))
+              (property_signature
+                (property_identifier)
+                (type_annotation
                   (callback_type
                     (function_type
                       (formal_parameters)
-                      (generic_type
-                        (type_identifier)
-                        (type_arguments
-                          (predefined_type)))))))))))
+                      (predefined_type)))))))))
       (type_annotation
         (object_type
           (property_signature

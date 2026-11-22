@@ -108,7 +108,8 @@ jobs:
         run: node compiler/test/lib.mjs
       - name: The libraries confined.mjs runs against (bench/package.json)
         run: |
-          mkdir -p bench/.out/ws && cp bench/package.json bench/.out/ws/package.json
-          (cd bench/.out/ws && npm install --no-audit --no-fund --legacy-peer-deps)
+          # from the lockfile, as bench/harness.mjs installs them: every machine resolves the same tree
+          mkdir -p bench/.out/ws && cp bench/package.json bench/package-lock.json bench/.out/ws/
+          (cd bench/.out/ws && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock)
       - name: "the guarantees, run: the counterexamples and their controls, in Chromium (CN-7)"
         run: node compiler/test/confined.mjs

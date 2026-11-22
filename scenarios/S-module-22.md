@@ -8,8 +8,8 @@ Rules: MO-11o, MO-11c, MO-12, E-10, R-f-5, RG-4a.
 -- module: ./tsr.d.rx
 // as @tanstack/solid-router declares it: routes carry their components, the provider renders what its router carries
 export context router
-export pure fn createRootRoute(options: { component?: Component }): any renders(later) methods(addChildren)
-export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) methods(addChildren)
+export pure fn createRootRoute(options: { component?: Component }): any renders(later)
+export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later)
 export pure fn createRouter(options: { routeTree: any }): any instantiates
 export component RouterProvider(props: { router: renders any }) provides(router)
 export component Outlet(props: {}) uses(router)
@@ -24,7 +24,7 @@ component Root() {
   <main><Outlet /></main>
 }
 rootRoute = createRootRoute({ component: Root })
-export router = createRouter({ routeTree: rootRoute.addChildren([]) })
+export router = createRouter({ routeTree: peek rootRoute.addChildren([]) })
 export component Here() {
   <RouterProvider router={router} />
 }
@@ -50,11 +50,13 @@ boundaries hold their failures. A route's nested components render at
 strict (a boundary inside the parent's component is not credited to them).
 
 An instance a primitive made never changes, so reading it in another
-instantiation's arguments (`createRouter({ routeTree: rootRoute.… })`)
-needs no `peek` (E-10). A method called on it keeps that only when the
-declaration names the method, `methods(addChildren)` after the signature:
-a stable receiver says nothing of what an undeclared method gives back,
-which may read state that changes (RFC 14, bounded 2026-11-21).
+instantiation's arguments (`createRouter({ routeTree: rootRoute })`) needs
+no `peek` (E-10). A method called on it is another matter: a stable
+receiver says nothing of what a method gives back, which may read state
+that changes. `addChildren` makes its tree once, and the program says so
+where it passes it: `routeTree: peek rootRoute.addChildren([…])`. (A
+declaration could name such a method, `methods(addChildren)`; one
+library's rows used the word, and `peek` at the call says the same.)
 
 ## Program
 
@@ -73,7 +75,7 @@ component Person() {
 }
 rootRoute = createRootRoute({ component: Root })
 personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
 export default component App() {
   <RouterProvider router={router} />
 }
@@ -96,10 +98,9 @@ export default component App() {
 }
 ```
 
-`currentTree` is not among the `methods(…)` the declaration names: what
-it returns may change after the router is made, so the argument is a
-snapshot (write `peek rootRoute.currentTree()` if that is meant, or
-declare the method).
+What a method of the instance returns may change after the router is
+made, so the argument is a snapshot: `peek rootRoute.currentTree()` if
+that is meant.
 
 ```rx
 -- reject: UNHANDLED_FAILURE
@@ -115,7 +116,7 @@ component Person() {
 }
 rootRoute = createRootRoute({ component: Root })
 personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
 export default component App() {
   <RouterProvider router={router} />
 }
@@ -131,7 +132,7 @@ component Root() {
   <main><Outlet /></main>
 }
 rootRoute = createRootRoute({ component: Root })
-router = createRouter({ routeTree: rootRoute.addChildren([]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([]) })
 export default component App() {
   <Inspector router={router} />
 }
@@ -211,7 +212,7 @@ component Person() {
 }
 rootRoute = createRootRoute({ component: Root })
 personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
 pick = (r) => r
 export default component App() {
   source dev := false
@@ -245,7 +246,7 @@ component Person() {
 }
 rootRoute = createRootRoute({ component: Root })
 personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
 component Shell(props: { router: any; title: string }) {
   <header>{props.title}</header>
   <RouterProvider router={props.router} />
@@ -270,7 +271,7 @@ component Person() {
 }
 rootRoute = createRootRoute({ component: Root })
 personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
 component Shell(props: { router: any }) {
   <RouterProvider router={props.router} />
 }

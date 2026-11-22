@@ -336,8 +336,6 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => a === b,
-    /** MO-10h: a `signal` parameter's argument: a Solid signal of the value, which the library is handed. */
-    signal: (v: unknown) => createSignal(v as never) as unknown,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 

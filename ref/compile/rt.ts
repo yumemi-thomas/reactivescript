@@ -370,8 +370,6 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
-    /** MO-10h: a `signal` parameter's argument: a Solid signal of the value, which the library is handed. */
-    signal: (v: unknown) => createSignal(v as never) as unknown,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 

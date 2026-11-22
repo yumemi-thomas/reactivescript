@@ -17,7 +17,7 @@ const files = (fs: Record<string, string>) => (p: string) => fs[p];
 // ---- MO-10k (ruled 2026-11-22): the guarantees, over every way a value is handed on ----
 // Not a list of cases: each confined value is put through every wrapper below and every pair of them (one inside the
 // other), and each result into every way out. The crate runs the same matrix (`check.rs`, the tests of these names).
-const LIB = "export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders\nexport pure fn flexRender(comp: any, props: any): any\nexport fn stashJs(x: any): void\nexport pure fn createClock(): any instantiates methods(format)\nexport pure fn createLabel(width: number): any instantiates\nexport pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport fn later(f: handler () => void): void\n";
+const LIB = "export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders\nexport pure fn flexRender(comp: any, props: any): any\nexport fn stashJs(x: any): void\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: number): any instantiates\nexport pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport fn later(f: handler () => void): void\n";
 /** The ways an expression hands a value on: `X` is the value. */
 const WRAPS = [
   "X", "[X]", "[X][0]", "({ a: X })", "({ a: X }).a", "keep(X)", "keep(keep(X))", "id(id(X))", "o.f(X)", "[(y) => y][0](X)", "(true ? keep : keep)(X)", "mk(X)()",
@@ -59,7 +59,7 @@ export const units: [string, () => void][] = [
       const src = `export default component App() {\n  clock = createClock()\n${LOCALS}  label = ${read.replaceAll("E", e)}\n  <p>{label}</p>\n}\n`;
       must(codesOf(src).includes(code), `accepted (${code})`, src);
     }
-    const src = `export default component App() {\n  clock = createClock()\n  c = clock\n${LOCALS}  a = createLabel(clock.format())\n  b = createLabel(c.format())\n  d = peek clock.format()\n  <p>{a} {b} {d}</p>\n}\n`;
+    const src = `export default component App() {\n  clock = createClock()\n  c = clock\n${LOCALS}  a = createLabel(peek clock.format())\n  b = createLabel(peek c.format())\n  d = createLabel(clock)\n  <p>{a} {b} {d}</p>\n}\n`;
     deepStrictEqual(codesOf(src), []);
   }],
   ["a_result_with_held_fields_is_never_a_value", () => {   // MO-10f
@@ -80,7 +80,7 @@ export const units: [string, () => void][] = [
     }
   }],
   ["each_confined_value_has_a_closed_set_of_operations", () => {   // MO-10k (closed 2026-11-22); mirrors the crate's test
-    const LIB2 = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders methods(setPage)\nexport pure fn createClock(): any instantiates methods(format)\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
+    const LIB2 = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
     const run = (main: string): string[] => {
       const src = `import { useQ, createStore, createTable, createClock, createLabel, later, stashJs } from "./lib.js"\nsource held: any := null\nsource n := 0\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any; onF: (x: any) => void }) { <button onClick={() => { held := props.t }}>ok</button> }\n${main}`;
       return checkModules(loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB2 : undefined)).diags.map(d => d.code);
@@ -100,13 +100,13 @@ export const units: [string, () => void][] = [
       must(run(src).includes("DRAFT_ESCAPES"), "accepted", src);
     }
     deepStrictEqual(run(`export default component App() {\n${store}  <button onClick={() => { setTodos((d) => { d.items.forEach((row) => { held := row; row.n := 1 }); held := d.items.values(); held := d.items.map((row) => row).filter((row) => row.n > 0); d.items.push({ n: 1 }); d.items.sort((a, b) => a.n - b.n); held := d.items.valueOf() }) }}>x</button>\n}\n`), []);
-    // MO-11l: a method keeps nothing only when the declaration names it and it is called on the value's own name
-    for (const call of ["({ f: props.onF, t: table }).f(table)", "[props.onF, table][0](table)", "box.f(table)", "table.meta.f(table)", "table.rows.push(table)", "table.other(table.rows)", "alias.f(table.rows[0])"]) {
+    // MO-11l: a method given a part of the value may keep it, whatever it is called on — the value's own name too
+    for (const call of ["({ f: props.onF, t: table }).f(table)", "[props.onF, table][0](table)", "box.f(table)", "table.meta.f(table)", "table.rows.push(table)", "table.other(table.rows)", "table.setPage(table.rows)", "alias.f(table.rows[0])"]) {
       src = `component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  box = { f: props.onF, t: table }\n  alias = box\n  <button onClick={() => { ${call} }}>x</button>\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n`;
       must(run(src).includes("RENDERS_ESCAPES"), "accepted", src);
     }
-    // …and a declared method on its own name, a declared scalar, a primitive made of a part are free
-    deepStrictEqual(run("component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <button onClick={() => { table.setPage(table.rows); props.onF(table.label); props.onF(table.count()); props.onF(table.rows[0].id); props.onF(len(table.rows)) }}>x</button>\n  <Grid t={table.label} onF={(x) => {}} />\n  {for row in table.rows { <Grid t={row.id} onF={(x) => {}} /> }}\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n"), []);
+    // …and a method given nothing of the value, a declared scalar, a primitive made of a part are free
+    deepStrictEqual(run("component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <button onClick={() => { table.setPage(2); props.onF(table.label); props.onF(table.count()); props.onF(table.rows[0].id); props.onF(len(table.rows)) }}>x</button>\n  <Grid t={table.label} onF={(x) => {}} />\n  {for row in table.rows { <Grid t={row.id} onF={(x) => {}} /> }}\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n"), []);
     // …but an undeclared field of it, or a part whose type is not a primitive's, is the value's
     for (const arg of ["table.meta", "table.rows[0]", "table.rows[0].cells", "table.rows", "table.other"]) {
       src = `component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <Grid t={${arg}} onF={(x) => {}} />\n}\nexport default component App() {\n  <Host onF={(x) => {}} />\n}\n`;
@@ -308,16 +308,29 @@ export const units: [string, () => void][] = [
     deepStrictEqual(comps[0].props.map(p => [p.name, p.optional, p.type]), [["onPick", true, "(v: Option) => void"], ["item", true, "Component"], ["slot", true, "any"]]);
     deepStrictEqual(comps[1].props, []);   // props that are a type alone: nothing written again, nothing to hold
   }],
-  ["a_fn_may_have_several_rows", () => {   // MO-8p: several rows of one name are one fn's signatures, with the same words on each
-    const decls = parseDeclarations("export pure fn on(ref target: Window, type_: string, handler: handler (e: Event) => void): () => void\nexport pure fn on(ref target: Document, type_: string, handler: handler (e: Event) => void, options?: boolean): () => void\nexport fn other(): void\n");
-    deepStrictEqual(decls.map(d => d.name), ["on", "on", "other"]);
+  ["an_export_has_one_row", () => {   // MO-8b: a fn with several signatures is declared by one row; a second row of its name is refused (it was MO-8p's overload)
     for (const bad of [
-      "export pure fn on(ref a: number): void\nexport pure fn on(a: string): void\n",
-      "export pure fn on(a: number): void\nexport fn on(a: string): void\n",
-      "export fn on(a: number): void\nexport fn on(a: string, ref b: number): void\n",
-      "export fn on(a: number): void\nexport fn on(a: string): ref number\n",
-      "export fn on(f: handler (e: Event) => void): void\nexport fn on(f: (e: Event) => void): void\n",
-    ]) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual(/MO-8p/.test(msg), true, bad); }
+      "export pure fn on(ref target: Window, type_: string): () => void\nexport pure fn on(ref target: Document, type_: string, options?: boolean): () => void\n",
+      "export fn on(a: number): void\nexport fn on(a: string): void\n",
+    ]) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual(/declared again: an export has one row/.test(msg), true, bad); }
+    deepStrictEqual(parseDeclarations("export fn on(a: number | string): void\nexport fn other(): void\n").map(d => d.name), ["on", "other"]);
+  }],
+  ["a_word_no_longer_in_the_vocabulary_is_refused", () => {   // MO-8i (pruned 2026-11-22): each by name, with what says it now — never read as type text
+    for (const [bad, word] of [
+      ["export pure fn f(route: any): any forwards\n", "forwards"],
+      ["export pure fn f(config: any): Component nests(children in component) joins(path)\n", "joins"],
+      ["export pure fn f(): any instantiates methods(format)\n", "methods"],
+      ["export fn f(): void trusted\n", "trusted"],
+      ["export component C(props: {}) trusted\n", "trusted"],
+      ["export pure fn f(options: { template: Component }): any renders(root)\n", "renders\\(root"],
+      ["export pure fn f(options: { template: Component }): any renders(root, theme)\n", "renders\\(root"],
+      ["export pure fn f(ref options: { queryFn: tracked () => Promise<any> }): any\n", "tracked"],
+      ["export component C(props: { onCompare: tracked (v: number) => number })\n", "tracked"],
+    ] as const) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual(new RegExp("`" + word + ".*is not a word of a declaration").test(msg), true, `${bad} → ${msg}`); }
+    // `signal init: T` is no parameter word: the row does not parse
+    { let msg = ""; try { parseDeclarations("export pure fn makePersisted(signal init: string): [ref string, (v: string) => void]\n"); } catch (e) { msg = (e as Error).message; } deepStrictEqual(msg !== "", true); }
+    // and a name that is one of them is still a name where a name goes
+    deepStrictEqual(parseDeclarations("export pure fn f(signal: string, tracked: boolean, methods?: string[]): { trusted: boolean; forwards: string }\n").map(d => d.kind === "fn" ? d.params : []), [["signal", "tracked", "methods"]]);
   }],
   ["a_marked_declaration_is_read_as_a_signature", () => {   // MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)
     deepStrictEqual(["//@ signature x.rx\nexport a", "\n// built\n//@signature\nexport a", "//@ signatures\nexport a", "export a\n//@ signature", "// signature\nexport a", ""].map(isPrintedSignature), [true, true, false, false, false, false]);

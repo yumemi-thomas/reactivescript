@@ -15,8 +15,8 @@ export pure fn debounce(callback: handler (...args: any[]) => void, wait?: numbe
 export pure fn loose(callback: any, wait?: number): (...args: any[]) => void instantiates
 // a primitive with a value parameter: its argument is read once (E-10)
 export pure fn createLabel(width: number): any instantiates
-// a primitive whose instance has a method that makes a value once (`format`), and others it does not declare
-export pure fn createClock(): any instantiates methods(format)
+// a primitive whose instance has methods: nothing says what one answers stays the same
+export pure fn createClock(): any instantiates
 ```
 
 TypeScript's `readonly` on a field and on a tuple is a modifier, not part
@@ -76,8 +76,7 @@ export default component App() {
 The instance `createWindowSize` made never changes, but its fields track
 (MO-10b): `w` follows `size.width`, so passing it to a value parameter
 reads it once and keeps the first width (E-10). Only the instance passed
-whole is exempt, and a method its declaration names, `methods(…)`
-(`route.addChildren(…)`, S-module-22), which reads no field.
+whole is exempt.
 
 ```rx
 -- reject: SNAPSHOT_ARGUMENT
@@ -114,10 +113,9 @@ export default component App() {
 }
 ```
 
-`now` is no method `methods(…)` names: what it answers may change, so a
-kept `peek` of it keeps the first answer (E-5a, aligned with E-10's
-bounded exemption). `peek clock.format()`, a declared method, is not
-refused for the instance.
+What a method of the instance answers may change — nothing in a declaration
+says otherwise — so a kept `peek` of it keeps the first answer (E-5a,
+aligned with E-10).
 
 ```rx
 -- reject: SNAPSHOT_ARGUMENT
@@ -140,8 +138,8 @@ export default component App() {
 }
 ```
 
-An alias of the instance is the instance: its declared methods come with
-it, and `now` is still not one of them.
+An alias of the instance is the instance, and a method called on it is
+the same call.
 
 ```rx
 -- reject: SNAPSHOT_ARGUMENT
@@ -158,23 +156,26 @@ export default component App() {
 import { createClock, createLabel } from "./prims.js"
 export default component App() {
   clock = createClock()
-  label = createLabel(clock["format"]())
+  label = createLabel(peek clock["format"]())
   c = clock
-  shown = peek c.format()
-  <p>{label} {shown}</p>
+  other = createLabel(peek c.format())
+  <p>{label} {other}</p>
 }
 ```
 
-A literal key names the method as a dot does: `clock["format"]()` is
-`clock.format()`, a declared method, and so is `c.format()` on an alias.
+Where the answer is meant to be read once — a method that makes a value
+from what it is given (`route.addChildren(…)`, S-module-22) — the argument
+says so with `peek`, as for any value read once (E-10). A declaration had
+a word for it, `methods(format)`; `peek` at the call says the same where
+it matters, and is the language's own.
 
-An instance never changes, so naming it, passing it whole and calling a
-declared method on its own name read nothing that does. Anything else read
+An instance never changes, so naming it and passing it whole read nothing
+that does. Anything else read
 *through a value that may be the instance* is a read of what may change
 (ruled 2026-11-22). Which values may be it is one syntactic rule, with no
 value followed (MO-10k): an expression that mentions the instance's name,
 or a name bound to such an expression, unless what is written there makes
-a primitive. So an undeclared method keeps its answer unstable however the
+a primitive. So a method's answer is unstable however the
 instance is reached: a record's field,
 
 ```rx
@@ -249,23 +250,6 @@ export default component App() {
 }
 ```
 
-A declared method keeps the instance stable on the instance's own name
-(or an alias of it), where the checker knows what is called. Through a
-value that only may be the instance, the call is a read through it: the
-earlier revision took `[clock][0].format()` for the instance's own method
-by following the index; nothing is followed now, and the fix is to name the
-instance.
-
-```rx
--- reject: SNAPSHOT_ARGUMENT
-import { createClock, createLabel } from "./prims.js"
-export default component App() {
-  clock = createClock()
-  label = createLabel([clock][0].format())
-  <p>{label}</p>
-}
-```
-
 A call given the instance may hand it back, whatever is called and
 however — an .rx fn twice over, a closure in a record, a closure a fn
 made, a method of an array, a JS fn:
@@ -314,7 +298,7 @@ export default component App() {
 ```
 
 A closure reads when it is called. One the argument calls by its name is
-read there — its body's undeclared method, or a source it reads (E-10's
+read there — a method its body calls, or a source it reads (E-10's
 own rule, which a closure hid before):
 
 ```rx
@@ -392,8 +376,8 @@ export default component App() {
 }
 ```
 
-Named, the instance is passed whole, and its declared method is called on
-its own name or an alias's:
+Named, the instance is passed whole and kept in records and arrays; a
+method's answer read once is a `peek` in the argument:
 
 ```rx
 -- accept
@@ -401,16 +385,12 @@ import { createClock, createLabel } from "./prims.js"
 export default component App() {
   clock = createClock()
   c = clock
-  a = createLabel(clock.format())
-  b = createLabel(c.format())
-  e = createLabel(clock.format().length)
+  a = createLabel(peek clock.format())
+  b = createLabel(peek c.format().length)
   held = { clock: clock, clocks: [clock, c] }
-  <p>{a} {b} {e} {len(held.clocks)}</p>
+  <p>{a} {b} {len(held.clocks)}</p>
 }
 ```
-
-What a declared method answers is a value made once, not the instance:
-`clock.format().length` reads through nothing that changes.
 
 A record or an array may hold it; what is read back out of one in an
 argument is a read through what may be the instance, as above.

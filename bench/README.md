@@ -18,10 +18,17 @@ It needs the crate (`cargo build --release` and `npm run build` in
 `compiler/`), the runtime (`npm run build` in `runtime/`), the language
 server's packages (`npm ci` in `tooling/rx-language-server`), Node 22.6 or
 later, and the network once: `bench/package.json` is installed into
-`bench/.out/ws`, with this repository's compiler, runtime and language server
-linked in as an app would install them (a task with a `package.json` of its
-own beside its `task.mjs` has an install of its own, for a library that pins
-another version: TanStack Start pins its router). `scripts/setup.sh` builds all but the
+`bench/.out/ws` from `bench/package-lock.json` (`npm ci`), with this
+repository's compiler, runtime and language server linked in as an app would
+install them (a task with a `package.json` of its own beside its `task.mjs`
+has an install of its own, from the lock beside it, for a library that pins
+another version: TanStack Start pins its router). The lockfiles are what make
+a run the same on every machine: an install npm resolves on its own hoists what
+it likes, and a number once moved with it (a draft named a dependency's type
+where npm had hoisted that package, and wrote it out where it had not; 09
+MO-8o now has it found from the library's own location). To change a
+library, edit `package.json` and remake its lock in a copy of the folder:
+`npm install --package-lock-only --legacy-peer-deps`. `scripts/setup.sh` builds all but the
 last.
 
 ## What a task is

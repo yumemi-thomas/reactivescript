@@ -95,8 +95,8 @@ The types are written from the library's own declaration (spec/09 MO-8o): each p
 annotation, with every name rewritten to a module the app can import it from — the module itself, a subpath its
 package exports (`@formisch/solid/v2/internals`), a package it depends on — under the name it has there. A component's
 props are its props type and, after `&`, the fields the checker reads (`props: SelectRootProps<Option> & { onChange?:
-(…) => void; itemComponent?: Component }`); a fn with several signatures has a row for each where they say the same
-words (MO-8p); a result the library names keeps that name unless its parts say something the checker reads. An `any`
+(…) => void; itemComponent?: Component }`); a fn with several signatures has one row, the shortest signature's, and a note of how many
+the library has (an export has one row, MO-8b); a result the library names keeps that name unless its parts say something the checker reads. An `any`
 is written only where the library's own type has one (MO-8q): `--explain` counts the library's (`vendor-any`) and the
 draft's apart, with the parts said by place, and `--causes <file>` writes them by row as JSON (what `bench/` counts).
 A draft writes none of its own, for any export: where a type has no name it is said by its place — at the row's type
@@ -118,8 +118,8 @@ npx rx-declare @solid-primitives/event-listener --source ../solid-primitives   #
 
 Each finding is a `// SOURCE` comment above the row it is about, with the reason's file and line, and never a change
 to the row: `// SOURCE makeEventListener: `handler`: called from addEventListener, after the call and outside any
-computation — `handler`? (MO-10g) [src/eventListener.ts:67]`. It suggests `handler` and `tracked` for a callback (by
-where the library calls it), `ref` for a parameter read as an accessor inside a computation, `uses(…)` and
+computation — `handler`? (MO-10g) [src/eventListener.ts:67]`. It suggests `handler` for a callback the library calls later, says where one is called inside a computation (no word:
+an unmarked function type is pure), `ref` for a parameter read as an accessor inside a computation, `uses(…)` and
 `provides(…)` for a context the library makes, `instantiates`, and a result that undoes the call. A callback handed
 to another package is followed no further. Read the place it names before writing the word.
 
@@ -129,12 +129,12 @@ it (EF-5a). A small object the library declares is drafted by its fields — an 
 (`getPageCount()`) and a function by what they answer (`void`, a promise, a primitive), a nested object a step further —
 and an instance of a class by the methods that answer nothing, a promise or a primitive (`invalidateQueries: (...args:
 any[]) => Promise<void>`); a larger type stays `any`. An accessor of an options object lists its callbacks, so `handler`
-or `tracked` is one word on the row. The module's own exported types are named (`Promise<Todo[]>`), and a generic type
+is one word on the row. The module's own exported types are named (`Promise<Todo[]>`), and a generic type
 is declared with its parameters (`export type Table<TData> = import(…).Table<TData>`).
 
 For a few libraries the draft also has what types cannot show (`src/known.js`): the routers' `renders(later)`,
 `nests(…)` and the prop that `renders` (`@tanstack/solid-router`, `@solidjs/router`), TanStack Query's context,
-`pending fails(Error)` on `data`, `tracked` and `handler` on its callbacks, and `pure` on those primitives. Each entry
+`pending fails(Error)` on `data`, `handler` on its callbacks, and `pure` on those primitives. Each entry
 is for a version range and was checked by running that release; outside the range, and for every other package, the
 draft is the types' alone, with its TODOs. A generated declaration (MO-8l) never takes them: nothing a person reviewed
 makes the checker accept more.
@@ -166,7 +166,7 @@ outside tracking, as a handler, and is a mismatch if it calls it inside a comput
 
 `rx-verify --record lib.d.rx` also writes `lib.verified.json`: each row's result, by a hash of its text. `rx-tsc
 --rx-strict` (or `"reactivescript": { "strict": true }` in the tsconfig) then refuses every row of an imported
-declaration not recorded as holding, unless the row says `trusted` (`UNVERIFIED_ROW`, MO-8j). Commit the record beside
+declaration not recorded as holding (`UNVERIFIED_ROW`, MO-8j). Commit the record beside
 the declaration; editing a row invalidates its entry.
 
 What needs the app (a hook's arguments, its providers) comes from a probe, `lib.probe.mjs` beside `lib.d.rx`:

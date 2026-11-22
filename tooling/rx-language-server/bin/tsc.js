@@ -21,7 +21,7 @@ const { checkBoundaries } = require("../src/boundary.js");
 
 const tsc = require.resolve("typescript/lib/tsc");
 // MO-8j: `--rx-strict` (or `"reactivescript": { "strict": true }` in the tsconfig): every row of a declaration the program
-// imports must be verified by rx-verify (its record beside it) or say `trusted` (UNVERIFIED_ROW, TY-7). Not tsc's flag.
+// imports must be verified by rx-verify, its record beside it (UNVERIFIED_ROW, TY-7). Not tsc's flag.
 const strictFlag = process.argv.includes("--rx-strict");
 process.argv = process.argv.filter(a => a !== "--rx-strict");
 // E-5a: `--rx-whole-program` checks the crate's rows as a `wholeProgram` build does — each program from its entry (an .rx

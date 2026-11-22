@@ -77,8 +77,6 @@ pub struct Cursor<'a> {
     pub errors: Vec<ParseError>,
     /// a destructuring `let` (07 §5) is several statements: the rest of them, after the first
     pub pending: Vec<Stmt>,
-    /// MO-8j: the lines of a declaration file where a row says `trusted` (as the parser read it, not a text search)
-    pub trusted: Vec<usize>,
     /// `$$n`: the bound value of a destructuring whose right side is not a name (RG-4b)
     pub temps: usize,
     /// the names this module imports so far (a hook's pair is a habit only when it is not one of them)
@@ -86,7 +84,7 @@ pub struct Cursor<'a> {
 }
 impl<'a> Cursor<'a> {
     pub fn new(src: &'a str) -> Self {
-        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], trusted: vec![], temps: 0, imported: std::collections::HashSet::new() }
+        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], temps: 0, imported: std::collections::HashSet::new() }
     }
     /// What `fail` would return, recorded instead (`recover`).
     fn note(&mut self, msg: &str) {
@@ -476,7 +474,7 @@ re!(STRAY_ROW_WORD, r#"\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$
 re!(OLD_HOLDS, r"(^|[:,\[{]\s*)holds\b");
 re!(RENDER_TYPE, r"=>\s*View\s*$");
 re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
-re!(TRACKED_WORD, r"\btracked\s+");
+re!(TRACKED_WORD, r"\btracked\s+\(");
 re!(HANDLER_WORD, r"\bhandler\s+");
 re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
 re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\(|trusted\b|forwards\b|joins\(|methods\()");
@@ -531,7 +529,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, joins: Option<String>, forwards: bool, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, methods: Vec<String>, draft_args: Vec<usize> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, draft_args: Vec<usize> },
     /// SV-5a: `fields`, what of an instance is sent to the client (`export error HttpError(status, code)`); none, name and message only
     Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
@@ -574,19 +572,19 @@ impl JsDecl {
 /// MO-8j, TY-7: what running must show before a row counts as verified, each a claim the row makes as this parser read
 /// it, however it is laid out: `exists` (the export is there, of its kind), `pure`, `uses`, `provides`, `fields` (a result
 /// part that is `ref`, `pending` or `fails(…)`), `fails` (a field, or a component, that fails with a class), `callbacks`
-/// (a function-typed parameter or record field: handler, tracked or pure), `draft`, `placement` (`renders…`, `nests(…)`,
-/// `forwards`, `joins(…)`, `outlet`, a prop that `renders`, a carrier). rx-verify tags each result with the claim it
+/// (a function-typed parameter or record field: handler or pure), `draft`, `placement` (`renders…`, `nests(…)`,
+/// `outlet`, a prop that `renders`, a carrier). rx-verify tags each result with the claim it
 /// ran; a claim no result answers is not verified.
 pub fn obligations(d: &JsDecl) -> Vec<String> {
     let mut out: Vec<String> = vec!["exists".into()];
     let fn_typed = |t: &str| {
         let t = js_trim(t);
         let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
-        let t = ["handler", "tracked"].iter().find_map(|w| t.strip_prefix(w).filter(|r| r.starts_with(char::is_whitespace)).map(js_trim)).unwrap_or(t);
+        let t = ["handler"].iter().find_map(|w| t.strip_prefix(w).filter(|r| r.starts_with(char::is_whitespace)).map(js_trim)).unwrap_or(t);
         fn_params_text(t).is_some()
     };
     match d {
-        JsDecl::Fn { params, pure, instantiates, uses, provides, held, shape, ptypes, renders, renders_root, nests, forwards, joins, carrier, under, drafts, part_drafts, methods, .. } => {
+        JsDecl::Fn { params, pure, instantiates, uses, provides, held, shape, ptypes, renders, nests, carrier, under, drafts, part_drafts, .. } => {
             if *pure && !*instantiates {
                 out.push("pure".into());
             }
@@ -624,10 +622,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
             if !drafts.is_empty() || !part_drafts.is_empty() {
                 out.push("draft".into());
             }
-            if !methods.is_empty() {
-                out.push("methods".into());
-            }
-            if *renders || *renders_root || nests.is_some() || *forwards || joins.is_some() || *carrier || under.is_some() || matches!(shape, Shape::Comp) {
+            if *renders || nests.is_some() || *carrier || under.is_some() || matches!(shape, Shape::Comp) {
                 out.push("placement".into());
             }
         }
@@ -741,23 +736,22 @@ fn strip_handler(t: &str) -> String {
 fn is_handler(t: &str) -> bool {
     t.strip_prefix("handler").is_some_and(|r| r.starts_with(char::is_whitespace) && js_trim(r).starts_with('('))
 }
-/// MO-10j: `tracked` not followed by a function type (`(`).
-fn tracked_misplaced(t: &str) -> bool {
-    TRACKED_WORD.find_iter(t).any(|m| !t[m.end()..].starts_with('('))
+/// `tracked` was a word before a function type (a callback the library calls inside a computation of its own). A function
+/// type without `handler` is a pure function already (MO-10g), which is all the checker read of it: the word is refused,
+/// so that a row written with it is not read by the prop's name instead.
+fn tracked_word(t: &str) -> bool {
+    TRACKED_WORD.is_match(&masked_strings(t))
 }
-/// MO-10j: the type without the `.d.rx`'s `tracked` word.
-fn strip_tracked(t: &str) -> String {
-    let mut out = String::new();
-    let mut at = 0;
-    for m in TRACKED_WORD.find_iter(t) {
-        if t[m.end()..].starts_with('(') {
-            out.push_str(&t[at..m.start()]);
-            at = m.end();
-        }
-    }
-    out.push_str(&t[at..]);
-    out
-}
+const TRACKED_GONE: &str = "`tracked` is not a word of a declaration: a function type without `handler` is a pure function already, however the library calls it (MO-10g) — leave the word out";
+/// Words a declaration had and has no more (09 MO-8i, the pruning of 2026-11-22): each is refused with what says it now,
+/// so a row written with one is not read as a type that ends in a name.
+const GONE_WORDS: [(&str, &str); 4] = [
+    ("forwards", "`forwards` is not a word of a declaration: a `pure` fn that makes nothing hands what it is given back only as its result, so its call among a factory's arguments already hands its components on (MO-11g) — leave the word out"),
+    ("joins", "`joins(…)` is not a word of a declaration: how a router joins a nested path with its parents' is that router's rule (08 CN-8c), and its own types say it — leave the word out"),
+    ("methods", "`methods(…)` is not a word of a declaration: a method of an instance is a call whose answer may change (02 E-10); where it is made once, the argument says so with `peek` — leave the word out"),
+    ("trusted", "`trusted` is not a word of a declaration (MO-8j): a row is taken on the declaration's word unless the project asks for strict declarations, and then it is shown by `rx-verify --record` — leave the word out"),
+];
+const GONE_ROOT: &str = "`renders(root, …)` is not a word of a declaration: a component given to a fn that says nothing of where it renders it is already checked under a root of its own (MO-11s) — leave the word out";
 fn strip_draft(t: &str) -> String {
     DRAFT_WORD.replace_all(t, "$1").to_string()
 }
@@ -1513,17 +1507,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
                     ty = (!rest.is_empty()).then(|| rest.to_string());
                 }
             }
-            // MO-10j: `onTick: tracked (n: number) => void` — called inside a computation, so not a handler
-            let mut tracked = false;
-            if let Some(t) = ty.clone() {
-                if let Some(rest) = t.strip_prefix("tracked ") {
-                    tracked = true;
-                    let rest = js_trim(rest);
-                    if part_of(rest) != Part::Fn {
-                        return c.fail(&format!("`tracked` on prop {}: it goes before a function type, one the library calls inside a computation (MO-10j)", fname));
-                    }
-                    ty = Some(rest.to_string());
-                }
+            if ty.as_deref().is_some_and(tracked_word) {
+                return c.fail(TRACKED_GONE);
             }
             // MO-10g: `valueChange: handler (v: number) => void` — called later, outside any computation: a handler
             let mut handler = false;
@@ -1539,7 +1524,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             }
             let component = ty.as_deref().is_some_and(is_component_type);
             let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
-            let callback = handler && !tracked && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
+            let callback = handler && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
             let pure = !callback && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
             props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, pure, carried });
             // a newline separates fields too, as in TypeScript
@@ -1564,11 +1549,10 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             outlet = true;
             continue;
         }
-        if c.keyword("trusted") {
-            // MO-8j: a row taken on trust where nothing verifies it
-            let l = c.line();
-            c.trusted.push(l);
-            continue;
+        for (w, why) in GONE_WORDS {
+            if c.keyword(w) {
+                return c.fail(why);
+            }
         }
         if c.keyword("uses") {
             // MO-12b
@@ -1709,16 +1693,16 @@ fn context_names(c: &mut Cursor) -> R<Vec<String>> {
 pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
     parse_declaration_rows(src).map(|r| r.0)
 }
-/// MO-8j: a declaration file's rows as the parser reads them — each declaration, the line its row starts on, and the lines
-/// where a row says `trusted` — for strict declarations (TY-7), which hash and trust rows by the parser, not by a text search.
-pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usize>)> {
+/// MO-8j: a declaration file's rows as the parser reads them — each declaration and the line its row starts on — for
+/// strict declarations (TY-7), which hash rows by the parser, not by a text search.
+pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
     let mut c = Cursor::new(src);
     let mut out = vec![];
     let mut starts = vec![];
     loop {
         c.ws(true);
         if c.eof() {
-            return Ok((out, starts, c.trusted));
+            return Ok((out, starts));
         }
         let line = c.line();
         starts.push(line);
@@ -1826,7 +1810,6 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         let mut params = vec![];
         let mut ptypes = vec![];
         let mut refs = vec![];
-        let mut sigs = vec![];
         let mut opts = vec![];
         let mut draft_args: Vec<usize> = vec![];
         while !c.starts_with(")") {
@@ -1835,20 +1818,9 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
                 c.ws(true);
             }
             refs.push(r);
-            // MO-10h: a `signal` parameter takes a Solid signal, made of the value passed (a parameter named signal stays a name)
-            let sv = c.i;
-            let mut g = !r && c.keyword("signal");
-            if g {
-                c.ws(true);
-                if !(c.peek().is_ascii_alphabetic() || c.peek() == '_' || c.peek() == '$') {
-                    c.i = sv;
-                    g = false;
-                }
-            }
-            sigs.push(g);
             // MO-10i (2026-11-22): `draft list: T[]` — a parameter the fn changes in place, now, and does not keep: a draft
             // is given to it as it is (a parameter named draft stays a name)
-            if !r && !g {
+            if !r {
                 let sd = c.i;
                 if c.keyword("draft") {
                     c.ws(true);
@@ -1859,7 +1831,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
                     }
                 }
             }
-            let rest = !r && !g && c.eat("..."); // MO-8h: a rest parameter, `...items: T[]`
+            let rest = !r && c.eat("..."); // MO-8h: a rest parameter, `...items: T[]`
             let n = c.ident_or("param")?;
             params.push(if rest { format!("...{}", n) } else { n });
             c.ws(false);
@@ -1892,7 +1864,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
             c.ws(true);
             let line0 = c.rest().split('\n').next().unwrap_or("").to_string();
             let t = code_of(&line0).to_string(); // words in a `// comment` are not rows
-            let m = masked(&t); // nor words in a string literal or inside brackets (`: "trusted"`, `: { trusted: boolean }`)
+            let m = masked(&t); // nor words in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`)
             let r1 = REJECTS.find(&m).map(|x| x.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&m).map(|x| x.start() + if m[x.start()..].starts_with("instantiates") { 0 } else { 1 });
             let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted", "forwards", "joins(", "methods("].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
@@ -1929,13 +1901,8 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
             c.expect(")")?;
         }
         let (mut written, mut uses, mut provides, mut nests, mut renders) = (false, vec![], vec![], None, false);
-        let mut renders_root = false;
-        let mut carries: Vec<String> = vec![];
         let mut carrier = false;
         let mut under: Option<(String, String)> = None;
-        let mut forwards = false;
-        let mut methods: Vec<String> = vec![];
-        let mut joins: Option<String> = None;
         loop {
             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
             c.ws(false);
@@ -1943,43 +1910,12 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
                 written = true;
                 continue;
             }
-            if c.keyword("forwards") {
-                // MO-11g: inside a factory's arguments, it hands the components it is given on to the factory
-                forwards = true;
-                continue;
-            }
-            if c.keyword("methods") {
-                // E-10 (RFC 14, bounded): the methods of its instance that make a value once from what they are given
-                c.ws(false);
-                c.expect("(")?;
-                loop {
-                    c.ws(true);
-                    methods.push(c.ident_or("methods(name, …): the methods of the instance it makes")?);
-                    c.ws(true);
-                    if !c.eat(",") {
-                        break;
-                    }
+            for (w, why) in GONE_WORDS {
+                if c.keyword(w) {
+                    return c.fail(why);
                 }
-                c.expect(")")?;
-                continue;
             }
-            if c.keyword("joins") {
-                // MO-11i: the projection joins this field's literal paths with its parents'
-                c.ws(false);
-                c.expect("(")?;
-                c.ws(true);
-                joins = Some(c.ident_or("joins(path): the field of a nested record whose literal paths join with its parents'")?);
-                c.ws(true);
-                c.expect(")")?;
-                continue;
-            }
-            if c.keyword("trusted") {
-                // MO-8j: a row taken on trust where nothing verifies it (rx-tsc --strict, TY-7)
-                let l = c.line();
-                c.trusted.push(l);
-                continue;
-            }
-            // MO-11r: one placement vocabulary — `renders` (here), `renders(root, ctx…)`, `renders(later)`; `nests(…)` for the tree
+            // MO-11r: one placement vocabulary — `renders` (here), `renders(later)`; `nests(…)` for the tree
             if c.keyword("carries") {
                 return c.fail("`carries` is now `renders(later)`: the components travel in the result and a JS component's prop declared `renders` renders them (MO-11r)");
             }
@@ -2002,23 +1938,10 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
                     carrier = true;
                     continue;
                 }
-                if !c.keyword("root") {
-                    return c.fail("renders(root, …) or renders(later): where the library renders the components it is given (MO-11r)");
+                if c.keyword("root") {
+                    return c.fail(GONE_ROOT);
                 }
-                // MO-11n: renders(root)
-                renders = true;
-                c.ws(true);
-                while c.eat(",") {
-                    // MO-11n: the contexts it carries into its root; it reads them where it is called
-                    c.ws(true);
-                    let n = c.ident_or("renders(root, ctx): a context the library carries into its root")?;
-                    carries.push(n.clone());
-                    uses.push(n);
-                    c.ws(true);
-                }
-                c.expect(")")?;
-                renders_root = true;
-                continue;
+                return c.fail("renders or renders(later): where the library renders the components it is given (MO-11r)");
             }
             if c.keyword("uses") {
                 c.ws(false);
@@ -2060,12 +1983,9 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         }
         // MO-10i (2026-11-22): a result with a function part that hands out drafts is state the call made: a primitive
         let makes_drafts = !draft_parts(ret.as_deref()).is_empty();
-        let instantiates = written || refs.iter().any(|x| *x) || sigs.iter().any(|x| *x) || carrier || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders || makes_drafts; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        let instantiates = written || refs.iter().any(|x| *x) || carrier || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders || makes_drafts; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
         if nests.is_some() && shape != Some(Shape::Comp) {
             return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
-        }
-        if let (Some(j), None) = (&joins, &nests) {
-            return c.fail(&format!("joins({}) on fn {}: it joins paths through the tree nests(children in component) describes: add that (MO-11i)", j, name));
         }
         if let (Some((parent, inside)), false) = (&under, carrier) {
             return c.fail(&format!("nests({} under {}) on fn {}: it places what the result carries, which is rendered later — add renders(later) (MO-11r)", inside, parent, name));
@@ -2074,10 +1994,9 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
             return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
-        // MO-10j: `tracked` goes before a function type; the callbacks are found before the word is taken out
         for t in ptypes.iter().flatten().chain(ret.iter()) {
-            if tracked_misplaced(t) {
-                return c.fail(&format!("`tracked` on fn {}: it goes before a function type, one the library calls inside a computation (MO-10j)", name));
+            if tracked_word(t) {
+                return c.fail(TRACKED_GONE);
             }
         }
         for t in ptypes.iter().flatten().chain(ret.iter()) {
@@ -2089,48 +2008,16 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         // MO-10i: callbacks whose parameters are a library's drafts, by position; the word is the .d.rx's, not TypeScript's
         let drafts: Vec<(usize, Vec<usize>)> = ptypes.iter().enumerate().filter_map(|(i, t)| { let ds = draft_params(t.as_deref()); (!ds.is_empty()).then_some((i, ds)) }).collect();
         let part_drafts = draft_parts(ret.as_deref());
-        let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))))).collect();
-        let ret = ret.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))));
-        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, joins, forwards, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts, methods, draft_args };
-        // MO-8p: a second row of one name is another signature of the same fn (an overload): TypeScript's, and the words are the first row's
-        if let Some(first) = out.iter().find(|d| matches!(d, JsDecl::Fn { .. }) && d.name() == row.name()) {
-            if let Some(w) = overload_differs(first, &row) {
-                return c.fail(&format!("fn {} is declared again with {}: the rows of one name are one fn's signatures, each with the same words — what differs between them is types alone (MO-8p)", row.name(), w));
-            }
+        let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_draft(&t)))).collect();
+        let ret = ret.map(|t| strip_handler(&strip_draft(&t)));
+        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, carrier, under, drafts, part_drafts, draft_args };
+        // one row an export: a fn with several signatures (TypeScript's overloads) is declared by one of them, and the
+        // library's own types say the rest (13 TY-4b)
+        if out.iter().any(|d| matches!(d, JsDecl::Fn { .. }) && d.name() == row.name()) {
+            return c.fail(&format!("fn {} is declared again: an export has one row. A fn with several signatures is declared by one of them (its words are the fn's), and TypeScript reads the others from the library's own types (MO-8b)", row.name()));
         }
         out.push(row);
     }
-}
-/// MO-8p: what a later row of a fn's name says that its first row does not — the checker reads the first row, so every
-/// word must be the same: on the row, on each parameter both have, on the result; a parameter the first row has not
-/// carries none. None: the rows differ in types alone.
-fn overload_differs(a: &JsDecl, b: &JsDecl) -> Option<String> {
-    let (JsDecl::Fn { params: ap, .. }, JsDecl::Fn { params: bp, .. }) = (a, b) else { return None };
-    let at = |d: &JsDecl, i: usize| -> String {
-        let JsDecl::Fn { refs, sigs, cbs, draft_args, drafts, params, .. } = d else { return String::new() };
-        format!("{:?}", (refs.get(i).copied().unwrap_or(false), sigs.get(i).copied().unwrap_or(false), cbs.get(i).cloned().flatten(), draft_args.contains(&i), drafts.iter().filter(|x| x.0 == i).collect::<Vec<_>>(), params.get(i).is_some_and(|p| p.starts_with("..."))))
-    };
-    for (i, p) in bp.iter().enumerate() {
-        let plain = format!("{:?}", (false, false, None::<(bool, Vec<String>)>, false, Vec::<&(usize, Vec<usize>)>::new(), p.starts_with("...")));
-        if if i < ap.len() { at(a, i) != at(b, i) } else { at(b, i) != plain } {
-            return Some(format!("other words on its parameter {}", p.trim_start_matches("...")));
-        }
-    }
-    let row = |d: &JsDecl| -> String {
-        let JsDecl::Fn { pure, rejects, side, instantiates, uses, provides, nests, joins, forwards, renders, renders_root, carries, carrier, under, methods, .. } = d else { return String::new() };
-        format!("{:?}", (pure, rejects, side, instantiates, uses, provides, nests, joins, forwards, renders, (renders_root, carries, carrier, under, methods)))
-    };
-    if row(a) != row(b) {
-        return Some("other row words".into());
-    }
-    let res = |d: &JsDecl| -> String {
-        let JsDecl::Fn { shape, held, part_drafts, .. } = d else { return String::new() };
-        format!("{:?}", (shape, held, part_drafts))
-    };
-    if res(a) != res(b) {
-        return Some("a result of another shape".into());
-    }
-    None
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).
 /// `t` with every byte inside a string literal, or inside brackets (`()`, `[]`, `{}`, `<>`), replaced by `_`: the same
@@ -4139,28 +4026,48 @@ mod recovering {
         assert!(none.is_empty() && !plain.contains("__rx_prop"), "{plain}");
     }
 
-    /// MO-8p: several rows of one name are one fn's signatures; the words are the same on each, and TypeScript holds
-    /// each against the module
+    /// MO-8b: a fn with several signatures is declared by one row; a second row of its name is refused (it was MO-8p's
+    /// overload). The declaration's `.d.ts` and the boundary check hold one row an export.
     #[test]
-    fn a_fn_may_have_several_rows() {
-        let src = "export pure fn on(ref target: Window, type_: string, handler: handler (e: Event) => void): () => void\nexport pure fn on(ref target: Document, type_: string, handler: handler (e: Event) => void, options?: boolean): () => void\nexport fn other(): void\n";
-        let decls = parse_declarations(src).expect("parses");
-        assert_eq!(decls.iter().map(|d| d.name()).collect::<Vec<_>>(), ["on", "on", "other"]);
-        let dts = crate::project::declaration_file(&decls);
-        assert_eq!(dts.matches("export declare function on(").count(), 2, "{dts}");
-        let (check, checks) = crate::project::boundary_file(&decls, "./kit.js");
-        assert!(check.contains("const __check_on: __decl_on = __real.on;") && check.contains("const __check_on$$1: __decl_on$$1 = __real.on;"), "{check}");
-        assert_eq!(checks.iter().map(|c| c.1).collect::<Vec<_>>(), [1, 2, 3]);
+    fn an_export_has_one_row() {
         for bad in [
-            "export pure fn on(ref a: number): void\nexport pure fn on(a: string): void\n",                 // `ref` on one row only
-            "export pure fn on(a: number): void\nexport fn on(a: string): void\n",                         // `pure` on one row only
-            "export fn on(a: number): void\nexport fn on(a: string, ref b: number): void\n",                // a word on a parameter the first row has not
-            "export fn on(a: number): void\nexport fn on(a: string): ref number\n",                         // a result of another shape
-            "export fn on(f: handler (e: Event) => void): void\nexport fn on(f: (e: Event) => void): void\n", // `handler` on one row only
+            "export pure fn on(ref target: Window, type_: string): () => void\nexport pure fn on(ref target: Document, type_: string, options?: boolean): () => void\n",
+            "export fn on(a: number): void\nexport fn on(a: string): void\n",
         ] {
             let e = parse_declarations(bad).expect_err(bad);
-            assert!(e.0.contains("MO-8p"), "{}", e.0);
+            assert!(e.0.contains("declared again: an export has one row"), "{}", e.0);
         }
+        let decls = parse_declarations("export fn on(a: number | string): void\nexport fn other(): void\n").expect("parses");
+        assert_eq!(decls.iter().map(|d| d.name()).collect::<Vec<_>>(), ["on", "other"]);
+        let dts = crate::project::declaration_file(&decls);
+        assert_eq!(dts.matches("export declare function on(").count(), 1, "{dts}");
+        let (check, checks) = crate::project::boundary_file(&decls, "./kit.js");
+        assert!(check.contains("const __check_on: __decl_on = __real.on;"), "{check}");
+        assert_eq!(checks.iter().map(|c| c.1).collect::<Vec<_>>(), [1, 2]);
+    }
+    /// MO-8i (pruned 2026-11-22): a word no longer in the vocabulary is refused by name, with what says it now — never
+    /// read as type text.
+    #[test]
+    fn a_word_no_longer_in_the_vocabulary_is_refused() {
+        for (bad, word) in [
+            ("export pure fn f(route: any): any forwards\n", "`forwards`"),
+            ("export pure fn f(config: any): Component nests(children in component) joins(path)\n", "`joins("),
+            ("export pure fn f(): any instantiates methods(format)\n", "`methods("),
+            ("export fn f(): void trusted\n", "`trusted`"),
+            ("export component C(props: {}) trusted\n", "`trusted`"),
+            ("export pure fn f(options: { template: Component }): any renders(root)\n", "`renders(root"),
+            ("export pure fn f(options: { template: Component }): any renders(root, theme)\n", "`renders(root"),
+            ("export pure fn f(ref options: { queryFn: tracked () => Promise<any> }): any\n", "`tracked`"),
+            ("export component C(props: { onCompare: tracked (v: number) => number })\n", "`tracked`"),
+        ] {
+            let e = parse_declarations(bad).expect_err(bad);
+            assert!(e.0.contains(word) && e.0.contains("is not a word of a declaration"), "{bad} → {}", e.0);
+        }
+        // `signal init: T` is no parameter word: the row does not parse
+        assert!(parse_declarations("export pure fn makePersisted(signal init: string): [ref string, (v: string) => void]\n").is_err());
+        // and a name that is one of them is still a name where a name goes
+        let decls = parse_declarations("export pure fn f(signal: string, tracked: boolean, methods?: string[]): { trusted: boolean; forwards: string }\n").expect("parses");
+        assert!(matches!(&decls[0], JsDecl::Fn { params, .. } if params == &["signal", "tracked", "methods"]));
     }
 
     #[test]

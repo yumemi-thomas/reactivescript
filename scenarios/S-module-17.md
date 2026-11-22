@@ -8,7 +8,7 @@ Rules: MO-8g, MO-11m, MO-5, MO-12b, E-10.
 -- module: ./router.d.rx
 export context router
 export pure fn createRouter(config: { routes: any[] }): Component & { paths: any } provides(router) nests(children in component)
-export pure fn defineRoute(route: any): any forwards
+export pure fn defineRoute(route: any): any
 export pure fn pathsOf(routes: any[]): any
 export pure fn useSearchParams(path?: any): [any, (params: any) => void] uses(router)
 ```

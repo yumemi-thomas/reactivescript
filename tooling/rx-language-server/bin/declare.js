@@ -27,7 +27,14 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   // --readings <export>[,<export>]: each reading of a row the draft tried (MO-8m, MO-8o) and TypeScript's answer to it, on stderr
   const readAt = args.indexOf("--readings");
   const readings = readAt >= 0 ? { names: (args[readAt + 1] ?? "").split(","), out: [] } : undefined;
-  let text = declare(require("typescript"), spec, process.cwd(), {}, { known: !args.includes("--types-only"), refs: !args.includes("--any"), causes, unheld, places, readings });
+  let text;
+  try { text = declare(require("typescript"), spec, process.cwd(), {}, { known: !args.includes("--types-only"), refs: !args.includes("--any"), causes, unheld, places, readings }); }
+  catch (e) {
+    // a draft the crate cannot read: nothing is written, and the line and the parser's reason are the message (it was a
+    // silent fall back to `any` for every row)
+    if (e?.code !== "RX_DRAFT_UNREADABLE") throw e;
+    process.stderr.write(`rx-declare: ${e.message}\n`); process.exit(1);
+  }
   if (readings) for (const r of readings.out) process.stderr.write(`rx-declare: ${r.name} read ${r.reading}: ${r.bad === null ? "held" : `not held — ${r.bad}`}\n${r.rows.map(l => `    ${l}`).join("\n")}\n`);
   if (causesAt >= 0) fs.writeFileSync(args[causesAt + 1], JSON.stringify({ causes, places, unheld }, null, 1) + "\n");
   if (args.includes("--explain")) {
@@ -46,7 +53,7 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
     const at = src.locate(ts, spec, process.cwd(), given, { customConditions: process.execArgv.flatMap(a => /^--conditions=/.test(a) ? [a.slice(13)] : []) });
     process.stderr.write(`rx-declare: source: ${at.note}\n`);
     if (at.files.size) {
-      const names = [...text.matchAll(/^export\s+(?:(?:pure|server|client|trusted)\s+)*(?:fn|component|const)\s+([\w$.]+)/gm)].map(m => m[1]);
+      const names = [...text.matchAll(/^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const)\s+([\w$.]+)/gm)].map(m => m[1]);
       const evidence = src.analyze(ts, at.files, names, at.root);
       text = src.annotate(text, evidence);
       const by = {}; for (const e of evidence) by[e.word] = (by[e.word] ?? 0) + 1;

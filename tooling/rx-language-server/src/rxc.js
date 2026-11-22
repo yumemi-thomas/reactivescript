@@ -112,7 +112,7 @@ function declaration(file) {
 function lookup(file, spec) {
   return ask("lookup", { file, spec });
 }
-/** MO-8j, TY-7: a declaration file's rows as the parser reads them: `{ rows: [{ name, kind, line, end, trusted }] }`. */
+/** MO-8j, TY-7: a declaration file's rows as the parser reads them: `{ rows: [{ name, kind, line, end, obligations }] }`. */
 function rows(file, text) {
   return ask("rows", text === undefined ? { file } : { file, text });
 }

@@ -21,9 +21,9 @@ const IMPORT = /^\s*import\b([^"'`;]*?)\bfrom\s*["']([^"']+)["']/gm;
 const GENERATED = /^\/\/@ generated (\S+)@(\S+) \(MO-8l, draft (\d+)(?:, types ([0-9a-f]+))?\)/;
 const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, under any rule
 // The drafting rules a generated file was written under. A draft is kept only while the package's version and this both
-// stand, so a change of rule (2: no fn is guessed `pure`; 3: a result is typed a step at a time, a disposer as `() => void`; 4: the library's types are named where a draft wrote `any`, MO-8m; 5: types are written as the library's declaration writes them, props by their type, a row for each signature, MO-8o to MO-8q; 6: no `any` is the draft's — a place at the row's type parameters, the last reading, MO-8q over whole drafts) redrafts what an earlier rule wrote. Bump it with any change to
+// stand, so a change of rule (2: no fn is guessed `pure`; 3: a result is typed a step at a time, a disposer as `() => void`; 4: the library's types are named where a draft wrote `any`, MO-8m; 5: types are written as the library's declaration writes them, props by their type, a row for each signature, MO-8o to MO-8q; 6: no `any` is the draft's — a place at the row's type parameters, the last reading, MO-8q over whole drafts; 7: an export has one row, of several signatures the shortest, and no row says `signal` or `tracked` — the vocabulary pruned, MO-8i) redrafts what an earlier rule wrote. Bump it with any change to
 // what a draft says.
-const FORMAT = 6;
+const FORMAT = 7;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];

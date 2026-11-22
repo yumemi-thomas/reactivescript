@@ -181,7 +181,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), nest_fns: HashMap::new(), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -270,13 +270,10 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
             JsDecl::Comp { name, props, tparams, props_type, .. } => format!("export declare function {name}{}(props: {}): View;", tparams.as_deref().unwrap_or(""), props_text(props, props_type, false)),
             JsDecl::Type { text, .. } => format!("export {text}"),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
-            JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, opts, sigs, .. } => {
-                // MO-10a: a `ref` parameter is an accessor in JS; MO-8e: an optional one is `?`; MO-10h: a `signal` one a pair
+            JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, opts, .. } => {
+                // MO-10a: a `ref` parameter is an accessor in JS; MO-8e: an optional one is `?`
                 let ps = params.iter().enumerate().map(|(i, n)| {
                     let o = if opts.get(i).copied().unwrap_or(false) { "?" } else { "" };
-                    if sigs.get(i).copied().unwrap_or(false) {
-                        return format!("{n}{o}: import(\"solid-js\").Signal<{}>", ptypes.get(i).and_then(|t| t.as_deref()).unwrap_or("any"));
-                    }
                     match (refs.get(i).copied().unwrap_or(false), ptypes.get(i).and_then(|t| t.as_ref())) {
                         (true, t) => format!("{n}{o}: (() => {})", t.map(String::as_str).unwrap_or("any")),
                         (false, Some(t)) => format!("{n}{o}: {t}"),
@@ -341,8 +338,6 @@ struct Proj<'a> {
     ref_fns: HashMap<String, JsDecl>,
     /// MO-10b: equations bound to such a fn's tuple or record result
     ref_parts: HashMap<String, crate::parse::Shape>,
-    /// MO-11i: declared factories that nest, by local name: (kids field, component field)
-    nest_fns: HashMap<String, (String, String, String)>,
     prelude: Option<&'a str>,
 }
 
@@ -622,13 +617,9 @@ impl Proj<'_> {
         if let Some(dp) = declared {
             for n in &rest {
                 let x = self.set.declarations.get(dp).and_then(|ds| ds.iter().find(|y| matches!(y, JsDecl::Fn { name, .. } if *name == n.name)));
-                if let Some(x @ JsDecl::Fn { refs, shape, nests, sigs, joins, .. }) = x {
-                    if refs.iter().any(|r| *r) || sigs.iter().any(|g| *g) || shape.has_ref() {
+                if let Some(x @ JsDecl::Fn { refs, shape, .. }) = x {
+                    if refs.iter().any(|r| *r) || shape.has_ref() {
                         self.ref_fns.insert(n.alias.clone(), x.clone());
-                    }
-                    // MO-11i (revised 2026-11-21): paths are joined only under a factory that says which field holds them
-                    if let (Some(ns), Some(j)) = (nests, joins) {
-                        self.nest_fns.insert(n.alias.clone(), (ns.0.clone(), ns.1.clone(), j.clone()));
                     }
                 }
             }
@@ -820,54 +811,6 @@ impl Proj<'_> {
     }
 
     // ---- expressions: `imp` imperative scope (a real `await`); `me` the equation being defined (its own `pre`) ----
-    /// MO-11i, types only: under a factory that nests and `joins(field)`, a record's literal `field` is written joined with its parents' (the
-    /// projection is never run), so a child route's types see its parents' params. `prefix` None: a parent path the
-    /// projection cannot read, so nothing below is rewritten.
-    fn nest_arg(&mut self, e: &Expr, prefix: Option<Vec<String>>, n: &(String, String, String), imp: bool, me: Option<&str>) -> Code {
-        let Some(prefix) = prefix else { return self.expr(e, imp, me) };
-        match &e.k {
-            ExprKind::Arr(items) => {
-                let a = items.iter().map(|x| if matches!(x.k, ExprKind::Spread(_)) { self.expr(x, imp, me) } else { self.nest_arg(x, Some(prefix.clone()), n, imp, me) }).collect();
-                Code::of("[").c(Code::join(a, ", ")).t("]")
-            }
-            ExprKind::Call { f, args, targs } => {
-                let fc = self.expr(f, imp, me);
-                let a = args.iter().map(|x| self.nest_arg(x, Some(prefix.clone()), n, imp, me)).collect();
-                fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")
-            }
-            ExprKind::Rec(fields) => {
-                let path = fields.iter().position(|f| matches!(f, Field::Kv { key, .. } if *key == n.2));
-                // a path is a literal or an array of literals (alternatives); under alternatives, each joined with each
-                let (lits, is_arr): (Option<Vec<String>>, bool) = match path.map(|i| &fields[i]) {
-                    Some(Field::Kv { v: Expr { k: ExprKind::Lit(Lit::Str(s)), .. }, .. }) => (Some(vec![s.clone()]), false),
-                    Some(Field::Kv { v: Expr { k: ExprKind::Arr(items), .. }, .. })
-                        if !items.is_empty() && items.iter().all(|x| matches!(x.k, ExprKind::Lit(Lit::Str(_)))) =>
-                    {
-                        (Some(items.iter().map(|x| if let ExprKind::Lit(Lit::Str(s)) = &x.k { s.clone() } else { unreachable!() }).collect()), true)
-                    }
-                    _ => (None, false),
-                };
-                let own: Option<Vec<String>> = match (path, lits) {
-                    (None, _) => Some(prefix.clone()),
-                    (Some(_), Some(ls)) => Some(prefix.iter().flat_map(|p| ls.iter().map(move |l| join_route_path(p, l))).collect()),
-                    (Some(_), None) => None,
-                };
-                let written = |o: &Vec<String>| if o.len() == 1 && !is_arr { js_str(&o[0]) } else { format!("[{}]", o.iter().map(|x| js_str(x)).collect::<Vec<_>>().join(", ")) };
-                let fs = fields
-                    .iter()
-                    .enumerate()
-                    .map(|(i, f)| match f {
-                        Field::Spread(x) => Code::of("...").c(self.expr(x, imp, me)),
-                        Field::Kv { key, .. } if Some(i) == path && own.is_some() => Code::of(&js_str(key)).t(": ").t(&written(own.as_ref().unwrap())),
-                        Field::Kv { key, v } if *key == n.0 || path.is_none() => Code::of(&js_str(key)).t(": ").c(self.nest_arg(v, own.clone(), n, imp, me)),
-                        Field::Kv { key, v } => Code::of(&js_str(key)).t(": ").c(self.expr(v, imp, me)),
-                    })
-                    .collect();
-                Code::of("({ ").c(Code::join(fs, ", ")).t(" })")
-            }
-            _ => self.expr(e, imp, me),
-        }
-    }
     fn expr(&mut self, e: &Expr, imp: bool, me: Option<&str>) -> Code {
         self.expr_text(e, imp, me).from(e.span)
     }
@@ -952,27 +895,14 @@ impl Proj<'_> {
                 go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]").t(if call { "()" } else { "" }) // MO-10b
             }
             ExprKind::StyleMap { css, .. } => Code::of(&class_map(css)),
-            ExprKind::Call { f, args, targs } if matches!(&f.k, ExprKind::Id(g) if self.nest_fns.contains_key(g)) => {
-                // MO-11i: a nested route typed with its parents' path
-                let ExprKind::Id(g) = &f.k else { unreachable!() };
-                let ns = self.nest_fns[g].clone();
-                let fc = go!(f);
-                let a = args.iter().map(|a| self.nest_arg(a, Some(vec![String::new()]), &ns, imp, me)).collect();
-                fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")
-            }
             ExprKind::Call { f, args, targs } => {
                 // MO-10a: a `ref` argument is an accessor
-                let sigs: Vec<bool> = match &f.k {
-                    ExprKind::Id(g) => self.ref_fns.get(g).map(|d| if let JsDecl::Fn { sigs, .. } = d { sigs.clone() } else { vec![] }).unwrap_or_default(),
-                    _ => vec![],
-                };
                 let refs: Vec<bool> = match &f.k {
                     ExprKind::Id(g) => self.ref_fns.get(g).map(|d| if let JsDecl::Fn { refs, .. } = d { refs.clone() } else { vec![] }).unwrap_or_default(),
                     _ => vec![],
                 };
                 let fc = go!(f);
-                // MO-10a: a `ref` argument is an accessor; MO-10h: a `signal` one a signal of the value
-                let a = args.iter().enumerate().map(|(i, a)| if refs.get(i).copied().unwrap_or(false) { Code::of("() => (").c(go!(a)).t(")") } else if sigs.get(i).copied().unwrap_or(false) { Code::of("__.signal(").c(go!(a)).t(")") } else { go!(a) }).collect();
+                let a = args.iter().enumerate().map(|(i, a)| if refs.get(i).copied().unwrap_or(false) { Code::of("() => (").c(go!(a)).t(")") } else { go!(a) }).collect();
                 fc.t(&format!("{}(", targs.as_ref().map(|t| format!("<{}>", t)).unwrap_or_default())).c(Code::join(a, ", ")).t(")")   // 07 §3: type arguments, as written
             }
             ExprKind::Arr(items) => {
@@ -1403,14 +1333,13 @@ pub fn boundary_checks(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, u
     let mut checks = vec![];
     for d in decls {
         let (name, line, ty) = match d {
-            JsDecl::Fn { name, line, params, ptypes, refs, ret, shape, tparams, opts, sigs, .. } => {
+            JsDecl::Fn { name, line, params, ptypes, refs, ret, shape, tparams, opts, .. } => {
                 let ps: Vec<String> = params
                     .iter()
                     .enumerate()
                     .map(|(i, n)| {
                         let t = ptypes.get(i).and_then(|t| t.clone()).unwrap_or_else(|| "any".into());
-                        // MO-10h: a `signal` parameter is a getter and a setter
-                        let t = if sigs.get(i).copied().unwrap_or(false) { format!("import(\"solid-js\").Signal<{}>", t) } else if refs.get(i).copied().unwrap_or(false) { accessor(&t) } else { t };
+                        let t = if refs.get(i).copied().unwrap_or(false) { accessor(&t) } else { t };
                         format!("{}{}: {}", n, if opts.get(i).copied().unwrap_or(false) { "?" } else { "" }, t)
                     })
                     .collect();
@@ -1421,12 +1350,7 @@ pub fn boundary_checks(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, u
             JsDecl::Value { name, line, ty } => (name, *line, ty.clone().unwrap_or_else(|| "any".into())),
             JsDecl::Type { .. } | JsDecl::Context { .. } => continue,
         };
-        let mut key = name.replace('.', "$$"); // MO-11q: a member (`Dialog.Trigger`), read as a property of its object
-        // MO-8p: a fn's further signatures are held one by one, as its first is
-        let nth = checks.iter().filter(|c: &&(usize, usize, String)| &c.2 == name).count();
-        if nth > 0 {
-            key = format!("{}$${}", key, nth);
-        }
+        let key = name.replace('.', "$$"); // MO-11q: a member (`Dialog.Trigger`), read as a property of its object
         out.push(format!("type __decl_{} = {};", key, ty));
         out.push(format!("const __check_{}: __decl_{} = __real.{};", key, key, name));
         checks.push((out.len(), line, name.clone()));
@@ -1453,17 +1377,6 @@ pub fn boundary_checks(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, u
         out.push("type __rx_has<P, K extends PropertyKey> = [P extends unknown ? K extends keyof P ? true : never : never] extends [never] ? false : true;".into());
     }
     (out.join("\n") + "\n", checks, overlay)
-}
-
-/// MO-11i: a route path under its parent's: `/org/:org` and `/:id` give `/org/:org/:id`; `/` under anything is the parent.
-fn join_route_path(parent: &str, child: &str) -> String {
-    if parent.is_empty() || parent == "/" {
-        return child.to_string();
-    }
-    if child == "/" || child.is_empty() {
-        return parent.to_string();
-    }
-    format!("{}{}", parent.trim_end_matches('/'), if child.starts_with('/') { child.to_string() } else { format!("/{}", child) })
 }
 
 /// MO-8k: a package's declaration that is not beside the package's file (the project's `rx-types/`, a shared `@rx-types`

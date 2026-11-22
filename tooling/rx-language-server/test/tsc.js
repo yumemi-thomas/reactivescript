@@ -132,7 +132,7 @@ check("a field that names no prop of the library's fails, naming it (DECLARATION
   overName.status !== 0 && /picker\.d\.rx:1:1 - error DECLARATION_MISMATCH: Picker: `onPicked` is written in the record after the props' type, and import\("\.\/picker\.js"\)\.PickerProps<Option> has no prop of that name/.test(overName.out) && (overName.out.match(/onPicked/g) ?? []).length === 1, overName);
 fs.rmSync(over, { recursive: true });
 
-// MO-8j: strict declarations — `--rx-strict` refuses a row rx-verify has not recorded as verified, unless it says `trusted`
+// MO-8j: strict declarations — `--rx-strict` refuses a row rx-verify has not recorded as verified
 const strictRun = () => spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--rx-strict"], { cwd: only, encoding: "utf8" });
 fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): number\n");
 const unrec = strictRun();
@@ -154,9 +154,11 @@ const overridden = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc
 check("...and the tsconfig's own setting overrides its base's", overridden.status === 0, { status: overridden.status, out: overridden.stdout + overridden.stderr });
 fs.rmSync(path.join(ws, "tsconfig.base.json"));
 fs.writeFileSync(onlyCfg, onlyCfgText);
+// no word of a row opts it out of strict mode: `trusted` was one (MO-8j) and is refused by name
 fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): number trusted\n");
-const trusted = strictRun();
-check("strict: a row marked trusted passes", trusted.status === 0, { status: trusted.status, out: trusted.stdout + trusted.stderr });
+const trusted = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: only, encoding: "utf8" });
+check("`trusted` is not a word of a row (refused by name)", trusted.status !== 0 && /`trusted` is not a word of a declaration/.test(trusted.stdout + trusted.stderr), { status: trusted.status, out: trusted.stdout + trusted.stderr });
+fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): number\n");
 
 // MO-8k: packages declared by the project, `rx-types/<spec>.d.rx`, with no re-export file beside the app
 const pk = path.join(ws, "rx-types-app"); fs.mkdirSync(path.join(pk, "node_modules"), { recursive: true });
@@ -264,12 +266,12 @@ check("an imported declaration in another folder is pinned (DECLARATION_VERSION,
 check("...held to strict mode (UNVERIFIED_ROW, MO-8j)", /sub[\\/]lib\.d\.rx:2:1 - error UNVERIFIED_ROW: f: nothing verified it/.test(nested.out), nested);
 check("...and checked against the types its import resolves to (DECLARATION_MISMATCH, TY-6)", /sub[\\/]lib\.d\.rx:2:1 - error DECLARATION_MISMATCH: f: /.test(nested.out), nested);
 // a .d.rx beside the entry that nothing imports and the tsconfig does not name is not the program's
-fs.writeFileSync(path.join(nest, "sub/lib.d.rx"), "export pure fn f(s: string): string trusted\n");
+fs.writeFileSync(path.join(nest, "sub/lib.d.rx"), "export pure fn f(s: string): string\n");
 fs.writeFileSync(path.join(nest, "main.rx"), fs.readFileSync(path.join(nest, "main.rx"), "utf8").replace("f(2)", 'f("x")'));
 fs.writeFileSync(path.join(nest, "spare.js"), "export const g = n => n;\n");
 fs.writeFileSync(path.join(nest, "spare.d.rx"), "//@ for not-installed-anywhere ^1.0.0\nexport pure fn g(n: number): number\n");
 const neighbour = nestRun("--rx-strict");
-check("an unimported declaration beside the entry is not checked (no UNVERIFIED_ROW, no DECLARATION_VERSION)", neighbour.status === 0 && !/spare\.d\.rx/.test(neighbour.out), neighbour);
+check("an unimported declaration beside the entry is not checked (no UNVERIFIED_ROW, no DECLARATION_VERSION): the imported one's row is the only one held", /sub[\\/]lib\.d\.rx:1:1 - error UNVERIFIED_ROW: f: /.test(neighbour.out) && /Found 1 ReactiveScript error/.test(neighbour.out) && !/spare\.d\.rx/.test(neighbour.out), neighbour);
 fs.writeFileSync(path.join(nest, "tsconfig.json"), JSON.stringify({ compilerOptions: JSON.parse(fs.readFileSync(path.join(ws, "tsconfig.json"), "utf8")).compilerOptions, include: ["main.rx", "spare.d.rx"] }));
 const audited = nestRun("--rx-strict");
 check("...until the tsconfig names it, to audit it", audited.status !== 0 && /spare\.d\.rx:1:1 - error DECLARATION_VERSION/.test(audited.out) && /spare\.d\.rx:2:1 - error UNVERIFIED_ROW/.test(audited.out), audited);

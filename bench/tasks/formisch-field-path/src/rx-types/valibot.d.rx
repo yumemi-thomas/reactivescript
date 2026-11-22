@@ -25,11 +25,7 @@ export type BaseTransformationAsync<TInput, TOutput, TIssue extends BaseIssue<un
 export type BaseValidation<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseValidation<TInput, TOutput, TIssue>
 export type BaseValidationAsync<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseValidationAsync<TInput, TOutput, TIssue>
 export pure fn object<const TEntries extends ObjectEntries>(entries: TEntries): ObjectSchema<TEntries, undefined>
-export pure fn object<const TEntries extends ObjectEntries, const TMessage extends ErrorMessage<ObjectIssue> | undefined>(entries: TEntries, message: TMessage): ObjectSchema<TEntries, TMessage>
 export pure fn string(): StringSchema<undefined>
-export pure fn string<const TMessage extends ErrorMessage<StringIssue> | undefined>(message: TMessage): StringSchema<TMessage>
 export pure fn pipe<const TSchema extends BaseSchema<unknown, unknown, BaseIssue<unknown>>, const TItem1 extends PipeItem<InferOutput<TSchema>, unknown, BaseIssue<unknown>>>(schema: TSchema, item1: TItem1 | PipeAction<InferOutput<TSchema>, InferOutput<TItem1>, InferIssue<TItem1>>): SchemaWithPipe<readonly [TSchema, TItem1]>
 export pure fn email<TInput extends string>(): EmailAction<TInput, undefined>
-export pure fn email<TInput extends string, const TMessage extends ErrorMessage<EmailIssue<TInput>> | undefined>(message: TMessage): EmailAction<TInput, TMessage>
 export pure fn minLength<TInput extends LengthInput, const TRequirement extends number>(requirement: TRequirement): MinLengthAction<TInput, TRequirement, undefined>
-export pure fn minLength<TInput extends LengthInput, const TRequirement extends number, const TMessage extends ErrorMessage<MinLengthIssue<TInput, TRequirement>> | undefined>(requirement: TRequirement, message: TMessage): MinLengthAction<TInput, TRequirement, TMessage>

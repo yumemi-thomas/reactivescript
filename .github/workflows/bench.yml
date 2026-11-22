@@ -36,7 +36,8 @@ jobs:
         run: npm --prefix tooling/rx-language-server ci
       - name: The libraries, and Chromium
         run: |
-          mkdir -p bench/.out/ws && cp bench/package.json bench/.out/ws/package.json
-          (cd bench/.out/ws && npm install --no-audit --no-fund --legacy-peer-deps && npx playwright install --with-deps chromium)
+          # from the lockfile, as bench/harness.mjs installs them: every machine resolves the same tree
+          mkdir -p bench/.out/ws && cp bench/package.json bench/package-lock.json bench/.out/ws/
+          (cd bench/.out/ws && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock && npx playwright install --with-deps chromium)
       - name: The benchmark, against bench/scorecard.json
         run: node bench/run.mjs --check --strict

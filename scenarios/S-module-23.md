@@ -8,8 +8,8 @@ Rules: MO-11p, MO-11o, MO-11c, R-f-5, RG-4c.
 -- module: ./tsr.d.rx
 // as @tanstack/solid-router declares it: a route renders under the one its getParentRoute names, at that one's <Outlet />
 export context router
-export pure fn createRootRoute(options: { component?: Component }): any renders(later) methods(addChildren)
-export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) methods(addChildren) nests(component under getParentRoute)
+export pure fn createRootRoute(options: { component?: Component }): any renders(later)
+export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) nests(component under getParentRoute)
 export pure fn createRouter(options: { routeTree: any }): any instantiates
 export component RouterProvider(props: { router: renders any }) provides(router)
 export component Outlet(props: {}) uses(router) outlet
@@ -52,7 +52,7 @@ component Team() {
 rootRoute = createRootRoute({ component: Root })
 personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
 teamRoute = createRoute({ getParentRoute: () => personRoute, path: "team", component: Team })
-router = createRouter({ routeTree: rootRoute.addChildren([personRoute.addChildren([teamRoute])]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute.addChildren([teamRoute])]) })
 export default component App() {
   <RouterProvider router={router} />
 }
@@ -81,7 +81,7 @@ component Person() {
 }
 rootRoute = createRootRoute({ component: Root })
 personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
 export default component App() {
   <RouterProvider router={router} />
 }
@@ -108,7 +108,7 @@ component Team() {
 rootRoute = createRootRoute({ component: Root })
 shellRoute = createRoute({ getParentRoute: () => rootRoute, path: "/shell", component: Shell })
 teamRoute = createRoute({ getParentRoute: () => rootRoute, path: "/team", component: Team })
-router = createRouter({ routeTree: rootRoute.addChildren([shellRoute, teamRoute]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([shellRoute, teamRoute]) })
 export default component App() {
   <RouterProvider router={router} />
 }

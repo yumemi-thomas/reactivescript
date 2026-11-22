@@ -1326,10 +1326,6 @@
           {
             "type": "handler",
             "named": false
-          },
-          {
-            "type": "tracked",
-            "named": false
           }
         ]
       }
@@ -2846,14 +2842,6 @@
       "required": false,
       "types": [
         {
-          "type": "joins_clause",
-          "named": true
-        },
-        {
-          "type": "methods_clause",
-          "named": true
-        },
-        {
           "type": "nests_clause",
           "named": true
         },
@@ -4081,22 +4069,6 @@
     }
   },
   {
-    "type": "joins_clause",
-    "named": true,
-    "fields": {
-      "field": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "property_identifier",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "jsx_attribute",
     "named": true,
     "fields": {},
@@ -4877,22 +4849,6 @@
     }
   },
   {
-    "type": "methods_clause",
-    "named": true,
-    "fields": {
-      "name": {
-        "multiple": true,
-        "required": true,
-        "types": [
-          {
-            "type": "property_identifier",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "module",
     "named": true,
     "fields": {
@@ -5328,10 +5284,6 @@
         },
         {
           "type": "ref_modifier",
-          "named": true
-        },
-        {
-          "type": "signal_modifier",
           "named": true
         }
       ]
@@ -6031,18 +5983,7 @@
   {
     "type": "renders_clause",
     "named": true,
-    "fields": {
-      "name": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      }
-    }
+    "fields": {}
   },
   {
     "type": "renders_type",
@@ -6140,10 +6081,6 @@
         },
         {
           "type": "ref_modifier",
-          "named": true
-        },
-        {
-          "type": "signal_modifier",
           "named": true
         }
       ]
@@ -6389,11 +6326,6 @@
   },
   {
     "type": "side",
-    "named": true,
-    "fields": {}
-  },
-  {
-    "type": "signal_modifier",
     "named": true,
     "fields": {}
   },
@@ -8402,10 +8334,6 @@
     "named": false
   },
   {
-    "type": "forwards",
-    "named": false
-  },
-  {
     "type": "from",
     "named": false
   },
@@ -8483,10 +8411,6 @@
     "named": false
   },
   {
-    "type": "joins",
-    "named": false
-  },
-  {
     "type": "jsx_text",
     "named": true
   },
@@ -8524,10 +8448,6 @@
   },
   {
     "type": "meta",
-    "named": false
-  },
-  {
-    "type": "methods",
     "named": false
   },
   {
@@ -8679,10 +8599,6 @@
     "named": false
   },
   {
-    "type": "root",
-    "named": false
-  },
-  {
     "type": "satisfies",
     "named": false
   },
@@ -8709,10 +8625,6 @@
   {
     "type": "shorthand_property_identifier_pattern",
     "named": true
-  },
-  {
-    "type": "signal",
-    "named": false
   },
   {
     "type": "signature_path",
@@ -8779,16 +8691,8 @@
     "named": false
   },
   {
-    "type": "tracked",
-    "named": false
-  },
-  {
     "type": "true",
     "named": true
-  },
-  {
-    "type": "trusted",
-    "named": false
   },
   {
     "type": "try",

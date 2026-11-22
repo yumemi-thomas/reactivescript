@@ -20,8 +20,6 @@ export declare function set<T>(target: T): (v: T | ((p: T) => T)) => void;
 export type Widen<T> = 0 extends (1 & T) ? any : [T] extends [null | undefined] ? any : [T] extends [never[]] ? any[] : [T] extends [string] ? string : [T] extends [number] ? number : [T] extends [boolean] ? boolean : T;
 export declare function src<T>(v: T): Widen<T>;
 export declare function typed<T>(v: T): T;
-/** MO-10h: a signal parameter: the compiler makes a Solid signal of the value passed, Solid's own type. */
-export declare function signal<T>(v: T): import("solid-js").Signal<T>;
 type ElemOf<X> = 0 extends (1 & X) ? any : X extends Iterable<infer U> ? U : X extends ArrayLike<infer U> ? U : any;
 export declare function each<X>(xs: X, f: (x: ElemOf<X>) => JSX.Element): JSX.Element;
 /** 12 SF-6a: what crosses the wire — data. `Bad<T>` is true where a function or an instance of a class is in it (`any`: not

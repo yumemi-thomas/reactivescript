@@ -94,6 +94,13 @@ function checkBoundaries(ts, rxFiles, options, scope) {
   host.getSourceFile = (f, lang, ...rest) => byPath.has(path.resolve(f)) ? ts.createSourceFile(f, byPath.get(path.resolve(f)).code, lang) : getSourceFile.call(host, f, lang, ...rest);
   host.fileExists = f => byPath.has(path.resolve(f)) || fileExists.call(host, f);
   host.readFile = f => byPath.has(path.resolve(f)) ? byPath.get(path.resolve(f)).code : readFile.call(host, f);
+  // MO-8o: a package a row names (`import("@solid-primitives/utils").Many<T>`) is the one the declared library imports:
+  // resolved from where that library is installed (nested under it or hoisted beside the app, the same), then from
+  // beside the declaration. A relative name is the declaration's own (`import("./table.js")`)
+  const libs = new Map();
+  const inPackage = f => /[\\/]node_modules[\\/]/.test(f) || (fs.existsSync(f) && /[\\/]node_modules[\\/]/.test(fs.realpathSync(f)));
+  for (const u of units) { const lib = ts.resolveModuleName(u.module, u.at, options, host).resolvedModule?.resolvedFileName; if (lib && inPackage(lib)) libs.set(path.resolve(u.at), lib); }
+  if (libs.size) require("./library-resolve.js").resolveUnitsAsLibrary(ts, host, libs);
   const program = ts.createProgram([...byPath.keys()], { ...options, noEmit: true }, host);
   for (const u of units) {
     const sf = program.getSourceFile(u.at);

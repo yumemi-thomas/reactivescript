@@ -23,8 +23,8 @@ const dir = path.join(ws, "confined"); rmSync(dir, { recursive: true, force: tru
 writeFileSync(path.join(dir, "lib.d.rx"), [
   "export pure fn useQuery(): { data: pending fails(Error) string; status: string; refetch: () => void }",
   "export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]",
-  "export pure fn createTable(options: { cell: Component }): { page: number; label: string; nextPage: () => void; setLabel: (text: string) => void; rows: any[] } renders methods(setLabel)",
-  "export pure fn makeClock(): any instantiates methods(format)",
+  "export pure fn createTable(options: { cell: Component }): { page: number; label: string; nextPage: () => void; setLabel: (text: string) => void; rows: any[] } renders",
+  "export pure fn makeClock(): any instantiates",
   "export pure fn createLabel(text: any): ref string",
   "export component Run(props: { go: handler () => void })",
   "export fn sink(label: string, x: any): void",
@@ -137,7 +137,7 @@ refused("…through a method the declaration does not name, given a row", "RENDE
   ({ onSend: props.onSend, t: table }).onSend(table);
   check("unchecked, the parent receives the table itself", sent[0] === table, sent);
 }
-{ const h = accepted("the table's method called from a handler a child is given; a declared scalar field and a declared method's argument", grid('  <Btn onPress={() => { table.nextPage() }} text={table.label} n={table.page} />\n  <button class="rename" onClick={() => { table.setLabel(`${table.label}!`) }}>rename</button>'));
+{ const h = accepted("the table's method called from a handler a child is given; a declared scalar field and a method given nothing of the table", grid('  <Btn onPress={() => { table.nextPage() }} text={table.label} n={table.page} />\n  <button class="rename" onClick={() => { table.setLabel(`${table.label}!`) }}>rename</button>'));
   if (h) {
     const base = await h.serve(); const page = await h.open(base);
     check("…mounted: the child shows the table's scalars", await h.until(async () => /people 1/.test(await h.text(page))), await h.text(page));
@@ -156,7 +156,7 @@ refused("…read out of an array written where it is called (a record's formatte
 refused("…through a closure that returns it", "SNAPSHOT_ARGUMENT", clock("  mk = () => () => n\n  result = createLabel(mk()())\n  <p>{result}</p>"));
 refused("…a record reached through another name", "SNAPSHOT_KEPT", clock("  box = { read: () => n }\n  again = box\n  result = peek again.read()\n  <p>{result}</p>"));
 refused("a method of the instance its declaration does not name, in a record's closure", "SNAPSHOT_ARGUMENT", clock("  box = { read: () => clock.now() }\n  result = createLabel(box.read())\n  <p>{result}</p>"));
-{ const h = accepted("the same closure read live; a declared method; a literal's own slot; another field of the record", clock('  box = { read: () => n, unit: () => "clicks" }\n  made = createLabel(clock.format())\n  slot = createLabel([clock, 5][1])\n  unit = createLabel(box.unit())\n  <p class="live">{box.read()} {made} {slot} {unit}</p>'));
+{ const h = accepted("the same closure read live; a method's answer read once (`peek`); a literal's own slot; another field of the record", clock('  box = { read: () => n, unit: () => "clicks" }\n  made = createLabel(peek clock.format())\n  slot = createLabel([clock, 5][1])\n  unit = createLabel(box.unit())\n  <p class="live">{box.read()} {made} {slot} {unit}</p>'));
   if (h) {
     const base = await h.serve(); const page = await h.open(base);
     check("…mounted", await h.until(async () => /0 \[noon\] \[5\] \[clicks\]/.test(await h.text(page))), await h.text(page));
@@ -168,8 +168,8 @@ refused("a method of the instance its declaration does not name, in a record's c
 // ---------------------------------------------------------------- RFC 18: a router rendered at a known outlet
 writeFileSync(path.join(dir, "tsr.d.rx"), [
   "export context router",
-  "export pure fn createRootRoute(options: { component?: Component }): any renders(later) methods(addChildren)",
-  "export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) methods(addChildren) nests(component under getParentRoute)",
+  "export pure fn createRootRoute(options: { component?: Component }): any renders(later)",
+  "export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) nests(component under getParentRoute)",
   "export pure fn createRouter(options: { routeTree: any }): any instantiates",
   "export component RouterProvider(props: { router: renders any }) provides(router)",
   "export component Outlet(props: {}) uses(router) outlet",
@@ -191,7 +191,7 @@ component Person() {
 }
 rootRoute = createRootRoute({ component: Root })
 personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: rootRoute.addChildren([personRoute]) })
+router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
 ${app}
 `;
 const plain = src => { const f = path.join(dir, `p${++seq}.rx`); writeFileSync(f, src); return both(f); };

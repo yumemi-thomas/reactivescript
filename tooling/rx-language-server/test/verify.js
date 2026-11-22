@@ -170,7 +170,7 @@ check("placement with no scene is not verified, and says so", /unscened\.d\.rx:3
 
 // MO-10g: a callback row checked by running — the library calls it outside tracking (a handler), inside a computation
 // (a mismatch: the parameter would be `ref`), or never under the probe (unverified).
-// MO-8j: `--record` writes what running showed; strict mode refuses the rows not recorded as verified, unless `trusted`.
+// MO-8j: `--record` writes what running showed; strict mode refuses the rows not recorded as verified.
 fs.writeFileSync(path.join(ws, "cb.mjs"), [
   "import { createMemo } from \"solid-js\";",
   "export const onTick = cb => { queueMicrotask(() => cb(1)); };",
@@ -195,8 +195,8 @@ const cbDecl = [
   "export fn onTick(cb: handler (n: number) => void): void",
   "export fn watchIn(cb: handler (n: number) => number): void",
   "export fn never(cb: (n: number) => void): void",
-  "export fn later(n: number): number trusted",
-  "export fn watchTracked(cb: tracked (n: number) => number): void",
+  "export fn later(n: number): number",
+  "export fn watchTracked(cb: (n: number) => number): void",
   "export fn watchPure(cb: (n: number) => number): void",
   "",
 ].join("\n");
@@ -204,14 +204,14 @@ fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl);
 fs.rmSync(path.join(ws, "cb.verified.json"), { force: true });
 const { checkStrict } = require("../src/strict.js");
 const before = checkStrict(path.join(ws, "cb.d.rx"));
-check("strict: with no record, every row but the trusted one is refused", before.length === 5 && before.every(u => /nothing verified it/.test(u.message)) && !before.some(u => u.name === "later"), before);
+check("strict: with no record, every row is refused", before.length === 6 && before.every(u => /nothing verified it/.test(u.message)), before);
 const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "cb.d.rx"], { cwd: ws, encoding: "utf8" });
 const out3 = r3.stdout + r3.stderr;
 if (process.env.VERBOSE) console.log(out3);
 check("callback: called outside tracking holds, as a handler", /cb\.d\.rx:1 ok\s+onTick: callback cb holds/.test(out3), out3);
 check("callback: declared handler and called inside a computation is a mismatch (MO-10g)", /cb\.d\.rx:2 MISMATCH\s+watchIn: cb is declared handler, but the library calls it inside a computation/.test(out3), out3);
 check("callback: an unmarked function type is pure, which holds inside a computation too", /cb\.d\.rx:6 ok\s+watchPure: cb is pure, as declared/.test(out3), out3);
-check("callback: declared tracked and called inside a computation holds (MO-10j)", /cb\.d\.rx:5 ok\s+watchTracked: cb is tracked, as declared/.test(out3), out3);
+check("callback: an unmarked one called inside a computation is pure, as declared: no word says more (MO-10g)", /cb\.d\.rx:5 ok\s+watchTracked: cb is pure, as declared; the library calls it inside a computation/.test(out3), out3);
 check("callback: never called under the probe is unverified", /cb\.d\.rx:3 unverified never: callback cb never called/.test(out3), out3);
 check("--record writes the record beside the declaration", fs.existsSync(path.join(ws, "cb.verified.json")) && /recorded/.test(out3), out3);
 const after = checkStrict(path.join(ws, "cb.d.rx"));
@@ -221,7 +221,7 @@ const edited = checkStrict(path.join(ws, "cb.d.rx"));
 check("strict: a row edited since the record is not verified any more", edited.some(u => u.name === "onTick" && /changed since/.test(u.message)), edited);
 
 // strict mode reads rows through the parser: a `//` inside a string is part of the row, a type that only mentions
-// "trusted" is not trust, a row spans its lines, and a record holds only for the library and probe it was made against
+// a row spans its lines, and a record holds only for the library and probe it was made against
 const { writeRecord } = require("../src/strict.js");
 const ux = path.join(ws, "urls.d.rx");
 const uxDecl = [
@@ -238,7 +238,7 @@ fs.writeFileSync(path.join(ws, "urls.probe.mjs"), "export const probes = {};\n")
 fs.writeFileSync(ux, uxDecl);
 fs.rmSync(path.join(ws, "urls.verified.json"), { force: true });
 const fresh = checkStrict(ux);
-check("strict: a return type that only mentions \"trusted\" is not trust", fresh.some(u => u.name === "word" && /nothing verified it/.test(u.message)), fresh);
+check("strict: a return type that mentions a word that was one (\"trusted\") is a type", fresh.some(u => u.name === "word" && /nothing verified it/.test(u.message)), fresh);
 writeRecord(ux, [{ line: 1, status: "ok", what: "link" }, { line: 2, status: "ok", what: "word" }, { line: 3, status: "ok", what: "spaced" }, { line: 5, status: "ok", what: "Card" }]);
 check("strict: recorded rows pass", checkStrict(ux).length === 0, checkStrict(ux));
 fs.writeFileSync(ux, uxDecl.replace("a comment, not the row", "another comment"));
@@ -277,9 +277,10 @@ const oneLine = boxRun("export context theme\nexport component Box(props: { labe
 const threeLines = boxRun("export context theme\nexport component Box(props: {\n  label: string\n}) provides(theme)\n");
 check("a provides(…) on a row's later line is read: unverified, as on one line", /box\.d\.rx:2 unverified Box: provides\(theme\) not run/.test(oneLine.out) && /box\.d\.rx:2 unverified Box: provides\(theme\) not run/.test(threeLines.out) && !/ok\s+— Box/.test(threeLines.out), threeLines.out);
 check("...and strict refuses it either way (no `ok` for a row with a claim nothing ran)", oneLine.strict.some(u => u.name === "Box") && threeLines.strict.some(u => u.name === "Box" && /could not check it/.test(u.message)), threeLines.strict);
-// a claim no check of rx-verify's answers (here `forwards`) is recorded as not verified, not passed over
+// a claim no check of rx-verify's answers (here where a made component renders what it is given, with no scene) is
+// recorded as not verified, not passed over
 fs.writeFileSync(path.join(ws, "fw.mjs"), "export const wrap = c => c;\n");
-fs.writeFileSync(path.join(ws, "fw.d.rx"), "export fn wrap(c: Component): Component forwards\n");
+fs.writeFileSync(path.join(ws, "fw.d.rx"), "export fn wrap(c: Component): Component\n");
 const fw = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "fw.d.rx"], { cwd: ws, encoding: "utf8" });
 check("a claim nothing in rx-verify runs is unverified, and strict refuses the row", /fw\.d\.rx:1 unverified wrap: where it renders/.test(fw.stdout) && checkStrict(path.join(ws, "fw.d.rx")).some(u => u.name === "wrap"), fw.stdout + fw.stderr);
 // a record an older rx-verify wrote (no version: its checks missed claims) no longer counts
@@ -317,7 +318,7 @@ check("provides(a, b): a hook that uses only a answers provides(a) alone; b is u
 check("...and strict refuses the row (no `ok` record for provides(a, b))", bothStrict.some(u => u.name === "Both" && /could not check it/.test(u.message)), bothStrict);
 check("a component's handler prop it never calls: unverified, and strict refuses it", /both\.d\.rx:5 unverified Lone: prop ref never called/.test(both.stdout) && bothStrict.some(u => u.name === "Lone" && /could not check it/.test(u.message)), { out: both.stdout, bothStrict });
 const bothRec = JSON.parse(fs.readFileSync(path.join(ws, "both.verified.json"), "utf8"));
-check("...in a version-4 record", bothRec.version === 4 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
+check("...in a version-5 record", bothRec.version === 5 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
 
 // RFC 28 (revised after review): provides(b) is not shown by a hook declared uses(a, b) that reads only a, nor by a part
 // that still fails under the provider; only actual provision verifies it
@@ -343,8 +344,8 @@ check("a hook declared uses(a, b) answers neither provides(a) nor provides(b)", 
 check("a part that uses b alone and still fails under the component: provides(b) is a mismatch, not ok", /prov\.d\.rx:4 MISMATCH\s+Both: declared provides\(b\), but Part, which uses it, still fails under it/.test(prov.stdout), prov.stdout + prov.stderr);
 
 // RFC 29 (revised after review): a component's function-typed props are run — the probe's props, each wrapped in a spy:
-// a handler called later holds, one called inside a computation is a mismatch, a tracked one called inside one holds,
-// and strict mode then accepts the row without `trusted`
+// a handler called later holds, one called inside a computation is a mismatch, an unmarked one holds however it is
+// called, and strict mode then accepts the row
 fs.writeFileSync(path.join(ws, "props.mjs"), [
   "import { createEffect, createMemo } from \"solid-js\";",
   "export const Later = props => { queueMicrotask(() => props.onPress()); return null; };",
@@ -356,7 +357,7 @@ fs.writeFileSync(path.join(ws, "props.mjs"), [
 fs.writeFileSync(path.join(ws, "props.d.rx"), [
   "export component Later(props: { onPress: handler () => void })",
   "export component Now(props: { onPress: handler () => void })",
-  "export component Each(props: { each: tracked () => number })",
+  "export component Each(props: { each: () => number })",
   "export component Pick(props: { pick: (n: number) => number })",
   "",
 ].join("\n"));
@@ -364,9 +365,9 @@ fs.rmSync(path.join(ws, "props.verified.json"), { force: true });
 const pr = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "props.d.rx"], { cwd: ws, encoding: "utf8" });
 check("a handler prop the component calls later holds", /props\.d\.rx:1 ok\s+Later: prop onPress holds/.test(pr.stdout), pr.stdout + pr.stderr);
 check("a handler prop it calls inside a computation is a mismatch", /props\.d\.rx:2 MISMATCH\s+Now: prop onPress is declared handler, but the component calls it inside a computation/.test(pr.stdout), pr.stdout + pr.stderr);
-check("a tracked prop it calls inside one holds; an unmarked one is pure however it is called", /props\.d\.rx:3 ok\s+Each: prop each is tracked, as declared/.test(pr.stdout) && /props\.d\.rx:4 ok\s+Pick: prop pick is pure/.test(pr.stdout), pr.stdout + pr.stderr);
+check("an unmarked prop is pure however it is called: inside a computation, or while it renders", /props\.d\.rx:3 ok\s+Each: prop each is pure/.test(pr.stdout) && /props\.d\.rx:4 ok\s+Pick: prop pick is pure/.test(pr.stdout), pr.stdout + pr.stderr);
 const prStrict = checkStrict(path.join(ws, "props.d.rx"));
-check("...and strict mode accepts those rows without `trusted`, refusing only the mismatch", !prStrict.some(u => ["Later", "Each", "Pick"].includes(u.name)) && prStrict.some(u => u.name === "Now"), prStrict);
+check("...and strict mode accepts those rows, refusing only the mismatch", !prStrict.some(u => ["Later", "Each", "Pick"].includes(u.name)) && prStrict.some(u => u.name === "Now"), prStrict);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

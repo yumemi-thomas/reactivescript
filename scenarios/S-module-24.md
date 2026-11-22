@@ -14,6 +14,12 @@ export component Dialog.Content(props: { children?: View }) uses(dialog)
 export component Button(props: { as?: string | Component; children?: View })
 ```
 
+```rx
+-- module: ./motion.d.rx
+// an object of components exported under a small letter (Motion's `motion`, Wardic's `wardic`)
+export component wardic.div(props: { children?: View })
+```
+
 A UI kit exports its compound parts on one object (`Dialog.Root`,
 `Dialog.Trigger`). `export component Dialog.Root(…)` in a `.d.rx` declares
 a member (MO-11q): `import { Dialog } from "./ui.js"` binds each declared
@@ -89,3 +95,41 @@ export default component App() {
 
 A member's props are typed as its declaration writes them: `open` is a
 `boolean`.
+
+```rx
+-- reject: UNKNOWN_COMPONENT
+import { wardic } from "./motion.js"
+export default component App() {
+  <wardic.div>moves</wardic.div>
+}
+```
+
+A tag is a component's by its capital (07 §4), so `<wardic.div>` is not
+`wardic`'s member: it would be an HTML element named `wardic.div`, and no
+element's name has a `.`. It is refused, with the spelling that works: an
+object exported under a small letter is imported under a capital,
+
+```rx
+-- accept
+import { wardic as Wardic } from "./motion.js"
+export default component App() {
+  <Wardic.div>moves</Wardic.div>
+}
+```
+
+and a dotted tag whose head is no name of the module is refused the same
+way; a custom element's name has a `-`.
+
+```rx
+-- reject: UNKNOWN_COMPONENT
+export default component App() {
+  <motion.div>moves</motion.div>
+}
+```
+
+```rx
+-- accept
+export default component App() {
+  <my-kit.card>a custom element</my-kit.card>
+}
+```

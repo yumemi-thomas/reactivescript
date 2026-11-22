@@ -151,17 +151,17 @@
       "fails": []
     },
     "decl": {
-      "words": 11,
+      "words": 7,
       "any": 11,
       "inherited": 11,
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 1088,
-        "any": 66,
-        "vendor": 66,
+        "rows": 878,
+        "any": 64,
+        "vendor": 64,
         "introduced": 0,
-        "places": 20
+        "places": 16
       }
     }
   },
@@ -192,17 +192,17 @@
       "fails": []
     },
     "decl": {
-      "words": 11,
+      "words": 7,
       "any": 11,
       "inherited": 11,
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 1088,
-        "any": 66,
-        "vendor": 66,
+        "rows": 878,
+        "any": 64,
+        "vendor": 64,
         "introduced": 0,
-        "places": 20
+        "places": 16
       }
     }
   },
@@ -403,11 +403,11 @@
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 37,
+        "rows": 31,
         "any": 5,
         "vendor": 5,
         "introduced": 0,
-        "places": 5
+        "places": 3
       }
     }
   },
@@ -485,11 +485,11 @@
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 181,
+        "rows": 177,
         "any": 37,
         "vendor": 37,
         "introduced": 0,
-        "places": 16
+        "places": 12
       }
     }
   },
@@ -526,11 +526,11 @@
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 183,
+        "rows": 179,
         "any": 56,
         "vendor": 56,
         "introduced": 0,
-        "places": 16
+        "places": 12
       }
     }
   },
@@ -567,9 +567,9 @@
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 96,
-        "any": 22,
-        "vendor": 22,
+        "rows": 93,
+        "any": 20,
+        "vendor": 20,
         "introduced": 0,
         "places": 18
       }
@@ -1061,7 +1061,7 @@
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 285,
+        "rows": 277,
         "any": 3,
         "vendor": 3,
         "introduced": 0,

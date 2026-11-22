@@ -8,7 +8,7 @@
 // prop renders what a value carries, an outlet), provides the chain of recording ids above it through one context, so
 // where a component renders is read the way Solid itself finds a context: up its owners. Then each row is checked:
 //   - a fn handing back a Component: what it was given renders inside the made component;
-//   - `renders`: inside the component that called the fn;   `renders(root, …)`: not inside it;
+//   - `renders`: inside the component that called the fn;
 //   - `renders(later)`: inside a JS component whose prop is declared `renders T`;
 //   - `nests(children in component)`: each entry's component inside its record's component;
 //   - `nests(component under parent)`: each value's component inside its parent value's component, at an `outlet`.
@@ -23,7 +23,7 @@ function rowsOf(text) {
     let m;
     if ((m = /^\s*export\s+(?:server\s+|client\s+)?(?:pure\s+)?fn\s+([A-Za-z_$][\w$]*)/.exec(l))) {
       const nestsIn = /\bnests\(\s*([\w$]+)\s+in\s+([\w$]+)\s*\)/.exec(l), nestsUnder = /\bnests\(\s*([\w$]+)\s+under\s+([\w$]+)\s*\)/.exec(l);
-      const mode = /\brenders\(\s*later\s*\)/.test(l) ? "later" : /\brenders\(\s*root\b/.test(l) ? "root" : /\brenders\b(?!\s*\()/.test(l.replace(/:\s*renders\s/g, "")) ? "here" : /\)\s*:\s*Component\b/.test(l) ? "factory" : null;
+      const mode = /\brenders\(\s*later\s*\)/.test(l) ? "later" : /\brenders\b(?!\s*\()/.test(l.replace(/:\s*renders\s/g, "")) ? "here" : /\)\s*:\s*Component\b/.test(l) ? "factory" : null;
       // draft callbacks: in a parameter (`(update: (draft s: T) => …)`) or in a function part of a tuple result
       const draftPart = (() => { const r = /\)\s*:\s*\[(.*)\]\s*(?:$|\b(?:uses|provides|renders|nests|instantiates)\b)/.exec(l); if (!r) return -1; let d = 0, from = 0, idx = 0; const t = r[1]; for (let j = 0; j <= t.length; j++) { const c = t[j]; if (j === t.length || (c === "," && d === 0)) { if (/\(\s*draft\s+[\w$]/.test(t.slice(from, j))) return idx; idx++; from = j + 1; } else if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && t[j - 1] !== "=")) d--; } return -1; })();
       if (mode || nestsIn || nestsUnder || draftPart >= 0) fns.push({ name: m[1], line: i + 1, mode, nestsIn: nestsIn && { kids: nestsIn[1], inside: nestsIn[2] }, nestsUnder: nestsUnder && { inside: nestsUnder[1], parent: nestsUnder[2] }, draftPart });
@@ -154,7 +154,6 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
         if (!rendered(c)) { unseen.add(c); continue; }
         if (f.mode === "factory" && r.made) { if (!under(c, r.made)) bad.push(`${c} renders outside the component ${f.name} made`); else good.push(`${c} inside the made component`); }
         if (f.mode === "here" && r.caller.length) { if (!under(c, r.caller[r.caller.length - 1])) bad.push(`${c} renders outside where ${f.name} was called`); else good.push(`${c} where it was called`); }
-        if (f.mode === "root" && r.caller.length) { if (under(c, r.caller[r.caller.length - 1])) bad.push(`${c} renders inside where ${f.name} was called, not under a root of the library's own`); else good.push(`${c} under a root of its own`); }
         if (f.mode === "later") { const ids = siteComps.filter(sc => sc.carried.length).map(sc => `${sc.name}#site`); if (!ids.some(id => under(c, id))) bad.push(`${c} renders outside every component whose prop renders what a value carries`); else good.push(`${c} inside ${rendered(c).find(id => ids.includes(id)).replace("#site", "")}`); }
       }
     }
@@ -247,15 +246,12 @@ async function verifyCallbacks({ fns, at, probeMod, resolve, mount }) {
       const st = seen.get(c.name);
       const ob = `callbacks:${c.name}`;   // RFC 29: each position its own claim
       const push = r => out.push({ ob, ...r });
-      if (c.tracked) { push(st.tracked ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is tracked, as declared: the library calls it inside a computation (MO-10j)` }
-        : st.calls ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is declared tracked, but the library calls it outside tracking: a handler would do (stricter than needed)` }
-        : { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe: give an act that makes the library call it` }); continue; }
       const never = { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe${err ? ` (it threw: ${String(err.message ?? err).slice(0, 40)})` : ""}: give an act that makes the library call it` };
       const field = c.field ?? c.name.split(".").pop();
-      if (c.handler) { push(st.tracked ? { line: f.line, status: "fail", what: `${f.name}: ${c.name} is declared handler, but the library calls it inside a computation (tracked): a closure there would have its reads tracked by the library and its writes refused by Solid: drop \`handler\`, or write \`${field}: tracked (…) => …\` (MO-10j)` }
+      if (c.handler) { push(st.tracked ? { line: f.line, status: "fail", what: `${f.name}: ${c.name} is declared handler, but the library calls it inside a computation (tracked): a closure there would have its reads tracked by the library and its writes refused by Solid: drop \`handler\` — a function type without it is pure, which is right for a callback called inside a computation (MO-10g)` }
         : st.calls ? { line: f.line, status: "ok", what: `${f.name}: callback ${c.name} holds: the library calls it outside tracking, as a handler` } : never); continue; }
       // MO-10g (revised): an unmarked function type is pure, which holds however the library calls it
-      push(st.tracked ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is pure, as declared; the library calls it inside a computation, which \`tracked\` would say (MO-10j)` }
+      push(st.tracked ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is pure, as declared; the library calls it inside a computation` }
         : st.calls ? { line: f.line, status: "ok", what: `${f.name}: ${c.name} is pure, as declared; the library calls it outside tracking, so \`handler\` would let a closure there write (MO-10g)` } : never);
     }
   }
@@ -273,8 +269,8 @@ async function partUnder({ part, partProps, wrap, resolve }) {
 /** RFC 29 (revised after review): a component's function-typed props, each its own claim (`callbacks:onPress`), checked
  *  by rendering it with the probe's props (`probes.Btn.props()`; a prop the probe does not give is a no-op), each such
  *  prop wrapped in a spy, then the probe's `act()` and time for what the component schedules. As for a fn's callbacks:
- *  a `handler` prop called inside a computation is a mismatch and called outside one holds; a `tracked` prop called
- *  inside one holds; an unmarked one (pure) holds however it is called; one never called is not verified. */
+ *  a `handler` prop called inside a computation is a mismatch and called outside one holds;
+ *  an unmarked one (pure) holds however it is called; one never called is not verified. */
 async function verifyComponentCallbacks({ comps, at, probeMod, resolve }) {
   const out = [];
   const s = await import(resolve("solid-js"));
@@ -302,9 +298,7 @@ async function verifyComponentCallbacks({ comps, at, probeMod, resolve }) {
     for (const cb of c.cbs) {
       const st = seen.get(cb.name), ob = `callbacks:${cb.name}`;
       const never = { line: c.line, ob, status: "unverified", what: `${c.name}: prop ${cb.name} never called${error ? ` (it threw: ${String(error.message ?? error).slice(0, 40)})` : ""}: give the probe's props and an act that makes the component call it` };
-      if (cb.tracked) out.push(st.tracked ? { line: c.line, ob, status: "ok", what: `${c.name}: prop ${cb.name} is tracked, as declared: the component calls it inside a computation (MO-10j)` }
-        : st.calls ? { line: c.line, ob, status: "ok", what: `${c.name}: prop ${cb.name} is declared tracked, but the component calls it outside tracking: a handler would do (stricter than needed)` } : never);
-      else if (cb.handler) out.push(st.tracked ? { line: c.line, ob, status: "fail", what: `${c.name}: prop ${cb.name} is declared handler, but the component calls it inside a computation (tracked): a closure there would have its reads tracked and its writes refused by Solid: drop \`handler\`, or declare it \`tracked\` (MO-10j)` }
+      if (cb.handler) out.push(st.tracked ? { line: c.line, ob, status: "fail", what: `${c.name}: prop ${cb.name} is declared handler, but the component calls it inside a computation (tracked): a closure there would have its reads tracked and its writes refused by Solid: drop \`handler\` (MO-10g)` }
         : st.calls ? { line: c.line, ob, status: "ok", what: `${c.name}: prop ${cb.name} holds: the component calls it outside tracking, as a handler` } : never);
       else out.push(st.calls ? { line: c.line, ob, status: "ok", what: `${c.name}: prop ${cb.name} is pure, as declared; the component calls it ${st.tracked ? "inside" : "outside"} tracking` } : never);
     }

@@ -4,7 +4,7 @@
 export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
 export type RouteDefinition = import("@solidjs/router").RouteDefinition
 export context router
-export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)
-export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition forwards
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component)
+export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition
 export pure fn useSubmissions<T extends unknown[], U, V>(fn_: import("@solidjs/router").FormAction<T, U, V>, filter?: (input: V) => boolean): { input: V; result?: unknown; error: unknown }[] uses(router)
 export fn revalidate(key?: string | string[], force?: boolean): void

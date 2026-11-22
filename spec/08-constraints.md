@@ -190,8 +190,8 @@ runtime check.
   method may call the closure it is given with live parts. Each
   confined kind has a closed set of operations (09 MO-10k's table), and
   a method is one of them only on positive evidence of which operation
-  it is: a field or a method the declaration names (the declared result
-  type, `methods(…)`), or the name of a method of plain data (a draft).
+  it is: a field the declaration names (the declared result
+  type), or the name of a method of plain data (a draft).
   Anything else is refused — or, for a draft, read as a copy. The
   evidence is the declaration's, so it is checked as the declaration is
   (13 TY-6, `rx-verify`).
@@ -218,9 +218,11 @@ runtime check.
   the checker enforces is Solid's: reactivity and ownership (this
   document's checks), and the contracts a declaration states in the
   generic words (`pure`, `io`, `ref`, `instantiates`, `pending`, `fails`,
-  `tracked`, `handler`, `draft`, `renders`, `nests`, `uses`, `provides`,
+  `handler`, `draft`, `renders`, `nests`, `uses`, `provides`,
   …), each of which says where a Solid rule applies to a library's value
-  and means the same for every library that writes it.
+  and means the same for every library that writes it. A word is one of
+  them only if more than one library needs it (09 MO-8r): what a single
+  package does is written without one.
 - **CN-8b (No library's own rules).** A rule that belongs to one package's
   semantics is that package's, and its own tooling's: the checker names
   no package, no diagnostic exists for one library, and no declaration

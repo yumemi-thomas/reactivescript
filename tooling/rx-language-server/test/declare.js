@@ -196,7 +196,7 @@ fs.writeFileSync(path.join(ws, "named.rx"), "import { open } from \"./named.js\"
 const tn = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--noEmit", "-p", "tsconfig.named.json"], { cwd: (fs.writeFileSync(path.join(ws, "tsconfig.named.json"), JSON.stringify({ extends: "./tsconfig.json", include: ["named.rx"] })), ws), encoding: "utf8" });
 check("the draft that names the library's types passes rx-tsc against them (TY-6)", tn.status === 0 && tn.stdout.trim() === "", { status: tn.status, out: tn.stdout + tn.stderr });
 
-// MO-8o, MO-8p, MO-8q: a package whose declarations are a bundle — its types named by the module that exports them (a
+// MO-8o, MO-8q: a package whose declarations are a bundle — its types named by the module that exports them (a
 // subpath, under the name it has there), its props by their type, a row for each signature, its own `any`s as they are
 {
   const app = path.join(ws, "wideapp"); const pkg = path.join(app, "node_modules/wide");
@@ -222,7 +222,7 @@ check("the draft that names the library's types passes rx-tsc against them (TY-6
   const rw = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "wide", "--explain", "--causes", path.join(app, "causes.json")], { cwd: app, encoding: "utf8" });
   const wide = rw.stdout.split("\n"); if (process.env.VERBOSE) console.log(rw.stdout, rw.stderr);
   check("a type the entry does not export is named by the subpath that does, under its name there; a bundle's `$1` names are not the row's (MO-8o)", wide.includes("export fn insert<TItem extends Row>(store: import(\"wide/internals\").BaseStore<TItem>, item: TItem): void"), rw.stdout + rw.stderr);
-  check("a fn with several signatures has a row for each (MO-8p)", wide.includes("export fn on(target: Window, cb: (e: Event) => void): () => void") && wide.includes("export fn on(target: Document, cb: (e: Event) => void, capture?: boolean): () => void"), rw.stdout);
+  check("a fn with several signatures has one row, the shortest, and the draft says how many the library has (MO-8b)", wide.includes("export fn on(target: Window, cb: (e: Event) => void): () => void") && !wide.includes("export fn on(target: Document") && /\/\/ TODO on: 2 signatures in the library's types/.test(wide), rw.stdout);
   check("a component's props are the type the library declares them with, and after it the fields the checker reads (MO-8o)", wide.includes("export component Picker<O>(props: PickerProps<O> & { onPick?: (v: O) => void; render?: Component })"), rw.stdout);
   const causes = JSON.parse(fs.readFileSync(path.join(app, "causes.json"), "utf8")).causes;
   check("the library's own `any` is written as it is, and counted as the library's; its `unknown` stays `unknown` (MO-8q)", wide.includes("export fn loosely(x: any, y: unknown): Record<string, any>") && causes.length === 2 && causes.every(c => c.cause === "vendor-any" && c.name === "loosely") && /2 `any` drafted \(2 the library's own, 0 the draft's\)/.test(rw.stderr), rw.stdout + rw.stderr);
@@ -261,7 +261,7 @@ const evid = rs.stdout; if (process.env.VERBOSE) console.log(evid, rs.stderr);
 const note = (name, re) => evid.split("\n").some(l => l.startsWith(`// SOURCE ${name}: `) && re.test(l));
 check("--source: a callback given to addEventListener is suggested `handler`, with the file and line", note("listen", /`run`: called from addEventListener.*`handler`\? \(MO-10g\) \[evid\.js:4\]$/), evid + rs.stderr);
 check("--source: a result that removes what the call added is said to undo it (EF-5a)", note("listen", /its result calls removeEventListener.*\[evid\.js:4\]$/), evid);
-check("--source: a callback called inside createMemo, through the library's own helper, is suggested `tracked`", note("derive", /`pick`: called inside createMemo, a computation — `tracked`\? \(MO-10j\) \[evid\.js:5\]$/), evid);
+check("--source: a callback called inside createMemo, through the library's own helper, is said to need no word (pure, MO-10g)", note("derive", /`pick`: called inside createMemo, a computation — no word: a function type without `handler` is a pure function.* \(MO-10g\) \[evid\.js:5\]$/), evid);
 check("--source: a field of an options object called from a timer is suggested `handler`", note("later", /`opts\.onDone`: called from setTimeout.*`handler`\?/), evid);
 check("--source: a context the hook reads is suggested as uses(…); state it reaches as `instantiates`", note("useShade", /it reads this context \(useContext\): Theme — uses\(<its name>\)\? \(MO-12b\) \[evid\.js:3\]$/) && note("derive", /it reaches createMemo.*`instantiates`\?/), evid);
 check("--source: a callback called while the call runs needs no word, and one handed to code it cannot read is not guessed", note("each", /`visit`: called while the call runs — no word/) && !evid.split("\n").some(l => l.startsWith("// SOURCE hand: ")), evid);
@@ -396,6 +396,52 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   const { resolveModule } = require("../src/declare-run.js");
   const from = path.join(ws, "node_modules-pat");
   check("an exports pattern resolves (./* and the longer ./menu/*), as the crate's packageDeclaration does", resolveModule("kit/button", from) === path.join(pkg, "dist/button.mjs") && resolveModule("kit/menu/item", from) === path.join(pkg, "dist/menu/item.mjs") && resolveModule("kit", from) === path.join(pkg, "dist/index.mjs") && resolveModule("kit/nope", from) === null, [resolveModule("kit/button", from), resolveModule("kit/menu/item", from), resolveModule("kit", from)]);
+}
+// MO-8o: a type of a package the library depends on is named as the *library* resolves it — the same rows whether the
+// install hoisted that dependency beside the app or nested it under the library, and whatever other copy of it (another
+// version) the app's folder can see. (The benchmark's draft of @solid-primitives/event-listener said `Many<Target>` on
+// one machine and `Target | Target[]` on another: nothing but npm's hoisting differed.)
+{
+  const kitFiles = { "package.json": JSON.stringify({ name: "kit", version: "1.0.0", type: "module", main: "./index.js", types: "./index.d.ts", dependencies: { dep: "^2.0.0" } }), "index.js": "export const listen = () => {};\n", "index.d.ts": "import type { Many } from \"dep\";\nexport declare function listen<T extends EventTarget>(target: Many<T | undefined>, type: Many<string>): void;\n" };
+  const dep2 = { "package.json": JSON.stringify({ name: "dep", version: "2.0.0", type: "module", main: "./index.js", types: "./index.d.ts" }), "index.js": "export {};\n", "index.d.ts": "export type Many<T> = T | T[];\n" };
+  const dep1 = { "package.json": JSON.stringify({ name: "dep", version: "1.0.0", type: "module", main: "./index.js", types: "./index.d.ts" }), "index.js": "export {};\n", "index.d.ts": "export type Many<T> = T[];\nexport type Old = 1;\n" };   // another version, hoisted: another type under the same name
+  const lay = (name, where) => {
+    const app = path.join(ws, name); fs.rmSync(app, { recursive: true, force: true });
+    const put = (dir, files) => { fs.mkdirSync(dir, { recursive: true }); for (const [f, t] of Object.entries(files)) fs.writeFileSync(path.join(dir, f), t); };
+    put(path.join(app, "node_modules/kit"), kitFiles);
+    for (const [at, files] of where) put(path.join(app, "node_modules", at), files);
+    for (const n of ["@solidjs", "solid-js", "typescript"]) fs.symlinkSync(path.join(repo, "ref/node_modules", n), path.join(app, "node_modules", n), "dir");
+    const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "kit"], { cwd: app, encoding: "utf8" });
+    // the draft, kept as the project's declaration of the package, and a program that imports it: rx-tsc holds the row (TY-6)
+    fs.mkdirSync(path.join(app, "rx-types"), { recursive: true });
+    fs.writeFileSync(path.join(app, "rx-types/kit.d.rx"), r.stdout);
+    fs.writeFileSync(path.join(app, "main.rx"), 'import { listen } from "kit"\nexport default component App() {\n  <button onClick={(e) => { listen(e.currentTarget, "x") }}>x</button>\n}\n');
+    fs.writeFileSync(path.join(app, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", noEmit: true, skipLibCheck: true, lib: ["ES2023", "DOM"], types: [] }, include: ["main.rx"] }));
+    const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--noEmit"], { cwd: app, encoding: "utf8" });
+    return { draft: r.stdout, err: r.stderr, tsc: { status: t.status, out: t.stdout + t.stderr } };
+  };
+  const hoisted = lay("lay-hoisted", [["dep", dep2]]);
+  const nested = lay("lay-nested", [["kit/node_modules/dep", dep2]]);
+  const skewed = lay("lay-skewed", [["kit/node_modules/dep", dep2], ["dep", dep1]]);
+  const row = 'export fn listen<T extends EventTarget>(target: import("dep").Many<T | undefined>, type_: import("dep").Many<string>): void';
+  check("a dependency's type is named as the library resolves it, hoisted beside the app (MO-8o)", hoisted.draft.split("\n").includes(row), hoisted.draft + hoisted.err);
+  check("...nested under the library: the same draft, row for row", nested.draft === hoisted.draft, nested.draft + nested.err);
+  check("...and with another version of it hoisted beside the app: the same draft still (the library's copy is the one named)", skewed.draft === hoisted.draft, skewed.draft + skewed.err);
+  check("rx-tsc holds that row against the module in each layout (TY-6 resolves what a row names from the library too)", [hoisted, nested, skewed].every(l => l.tsc.status === 0 && l.tsc.out.trim() === ""), [hoisted.tsc, nested.tsc, skewed.tsc]);
+}
+
+// a draft the crate cannot read is an error, with the line and the parser's reason — not `any` for every row and nothing
+// said (a `readonly` prop the parser refused did that to a whole library)
+{
+  const { failing } = require("../src/declare-check.js");
+  let thrown; try { failing(require("typescript"), "export pure fn ok(): number\nexport component Broken(props: { a b })\n", 0, ["export pure fn ok(): number", "export component Broken(props: { a b })"], "./more.js", ws, {}, undefined); } catch (e) { thrown = e; }
+  check("a draft the crate cannot parse is not checked row by row: it throws, naming the line, the parser's reason and the row", thrown?.code === "RX_DRAFT_UNREADABLE" && thrown.line === 2 && /line 2: /.test(thrown.message) && /2 \| export component Broken\(props: \{ a b \}\)/.test(thrown.message), String(thrown?.message ?? thrown));
+  // the same through rx-declare: the crate is made to refuse the draft, and the run fails with that message and writes nothing
+  const stub = path.join(ws, "refuse-draft.cjs");
+  fs.writeFileSync(stub, `const rxc = require(${JSON.stringify(path.join(__dirname, "../src/rxc.js"))}); rxc.boundary = () => ({ error: "line 3: expected '}' near 'readonly x'" });\n`);
+  fs.rmSync(path.join(ws, "refused.d.rx"), { force: true });
+  const rr = spawnSync(process.execPath, ["--require", stub, path.join(__dirname, "../bin/declare.js"), "./more.js", "--out", "refused.d.rx"], { cwd: ws, encoding: "utf8" });
+  check("rx-declare fails loudly on a draft that cannot be read back: non-zero, the line and the parse error on stderr, no file written", rr.status === 1 && /rx-declare: the draft for \.\/more\.js cannot be read back as a \.d\.rx.*line 3: expected '}' near 'readonly x'/.test(rr.stderr) && /\n    3 \| /.test(rr.stderr) && !fs.existsSync(path.join(ws, "refused.d.rx")), rr.stdout + rr.stderr);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -134,7 +134,7 @@ const UNDOES = /^(removeEventListener|clearTimeout|clearInterval|cancelAnimation
 /** @param {Map<string, string>} files a source file's path → its text  @param {string[]} names the exports to answer for
  *  (a member component as `Dialog.Trigger`: answered by `Trigger`'s, or `DialogTrigger`'s, implementation)
  *  @returns {{ name: string, word: string, on?: string, why: string, file: string, line: number }[]} evidence, by export:
- *  `word` is `tracked`, `handler`, `ref` (a parameter read as an accessor inside a computation), `uses`, `provides`, `instantiates`, `() => void` (its result undoes it) or `called`
+ *  `word` is `tracked` (a callback called inside a computation: no word of a row, it stays a pure function's), `handler`, `ref` (a parameter read as an accessor inside a computation), `uses`, `provides`, `instantiates`, `() => void` (its result undoes it) or `called`
  *  (a callback called while the call runs: no word, it is a pure function's); `on`: the parameter, field or context. */
 function analyze(ts, files, names, root) {
   const K = ts.SyntaxKind;
@@ -334,7 +334,7 @@ function notes(evidence) {
   for (const e of evidence) {
     const at = `${e.file}:${e.line}`;
     const text =
-      e.word === "tracked" ? `\`${e.on}\`: ${e.why} — \`tracked\`? (MO-10j)` :
+      e.word === "tracked" ? `\`${e.on}\`: ${e.why} — no word: a function type without \`handler\` is a pure function, which is what a callback called inside a computation must be (MO-10g)` :
       e.word === "ref" ? `\`${e.on}\`: ${e.why} — \`ref\`? (MO-10a)` :
       e.word === "handler" ? `\`${e.on}\`: ${e.why} — \`handler\`? (MO-10g)` :
       e.word === "called" ? `\`${e.on}\`: ${e.why} — no word: an unmarked function type is that (MO-10g)` :
@@ -351,7 +351,7 @@ function notes(evidence) {
 /** A draft with the source's evidence above each row it is about. */
 function annotate(draft, evidence) {
   const by = notes(evidence);
-  const name = l => /^export\s+(?:(?:pure|server|client|trusted)\s+)*(?:fn|component|const)\s+([\w$.]+)/.exec(l)?.[1];
+  const name = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const)\s+([\w$.]+)/.exec(l)?.[1];
   // a suggestion the row already says (a parameter drafted `ref` from its type) is not repeated
   const said = (l, note) => { const m = /^\/\/ SOURCE [\w$.]+: `([\w$]+)`: .* — `ref`\?/.exec(note); return !!m && new RegExp(`\\bref ${m[1].replace(/\$/g, "\\$")}\\b`).test(l); };
   return draft.split("\n").flatMap(l => { const n = name(l); return n && by.has(n) ? [...by.get(n).filter(x => !said(l, x)), l] : [l]; }).join("\n");

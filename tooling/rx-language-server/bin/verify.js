@@ -38,17 +38,16 @@ function exportsOf(text) {
       const close = matching(l, m.index + m[0].length - 1);
       const params = splitTop(l.slice(m.index + m[0].length, close)).map(p => p.trim()).filter(Boolean);
       const after = l.slice(close + 1).replace(/^\s*:\s*/, "");
-      const ret = after.split(/\s(?=uses\(|provides\(|nests\(|renders\b|instantiates\b|rejects\(|trusted\b)/)[0].trim();
+      const ret = after.split(/\s(?=uses\(|provides\(|nests\(|renders\b|instantiates\b|rejects\()/)[0].trim();
       // MO-10g: its callbacks, a parameter typed as a function or a function-typed field of a record parameter (`ref` too)
       const cbs = [];
       params.forEach((p0, index) => {
         const c = p0.indexOf(":"); if (c < 0) return; const ty = p0.slice(c + 1).trim().replace(/^ref\s+/, "");
-        const name = p0.slice(0, c).replace(/^(ref|signal|draft)\s+|\?$/g, "").replace(/^\.\.\./, "").trim();
-        // MO-10j: `tracked` before the function type — the library is expected to call it inside a computation
+        const name = p0.slice(0, c).replace(/^(ref|draft)\s+|\?$/g, "").replace(/^\.\.\./, "").trim();
         // MO-10g: `handler` before it — the library is expected to call it later, outside any computation
-        const fnType = t => /^(?:(?:tracked|handler)\s+)?\(.*\)\s*=>/.test(t), trackedOf = t => /^tracked\s/.test(t), handlerOf = t => /^handler\s/.test(t);
-        if (fnType(ty)) cbs.push({ index, name, ref: /^ref\s/.test(p0), tracked: trackedOf(ty), handler: handlerOf(ty) });
-        else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && fnType(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0), tracked: trackedOf(m2[2].trim()), handler: handlerOf(m2[2].trim()) }); }
+        const fnType = t => /^(?:handler\s+)?\(.*\)\s*=>/.test(t), handlerOf = t => /^handler\s/.test(t);
+        if (fnType(ty)) cbs.push({ index, name, ref: /^ref\s/.test(p0), handler: handlerOf(ty) });
+        else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && fnType(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0), handler: handlerOf(m2[2].trim()) }); }
       });
       const fields = ret.startsWith("{") ? fieldsOf(ret) : ret.startsWith("[") ? partsOf(ret) : /^ref\s/.test(ret) ? [{ path: [], holds: false, fails: [], ref: true }] : null;
       const inst = /\binstantiates\b|\brenders\b|\bnests\(|\bprovides\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
@@ -287,8 +286,8 @@ async function verify(file) {
   // RFC 29: a component's function-typed props, by rendering it (the crate names them: each row's `callbacks:<prop>`)
   const cbComps = require("../src/strict.js").rowsOf(file).filter(r => r.kind === "component").flatMap(r => {
     const cbs = (r.obligations ?? []).filter(o => o.startsWith("callbacks:")).map(o => o.slice("callbacks:".length)).map(name => {
-      const m = new RegExp(`(?:^|[{;,\\s])${name.replace(/[$]/g, "\\$")}\\??\\s*:\\s*(handler|tracked)?`).exec(r.text);
-      return { name, handler: m?.[1] === "handler", tracked: m?.[1] === "tracked" };
+      const m = new RegExp(`(?:^|[{;,\\s])${name.replace(/[$]/g, "\\$")}\\??\\s*:\\s*(handler)?`).exec(r.text);
+      return { name, handler: m?.[1] === "handler" };
     });
     return cbs.length ? [{ name: r.name, line: r.line, cbs }] : [];
   });

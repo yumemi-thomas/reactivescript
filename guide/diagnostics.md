@@ -1460,9 +1460,9 @@ does not say what it does with a prop, so it is never one that keeps it.
 What else leaves that view is a primitive made of it: `str(row.id)`, a template, arithmetic, a comparison,
 `len(table.rows)`; a part its declaration types as a primitive (`getPageCount: () => number`,
 `rows: { id: string }[]`); and a handler that only calls it, `onPress={() => { table.nextPage() }}`, gives nothing away.
-A method is taken to keep nothing of what it is given only when the declaration names it (`methods(setSorting)`) and it
-is called on the value's own name. A library whose result is rendered elsewhere declares where: `renders(later)` with a
-component prop that `renders` it, or `renders(root, …)` for a root of its own. The same code is reported where a prop
+A method keeps nothing only when it is given no part of the value: `table.setSorting(next)` is free,
+`table.setPage(table.rows)` is not. A library whose result is rendered elsewhere declares where: `renders(later)` with a
+component prop that `renders` it; one that says nothing is checked under a root of its own, and its result travels freely. The same code is reported where a prop
 that `renders` (MO-11o) is given a value the checker cannot name the components of: a prop, a parameter, a source, a
 provision, or a value another `.rx` module made.
 
@@ -1609,8 +1609,8 @@ export default component App() {
 ```
 
 Where a library renders the components it is given is said in its `.d.rx`, in one vocabulary (MO-11r): a fn handing
-back a `Component` renders them inside it; `renders` where its result is bound (only for an API that renders them in that region: a table whose cells the same view renders); `renders(root, ctx…)` under a root of its
-own; `renders(later)` in a value its result carries, rendered by a JS component's prop declared `renders T`; and
+back a `Component` renders them inside it; `renders` where its result is bound (only for an API that renders them in that region: a table whose cells the same view renders); no word at all under a root of its
+own (a toaster, a modal manager); `renders(later)` in a value its result carries, rendered by a JS component's prop declared `renders T`; and
 `nests(children in component)` or `nests(component under parent)` say the tree. A component carried by `renders(later)`
 that no `renders` prop reaches would be checked nowhere, so it is refused where it is passed:
 
@@ -2312,14 +2312,6 @@ Reported only in strict mode (`rx-tsc --rx-strict`, or `"reactivescript": { "str
 MO-8j, TY-7). A declaration row is an assertion about a JS library; strict mode asks that running showed it. The row
 was not recorded as holding by `rx-verify --record`: nothing recorded it, it was edited since the record, rx-verify
 found a mismatch, or it could not check it (no probe arguments, no scene). Run `rx-verify --record lib.d.rx` with a
-probe beside it (`lib.probe.mjs`) and fix what it reports; or, for a row you have checked by other means, say so in
-the row with `trusted`, where a reviewer will read it.
-
-```d.rx before
-export pure fn useParams(): any uses(router)
-```
-
-```d.rx after
-export pure fn useParams(): any uses(router) trusted
-```
+probe beside it (`lib.probe.mjs`) and fix what it reports. No word of a row opts it out: strict mode is the project's
+choice, and a declaration the project cannot yet show by running is a reason to leave it off.
 

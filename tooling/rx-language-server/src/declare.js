@@ -139,7 +139,7 @@ function packageOf(f) {
 function exportsOf(ts, checker, spec) {
   if (CTX.exports.has(spec)) return CTX.exports.get(spec);
   const map = new Map(); CTX.exports.set(spec, map);
-  const r = spec === CTX.spec ? undefined : ts.resolveModuleName(spec, CTX.entry, CTX.options, CTX.host).resolvedModule;
+  const r = spec === CTX.spec ? undefined : require("./library-resolve.js").resolveAsLibrary(ts, spec, CTX.lib, CTX.entry, CTX.options, CTX.host);   // as the library resolves it: nested under it or hoisted, the same module
   const sf = r && CTX.program.getSourceFile(r.resolvedFileName);
   const mod = spec === CTX.spec ? CTX.mod : sf && checker.getSymbolAtLocation(sf);
   if (mod) for (const e of checker.getExportsOfModule(mod)) { const y = e.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(e) : e; if (e.name !== "default" && !map.has(y)) map.set(y, e.name); }
@@ -196,12 +196,12 @@ function nameOf(ts, checker, sym0, args, value) {
  *  other parameter of the row has it. */
 const tpName = sym => CTX.rename?.get(sym) ?? sym.name;
 /** MO-8o: the modules of a package an app can import — its main entry and every subpath its package.json exports
- *  (`./v2`, `./v2/internals`, a `./*` pattern by the folders it matches) — as import specifiers that resolve from where
- *  the draft is made. */
+ *  (`./v2`, `./v2/internals`, a `./*` pattern by the folders it matches) — as import specifiers. The package is the one
+ *  the library being declared has (found from where that library is installed, then from where the draft is made), so
+ *  what a draft names does not depend on whether the install hoisted a dependency. */
 function subpathsOf(ts, pkg) {
   const fs = require("node:fs");
-  let dir;
-  for (let d = path.dirname(CTX.entry); ; d = path.dirname(d)) { const at = path.join(d, "node_modules", pkg); if (fs.existsSync(path.join(at, "package.json"))) { dir = at; break; } if (path.dirname(d) === d) break; }
+  const dir = require("./library-resolve.js").packageDir(pkg, CTX.lib, CTX.entry);
   if (!dir) return { specs: [], deps: [] };
   let json; try { json = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")); } catch { return { specs: [], deps: [] }; }
   const specs = new Set([pkg]);
@@ -231,7 +231,7 @@ function wideIndex(ts, pkg) {
   if (WIDE.has(key)) return WIDE.get(key);
   const { specs, deps } = subpathsOf(ts, pkg);
   const files = new Map();
-  for (const spec of specs) { const r = ts.resolveModuleName(spec, CTX.entry, CTX.options, CTX.host).resolvedModule; if (r && /\.d\.[cm]?ts$|\.tsx?$/.test(r.resolvedFileName)) files.set(spec, r.resolvedFileName); }
+  for (const spec of specs) { const r = require("./library-resolve.js").resolveAsLibrary(ts, spec, CTX.lib, CTX.entry, CTX.options, CTX.host); if (r && /\.d\.[cm]?ts$|\.tsx?$/.test(r.resolvedFileName)) files.set(spec, r.resolvedFileName); }
   const index = new Map();
   if (files.size) {
     const program = ts.createProgram([...new Set(files.values())], { ...CTX.options, noEmit: true }, CTX.host, CTX.program);
@@ -262,7 +262,7 @@ function wider(ts, sym, pkg) {
   if (!hit && own && pkg && pkg !== own) for (const d of wideIndex(ts, own).deps) { hit = look(d); if (hit) break; }
   return hit;
 }
-const WORDS = /\b(?:handler|tracked|pending|renders|ref|signal|draft)\s+[\w({[]|\bfails\s*\(/;
+const WORDS = /\b(?:handler|pending|renders|ref|draft)\s+[\w({[]|\bfails\s*\(/;
 /** MO-8m: a type as text only TypeScript reads — the library's own names (`nameOf`), the platform's, primitives and
  *  literals, arrays, tuples, unions and intersections of those, with their type arguments. `{ text }`, or `{ why }` where
  *  some part cannot be named. A record or a function type is not such a text where the checker would read it as a row
@@ -565,9 +565,10 @@ function ownObject(ts, t, checker) {
 /** Whether a record of an object's fields can be what the library takes: every field it requires has a name a row can
  *  write (a `~standard` or `"data-x"` it requires cannot be left out of the record, and the type's own name says it). */
 const sayable = (ts, t) => t.getProperties().every(q => /^[A-Za-z_$][\w$]*$/.test(q.name) || q.flags & ts.SymbolFlags.Optional);
-const RESERVED = new Set(["ref", "signal", "fn", "pure", "component", "context", "error", "type", "const", "export"]);
-/** MO-10h: a Solid signal, `[getter, setter]` (Solid 2's getter is a branded accessor): what it holds, or undefined. A type
- *  parameter is looked at through its constraint, a union through its members. */
+const RESERVED = new Set(["ref", "fn", "pure", "component", "context", "error", "type", "const", "export"]);
+/** A Solid signal, `[getter, setter]` (Solid 2's getter is a branded accessor): what it holds, or undefined. A type
+ *  parameter is looked at through its constraint, a union through its members. No word of a row says a parameter takes
+ *  one (MO-10h was `signal init: T`): the draft keeps the library's type and says where the signal is made (MO-10c). */
 function signalOf(ts, checker, t) {
   const c = t.flags & ts.TypeFlags.TypeParameter ? checker.getBaseConstraintOfType(t) : t;
   if (!c) return undefined;
@@ -583,12 +584,10 @@ function paramText(ts, checker, p, at, generic = false, here) {
   const node = annotation(ts, p);   // MO-8o: the parameter as the library declares it
   const opt = p.valueDeclaration && ts.isParameter(p.valueDeclaration) && (p.valueDeclaration.questionToken || p.valueDeclaration.initializer) ? "?" : "";   // MO-8e
   const name = RESERVED.has(p.name) ? `${p.name}_` : p.name;   // a parameter's name is only a name: never a row word (`ref`)
-  const held = signalOf(ts, checker, t);
-  if (held) return `signal ${name}${opt}: ${text(ts, checker, held)}`;   // MO-10h: the program passes the value, the compiler the signal
   const read = accessorOf(ts, checker, t);
   if (read) {
     // an accessor of an options object the library declares: its callbacks are typed as functions, as a plain options
-    // parameter's are (what marks one `handler` or `tracked` is written on it)
+    // parameter's are (what marks one `handler` is written on it)
     const ro = checker.getNonNullableType(read);
     if (!generic && ownObject(ts, ro, checker) && sayable(ts, ro) && ro.getProperties().length <= 24 && ro.getProperties().some(q => isFn(checker, checker.getTypeOfSymbolAtLocation(q, at))))
       return `ref ${name}${opt}: { ${ro.getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)).map(q => propText(ts, checker, q, at, true)).join("; ")} }`;
@@ -734,12 +733,6 @@ function resultText(ts, checker, t, todos, generic = false, here, node) {
   return s;
 }
 
-/** MO-8p: whether the rows of one fn's name say the same words, as the parser reads them (a row with other words is a
- *  parse error of the declaration). False where there is no crate to ask. */
-function sameWords(rows) {
-  try { const r = require("./rxc").rows("__rx_declare__.d.rx", rows.join("\n") + "\n"); return !!r && !r.error && Array.isArray(r.rows); } catch { return false; }
-}
-
 /** @returns {string} the draft `.d.rx` for `spec`, imported from `from` (a directory). `how.known: false`: from the types
  *  alone, without what known.js says of the library (a generated declaration, MO-8l: nothing a person reviewed). */
 function declare(ts, spec, from, options = {}, how = {}) {
@@ -756,6 +749,8 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const imp = sf.statements[0];
   const mod = checker.getSymbolAtLocation(imp.moduleSpecifier);
   if (!mod) throw new Error(`${spec}: no TypeScript types found from ${from}`);
+  // the library's own file: what its rows name is resolved from here (MO-8o), not from the app's folder
+  const lib = spec.startsWith(".") ? undefined : mod.declarations?.[0]?.getSourceFile().fileName;
   const out = [`// Drafted by rx-declare from ${spec}'s TypeScript types. Check every TODO, then delete it; rx-tsc checks the rest (TY-6).`];
   if (!spec.startsWith(".")) {                                                            // MO-8f: pinned to the version it was drafted from
     const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
@@ -769,7 +764,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const out = [];
   const contexts = [];
   const lines = [];
-  CTX = { refs, decl: !!mode.decl, whole: !!mode.whole, spec, entry, options: opts, host, program, mod, scope: new Set(), exports: new Map() };
+  CTX = { refs, decl: !!mode.decl, whole: !!mode.whole, spec, entry, lib, options: opts, host, program, mod, scope: new Set(), exports: new Map() };
   // the module's own types, each with how many type arguments its alias row takes (at least, at most): a row names one
   // bare where what it writes fits. As the library declares them, until a row's bounds turn out not to be nameable
   OWN_ALL = new Map(checker.getExportsOfModule(mod).map(s0 => [s0.name, s0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s0) : s0]).filter(([, y]) => y.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(y.flags & ts.SymbolFlags.Value)).map(([n, y]) => { const tp = y.declarations?.[0]?.typeParameters ?? []; return [n, refs ? [tp.filter(q => !q.default).length, tp.length] : tp.some(q => !q.default) ? [tp.length, tp.length] : [0, 0]]; }));
@@ -883,6 +878,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const ps = params.map((p, i) => isRest(p) ? `...${p.name}: ${(refs && (whole(ts, checker, checker.getTypeOfSymbolAtLocation(p, imp), undefined, annotation(ts, p)))) || `${ANY("rest")}[]`}` : paramText(ts, checker, p, imp, generic, place && !params.some(isRest) ? `Parameters<${place}>[${i}]` : undefined));   // MO-8h: a rest parameter (`pipe(...items)`)
     // MO-10g: a function type is pure unless marked `handler`; one named like an event is likely called later — a
     // suggestion for a person, not a row (the name is a convention, not a fact)
+    { const sg = params.filter(p => signalOf(ts, checker, checker.getTypeOfSymbolAtLocation(p, imp))); if (sg.length) todos.push(`${sg.map(p => `\`${p.name}\``).join(", ")} takes a Solid signal (a getter and a setter), and an .rx program has none to pass: make it in a module of the app's own, \`export const x = (init, …) => ${name}(createSignal(init), …)\`, and declare that — its result is a reader and a setter (MO-10c)`); }
     const events = [...ps.join("; ").matchAll(/(?:^|[\s{;,(])(on[A-Z][\w$]*)\??\s*:\s*\(/g)].map(m => m[1]);
     if (events.length) todos.push(`${[...new Set(events)].join(", ")}: called later, outside any computation? mark ${events.length > 1 ? "each" : "it"} \`handler (…) => …\`, so a closure there may write sources (MO-10g)`);
     const ret = resultText(ts, checker, sig.getReturnType(), todos, generic, place && `ReturnType<${place}>`, sig.declaration?.type);
@@ -903,16 +899,11 @@ function declare(ts, spec, from, options = {}, how = {}) {
     }
     return `export fn ${name}${tps}(${ps.join(", ")}): ${ret}${primitive && !/\bref\b/.test(ps.join(" ") + ret) && !factory ? " instantiates" : ""}`;
     };
-    // MO-8p: a fn with several signatures has a row for each, in the library's order, where the rows say the same words
-    // (the checker reads the first); else the shortest signature's row, as every draft had
+    // an export has one row (MO-8b): of several signatures the shortest, the common form — the checker reads the row's
+    // words, which are the fn's, and TypeScript types a call from the library's own overloads (13 TY-4b)
     let todos = [];
     let fnRows = [rowOf(shortest, todos)];
-    if (mode.decl && sigs.length > 1 && sigs.length <= 12) {
-      const all = []; const ts2 = [];
-      for (const g of sigs) { const t2 = []; all.push(rowOf(g, t2)); for (const x of t2) if (!ts2.includes(x)) ts2.push(x); }
-      const uniq = all.filter((r, i) => all.findIndex(o => o.replace(MARK, "") === r.replace(MARK, "")) === i);
-      if (uniq.length > 1 && sameWords(uniq.map(r => r.replace(MARK, "")))) { fnRows = uniq; todos = ts2; }
-    }
+    if (sigs.length > 1) todos.push(`${sigs.length} signatures in the library's types: this row is one of them (an export has one row, MO-8b); a call is typed by the library's own`);
     // MO-8q: where the signatures' rows would hold an `any` of the draft's (a bound with no name, so nothing to range
     // over), the fn is the one signature that can be said without: the shortest alone, else its last signature, each
     // part by its place — the signature `Parameters<typeof f>` is TypeScript's reading of
@@ -932,7 +923,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
     const v = require("./versions.js").installed(pkg, from);
     if (v && require("./versions.js").satisfies(v, known.range)) {
-      const exportedAs = l => /^export\s+(?:(?:pure|server|client|trusted)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
+      const exportedAs = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
       const has = new Set(checker.getExportsOfModule(mod).map(s0 => s0.name));
       const took = [];
       for (const [name, row] of Object.entries(known.rows ?? {})) {
@@ -956,7 +947,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   return { out, lines, contexts };
   };
   const overloaded = new Set();   // the fns with several signatures: a row is one of them (the shortest), and has no one place
-  const exportedIn = l => /^export\s+(?:(?:pure|server|client|trusted)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/m.exec(l)?.[1] ?? /^\/\/ TODO ([\w$.]+):/.exec(l)?.[1];
+  const exportedIn = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/m.exec(l)?.[1] ?? /^\/\/ TODO ([\w$.]+):/.exec(l)?.[1];
   let { out: head, lines, contexts } = rows(false);
   if (how.refs !== false) {
     // MO-8m: a row that names the library's types is kept where TypeScript holds it against the module (TY-6, checked
@@ -966,7 +957,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     // leaves the fewest `any`s (the earlier of two alike), and the row every draft had where it holds none
     const strip = ls => ls.map(l => l.replace(MARK, ""));
     const group = ls => { const by = new Map(); for (const l of ls) { const n = exportedIn(l); if (n) by.set(n, [...(by.get(n) ?? []), l]); } return by; };
-    const check = r => require("./declare-check.js").failing(ts, [...out, ...r.out, ...strip(r.lines)].join("\n") + "\n", out.length + r.out.length, strip(r.lines), spec, from, opts, program);
+    const check = r => require("./declare-check.js").failing(ts, [...out, ...r.out, ...strip(r.lines)].join("\n") + "\n", out.length + r.out.length, strip(r.lines), spec, from, opts, program, lib);
     const fall = (r, bad, to) => { const by = group(to); const kept = [], done = new Set(); for (const l of r.lines) { const n = exportedIn(l); if (!n || !bad.has(n)) kept.push(l); else if (!done.has(n)) { done.add(n); kept.push(...(by.get(n) ?? [])); } } return { ...r, lines: kept }; };
     // fewest `any`s of the draft's own (MO-8q: the library's are not the draft's), then fewest parts said by their place
     const anys = (ls, mode) => introduced(ls.join("\n")) * 1000 + (ls.join("\n").match(/\b(?:Parameters|ReturnType)</g) ?? []).length + (mode?.whole ? 500 : 0);   // the last reading says least: only before an `any`

@@ -1,6 +1,6 @@
 # S-module-12 — callbacks into JS: a function type declared `handler` takes an imperative closure
 
-Rules: MO-10g, MO-10j, W-2, SC-3, R-io-3, MO-8.
+Rules: MO-10g, W-2, SC-3, R-io-3, MO-8.
 
 ## Modules
 
@@ -11,16 +11,16 @@ export pure fn useMutation(ref options: { mutationFn: (v: string) => Promise<str
 export pure fn onIdle(run: handler () => void): any instantiates
 // a function type with no word: nothing says when the library calls it (a comparator, a mapper), so it is pure
 export pure fn sortWith(cmp: (a: number, b: number) => number): any instantiates
-// a query hook that calls queryFn inside its own computation (MO-10j)
-export pure fn useQuery(ref options: { queryKey: any[]; queryFn: tracked () => Promise<string[]> }): any instantiates
+// a query hook that calls queryFn inside its own computation: a function type with no word, pure (MO-10g)
+export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<string[]> }): any instantiates
 ```
 
 ```rx
 -- module: ./ui.d.rx
 // a JS component whose prop `valueChange` is a callback (any name, not only on*), said with `handler`
 export component Slider(props: { value: number; valueChange: handler (v: number) => void; label: string })
-// a JS component that calls `format` as it renders, tracked (MO-10j)
-export component Gauge(props: { value: number; format: tracked (v: number) => string })
+// a JS component that calls `format` as it renders: no word, pure
+export component Gauge(props: { value: number; format: (v: number) => string })
 ```
 
 ```rx
@@ -37,9 +37,12 @@ calls an event handler: a closure passed there is checked as a handler's
 is, in imperative scope (MO-10g). The word is the statement; a function
 type alone says nothing of when it is called (a comparator is called while
 the library computes), so without the word a closure stays pure, as
-anywhere else in reactive scope. A function type written `tracked` is one
-the library calls inside a computation of its own (MO-10j): pure as well,
-and saying so for `rx-verify`.
+anywhere else in reactive scope. That is also the right reading of a
+function the library calls inside a computation of its own (a query's
+`queryFn`): its reads are the library's to track and a write there is
+refused by Solid, so no second word says it (`tracked` was one, and is
+refused: the checker read nothing from it that the missing `handler` did
+not say).
 
 ## Program
 
@@ -65,7 +68,7 @@ export default component App() {
 Accepted: `onSuccess` and `run` are declared function types, so their
 closures write sources as a handler's would; so is `Slider`'s `valueChange`,
 a JS component's prop declared as a function, whatever its name.
-`queryFn` and `format` are `tracked`: their closures are expressions, pure,
+`queryFn` and `format` carry no word: their closures are expressions, pure,
 as a reactive scope's must be.
 
 ## Rejected variants
@@ -133,9 +136,9 @@ export default component App() {
 }
 ```
 
-`queryFn` is declared `tracked`: the library calls it inside its own
-computation, where a write is refused, so a statement closure there is a
-reactive scope's (MO-10j).
+`queryFn` is a function type with no `handler`: the library calls it inside
+its own computation, where a write is refused, so a statement closure there
+is a reactive scope's.
 
 ```rx
 -- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
@@ -146,5 +149,4 @@ export default component App() {
 }
 ```
 
-A `tracked` prop is not a handler, whatever its name.
-
+A function prop without `handler` is not a handler, whatever its name.

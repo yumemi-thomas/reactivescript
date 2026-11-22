@@ -43,8 +43,6 @@ export declare function set<T>(target: T): (v: T | ((p: T) => T)) => void;
 export type Widen<T> = 0 extends (1 & T) ? any : [T] extends [null | undefined] ? any : [T] extends [never[]] ? any[] : [T] extends [string] ? string : [T] extends [number] ? number : [T] extends [boolean] ? boolean : T;
 export declare function src<T>(v: T): Widen<T>;
 export declare function typed<T>(v: T): T;
-/** MO-10h: a signal parameter: the compiler makes a Solid signal of the value passed, Solid's own type. */
-export declare function signal<T>(v: T): import("solid-js").Signal<T>;
 type ElemOf<X> = 0 extends (1 & X) ? any : X extends Iterable<infer U> ? U : X extends ArrayLike<infer U> ? U : any;
 export declare function each<X>(xs: X, f: (x: ElemOf<X>) => JSX.Element): JSX.Element;
 /** 12 SF-6a: what crosses the wire — data. \`Bad<T>\` is true where a function or an instance of a class is in it (\`any\`: not
@@ -151,7 +149,7 @@ function declarationFile(decls: JsDecl[]): string {
     if (d.kind === "comp") return members.has(d.name) ? `export declare const ${d.name}: (${fnOf(d)}) & ${objectOf(d.name)};` : `export declare function ${d.name}${d.tparams ?? ""}(props: ${propsOf(d)}): View;`;
     if (d.kind === "value") return `export declare const ${d.name}: ${d.type ?? "any"};`;   // MO-8g
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
-    const ps = d.params.map((n, i) => { const o = d.opts?.[i] ? "?" : ""; return d.sigs?.[i] ? `${n}${o}: import("solid-js").Signal<${d.ptypes?.[i] ?? "any"}>` : d.refs?.[i] ? `${n}${o}: (() => ${d.ptypes?.[i] ?? "any"})` : d.ptypes?.[i] ? `${n}${o}: ${d.ptypes[i]}` : o ? `${n}?: any` : n; }).join(", ");   // MO-8e: an optional parameter   // MO-10a: a `ref` parameter is an accessor in JS
+    const ps = d.params.map((n, i) => { const o = d.opts?.[i] ? "?" : ""; return d.refs?.[i] ? `${n}${o}: (() => ${d.ptypes?.[i] ?? "any"})` : d.ptypes?.[i] ? `${n}${o}: ${d.ptypes[i]}` : o ? `${n}?: any` : n; }).join(", ");   // MO-8e: an optional parameter   // MO-10a: a `ref` parameter is an accessor in JS
     return `export declare function ${d.name}${d.tparams ?? ""}(${ps}): ${accessorResult(d.ret, d.shape)};`;
   })].join("\n") + "\n";
 }
@@ -162,7 +160,6 @@ class Proj {
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
   private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
   private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
-  private nestFns = new Map<string, { kids: string; inside: string; joins: string }>();   // MO-11i: declared factories that nest, by local name
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
 
   module(p: Program) {
@@ -233,7 +230,7 @@ class Proj {
     const prelude = d.names.filter(n => BUILTINS.has(n.name));
     if (prelude.length) { for (const n of prelude) this.used.add(n.name); }
     const rest = d.names.filter(n => !BUILTINS.has(n.name)); if (!rest.length) return;
-    if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || x.sigs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); if (x?.kind === "fn" && x.nests && x.joins) this.nestFns.set(n.alias, { ...x.nests, joins: x.joins }); }   /* MO-11i (revised 2026-11-21): paths are joined only under a factory that says which field holds them */
+    if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); }
     let from = d.from;
     if (d.resolved && !isRx(d.from)) from = relativeModule(this.path, d.resolved);   // MO-13d: typed as the .rx module its printed signature stands for (TY-4c: `x.rx.d.ts`, beside it)
     if (!d.resolved && !d.declared) {                                                        // a JS module with no declaration: `any`
@@ -289,23 +286,6 @@ class Proj {
     return s;
   }
 
-  /** MO-11i, types only: under a factory that nests and `joins(field)`, a record's literal `field` is written joined with its parents' (the
-   *  projection is never run; a record with no path, such as the config around the table, is looked through), so a child route's types see its parents' params. `prefix` null: a parent path the
-   *  projection cannot read, so nothing below is rewritten. */
-  private nestArg(e: Expr, prefix: string[] | null, n: { kids: string; inside: string; joins: string }, imp: boolean, self?: string): string {
-    const go = (x: Expr) => this.expr(x, imp, self);
-    if (prefix === null) return go(e);
-    if (e.k === "arr") return `[${e.items.map(x => x.k === "spread" ? go(x) : this.nestArg(x, prefix, n, imp, self)).join(", ")}]`;
-    if (e.k === "call") return `${go(e.f)}${e.targs ? `<${e.targs}>` : ""}(${e.args.map(a => this.nestArg(a, prefix, n, imp, self)).join(", ")})`;
-    if (e.k !== "rec") return go(e);
-    const pathField = e.fields.find(f => !("spread" in f) && f.key === n.joins) as { key: string; v: Expr } | undefined;
-    // a path is a literal or an array of literals (alternatives); under alternatives, each joined with each
-    const lits = !pathField ? null : pathField.v.k === "lit" && typeof pathField.v.v === "string" ? [pathField.v.v] : pathField.v.k === "arr" && pathField.v.items.length && pathField.v.items.every(x => x.k === "lit" && typeof x.v === "string") ? pathField.v.items.map(x => (x as { v: string }).v) : null;
-    const own = pathField ? (lits ? prefix.flatMap(p => lits.map(l => joinPath(p, l))) : null) : prefix;
-    const written = (o: string[]) => o.length === 1 && !(pathField!.v.k === "arr") ? J(o[0]) : `[${o.map(J).join(", ")}]`;
-    return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : f === pathField && own !== null ? `${J(f.key)}: ${written(own)}` : f.key === n.kids || !pathField ? `${J(f.key)}: ${this.nestArg(f.v, own, n, imp, self)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
-  }
-
   // ---- expressions: `imp` imperative scope (a real `await`); `self` the equation being defined (its own `pre`) ----
   expr(e: Expr, imp: boolean, self?: string): string {
     const go = (x: Expr) => this.expr(x, imp, self);
@@ -328,10 +308,8 @@ class Proj {
       case "index": { const s = e.o.k === "id" ? this.refParts.get(e.o.name) : undefined; return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]${s && typeof s === "object" && "items" in s && e.i.k === "lit" && typeof e.i.v === "number" && s.items[e.i.v] === "ref" ? "()" : ""}`; }   // MO-10b
       case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it
       case "call": {
-        const nests = e.f.k === "id" ? this.nestFns.get(e.f.name) : undefined;
         const ta = e.targs ? `<${e.targs}>` : "";   // 07 §3: type arguments, as written
-        if (nests) return `${go(e.f)}${ta}(${e.args.map(a => this.nestArg(a, [""], nests, imp, self)).join(", ")})`;   // MO-11i: a nested route typed with its parents' path
-        const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}${ta}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : x?.sigs?.[i] ? `__.signal(${go(a)})` : go(a)).join(", ")})`;   // MO-10a: a `ref` argument is an accessor; MO-10h: a `signal` one a signal of the value
+        const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}${ta}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : go(a)).join(", ")})`;   // MO-10a: a `ref` argument is an accessor
       }
       case "arr": return `[${e.items.map(go).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;

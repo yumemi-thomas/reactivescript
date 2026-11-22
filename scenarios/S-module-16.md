@@ -51,8 +51,8 @@ fn, a method of another value, a function the checker cannot name) is
 `RENDERS_ESCAPES`. A
 library whose result is rendered somewhere else says where:
 `renders(later)` with a component prop that `renders` it (MO-11o, the
-requirements carried to that render), or `renders(root, …)` for a root of
-its own (MO-11n); one that says nothing is checked the cautious way
+requirements carried to that render); one that says nothing — a library
+that mounts them under a root of its own does — is checked the cautious way
 (MO-11s) and its result travels freely.
 
 ```rx

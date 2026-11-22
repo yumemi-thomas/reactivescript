@@ -1,8 +1,7 @@
 // MO-8j: strict declarations. `rx-verify --record` writes, beside `lib.d.rx`, `lib.verified.json`: each row it ran, by a
 // hash of the row's text, with what running showed (ok, n/a, unverified, mismatch). `rx-tsc --rx-strict` (or
 // `"reactivescript": { "strict": true }` in the tsconfig) then refuses every row of a declaration the program imports
-// that is not recorded as verified (or as not applicable), unless the row says `trusted`: trust becomes a word a reviewer
-// reads, not the default. A row edited since the record was written is not verified any more (its hash changed).
+// that is not recorded as verified (or as not applicable). A row edited since the record was written is not verified any more (its hash changed).
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
@@ -66,18 +65,18 @@ function unanswered(file, results) {
     const mine = results.filter(r => r.line >= row.line && r.line <= row.end);
     if (mine.some(r => r.ob === undefined)) continue;   // a result with no claim named is about the whole row (a caller of writeRecord that checks rows its own way)
     const got = new Set(mine.flatMap(r => [].concat(r.ob)));
-    for (const ob of row.obligations ?? []) if (!got.has(ob)) { const [kind, at] = ob.split(/:(.*)/s); out.push({ line: row.line, ob, status: "unverified", what: `${row.name}: ${at ? (AT[kind] ?? (x => `${kind} ${x}`))(at) : WHAT[ob] ?? ob} not checked by running${ob === "exists" ? "" : ": give it in a probe, or mark the row `trusted`"}` }); }
+    for (const ob of row.obligations ?? []) if (!got.has(ob)) { const [kind, at] = ob.split(/:(.*)/s); out.push({ line: row.line, ob, status: "unverified", what: `${row.name}: ${at ? (AT[kind] ?? (x => `${kind} ${x}`))(at) : WHAT[ob] ?? ob} not checked by running${ob === "exists" ? "" : ": give it in a probe"}` }); }
   }
   return out;
 }
 /** A claim about one position (`provides:theme`, `callbacks:options.onSuccess`, RFC 28/29), in words. */
-const AT = { provides: c => `provides(${c})`, callbacks: c => `callback ${c} (handler, tracked or pure)` };
-const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler, tracked or pure)", draft: "draft", placement: "where it renders what it is given (renders, nests, forwards, joins, outlet)", methods: "methods(…), that its instance's methods make a value once" };
+const AT = { provides: c => `provides(${c})`, callbacks: c => `callback ${c} (handler or pure)` };
+const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler or pure)", draft: "draft", placement: "where it renders what it is given (renders, nests, outlet)" };
 /** The meaning of a record: what rx-verify checked when it wrote one. A record from a version whose checks differ (2:
  *  each claim the crate reads must be answered; 3: each context provided and each callback position is a claim of its
  *  own, a component's function-typed props included; 4: provides(c) only through a hook or part that uses c alone and
  *  fails without it, and a component's function-typed props are run) does not count. */
-const RECORD_VERSION = 4;
+const RECORD_VERSION = 5;
 /** What a record was verified against: the library (an installed package's version, or the JS module's own text beside
  *  the declaration) and the probe file. A record made against other inputs does not count (the library moved under it). */
 function inputsOf(file) {
@@ -114,8 +113,7 @@ function writeRecord(file, results) {
   return at;
 }
 
-/** The rows of `file` strict mode refuses: not recorded (or recorded unverified or mismatched), and not `trusted` (as the
- *  parser read the row, so a type that only mentions the word is not trust). */
+/** The rows of `file` strict mode refuses: not recorded, or recorded unverified or mismatched. */
 function checkStrict(file) {
   const out = [];
   const at = recordOf(file);
@@ -123,7 +121,6 @@ function checkStrict(file) {
   const moved = rec ? changedInputs(rec.inputs, inputsOf(file)) : [];
   const stale = rec && rec.version !== RECORD_VERSION;   // written by an rx-verify whose checks were different
   for (const row of rowsOf(file)) {
-    if (row.trusted) continue;
     const r = rec?.rows?.[hashOf(row.text)];
     if (r && (r.status === "ok" || r.status === "na") && !moved.length && !stale) continue;
     const why = !rec ? `nothing verified it: run \`rx-verify --record ${path.basename(file)}\` (with a probe beside it)`
@@ -132,7 +129,7 @@ function checkStrict(file) {
       : !r ? `it changed since rx-verify last recorded ${path.basename(at)}: run it again`
       : r.status === "fail" ? `rx-verify found a mismatch (${r.what.slice(0, 90)})`
       : `rx-verify could not check it (${r.what.slice(0, 90)})`;
-    out.push({ file, line: row.line, name: row.name, message: `${row.name}: ${why}; or mark the row \`trusted\`` });
+    out.push({ file, line: row.line, name: row.name, message: `${row.name}: ${why}` });
   }
   return out;
 }

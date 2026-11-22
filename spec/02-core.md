@@ -241,19 +241,20 @@ Function application `f(e…)` covers both language functions and FFI imports;
   bound to what a declared primitive made, its value result (09 MO-10b), is
   made once and never changes, so reading it in an argument loses nothing
   and is no diagnostic (proposed 2026-11-19: `createRouter({ routeTree:
-  rootRoute.addChildren(…) })`, S-module-22); a reader (`ref`) still is.
-  A method called on the instance keeps that only when the primitive's
-  declaration names the method (revised 2026-11-21 after review:
-  `createRootRoute(…): any renders(later) methods(addChildren)`, 09
-  MO-8i): a method so named makes its value once, from what it is given,
-  which is checked as any argument is. A stable receiver says nothing of
-  what another method gives back, so a method the declaration does not
-  name is read as a call whose answer may change, and the argument is
-  `SNAPSHOT_ARGUMENT` (S-module-22); E-5a reads it the same way, so a kept
-  `peek inst.m()` of an undeclared method is `SNAPSHOT_KEPT` (S-module-20).
+  rootRoute })`, S-module-22); a reader (`ref`) still is.
+  A method called on the instance is another matter (revised 2026-11-21
+  after review): a stable receiver says nothing of what a method gives
+  back, so it is read as a call whose answer may change, and the
+  argument is `SNAPSHOT_ARGUMENT` (S-module-22); E-5a reads it the same
+  way, so a kept `peek inst.m()` is `SNAPSHOT_KEPT` (S-module-20). Where
+  the method makes its value once (`rootRoute.addChildren([…])`), the
+  argument says so, as for any value read once: `createRouter({
+  routeTree: peek rootRoute.addChildren([…]) })`. (A declaration could
+  name such a method, `methods(addChildren)`, and the call then needed no
+  `peek`: withdrawn 2026-11-22, 09 MO-8r.)
   **What counts as reading through the instance (ruled 2026-11-22).** The
-  instance stays one where the checker knows what is done to it: named,
-  passed whole, a declared method called on its own name (or an alias's).
+  instance stays one where the checker knows what is done to it: named
+  and passed whole.
   Anything else that reads through a value that *may be* the instance is
   a read of what may change, and which values may be it is 09 MO-10k's
   rule, by mention, with no value followed: a field read, an index or a
@@ -312,8 +313,8 @@ Function application `f(e…)` covers both language functions and FFI imports;
   `SNAPSHOT_ARGUMENT`, `SNAPSHOT_KEPT` and E-5a's "changes" read it the
   same way (S-region-6). *Guarantee:* an argument, or a kept `peek`, that the
   checker takes for made once reads no field of a primitive's instance
-  and calls no method its declaration does not name, through any `.rx`
-  expression; it rests on the declaration's `methods(…)`. S-module-20.
+  and calls no method of it, through any `.rx`
+  expression. S-module-20.
   The word changes nothing at run time
   and nothing of the result's shape. The instance is the object passed
   whole, whether its declared result is a value or a record of parts.
