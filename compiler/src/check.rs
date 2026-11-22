@@ -718,6 +718,93 @@ pub(crate) fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<S
         ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => {}
     }
 }
+/// C-3a: what a value written by an apply block is computed from — the names its expression reads, and the names it
+/// calls. Not what is under `peek(…)` (a reading said to be taken once), nor what a statement-bodied closure reads (it
+/// runs later, as an event of its own).
+fn write_reads(e: &Expr, bound: &HashSet<String>, names: &mut IndexSet<String>, callees: &mut IndexSet<String>) {
+    match &e.k {
+        ExprKind::Lit(_) | ExprKind::Use(_) | ExprKind::Pre { .. } | ExprKind::Peek(_) | ExprKind::Draft { .. } | ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => {}
+        ExprKind::Id(n) => {
+            if !bound.contains(n) {
+                names.insert(n.clone());
+            }
+        }
+        ExprKind::Await { e, init, .. } => {
+            write_reads(e, bound, names, callees);
+            if let Some(i) = init {
+                write_reads(i, bound, names, callees);
+            }
+        }
+        ExprKind::Latest(x) | ExprKind::Pending(x) | ExprKind::Un { e: x, .. } | ExprKind::Spread(x) | ExprKind::Omit { e: x, .. } | ExprKind::Throw(x) => write_reads(x, bound, names, callees),
+        ExprKind::Bin { l, r, .. } => {
+            write_reads(l, bound, names, callees);
+            write_reads(r, bound, names, callees);
+        }
+        ExprKind::If { c, t, f } => {
+            write_reads(c, bound, names, callees);
+            write_reads(t, bound, names, callees);
+            write_reads(f, bound, names, callees);
+        }
+        ExprKind::Tpl(parts) => {
+            for p in parts {
+                if let TplPart::Expr(x) = p {
+                    write_reads(x, bound, names, callees);
+                }
+            }
+        }
+        ExprKind::Member { o, .. } => write_reads(o, bound, names, callees),
+        ExprKind::Index { o, i, .. } => {
+            write_reads(o, bound, names, callees);
+            write_reads(i, bound, names, callees);
+        }
+        ExprKind::Call { f, args, .. } => {
+            match &f.k {
+                ExprKind::Id(n) if !bound.contains(n) => {
+                    callees.insert(n.clone());
+                }
+                _ => write_reads(f, bound, names, callees),
+            }
+            for a in args {
+                write_reads(a, bound, names, callees);
+            }
+        }
+        ExprKind::Arr(items) => {
+            for a in items {
+                write_reads(a, bound, names, callees);
+            }
+        }
+        ExprKind::Rec(fields) => {
+            for f in fields {
+                match f {
+                    Field::Kv { v, .. } => write_reads(v, bound, names, callees),
+                    Field::Spread(x) => write_reads(x, bound, names, callees),
+                }
+            }
+        }
+        ExprKind::Fn { params, body, stmts, .. } => {
+            if stmts.is_none() {
+                let mut b = bound.clone();
+                b.extend(params.iter().cloned());
+                write_reads(body, &b, names, callees);
+            }
+        }
+        ExprKind::Catch { e, name, alt, .. } => {
+            write_reads(e, bound, names, callees);
+            match name {
+                Some(n) => {
+                    let mut b = bound.clone();
+                    b.insert(n.clone());
+                    write_reads(alt, &b, names, callees);
+                }
+                None => write_reads(alt, bound, names, callees),
+            }
+        }
+    }
+}
+/// `$0`, `$1`, …: an apply block's name for the value of its effect's n-th input (07 §5).
+fn is_effect_param(n: &str) -> bool {
+    n.len() > 1 && n.starts_with('$') && n[1..].bytes().all(|b| b.is_ascii_digit())
+}
 fn free_names_stmts(ss: &[Stmt], bound0: &HashSet<String>, out: &mut IndexSet<String>) {
     let mut bound = bound0.clone();
     for s in ss {
@@ -3211,7 +3298,8 @@ impl<'a> Checker<'a> {
                     });
                     c.run_checks(body, false, &[], false);
                 });
-                self.own_source_writes(inputs, body, env);
+                let own = self.own_source_writes(inputs, body, env);
+                self.relay_writes(inputs, body, env, &own);
             }
             Decl::Action { name, params, ptypes, body, line, .. } => {
                 let region = self.reg(env);
@@ -3295,13 +3383,14 @@ impl<'a> Checker<'a> {
     }
 
     /// C-3 (ruled 2026-10-23): an apply block's own statements may not write a source its compute half reads.
-    fn own_source_writes(&mut self, inputs: &'a [Expr], body: &'a [Stmt], env: EId) {
+    fn own_source_writes(&mut self, inputs: &'a [Expr], body: &'a [Stmt], env: EId) -> HashSet<SId> {
         let mut read: IndexMap<SId, String> = IndexMap::new();
         let mut seen: HashSet<SId> = HashSet::new();
         for i in inputs {
             self.osw_visit(i, env, "", &mut read, &mut seen);
         }
         self.osw_direct(body, env, &read);
+        read.keys().copied().collect()
     }
     fn osw_visit(&self, e: &Expr, scope: EId, via: &str, read: &mut IndexMap<SId, String>, seen: &mut HashSet<SId>) {
         for n0 in names_of(e) {
@@ -3351,6 +3440,187 @@ impl<'a> Checker<'a> {
                     }
                 }
                 StmtKind::Action(body) => self.osw_direct(body, env, read),
+                _ => {}
+            }
+        }
+    }
+
+    /// C-3a (2026-11-22): state derived through an effect. An apply block's own write of a source declared beside the
+    /// effect (in its block), with a value or a path computed from reactive values — the effect's inputs (`$n`, or an
+    /// input read by its name), another source, an equation, a prop — is `EFFECT_RELAY_TEAR`: it is an equation written
+    /// the long way, a frame late where the effect names what it reads, and never again where it does not. What is not
+    /// derived stays an apply's to write: a constant, the target's own value, what an io call answers (a measurement, a
+    /// JS module's state), a reading under `peek(…)`, and every write of a closure the apply creates (a later event).
+    /// The same walk gives the advice `SNAPSHOT_IN_EFFECT` (99): an apply's own statement reads a changing value its
+    /// effect does not take as an input.
+    fn relay_writes(&mut self, inputs: &'a [Expr], body: &'a [Stmt], env: EId, own: &HashSet<SId>) {
+        let mut ins: IndexSet<String> = IndexSet::new();
+        for i in inputs {
+            free_names(i, &HashSet::new(), &mut ins);
+        }
+        let line0 = self.line;
+        let mut advised = false;
+        self.relay_walk(inputs, &ins, own, body, env, &HashSet::new(), &HashSet::new(), &mut advised);
+        self.line = line0;
+    }
+    fn relay_reactive(&mut self, s: Option<SId>) -> bool {
+        match s {
+            Some(s) => matches!(self.syms[s].kind, SymKind::Source | SymKind::Eq | SymKind::Props) && !self.constant_eq(s),
+            None => false,
+        }
+    }
+    /// The reactive values `e` is computed from; none when it is not derived (or what it reads came from io).
+    fn relay_from(&mut self, e: &Expr, target: Option<SId>, env: EId, locals: &HashSet<String>, derived: &HashSet<String>) -> Vec<String> {
+        let (mut names, mut callees) = (IndexSet::new(), IndexSet::new());
+        write_reads(e, &HashSet::new(), &mut names, &mut callees);
+        for c in &callees {
+            if locals.contains(c) {
+                continue;
+            }
+            if let Some(f) = self.lookup(env, c) {
+                let k = self.syms[f].kind;
+                if (k == SymKind::Import && self.syms[f].io) || k == SymKind::Action || k == SymKind::Server {
+                    return vec![];
+                }
+            }
+        }
+        let mut out = vec![];
+        for n in names {
+            if is_effect_param(&n) {
+                out.push(n);
+                continue;
+            }
+            if locals.contains(&n) {
+                if derived.contains(&n) {
+                    out.push(n);
+                }
+                continue;
+            }
+            let r = self.lookup(env, &n);
+            if r != target && self.relay_reactive(r) {
+                out.push(n);
+            }
+        }
+        out
+    }
+    /// 99, advice: a changing value read by the apply's own statement, which the effect does not take as an input.
+    fn relay_snapshot(&mut self, e: &Expr, inputs: &[Expr], ins: &IndexSet<String>, env: EId, locals: &HashSet<String>, advised: &mut bool) {
+        if *advised {
+            return;
+        }
+        let (mut names, mut callees) = (IndexSet::new(), IndexSet::new());
+        write_reads(e, &HashSet::new(), &mut names, &mut callees);
+        let mut hit = None;
+        for x in names {
+            if !locals.contains(&x) && !ins.contains(&x) {
+                let r = self.lookup(env, &x);
+                if self.relay_reactive(r) {
+                    hit = Some(x);
+                    break;
+                }
+            }
+        }
+        let Some(n) = hit else { return };
+        *advised = true;
+        let mut named: Vec<String> = inputs.iter().map(show).collect();
+        named.push(n.clone());
+        let msg = format!(
+            "the apply block reads {n}, which is not one of the effect's inputs: the block runs {}, and sees {n} as it was then — it is not run again when {n} changes. Name it as an input (`effect ({}) {{ … }}`, read as `${}`) to run when it changes; where a reading taken once is meant, say so: `peek({n})`",
+            if inputs.is_empty() { "once, when the effect is declared (it has no inputs)" } else { "when its inputs change" },
+            named.join(", "),
+            inputs.len(),
+        );
+        self.advice.push(Diagnostic { code: "SNAPSHOT_IN_EFFECT".into(), rule: "EF-1".into(), line: self.line, msg, file: self.opts.file.clone() });
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn relay_walk(&mut self, inputs: &'a [Expr], ins: &IndexSet<String>, own: &HashSet<SId>, ss: &'a [Stmt], env: EId, locals0: &HashSet<String>, derived0: &HashSet<String>, advised: &mut bool) {
+        let (mut locals, mut derived) = (locals0.clone(), derived0.clone());
+        for st in ss {
+            self.line = st.line as i64;
+            match &st.k {
+                StmtKind::Let { name, e, .. } => {
+                    locals.insert(name.clone());
+                    if !self.relay_from(e, None, env, &locals, &derived).is_empty() {
+                        derived.insert(name.clone());
+                    } else {
+                        derived.remove(name);
+                        self.relay_snapshot(e, inputs, ins, env, &locals, advised);
+                    }
+                }
+                StmtKind::Write { target, e } => {
+                    if target.is_ctx() || locals.contains(&target.name) {
+                        continue;
+                    }
+                    let Some(t) = self.lookup(env, &target.name) else { continue };
+                    // the state and the effect side by side: a source of an outer block has other writers (each instance
+                    // of a component registers with it, or reports to it), and no equation written here could stand for it
+                    // own: C-3 has refused it already
+                    if self.syms[t].kind != SymKind::Source || self.syms[t].region != self.reg(env) || own.contains(&t) {
+                        continue;
+                    }
+                    let mut names: IndexSet<String> = IndexSet::new();
+                    for p in &target.path {
+                        if let PathSeg::Expr(x) = p {
+                            names.extend(self.relay_from(x, Some(t), env, &locals, &derived));
+                        }
+                    }
+                    names.extend(self.relay_from(e, Some(t), env, &locals, &derived));
+                    if names.is_empty() {
+                        continue;
+                    }
+                    let tn = self.syms[t].name.clone();
+                    let stale = names.iter().find(|n| !is_effect_param(n) && !locals.contains(*n) && !ins.contains(*n)).cloned();
+                    let fix = format!(
+                        "write the equation, `{tn} = …` (or `source {tn} = …`, ST-5, if it is also written by hand; `pre {tn}` for a value built on its last one), or write {tn} from the event that changes what it is computed from; a reading taken once on purpose — a measurement of the page as it is now — says so: `peek(…)`"
+                    );
+                    let msg = match stale {
+                        Some(n) => format!(
+                            "the apply block writes {tn} from {n}, which is not one of the effect's inputs: the block runs {}, so {tn} is computed from {n} as it was then and never follows it — {fix}",
+                            if inputs.is_empty() { "once, when the effect is declared (it has no inputs)" } else { "when its inputs change" }
+                        ),
+                        None => format!(
+                            "the apply block writes {tn} from what the effect fired for ({}): state derived through an effect is one instant late — the frame in between shows the new value beside the old {tn}, and the server, which runs no apply block, never computes it — {fix}",
+                            names.iter().cloned().collect::<Vec<_>>().join(", ")
+                        ),
+                    };
+                    self.err("EFFECT_RELAY_TEAR", "C-3a", msg);
+                }
+                StmtKind::Expr(e) | StmtKind::Throw(e) => self.relay_snapshot(e, inputs, ins, env, &locals, advised),
+                StmtKind::Return(e) => {
+                    if let Some(e) = e {
+                        self.relay_snapshot(e, inputs, ins, env, &locals, advised);
+                    }
+                }
+                StmtKind::Sif { c, t, f } => {
+                    self.relay_snapshot(c, inputs, ins, env, &locals, advised);
+                    self.relay_walk(inputs, ins, own, t, env, &locals, &derived, advised);
+                    self.relay_walk(inputs, ins, own, f, env, &locals, &derived, advised);
+                }
+                StmtKind::For { name, e, body } => {
+                    let (mut l, mut dv) = (locals.clone(), derived.clone());
+                    l.insert(name.clone());
+                    if !self.relay_from(e, None, env, &locals, &derived).is_empty() {
+                        dv.insert(name.clone());
+                    } else {
+                        dv.remove(name);
+                        self.relay_snapshot(e, inputs, ins, env, &locals, advised);
+                    }
+                    self.relay_walk(inputs, ins, own, body, env, &l, &dv, advised);
+                }
+                StmtKind::Try { body, catch_name, handler, fin, .. } => {
+                    self.relay_walk(inputs, ins, own, body, env, &locals, &derived, advised);
+                    if let Some(h) = handler {
+                        let mut l = locals.clone();
+                        if let Some(n) = catch_name {
+                            l.insert(n.clone());
+                        }
+                        self.relay_walk(inputs, ins, own, h, env, &l, &derived, advised);
+                    }
+                    if let Some(f) = fin {
+                        self.relay_walk(inputs, ins, own, f, env, &locals, &derived, advised);
+                    }
+                }
+                StmtKind::Action(body) => self.relay_walk(inputs, ins, own, body, env, &locals, &derived, advised),
                 _ => {}
             }
         }
@@ -5066,7 +5336,10 @@ impl<'a> Checker<'a> {
         let env = self.env(Some(env0), region);
         // 99, advice (ASYNC_WATERFALL): the last question this run awaited, and the locals bound since
         let mut asked: Option<(String, HashSet<String>)> = None;
+        // a statement's diagnostics are placed on its own line; what follows the block, where it was
+        let line0 = self.line;
         for (at, s) in ss.iter().enumerate() {
+            self.line = s.line as i64;
             if let StmtKind::Let { e, .. } | StmtKind::Expr(e) = &s.k {
                 let t = if let ExprKind::Catch { e: inner, .. } = &e.k { &**inner } else { e };
                 if let ExprKind::Await { e: q, .. } = &t.k {
@@ -5325,6 +5598,7 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+        self.line = line0;
     }
 
     /// The reactive names captured by closures that a value stores (O-3). A functional write's own function is applied, not

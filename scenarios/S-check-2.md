@@ -71,3 +71,89 @@ export default component App() {
 ```
 
 Nested statements are still the apply's own.
+
+```rx
+-- reject: EFFECT_RELAY_TEAR
+export default component App() {
+  source qty := 1
+  source total := 0
+  effect () { total := qty * 5 }
+
+  <p>{total}</p>
+}
+```
+
+C-3a: `total` is computed from `qty`, which the effect does not take as an
+input: once, when the effect is declared, and never again. It is the
+equation `total = qty * 5`.
+
+```rx
+-- reject: EFFECT_RELAY_TEAR
+export default component App() {
+  source qty := 1
+  source total := 0
+  effect (qty) { total := $0 * 5 }
+
+  <p>{total}</p>
+}
+```
+
+The same with the input named: one frame shows the new `qty` beside the
+old `total`, and the server never computes it.
+
+```rx
+-- reject: EFFECT_RELAY_TEAR
+export default component App() {
+  source n := 1
+  source history := []
+  effect (n) { let next = [...history, $0]; history := next }
+
+  <p>{len(history)}</p>
+}
+```
+
+Through a local, and building on its own value: `history = [...(pre
+history -> []), n]`, or the write in the handler that changes `n`.
+
+```rx
+-- reject: EFFECT_RELAY_TEAR
+export default component App() {
+  source picked := 1
+  source selected := {}
+  effect (picked) { selected[str($0)] := true }
+
+  <p>{selected["1"] ? "one" : "-"}</p>
+}
+```
+
+A path computed from the input is derived too: the selection is a
+projection of `picked` (ST-3, `selected = draft(pre selected -> {}) { … }`).
+
+And what is not derived, accepted:
+
+```rx
+-- accept
+import { measure } from "./dom"
+source seen := 0
+export default component App() {
+  source n := 1
+  source warned := false
+  source visits := 0
+  source width := 0
+  source saved := 0
+  effect (n) {
+    if ($0 > 10) { warned := true }
+    visits := visits + 1
+    width := measure($0)
+    saved := peek(n)
+    seen := s => s + $0
+  }
+
+  <p>{warned ? "!" : ""}{visits} {width} {saved}</p>
+}
+```
+
+What is not derived stays the apply's: a constant under a condition, the
+source's own value, what an `io` call answers, a reading said to be taken
+once, and a source of an outer block (`seen` is the module's: a component
+that reports to it is one of its writers).

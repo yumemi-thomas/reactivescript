@@ -187,6 +187,28 @@ export function freeNames(e: Expr, bound: Set<string>, out: Set<string>): void {
     case "catch": go(e.e); freeNames(e.alt, e.name ? new Set([...bound, e.name]) : bound, out); return;
   }
 }
+/** C-3a: what a value written by an apply block is computed from — the names its expression reads, and the names it
+ *  calls. Not what is under `peek(…)` (a reading said to be taken once), nor what a statement-bodied closure reads (it
+ *  runs later, as an event of its own). */
+export function writeReads(e: Expr, bound: Set<string>, names: Set<string>, callees: Set<string>): void {
+  const go = (x: Expr) => writeReads(x, bound, names, callees);
+  switch (e.k) {
+    case "lit": case "use": case "pre": case "peek": case "draft": case "stylemap": case "serverfn": return;
+    case "id": if (!bound.has(e.name)) names.add(e.name); return;
+    case "await": go(e.e); if (e.init) go(e.init); return;
+    case "latest": case "pending": case "un": case "spread": case "omit": case "throw": go(e.e); return;
+    case "bin": go(e.l); go(e.r); return;
+    case "if": go(e.c); go(e.t); go(e.f); return;
+    case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
+    case "member": go(e.o); return;
+    case "index": go(e.o); go(e.i); return;
+    case "call": if (e.f.k === "id" && !bound.has(e.f.name)) callees.add(e.f.name); else go(e.f); e.args.forEach(go); return;
+    case "arr": e.items.forEach(go); return;
+    case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
+    case "fn": if (!e.stmts) writeReads(e.body, new Set([...bound, ...e.params]), names, callees); return;
+    case "catch": go(e.e); writeReads(e.alt, e.name ? new Set([...bound, e.name]) : bound, names, callees); return;
+  }
+}
 function freeNamesStmts(ss: Stmt[], bound0: Set<string>, out: Set<string>): void {
   const bound = new Set(bound0);
   for (const s of ss) {
@@ -1164,7 +1186,7 @@ class Checker {
           });
           this.runChecks(d.body, false, []);
         });
-        this.ownSourceWrites(d, env);
+        this.relayWrites(d, env, this.ownSourceWrites(d, env));
         return;
       }
       case "action": {
@@ -1237,9 +1259,76 @@ class Checker {
       }
     };
     direct(d.body);
+    return new Set(read.keys());
   }
 
   /** E-10: a reactive argument for a value parameter of an instantiating fn is snapshotted. */
+  /** C-3a (2026-11-22): state derived through an effect. An apply block's own write of a source declared beside the
+   *  effect (in its block), with a value or a path computed from reactive values — the effect's inputs (`$n`, or an input read by its name), another source, an
+   *  equation, a prop — is `EFFECT_RELAY_TEAR`: it is an equation written the long way, a frame late where the effect
+   *  names what it reads, and never again where it does not. What is not derived stays an apply's to write: a constant,
+   *  the target's own value, what an io call answers (a measurement, a JS module's state), a reading under `peek(…)`,
+   *  and every write of a closure the apply creates (a later event). The same walk gives the advice
+   *  `SNAPSHOT_IN_EFFECT` (99): an apply's own statement reads a changing value its effect does not take as an input. */
+  private relayWrites(d: Extract<Decl, { k: "effect" }>, env: Env, own: Set<Sym>) {
+    const inputs = new Set<string>(); for (const i of d.inputs) freeNames(i, new Set(), inputs);
+    const reactive = (s: Sym | undefined) => !!s && (s.kind === "source" || s.kind === "eq" || s.kind === "props") && !this.constantEq(s);
+    let advised = false;
+    const walk = (ss: Stmt[], locals0: Set<string>, derived0: Set<string>) => {
+      const locals = new Set(locals0), derived = new Set(derived0);
+      /** The reactive values `e` is computed from; none when it is not derived (or what it reads came from io). */
+      const from = (e: Expr, target?: Sym): string[] => {
+        const names = new Set<string>(), callees = new Set<string>(); writeReads(e, new Set(), names, callees);
+        for (const c of callees) { const f = locals.has(c) ? undefined : env.lookup(c); if (f && ((f.kind === "import" && f.io) || f.kind === "action" || f.kind === "server")) return []; }
+        const out: string[] = [];
+        for (const n of names) {
+          if (/^\$\d+$/.test(n)) { out.push(n); continue; }
+          if (locals.has(n)) { if (derived.has(n)) out.push(n); continue; }
+          const r = env.lookup(n); if (r !== target && reactive(r)) out.push(n);
+        }
+        return out;
+      };
+      /** 99, advice: a changing value read by the apply's own statement, which the effect does not take as an input. */
+      const snapshot = (e: Expr) => {
+        if (advised) return;
+        const names = new Set<string>(); writeReads(e, new Set(), names, new Set());
+        const n = [...names].find(x => !locals.has(x) && !inputs.has(x) && reactive(env.lookup(x)));
+        if (n === undefined) return;
+        advised = true;
+        this.advice.push({ code: "SNAPSHOT_IN_EFFECT", rule: "EF-1", line: this.line, msg: `the apply block reads ${n}, which is not one of the effect's inputs: the block runs ${d.inputs.length ? "when its inputs change" : "once, when the effect is declared (it has no inputs)"}, and sees ${n} as it was then — it is not run again when ${n} changes. Name it as an input (\`effect (${[...d.inputs.map(show), n].join(", ")}) { … }\`, read as \`$${d.inputs.length}\`) to run when it changes; where a reading taken once is meant, say so: \`peek(${n})\``, ...(this.opts.file ? { file: this.opts.file } : {}) });
+      };
+      for (const st of ss) {
+        if (st.line !== undefined) this.line = st.line;
+        switch (st.k) {
+          case "let": locals.add(st.name); if (from(st.e).length) derived.add(st.name); else { derived.delete(st.name); snapshot(st.e); } break;
+          case "write": {
+            const t = st.target.ctx || locals.has(st.target.name) ? undefined : env.lookup(st.target.name);
+            // the state and the effect side by side: a source of an outer block has other writers (each instance of a
+            // component registers with it, or reports to it), and no equation written here could stand for it
+            if (t?.kind !== "source" || t.region !== env.region || own.has(t)) break;   // own: C-3 has refused it already
+            const names = [...new Set([...st.target.path.flatMap(p => typeof p === "string" ? [] : from(p, t)), ...from(st.e, t)])];
+            if (!names.length) break;
+            const stale = names.find(n => !/^\$\d+$/.test(n) && !locals.has(n) && !inputs.has(n));
+            const fix = `write the equation, \`${t.name} = …\` (or \`source ${t.name} = …\`, ST-5, if it is also written by hand; \`pre ${t.name}\` for a value built on its last one), or write ${t.name} from the event that changes what it is computed from; a reading taken once on purpose — a measurement of the page as it is now — says so: \`peek(…)\``;
+            this.err("EFFECT_RELAY_TEAR", "C-3a", stale !== undefined
+              ? `the apply block writes ${t.name} from ${stale}, which is not one of the effect's inputs: the block runs ${d.inputs.length ? "when its inputs change" : "once, when the effect is declared (it has no inputs)"}, so ${t.name} is computed from ${stale} as it was then and never follows it — ${fix}`
+              : `the apply block writes ${t.name} from what the effect fired for (${names.join(", ")}): state derived through an effect is one instant late — the frame in between shows the new value beside the old ${t.name}, and the server, which runs no apply block, never computes it — ${fix}`);
+            break;
+          }
+          case "expr": case "throw": snapshot(st.e); break;
+          case "return": if (st.e) snapshot(st.e); break;
+          case "sif": snapshot(st.c); walk(st.t, locals, derived); walk(st.f, locals, derived); break;
+          case "for": { const l = new Set(locals).add(st.name), dv = new Set(derived); if (from(st.e).length) dv.add(st.name); else { dv.delete(st.name); snapshot(st.e); } walk(st.body, l, dv); break; }
+          case "try": { walk(st.body, locals, derived); if (st.handler) walk(st.handler, new Set(st.catchName ? [...locals, st.catchName] : locals), derived); if (st.fin) walk(st.fin, locals, derived); break; }
+          case "action": walk(st.body, locals, derived); break;
+        }
+      }
+    };
+    const line0 = this.line;
+    walk(d.body, new Set(), new Set());
+    this.line = line0;
+  }
+
   /** E-10: an equation that never changes — it awaits nothing, reads no context, and every name it reads is a pure import,
    *  a component, an error class or such an equation (`schema = object({ email: string() })`). */
   private constEqs = new Map<Sym, boolean | null>();
@@ -2019,7 +2108,9 @@ class Checker {
   private stmts(ss: Stmt[], env0: Env, ctx: Ctx) {
     const env = new Env(env0, env0.region);
     let asked: { first: string; bound: Set<string> } | undefined;        // 99, advice (ASYNC_WATERFALL): the last question this run awaited, and the locals bound since
+    const line0 = this.line;                                             // a statement's diagnostics are placed on its own line; what follows the block, where it was
     for (const [at, s] of ss.entries()) {
+      if (s.line !== undefined) this.line = s.line;
       if (s.k === "let" || s.k === "expr") {
         const t = s.e.k === "catch" ? s.e.e : s.e;
         if (t.k === "await") {
@@ -2107,6 +2198,7 @@ class Checker {
         }
       }
     }
+    this.line = line0;
   }
 
   /** The reactive names captured by closures that a value stores (O-3). A functional write's own function is applied, not stored,

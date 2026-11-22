@@ -423,6 +423,55 @@ Function application `f(e…)` covers both language functions and FFI imports;
   creates — a timer, a listener, its cleanup — are later events and stay
   legal (a clock, a poller); writes through a provision are not visible to
   the checker and are the runtime's. (S-check-2.)
+- **C-3a (State is not derived through an apply) — 2026-11-22.** An apply
+  block's own statement that writes a source declared in the effect's own
+  block, with a value or a path computed from reactive values, is a
+  compile error (`EFFECT_RELAY_TEAR`, bin S). "Computed from reactive
+  values" is read off the write, and only what is written counts: the
+  expression reads `$n` (what the effect fired for), a source, an
+  equation or a prop — an input read by its name too — directly, through
+  operators, pure calls and an updater's body (`x := v => v + $0`), or
+  through a local bound to such an expression. Two programs are under it,
+  and they are one mistake:
+  - the value reads what the effect does not take as an input (`effect ()
+    { total := qty * price }`): the block runs when its inputs change —
+    with none, once — so the source is computed from the others as they
+    were then and never follows them. It is E-4's snapshot (`source total
+    := qty * price` is `SNAPSHOT_INITIALIZER`) written as a statement;
+  - the value reads only what the effect fired for (`effect (qty, price)
+    { total := $0 * $1 }`, `effect (n) { history := [...history, $0] }`):
+    an equation written the long way. The apply runs after the instant
+    that changed its inputs has been observed (§4), so one frame shows the
+    new input beside the old source (H-1 says the screen is one consistent
+    frame; this one is not), every reader of the source runs twice, and
+    the server, which runs no apply block (10 SV-2a), never computes it:
+    the page is served with the seed.
+  Every such value has a direct spelling, so nothing is lost by refusing
+  it: an equation (`total = qty * price`); a source with a question where
+  it is also written by hand (`source draft = props.initial`, ST-5: a
+  layer that re-derives when its question changes); `pre` where it builds
+  on its own last value (`history = [...(pre history -> []), n]`, C-2);
+  the write moved to the event that changed the inputs.
+  What stays an apply's to write is what is not derived: a constant (`if
+  ($0 > 10) { warned := true }`: the condition is control, the value is
+  not computed); the target's own value (`visits := visits + 1`); what an
+  `io` call answers (`width := measure($0)`: the page as it is, a JS
+  module's state — Solid's "the effect measures the DOM" case); a reading
+  said to be taken once (`saved := peek(draft)`, `width :=
+  peek($0.offsetWidth)`: E-5's word, in the one imperative position where
+  a snapshot is not what was meant by default); every write of a closure
+  the apply creates (a listener, a timer: later events, as in C-3); and
+  a source of an outer block (a component's effect that registers with,
+  or reports to, state its module or its parent declares: that source has
+  other writers, and no equation written beside the effect could stand
+  for it — an apply is how a value is sent somewhere else, async.md §6).
+  A write C-3 already refuses is reported once, as C-3's. Writes through
+  an action or a provision are not seen, as in C-3. Solid reports the
+  same at run time, graph-proven, as a warning (`EFFECT_RELAY_TEAR`: "it
+  is derived state kept one flush late … make it a memo"); here the
+  write is in the text, the equation it should have been is too, so it
+  is an error (99: until 2026-11-22 it was an advisory row).
+  (S-check-2; `bench/tasks/effect-derived`, `projection-selection`.)
 
 ### EF — Effects
 
@@ -430,6 +479,15 @@ Function application `f(e…)` covers both language functions and FFI imports;
   imperative scope and receives the values of `e₁…eₙ` by position as `$0…$n`
   (07 §5). Reads of reactive names inside `B` are snapshots of the committed
   state (SC-2), so the parameters are how `B` sees the values it fired for.
+  A changing value that `B`'s own statements read and the effect does not
+  take as an input is read as it stood when `B` last ran, and `B` is not
+  run again when it changes. That is the split's meaning (Solid: the
+  apply half does not track), so it is no error — but it is also how a
+  dependency is forgotten (`effect () { setTitle(total) }`), so the
+  checker says it as advice, once per effect (`SNAPSHOT_IN_EFFECT`, 99
+  the advisory rows): name the value as an input, or say the snapshot is
+  meant, `peek(x)`. Where the value read is written into a source, it is
+  not advice but C-3a's error.
 - **EF-2 (When).** `B` runs in an instant iff at least one `eᵢ`'s value
   differs from the value `B` last received for it, or it is the instant in
   which the effect was declared. A value that was pending and lands equal to

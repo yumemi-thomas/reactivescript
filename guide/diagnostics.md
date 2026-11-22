@@ -552,6 +552,69 @@ export default component App() {
 }
 ```
 
+### EFFECT_RELAY_TEAR
+
+State computed from other state is an equation, not a source an effect keeps in step (C-3a). An effect's block that
+writes a source declared beside it, with a value computed from reactive values, is refused. Where the block reads what
+the effect does not name, the source is computed once and never again; where it reads what the effect fired for, the
+source is one frame late (the screen shows the new input beside the old total), and the server, which runs no effect,
+never computes it.
+
+```rx before
+export default component App() {
+  source qty := 1
+  source price := 5
+  source total := 0
+  effect () { total := qty * price }
+  <p>{qty} × {price} = {total}</p>
+}
+```
+
+```rx before
+export default component App() {
+  source qty := 1
+  source history: number[] := []
+  effect (qty) { history := [...history, $0] }
+  <p>{history.join(", ")}</p>
+}
+```
+
+Write the equation. A value that is also written by hand is a source with a question (`source draft = props.initial`,
+ST-5); one that builds on its last value reads `pre`; a history of what the user did is written by the click.
+
+```rx after
+export default component App() {
+  source qty := 1
+  source price := 5
+  total = qty * price
+  history: number[] = [...(pre history -> []), qty]
+  <p>{qty} × {price} = {total} ({history.join(", ")})</p>
+}
+```
+
+An effect still writes what is not derived: a constant (`if ($0 > 10) { warned := true }`), the source's own value
+(`visits := visits + 1`), what a JS call answers (`width := measure($0)`), a reading you say is taken once
+(`saved := peek(draft)`), anything from a listener or a timer it sets up, and state an outer block declares (a
+component that registers with its parent's list).
+
+### SNAPSHOT_IN_EFFECT
+
+Advice, not an error: the program is accepted and the build goes on (`rxc check` prints it as `advice`). An effect's
+block reads a value that changes and that the effect does not take as an input. The block runs when its inputs change
+(with no inputs: once), so it sees that value as it was then and is not run again when it changes.
+
+```rx
+total = qty * price
+effect () { setTitle(`cart: ${total}`) }     // advice: `total` is not an input — the title is set once
+```
+
+Name it as an input and read what the block is given, or say the snapshot is meant:
+
+```rx
+effect (total) { setTitle(`cart: ${$0}`) }
+effect (saves) { report(peek(draft)) }       // what the draft held when `saves` changed
+```
+
 ## Actions, guesses and holds
 
 ### HELD_WRITE

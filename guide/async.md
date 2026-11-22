@@ -260,7 +260,10 @@ compiler refuses it (`STALE_OWN_READ`). Keep the value in a local: `let n = coun
 ## 6. Effects: acting on a value as it changes
 
 `effect (a, b) { … }` runs its block with the inputs' values as `$0`, `$1`. Prefer an equation for anything that is
-a value; an effect is for sending a value somewhere else (a parent's `on…` handler, `log`, a JS module).
+a value; an effect is for sending a value somewhere else (a parent's `on…` handler, `log`, a JS module). The compiler
+holds you to it: a block that writes a source declared beside it from what it reads (`effect (a) { b := $0 * 2 }`) is
+`EFFECT_RELAY_TEAR` — write `b = a * 2`. And the block sees only what the effect names: a changing value it reads that
+is not an input is read as it stood then (the compiler says so, as advice); read it through `$n`, or say `peek(x)`.
 
 - **When it runs**: once when its component appears, then after any change in which an input's value differs from
   the value the block last received (EF-2). The same value again is not a change. It runs after everything has

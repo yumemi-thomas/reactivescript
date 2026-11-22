@@ -43,7 +43,8 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
 - An instant is held while anything downstream of it is loading, with or without an `await` (H-2): in
   `open := false; page := 2`, the menu closes when page 2 lands. To land a write on its own, `onFlush` (EF-8).
 - An `effect (a, b) { … }` runs after an instant in which `a` or `b` changed, once, with `$0`, `$1` the values; its
-  writes are a new instant; `return () => …` is its cleanup (EF-2, EF-3, EF-5). It may not write what it reads (C-3).
+  writes are a new instant; `return () => …` is its cleanup (EF-2, EF-3, EF-5). It may not write what it reads (C-3),
+  nor write a source declared beside it from reactive values: that is an equation (C-3a, `EFFECT_RELAY_TEAR`).
 
 ## Actions
 

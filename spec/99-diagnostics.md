@@ -48,7 +48,7 @@ Bins:
 | `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary; S within a component (08 CN-3e), R through a prop |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`  | S/R | H: a pending reader with no armed boundary on its path; S only in a client-only build, for a first load (08 CN-3d) |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3: an error (ruled 2026-10-23); closures the apply creates are exempt |
-| `EFFECT_RELAY_TEAR`               | S   | C-3 generalised: an effect relaying a source to a source           |
+| `EFFECT_RELAY_TEAR`               | S   | C-3a: an apply's own write of a source declared beside the effect, computed from reactive values — an error since 2026-11-22 (it was advisory) |
 | `ASYNC_WATERFALL`                 | S   | R-pending: `await` whose inputs depend on another `await`          |
 | `SILENT_HOLD` (structural form)   | S/R | H-9: a write whose cone contains no probe; timing form stays R     |
 | `HUGE_FAN_IN`, `WIDE_SCOPE_DEPS`  | S   | counts on the static graph                                         |
@@ -163,7 +163,10 @@ imperative run, an `await` of a pure question written after another's,
 reading nothing bound since the first — the second waits for the first
 for nothing; ask both and await them together, or make each an equation,
 which Solid asks side by side. Two awaited io calls are not advised:
-their order may be the point. S-await-1, `bench/tasks/sequential-awaits`.)
+their order may be the point. S-await-1, `bench/tasks/sequential-awaits`.
+The second row, `SNAPSHOT_IN_EFFECT` (02 EF-1): an apply block's own
+statement reads a changing value its effect does not take as an input —
+once per effect, on the statement. S-check-2, `bench/tasks/effect-derived`.)
 
 Under CN-1a there is no warning tier, so an S row is a compile error or it
 is not a diagnostic. `ASYNC_WATERFALL`, `HUGE_FAN_IN`, `HUGE_FAN_OUT`,
@@ -173,7 +176,13 @@ separate advisory tool that reads the same static graph and never fails a
 build (the rustc/clippy split). `EFFECT_WRITES_OWN_SOURCE` is an error
 (C-3); `EFFECT_RELAY_TEAR` (an effect copying one source into another — an
 equation written the long way, with a one-instant tear, but also how a
-source is synced into a JS-owned one) stays advisory. `DYNAMIC_ASYNC_COMPONENT` is a type question for the type layer (13);
+source is synced into a JS-owned one) was advisory, and is an error since
+2026-11-22 for the half that is in the program's text (02 C-3a): an apply
+that writes a source declared beside it from reactive values. A frame
+that shows one value beside another computed from its old self is not
+"advice about a correct program" — it is the defect H-1 names, and the
+server never computes such a source at all. What is synced into a
+JS-owned value is a call, not a write, and stays the apply's. `DYNAMIC_ASYNC_COMPONENT` is a type question for the type layer (13);
 `UNRECOGNIZED_INSERT_VALUE` stays Solid's, at run time (13 TY-3b). `LOADING_ON_OUTSIDE_HOLD` was one; since 2026-10-30 (Ryan) it is an error, 08 CN-3e: the old content stays up with no sign of the wait, a silent hold, which is a defect, not advice. (`SERVER_WRITE` was one; 12 SF-4 makes it a row rule.)
 
 ## Parse errors that name a habit

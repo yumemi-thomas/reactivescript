@@ -128,6 +128,8 @@ impl Target {
 pub struct Stmt {
     pub k: StmtKind,
     pub span: Span,
+    /// The line the statement starts on: what a diagnostic about one statement of a long body is placed on.
+    pub line: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -499,6 +501,13 @@ fn target_json(t: &Target) -> Value {
 }
 impl Stmt {
     pub fn to_json(&self) -> Value {
+        let mut v = self.to_json0();
+        if let Value::Object(m) = &mut v {
+            m.insert("line".to_string(), Value::from(self.line));
+        }
+        v
+    }
+    fn to_json0(&self) -> Value {
         let k = s(self.kind());
         match &self.k {
             StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => obj(vec![("k", k), ("target", Some(target_json(target))), ("e", Some(e.to_json()))]),

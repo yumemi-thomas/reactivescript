@@ -59,8 +59,12 @@ fn ex(start: usize, k: ExprKind, c: &Cursor) -> Expr {
     Expr::new(k, Span::new(start, c.i))
 }
 /// A statement from `start` to where the cursor is.
+/// The line a statement that starts at `start` is on.
+fn st_line(start: usize, c: &Cursor) -> u32 {
+    (c.src[..start.min(c.src.len())].bytes().filter(|b| *b == b'\n').count() + 1) as u32
+}
 fn st(start: usize, k: StmtKind, c: &Cursor) -> Stmt {
-    Stmt { k, span: Span::new(start, c.i) }
+    Stmt { k, span: Span::new(start, c.i), line: st_line(start, c) }
 }
 
 /// A position in the source, in bytes, always on a char boundary. `peek` at the end is `'\0'` (the reference's `""`).
@@ -2846,7 +2850,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
             let mut names = vec![];
             expand_pattern(&pat, base, &mut names, true);
             for (name, e, _, span) in names {
-                out.push(Stmt { k: StmtKind::Let { name, e, ty: None }, span });
+                out.push(Stmt { k: StmtKind::Let { name, e, ty: None }, span, line: st_line(start, c) });
             }
             if out.is_empty() {
                 return c.fail("a destructuring that binds nothing");

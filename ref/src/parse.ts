@@ -625,7 +625,17 @@ export function parseStmts(src: string): Stmt[] {
   return out;
 }
 
+/** A statement, with the line it starts on (2026-11-22): what a diagnostic about one statement of a long body is placed
+ *  on — the `await` an advice is about, not the action's first line. A destructuring's statements share its line. */
 function parseStmt(c: Cursor): Stmt {
+  c.ws();
+  const line = c.line, had = c.pendingStmts.length;
+  const s = parseStmt0(c);
+  s.line ??= line;
+  for (const p of c.pendingStmts.slice(had)) p.line ??= line;
+  return s;
+}
+function parseStmt0(c: Cursor): Stmt {
   c.ws();
   if (c.keyword("guess")) {
     c.ws(); const name = c.ident() ?? c.fail("target"); const path: Target["path"] = [];

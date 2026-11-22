@@ -30,7 +30,7 @@ export type Expr =
 
 export type Target = { name: string; path: (string | Expr)[]; ctx?: boolean };   // ctx: `use name` — a provided source (RG-7, O-4)
 
-export type Stmt =
+export type Stmt = (
   | { k: "write"; target: Target; e: Expr }
   | { k: "let"; name: string; e: Expr; type?: string }
   | { k: "expr"; e: Expr }
@@ -42,7 +42,8 @@ export type Stmt =
   | { k: "for"; name: string; e: Expr; body: Stmt[] }           // 07 §5: `for (const x of e) { … }`, a loop of imperative scope
   | { k: "return"; e?: Expr }
   | { k: "try"; body: Stmt[]; catchName?: string; catchClasses?: string[]; handler?: Stmt[]; fin?: Stmt[] }   // AC-7: traditional try/catch/finally in imperative scope
-  | { k: "throw"; e: Expr };
+  | { k: "throw"; e: Expr }
+) & { line?: number };                                             // the line the statement starts on, for diagnostics
 
 export type Param = { name: string; ref: boolean; type?: string };   // E-9; types are TS's, kept as text (07 §2)
 export type Decl =
