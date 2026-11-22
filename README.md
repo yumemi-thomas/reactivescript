@@ -32,6 +32,13 @@ through a getter per part, and a loop runs over the values its list held
 when it started ([spec/09](spec/09-modules.md) MO-10i, MO-10b;
 [spec/07](spec/07-surface.md) §5).
 
+A `.rx` program can use the Solid ecosystem's libraries through their
+declarations ([spec/09](spec/09-modules.md), [guide/libraries.md](guide/libraries.md)).
+What the compiler enforces there is Solid's — reactivity, ownership, and
+the contracts a declaration states in words any library can write — and
+never one package's own rules, which stay that package's tooling's
+([spec/08](spec/08-constraints.md) CN-8).
+
 It is also meant to be easy for an AI to write correctly. The rules are
 small and explicit, and each checker error names the rule it enforces and usually the fix. We
 test that directly: fresh agents given only the spec wrote the apps in

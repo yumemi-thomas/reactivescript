@@ -166,19 +166,17 @@ And the tasks' own reds, each decided by a rule it already had:
 | `<Select.Listbox />` with no children | **accepted**: an optional render prop may be left out | 09 MO-11k |
 | a row found in a draft, written through its local | **refused, said better**: the local is a copy; the message gives the two ways to write the row | 09 MO-10i |
 
-*Proposed, not ruled: a callback keyed by a sibling.* A TanStack query whose
-function reads a value its key does not name is asked once and answered
-from the cache for every value after (`queryKey: ["todo"]`, `queryFn: ()
-=> fetchTodo(props.id)`). Nothing in `.rx` is frozen — the closure reads
-`props.id` when it is called — so no rule of the language is broken; the
-library asks again only when the key changes. A declaration could say
-so: `queryFn: keyed(queryKey) () => Promise<T>`, read as "every changing
-value this closure reads is named in that field of the same record", a
-static check at the call (the names a closure reads outside `peek`
-against the names the key mentions, MO-10k's way). It is one word for
-TanStack Query, SWR-shaped caches and a router's `loaderDeps`. Until it
-is ruled, `bench/tasks/query-mutation` keeps the variant red, with this
-as its reason.
+*Considered and rejected: a callback keyed by a sibling.* A TanStack query
+whose function reads a value its key does not name is asked once and
+answered from the cache for every value after (`queryKey: ["todo"]`,
+`queryFn: () => fetchTodo(props.id)`). Nothing in `.rx` is frozen — the
+closure reads `props.id` when it is called — so no rule of the language is
+broken; the library asks again only when the key changes. A declaration
+word for it (`queryFn: keyed(queryKey) () => Promise<T>`) was proposed and
+is rejected under the scope rule (08 CN-8): it would be one library's
+cache contract written into the language, and TanStack's own ESLint rule
+(`exhaustive-deps`) checks it. The variant is no longer one of
+`bench/tasks/query-mutation`'s.
 
 ## RFC 06 — fields of a JS result that wait or fail
 

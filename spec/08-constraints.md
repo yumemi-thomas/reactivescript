@@ -1,7 +1,7 @@
 # 08 — Constraints and their enforcement
 
 **Status: OPEN (2026-10-22).** What the compiler refuses, how it decides, and
-what the escape looks like. CN-1, CN-3, CN-4, CN-5 and CN-6 are ruled. The stance is Rust's: every static check is an
+what the escape looks like. CN-1, CN-3, CN-4, CN-5, CN-6 and CN-8 are ruled. The stance is Rust's: every static check is an
 error, the checks are sound (an over-approximation that rejects some fine
 programs and never admits a wrong one), modular (a module is checked against
 its imports' signatures, not their bodies), and the only way around a check
@@ -210,6 +210,30 @@ runtime check.
   by running (`rx-verify`, 09 MO-8j). The checks are sound for `.rx` over
   those declarations, and silent about what undeclared JS does on its
   own side.
+
+## CN-8 — Scope: Solid's rules, not a library's (ruled 2026-11-22)
+
+- **CN-8a (Access, not enforcement).** An `.rx` program may use any Solid
+  library, through its declaration (09 MO-8, MO-10, MO-11, MO-12). What
+  the checker enforces is Solid's: reactivity and ownership (this
+  document's checks), and the contracts a declaration states in the
+  generic words (`pure`, `io`, `ref`, `instantiates`, `pending`, `fails`,
+  `tracked`, `handler`, `draft`, `renders`, `nests`, `uses`, `provides`,
+  …), each of which says where a Solid rule applies to a library's value
+  and means the same for every library that writes it.
+- **CN-8b (No library's own rules).** A rule that belongs to one package's
+  semantics is that package's, and its own tooling's: the checker names
+  no package, no diagnostic exists for one library, and no declaration
+  word is added whose meaning is one library's contract. A TanStack query
+  key that misses an input of its function is the example: the cache's
+  contract, checked by TanStack's ESLint rule `exhaustive-deps`, and no
+  mistake of Solid's (`keyed(queryKey)` was proposed for it and rejected,
+  `rfc-revisions-2026-11-22.md`).
+- **CN-8c (What a tool may know).** `rx-declare` may know a named release
+  of a package (09 MO-8k: its version-ranged table), to draft the generic
+  words its types cannot show. That is access: the draft is a declaration
+  like one written by hand, and the checker reads the words, not the
+  package.
 
 ## CN-5 — The escape
 

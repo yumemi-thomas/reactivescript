@@ -113,6 +113,11 @@ What the compiler catches:
 
 ## What stays the library's
 
+- **Its own rules.** The compiler checks Solid's rules where your program meets the library, as its declaration
+  states them; it doesn't check the library's own. A TanStack query key that leaves out a value its `queryFn` reads
+  compiles, and answers from the cache for every value: that's the cache's contract, and TanStack's ESLint rule
+  (`exhaustive-deps`) is what checks it.
+
 - **Its setters are not writes of a source.** The compiler can't see them as writes, so a read right after one, in
   the same action, gives the value from before it (Solid batches the write), and nothing warns you:
 
