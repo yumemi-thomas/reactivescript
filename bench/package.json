@@ -2,7 +2,7 @@
   "name": "rx-bench-workspace",
   "private": true,
   "type": "module",
-  "description": "The libraries bench/run.mjs runs its tasks against, installed once into bench/.out/ws: Solid 2.0 and the ecosystem's Solid 2 releases.",
+  "description": "The libraries bench/run.mjs runs its tasks against, installed once into bench/.out/ws: Solid 2.0 and the ecosystem's Solid 2 releases. (@tanstack/virtual-core has no Solid 2 adapter yet: tasks/primitives-virtual/src/virtual.js is a small one, as tasks/table-pagination/src/table.js is for table-core. @happy-dom/global-registrator is what `rx-declare --run --dom` runs a package's hooks in.)",
   "dependencies": {
     "solid-js": "2.0.2",
     "@solidjs/web": "2.0.2",
@@ -18,6 +18,11 @@
     "@solidjs/vite-plugin": "3.0.1",
     "esbuild": "^0.28.2",
     "playwright": "1.63.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "@solidjs/router": "2.0.1",
+    "@solid-primitives/event-listener": "3.0.0",
+    "@solid-primitives/resize-observer": "4.0.0",
+    "@tanstack/virtual-core": "3.19.11",
+    "@happy-dom/global-registrator": "21.0.4"
   }
 }

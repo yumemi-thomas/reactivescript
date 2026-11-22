@@ -15,6 +15,9 @@ export default {
     await h.until(async () => /nothing yet/.test(await h.text(page)));
     await page.click(".go");
     h.check("the refresh lands", await h.until(async () => /blue \(4\), 1 news/.test(await h.text(page))), await h.text(page));
+    const seen = await page.evaluate(() => window.__backend);
+    h.check("the two loads that need nothing of each other were out together (two calls in flight at once)", seen.peak === 2, seen);
+    h.check("…and the one that needs the user was asked after it answered", JSON.stringify(seen.asked) === '["user","news","team"]', seen);
     h.check("no console errors or warnings", h.problems.length === 0, h.problems);
   },
 };

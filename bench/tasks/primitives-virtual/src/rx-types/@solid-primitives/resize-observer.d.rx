@@ -1,0 +1,4 @@
+//@ for @solid-primitives/resize-observer ^4.0.0
+// As rx-declare drafts it. By hand: the callback is called later (`handler`), and the observer is made once where it
+// is written (`pure … instantiates`): its own cleanup is the component's.
+export pure fn makeResizeObserver(callback: handler (...args: any[]) => any, options?: any): any instantiates

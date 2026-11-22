@@ -1,4 +1,3 @@
 export type Todo = { id: number; title: string }
 export const queryClient: any
-export fn setDown(v: boolean): void
 export pure fn fetchTodos(): Promise<Todo[]>

@@ -3,6 +3,12 @@
 // library's types, and run; each BAD variant is one realistic mistake, one line changed, that must be refused with the
 // diagnostic named (or, where only the runtime can know, fail loudly in a development build).
 //
+// A variant the language has no way to write — refused by the parser, by name resolution or by TypeScript alone (PARSE,
+// ASSIGNMENT, UNBOUND, UNKNOWN_COMPONENT, a JS habit's code, a `ts` variant) — is counted apart, as UNREPRESENTABLE: it
+// shows that the mistake cannot be spelled, not that a check of the program's meaning caught it. And each task's
+// declarations are measured against the tool that drafts them: the words written by hand on top of `rx-declare`'s draft,
+// and the `any`s the `.d.rx` files hold.
+//
 // Usage: node bench/run.mjs [filter…]         the scorecard for every task (or those whose id contains a filter)
 //        node bench/run.mjs --check           also compares with bench/scorecard.json: exits 1 when a check that was
 //                                             green there is not now (the ratchet CI runs)
@@ -15,19 +21,24 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
-import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten } from "./harness.mjs";
+import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, onEdit } from "./harness.mjs";
+
+/** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
+ *  it, and the habits it names), or a name resolves to nothing. */
+const UNWRITABLE = new Set(["PARSE", "ASSIGNMENT", "UNBOUND", "UNKNOWN_COMPONENT", "JS_LOCAL", "JS_FUNCTION", "JS_RETURN", "JS_API"]);
 
 const args = process.argv.slice(2);
 const flag = f => args.includes(f);
 const one = args.includes("--task") ? args[args.indexOf("--task") + 1] : null;
 
-/** One task, in this process: `{ id, title, good, types, runtime, bad }`, each `{ pass, total, fails: [text] }`. */
+/** One task, in this process: `{ id, title, good, types, runtime, bad, unrep }`, each `{ pass, total, fails: [text] }`,
+ *  and `decl`: `{ words, any, files }` (harness.mjs, declarations). */
 async function runTask(id) {
   const task = (await import(pathToFileURL(path.join(here, "tasks", id, "task.mjs")).href)).default;
   const dir = stage(id);
   if (task.prepare) await task.prepare(dir);
   const cell = () => ({ pass: 0, total: 0, fails: [], notes: [] });
-  const res = { id, title: task.title, good: cell(), types: cell(), runtime: cell(), bad: cell(), known: task.known ?? {} };
+  const res = { id, title: task.title, good: cell(), types: cell(), runtime: cell(), bad: cell(), unrep: cell(), decl: { words: 0, any: 0, files: [] }, known: task.known ?? {} };
   const mark = (c, name, ok, why) => { c.total++; if (ok) c.pass++; else c.fails.push(`${name}${why ? ` — ${String(why).replace(/\s+/g, " ").slice(0, 420)}` : ""}`); };
   const show = x => x.diagnostics.map(d => `${d.code}@${d.line}: ${String(d.message ?? "").slice(0, 160)}`).join(" | ") || "accepted";
   const entries = task.entries ?? [task.entry ?? "main.rx"];
@@ -44,8 +55,11 @@ async function runTask(id) {
     for (const a of task.advice ?? []) mark(res.good, `${e}: advice ${a}`, r.crate.advice.some(d => d.code === a) && r.ref.advice.some(d => d.code === a), `crate: ${r.crate.advice.map(d => d.code)} / ref: ${r.ref.advice.map(d => d.code)}`);
   }
 
+  // the declarations, against rx-declare's draft of the same modules (before anything is edited)
+  try { res.decl = declarations(dir, task.declare ?? {}); } catch (e) { res.decl = { words: 0, any: 0, files: [], error: String(e.message ?? e) }; }
+
   // (b) TYPES: rx-tsc is clean with the library's own types, the program wrote no `any`, and each probe — a mistake
-  // only the library's real type refuses — is refused by TypeScript
+  // only the library's real type refuses — is refused by TypeScript, on the line the probe wrote
   if (task.types !== false) {
     const clean = rxTsc(dir);
     mark(res.types, "rx-tsc: clean with the library's types", clean === "", clean);
@@ -54,7 +68,8 @@ async function runTask(id) {
     for (const p of task.types ?? []) {
       let undo; try { undo = edit(dir, p.file ?? entries[0], p.edit); } catch (e) { mark(res.types, p.name, false, e.message); continue; }
       const out = rxTsc(dir); undo();
-      mark(res.types, `${p.name} (${p.expect.source})`, p.expect.test(out), out || "rx-tsc accepted it: the type was lost");
+      const there = onEdit(out, dir, p.file ?? entries[0], p.edit);
+      mark(res.types, `${p.name} (${p.expect.source})`, p.expect.test(there), !out ? "rx-tsc accepted it: the type was lost" : there ? there : `nothing on the edited line; elsewhere: ${out}`);
     }
   }
 
@@ -82,7 +97,8 @@ async function runTask(id) {
     return { h, threw };
   };
   for (const b of task.bad ?? []) {
-    let undo; try { const u1 = edit(dir, b.file ?? entries[0], b.edit); const u2 = b.edit2 ? edit(dir, b.file ?? entries[0], b.edit2) : null; undo = () => { u2?.(); u1(); }; } catch (e) { mark(res.bad, b.name, false, e.message); continue; }
+    const col = b.ts || UNWRITABLE.has(b.expect) ? res.unrep : res.bad;   // a mistake that cannot be written is counted apart
+    let undo; try { const u1 = edit(dir, b.file ?? entries[0], b.edit); const u2 = b.edit2 ? edit(dir, b.file ?? entries[0], b.edit2) : null; undo = () => { u2?.(); u1(); }; } catch (e) { mark(col, b.name, false, e.message); continue; }
     const e0 = b.entry ?? entries[0]; const entry = path.join(dir, e0);
     try {
       if (b.expect) {
@@ -96,7 +112,7 @@ async function runTask(id) {
           const bad = [threw, ...h.checks.filter(c => !c.ok).map(c => `${c.name}: ${c.got ?? ""}`)].filter(Boolean);
           ok = !bad.length && h.checks.length > 0; why = `accepted, and not harmless when run: ${bad.join(" | ")}`;
         }
-        mark(res.bad, `${b.name} (${b.expect}${b.orSafe ? ", or harmless" : ""})`, ok, why);
+        mark(col, `${b.name} (${b.expect}${b.orSafe ? ", or harmless" : ""})`, ok, why);
       } else if (b.advise) {
         // advice, never an error (99, the advisory rows): the program is accepted, and both checkers say the same advice
         const r = both(entry, b.spa ?? task.spa, task.host);
@@ -104,7 +120,7 @@ async function runTask(id) {
         mark(res.bad, `${b.name} (advice: ${b.advise})`, ok, `crate: ${show(r.crate)}, advice ${r.crate.advice.map(d => d.code).join(",") || "none"} / ref: ${show(r.ref)}, advice ${r.ref.advice.map(d => d.code).join(",") || "none"}`);
       } else if (b.ts) {
         const out = rxTsc(dir);
-        mark(res.bad, `${b.name} (${b.ts.source})`, b.ts.test(out), out || "rx-tsc accepted it");
+        mark(col, `${b.name} (${b.ts.source})`, b.ts.test(out), out || "rx-tsc accepted it");
       } else if (b.dev) {
         // only the runtime can know: the program compiles, and running it reports the mistake where a developer sees it
         const r = both(entry, b.spa ?? task.spa, task.host);
@@ -138,19 +154,24 @@ for (const id of ids) {
 }
 
 // ---- the scorecard ----
-const cols = [["good", "good accepted"], ["types", "types kept"], ["runtime", "runtime ok"], ["bad", "bad caught"]];
+const cols = [["good", "good accepted"], ["types", "types kept"], ["runtime", "runtime ok"], ["bad", "bad caught"], ["unrep", "unrepresentable"]];
+// the declarations' two numbers (lower is better; no pass or fail): words written by hand over rx-declare's draft, and `any`s
+const nums = [["words", "hand-written .d.rx words"], ["any", "`any` in .d.rx"]];
 const cellText = c => !c || !c.total ? "—" : `${c.pass}/${c.total}`;
 const lines = [];
 const w = Math.max(...results.map(r => r.id.length), 4);
-lines.push(`${"task".padEnd(w)}  ${cols.map(([, t]) => t.padEnd(13)).join("  ")}`);
-lines.push("-".repeat(w + 2 + cols.length * 15));
+const cw = t => Math.max(13, t.length);
+const rule = "-".repeat(w + [...cols, ...nums].reduce((n, [, t]) => n + cw(t) + 2, 0));
+lines.push(`${"task".padEnd(w)}  ${[...cols, ...nums].map(([, t]) => t.padEnd(cw(t))).join("  ")}`);
+lines.push(rule);
 const total = Object.fromEntries(cols.map(([k]) => [k, { pass: 0, total: 0 }]));
+const sum = Object.fromEntries(nums.map(([k]) => [k, 0]));
 for (const r of results) {
   if (r.crash) { lines.push(`${r.id.padEnd(w)}  CRASHED: ${r.crash.split("\n")[0]}`); continue; }
-  lines.push(`${r.id.padEnd(w)}  ${cols.map(([k]) => { total[k].pass += r[k].pass; total[k].total += r[k].total; return `${cellText(r[k])}${r[k].total && r[k].pass === r[k].total ? " ✓" : r[k].total ? " ✗" : ""}`.padEnd(13); }).join("  ")}`);
+  lines.push(`${r.id.padEnd(w)}  ${[...cols.map(([k, t]) => { total[k].pass += r[k].pass; total[k].total += r[k].total; return `${cellText(r[k])}${r[k].total && r[k].pass === r[k].total ? " ✓" : r[k].total ? " ✗" : ""}`.padEnd(cw(t)); }), ...nums.map(([k, t]) => { sum[k] += r.decl[k]; return (r.decl.files.length ? String(r.decl[k]) : "—").padEnd(cw(t)); })].join("  ")}`);
 }
-lines.push("-".repeat(w + 2 + cols.length * 15));
-lines.push(`${"total".padEnd(w)}  ${cols.map(([k]) => `${total[k].pass}/${total[k].total}`.padEnd(13)).join("  ")}`);
+lines.push(rule);
+lines.push(`${"total".padEnd(w)}  ${[...cols.map(([k, t]) => `${total[k].pass}/${total[k].total}`.padEnd(cw(t))), ...nums.map(([k, t]) => String(sum[k]).padEnd(cw(t)))].join("  ")}`);
 const failing = [];
 for (const r of results) {
   if (r.crash) { failing.push(`${r.id}: crashed\n    ${r.crash}`); continue; }
@@ -160,10 +181,12 @@ for (const r of results) {
     failing.push(`${r.id} · ${t} · ${f}${reason ? `\n    known: ${reason}` : ""}`);
   }
 }
-const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green.");
+// the declarations, file by file: where the hand-written words are
+const declLines = results.filter(r => !r.crash && r.decl.files.length).flatMap(r => r.decl.files.map(f => `  ${r.id}/${f.file}: ${f.words} word${f.words === 1 ? "" : "s"} by hand${f.drafted ? "" : " (rx-declare drafts nothing for it: the module has no types)"}, ${f.any} \`any\``));
+const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green.") + (declLines.length ? `\n\nDeclarations (words written by hand over rx-declare's draft; \`any\`s held):\n${declLines.join("\n")}` : "");
 console.log("\n" + card);
 
-const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }]))]));
+const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, any: r.decl.any } }]));
 if (flag("--write")) {
   writeFileSync(path.join(here, "scorecard.json"), JSON.stringify(snapshot, null, 2) + "\n");
   writeFileSync(path.join(here, "scorecard.txt"), card.replaceAll(ws, "bench/.out/ws") + "\n");
@@ -181,6 +204,8 @@ if (flag("--check")) {
       if (old && !old[k]?.fails.includes(name)) problems.push(`${r.id} · ${t} · ${name}: was green in bench/scorecard.json`);
       else if (flag("--strict") && !Object.keys(r.known).some(n => name.includes(n))) problems.push(`${r.id} · ${t} · ${name}: fails, and the task's \`known\` gives no reason for it`);
     }
+    // the declarations may not need more hand-written words, nor hold more `any`s, than the committed scorecard's
+    for (const [k, t] of nums) if (old?.decl && r.decl[k] > old.decl[k]) problems.push(`${r.id} · ${t}: ${r.decl[k]}, was ${old.decl[k]} in bench/scorecard.json`);
     if (flag("--strict")) for (const n of Object.keys(r.known)) if (!cols.some(([k]) => r[k].fails.some(f => f.split(" — ")[0].includes(n)))) problems.push(`${r.id}: \`known\` names "${n}", which does not fail (remove it)`);
   }
   if (problems.length) { console.log(`\n--check: ${problems.length} problem(s)\n${problems.map(p => `  ${p}`).join("\n")}`); exit = 1; } else console.log("\n--check: as bench/scorecard.json, or better; every failure is a documented one");

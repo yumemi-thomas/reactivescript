@@ -182,11 +182,78 @@ export class Runner {
   async close() { await this.browser?.close(); for (const s of this.servers) s.close(); }
 }
 
+/** Every file under a task's folder (its own: no node_modules, no dot folders, nothing the build wrote), by a test of its name. */
+function own(dir, keep) {
+  const out = [];
+  const walk = d => { for (const e of readdirSync(d, { withFileTypes: true })) { if (e.name === "node_modules" || e.name === "dist" || e.name.startsWith(".")) continue; const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (keep(e.name)) out.push(p); } };
+  walk(dir);
+  return out.sort();
+}
+const code = text => text.split("\n").map(l => l.replace(/\/\/.*$/, ""));
 /** `any` written in a task's `.rx` (an annotation or a cast): what the program gave up of the library's types. */
 export function anysWritten(dir) {
   const out = [];
-  const walk = d => { for (const e of readdirSync(d, { withFileTypes: true })) { if (e.name === "node_modules" || e.name.startsWith(".")) continue; const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name.endsWith(".rx") && !e.name.endsWith(".d.rx")) readFileSync(p, "utf8").split("\n").forEach((l, i) => { if (/(:|\bas)\s*any\b|<any>/.test(l.replace(/\/\/.*$/, ""))) out.push(`${e.name}:${i + 1}`); }); } };
-  walk(dir);
+  for (const p of own(dir, n => n.endsWith(".rx") && !n.endsWith(".d.rx"))) code(readFileSync(p, "utf8")).forEach((l, i) => { if (/(:|\bas)\s*any\b|<any>/.test(l)) out.push(`${path.basename(p)}:${i + 1}`); });
   return out;
+}
+
+// ---- the declarations a task's checker reasons with (its `.d.rx` files) ----
+const tokens = line => line.match(/[A-Za-z_$][\w$]*|\d+|[^\s\w]/g) ?? [];
+const isWord = t => /^[\w$]/.test(t);
+const exported = line => /^export\s+(?:(?:pure|server|client|trusted)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(line.trim())?.[1];
+/** The words of `hand` that are not `draft`'s: the tokens of `hand` outside a longest common subsequence of the two. */
+function written(hand, draft) {
+  const a = tokens(hand), b = tokens(draft);
+  const m = Array.from({ length: a.length + 1 }, () => new Uint16Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) m[i][j] = a[i] === b[j] ? m[i + 1][j + 1] + 1 : Math.max(m[i + 1][j], m[i][j + 1]);
+  let n = 0;
+  for (let i = 0, j = 0; i < a.length;) { if (j < b.length && a[i] === b[j]) { i++; j++; } else if (j < b.length && m[i][j + 1] >= m[i + 1][j]) j++; else { if (isWord(a[i])) n++; i++; } }
+  return n;
+}
+/** The module a `.d.rx` declares, as `rx-declare` is asked for it, and the folder it is asked from: a package under
+ *  `rx-types/` by its import name (09 MO-8k), a file beside a JS module by that module. */
+function declares(dir, file) {
+  const rel = path.relative(dir, file).split(path.sep);
+  const at = rel.lastIndexOf("rx-types");
+  if (at >= 0) return { spec: rel.slice(at + 1).join("/").replace(/\.d\.rx$/, ""), from: path.join(dir, ...rel.slice(0, at)) };
+  const stem = file.replace(/\.d\.rx$/, "");
+  const js = [".js", ".mjs", ".jsx", ".ts", ".tsx"].find(x => existsSync(stem + x));
+  return { spec: `./${path.basename(stem)}${js ?? ".js"}`, from: path.dirname(file) };
+}
+/** What `rx-declare` drafts for a module (its lines, comments dropped), with the flags the task says its draft was made
+ *  with (`--run`, `--dom`: 09 MO-12, what running the package shows); [] when the module has no types to draft from. */
+export function draftOf(spec, from, flags = []) {
+  const r = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/declare.js"), spec, ...flags], { cwd: from, encoding: "utf8", maxBuffer: 1 << 26 });
+  return r.status === 0 ? code(r.stdout).map(l => l.trim()).filter(Boolean) : [];
+}
+/** A task's declarations, measured against the tool that drafts them: for each `.d.rx` of the task, the words a person
+ *  wrote on top of `rx-declare`'s draft of the same module (a row the draft has, word for word, costs nothing; a row it
+ *  has otherwise costs the words that differ; a row it has not costs every word; a row left out costs nothing), and the
+ *  `any`s the file holds — what the checker is told nothing about. `{ words, any, files: [{ file, words, any, drafted }] }`. */
+export function declarations(dir, flagsFor = {}) {
+  const files = [];
+  for (const p of own(dir, n => n.endsWith(".d.rx"))) {
+    const { spec, from } = declares(dir, p);
+    const draft = draftOf(spec, from, flagsFor[spec] ?? []);
+    const whole = new Set(draft), byName = new Map(draft.map(l => [exported(l), l]).filter(([n]) => n));
+    let words = 0, any = 0;
+    for (const line of code(readFileSync(p, "utf8")).map(l => l.trim()).filter(Boolean)) {
+      any += tokens(line).filter(t => t === "any").length;
+      if (whole.has(line)) continue;
+      const was = byName.get(exported(line));
+      words += was ? written(line, was) : tokens(line).filter(isWord).length;
+    }
+    files.push({ file: path.relative(dir, p), words, any, drafted: draft.length > 0 });
+  }
+  return { words: files.reduce((n, f) => n + f.words, 0), any: files.reduce((n, f) => n + f.any, 0), files };
+}
+
+/** rx-tsc's errors that are on the lines an edit wrote: `file(line,col): error …` rows whose file is the edited one and
+ *  whose line is one of the edit's. What a type probe is judged by: an error elsewhere is not the type refusing the edit. */
+export function onEdit(out, dir, file, [from, to]) {
+  const good = readFileSync(path.join(dir, file), "utf8");   // read after the undo: the program as it was
+  const first = good.slice(0, good.indexOf(from)).split("\n").length, last = first + to.split("\n").length - 1;
+  const name = file.split("/").pop().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return out.split("\n").filter(l => { const m = new RegExp(`(?:^|[\\\\/])${name}[(:](\\d+)[,:]`).exec(l); return m && Number(m[1]) >= first && Number(m[1]) <= last; }).join("\n");
 }
 export { statSync };

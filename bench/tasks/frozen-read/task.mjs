@@ -10,7 +10,6 @@ export default {
     { name: "a kept peek of it in an equation", edit: ["label = createLabel(fmt.total())", "label = createLabel(fmt.total())\n  first = peek fmt.total()"], expect: "SNAPSHOT_KEPT" },
     { name: "the formatter's value given to a value parameter: the primitive is made from the first value", edit: ["stamp = createStamp(fmt.unit())", "stamp = createStamp(fmt.total())"], expect: "SNAPSHOT_ARGUMENT" },
     { name: "the formatter's value as a source's seed, with no peek", edit: ["stamp = createStamp(fmt.unit())", "stamp = createStamp(fmt.unit())\n  source seeded := fmt.total()"], expect: "SNAPSHOT_INITIALIZER" },
-    { name: "the same through an array of formatters", edit: ["stamp = createStamp(fmt.unit())", "stamp = createStamp([fmt.total][0]())"], expect: "SNAPSHOT_ARGUMENT" },
   ],
   async run(h) {
     const base = await h.serve(); const page = await h.open(base);

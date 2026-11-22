@@ -1,0 +1,34 @@
+// Ten thousand rows in a scrolling box, virtualized (TanStack Virtual): the box is an element the app holds a ref to,
+// and solid-primitives listen to it — a key on the box jumps to the end, a scroll listener counts, a resize observer
+// reports its width.
+import { createVirtualizer } from "./virtual.js"
+import { createEventListener, makeEventListener } from "@solid-primitives/event-listener"
+import { makeResizeObserver } from "@solid-primitives/resize-observer"
+
+export default component App() {
+  source box: HTMLDivElement | undefined := undefined
+  source scrolls := 0
+  source width := 0
+  { items, totalSize, scrollToIndex } = createVirtualizer({ count: 10000, getScrollElement: () => box, estimateSize: (i: number) => 30 })
+  // a listener that follows the element: added when the ref is set, removed with the component
+  keys = createEventListener(box, "keydown", (e: KeyboardEvent) => { if (e.key == "End") { scrollToIndex(9999) } })
+  // an observer made once with the component, and a listener added by hand when the element is there: what the
+  // listener answers is kept, and called when the effect ends
+  sizes = makeResizeObserver((entries: ResizeObserverEntry[]) => { width := entries[0].contentRect.width })
+  effect (box) {
+    if ($0 != undefined) {
+      let stop = makeEventListener($0, "scroll", () => { scrolls := n => n + 1 })
+      sizes.observe($0)
+      return () => { stop(); sizes.unobserve($0) }
+    }
+  }
+  <div class="box" tabindex="0" ref={(el: HTMLDivElement) => { box := el }} style="height:300px;width:240px;overflow:auto">
+    <div style={`height:${totalSize}px;position:relative`}>
+      {for item in items {
+        <div class="row" style={`position:absolute;top:0;left:0;width:100%;height:30px;transform:translateY(${item.start}px)`}>row {item.index}</div>
+      }}
+    </div>
+  </div>
+  <p class="seen">{scrolls > 0 ? "scrolled" : "at rest"}, {width}px wide</p>
+  <button class="top" onClick={() => { scrollToIndex(0) }}>top</button>
+}

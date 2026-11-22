@@ -10,6 +10,8 @@
 //    the table, and the parent received it.
 //  - RFC 14/34: `box = { read: () => n }; peek box.read()` and `createLabel(box.read())` — a closure kept in a record
 //    lost what its body reads, and the value was frozen.
+// The probes of this kind that bench/ once held as "mistakes" live here (2026-11-22): they are not what a Solid user
+// writes by accident, they are what a review writes to find the edge of a rule.
 // Needs what bench/run.mjs needs (the crate, the runtime's build, bench/.out/ws).   node compiler/test/confined.mjs
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -137,6 +139,7 @@ const clock = body => `export default component App() {\n  source n := 0\n  cloc
 refused("a closure kept in a record, read under a kept peek", "SNAPSHOT_KEPT", clock("  box = { read: () => n }\n  result = peek box.read()\n  <p>{result}</p>"));
 refused("…given to a value parameter", "SNAPSHOT_ARGUMENT", clock("  box = { read: () => n }\n  result = createLabel(box.read())\n  <p>{result}</p>"));
 refused("…kept in an array", "SNAPSHOT_ARGUMENT", clock("  fs = [() => n]\n  result = createLabel(fs[0]())\n  <p>{result}</p>"));
+refused("…read out of an array written where it is called (a record's formatter)", "SNAPSHOT_ARGUMENT", clock("  box = { read: () => n }\n  result = createLabel([box.read][0]())\n  <p>{result}</p>"));
 refused("…through a closure that returns it", "SNAPSHOT_ARGUMENT", clock("  mk = () => () => n\n  result = createLabel(mk()())\n  <p>{result}</p>"));
 refused("…a record reached through another name", "SNAPSHOT_KEPT", clock("  box = { read: () => n }\n  again = box\n  result = peek again.read()\n  <p>{result}</p>"));
 refused("a method of the instance its declaration does not name, in a record's closure", "SNAPSHOT_ARGUMENT", clock("  box = { read: () => clock.now() }\n  result = createLabel(box.read())\n  <p>{result}</p>"));

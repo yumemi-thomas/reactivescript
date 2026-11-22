@@ -1,0 +1,3 @@
+// Drafted by rx-declare from ./array.js's TypeScript types. Check every TODO, then delete it; rx-tsc checks the rest (TY-6).
+export fn moveItem(list: any, from: number, to: number): void
+export fn sortBy(list: any, key: any): void

@@ -1,0 +1,27 @@
+// A fruit picker on Kobalte's Select, its options objects: each option is rendered by a component of the app's own,
+// the picked option is app state, and the list of options can grow.
+import { Select, SelectRootItemComponentProps } from "@kobalte/core/select"
+
+type Fruit = { id: string; label: string; ripe: boolean }
+
+component Option(props: SelectRootItemComponentProps<Fruit>) {
+  <Select.Item item={props.item} class="option">
+    <Select.ItemLabel>{props.item.rawValue.label}</Select.ItemLabel>
+  </Select.Item>
+}
+
+export default component App() {
+  source fruits: Fruit[] := [{ id: "a", label: "Apple", ripe: true }, { id: "b", label: "Banana", ripe: false }]
+  source picked: Fruit | null := null
+  <Select options={fruits} optionValue="id" optionTextValue="label" optionDisabled={(f: Fruit) => !f.ripe}
+    value={picked} onChange={(next: Fruit | null) => { picked := next }} placeholder="Pick a fruit" itemComponent={Option}>
+    <Select.Trigger class="trigger">
+      <Select.Value><span class="value">{picked == null ? "" : picked.label}</span></Select.Value>
+    </Select.Trigger>
+    <Select.Portal>
+      <Select.Content class="content"><Select.Listbox class="list" /></Select.Content>
+    </Select.Portal>
+  </Select>
+  <p class="picked">picked: {picked == null ? "nothing" : picked.label}</p>
+  <button class="grow" onClick={() => { fruits := fs => [...fs, { id: "c", label: "Cherry", ripe: true }] }}>more fruit</button>
+}

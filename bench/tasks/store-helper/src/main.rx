@@ -1,0 +1,19 @@
+// A board's columns on Solid 2's store, reordered by a helper written in JS that moves an item in place — the kind an
+// app keeps in `utils/array.js`, or a drag-and-drop library gives (`arrayMove`). Solid's docs: inside the setter, the
+// draft is yours to mutate, by hand or by a helper.
+import { createStore } from "solid-js"
+import { moveItem, sortBy } from "./array.js"
+
+type Column = { id: number; name: string }
+type Board = { columns: Column[]; moves: number }
+
+export default component App() {
+  [board, setBoard] = createStore<Board>({ columns: [{ id: 1, name: "todo" }, { id: 2, name: "doing" }, { id: 3, name: "done" }], moves: 0 })
+  action move(from: number, to: number) {
+    setBoard((d) => { moveItem(d.columns, from, to); d.moves := d.moves + 1 })
+  }
+  <ol>{for col in board.columns { <li>{col.name}</li> }}</ol>
+  <p class="moves">{board.moves} moves</p>
+  <button class="first-last" onClick={() => { move(0, 2) }}>first to last</button>
+  <button class="sort" onClick={() => { setBoard((d) => { sortBy(d.columns, "name") }) }}>sort by name</button>
+}

@@ -1,0 +1,17 @@
+// A long list with one row selected. The selection is a projection: a record with one key per selected row, so that
+// picking a row tells the two rows that changed and no other (Solid 2's `createProjection`, what `createSelector` was).
+type Mail = { id: number; subject: string }
+
+component Row(props: { subject: string; on: boolean; onPick: () => void }) {
+  source renders := 0
+  effect (props.on) { renders := r => r + 1 }
+  <li class={props.on ? "on" : "off"} data-renders={renders} onClick={() => { props.onPick() }}>{props.subject}</li>
+}
+
+export default component App() {
+  source picked := 1
+  source mails: Mail[] key id := [{ id: 1, subject: "hello" }, { id: 2, subject: "invoice" }, { id: 3, subject: "re: hello" }, { id: 4, subject: "lunch?" }]
+  selected: Record<string, boolean> = draft(pre selected -> {}) { d[str(pre picked -> 0)] := false; d[str(picked)] := true }
+  <ul>{for mail in mails { <Row subject={mail.subject} on={selected[str(mail.id)] == true} onPick={() => { picked := mail.id }} /> }}</ul>
+  <p class="picked">picked {picked}</p>
+}

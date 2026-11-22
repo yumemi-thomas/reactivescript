@@ -1,0 +1,101 @@
+task                  good accepted  types kept     runtime ok     bad caught     unrepresentable  hand-written .d.rx words  `any` in .d.rx
+-------------------------------------------------------------------------------------------------------------------------------------------
+context-provider      3/3 ✓          5/5 ✓          4/4 ✓          5/7 ✗          —                —                         —             
+duplicate-keys        3/3 ✓          3/3 ✓          3/3 ✓          1/2 ✗          —                —                         —             
+effect-derived        3/3 ✓          3/3 ✓          4/4 ✓          1/5 ✗          —                0                         0             
+formisch-field-array  3/3 ✓          6/6 ✓          7/7 ✓          4/5 ✗          —                35                        26            
+formisch-field-path   3/3 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            37                        16            
+frozen-read           3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                2                         0             
+keyed-edits           3/3 ✓          4/4 ✓          3/7 ✗          4/6 ✗          —                —                         —             
+kobalte-dialog        3/3 ✓          4/4 ✓          5/5 ✓          3/3 ✓          2/2 ✓            18                        28            
+kobalte-select        1/3 ✗          4/5 ✗          0/1 ✗          2/3 ✗          1/1 ✓            11                        60            
+listener-cleanup      3/3 ✓          3/3 ✓          4/4 ✓          4/4 ✓          —                3                         0             
+optimistic-todo       3/3 ✓          4/4 ✓          6/6 ✓          4/6 ✗          —                —                         —             
+primitives-virtual    3/3 ✓          5/5 ✓          6/6 ✓          3/5 ✗          1/1 ✓            24                        17            
+projection-selection  3/3 ✓          3/4 ✗          4/4 ✓          2/4 ✗          —                —                         —             
+query-forward         3/3 ✓          6/6 ✓          6/6 ✓          5/5 ✓          —                30                        5             
+query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          4/7 ✗          —                39                        11            
+router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                61                        7             
+router-provider       3/3 ✓          5/5 ✓          4/4 ✓          5/5 ✓          1/1 ✓            51                        8             
+sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          2/3 ✗          —                0                         2             
+source-mutation       3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                —                         —             
+ssr-divergence        3/3 ✓          3/3 ✓          3/3 ✓          2/3 ✗          —                3                         0             
+start-route           3/3 ✓          5/5 ✓          8/8 ✓          2/2 ✓          1/1 ✓            20                        0             
+store-helper          3/3 ✓          3/4 ✗          1/4 ✗          4/4 ✓          —                12                        3             
+store-updater         3/3 ✓          5/5 ✓          5/5 ✓          5/5 ✓          —                12                        0             
+table-pagination      1/3 ✗          7/8 ✗          0/1 ✗          5/5 ✓          —                79                        12            
+-------------------------------------------------------------------------------------------------------------------------------------------
+total                 68/72          103/107        97/106         84/106         8/8              437                       195           
+
+Not green (39):
+  ✗ context-provider · bad caught · the provided action called while the view computes (ACTION_CALLED_IN_OWNED_SCOPE) — crate: accepted / ref: accepted
+  ✗ context-provider · bad caught · the same through a prop: a row's handler called, not passed on (ACTION_CALLED_IN_OWNED_SCOPE) — crate: accepted / ref: accepted
+  ✗ duplicate-keys · bad caught · rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY) — ran silently
+    known: 06 ST-4d, 08 CN-2: a key computed at run time is the data's (bin R). The checker refuses rows written out with one key; it cannot see a key that a click computes, a static check does not become a run-time one, and Solid's development build reports no duplicate either. The variant stays as the measure of that limit.
+  ✗ effect-derived · bad caught · the total kept in a source, written by a mount effect that reads the others: computed once, stale after (EFFECT_RELAY_TEAR) — crate: accepted / ref: accepted
+  ✗ effect-derived · bad caught · the same with the inputs named: a frame late, an equation written the long way (EFFECT_RELAY_TEAR) — crate: accepted / ref: accepted
+  ✗ effect-derived · bad caught · the history appended by an effect on the quantity, not by the click that changed it (EFFECT_RELAY_TEAR) — crate: accepted / ref: accepted
+  ✗ effect-derived · bad caught · the title set by a mount effect that reads the total by name: sent once, never again (advice: SNAPSHOT_IN_EFFECT) — crate: accepted, advice none / ref: accepted, advice none
+  ✗ formisch-field-array · bad caught · the list of row ids changed in place (MUTATION_IN_PLACE) — crate: accepted / ref: accepted
+  ✗ keyed-edits · runtime ok · rename in place: the row keeps its state — new,cook,wash,read / open cook
+  ✗ keyed-edits · runtime ok · remove: the others stay as they are — cook,wash,read / open cook
+  ✗ keyed-edits · runtime ok · reset to rows written out: the kept keys keep their rows' state — wash,cook / open 
+  ✗ keyed-edits · runtime ok · no console errors or warnings — ["[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (function).\n[UNRECOGNIZED_INSERT_VALUE] what it means and how to fix it: https://docs.solidjs.com/reference/solid-js/diagnostics/unrecognized-insert-value\n[UNRECOGNIZED_INSERT_VALUE] agent repair guide: node_modules/solid-js/skills/re"]
+  ✗ keyed-edits · bad caught · the list reset from a handler with two rows of one key (DUPLICATE_KEY) — crate: accepted / ref: accepted
+  ✗ keyed-edits · bad caught · rows added in a handler's functional write, two written with one key (DUPLICATE_KEY) — crate: accepted / ref: accepted
+  ✗ kobalte-select · good accepted · main.rx: accepted by the crate — VIEW_FN_EXPECTED@22: <Select.Listbox>'s children are a function of what it renders: write them as `{view (item) { … }}`
+  ✗ kobalte-select · good accepted · main.rx: accepted by ref/ — VIEW_FN_EXPECTED@22: <Select.Listbox>'s children are a function of what it renders: write them as `{view (item) { … }}`
+  ✗ kobalte-select · types kept · rx-tsc: clean with the library's types — main.rx:22:7 - error VIEW_FN_EXPECTED: <Select.Listbox>'s children are a function of what it renders: write them as `{view (item) { … }}` (MO-11k) Found 1 ReactiveScript error. VIEW_FN_EXPECTED: why, and the fix — https://github.com/solidjs/reactivescript/blob/main/guide/diagnostics.md#view_fn_expected 
+  ✗ kobalte-select · runtime ok · the good program runs — not compiled: the checker refused it
+  ✗ kobalte-select · bad caught · an item rendered outside the select (its context is the listbox's, which only running it shows) (dev: context|Context|within|undefined|null) — not compiled: VIEW_FN_EXPECTED@22: <Select.Listbox>'s children are a function of what it renders: write them as `{view (item) { … }}`
+  ✗ optimistic-todo · bad caught · an optimistic write outside an action: a guess in a handler that awaits nothing (GUESS_OUTSIDE_ACTION) — crate: accepted / ref: accepted
+  ✗ optimistic-todo · bad caught · an await before the optimistic write: the row shows only once the server has answered (advice: GUESS_AFTER_AWAIT) — crate: accepted, advice none / ref: accepted, advice none
+  ✗ primitives-virtual · bad caught · a listener's disposer dropped (its type is the library's alias for `() => void`) (DISPOSER_DROPPED) — crate: accepted / ref: accepted
+  ✗ primitives-virtual · bad caught · a listener added by hand in a click handler, its disposer dropped: one more on every click (DISPOSER_DROPPED) — crate: accepted / ref: accepted
+  ✗ projection-selection · types kept · rx-tsc: clean with the library's types — main.rx(14,76): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{}'. No index signature with a parameter of type 'string' was found on type '{}'. main.rx(14,110): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{}'. No index signature with a parameter of type 'string' was found on ty
+  ✗ projection-selection · bad caught · the selection kept in a store, written by an effect on the picked id (EFFECT_RELAY_TEAR) — crate: accepted / ref: accepted
+  ✗ projection-selection · bad caught · …by a mount effect that reads the picked id: the first row stays selected for ever (EFFECT_RELAY_TEAR) — crate: accepted / ref: accepted
+  ✗ query-mutation · bad caught · the query's function reads the id, its key does not: the cache answers the first todo for every id (KEY_MISSES_INPUT, or harmless) — accepted, and not harmless when run: the other todo is shown: milk
+  ✗ query-mutation · bad caught · the mutation run while the view computes (IO_IN_REACTIVE) — crate: accepted / ref: accepted
+  ✗ query-mutation · bad caught · the cache invalidated while the view computes (IO_IN_REACTIVE) — crate: accepted / ref: accepted
+  ✗ sequential-awaits · bad caught · two independent loads awaited one after the other (advice: ASYNC_WATERFALL) — crate: accepted, advice none / ref: accepted, advice none
+  ✗ ssr-divergence · bad caught · a `pure` JS call that answers differently on each side, read by the view (the declaration's assertion: reported when it runs) (dev: HYDRATION_MISMATCH|mismatch) — ran silently
+    known: 10 SV-7c (ruled 2026-10-24), 08 CN-5: `pure` is the author's assertion at the JS boundary, the one unchecked word, and that the function answers alike on both machines is part of it. What only the browser knows is `client` JS, which is checked (SV-7b: the good program). Solid's development build adopts the server's text without comparing it, so nothing reports this mismatch, and the language adds no run-time comparison of its own.
+  ✗ store-helper · types kept · rx-tsc: clean with the library's types — array.d.rx:3:1 - error DECLARATION_MISMATCH: sortBy: Type '<T>(list: T[], key: keyof T) => void' is not assignable to type '__decl_sortBy'. Types of parameters 'key' and 'key' are incompatible. Type 'any' is not assignable to type 'never'. (TY-6) Found 1 ReactiveScript error. DECLARATION_MISMATCH: why, and the fix — https://github.com/solidjs/reactivescript/blob/main/guide/diagnostics.md#declaration_mismatch 
+  ✗ store-helper · runtime ok · the helper moved the draft's own list: the store follows — todo,doing,done / 1 moves
+  ✗ store-helper · runtime ok · a helper that sorts in place — todo,doing,done
+  ✗ store-helper · runtime ok · and again, composed — todo,doing,done / 2 moves
+  ✗ table-pagination · good accepted · main.rx: accepted by the crate — RENDERS_ESCAPES@47: table holds components `renders` checked where table is bound, and here it is passed to <DataTablePagination> as table: render it in the view where table is bou
+  ✗ table-pagination · good accepted · main.rx: accepted by ref/ — RENDERS_ESCAPES@47: table holds components `renders` checked where table is bound, and here it is passed to <DataTablePagination> as table: render it in the view where table is bou
+  ✗ table-pagination · types kept · rx-tsc: clean with the library's types — main.rx:47:3 - error RENDERS_ESCAPES: table holds components `renders` checked where table is bound, and here it is passed to <DataTablePagination> as table: render it in the view where table is bound — what leaves that view is a primitive made of it (`str(…)`, a template, arithmetic, a comparison, `len(…)`) — or declare the library `renders(later)` with a prop that `renders` it (MO-11o), or `renders(root, …)` if it 
+  ✗ table-pagination · runtime ok · the good program runs — not compiled: the checker refused it
+
+Declarations (words written by hand over rx-declare's draft; `any`s held):
+  effect-derived/page.d.rx: 0 words by hand, 0 `any`
+  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 6 words by hand, 18 `any`
+  formisch-field-array/rx-types/valibot.d.rx: 29 words by hand, 8 `any`
+  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 6 words by hand, 9 `any`
+  formisch-field-path/rx-types/valibot.d.rx: 31 words by hand, 7 `any`
+  frozen-read/label.d.rx: 2 words by hand, 0 `any`
+  kobalte-dialog/rx-types/@kobalte/core/dialog.d.rx: 18 words by hand, 28 `any`
+  kobalte-select/rx-types/@kobalte/core/select.d.rx: 11 words by hand, 60 `any`
+  listener-cleanup/keys.d.rx: 3 words by hand, 0 `any`
+  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: 4 words by hand, 11 `any`
+  primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: 3 words by hand, 4 `any`
+  primitives-virtual/virtual.d.rx: 17 words by hand, 2 `any`
+  query-forward/api.d.rx: 8 words by hand, 1 `any`
+  query-forward/rx-types/@tanstack/solid-query.d.rx: 22 words by hand, 4 `any`
+  query-mutation/api.d.rx: 6 words by hand, 2 `any`
+  query-mutation/rx-types/@tanstack/solid-query.d.rx: 33 words by hand, 9 `any`
+  router-data/people.d.rx: 6 words by hand, 1 `any`
+  router-data/rx-types/@solidjs/router.d.rx: 55 words by hand, 6 `any`
+  router-provider/people.d.rx: 9 words by hand, 0 `any`
+  router-provider/rx-types/@tanstack/solid-router.d.rx: 42 words by hand, 8 `any`
+  sequential-awaits/api.d.rx: 0 words by hand, 2 `any`
+  ssr-divergence/env.d.rx: 3 words by hand, 0 `any`
+  start-route/src/people.d.rx: 20 words by hand (rx-declare drafts nothing for it: the module has no types), 0 `any`
+  store-helper/array.d.rx: 0 words by hand, 3 `any`
+  store-helper/rx-types/solid-js.d.rx: 12 words by hand, 0 `any`
+  store-updater/audit.d.rx: 0 words by hand, 0 `any`
+  store-updater/rx-types/solid-js.d.rx: 12 words by hand, 0 `any`
+  table-pagination/table.d.rx: 79 words by hand, 12 `any`

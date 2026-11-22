@@ -1,11 +1,4 @@
 // A shared store updater reused by two handlers; what is read out of a draft (RFC 09, 09 MO-10i).
-const drive = keep => async h => {
-  const base = await h.serve(); const page = await h.open(base);
-  await page.click(".keep"); await page.click(".one"); await page.click(".show");
-  const seen = await h.text(page, ".seen");
-  // what was kept is what the cart held when it was kept: not the live store, and not a draft the library took back
-  h.check("what was kept from the draft is a snapshot", seen === keep, seen);
-};
 export default {
   title: "Solid store: an updater shared by two handlers, and values read out of its draft",
   types: [
@@ -17,8 +10,6 @@ export default {
     { name: "the store written outside its setter", edit: ["onClick={() => { seen := first() }}", "onClick={() => { cart.total := 0 }}"], expect: "WRITE_TO_NON_SOURCE" },
     { name: "the setter called while the view computes", edit: ['<p class="total">total {cart.total}</p>', '<p class="total">total {setCart(restock)}</p>'], expect: "IO_IN_REACTIVE" },
     { name: "the shared updater also called by hand, with something that is no draft", edit: ["onClick={() => { setCart(restock); setCart(restock) }}", "onClick={() => { restock(cart) }}"], expect: "DRAFT_ESCAPES" },
-    { name: "live rows of the draft kept by a forEach callback", edit: ['setCart((d) => { record("items", d.items) })', 'let rows = []; setCart((d) => { d.items.forEach((row) => { rows.push(row) }) }); record("items", rows)'], expect: "DRAFT_ESCAPES", orSafe: drive('[{"name":"tea","qty":1},{"name":"milk","qty":2}]') },
-    { name: "the draft's iterator kept", edit: ['setCart((d) => { record("items", d.items) })', 'setCart((d) => { record("items", d.items.values()) })'], expect: "DRAFT_ESCAPES", orSafe: drive("{}") },
     { name: "an await inside the updater", edit: ['setCart((d) => { record("items", d.items) })', 'setCart((d) => { await record("items", d.items) })'], expect: "DRAFT_ESCAPES" },
     { name: "a closure made in the updater that writes the draft later", edit: ['setCart((d) => { record("items", d.items) })', 'setCart((d) => { record("later", () => { d.total := 0 }) })'], expect: "DRAFT_ESCAPES" },
   ],

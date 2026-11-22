@@ -1,0 +1,31 @@
+// A packing list on Formisch: an array field whose rows are added, removed and moved by the library's own methods,
+// each row's input named by its typed path.
+import { createForm, Form, Field, FieldArray, insert, remove, move } from "@formisch/solid/v2"
+import { object, array, string, pipe, minLength } from "valibot"
+
+schema = object({
+  items: pipe(array(object({ label: pipe(string(), minLength(1, "Name it")) })), minLength(1, "Pack something")),
+})
+source packed := ""
+
+export default component App() {
+  form = createForm({ schema: schema, initialInput: { items: [{ label: "tent" }, { label: "stove" }] } })
+  <Form of={form} onSubmit={(output) => { packed := output.items.map(item => item.label).join(", ") }}>
+    <FieldArray of={form} path={["items"]}>{view (list) {
+      <ol>{for id in list.items {
+        <li>
+          <Field of={form} path={["items", list.items.indexOf(id), "label"]}>{view (field) {
+            <input class="label" {...field.props} value={field.input ?? ""} />
+            if (field.errors) { <small class="err">{field.errors[0]}</small> }
+          }}</Field>
+          <button class="up" type="button" disabled={list.items.indexOf(id) == 0} onClick={() => { let i = list.items.indexOf(id); move(form, { path: ["items"], from: i, to: i - 1 }) }}>up</button>
+          <button class="drop" type="button" onClick={() => { remove(form, { path: ["items"], at: list.items.indexOf(id) }) }}>×</button>
+        </li>
+      }}</ol>
+      if (list.errors) { <p class="err">{list.errors[0]}</p> }
+    }}</FieldArray>
+    <button class="more" type="button" onClick={() => { insert(form, { path: ["items"], initialInput: { label: "" } }) }}>add</button>
+    <button class="submit" type="submit">Pack</button>
+  </Form>
+  <p class="packed">packed: {packed}</p>
+}

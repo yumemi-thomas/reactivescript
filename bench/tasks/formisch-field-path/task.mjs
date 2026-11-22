@@ -2,7 +2,7 @@
 export default {
   title: "Formisch: a form whose fields are named by typed paths",
   types: [
-    { name: "a path the schema does not have is refused", edit: ['path={["email"]}', 'path={["emial"]}'], expect: /TS2322/ },
+    { name: "a path the schema does not have is refused", edit: ['path={["email"]}', 'path={["emial"]}'], expect: /TS2322|TS2820/ },
     { name: "a nested path is typed through the schema", edit: ['path={["profile", "name"]}', 'path={["profile", "nmae"]}'], expect: /TS2322/ },
     { name: "the field's input is the schema's type at that path: a string", edit: ['<input class="name" {...field.props} value={field.input ?? ""} />', '<input class="name" {...field.props} value={(field.input ?? "").toFixed(2)} />'], expect: /TS2339|TS2551/ },
     { name: "the submit's output is the schema's output", edit: ["${output.profile.name} <${output.email}>", "${output.profile.nmae} <${output.email}>"], expect: /TS2339|TS2551/ },

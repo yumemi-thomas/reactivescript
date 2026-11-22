@@ -1,0 +1,28 @@
+// A todo list the server keeps: a new row shows at once, as a guess, while the server is asked to add it; the list is
+// asked again once it has, and a refusal takes the guess back and says why.
+import pure { fetchTodos } from "./api.js"
+import { addTodo, newId } from "./api.js"
+
+export default component App() {
+  source text := ""
+  source failed := ""
+  todos key id = await fetchTodos()
+  action add(id: string, title: string) {
+    guess todos := ts => [...ts, { id: id, title: title, saving: true }]
+    onFlush(() => { failed := "" })
+    try {
+      await addTodo(id, title)
+      refresh todos
+    } catch (e) {
+      failed := e.message
+    }
+  }
+  errored fallback(e) { <p class="err">{e.message}</p> } {
+    loading fallback { <p class="wait">loading…</p> } {
+      <ul>{for t in todos { <li class={t.saving ? "saving" : "saved"}>{t.title}</li> }}</ul>
+    }
+  }
+  <input class="new" value={text} onInput={(e) => { text := e.target.value }} />
+  <button class="add" onClick={() => { let t = text; onFlush(() => { text := "" }); add(newId(), t) }}>add</button>
+  <p class="failed">{failed}</p>
+}

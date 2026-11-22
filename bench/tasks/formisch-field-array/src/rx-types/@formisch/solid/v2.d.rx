@@ -1,0 +1,10 @@
+//@ for @formisch/solid ^1.3.0
+// Formisch's Solid 2 build in rows, as rx-declare drafts it, kept to what the form uses: the form is made once
+// (`pure`), and a submit is called later (`handler`). The types are the package's own.
+export component Field(props: { of: any; path: any; children: (store: any) => View })
+export component FieldArray(props: { of: any; path: any; children: (store: any) => View })
+export component Form(props: { of: any; children: View; onSubmit: handler (output: any, event: any) => any })
+export pure fn createForm(config: any): any instantiates
+export fn insert(form: any, config: any): void
+export fn move(form: any, config: any): void
+export fn remove(form: any, config: any): void

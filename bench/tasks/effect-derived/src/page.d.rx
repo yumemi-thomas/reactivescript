@@ -1,0 +1,2 @@
+// Drafted by rx-declare from ./page.js's TypeScript types. Check every TODO, then delete it; rx-tsc checks the rest (TY-6).
+export fn setTitle(text: string): void

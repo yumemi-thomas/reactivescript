@@ -1,0 +1,10 @@
+//@ for @solidjs/router ^2.0.1
+// @solidjs/router 2.0 in rows, from rx-declare's draft: the router's context, the factory that provides it and nests
+// its routes, the route helper typed by its path, the submissions a form action has settled, and revalidate.
+export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
+export type RouteDefinition = import("@solidjs/router").RouteDefinition
+export context router
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)
+export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition forwards
+export pure fn useSubmissions(fn_: any, filter?: (...args: any[]) => any): { input: any; result?: any; error: any }[] uses(router)
+export fn revalidate(key?: string | string[], force?: boolean): void

@@ -1,6 +1,7 @@
 // A Kobalte compound dialog (09 MO-11q, MO-12).
 export default {
   title: "Kobalte: a controlled compound dialog",
+  declare: { "@kobalte/core/dialog": ["--run", "--dom"] },   // how its .d.rx was drafted: the parts' context is found by running them
   types: [
     { name: "the root's props are Kobalte's own", edit: ["<Dialog open={open}", '<Dialog modal={"yes"} open={open}'], expect: /TS2322/ },
     { name: "onOpenChange's argument is a boolean", edit: ["open := next }", "open := next.length }"], expect: /TS2339|TS2322/ },

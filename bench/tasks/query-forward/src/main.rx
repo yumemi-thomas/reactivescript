@@ -19,6 +19,7 @@ component Todos() {
   <Badge busy={todos.isFetching} />
   <TodoList items={todos.data} />
   <Panel query={todos} />
+  <button class="again" onClick={() => { todos.refetch() }}>again</button>
 }
 export default component App() {
   <QueryClientProvider client={queryClient}>

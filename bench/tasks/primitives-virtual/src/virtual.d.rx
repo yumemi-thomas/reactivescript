@@ -1,0 +1,3 @@
+// The adapter in rows. rx-declare drafts `createVirtualizer(ref options: any): any` (its types name the library's own);
+// by hand: the options' callbacks, and a result whose parts are accessors and one io function (MO-10b).
+export pure fn createVirtualizer(ref options: { count: number; getScrollElement: () => any; estimateSize: (i: number) => number }): { items: ref any[]; totalSize: ref number; scrollToIndex: (i: number) => void }
