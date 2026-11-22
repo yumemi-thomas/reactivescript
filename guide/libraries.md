@@ -138,6 +138,14 @@ What the compiler catches:
   `bump = (d) => { d.done := d.done + 1 }`, then `setTodos(bump)` wherever it is needed. The name is used for
   nothing else (`DRAFT_ESCAPES`). Inside an updater the draft's own methods work as in JS (`d.items.push(x)`,
   `d.items.forEach((row) => { row.done := true })`), and whatever is read out of it to keep is a copy.
+- **A loop over a draft visits what it held when the loop started.** `for (const t of d.items) { … }` is not
+  JavaScript's `for … of`, which reads the list as it goes: a turn that pushes to `d.items` is not handed what it
+  pushed, and one that removes a row still visits it. A loop's turn is a place of the draft (`t.done := true` writes
+  the row).
+- **A row of a draft is written where it is read.** A row found by a method is a copy once it has a name of its own
+  (`let t = d.items.find((x) => x.id == id)`), so `t.done := true` would change nothing and is refused. Write the
+  place: `let i = d.items.findIndex((x) => x.id == id); d.items[i].done := true`, or loop:
+  `for (const t of d.items) { if (t.id == id) { t.done := true } }`.
 - **A helper that changes a draft says so.** A JS function that changes the list it is given in place
   (`moveItem(list, from, to)`, a drag-and-drop library's `arrayMove`) declares that parameter `draft`:
   `export fn moveItem(draft list: any[], from: number, to: number): void`. Then `setBoard((d) => { moveItem(d.columns,
