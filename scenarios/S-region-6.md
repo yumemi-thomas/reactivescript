@@ -62,3 +62,97 @@ export default component App() {
   <p>{counter(n)}</p>
 }
 ```
+
+A closure reads when it is called, and a closure given to a closure is
+called by it (E-10, 2026-11-22): through a field of the argument, as the
+argument itself, handed on to another closure, and where the callee
+gives the argument's closure what it reads.
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+export default component App() {
+  fn watch(v) {
+    effect (v) { log(v) }
+    v
+  }
+  source n := 1
+  fmt = { total: () => n * 2 }
+  pick = (o) => o.total()
+  w = watch(pick(fmt))
+
+  <p>{w}</p>
+}
+```
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+export default component App() {
+  fn watch(v) {
+    effect (v) { log(v) }
+    v
+  }
+  source n := 1
+  total = () => n * 2
+  apply = (g: () => number) => g()
+  w = watch(apply(total))
+
+  <p>{w}</p>
+}
+```
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+export default component App() {
+  fn watch(v) {
+    effect (v) { log(v) }
+    v
+  }
+  source n := 1
+  fmt = { total: () => n * 2 }
+  inner = (o) => o.total()
+  outer = (o) => inner(o)
+  w = watch(outer(fmt))
+
+  <p>{w}</p>
+}
+```
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+export default component App() {
+  fn watch(v) {
+    effect (v) { log(v) }
+    v
+  }
+  source n := 1
+  fmt = { total: () => n * 2 }
+  apply = (g) => g(fmt)
+  w = watch(apply((o) => o.total()))
+
+  <p>{w}</p>
+}
+```
+
+The slot that is called is the one that is read: a field that is data, a
+closure that reads nothing that changes, and a value only made into text
+lose nothing.
+
+```rx
+-- accept
+export default component App() {
+  fn watch(v) {
+    effect (v) { log(v) }
+    v
+  }
+  source n := 1
+  fmt = { total: () => n * 2, name: "fixed", unit: () => "px" }
+  nameOf = (o) => o.name
+  unitOf = (o) => o.unit()
+  label = (o) => `${o.name}!`
+  a = watch(nameOf(fmt))
+  b = watch(unitOf(fmt))
+  c = watch(label(fmt))
+
+  <p>{a} {b} {c} {n}</p>
+}
+```

@@ -270,6 +270,54 @@ function pathRoot(e: Expr): string | undefined {
   if (e.k === "call") return pathRoot(e.f);
   return undefined;
 }
+/** E-10, E-5a (2026-11-22, a closure given to a closure): how a closure's body uses one of its parameters, as far as
+ *  what it may call goes. `callees`: the paths of the parameter it calls (`g()`, `o.total()`, `o.fmt[0]()`; a step is a
+ *  field or a literal index); `passed`: what those calls are given; `any`: the parameter is used some other way that may
+ *  come to a call — handed to a call, kept in a local, a record or an array, written, looped over, called through a
+ *  computed slot. A read that makes a primitive (an operand, a template's part, a test), a value that is dropped, and
+ *  the value the closure answers (whoever calls that is read where it is called) are none of these. */
+type ParamUses = { any: boolean; callees: string[][]; passed: Expr[] };
+/** The path an expression reads of `p`: `p` itself, `p.a`, `p["a"]`, `p[0]`; a computed step is `undefined`. */
+function paramChain(e: Expr, p: string): (string | undefined)[] | undefined {
+  if (e.k === "id") return e.name === p ? [] : undefined;
+  if (e.k === "member") { const c = paramChain(e.o, p); return c && [...c, e.p]; }
+  if (e.k === "index") { const c = paramChain(e.o, p); return c && [...c, litKey(e.i)]; }
+  return undefined;
+}
+const PRIM_OPS = new Set(["+", "-", "*", "/", "%", "**", "==", "!=", "===", "!==", "<", ">", "<=", ">=", "in", "instanceof", "&", "|", "^"]);
+function paramUses(n: Expr | Stmt, p: string, tail: boolean, prim: boolean, u: ParamUses): void {
+  const rest = (x: Expr | Stmt) => { for (const k of subExprs(x as Expr)) paramUses(k, p, false, false, u); };
+  switch (n.k) {
+    // statements (a `throw` is an expression's shape)
+    case "expr": paramUses(n.e, p, false, true, u); return;                                // its value is dropped
+    case "return": if (n.e) paramUses(n.e, p, true, false, u); return;
+    case "sif": paramUses(n.c, p, false, true, u); for (const s of [...n.t, ...n.f]) paramUses(s, p, false, false, u); return;
+    case "write": case "optimistic": for (const seg of n.target.path) if (typeof seg !== "string") paramUses(seg, p, false, false, u); paramUses(n.e, p, false, false, u); return;
+    case "let": case "refresh": case "affects": case "action": case "for": case "try": rest(n); return;
+  }
+  const e = n as Expr;
+  if (paramChain(e, p) !== undefined) { if (!(tail || prim)) u.any = true; return; }
+  switch (e.k) {
+    case "call": {
+      const path = paramChain(e.f, p);
+      if (path === undefined) paramUses(e.f, p, false, false, u);
+      else if (path.some(k => k === undefined)) u.any = true;
+      else { u.callees.push(path as string[]); u.passed.push(...e.args); }
+      for (const a of e.args) paramUses(a, p, false, false, u);
+      return;
+    }
+    case "fn":
+      if (e.params.includes(p)) return;                                                    // another value under the name
+      if (e.stmts) for (const st of e.stmts) paramUses(st, p, false, false, u); else paramUses(e.body, p, true, false, u);
+      return;
+    case "bin": { const pr = prim || PRIM_OPS.has(e.op); paramUses(e.l, p, tail && !pr, pr, u); paramUses(e.r, p, tail && !pr, pr, u); return; }
+    case "un": paramUses(e.e, p, false, true, u); return;
+    case "tpl": for (const part of e.parts) if (typeof part !== "string") paramUses(part, p, false, true, u); return;
+    case "if": paramUses(e.c, p, false, true, u); paramUses(e.t, p, tail, prim, u); paramUses(e.f, p, tail, prim, u); return;
+    case "index": paramUses(e.o, p, false, false, u); paramUses(e.i, p, false, true, u); return;
+    default: rest(e);
+  }
+}
 type RecFields = Extract<Expr, { k: "rec" }>["fields"];
 function recField(fields: RecFields, key: string): Expr | undefined {
   if (fields.some(f => "spread" in f)) return undefined;
@@ -1377,6 +1425,45 @@ class Checker {
     this.heldClosures(from.e, from.env, new Set(), out);
     return out;
   }
+  /** E-10, E-5a (2026-11-22, a closure given to a closure): a closure the checker can see, called with arguments, may
+   *  call what they hold: `pick = (o) => o.total(); pick(fmt)` calls the closure in `fmt.total`, `apply = (g) => g();
+   *  apply(total)` calls `total`. For each parameter the closure's body calls through (`paramUses`): the closure in that
+   *  slot of the argument where what is written says which (`staticPart`), else any closure the argument holds, by
+   *  mention; and any closure the argument holds when the parameter is handed on or kept. What such a call is given
+   *  (`g(fmt)`, in the callee's scope) may be called in turn by the closure it reaches. */
+  private argClosures(call: Expr, env: Env): { f: Extract<Expr, { k: "fn" }>; env: Env }[] {
+    if (call.k !== "call") return [];
+    const out: { f: Extract<Expr, { k: "fn" }>; env: Env }[] = [];
+    const spread = call.args.some(a => a.k === "spread");
+    for (const c of this.calledClosures(call, env)) {
+      c.f.params.forEach((p, i) => {
+        const u: ParamUses = { any: false, callees: [], passed: [] };
+        if (c.f.stmts) for (const st of c.f.stmts) paramUses(st, p, false, false, u); else paramUses(c.f.body, p, true, false, u);   // an expression body is what the closure answers
+        if (!u.any && !u.callees.length) return;
+        // the argument the parameter is: its position's, or any of them behind a spread
+        for (const a of spread ? call.args : call.args.slice(i, i + 1)) {
+          let whole = u.any || spread;
+          if (!whole) for (const path of u.callees) {
+            let x = this.staticPart(a, env, 0); let read = true;
+            for (const k of path) {
+              let v: Expr | undefined;
+              if (x.e.k === "rec") v = recField(x.e.fields, k);
+              else if (x.e.k === "arr" && /^\d+$/.test(k)) { const n = Number(k); if (!x.e.items.slice(0, n + 1).some(y => y.k === "spread")) v = x.e.items[n]; }
+              if (!v) { read = false; break; }
+              x = this.staticPart(v, x.env, 0);
+            }
+            if (!read) { whole = true; break; }
+            if (x.e.k === "fn") { const f = x.e; if (!out.some(o => o.f === f)) out.push({ f, env: x.env }); }
+            else this.heldClosures(x.e, x.env, new Set(), out);
+          }
+          if (whole) this.heldClosures(a, env, new Set(), out);
+        }
+        // what the body gives the closure it calls, the closure may call
+        for (const x of u.passed) this.heldClosures(x, c.env, new Set(), out);
+      });
+    }
+    return out;
+  }
   /** The expression a path denotes, where what is written says so: a name bound by an equation or a local is its value
    *  (neither is ever written), a field of a record literal is that field, an index of an array literal that item.
    *  Anything else is itself. */
@@ -1408,7 +1495,7 @@ class Checker {
     const walk = (x: Expr, env: Env) => {
       if (x.k === "peek" || x.k === "fn" || x.k === "serverfn") return;
       if (x.k === "call") {
-        for (const c of this.calledClosures(x, env)) if (!seen.has(c.f)) {
+        for (const c of [...this.calledClosures(x, env), ...this.argClosures(x, env)]) if (!seen.has(c.f)) {
           seen.add(c.f);
           const ns = new Set<string>(); freeNames(c.f, new Set(), ns);
           for (const name of ns) { const n = name.replace(/^pre:/, ""); const t = c.env.lookup(n); if (t) out.push([n, t]); }
@@ -1472,6 +1559,13 @@ class Checker {
             const tp2 = new Set<string>(); c.f.params.forEach((p, i) => { if (given[i]) tp2.add(p); });
             const r = kids(c.f, c.env, tp2); if (r !== undefined) return r;
           }
+          // and what it calls through a parameter, of what it is given (a closure given to a closure): called with
+          // what the callee has — its other arguments among them
+          for (const c of this.argClosures(e, env)) if (!seen.has(c.f)) {
+            seen.add(c.f);
+            const tp2 = new Set<string>(recvGiven || given.some(g => g) ? c.f.params : []);
+            const r = kids(c.f, c.env, tp2); if (r !== undefined) return r;
+          }
           if (!called.length && !builtin && !own) {
             // a function of `.rx` the checker cannot see into (an .rx fn, a prop, a parameter, a closure held in a record:
             // a method of anything that is not the instance or JS), given it
@@ -1530,7 +1624,7 @@ class Checker {
     const counting = mode === "all" || (mode === "in") === inPeek;
     // a closure the checker can see is called (one written at the call, or the one its name is bound to): the call reads
     // what its body reads (ruled 2026-11-22)
-    for (const c of this.calledClosures(e, env)) if (!this.chFns.has(c.f)) { this.chFns.add(c.f); for (const k of subExprs(c.f)) this.chWalk(k, c.env, mode, acc, inPeek); this.chFns.delete(c.f); }
+    for (const c of [...this.calledClosures(e, env), ...this.argClosures(e, env)]) if (!this.chFns.has(c.f)) { this.chFns.add(c.f); for (const k of subExprs(c.f)) this.chWalk(k, c.env, mode, acc, inPeek); this.chFns.delete(c.f); }
     switch (e.k) {
       case "peek": if (mode !== "out") this.chWalk(e.e, env, mode, acc, true); return acc;
       case "fn": case "serverfn": return acc;                                              // a closure reads when it is called

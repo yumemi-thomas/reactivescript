@@ -728,7 +728,7 @@ function parseExprNoCatch(c: Cursor): Expr {
   }
   {                                                                   // 07 §3: TS arrow functions, verbatim — `x => e`, `(a, b) => e`
     const save = c.i; const params: string[] = []; const ptypes: (string | undefined)[] = []; let ok = false;
-    if (c.peek() === "(") { c.i++; c.ws(); ok = true; while (!c.startsWith(")")) { const id = c.ident(); if (!id) { ok = false; break; } params.push(id); c.ws(); if (c.startsWith(":") && !c.startsWith(":=")) { c.i++; c.ws(); let t: string; try { t = parseType(c).trim(); } catch (e) { if (!(e instanceof ParseError)) throw e; ok = false; break; } if (!t) { ok = false; break; } ptypes.push(t); c.ws(); } else ptypes.push(undefined); /* `:=` is a write, not a type */ if (!c.eat(",")) break; c.ws(); } if (ok && c.eat(")")) { c.ws(false); ok = c.startsWith("=>"); } else ok = false; }
+    if (c.peek() === "(") { c.i++; c.ws(); ok = true; while (!c.startsWith(")")) { const id = c.ident(); if (!id) { ok = false; break; } params.push(id); c.ws(); if (c.startsWith(":") && !c.startsWith(":=")) { c.i++; c.ws(); let t: string; try { t = parseType(c, false, true).trim(); /* a `=>` in it is a function type's (`(g: () => string) => g()`): the arrow's own follows the list's `)` */ } catch (e) { if (!(e instanceof ParseError)) throw e; ok = false; break; } if (!t) { ok = false; break; } ptypes.push(t); c.ws(); } else ptypes.push(undefined); /* `:=` is a write, not a type */ if (!c.eat(",")) break; c.ws(); } if (ok && c.eat(")")) { c.ws(false); ok = c.startsWith("=>"); } else ok = false; }
     else { const id = c.ident(); if (id && !KEYWORDS.has(id)) { params.push(id); c.ws(false); ok = c.startsWith("=>"); } }
     if (ok) {
       c.expect("=>"); c.ws();

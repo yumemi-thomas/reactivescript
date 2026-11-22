@@ -288,7 +288,26 @@ Function application `f(e…)` covers both language functions and FFI imports;
   the rule above. And a slot of a literal written where it is read is
   that slot, for a value as for a closure: `createLabel([clock, 5][1])`
   reads `5`, not through the instance (`w = [clock, 5]; w[1]` is still a
-  read through `w`: only what the expression itself says). *Guarantee:* an argument, or a kept `peek`, that the
+  read through `w`: only what the expression itself says).
+  **A closure given to a closure (2026-11-22, after the review).** A
+  closure the checker can see is called with arguments, and may call
+  what they hold: `pick = (o) => o.total()`, then
+  `createStamp(pick(fmt))` with `fmt = { total: () => n }`, froze `n` —
+  the call was read as `pick`'s body alone, in which `o` names nothing.
+  So a call of a closure the checker can see also calls, for each of its
+  parameters, what the body calls through it: the closure in that slot
+  of the argument where what is written says which (`o.total()` and a
+  record literal with a `total`; `g()` and the closure `g` is given),
+  else any closure the argument holds, by mention; any closure the
+  argument holds when the parameter is handed on (`inner(o)`), kept in a
+  local, a record or an array, written, looped over, or called through
+  a computed slot; and the closures held by what the body gives a
+  closure it calls through a parameter (`apply = (g) => g(fmt)`). A
+  parameter only read into a primitive (an operand, a template's part, a
+  test), dropped, or answered as the closure's value calls nothing here:
+  whoever calls what is answered is read where it is called, by mention.
+  `SNAPSHOT_ARGUMENT`, `SNAPSHOT_KEPT` and E-5a's "changes" read it the
+  same way (S-region-6). *Guarantee:* an argument, or a kept `peek`, that the
   checker takes for made once reads no field of a primitive's instance
   and calls no method its declaration does not name, through any `.rx`
   expression; it rests on the declaration's `methods(…)`. S-module-20.

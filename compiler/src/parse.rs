@@ -3083,10 +3083,11 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
                 c.ws(true);
                 // 07 §3: `(v: string) => …`, the type is TypeScript's
                 if c.starts_with(":") && !c.starts_with(":=") {
-                    // `:=` is a write, not a type; a type that does not parse is not an arrow's parameter
+                    // `:=` is a write, not a type; a type that does not parse is not an arrow's parameter. A `=>` in
+                    // it is a function type's (`(g: () => string) => g()`): the arrow's own follows the list's `)`
                     c.bump();
                     c.ws(true);
-                    match parse_type(c, false, false) {
+                    match parse_type(c, false, true) {
                         Ok(t) if !t.trim().is_empty() => ptypes.push(Some(t.trim().to_string())),
                         _ => {
                             ok = false;

@@ -877,6 +877,100 @@ fn contains_fn(f: &Expr) -> bool {
     }
     any(Node::E(f))
 }
+/// E-10, E-5a (2026-11-22, a closure given to a closure): how a closure's body uses one of its parameters, as far as
+/// what it may call goes. `callees`: the paths of the parameter it calls (`g()`, `o.total()`, `o.fmt[0]()`; a step is a
+/// field or a literal index); `passed`: what those calls are given; `any`: the parameter is used some other way that
+/// may come to a call — handed to a call, kept in a local, a record or an array, written, looped over, called
+/// through a computed slot. A read that makes a primitive (an operand, a template's part, a test), a value that is
+/// dropped, and the value the closure answers (whoever calls that is read where it is called) are none of these.
+#[derive(Default)]
+struct ParamUses<'e> {
+    any: bool,
+    callees: Vec<Vec<String>>,
+    passed: Vec<&'e Expr>,
+}
+/// The path an expression reads of `p`: `p` itself, `p.a`, `p["a"]`, `p[0]`; a computed step is `None`.
+fn param_chain(e: &Expr, p: &str) -> Option<Vec<Option<String>>> {
+    match &e.k {
+        ExprKind::Id(n) if n == p => Some(vec![]),
+        ExprKind::Member { o, p: k, .. } => {
+            let mut c = param_chain(o, p)?;
+            c.push(Some(k.clone()));
+            Some(c)
+        }
+        ExprKind::Index { o, i, .. } => {
+            let mut c = param_chain(o, p)?;
+            c.push(lit_key(i));
+            Some(c)
+        }
+        _ => None,
+    }
+}
+fn param_uses<'e>(n: Node<'e>, p: &str, tail: bool, prim: bool, u: &mut ParamUses<'e>) {
+    const PRIM_OPS: [&str; 19] = ["+", "-", "*", "/", "%", "**", "==", "!=", "===", "!==", "<", ">", "<=", ">=", "in", "instanceof", "&", "|", "^"];
+    match n {
+        Node::E(e) => {
+            if param_chain(e, p).is_some() {
+                if !(tail || prim) {
+                    u.any = true;
+                }
+                return;
+            }
+            match &e.k {
+                ExprKind::Call { f, args, .. } => {
+                    match param_chain(f, p) {
+                        Some(path) => match path.into_iter().collect::<Option<Vec<String>>>() {
+                            Some(path) => {
+                                u.callees.push(path);
+                                u.passed.extend(args.iter());
+                            }
+                            None => u.any = true,
+                        },
+                        None => param_uses(Node::E(f), p, false, false, u),
+                    }
+                    for a in args {
+                        param_uses(Node::E(a), p, false, false, u);
+                    }
+                }
+                ExprKind::Fn { params, body, stmts, .. } => {
+                    if params.iter().any(|q| q == p) {
+                        return; // another value under the name
+                    }
+                    match stmts {
+                        Some(ss) => ss.iter().for_each(|s| param_uses(Node::S(s), p, false, false, u)),
+                        None => param_uses(Node::E(body), p, true, false, u),
+                    }
+                }
+                ExprKind::Bin { op, l, r } => {
+                    let prim = prim || PRIM_OPS.contains(&op.as_str());
+                    param_uses(Node::E(l), p, tail && !prim, prim, u);
+                    param_uses(Node::E(r), p, tail && !prim, prim, u);
+                }
+                ExprKind::Un { e, .. } => param_uses(Node::E(e), p, false, true, u),
+                ExprKind::Tpl(_) => children(n, false).into_iter().for_each(|k| param_uses(k, p, false, true, u)),
+                ExprKind::If { c, t, f } => {
+                    param_uses(Node::E(c), p, false, true, u);
+                    param_uses(Node::E(t), p, tail, prim, u);
+                    param_uses(Node::E(f), p, tail, prim, u);
+                }
+                ExprKind::Index { o, i, .. } => {
+                    param_uses(Node::E(o), p, false, false, u);
+                    param_uses(Node::E(i), p, false, true, u);
+                }
+                _ => children(n, false).into_iter().for_each(|k| param_uses(k, p, false, false, u)),
+            }
+        }
+        Node::S(s) => match &s.k {
+            StmtKind::Expr(e) => param_uses(Node::E(e), p, false, true, u), // its value is dropped
+            StmtKind::Return(Some(e)) => param_uses(Node::E(e), p, true, false, u),
+            StmtKind::Sif { c, t, f } => {
+                param_uses(Node::E(c), p, false, true, u);
+                t.iter().chain(f.iter()).for_each(|s| param_uses(Node::S(s), p, false, false, u));
+            }
+            _ => children(n, true).into_iter().for_each(|k| param_uses(k, p, false, false, u)),
+        },
+    }
+}
 fn names_of(e: &Expr) -> IndexSet<String> {
     let mut out = IndexSet::new();
     free_names(e, &HashSet::new(), &mut out);
@@ -3722,6 +3816,75 @@ impl<'a> Checker<'a> {
         self.held_closures(f, env, &mut HashSet::new(), &mut out);
         out
     }
+    /// E-10, E-5a (2026-11-22, a closure given to a closure): a closure the checker can see, called with arguments,
+    /// may call what they hold: `pick = (o) => o.total(); pick(fmt)` calls the closure in `fmt.total`, `apply = (g) =>
+    /// g(); apply(total)` calls `total`. For each parameter the closure's body calls through (`param_uses`): the
+    /// closure in that slot of the argument where what is written says which (`static_part`), else any closure the
+    /// argument holds, by mention; and any closure the argument holds when the parameter is handed on or kept. What
+    /// such a call is given (`g(fmt)`, in the callee's scope) may be called in turn by the closure it reaches.
+    fn arg_closures(&self, call: &'a Expr, env: EId) -> Vec<(&'a Expr, EId)> {
+        let ExprKind::Call { args, .. } = &call.k else { return vec![] };
+        let mut out: Vec<(&'a Expr, EId)> = vec![];
+        let spread = args.iter().any(|a| matches!(a.k, ExprKind::Spread(_)));
+        for (c, cenv) in self.called_closures(call, env) {
+            let ExprKind::Fn { params, .. } = &c.k else { continue };
+            for (i, p) in params.iter().enumerate() {
+                let mut u = ParamUses::default();
+                for k in children(Node::E(c), false) {
+                    // an expression body is what the closure answers
+                    param_uses(k, p, matches!(k, Node::E(_)) && matches!(&c.k, ExprKind::Fn { stmts: None, .. }), false, &mut u);
+                }
+                if !u.any && u.callees.is_empty() {
+                    continue;
+                }
+                // the argument the parameter is: its position's, or any of them behind a spread
+                let given: Vec<&'a Expr> = if spread { args.iter().collect() } else { args.get(i).into_iter().collect() };
+                for a in given {
+                    let mut whole = u.any || spread;
+                    if !whole {
+                        for path in &u.callees {
+                            let (mut x, mut xenv) = self.static_part(a, env, 0);
+                            let mut read = true;
+                            for k in path {
+                                let hit: Option<&'a Expr> = match &x.k {
+                                    ExprKind::Rec(fields) => rec_field(fields, k),
+                                    ExprKind::Arr(items) => k.parse::<usize>().ok().filter(|n| !items.iter().take(n + 1).any(|x| matches!(x.k, ExprKind::Spread(_)))).and_then(|n| items.get(n)),
+                                    _ => None,
+                                };
+                                match hit {
+                                    Some(v) => (x, xenv) = self.static_part(v, xenv, 0),
+                                    None => {
+                                        read = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            if !read {
+                                whole = true;
+                                break;
+                            }
+                            if matches!(x.k, ExprKind::Fn { .. }) {
+                                if !out.iter().any(|(f, _)| std::ptr::eq(*f, x)) {
+                                    out.push((x, xenv));
+                                }
+                            } else {
+                                self.held_closures(x, xenv, &mut HashSet::new(), &mut out);
+                            }
+                        }
+                    }
+                    if whole {
+                        self.held_closures(a, env, &mut HashSet::new(), &mut out);
+                    }
+                }
+                // what the body gives the closure it calls, the closure may call
+                let passed: Vec<&'a Expr> = u.passed.clone();
+                for x in passed {
+                    self.held_closures(x, cenv, &mut HashSet::new(), &mut out);
+                }
+            }
+        }
+        out
+    }
     /// The expression a path denotes, where what is written says so: a name bound by an equation or a local is its
     /// value (neither is ever written), a field of a record literal is that field, an index of an array literal that
     /// item. Anything else is itself.
@@ -3795,7 +3958,7 @@ impl<'a> Checker<'a> {
                 match &x.k {
                     ExprKind::Peek(_) | ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return,
                     ExprKind::Call { .. } => {
-                        for (f, fenv) in c.called_closures(x, env) {
+                        for (f, fenv) in c.called_closures(x, env).into_iter().chain(c.arg_closures(x, env)) {
                             if seen.insert(f as *const Expr) {
                                 for name in names_of(f) {
                                     if let Some(t) = c.lookup(fenv, strip_pre(&name)) {
@@ -3926,6 +4089,19 @@ impl<'a> Checker<'a> {
                             }
                         }
                     }
+                    // and what it calls through a parameter, of what it is given (a closure given to a closure): called
+                    // with what the callee has — its other arguments among them
+                    for (c, cenv) in self.arg_closures(e, env) {
+                        if seen.insert(c as *const Expr) {
+                            let mut tp2 = HashSet::new();
+                            if let (ExprKind::Fn { params, .. }, true) = (&c.k, recv_given || given.iter().any(|g| *g)) {
+                                tp2.extend(params.iter().cloned());
+                            }
+                            if let Some(r) = children(Node::E(c), false).into_iter().find_map(|k| self.inst_read(k, cenv, peeks, &tp2, seen)) {
+                                return Some(r);
+                            }
+                        }
+                    }
                     if called.is_empty() && !builtin && own.is_none() {
                         // a function of `.rx` the checker cannot see into (an .rx fn, a prop, a parameter, a closure held
                         // in a record: a method of anything that is not the instance or JS), given it
@@ -4031,7 +4207,7 @@ impl<'a> Checker<'a> {
         if let Node::E(e) = n {
             // a closure the checker can see is called (one written at the call, or the one its name is bound to): the
             // call reads what its body reads (ruled 2026-11-22)
-            for (c, cenv) in self.called_closures(e, env) {
+            for (c, cenv) in self.called_closures(e, env).into_iter().chain(self.arg_closures(e, env)) {
                 if self.ch_fns.insert(c as *const Expr) {
                     for k in children(Node::E(c), false) {
                         self.ch_of(k, cenv, mode, acc, in_peek);

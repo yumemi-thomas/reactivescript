@@ -11,6 +11,11 @@
   as an iterator over copies, and any other method is `DRAFT_ESCAPES`. A method keeps nothing of a `renders` value only
   when `methods(…)` names it and it is called on the value's own name. A call through a record, an array or a call
   (`box.read()`, `fs[0]()`, `mk()()`) reads what the closures it may call read (`SNAPSHOT_KEPT`, `SNAPSHOT_ARGUMENT`).
+- A closure given to a closure is called by it (02 E-10): `pick = (o) => o.total()`, then `createStamp(pick(fmt))`,
+  reads what `fmt.total` reads, and so does `apply = (g) => g()` given `total`, a parameter handed on to another
+  closure, and a closure the callee gives what it reads. These froze a value; they are `SNAPSHOT_ARGUMENT` /
+  `SNAPSHOT_KEPT`. A slot the argument's literal names stays that slot (`(o) => o.name` reads no closure).
+- A closure's parameter may have a function type: `(g: () => string) => g()` (it was a `PARSE` error).
 - The loop `for (const x of xs) { … }` visits what `xs` held when it started, as the spec said; it compiled to a loop
   over `xs` itself, which a turn could lengthen.
 - A record result with no accessor part is the library's own object, not a copy with a getter per declared field.
