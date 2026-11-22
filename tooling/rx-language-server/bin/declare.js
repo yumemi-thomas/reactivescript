@@ -8,6 +8,20 @@ const fs = require("node:fs");
 const { declare } = require("../src/declare.js");
 const { runRows } = require("../src/declare-run.js");
 const args = process.argv.slice(2);
+// `rx-declare --host <route.rx>... [--out host.d.rx]` (09 MO-14): a draft of a host declaration for the `.rx` modules a
+// JS host renders (a file-based router's route files) — an import of each one's exported components, the contexts
+// their own imports are declared to use (the host must provide them), and a view that places every one at the top.
+// Which page is among which layout's children is the router's to know: it is left to write, and said so.
+if (args.includes("--host")) {
+  const path = require("node:path");
+  const outAt = args.indexOf("--out"); const out = outAt >= 0 ? args[outAt + 1] : undefined;
+  const files = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--out");
+  if (!files.length) { process.stderr.write("usage: rx-declare --host <route.rx>... [--out host.d.rx]\n"); process.exit(2); }
+  process.stdout.write("");
+  const text = require("../src/declare-host.js").draftHost(files.map(f => path.resolve(f)), out ? path.dirname(path.resolve(out)) : process.cwd());
+  if (out) fs.writeFileSync(out, text); else process.stdout.write(text);
+  process.exit(0);
+}
 const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--context" && args[args.indexOf(a) - 1] !== "--source" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings");
 const srcAt = args.indexOf("--source");     // MO-8n: evidence from the library's original source (a checkout, its published src/, its source maps)
 const ctxAt = args.indexOf("--context");   // the name for a context the module reads but does not export (MO-12a)

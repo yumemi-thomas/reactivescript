@@ -6,3 +6,8 @@ declare module "*.rx?rx-lib" {
   const untyped: any;
   export = untyped;
 }
+// … and a route file's page (`import Person from "./routes/people.rx?rx-page"`): the module's default component.
+declare module "*.rx?rx-page" {
+  const untyped: any;
+  export = untyped;
+}

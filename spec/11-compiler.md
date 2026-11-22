@@ -207,6 +207,20 @@ record argued each way; this is the decision.
   runtime's `@reactivescript/runtime/rx-lib` pattern. It is how a framework that owns routing and the document —
   TanStack Start's file routes, which its generator reads as TypeScript —
   renders `.rx` components (`examples/start`, `compiler/test/start.mjs`).
+  A file-based router that takes `.rx` route files imports each as its
+  page (2026-11-23): `import Person from "./routes/people/[id].rx?rx-page"`
+  is `?rx-lib` with the module's **default component** as the default
+  export, bound as the named ones are (the module itself is `__rxModule`);
+  a module with no default component is refused there. It is what a
+  router whose route file's default export is the page asks of a route
+  file (`filesystem-routing`'s `toRoute`, with `extensions: ["rx"]`:
+  `bench/tasks/file-routes`); `rx-tsc` types the import by the component's
+  props. A route file is imported one way: the same module imported with
+  `?rx-lib` and with `?rx-page` is two JavaScript modules, and two
+  instances. What the host does with the components it renders — which
+  contexts it provides, which layout a page is rendered in — is said by a
+  host declaration (09 MO-14), and a component its view names is then
+  checked there, not under a root of its own.
 - **CP-4e (A package's `.rx` modules) — proposed 2026-11-22.** A library
   written in `.rx` is built once for every app (09 MO-13e): `rx-lib`
   (`compiler/lib.mjs`, the bin of `@reactivescript/compiler`) compiles each

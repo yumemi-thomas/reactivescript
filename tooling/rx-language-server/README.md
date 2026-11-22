@@ -166,6 +166,15 @@ not have). `rx-tsc` checks what types can (TY-6); this checks what running can.
 A parameter declared as a function (a callback, MO-10g) is wrapped in a spy: the row holds if the library calls it
 outside tracking, as a handler, and is a mismatch if it calls it inside a computation.
 
+A host declaration (`host.d.rx`, spec/09 MO-14: what a JS host, such as a file-based router, does with the `.rx`
+components it renders) declares no module's exports, and its view is run against a scene: a probe beside it
+(`host.probe.mjs`) exports `scene(rx, h)`, the host's view built of `rx.Layout`, `rx.Person`, … — a recording
+component for each one the declaration imports — and `uses`, by context, a hook that throws or warns with no
+provider (`act(rx, h)` may then navigate). Each component the view names must render inside the component of the
+record it is a child of, and each hook must work where each renders. `rx-declare --host <module.rx>...` drafts the
+declaration: the imports, the contexts those modules' imports are declared to use, and a view with every component
+at the top — which page is in which layout is the router's knowledge, and is left to write.
+
 `rx-verify --record lib.d.rx` also writes `lib.verified.json`: each row's result, by a hash of its text. `rx-tsc
 --rx-strict` (or `"reactivescript": { "strict": true }` in the tsconfig) then refuses every row of an imported
 declaration not recorded as holding (`UNVERIFIED_ROW`, MO-8j). Commit the record beside

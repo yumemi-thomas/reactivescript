@@ -1116,6 +1116,12 @@ export default component App() {
 A value that can fail is read where nothing handles the failure (R-f-5). Wrap the reader in an `errored` region where
 it is read. To make a rejection an answer instead, catch it at the `await`: `await f(x) catch (err) => alt`.
 
+Reported on `host.d.rx`, at its view: a component a JS host renders (a file-based router's page) reads it, and
+nothing above it in the view the declaration states handles the failure. The message names the read
+(`person.name at pages.rx:23`). Put the region in the page's layout, around `{props.children}`, or in the page; if
+the page is in a layout that has one, the declaration places it wrong (spec/09 MO-14, guide/libraries.md, *File-based
+routers*).
+
 ```rx before
 export default component App() {
   source id := 1
@@ -1648,6 +1654,11 @@ export default component App() {
 
 `use x` reads the nearest provision of context `x` above the region, and some path that renders it has none (RG-7b).
 Provide it above the component (`provide x = …`), or give the context a default (`context x: T = v`).
+
+For a JS library's hook (`uses(router)`), the provision is the library's provider. A page a file-based router renders
+has it from the host: `host.d.rx` says so (`provides(router)` on its view, spec/09 MO-14). Reported on `host.d.rx`,
+the view provides no such context; reported on a component of a route module the view does not name, JavaScript may
+render that component anywhere — name it in the view, or take what it needs as a prop.
 
 ```rx before
 context room: number

@@ -265,7 +265,7 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
     let objects: Vec<String> = members.keys().filter(|h| !decls.iter().any(|d| matches!(d, JsDecl::Comp { name, .. } if name == *h))).map(|h| format!("export declare const {h}: {};", object_of(h))).collect();
     head.into_iter()
         .chain(objects)
-        .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. }) && !matches!(d, JsDecl::Comp { name, .. } if name.contains('.'))).map(|d| match d {
+        .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. }) && !matches!(d, JsDecl::Comp { name, .. } if name.contains('.'))).map(|d| match d {
             JsDecl::Comp { name, props, tparams, props_type, .. } if members.contains_key(name) => format!("export declare const {name}: ({}) & {};", fn_of(props, tparams, props_type), object_of(name)),
             JsDecl::Comp { name, props, tparams, props_type, .. } => format!("export declare function {name}{}(props: {}): View;", tparams.as_deref().unwrap_or(""), props_text(props, props_type, false)),
             JsDecl::Type { text, .. } => format!("export {text}"),
@@ -283,7 +283,7 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
                 });
                 format!("export declare function {name}{}({}): {};", tparams.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), accessor_result(ret.as_ref(), shape))
             }
-            JsDecl::Context { .. } => unreachable!(), // MO-12a: filtered above
+            JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => unreachable!(), // MO-12a, MO-14: filtered above
             JsDecl::Value { name, ty, .. } => format!("export declare const {name}: {};", ty.as_deref().unwrap_or("any")), // MO-8g
         }))
         .collect::<Vec<_>>()
@@ -1357,7 +1357,7 @@ pub fn boundary_checks(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, u
             JsDecl::Comp { name, line, props, tparams, props_type, .. } => (name, *line, format!("{}(props: {}) => any", tparams.as_deref().unwrap_or(""), props_text(props, props_type, true))),
             JsDecl::Error { name, line, .. } => (name, *line, "abstract new (...args: any[]) => Error".into()),
             JsDecl::Value { name, line, ty } => (name, *line, ty.clone().unwrap_or_else(|| "any".into())),
-            JsDecl::Type { .. } | JsDecl::Context { .. } => continue,
+            JsDecl::Type { .. } | JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => continue,
         };
         let key = name.replace('.', "$$"); // MO-11q: a member (`Dialog.Trigger`), read as a property of its object
         out.push(format!("type __decl_{} = {};", key, ty));

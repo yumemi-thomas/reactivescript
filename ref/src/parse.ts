@@ -143,6 +143,8 @@ export type JsDecl =
   | { kind: "type"; name: string; line: number; text?: string }
   | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; tparams?: string; propsType?: string }   // propsType: MO-8o, the props are a type the library declares, and the record after `&` its fields that carry words   // tparams: MO-8d, a generic component's (`component Select<Option>(…)`)   // MO-11a: a Solid component
   | { kind: "context"; name: string; line: number; from?: string; resolved?: string }   // from: MO-12e, the context is another module's (`export context router from "@tanstack/solid-router"`); resolved: that module's declaration file (the loader's)
+  | { kind: "import"; names: { name: string; alias: string }[]; from: string; line: number; span: [number, number] }   // MO-14a: a host declaration's import of the `.rx` components the host renders; span: the row's text
+  | { kind: "host"; line: number; provides?: string[]; nests?: { kids: string; inside: string }; span: [number, number, number] }   // MO-14b: the view a JS host makes — `export default component provides(c) nests(children in component) = <tree>`; span: the row's start, its tree's start and end
   | { kind: "value"; name: string; line: number; type?: string };   // MO-8g: a value the module exports (`export const pageSearch: Schema`)   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
  *  component value (MO-11c: its type is `Component`). */
@@ -152,8 +154,35 @@ export function parseDeclarations(src: string): JsDecl[] {
   for (;;) {
     c.ws(); if (c.eof()) return out;
     const line = c.line;
+    // MO-14: a host declaration (`host.d.rx`) — the `.rx` components a JS host renders, imported as an `.rx` module imports
+    // them, and the view it makes of them (`export default component … = <tree>`)
+    if (c.startsWith("import") && /^import[\s{]/.test(c.src.slice(c.i))) {
+      const start = c.i; c.keyword("import"); c.ws(); const names: { name: string; alias: string }[] = [];
+      if (!c.eat("{")) c.fail("a host declaration imports the components the host renders by their names, `import { Layout, Person } from \"./pages.rx\"` (MO-14a)");
+      c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); if (!c.eat(",")) break; c.ws(); } c.expect("}");
+      c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
+      const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
+      if (!/\.rx$/.test((from as { v: string }).v) || !/^\.{1,2}\//.test((from as { v: string }).v)) c.fail(`import … from ${JSON.stringify((from as { v: string }).v)}: a host declaration imports the \`.rx\` modules whose components the host renders, by a relative path (MO-14a)`);
+      out.push({ kind: "import", names, from: (from as { v: string }).v, line, span: [start, c.i] }); continue;
+    }
+    const rowStart = c.i;
     if (!c.keyword("export")) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export component …`, `export error …`, `export type …`");
     c.ws();
+    if (c.keyword("default")) {   // MO-14b
+      c.ws(); if (!c.keyword("component")) c.fail("export default component … = <tree>: the view a JS host makes of the `.rx` components it renders (MO-14b)");
+      if (out.some(d => d.kind === "host")) c.fail("a host declaration states one view: `export default component … = …` is written once (MO-14b)");
+      let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined;
+      for (;;) {
+        c.ws(false);
+        if (c.keyword("provides")) { c.ws(false); provides = [...(provides ?? []), ...contextNames(c)]; continue; }
+        if (c.keyword("nests")) { c.ws(false); c.expect("("); c.ws(); const kids = c.ident() ?? c.fail("nests(children in component): a field of the record (MO-11i)"); c.ws(); if (!c.keyword("in")) c.fail("nests(children in component) (MO-11i)"); c.ws(); const inside = c.ident() ?? c.fail("nests(children in component): the field that holds the component"); c.ws(); c.expect(")"); nests = { kids, inside }; continue; }
+        break;
+      }
+      c.ws(false); if (!c.eat("=")) c.fail("export default component provides(…) nests(children in component) = <tree>: the words a factory's row has, then the records the host renders (MO-14b)");
+      c.ws(); if (c.peek() !== "{" && c.peek() !== "[") c.fail("the host's tree is a record or a list of records, `{ component: Layout, children: [{ component: Person }] }` (MO-14b)");
+      const treeStart = c.i; parsePrimary(c);
+      out.push({ kind: "host", line, ...(provides ? { provides } : {}), ...(nests ? { nests } : {}), span: [rowStart, treeStart, c.i] }); continue;
+    }
     if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
     if (c.keyword("error")) {
       c.ws(); const name = c.ident() ?? c.fail("error class name"); c.ws(false);

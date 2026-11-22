@@ -273,4 +273,79 @@ async function verifyComponentCallbacks({ comps, at, probeMod, resolve }) {
   }
   return out;
 }
-module.exports = { verifyPlacement, verifyComponentUses, verifyCallbacks, rowsOf, partUnder, verifyComponentCallbacks };
+/** 09 MO-14: a host declaration's view (`export default component provides(c) nests(children in component) = <tree>`),
+ *  checked against a scene. The probe (`host.probe.mjs`) exports `scene(rx, h)`: `rx` holds a recording component for
+ *  each component the declaration imports, by the name it imports it under (one that has children in the tree renders
+ *  its `children`), and `rx.tree`, the declaration's tree built of them; the scene hands back the host's view of them
+ *  (the router the app's host makes, given these in place of the `.rx` components). Then: each component the tree
+ *  names renders, and inside the component of the record it is a child of. For each `provides(c)`, the probe's
+ *  `uses[c]` (a hook that throws or warns with no provider) is called where each recording component renders, and must do
+ *  neither. `text` is the declaration with each row on one line. Null when the file states no view. */
+async function verifyHost({ text, probeMod, resolve }) {
+  const lines = text.split("\n");
+  const at = lines.findIndex(l => /^\s*export\s+default\s+component\b/.test(l)); if (at < 0) return null;
+  const line = at + 1; const row = lines[at];
+  const eq = row.indexOf("="); const words = row.slice(0, eq), tree = row.slice(eq + 1).trim();
+  const provides = [...words.matchAll(/\bprovides\(([^)]*)\)/g)].flatMap(m => m[1].split(",").map(x => x.trim()).filter(Boolean));
+  const n = /\bnests\(\s*([\w$]+)\s+in\s+([\w$]+)\s*\)/.exec(words); const nests = n && { kids: n[1], inside: n[2] };
+  const names = lines.flatMap(l => { const m = /^\s*import\s*\{([^}]*)\}\s*from\b/.exec(l); return m ? m[1].split(",").map(x => x.trim()).filter(Boolean).map(x => x.split(/\s+as\s+/).pop()) : []; });
+  const out = []; const obs = ["placement", ...provides.map(c => `provides:${c}`)];
+  const all = (status, what) => obs.map(ob => ({ line, ob, status, what }));
+  if (typeof probeMod?.scene !== "function") return all("unverified", `the host's view is not run: give a scene in the probe beside the declaration (scene(rx, h): the host's view of rx.${names[0] ?? "Layout"}, …)`);
+  const s = await import(resolve("solid-js"));
+  const MARK = s.createContext(null); const chains = new Map(); const threw = new Map();   // threw: context → the components where its hook threw
+  const used = new Map();   // context → the components where its hook ran
+  // whether a hook throws or warns where it is called: a library says a missing provider either way
+  const complains = hook => { const saved = [console.warn, console.error]; let said = false; console.warn = console.error = () => { said = true; }; try { hook(); } catch { said = true; } finally { [console.warn, console.error] = saved; } complains.last = said; return said; };
+  const rx = {};
+  let built;
+  const parents = new Set();   // the components that have children in the tree: their recording component renders its children
+  try {
+    const shape = new Function(...names, `return (${tree});`)(...names.map(x => ({ __rx: x })));
+    const walk = v => { if (!v || typeof v !== "object" || v.__rx) return; if (Array.isArray(v)) return v.forEach(walk); if (nests && v[nests.inside]?.__rx && [].concat(v[nests.kids] ?? []).length) parents.add(v[nests.inside].__rx); Object.values(v).forEach(walk); };
+    walk(shape);
+  } catch (e) { return all("unverified", `the host's tree is not read: ${String(e.message ?? e).slice(0, 60)}`); }
+  for (const name of names) rx[name] = props => {
+    const chain = [...(s.useContext(MARK) ?? []), name]; chains.set(name, chain);
+    for (const c of provides) { const hook = probeMod.uses?.[c]; if (typeof hook !== "function") continue; (complains(hook) ? threw : used).set(c, [...((complains.last ? threw : used).get(c) ?? []), name]); }
+    return s.createComponent(MARK, { value: chain, get children() { return parents.has(name) ? props.children : null; } });
+  };
+  try { built = new Function(...names, `return (${tree});`)(...names.map(x => rx[x])); } catch (e) { return all("unverified", `the host's tree is not read: ${String(e.message ?? e).slice(0, 60)}`); }
+  Object.defineProperty(rx, "tree", { value: built, enumerable: false });
+  let dispose = () => {}, renderError = null;
+  try {
+    const view = await probeMod.scene(rx, { s });
+    if (typeof document !== "undefined" && document.body) { const web = await import(resolve("@solidjs/web")); const el = document.createElement("div"); document.body.appendChild(el); dispose = web.render(view, el); }
+    else { const { createRenderer } = await import(resolve("@solidjs/universal")); const nodes = { createElement: t => ({ t, c: [] }), createTextNode: x => ({ x }), replaceText: (a, v) => { a.x = v; }, isTextNode: a => "x" in a, setProperty() {}, insertNode: (p, a) => { (p.c ??= []).push(a); a.p = p; }, removeNode: (p, a) => { p.c = (p.c ?? []).filter(y => y !== a); }, getParentNode: a => a.p, getFirstChild: a => a.c?.[0], getNextSibling: a => { const c = a.p?.c ?? []; return c[c.indexOf(a) + 1]; } }; dispose = createRenderer(nodes).render(view, { t: "root", c: [] }); }
+  } catch (e) { renderError = e; }
+  const settle = async () => { for (let i = 0; i < 40; i++) { s.flush?.(); await new Promise(r => setTimeout(r, 15)); } };
+  await settle();
+  if (probeMod.act) { try { await probeMod.act(rx, { s }); } catch {} await settle(); }
+  try { dispose(); } catch {}
+  if (renderError) return all("unverified", `the scene threw as it rendered (${String(renderError.message ?? renderError).slice(0, 60)})`);
+  // placement: every component the tree names renders, a record's children inside its component
+  const known = new Map(names.map(x => [rx[x], x])); const bad = [], good = [], unseen = new Set();
+  const walk = (v, parent) => {
+    if (!v || typeof v !== "object") return; if (Array.isArray(v)) return v.forEach(x => walk(x, parent));
+    const here = nests ? known.get(v[nests.inside]) : undefined;
+    for (const x of Object.values(v)) { const c = known.get(x); if (c && !chains.has(c)) unseen.add(c); }
+    if (here && parent) { if (chains.has(here)) (chains.get(here).slice(0, -1).includes(parent) ? good : bad).push(chains.get(here).slice(0, -1).includes(parent) ? `${here} inside ${parent}` : `${here} renders outside ${parent}`); }
+    for (const [k, x] of Object.entries(v)) walk(x, nests && k === nests.kids && here ? here : parent);
+  };
+  walk(built, null);
+  const rendered = names.filter(x => chains.has(x));
+  out.push(bad.length ? { line, ob: "placement", status: "fail", what: `the host's view: ${[...new Set(bad)].join("; ")}` }
+    : unseen.size ? { line, ob: "placement", status: "unverified", what: `the host's view: the scene does not render ${[...unseen].join(", ")}${good.length ? ` (${[...new Set(good)].join("; ")})` : ""}: show each (a probe's act(rx, h) may navigate)` }
+    : { line, ob: "placement", status: "ok", what: `the host's view holds: ${good.length ? [...new Set(good)].join("; ") : `${rendered.join(", ")} rendered`}` });
+  for (const c of provides) {
+    const ob = `provides:${c}`;
+    if (typeof probeMod.uses?.[c] !== "function") { out.push({ line, ob, status: "unverified", what: `the host's view: provides(${c}) not run: give a hook that throws or warns with no provider as the probe's uses.${c}` }); continue; }
+    let alone = false; s.createRoot(d => { alone = complains(probeMod.uses[c]); d(); });
+    out.push(!alone ? { line, ob, status: "unverified", what: `the host's view: provides(${c}) not shown: the probe's uses.${c} runs with no provider too` }
+      : threw.get(c)?.length ? { line, ob, status: "fail", what: `the host's view: declared provides(${c}), but the hook that uses it fails in ${[...new Set(threw.get(c))].join(", ")}` }
+      : unseen.size || !used.get(c)?.length ? { line, ob, status: "unverified", what: `the host's view: provides(${c}) not shown for ${[...unseen].join(", ") || "any component"}: the scene does not render ${unseen.size ? "them" : "one"}` }
+      : { line, ob, status: "ok", what: `the host's view: provides(${c}) holds: the hook that uses it runs in ${[...new Set(used.get(c))].join(", ")}` });
+  }
+  return out;
+}
+module.exports = { verifyPlacement, verifyComponentUses, verifyCallbacks, rowsOf, partUnder, verifyComponentCallbacks, verifyHost };

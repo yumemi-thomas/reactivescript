@@ -109,6 +109,11 @@ The app mounts a program with `createApp` from `@reactivescript/runtime`
   module changed. A `.d.rx` created where the program looked for one is
   read at the program's next compile; nothing watches a path that has no
   file, so creating it starts no rebuild by itself.
+- **A route file's page.** `import Person from "./routes/people/[id].rx?rx-page"` is `?rx-lib` with the module's
+  default component as the default export (spec/11 CP-4d): what a file-based router that takes `.rx` route files
+  imports each as (`bench/tasks/file-routes`). A `host.d.rx` in the folder of a program's modules, or one above
+  it, says what the host does with the components it renders (spec/09 MO-14): the crate reads it with the program,
+  and it is watched as every declaration the program read is.
 - **Whole program (opt-in).** `rx({ wholeProgram: true })` counts the JS
   under the Vite root that imports a module with `?rx-lib` as its hosts
   (02 E-5a); `hostRoots: ["../site"]` names folders or files beyond the

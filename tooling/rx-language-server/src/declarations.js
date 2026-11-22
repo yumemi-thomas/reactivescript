@@ -24,9 +24,11 @@ function virtualText(p) {
   // CP-4d: `import { PersonCard } from "./pages.rx?rx-lib"` in a JS host is typed by the module's projection: TypeScript
   // looks for `pages.rx?rx-lib.d.ts`, which answers with the module's exported components (and, as its default, the
   // module itself for `components(pages)`)
-  if (abs.endsWith(LIB + ".d.ts")) {
-    const rx = abs.slice(0, -(LIB + ".d.ts").length);
-    if (rx.endsWith(".rx") && !rx.endsWith(".d.rx") && real.existsSync(rx)) text = libDeclaration(rx);
+  // … and `import Person from "./routes/people.rx?rx-page"`, a route file's page: the same, its default the module's
+  // default component
+  for (const q of [LIB, PAGE]) if (abs.endsWith(q + ".d.ts")) {
+    const rx = abs.slice(0, -(q + ".d.ts").length);
+    if (rx.endsWith(".rx") && !rx.endsWith(".d.rx") && real.existsSync(rx)) text = libDeclaration(rx, q === PAGE);
     virtual.set(abs, text);
     return text;
   }
@@ -103,13 +105,17 @@ function virtualDir(p) {
   return !!(at && at.dir && packageDeclaration(at.root, at.spec));
 }
 
-const LIB = "?rx-lib";
-/** The `.d.ts` of `rx` imported `?rx-lib`: its exported components, as its projection types them. */
-function libDeclaration(rx) {
-  const names = [...real.readFileSync.call(fs, rx, "utf8").matchAll(/^export\s+(?:default\s+)?component\s+([A-Za-z_$][\w$]*)/gm)].map(m => m[1]);
+const LIB = "?rx-lib", PAGE = "?rx-page";
+/** The `.d.ts` of `rx` imported `?rx-lib`: its exported components, as its projection types them; `page` (`?rx-page`),
+ *  with the module's default component as its default. */
+function libDeclaration(rx, page = false) {
+  const src = real.readFileSync.call(fs, rx, "utf8");
+  const names = [...src.matchAll(/^export\s+(?:default\s+)?component\s+([A-Za-z_$][\w$]*)/gm)].map(m => m[1]);
+  const dflt = /^export\s+default\s+component\s+([A-Za-z_$][\w$]*)/m.exec(src)?.[1];
   const from = JSON.stringify("./" + path.basename(rx));
-  return `import type * as M from ${from};\n${names.map(n => `export declare const ${n}: typeof M.${n};`).join("\n")}\n` +
-    `declare const module: (rt: unknown) => { ${names.map(n => `${n}: typeof M.${n}`).join("; ")} };\nexport default module;\n`;
+  const named = `import type * as M from ${from};\n${names.map(n => `export declare const ${n}: typeof M.${n};`).join("\n")}\n`;
+  if (page) return named + (dflt ? `declare const page: typeof M.${dflt};\nexport default page;\n` : "");
+  return named + `declare const module: (rt: unknown) => { ${names.map(n => `${n}: typeof M.${n}`).join("; ")} };\nexport default module;\n`;
 }
 
 const real = { existsSync: fs.existsSync, readFileSync: fs.readFileSync };

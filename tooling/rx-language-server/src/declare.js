@@ -806,13 +806,13 @@ function withWaits(row, waits) {
 /** @returns {string} the draft `.d.rx` for `spec`, imported from `from` (a directory). `how.known: false`: from the types
  *  alone, without what known.js says of the library (a generated declaration, MO-8l: nothing a person reviewed). */
 function declare(ts, spec, from, options = {}, how = {}) {
-  const host = ts.createCompilerHost({ strict: true, skipLibCheck: true, moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options });
+  const host = ts.createCompilerHost({ strict: true, skipLibCheck: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options });
   const entry = path.join(from, "__rx_declare__.ts");
   const code = `import * as __m from ${JSON.stringify(spec)};\nexport { __m };\n`;
   const { getSourceFile, fileExists } = host;
   host.getSourceFile = (f, ...rest) => path.resolve(f) === entry ? ts.createSourceFile(f, code, ts.ScriptTarget.ES2022) : getSourceFile.call(host, f, ...rest);
   host.fileExists = f => path.resolve(f) === entry || fileExists.call(host, f);
-  const program = ts.createProgram([entry], { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options }, host);
+  const program = ts.createProgram([entry], { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options }, host);
   CTX = { refs: false, scope: new Set() };
   const checker = program.getTypeChecker();
   const sf = program.getSourceFile(entry);
@@ -826,7 +826,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
     const v = require("./versions.js").installed(pkg, from); if (v) out.push(`//@ for ${pkg} ^${v}`);
   }
-  const opts = { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options };
+  const opts = { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options };
   const real = JSON.stringify(spec);
   /** The rows, with the library's types named where it declares them (`refs`, MO-8m) or left `any` (as every draft was). */
   const rows = mode => {

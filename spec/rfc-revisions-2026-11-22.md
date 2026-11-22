@@ -415,7 +415,25 @@ RFC 18 below describes a rule that held from 2026-11-19 to 2026-11-23.
 RFC 17's confinement, kept in the checkers for RFC 18's values after
 `renders` alone was withdrawn, is deleted with them.
 
+## After the seventh round (2026-11-23): what a JS host renders
+
+Recorded in 09 MO-14, 11 CP-4d and `rfc-declaration-types-2026-11-22.md`
+(*An eighth round*). What changed for a program:
+
+| what a Solid app writes | was | now |
+| --- | --- | --- |
+| a file-routed TanStack app: TSX route files that hand `.rx` components to their routes, a root layout in `.rx` with the `errored` and `loading` regions, pages that call `useParams({ from })` | a whole-program build refused it (each component a JS host renders is checked under a root of its own, 11 CP-4d); a per-module build accepted it and checked nothing above a page | accepted where `host.d.rx` says what the router does: `provides(router) nests(children in component) = <tree>` (09 MO-14); the layout's region removed is `UNHANDLED_FAILURE`, on the declaration |
+| `<Link to="/peeple/$id">` in such an app's `.rx` | — (the factory of 09 MO-8r had given the registered types up) | a type error again: the generated route tree registers the router |
+| `.rx` files in a routes directory (`filesystem-routing` with `@solidjs/router`), each file's default component its page | refused in any build: a default component was a mounted view | the route file is imported as its page (`?rx-page`), and a module the host declaration imports has no mounted view |
+| a router hook in an exported component the host's view does not name | `CONTEXT_NOT_FOUND` in a whole-program build | the same: only what the view names is credited |
+| a region or a provision an `.rx` entry puts around a JS router's component | not credited to the pages | the same, and said: the view is the host's own |
+
 ## Limits that remain, and why they are inside the goal
+
+- **A host declaration is trusted** (09 MO-14e), as every `.d.rx` is: it
+  says which layout a page is rendered in, and nothing in the build reads
+  the router's own tree. `rx-verify` runs it against a scene; a generator
+  that reads `.rx` route files is where it should come from.
 
 - **Declarations are trusted** (CN-5): `pure`, `draft`, `handler`,
   `uses(…)`. `rx-verify` checks them by running.

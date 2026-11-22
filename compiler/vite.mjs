@@ -42,6 +42,7 @@ import { fileURLToPath } from "node:url";
 const { app } = createRequire(import.meta.url)("./index.js");
 const DEP = "rx-dep";
 const LIB = "rx-lib";   // CP-4d: a JS module imports an .rx module's components: `import { PersonCard } from "./pages.rx?rx-lib"`
+const PAGE = "rx-page";   // CP-4d: … and a route file's page, the module's default component: `import Person from "./routes/people.rx?rx-page"`
 // the page each code points to: the package's copy (scripts/guide.mjs), else the repository's
 const GUIDE = [path.join(path.dirname(fileURLToPath(import.meta.url)), "guide/diagnostics.md"), path.join(path.dirname(fileURLToPath(import.meta.url)), "../guide/diagnostics.md")].find(existsSync)
   ?? "https://github.com/solidjs/reactivescript/blob/main/guide/diagnostics.md";
@@ -132,8 +133,9 @@ function entriesOf(file, root) {
 /** E-5a, whole program: the `.rx` modules a JS host under `root` imports with `?rx-lib` (CP-4d), whose exported
  *  components JS applies with props the program cannot see. Absolute POSIX paths, the module keys. */
 // an import, a re-export, a dynamic import or a require, in any quotes, whose query has `rx-lib` among its parameters
-// (`./show.rx?rx-lib`, `?v=1&rx-lib`): what the plugin compiles as a library (`lib`, below) is what counts as a host
-const RX_LIB_IMPORT = /(?:\bfrom\s*|\b(?:import|require)\s*\(\s*|\bimport\s*)(["'`])([^"'`?]+\.rx)\?(?:[^"'`#]*&)?rx-lib(?=[&=#"'`])/g;
+// (`./show.rx?rx-lib`, `?v=1&rx-lib`; `?rx-page`, a route file's page): what the plugin compiles as a library (`lib`,
+// below) is what counts as a host
+const RX_LIB_IMPORT = /(?:\bfrom\s*|\b(?:import|require)\s*\(\s*|\bimport\s*)(["'`])([^"'`?]+\.rx)\?(?:[^"'`#]*&)?rx-(?:lib|page)(?=[&=#"'`?])/g;
 // the files a host may be: JS and TS modules, and the single-file components whose script imports as one
 const HOST_FILE = /\.(m?[jt]sx?|c[jt]s|vue|svelte|astro|mdx?)$/;
 const posix = p => p.replace(/\\/g, "/");
@@ -352,7 +354,9 @@ export default function rx(options = {}) {
       // 08 CN-3d: a client-only build (no SSR, nothing hydrates) has nothing to show on a first load nothing holds
       const spa = target === "dom" && solid.hydratable === false;
       const dep = isDep(moduleId);
-      const lib = new URLSearchParams(moduleId.split("?")[1] ?? "").has(LIB);
+      const query = new URLSearchParams(moduleId.split("?")[1] ?? "");
+      const page = query.has(PAGE);
+      const lib = page || query.has(LIB);
       let typeOutcome = null;
       if (typed() && !dep) {
         const key = projectKey(file);
@@ -385,6 +389,14 @@ export default function rx(options = {}) {
       const named = lib && file === entry
         ? `\nmodule.__rxName = ${libName};` + (out.components?.length ? `\nimport { components as __rxComponents } from "@reactivescript/runtime";\nconst __rx = __rxComponents(module, undefined, ${libName});\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n` : "\n")
         : "";
+      // CP-4d: a route file's page (`?rx-page`) — the default export is the module's default component, bound as the named
+      // ones are (a file-based router imports a route file for its default export); the module itself is `__rxModule`.
+      // The compiled module's own line is rewritten in place, so the source map's lines still hold.
+      if (page && file === entry) {
+        if (!out.page) throw new Error(`${path.relative(process.cwd(), file)} is imported as a route file's page (?rx-page) and has no default component: write \`export default component Page() { … }\` (11 CP-4d)`);
+        const code = tagDeps(m.code).replace(/^export default function module\(/m, "export function __rxModule(");
+        return { code: code + named.replace("__rxComponents(module,", "__rxComponents(__rxModule,").replace("\nmodule.__rxName = ", "\n__rxModule.__rxName = ") + `export default __rx.${out.page};\n`, map: m.map, css: m.css ?? "" };
+      }
       return { code: tagDeps(m.code) + named, map: m.map, css: m.css ?? "" };
   }
 }

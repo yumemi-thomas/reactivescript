@@ -392,8 +392,8 @@ export default component App() {
   package as usual, and every check above holds: a page's failure needs the layout's `errored` around its children, a
   hook outside `<AppRouter />` is `CONTEXT_NOT_FOUND`. What it gives up is TanStack's registered route types (a link
   to no route is no longer a type error): they need the router's own value to name its type. A route tree kept in
-  TypeScript, in a module that imports your `.rx` pages (`import { Person } from "./pages.rx?rx-lib"`), keeps them,
-  and gives up the checks: nothing above a page a JS host applies is credited (`examples/start`).
+  TypeScript — a file-based router's — keeps them, and keeps the checks too once you say what the router does with
+  your pages: *File-based routers*, below.
 - **A provider can be wrapped.** The made router is a component: your app's frame takes it as its children
   (`<Shell title="Directory"><AppRouter /></Shell>`), and the pages are checked under what `Shell` puts around
   `props.children`.
@@ -403,6 +403,89 @@ export default component App() {
   it is bound, so `instantiates` is implied.
 - **A JS import you apply must be declared.** Without `export component X(…)` in its `.d.rx`, `<X />` is
   `UNKNOWN_COMPONENT`.
+
+### File-based routers
+
+A file-based router finds its route files itself: a generated route tree, or a manifest of the routes directory,
+imports each file's component and renders it under the router's provider, inside the layout its file name puts it
+in. No `.rx` module applies your pages, so nothing in `.rx` shows the checker what is above them — and a component
+JavaScript renders is checked as if nothing were (a root of its own): a page that leaves its failure to its
+layout's `errored` region, or calls `useParams`, is refused. Say what the router does, once, in `host.d.rx` (spec/09
+MO-14), in the folder of your `.rx` modules or one above it:
+
+```rx
+// src/host.d.rx
+import { Layout, Home, Person } from "./pages.rx"
+export context router from "@tanstack/solid-router"
+export default component provides(router) nests(children in component) = [
+  { component: Layout, children: [{ component: Home }, { component: Person }] }
+]
+```
+
+It imports the components the host renders, as an `.rx` module would, and states the view the host makes of them
+in the words a factory's row has: `provides(router)`, what it provides to all of them, and `nests(children in
+component)`, that a record's `children` are rendered among its `component`'s children. The checker walks that view
+as your app's: `Person` is checked among `Layout`'s children, under the router. A layout with no `errored` region
+around `{props.children}` is then `UNHANDLED_FAILURE` — reported on `host.d.rx`, at the view, naming the page's read
+(`person.name at pages.rx:23`) — and a hook in a component the view does not name is still `CONTEXT_NOT_FOUND` in a
+whole-program build, since JavaScript may render that one anywhere.
+
+- **TanStack Router and TanStack Start.** The generator takes `.ts`, `.tsx`, `.js`, `.jsx` and `.vue` files and reads
+  a route file as JavaScript, so a route file is a few lines of TSX that hand the route a component of yours:
+
+  ```tsx
+  // src/routes/__root.tsx
+  import { Outlet, createRootRoute } from "@tanstack/solid-router";
+  import { Layout } from "../pages.rx?rx-lib";
+  export const Route = createRootRoute({ component: () => <Layout><Outlet /></Layout> });
+  ```
+
+  ```tsx
+  // src/routes/people.$id.tsx
+  import { createFileRoute } from "@tanstack/solid-router";
+  import { Person } from "../pages.rx?rx-lib";
+  export const Route = createFileRoute("/people/$id")({ component: Person });
+  ```
+
+  The layout renders its pages as `props.children`: the root route passes the library's `<Outlet />` there. The
+  generated `routeTree.gen.ts` registers the router as usual, so `<Link to="/peeple/$id">` and `useParams({ from:
+  "/person/$id" })` in `pages.rx` are type errors (`bench/tasks/router-provider`, an app whose entry is `.rx` and
+  whose router is a TSX module's component; `bench/tasks/start-route`, served and hydrated by Start).
+- **File-system routes on `@solidjs/router`** (`filesystem-routing`: SolidStart's conventions as a package, for
+  Solid 2). The route files themselves are `.rx`: the scanner takes the extension, and each file is imported as its
+  page, its default component (`?rx-page`):
+
+  ```ts
+  // vite.config.ts
+  fileRoutes({ extensions: ["rx"], types: "src/file-routes.d.ts",
+    toRoute: (src, router) => ({ path: router.toPath(src), page: true, $component: { src: `${src}?rx-page`, pick: ["default"] }, $$route: undefined }) })
+  ```
+
+  ```rx
+  // src/routes/(app)/people/[id].rx
+  import { useParams } from "@solidjs/router"
+  import { getPerson } from "../../../people.js"
+  export default component Person() {
+    params = useParams()
+    person = await getPerson(params.id ?? "")
+    <h1>{person.name}</h1>
+  }
+  ```
+
+  `host.d.rx` imports each route file's page by its name (`import { Person } from "./routes/(app)/people/[id].rx"`).
+  With the declaration there, a route file's default component is not a mounted view: it is the host's to render.
+  The plugin's `types` option writes the manifest as a literal tuple, which types the router's `paths`:
+  `paths.person("9")` in a layout is a type error (`bench/tasks/file-routes`).
+
+Draft the file with `rx-declare --host src/pages.rx` (or the route files): it writes the imports, the contexts those
+modules' imports are declared to use, and a view with every component at the top. Which page is in which layout is
+the router's knowledge, and yours to write. Run it with `rx-verify --dom src/host.d.rx`: a probe beside it
+(`host.probe.mjs`) builds the routes the route files make out of recording components (`scene(rx, h)`), and each
+page must render inside its declared layout, with the router's hook working in each (`uses`).
+
+What it does not credit: a region or a provision your `.rx` entry puts *around* a JS router's component — the view
+is the host's own, so what must hold a page goes in its layout — and a layout that renders the library's outlet
+component itself instead of `props.children`.
 
 ### An element in a prop
 

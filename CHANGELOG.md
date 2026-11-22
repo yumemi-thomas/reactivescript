@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+**File-based routers: typed routes and the checks, together** (spec/09 MO-14, spec/11 CP-4d; spec/rfc-declaration-types-2026-11-22.md, *An eighth round*)
+
+- **New: a host declaration, `host.d.rx`.** A file-based router renders your `.rx` pages from JavaScript — a generated
+  route tree, a manifest — where no `.rx` module shows the checker what is above them. Say it once, in `host.d.rx`
+  beside (or above) your modules: import the components the host renders, and state its view in the words a
+  factory's row has, `export default component provides(router) nests(children in component) = [{ component:
+  Layout, children: [{ component: Home }, { component: Person }] }]`. A page is then checked among its layout's
+  children, under the router: its failure needs the layout's `errored` region, a client-only build its `loading`
+  one, and a hook whose context the view does not provide is `CONTEXT_NOT_FOUND` — each reported on `host.d.rx`,
+  naming the page's read. It adds no word to the vocabulary. Two routers write it: TanStack Router's file routes
+  (its Vite plugin, and TanStack Start) and file-system routes on `@solidjs/router` (`filesystem-routing`).
+  guide/libraries.md, *File-based routers*, has both.
+- **Typed routes are back for TanStack Router.** With the route tree the generator's, `<Link to>` and `useParams({
+  from })` in an `.rx` page are typed by the registered router again; `bench/tasks/router-provider` moved from the
+  factory to file routes, and the two type probes given up last round hold. The factory (a tree written in `.rx`,
+  given to a module of your own) is unchanged, and still what `examples/tanstack` is.
+- **New: `?rx-page`** — `import Person from "./routes/people/[id].rx?rx-page"` is `?rx-lib` with the module's default
+  component as the default export: what a router whose route files are `.rx` imports a route file as
+  (`filesystem-routing`'s `extensions: ["rx"]` and `toRoute`). `rx-tsc` types it; `@reactivescript/runtime/rx-lib`
+  has the pattern for a TypeScript without `.rx` support.
+- **Changed: a module a host declaration imports has no mounted view.** Its default component is a route file's
+  page, rendered by the host. Without a `host.d.rx`, nothing changes: a component JavaScript renders is checked
+  under a root of its own in a whole-program build, as before — and so is every exported component the view does
+  not name.
+- **`rx-declare --host <modules…>`** drafts the file (the imports, the contexts those modules use, every component
+  at the top; the nesting is yours to write), and **`rx-verify host.d.rx`** runs it against the scene a probe gives
+  (`host.probe.mjs`): each page inside its declared layout, the router's hook working in each.
+- **Fixed: `rx-declare` on a module named with its `.ts` extension** (`rx-declare ./router.ts`) wrote `any` where
+  the module's types had a name: its own check refused the import.
+
 **The vocabulary held to its bar, to the end** (spec/09 MO-8r *Settled*, MO-10l, MO-11r; spec/rfc-declaration-types-2026-11-22.md, *A seventh round*)
 
 - **Withdrawn: `renders(later)`, `renders` before a prop's type, `nests(component under parent)` and `outlet`**

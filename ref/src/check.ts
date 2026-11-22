@@ -575,7 +575,7 @@ export type ExportSig =
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig> };
-type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean };   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean };   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; advice: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, advice: c.advice, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
@@ -584,8 +584,15 @@ export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: 
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
   const facts: [string, PeekFacts][] = []; const advice: Diagnostic[] = [];   // advice: 99, the advisory rows — about a correct program, never an error
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
-  if (whole) { diags.push(...resolvePeeks(facts, set, hosts)); diags.push(...hostExports(sigs, hosts, spa)); }
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path) }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
+  // MO-14d: a module the host's declaration imports is one a JS host renders (CP-4d), whatever the build found
+  if (whole) { const all = [...new Set([...hosts, ...(set.hosted ?? [])])]; diags.push(...resolvePeeks(facts, set, all)); diags.push(...hostExports(sigs, all, spa, set.placed)); }
+  if (set.host) {   // MO-14c: the host's view, checked as a program of its own; what it says is the declaration's
+    const h = checkModules(set.host.set, spa, whole, hosts); const at = (d: Diagnostic): Diagnostic => (d.file ?? set.host!.entry) === set.host!.entry ? { ...d, file: set.host!.file } : d;
+    const key = (d: Diagnostic) => `${d.file ?? set.entry}\0${d.line}\0${d.code}\0${d.msg}`; const have = new Set(diags.map(key)); const said = new Set(advice.map(key));
+    for (const d of h.diags.map(at)) if (!have.has(key(d))) { have.add(key(d)); diags.push(d); }
+    for (const d of h.advice.map(at)) if (!said.has(key(d))) { said.add(key(d)); advice.push(d); }
+  }
   return { diags, advice, sigs, models };
 }
 
@@ -593,10 +600,11 @@ export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: 
  *  it is credited to it — the cautious placement (09 MO-11s), a root of its own. What its summary lets out of its root is
  *  therefore unhandled: a failure no boundary of its own discharges, a context nothing in it provides, a first load
  *  nothing in it holds. */
-function hostExports(sigs: Map<string, ModSig>, hosts: string[], spa: boolean): Diagnostic[] {
+function hostExports(sigs: Map<string, ModSig>, hosts: string[], spa: boolean, placed?: Set<string>): Diagnostic[] {
   const out: Diagnostic[] = [];
   for (const h of hosts) for (const [name, x] of sigs.get(h)?.exports ?? []) {
     if (x.kind !== "comp") continue;
+    if (placed?.has(`${h}#${name}`)) continue;   // MO-14d: the host's declaration says where it renders this one
     const why = `${name} is exported from a module a JS host renders (\`?rx-lib\`): JS applies it where the checker cannot see, so no boundary or provision above it is credited (CP-4d)`;
     for (const o of x.sig.own) { const n = Number(o.at?.split(":").pop()); out.push({ code: "UNHANDLED_FAILURE", rule: "R-f-5", line: Number.isInteger(n) ? n : 1, msg: `a reader of ${o.what} (in <${name}>) can fail with ${o.cls} and no catch or errored boundary inside ${name} discharges it — ${why}: show it where it is read, \`errored fallback(e) { … } { … }\` inside the component`, file: h }); }
     for (const k of x.sig.requires) {
@@ -648,9 +656,10 @@ class Checker {
     argCalls(p, this.argCalls);
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
-    providesIn(p.decls, p.view, this.provided, this.actionNames);
-    this.block(p.decls, p.view, root, { scope: "reactive" });
-    this.later.push(() => this.contentCheck(p.view, root, []));
+    const view = this.opts.hosted ? [] : p.view;   // MO-14d: a hosted module's default component is rendered by the host, where its declaration says
+    providesIn(p.decls, view, this.provided, this.actionNames);
+    this.block(p.decls, view, root, { scope: "reactive" });
+    this.later.push(() => this.contentCheck(view, root, []));
     for (const f of this.later) f();
     this.retained();
     this.resolveTree();

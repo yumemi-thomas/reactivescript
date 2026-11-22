@@ -8,7 +8,7 @@ const crypto = require("node:crypto");
 
 const { rows: parsed } = require("./rxc");
 /** The kinds of row running can check: fns, components, error classes and values. */
-const CHECKED = new Set(["fn", "component", "error", "const"]);
+const CHECKED = new Set(["fn", "component", "error", "const", "host"]);   // host: 09 MO-14, a host declaration's view
 /** A line without its `// comment`; a `//` inside a string literal is not one. */
 function codeOf(line) {
   let q = "";

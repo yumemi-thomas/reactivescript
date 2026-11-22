@@ -2473,6 +2473,10 @@
             "named": true
           },
           {
+            "type": "host_view",
+            "named": true
+          },
+          {
             "type": "interface_declaration",
             "named": true
           },
@@ -3537,6 +3541,40 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "host_view",
+    "named": true,
+    "fields": {
+      "tree": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "array",
+            "named": true
+          },
+          {
+            "type": "object",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "nests_clause",
+          "named": true
+        },
+        {
+          "type": "provides_clause",
+          "named": true
+        }
+      ]
     }
   },
   {

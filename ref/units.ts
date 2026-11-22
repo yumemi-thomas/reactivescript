@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { readDisk } from "./disk.ts";
 import { packageRelative, besideDeclaration, isPrintedSignature, relativeModule } from "./src/modules.ts";
 import { looksLikeTypes, parseProgram, parseDeclarations } from "./src/parse.ts";
-import { loadModules } from "./src/modules.ts";
+import { loadModules, hostProgram } from "./src/modules.ts";
 import { checkModules, tyStep, tyScalar } from "./src/check.ts";
 
 const files = (fs: Record<string, string>) => (p: string) => fs[p];
@@ -309,6 +309,46 @@ export const units: [string, () => void][] = [
     deepStrictEqual([codes("/app/src/main.rx"), codes("/app/src/bare.rx"), codes("/app/src/typo.rx")], [[], ["CONTEXT_NOT_FOUND"], ["NOT_EXPORTED", "CONTEXT_NOT_FOUND"]]);
     let failed = false; try { parseDeclarations("export context client from query\n"); } catch { failed = true; }
     deepStrictEqual(failed, true);
+  }],
+  ["a_host_declaration_places_the_components_a_js_host_renders", () => {   // MO-14: `host.d.rx`, found at or above a program — the `.rx` components a JS host renders (a file-based router's route files), imported by name, and the view it makes of them in a factory's words; checked as the app's view, what it says on the declaration's line
+    const HOST = "// what the file router does with the route files\nimport { Layout } from \"./routes/layout.rx\"\nimport { Home } from \"./routes/index.rx\"\nimport { Person, Banner } from \"./routes/person.rx\"\nexport context router from \"./router.js\"\nexport default component provides(router) nests(children in component) = [\n  { component: Layout, children: [{ component: Home }, { component: Person }] }\n]\n";
+    const LAYOUT = "import { NotFound } from \"../people.js\"\nexport default component Layout(props: { children?: View }) {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main>{props.children}</main> }\n  }\n}\n";
+    const app = (host: string | null = HOST, layout = LAYOUT) => files({
+      "/app/src/router.d.rx": "export context router\nexport pure fn useParams(): { id: string } instantiates uses(router)\n",
+      "/app/src/people.d.rx": "export error NotFound\nexport pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)\n",
+      "/app/src/routes/layout.rx": layout,
+      "/app/src/routes/index.rx": "export default component Home() { <h1>People</h1> }\n",
+      "/app/src/routes/person.rx": "import { useParams } from \"../router.js\"\nimport { fetchPerson } from \"../people.js\"\nexport default component Person() {\n  params = useParams()\n  person = await fetchPerson(params.id)\n  <h1>{person.name}</h1>\n}\nexport component Banner() {\n  params = useParams()\n  <p>{params.id}</p>\n}\n",
+      ...(host === null ? {} : { "/app/src/host.d.rx": host }),
+    });
+    const diags = (fs: (p: string) => string | undefined, entry = "/app/src/routes/person.rx", spa = false, whole = false) => checkModules(loadModules(entry, fs), spa, whole).diags.map(d => `${d.code}@${(d.file ?? entry).split("/").pop()}:${d.line}`);
+    // the route files as they are, each a page that relies on its layout and on the router: accepted from any of them
+    deepStrictEqual([diags(app()), diags(app(), "/app/src/routes/layout.rx"), diags(app(), "/app/src/routes/index.rx", true)], [[], [], []]);
+    // with no declaration, a route file's default component is a mounted view, and nothing is above it
+    deepStrictEqual(diags(app(null)), ["UNHANDLED_FAILURE@person.rx:6", "CONTEXT_NOT_FOUND@person.rx:4"]);
+    // the layout's regions hold its pages: without one, the page's failure (or, in a client-only build, its first load) is the host's
+    deepStrictEqual(diags(app(HOST, LAYOUT.replace(/  errored[^\n]*\n    (loading[^\n]*)\n  \}\n/, "  $1\n"))), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+    deepStrictEqual(diags(app(HOST, LAYOUT.replace(/loading fallback \{ <p>loading…<\/p> \} \{ (<main>\{props\.children\}<\/main>) \}/, "$1")), "/app/src/routes/person.rx", true), ["ASYNC_OUTSIDE_LOADING_BOUNDARY@host.d.rx:6"]);
+    // a page the host renders beside the layout, not in it; a host that provides no router
+    deepStrictEqual(diags(app(HOST.replace("children: [{ component: Home }, { component: Person }] }", "children: [{ component: Home }] }, { component: Person }"))), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+    deepStrictEqual(diags(app(HOST.replace(" provides(router)", ""))), ["CONTEXT_NOT_FOUND@host.d.rx:6"]);
+    // a component the declaration imports and leaves out of its tree is rendered where no one says: in a whole-program
+    // build it is checked under a root of its own (CP-4d), as every export of a module a host renders that is not placed
+    deepStrictEqual([diags(app(), "/app/src/routes/person.rx", false, true), diags(app(HOST.replace("{ component: Person }] }", "{ component: Person }, { component: Banner }] }")), "/app/src/routes/person.rx", false, true)], [["CONTEXT_NOT_FOUND@person.rx:1"], []]);
+    // the tree names what the declaration imports
+    deepStrictEqual(diags(app(HOST.replace("component: Home", "component: Nope"))), ["UNBOUND@host.d.rx:6"]);
+    const refused = (text: string) => { try { parseDeclarations(text); return false; } catch { return true; } };
+    deepStrictEqual(["import Layout from \"./layout.rx\"\n", "import { Layout } from \"@demo/pages\"\n", "import { Layout } from \"./layout.js\"\n", "export default component provides(router)\n", "export default component = 3\n", "export default fn f()\n", "export default component = []\nexport default component = []\n", "export default component uses(router) = []\n"].map(refused), [true, true, true, true, true, true, true, true]);
+    deepStrictEqual(refused("import { Layout as L } from \"../pages/layout.rx\"\nexport context router\nexport default component provides(router) nests(children in component) = { component: L }\n"), false);
+    // lowered text for text, each piece on its line: the declaration's imports, and its tree given to a factory with the row's words
+    const low = hostProgram(HOST, parseDeclarations(HOST), "host.d.rx")!;
+    deepStrictEqual(low.rx.split("\n").map(l => l.trim()), ["", "import { Layout } from \"./routes/layout.rx\"", "import { Home } from \"./routes/index.rx\"", "import { Person, Banner } from \"./routes/person.rx\"", "", "import { jsHostFactory } from \"./host.d.rx.host.js\"; export default component JsHost() { <JsHostView /> }; JsHostView = jsHostFactory([", "{ component: Layout, children: [{ component: Home }, { component: Person }] }", "])", ""]);
+    deepStrictEqual(low.decl, "export context router from \"./router.js\"\nexport pure fn jsHostFactory(tree: unknown): Component provides(router) nests(children in component)\n");
+    // a view written over several lines keeps each line: what it says is on the line it starts on, its tree where it was
+    const SPREAD = HOST.replace("nests(children in component) = [", "nests(children in component) =\n\n[");
+    deepStrictEqual([hostProgram(SPREAD, parseDeclarations(SPREAD), "host.d.rx")!.rx.split("\n").length, SPREAD.split("\n").length, diags(app(SPREAD.replace(" provides(router)", ""))), diags(app(SPREAD))], [11, 11, ["CONTEXT_NOT_FOUND@host.d.rx:6"], []]);
+    // the view's words are on its own line, as a row's are
+    deepStrictEqual(refused("export default component\n  provides(router) = []\n"), true);
   }],
   ["a_marked_declaration_is_read_as_a_signature", () => {   // MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)
     deepStrictEqual(["//@ signature x.rx\nexport a", "\n// built\n//@signature\nexport a", "//@ signatures\nexport a", "export a\n//@ signature", "// signature\nexport a", ""].map(isPrintedSignature), [true, true, false, false, false, false]);

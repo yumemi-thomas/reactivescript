@@ -448,5 +448,20 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   const rr = spawnSync(process.execPath, ["--require", stub, path.join(__dirname, "../bin/declare.js"), "./more.js", "--out", "refused.d.rx"], { cwd: ws, encoding: "utf8" });
   check("rx-declare fails loudly on a draft that cannot be read back: non-zero, the line and the parse error on stderr, no file written", rr.status === 1 && /rx-declare: the draft for \.\/more\.js cannot be read back as a \.d\.rx.*line 3: expected '}' near 'readonly x'/.test(rr.stderr) && /\n    3 \| /.test(rr.stderr) && !fs.existsSync(path.join(ws, "refused.d.rx")), rr.stdout + rr.stderr);
 }
+// 09 MO-14: `rx-declare --host`, a draft of a host declaration from the modules a JS host renders
+{
+  const app = path.join(ws, "hostapp"); fs.mkdirSync(path.join(app, "src/routes"), { recursive: true });
+  fs.writeFileSync(path.join(app, "src/router.d.rx"), "export context router\nexport pure fn useParams(): { id: string } instantiates uses(router)\nexport fn go(to: string): void\n");
+  fs.writeFileSync(path.join(app, "src/routes/layout.rx"), "import { go } from \"../router.js\"\nexport default component Layout(props: { children?: View }) {\n  <main>{props.children}</main>\n}\n");
+  fs.writeFileSync(path.join(app, "src/routes/person.rx"), "import { useParams } from \"../router.js\"\nexport default component Person() {\n  params = useParams()\n  <h1>{params.id}</h1>\n}\nexport component Crumb() { <p>crumb</p> }\n");
+  const rh = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "--host", "src/routes/layout.rx", "src/routes/person.rx", "--out", "src/host.d.rx"], { cwd: app, encoding: "utf8" });
+  const text = rh.status === 0 ? fs.readFileSync(path.join(app, "src/host.d.rx"), "utf8") : rh.stderr;
+  const rows = text.split("\n").filter(l => l && !l.startsWith("//"));
+  check("rx-declare --host drafts a host declaration: an import of each module's exported components, as the declaration's own folder names it", rows[0] === "import { Layout } from \"./routes/layout.rx\"" && rows[1] === "import { Person, Crumb } from \"./routes/person.rx\"", text);
+  check("...the contexts those modules' imports are declared to use, for the host to provide", rows[2] === "export context router from \"./router.js\"", text);
+  check("...and a view with every component at the top, the nesting left to write", rows[3] === "export default component provides(router) nests(children in component) = [{ component: Layout }, { component: Person }, { component: Crumb }]" && /TODO: every component is placed at the top/.test(text), text);
+  const read = require("../src/rxc").rows(path.join(app, "src/host.d.rx"));
+  check("...which the crate reads as a host declaration (its view claims placement and each provision)", !read.error && JSON.stringify(read.rows.filter(r => r.kind === "host").map(r => r.obligations)) === JSON.stringify([["placement", "provides:router"]]), JSON.stringify(read));
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

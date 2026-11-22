@@ -27,6 +27,52 @@ pub struct ModuleSet {
     pub sources: HashMap<String, String>,
     /// an editor's load (CP-8e): what the parse recovered from, each with its file
     pub parse_errors: Vec<ParseError>,
+    /// MO-14: the JS host's view above this program — its declaration, and the program that stands for it
+    pub host: Option<Box<HostView>>,
+    /// MO-14: the modules the host's declaration imports
+    pub hosted: HashSet<String>,
+    /// MO-14: the components it places, `path#Name`
+    pub placed: HashSet<String>,
+}
+
+/// MO-14: a host declaration found above a program — `file`, the `host.d.rx`; `entry`, the module that stands for the
+/// host's view in the checker (never written: the declaration lowered onto a factory's words); `set`, that program.
+pub struct HostView {
+    pub file: String,
+    pub entry: String,
+    pub set: ModuleSet,
+}
+
+/// MO-14: the name a host declaration has, looked for in the entry's folder and each one above it (the nearest wins).
+pub const HOST_DECLARATION: &str = "host.d.rx";
+
+/// MO-14c: a host declaration as the program the checker walks — the declaration's own imports, its tree given to a
+/// factory with the row's words (MO-11f, MO-11i, MO-12c), and that factory's component applied as the app's view. Text
+/// for text, each piece on the line the declaration has it, so a diagnostic's line is the declaration's. `.0` is the
+/// module (`<file>.host.rx`), `.1` the declaration of the factory it calls (`<file>.host.d.rx`). `None` when the file
+/// states no view.
+pub fn host_program(src: &str, ds: &[JsDecl], name: &str) -> Option<(String, String)> {
+    let (provides, nests, span) = ds.iter().find_map(|d| if let JsDecl::Host { provides, nests, span, .. } = d { Some((provides, nests, *span)) } else { None })?;
+    // every line kept, blank; then each piece put back where the declaration has it
+    let mut pieces: Vec<(usize, usize, String)> = ds.iter().filter_map(|d| if let JsDecl::Import { span, .. } = d { Some((span.0, span.1, src[span.0..span.1].to_string())) } else { None }).collect();
+    let (row, tree, end) = span;
+    // (the row's own line breaks kept after it, so the tree stays on its lines)
+    pieces.push((row, tree, format!("import {{ jsHostFactory }} from \"./{name}.host.js\"; export default component JsHost() {{ <JsHostView /> }}; JsHostView = jsHostFactory({}", "\n".repeat(src[row..tree].matches('\n').count()))));
+    pieces.push((tree, end, format!("{})", &src[tree..end])));
+    pieces.sort_by_key(|p| p.0);
+    let blank = |t: &str| t.chars().map(|ch| if ch == '\n' { '\n' } else { ' ' }).collect::<String>();
+    let mut rx = String::new();
+    let mut at = 0;
+    for (from, to, text) in pieces {
+        rx.push_str(&blank(&src[at..from]));
+        rx.push_str(&text);
+        at = to;
+    }
+    rx.push_str(&blank(&src[at..]));
+    let mut decl: Vec<String> = ds.iter().filter_map(|d| if let JsDecl::Context { name, from, .. } = d { Some(format!("export context {name}{}", from.as_ref().map(|f| format!(" from {}", serde_json::to_string(f).unwrap_or_default())).unwrap_or_default())) } else { None }).collect();
+    let words = format!("{}{}", if provides.is_empty() { String::new() } else { format!(" provides({})", provides.join(", ")) }, nests.as_ref().map(|(k, i)| format!(" nests({k} in {i})")).unwrap_or_default());
+    decl.push(format!("export pure fn jsHostFactory(tree: unknown): Component{words}"));
+    Some((rx, decl.join("\n") + "\n"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,10 +481,56 @@ pub fn load_modules(entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Resul
 pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<ModuleSet, ParseError> {
     load(entry, read, true)
 }
+/// MO-14: with a host declaration at or above the entry's folder, the program that stands for the host's view is loaded
+/// beside the entry's (`host`), with the modules it imports (`hosted`) and the components it places (`placed`).
 fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
+    let mut set = load_program(entry, read, recover)?;
+    let dirs: Vec<&str> = entry.split('/').collect();
+    let dirs = &dirs[..dirs.len() - 1];
+    let lo = if entry.starts_with('/') { 1 } else { 0 };
+    let mut found = None;
+    for i in (lo..=dirs.len()).rev() {
+        let file = dirs[..i].iter().copied().chain(std::iter::once(HOST_DECLARATION)).collect::<Vec<_>>().join("/");
+        if let Some(src) = read(&file) {
+            found = Some((file, src));
+            break;
+        }
+    }
+    let Some((file, src)) = found else { return Ok(set) };
+    let ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", file, e.0), e.1, Some(file.clone()), e.3))?;
+    let name = file.rsplit('/').next().unwrap_or(HOST_DECLARATION);
+    let Some((rx, decl)) = host_program(&src, &ds, name) else { return Ok(set) };
+    let host_entry = format!("{file}.host.rx");
+    let host_decl = format!("{file}.host.d.rx");
+    let over = |p: &str| if p == host_entry { Some(rx.clone()) } else if p == host_decl { Some(decl.clone()) } else { read(p) };
+    let mut hs = load_program(&host_entry, &over, recover).map_err(|e| ParseError(e.0.replace(&host_entry, &file).replace(&host_decl, &file), None, Some(e.2.filter(|f| *f != host_entry && *f != host_decl).unwrap_or_else(|| file.clone())), e.3))?;
+    let mut hosted = HashSet::new();
+    let mut placed = HashSet::new();
+    // placed: the imported components the tree names (one it imports and leaves out is still rendered where no one says)
+    let tree = ds.iter().find_map(|d| if let JsDecl::Host { span, .. } = d { Some(&src[span.1..span.2]) } else { None }).unwrap_or("");
+    let named: HashSet<&str> = tree.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '$')).collect();
+    for d in &ds {
+        if let JsDecl::Import { names, from, .. } = d {
+            let to = join_path(&file, from);
+            for (n, alias) in names {
+                if named.contains(alias.as_str()) {
+                    placed.insert(format!("{to}#{n}"));
+                }
+            }
+            hosted.insert(to);
+        }
+    }
+    hs.hosted = hosted.clone();
+    hs.placed = placed.clone();
+    set.host = Some(Box::new(HostView { file, entry: host_entry, set: hs }));
+    set.hosted = hosted;
+    set.placed = placed;
+    Ok(set)
+}
+fn load_program(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
     let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), wire_ids: HashMap::new(), signatures: IndexMap::new(), printed: Default::default(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
+    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors, host: None, hosted: HashSet::new(), placed: HashSet::new() })
 }
 
 /// E-5a: the module keys that name the hosts (`?rx-lib` imports, CP-4d). A key is the path the program reached the module
@@ -582,6 +674,73 @@ mod tests {
         assert_eq!(codes("/app/src/bare.rx"), ["CONTEXT_NOT_FOUND"]);
         assert_eq!(codes("/app/src/typo.rx"), ["NOT_EXPORTED", "CONTEXT_NOT_FOUND"]);
         assert!(parse_declarations("export context client from query\n").is_err());
+    }
+
+    /// MO-14: `host.d.rx`, found at or above a program — the `.rx` components a JS host renders (a file-based router's
+    /// route files), imported by name, and the view it makes of them in a factory's words; checked as the app's view,
+    /// what it says on the declaration's line.
+    #[test]
+    fn a_host_declaration_places_the_components_a_js_host_renders() {
+        const HOST: &str = "// what the file router does with the route files\nimport { Layout } from \"./routes/layout.rx\"\nimport { Home } from \"./routes/index.rx\"\nimport { Person, Banner } from \"./routes/person.rx\"\nexport context router from \"./router.js\"\nexport default component provides(router) nests(children in component) = [\n  { component: Layout, children: [{ component: Home }, { component: Person }] }\n]\n";
+        const LAYOUT: &str = "import { NotFound } from \"../people.js\"\nexport default component Layout(props: { children?: View }) {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main>{props.children}</main> }\n  }\n}\n";
+        let app = |host: Option<&str>, layout: &str| -> Vec<(String, String)> {
+            let mut fs: Vec<(String, String)> = [
+                ("/app/src/router.d.rx", "export context router\nexport pure fn useParams(): { id: string } instantiates uses(router)\n"),
+                ("/app/src/people.d.rx", "export error NotFound\nexport pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)\n"),
+                ("/app/src/routes/layout.rx", layout),
+                ("/app/src/routes/index.rx", "export default component Home() { <h1>People</h1> }\n"),
+                ("/app/src/routes/person.rx", "import { useParams } from \"../router.js\"\nimport { fetchPerson } from \"../people.js\"\nexport default component Person() {\n  params = useParams()\n  person = await fetchPerson(params.id)\n  <h1>{person.name}</h1>\n}\nexport component Banner() {\n  params = useParams()\n  <p>{params.id}</p>\n}\n"),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+            if let Some(h) = host {
+                fs.push(("/app/src/host.d.rx".into(), h.into()));
+            }
+            fs
+        };
+        let diags = |fs: &[(String, String)], entry: &str, spa: bool, whole: bool| -> Vec<String> {
+            let read = |p: &str| fs.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+            crate::check::check_modules_hosts(&load_modules(entry, &read).unwrap(), spa, whole, &[]).diags.iter().map(|d| format!("{}@{}:{}", d.code, d.file.as_deref().unwrap_or(entry).rsplit('/').next().unwrap(), d.line)).collect()
+        };
+        const PERSON: &str = "/app/src/routes/person.rx";
+        let none = Vec::<String>::new();
+        // the route files as they are, each a page that relies on its layout and on the router: accepted from any of them
+        assert_eq!(diags(&app(Some(HOST), LAYOUT), PERSON, false, false), none);
+        assert_eq!(diags(&app(Some(HOST), LAYOUT), "/app/src/routes/layout.rx", false, false), none);
+        assert_eq!(diags(&app(Some(HOST), LAYOUT), "/app/src/routes/index.rx", true, false), none);
+        // with no declaration, a route file's default component is a mounted view, and nothing is above it
+        assert_eq!(diags(&app(None, LAYOUT), PERSON, false, false), ["UNHANDLED_FAILURE@person.rx:6", "CONTEXT_NOT_FOUND@person.rx:4"]);
+        // the layout's regions hold its pages: without one, the page's failure (or, in a client-only build, its first load) is the host's
+        let no_errored = LAYOUT.replace("  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main>{props.children}</main> }\n  }\n", "  loading fallback { <p>loading…</p> } { <main>{props.children}</main> }\n");
+        assert_eq!(diags(&app(Some(HOST), &no_errored), PERSON, false, false), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+        let no_loading = LAYOUT.replace("loading fallback { <p>loading…</p> } { <main>{props.children}</main> }", "<main>{props.children}</main>");
+        assert_eq!(diags(&app(Some(HOST), &no_loading), PERSON, true, false), ["ASYNC_OUTSIDE_LOADING_BOUNDARY@host.d.rx:6"]);
+        // a page the host renders beside the layout, not in it; a host that provides no router
+        assert_eq!(diags(&app(Some(&HOST.replace("children: [{ component: Home }, { component: Person }] }", "children: [{ component: Home }] }, { component: Person }")), LAYOUT), PERSON, false, false), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+        assert_eq!(diags(&app(Some(&HOST.replace(" provides(router)", "")), LAYOUT), PERSON, false, false), ["CONTEXT_NOT_FOUND@host.d.rx:6"]);
+        // a component the declaration imports and leaves out of its tree is rendered where no one says: in a whole-program
+        // build it is checked under a root of its own (CP-4d), as every export of a module a host renders that is not placed
+        assert_eq!(diags(&app(Some(HOST), LAYOUT), PERSON, false, true), ["CONTEXT_NOT_FOUND@person.rx:1"]);
+        assert_eq!(diags(&app(Some(&HOST.replace("{ component: Person }] }", "{ component: Person }, { component: Banner }] }")), LAYOUT), PERSON, false, true), none);
+        // the tree names what the declaration imports
+        assert_eq!(diags(&app(Some(&HOST.replace("component: Home", "component: Nope")), LAYOUT), PERSON, false, false), ["UNBOUND@host.d.rx:6"]);
+        for text in ["import Layout from \"./layout.rx\"\n", "import { Layout } from \"@demo/pages\"\n", "import { Layout } from \"./layout.js\"\n", "export default component provides(router)\n", "export default component = 3\n", "export default fn f()\n", "export default component = []\nexport default component = []\n", "export default component uses(router) = []\n"] {
+            assert!(parse_declarations(text).is_err(), "{text}");
+        }
+        assert!(parse_declarations("import { Layout as L } from \"../pages/layout.rx\"\nexport context router\nexport default component provides(router) nests(children in component) = { component: L }\n").is_ok());
+        // lowered text for text, each piece on its line: the declaration's imports, and its tree given to a factory with the row's words
+        let (rx, decl) = host_program(HOST, &parse_declarations(HOST).unwrap(), "host.d.rx").unwrap();
+        assert_eq!(rx.split('\n').map(str::trim).collect::<Vec<_>>(), ["", "import { Layout } from \"./routes/layout.rx\"", "import { Home } from \"./routes/index.rx\"", "import { Person, Banner } from \"./routes/person.rx\"", "", "import { jsHostFactory } from \"./host.d.rx.host.js\"; export default component JsHost() { <JsHostView /> }; JsHostView = jsHostFactory([", "{ component: Layout, children: [{ component: Home }, { component: Person }] }", "])", ""]);
+        assert_eq!(decl, "export context router from \"./router.js\"\nexport pure fn jsHostFactory(tree: unknown): Component provides(router) nests(children in component)\n");
+        // a view written over several lines keeps each line: what it says is on the line it starts on, its tree where it was
+        let spread = HOST.replace("nests(children in component) = [", "nests(children in component) =\n\n[");
+        assert_eq!(host_program(&spread, &parse_declarations(&spread).unwrap(), "host.d.rx").unwrap().0.split('\n').count(), spread.split('\n').count());
+        assert_eq!(spread.split('\n').count(), 11);
+        assert_eq!(diags(&app(Some(&spread.replace(" provides(router)", "")), LAYOUT), PERSON, false, false), ["CONTEXT_NOT_FOUND@host.d.rx:6"]);
+        assert_eq!(diags(&app(Some(&spread), LAYOUT), PERSON, false, false), none);
+        // the view's words are on its own line, as a row's are
+        assert!(parse_declarations("export default component\n  provides(router) = []\n").is_err());
     }
 
     /// MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)

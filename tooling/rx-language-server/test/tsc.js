@@ -312,5 +312,22 @@ check("a printed signature in include: read as the .rx module's, typed by its pr
 const printedBad = run(...kit('double("x")'));
 check("...whose types hold: a wrong argument is TypeScript's error on the .rx", printedBad.status !== 0 && /main\.rx\(\d+,\d+\): error TS2345/.test(printedBad.out) && !/DECLARATION_MISMATCH|PARSE/.test(printedBad.out), printedBad);
 
+// 11 CP-4d: a route file imported as its page (`?rx-page`) is typed by the module's projection — its default export
+// the module's default component, its other components by name
+{
+  const pw = path.join(__dirname, "../.test/tsc-page");
+  fs.rmSync(pw, { recursive: true, force: true }); fs.mkdirSync(path.join(pw, "node_modules/@reactivescript"), { recursive: true });
+  for (const f of fs.readdirSync(path.join(repo, "ref/node_modules")).filter(f => !f.startsWith("."))) fs.symlinkSync(path.join(repo, "ref/node_modules", f), path.join(pw, "node_modules", f), "dir");
+  fs.symlinkSync(path.join(repo, "runtime"), path.join(pw, "node_modules/@reactivescript/runtime"), "dir");
+  fs.writeFileSync(path.join(pw, "page.rx"), "export default component Person(props: { id: string }) {\n  <p>{props.id}</p>\n}\nexport component Crumb() {\n  <i>here</i>\n}\n");
+  fs.writeFileSync(path.join(pw, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] }, include: ["*.rx", "*.tsx"] }));
+  const host = prop => fs.writeFileSync(path.join(pw, "host.tsx"), `import Person, { Crumb } from "./page.rx?rx-page";\nexport const view = () => <><Person id=${prop} /><Crumb /></>;\n`);
+  const tsc = () => { const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--noEmit", "-p", "tsconfig.json"], { cwd: pw, encoding: "utf8" }); return { status: r.status, out: r.stdout + r.stderr }; };
+  host("\"1\""); const good = tsc();
+  check("a route file imported as its page (?rx-page) is typed: its default export is the module's default component", good.status === 0, good.out);
+  host("{1}"); const bad = tsc();
+  check("...by that component's props: a number for its string is TypeScript's error in the host", bad.status !== 0 && /host\.tsx\(2,\d+\): error TS2322/.test(bad.out), bad.out);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

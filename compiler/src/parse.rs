@@ -545,6 +545,11 @@ pub enum JsDecl {
     Context { name: String, line: usize, from: Option<String>, resolved: Option<String> },
     /// MO-8g: a value the module exports (`export const pageSearch: Schema`)
     Value { name: String, line: usize, ty: Option<String> },
+    /// MO-14a: a host declaration's import of the `.rx` components the host renders (`(name, alias)`); `span`: the row's text
+    Import { names: Vec<(String, String)>, from: String, line: usize, span: (usize, usize) },
+    /// MO-14b: the view a JS host makes — `export default component provides(c) nests(children in component) = <tree>`;
+    /// `span`: the row's start, its tree's start and end
+    Host { line: usize, provides: Vec<String>, nests: Option<(String, String)>, span: (usize, usize, usize) },
 }
 /// MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it (`None` in the list:
 /// every class), and whether it takes a component value (MO-11c: its type is `Component`).
@@ -569,6 +574,8 @@ impl JsDecl {
     pub fn name(&self) -> &str {
         match self {
             JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } | JsDecl::Comp { name, .. } | JsDecl::Context { name, .. } | JsDecl::Value { name, .. } => name,
+            JsDecl::Import { from, .. } => from,
+            JsDecl::Host { .. } => "default",
         }
     }
 }
@@ -580,6 +587,12 @@ impl JsDecl {
 /// a component). rx-verify tags each result with the claim it
 /// ran; a claim no result answers is not verified.
 pub fn obligations(d: &JsDecl) -> Vec<String> {
+    // MO-14: a host declaration's rows — an import is no claim of its own; the view claims where each component renders
+    match d {
+        JsDecl::Import { .. } => return vec![],
+        JsDecl::Host { provides, .. } => return std::iter::once("placement".to_string()).chain(provides.iter().map(|c| format!("provides:{c}"))).collect(),
+        _ => {}
+    }
     let mut out: Vec<String> = vec!["exists".into()];
     let fn_typed = |t: &str| {
         let t = js_trim(t);
@@ -646,7 +659,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
                 out.push("fails".into());
             }
         }
-        JsDecl::Error { .. } | JsDecl::Value { .. } | JsDecl::Type { .. } | JsDecl::Context { .. } => {}
+        JsDecl::Error { .. } | JsDecl::Value { .. } | JsDecl::Type { .. } | JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => {}
     }
     out
 }
@@ -1712,10 +1725,102 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         }
         let line = c.line();
         starts.push(line);
+        // MO-14: a host declaration (`host.d.rx`) — the `.rx` components a JS host renders, imported as an `.rx` module
+        // imports them, and the view it makes of them (`export default component … = <tree>`)
+        if c.starts_with("import") && c.src[c.i + 6..].chars().next().is_some_and(|ch| ch.is_whitespace() || ch == '{') {
+            let start = c.i;
+            c.keyword("import");
+            c.ws(true);
+            let mut names = vec![];
+            if !c.eat("{") {
+                return c.fail("a host declaration imports the components the host renders by their names, `import { Layout, Person } from \"./pages.rx\"` (MO-14a)");
+            }
+            c.ws(true);
+            while !c.starts_with("}") {
+                let name = c.ident_or("import name")?;
+                c.ws(true);
+                let mut alias = name.clone();
+                if c.keyword("as") {
+                    c.ws(true);
+                    alias = c.ident_or("alias")?;
+                    c.ws(true);
+                }
+                names.push((name, alias));
+                if !c.eat(",") {
+                    break;
+                }
+                c.ws(true);
+            }
+            c.expect("}")?;
+            c.ws(true);
+            if !c.keyword("from") {
+                return c.fail("from");
+            }
+            c.ws(true);
+            let from = match parse_primary(&mut c)?.k {
+                ExprKind::Lit(Lit::Str(m)) => m,
+                _ => return c.fail("module path"),
+            };
+            if !from.ends_with(".rx") || !(from.starts_with("./") || from.starts_with("../")) {
+                return c.fail(&format!("import … from {}: a host declaration imports the `.rx` modules whose components the host renders, by a relative path (MO-14a)", serde_json::to_string(&from).unwrap_or_default()));
+            }
+            out.push(JsDecl::Import { names, from, line, span: (start, c.i) });
+            continue;
+        }
+        let row_start = c.i;
         if !c.keyword("export") {
             return c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export component …`, `export error …`, `export type …`");
         }
         c.ws(true);
+        if c.keyword("default") {
+            // MO-14b
+            c.ws(true);
+            if !c.keyword("component") {
+                return c.fail("export default component … = <tree>: the view a JS host makes of the `.rx` components it renders (MO-14b)");
+            }
+            if out.iter().any(|d| matches!(d, JsDecl::Host { .. })) {
+                return c.fail("a host declaration states one view: `export default component … = …` is written once (MO-14b)");
+            }
+            let mut provides: Vec<String> = vec![];
+            let mut nests = None;
+            loop {
+                c.ws(false);
+                if c.keyword("provides") {
+                    c.ws(false);
+                    provides.extend(context_names(&mut c)?);
+                    continue;
+                }
+                if c.keyword("nests") {
+                    c.ws(false);
+                    c.expect("(")?;
+                    c.ws(true);
+                    let kids = c.ident_or("nests(children in component): a field of the record (MO-11i)")?;
+                    c.ws(true);
+                    if !c.keyword("in") {
+                        return c.fail("nests(children in component) (MO-11i)");
+                    }
+                    c.ws(true);
+                    let inside = c.ident_or("nests(children in component): the field that holds the component")?;
+                    c.ws(true);
+                    c.expect(")")?;
+                    nests = Some((kids, inside));
+                    continue;
+                }
+                break;
+            }
+            c.ws(false);
+            if !c.eat("=") {
+                return c.fail("export default component provides(…) nests(children in component) = <tree>: the words a factory's row has, then the records the host renders (MO-14b)");
+            }
+            c.ws(true);
+            if c.peek() != '{' && c.peek() != '[' {
+                return c.fail("the host's tree is a record or a list of records, `{ component: Layout, children: [{ component: Person }] }` (MO-14b)");
+            }
+            let tree_start = c.i;
+            parse_primary(&mut c)?;
+            out.push(JsDecl::Host { line, provides, nests, span: (row_start, tree_start, c.i) });
+            continue;
+        }
         if c.starts_with("type") || c.starts_with("interface") {
             let t0 = c.i;
             let _ = c.keyword("type") || c.keyword("interface");

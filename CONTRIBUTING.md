@@ -20,6 +20,10 @@ a module of the app's own, or typed by its own `.d.ts`. A word that is
 withdrawn is refused by name in both declaration parsers, with what to
 write instead, and the benchmark lists each check given up with it
 (`bench/README.md`).
+The evidence is programs built and run against the libraries npm has, not
+types read: 09 MO-14 (a host declaration, 2026-11-23) records what was
+built for two routers before the form was taken, and what each fallback
+did.
 
 Decisions recorded in the spec as *ruled* with a date are settled; please
 open an issue rather than a PR to revisit one. Decisions marked *taken by

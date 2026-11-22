@@ -333,3 +333,23 @@ What 09 MO-8r's settlement changes for a package written in `.rx`:
   part is not exported whole (`RESULT_AS_VALUE`): the part is.
 - **A router in a package** is a factory's component (MO-11j), as it
   was: nothing of a route tree in values was in a signature.
+
+## A host declaration and a package (2026-11-23)
+
+What 09 MO-14 changes for a package written in `.rx`, which is little:
+
+- **A route file is rooted as a `?rx-lib` module is.** `?rx-page` (11
+  CP-4d) is `?rx-lib` with another default export: the plugin gives the
+  module's name to `components` in the same way (MO-13h), so its state
+  lasts as the page or the request does and its ids are the server's.
+- **A host declaration imports the app's own modules.** Its imports are
+  relative `.rx` paths; a package's component reaches a page through the
+  `.rx` module that applies it, where it is checked as ever. A router
+  that renders a package's component directly as a route (an admin
+  section shipped as a package) is not what the form says: the app wraps
+  it in a module of its own, one line.
+- **A printed signature is unchanged.** A component a host's view names
+  is printed with what it needs from above (`uses(…)`, its failures) as
+  any exported component is; the declaration is the app's, and is not
+  shipped.
+

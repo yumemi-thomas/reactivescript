@@ -1118,3 +1118,136 @@ Three entries write the words by hand in a module of the app's own (+3
 each: `solid-use/fetch`, `primitives/graphql`, `primitives/geolocation`);
 `primitives/sse` has them from the draft (`known.js`), at no word. The
 eight variants are the four entries' two each.
+
+## An eighth round: what a file-based router renders (2026-11-23)
+
+The seventh round left TanStack Router in `.rx` in two shapes, each losing
+something: the app's own factory around a tree written as records kept
+every check above a page and lost the registered route types; a route
+tree in JavaScript around `.rx` pages kept the types and lost the checks
+(11 CP-4d: nothing above a component a JS host renders is credited). This
+round asks whether what a file-based router does with a route file's
+component can be said, and holds the answer to the bar: built and run, no
+fallback, more than one library, no package named in the checker.
+
+### Two routers, built
+
+| | TanStack's file routes | file-system routes on `@solidjs/router` |
+| --- | --- | --- |
+| packages | `@tanstack/router-plugin` 1.169.0 (`tanstackRouter({ target: "solid" })`) with `@tanstack/solid-router` 2.0.0-rc.11; `@tanstack/solid-start` 2.0.0-rc.10 (its plugin runs the same generator) | `filesystem-routing` 0.5.0 with `@solidjs/router` 2.0.1's `@solidjs/router/fs` |
+| `.rx` route files | **no**, and said exactly: the generator's scan keeps files matching `/\.(tsx|ts|jsx|js|vue)$/`, and it parses each route file as JavaScript to write its path in. A stand-in that is faithful to what an app does today: each route file is TSX that imports its component from `pages.rx?rx-lib` | **yes**: `fileRoutes({ extensions: ["rx"], toRoute })`, each file imported as its page (`?rx-page`, new in 11 CP-4d: `?rx-lib` with the module's default component as the default export) |
+| the program | a root layout with `errored`/`loading` regions and `<Link>`s; pages with `useParams({ from })` and an `await` that rejects | a layout `(app).rx` with the same regions; `(app)/index.rx`, `(app)/people/[id].rx` with `useParams()` and an `await` of a `query` |
+| typed routes in the `.rx` | from `routeTree.gen.ts`: `<Link to="/home">`, `useParams({ from: "/person/$id" })` refused by TypeScript on their lines | from the plugin's `file-routes.d.ts`: `paths.person("9")` refused on its line |
+| the checker, before | hosts known: 4 errors on the correct program. Hosts not known: accepted, and its mistakes with it | 5 errors on the correct program in any build: a route file's default component was a mounted view |
+
+SolidStart was asked for and is not one of them: `@solidjs/start` 2.2.3,
+its latest, has `solid-js ^1.9.15` and `@solidjs/router <2` as peers, and
+`.rx` compiles to Solid 2. `filesystem-routing` is SolidStart's file
+routes taken out as a package (its README says so), on Solid 2, which is
+what was built.
+
+### The decision: a host declaration (09 MO-14)
+
+It passes. Without it the correct program is refused or its mistakes go
+unchecked, and each fallback was run: the library undeclared (hooks
+unchecked, the pages' failures still refused), regions in every page (a
+different program), the factory of the seventh round (it needs an `.rx`
+module to give it the components, and with file routes the host finds
+them — it is not file-based routing, and it gave the types up). Two
+routers by different authors write it, three packages. And the form adds
+no word: `host.d.rx` imports the components the host renders and states
+`export default component provides(router) nests(children in component) =
+<tree>` — a factory's row with its argument written beside it. The
+checker never learns what a router is: the view is lowered, text for
+text, onto the module that would say the same in `.rx`, and walked by
+MO-11f, MO-11i and MO-12c as they were.
+
+Considered and not taken: a row per route module (`under(Layout)` on a
+page) — it is the withdrawn `nests(component under parent)` over modules,
+and scatters one fact over every file; a word for a host (`export host`)
+— `export default component` already means "the app's view"; a flag that
+names the host to the build — the editor and `rx-tsc` would not have it,
+so the file is found by its place, as `rx-types/` is; a named JS
+component given a tree (`export component AppRouter … = <tree>`) so that
+an `.rx` entry's regions above the router could be credited — no program
+of either router needed it, and TanStack Start has no such component in
+the app.
+
+### What was built
+
+- both declaration parsers (`import { … } from "./x.rx"`, `export default
+  component … = <tree>`; a default import, a package, a second view, a
+  view with no tree are refused), both loaders (`hostProgram`,
+  `host_program`: the lowering; `host.d.rx` found from the entry's folder
+  upward), both checkers (a hosted module has no mounted view; a placed
+  component is out of CP-4d's cautious check, every other export of such
+  a module in it; the host's program checked after the entry's);
+- `?rx-page` in the Vite front end and in `rx-tsc`'s resolution of it;
+- `rx-declare --host`, the draft; `rx-verify` on a host declaration, with
+  a scene; the row in strict declarations' records (`placement`,
+  `provides:c`);
+- the tree-sitter grammar (`host_view`), with its corpus entry;
+- S-module-37, the unit
+  `a_host_declaration_places_the_components_a_js_host_renders` on both
+  sides;
+- three tasks: `start-route` rewritten around an `.rx` layout,
+  `router-provider` moved from the factory to the router's file routes,
+  `file-routes` new.
+
+`examples/tanstack` stays the factory: a tree written in `.rx` is still
+given to one, and that is the example of it. `examples/start` stays the
+page that holds its own regions, which needs no declaration.
+
+### Found on the way
+
+- `rx-declare` did not hold a row whose types it named through a module
+  written with its extension (`./router.ts`): its own program lacked
+  `allowImportingTsExtensions`, TypeScript refused the import, and the
+  draft fell back to `any` (a render prop's parameter). Fixed.
+- A dependency's default component is walked as a mounted view by both
+  checkers, where MO-1c says it is a component like any other. Left as it
+  is outside a hosted module: no program of the suite has one, and
+  changing it is a rule of its own.
+- Libraries, recorded and not filed: `filesystem-routing`'s `toPickId`
+  joins its picks with `?` to a source that already has a query
+  (`[id].rx?rx-page?pick=default`); Vite and the front end both read the
+  first query, so it works. TanStack's `useParams({ strict: false })`
+  with no router above warns and returns, where most hooks throw:
+  `rx-verify` takes either as a hook saying it has no provider.
+
+### The numbers
+
+`node bench/run.mjs`, at `8212c58` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `8212c58` (32 tasks) | 96/96 | 155/155 | 207/207 | 164/166 | 11/11 | 269 | 41 | 0 | 27 |
+| now (33 tasks) | 102/102 | 161/161 | 214/214 | 175/177 | 11/11 | 277 | 41 | 0 | 28 |
+
+The two red checks are the two each task's `known` gives a reason for,
+unchanged. By task:
+
+| task | good | types | runtime | bad caught | unrepresentable | words |
+| --- | --- | --- | --- | --- | --- | --- |
+| `router-provider`, was (the factory) | 3/3 | 5/5 | 4/4 | 6/6 | 1/1 | 21 |
+| `router-provider`, now (TanStack Router's file routes) | 6/6 | 5/5 | 5/5 | 6/6 | 1/1 | 8 |
+| `start-route`, was (pages with regions of their own) | 3/3 | 5/5 | 8/8 | 2/2 | 1/1 | 20 |
+| `start-route`, now (an `.rx` layout, `host.d.rx`) | 3/3 | 6/6 | 9/9 | 6/6 | 1/1 | 28 |
+| `file-routes` (new: `filesystem-routing`, `@solidjs/router`) | 3/3 | 5/5 | 5/5 | 7/7 | — | 13 |
+
+Of the three type probes and one bad variant the seventh round gave up,
+two probes are back (a link to no route, a `from` that is no route). The
+type of a router passed as a prop and the router built and never rendered
+stay given up: there is no such prop, and no such value in `.rx`. A
+`host.d.rx` costs one word over its draft where the draft's imports are
+the view's (the nesting), eight where it leaves a component out.
+
+| coverage | programs | green | modules drafted | rows | library's `any` | introduced | by place | hand-written words | bad caught |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `8212c58` | 121 | 121 | 190 | 4877 | 1195 | 0 | 1519 | 277 | 8/8 |
+| now | 121 | 121 | 190 | 4877 | 1195 | 0 | 1519 | 277 | 8/8 |
+
+Every `@solid-primitives` package, every module of solid-use and the
+families of Wardic and UI SDK are as they were: no row of theirs is
+touched by the form.
+

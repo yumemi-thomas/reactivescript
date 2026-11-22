@@ -172,10 +172,23 @@ module.exports = grammar(tsx, {
     _error_classes: $ => seq($._error_class, repeat(seq('|', $._error_class))),
     _error_class: $ => alias($.identifier, $.type_identifier),
 
-    export_statement: $ => seq(
-      'export',
-      optional('default'),
-      field('declaration', $._declaration_item),
+    export_statement: $ => choice(
+      seq(
+        'export',
+        optional('default'),
+        field('declaration', $._declaration_item),
+      ),
+      seq('export', 'default', field('declaration', $.host_view)),
+    ),
+
+    // 09 MO-14b, in a host declaration (`host.d.rx`): the view a JS host makes of the `.rx` components it renders,
+    // `export default component provides(router) nests(children in component) = { component: Layout, children: […] }`
+    host_view: $ => seq(
+      'component',
+      repeat(choice($.provides_clause, $.nests_clause)),
+      '=',
+      field('tree', choice($.object, $.array)),
+      $._semicolon,
     ),
 
     // ---------------------------------------------------------------- declarations

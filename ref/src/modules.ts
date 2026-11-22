@@ -6,7 +6,10 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
 
-export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; declarationIds?: Map<string, string>; printed?: Set<string> };   // printed: MO-13a, the signatures a JS import's marked `.d.rx` gave, by `.rx` path   // declarationIds: SV-5a, `packageRelative`   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
+export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; declarationIds?: Map<string, string>; printed?: Set<string>; host?: HostView; hosted?: Set<string>; placed?: Set<string> };   // MO-14: host, the JS host's view above this program (its declaration, and the program that stands for it); hosted: the modules it imports; placed: the components it places, `path#Name`
+/** MO-14: a host declaration found above a program — `file`, the `host.d.rx`; `entry`, the module that stands for the
+ *  host's view in the checker (never written: the declaration lowered onto a factory's words); `set`, that program. */
+export type HostView = { file: string; entry: string; set: ModuleSet };   // printed: MO-13a, the signatures a JS import's marked `.d.rx` gave, by `.rx` path   // declarationIds: SV-5a, `packageRelative`   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
 
 export const isRx = (from: string) => /\.rx$/.test(from);
 
@@ -122,8 +125,49 @@ export function besideDeclaration(importer: string, from: string, read: (path: s
   return paths.find(p => read(p) !== undefined) ?? paths[paths.length - 1];
 }
 
-/** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */
+/** MO-14: the name a host declaration has, looked for in the entry's folder and each one above it (the nearest wins). */
+export const HOST_DECLARATION = "host.d.rx";
+/** MO-14c: a host declaration as the program the checker walks — the declaration's own imports, its tree given to a
+ *  factory with the row's words (MO-11f, MO-11i, MO-12c), and that factory's component applied as the app's view. Text
+ *  for text, each piece on the line the declaration has it, so a diagnostic's line is the declaration's. `rx` is the
+ *  module (`<file>.host.rx`), `decl` the declaration of the factory it calls (`<file>.host.d.rx`). Undefined when the
+ *  file states no view. */
+export function hostProgram(src: string, ds: JsDecl[], name: string): { rx: string; decl: string } | undefined {
+  const host = ds.find(d => d.kind === "host"); if (!host || host.kind !== "host") return undefined;
+  const out = src.split("").map(ch => ch === "\n" ? "\n" : " ");   // every line kept, blank
+  const put = (from: number, to: number, text = src.slice(from, to)) => { for (let i = from; i < to; i++) out[i] = ""; out[from] = text; };
+  for (const d of ds) if (d.kind === "import") put(d.span[0], d.span[1]);
+  const [row, tree, end] = host.span;
+  // (the row's own line breaks kept after it, so the tree stays on its lines)
+  put(row, tree, `import { jsHostFactory } from "./${name}.host.js"; export default component JsHost() { <JsHostView /> }; JsHostView = jsHostFactory(` + "\n".repeat(src.slice(row, tree).split("\n").length - 1));
+  put(tree, end, src.slice(tree, end) + ")");
+  const words = `${host.provides ? ` provides(${host.provides.join(", ")})` : ""}${host.nests ? ` nests(${host.nests.kids} in ${host.nests.inside})` : ""}`;
+  const contexts = ds.flatMap(d => d.kind === "context" ? [`export context ${d.name}${d.from !== undefined ? ` from ${JSON.stringify(d.from)}` : ""}`] : []);
+  return { rx: out.join(""), decl: [...contexts, `export pure fn jsHostFactory(tree: unknown): Component${words}`].join("\n") + "\n" };
+}
+
+/** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none.
+ *  MO-14: with a host declaration at or above the entry's folder, the program that stands for the host's view is loaded
+ *  beside it (`host`), with the modules it imports (`hosted`) and the components it places (`placed`). */
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
+  const set = loadProgram(entry, read);
+  const dirs = entry.split("/").slice(0, -1); const lo = entry.startsWith("/") ? 1 : 0; let file: string | undefined; let src: string | undefined;
+  for (let i = dirs.length; i >= lo && src === undefined; i--) { file = [...dirs.slice(0, i), HOST_DECLARATION].join("/"); src = read(file); }
+  if (src === undefined || file === undefined) return set;
+  let ds: JsDecl[]; try { ds = parseDeclarations(src); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${file}: ${e.message}`), { code: e.code }); throw e; }
+  const name = file.split("/").pop()!; const lowered = hostProgram(src, ds, name); if (!lowered) return set;
+  const hostEntry = `${file}.host.rx`, hostDecl = `${file}.host.d.rx`;
+  const over = (p: string) => p === hostEntry ? lowered.rx : p === hostDecl ? lowered.decl : read(p);
+  let hs: ModuleSet; try { hs = loadProgram(hostEntry, over); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(e.message.split(hostEntry).join(file).split(hostDecl).join(file)), { code: e.code }); throw e; }
+  const hosted = new Set<string>(), placed = new Set<string>();
+  // placed: the imported components the tree names (one it imports and leaves out is still rendered where no one says)
+  const host = ds.find(d => d.kind === "host") as Extract<JsDecl, { kind: "host" }>; const named = new Set(src.slice(host.span[1], host.span[2]).split(/[^A-Za-z0-9_$]+/));
+  for (const d of ds) if (d.kind === "import") { const to = joinPath(file, d.from); hosted.add(to); for (const n of d.names) if (named.has(n.alias)) placed.add(`${to}#${n.name}`); }
+  hs.hosted = hosted; hs.placed = placed;
+  set.host = { file, entry: hostEntry, set: hs }; set.hosted = hosted; set.placed = placed;
+  return set;
+}
+function loadProgram(entry: string, read: (path: string) => string | undefined): ModuleSet {
   const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>(); const printed = new Set<string>(); const wireIds = new Map<string, string>();   /* SV-5a: each declared error class's wire id (`id#Name`), and the declaration it is */ const declarationIds = new Map<string, string>();
   const state = new Map<string, "busy" | "done">();
   const visit = (path: string, stack: string[]) => {

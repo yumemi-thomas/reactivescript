@@ -1741,6 +1741,8 @@ pub struct Opts<'a> {
     pub spa: bool,
     /// E-5a: the modules checked are the whole program
     pub whole: bool,
+    /// MO-14d: a JS host renders the module's components: its default component is no mounted view
+    pub hosted: bool,
 }
 
 pub struct Checker<'a> {
@@ -1904,7 +1906,7 @@ pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[Str
     let mut facts = vec![];
     let mut advice = vec![];
     for path in &set.order {
-        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole });
+        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path) });
         diags.extend(r.diags);
         advice.extend(r.advice);
         sigs.insert(path.clone(), r.sig);
@@ -1912,8 +1914,36 @@ pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[Str
         facts.push((path.clone(), r.peeks));
     }
     if whole {
-        diags.extend(resolve_peeks(&facts, set, hosts));
-        diags.extend(host_exports(&sigs, hosts, spa));
+        // MO-14d: a module the host's declaration imports is one a JS host renders (CP-4d), whatever the build found
+        let mut all: Vec<String> = hosts.to_vec();
+        let mut hosted: Vec<&String> = set.hosted.iter().filter(|h| !hosts.contains(h)).collect();
+        hosted.sort();
+        all.extend(hosted.into_iter().cloned());
+        diags.extend(resolve_peeks(&facts, set, &all));
+        diags.extend(host_exports(&sigs, &all, spa, &set.placed));
+    }
+    if let Some(host) = &set.host {
+        // MO-14c: the host's view, checked as a program of its own; what it says is the declaration's
+        let h = check_modules_hosts(&host.set, spa, whole, hosts);
+        let at = |mut d: Diagnostic| {
+            if d.file.as_deref().unwrap_or(&host.entry) == host.entry {
+                d.file = Some(host.file.clone());
+            }
+            d
+        };
+        let key = |d: &Diagnostic| format!("{}\0{}\0{}\0{}", d.file.as_deref().unwrap_or(&set.entry), d.line, d.code, d.msg);
+        let mut have: HashSet<String> = diags.iter().map(key).collect();
+        let mut said: HashSet<String> = advice.iter().map(key).collect();
+        for d in h.diags.into_iter().map(at) {
+            if have.insert(key(&d)) {
+                diags.push(d);
+            }
+        }
+        for d in h.advice.into_iter().map(at) {
+            if said.insert(key(&d)) {
+                advice.push(d);
+            }
+        }
     }
     Checked { diags, advice, sigs, models }
 }
@@ -1922,12 +1952,15 @@ pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[Str
 /// above it is credited to it — the cautious placement (09 MO-11s), a root of its own. What its summary lets out of its
 /// root is therefore unhandled: a failure no boundary of its own discharges, a context nothing in it provides, a first
 /// load nothing in it holds.
-fn host_exports(sigs: &IndexMap<String, ModSig>, hosts: &[String], spa: bool) -> Vec<Diagnostic> {
+fn host_exports(sigs: &IndexMap<String, ModSig>, hosts: &[String], spa: bool, placed: &HashSet<String>) -> Vec<Diagnostic> {
     let mut out = vec![];
     for h in hosts {
         let Some(sig) = sigs.get(h) else { continue };
         for (name, x) in &sig.exports {
             let ExportSig::Comp { sig: c } = x else { continue };
+            if placed.contains(&format!("{h}#{name}")) {
+                continue; // MO-14d: the host's declaration says where it renders this one
+            }
             let why = format!("{name} is exported from a module a JS host renders (`?rx-lib`): JS applies it where the checker cannot see, so no boundary or provision above it is credited (CP-4d)");
             for o in &c.own {
                 let line = o.at.as_deref().and_then(|a| a.rsplit(':').next()).and_then(|n| n.parse::<i64>().ok()).unwrap_or(1);
@@ -2113,9 +2146,11 @@ impl<'a> Checker<'a> {
             self.line = p.view.first().and_then(|m| m.line).unwrap_or(1) as i64;
             self.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`".into());
         }
-        provides_in(&p.decls, &p.view, &mut self.provided, &mut self.action_names);
-        self.block(&p.decls, &p.view, root, Ctx::reactive());
-        self.later.push(Later::Content { ms: &p.view, env: root, anc: vec![] });
+        // MO-14d: a hosted module's default component is rendered by the host, where its declaration says
+        let view: &'a [Markup] = if self.opts.hosted { &[] } else { &p.view };
+        provides_in(&p.decls, view, &mut self.provided, &mut self.action_names);
+        self.block(&p.decls, view, root, Ctx::reactive());
+        self.later.push(Later::Content { ms: view, env: root, anc: vec![] });
         let mut i = 0;
         while i < self.later.len() {
             let job = std::mem::replace(&mut self.later[i], Later::Content { ms: &[], env: root, anc: vec![] });
@@ -2640,7 +2675,7 @@ impl<'a> Checker<'a> {
                 continue;
             };
             match x {
-                JsDecl::Type { .. } | JsDecl::Context { .. } => continue, // MO-12a: a JS context is named only by its declaration file's rows
+                JsDecl::Type { .. } | JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => continue, // MO-12a: a JS context is named only by its declaration file's rows; MO-14: a host's rows are the loader's
                 JsDecl::Value { .. } => {
                     // MO-8g: a value, read as any import, never io
                     let mut s = Sym::new(SymKind::Import, alias, region, line);

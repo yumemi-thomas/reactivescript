@@ -179,6 +179,8 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
                         JsDecl::Value { .. } => "const",
                         JsDecl::Type { .. } => "type",
                         JsDecl::Context { .. } => "context",
+                        JsDecl::Import { .. } => "import",
+                        JsDecl::Host { .. } => "host",
                     };
                     json!({ "name": d.name(), "kind": kind, "line": line, "end": end, "obligations": crate::parse::obligations(d) })
                 })

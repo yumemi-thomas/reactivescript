@@ -54,31 +54,57 @@
       "value": "#!.*"
     },
     "export_statement": {
-      "type": "SEQ",
+      "type": "CHOICE",
       "members": [
         {
-          "type": "STRING",
-          "value": "export"
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "export"
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "default"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "FIELD",
+              "name": "declaration",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_declaration_item"
+              }
+            }
+          ]
         },
         {
-          "type": "CHOICE",
+          "type": "SEQ",
           "members": [
+            {
+              "type": "STRING",
+              "value": "export"
+            },
             {
               "type": "STRING",
               "value": "default"
             },
             {
-              "type": "BLANK"
+              "type": "FIELD",
+              "name": "declaration",
+              "content": {
+                "type": "SYMBOL",
+                "name": "host_view"
+              }
             }
           ]
-        },
-        {
-          "type": "FIELD",
-          "name": "declaration",
-          "content": {
-            "type": "SYMBOL",
-            "name": "_declaration_item"
-          }
         }
       ]
     },
@@ -12499,6 +12525,56 @@
       },
       "named": true,
       "value": "type_identifier"
+    },
+    "host_view": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "component"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "provides_clause"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "nests_clause"
+              }
+            ]
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "="
+        },
+        {
+          "type": "FIELD",
+          "name": "tree",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "object"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "array"
+              }
+            ]
+          }
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_semicolon"
+        }
+      ]
     },
     "_declaration_item": {
       "type": "CHOICE",

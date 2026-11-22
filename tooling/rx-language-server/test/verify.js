@@ -387,5 +387,38 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   check("...and one whose package does not resolve says so", /nopkg\.d\.rx.*not a project's declaration of a package that resolves/.test(outp), outp);
 }
 
+// 09 MO-14: a host declaration (`host.d.rx`) declares no module's exports: its view is run against the probe's scene
+{
+  const NAV = "import { createContext, useContext } from \"solid-js\";\nexport const Nav = createContext();\nexport const useNav = () => { const n = useContext(Nav); if (!n) throw new Error(\"no nav\"); return n; };\n";
+  const HOST = "// what the host renders\nimport { Layout, Home } from \"./pages.rx\"\nimport { Page } from \"./page.rx\"\nexport context nav from \"./nav.mjs\"\nexport default component provides(nav) nests(children in component) = [\n  { component: Layout, children: [{ component: Home }, { component: Page }] }\n]\n";
+  const probe = view => `import { createComponent } from "solid-js";\nimport { Nav, useNav } from "./nav.mjs";\nexport const scene = (rx, h) => () => ${view};\nexport const uses = { nav: () => useNav() };\n`;
+  const under = inner => `createComponent(Nav, { value: {}, get children() { return ${inner}; } })`;
+  const cases = {
+    held: probe(under("createComponent(rx.Layout, { get children() { return [createComponent(rx.Home, {}), createComponent(rx.Page, {})]; } })")),
+    beside: probe(under("[createComponent(rx.Layout, { get children() { return createComponent(rx.Home, {}); } }), createComponent(rx.Page, {})]")),
+    bare: probe("createComponent(rx.Layout, { get children() { return [createComponent(rx.Home, {}), createComponent(rx.Page, {})]; } })"),
+    partly: probe(under("createComponent(rx.Layout, { get children() { return createComponent(rx.Home, {}); } })")),
+  };
+  const run = (name, text, flags = []) => {
+    const dir = path.join(ws, `host-${name}`); fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "nav.mjs"), NAV); fs.writeFileSync(path.join(dir, "nav.d.rx"), "export context nav\nexport pure fn useNav(): { } instantiates uses(nav)\n"); fs.writeFileSync(path.join(dir, "host.d.rx"), HOST);
+    if (text) fs.writeFileSync(path.join(dir, "host.probe.mjs"), text);
+    const r = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), ...flags, "host.d.rx"], { cwd: dir, encoding: "utf8" });
+    return { out: r.stdout + r.stderr, status: r.status, dir };
+  };
+  const held = run("held", cases.held, ["--record"]);
+  check("a host declaration's view is held to the probe's scene: each page inside its layout", /host\.d\.rx:5 ok\s+the host's view holds: Home inside Layout; Page inside Layout/.test(held.out), held.out);
+  check("...and each context it provides: the hook that uses it runs in every component", /host\.d\.rx:5 ok\s+the host's view: provides\(nav\) holds: the hook that uses it runs in Layout, Home, Page/.test(held.out) && held.status === 0, held.out);
+  check("...its record is written, and strict mode accepts the row", fs.existsSync(path.join(held.dir, "host.verified.json")) && checkStrict(path.join(held.dir, "host.d.rx")).length === 0, JSON.stringify(checkStrict(path.join(held.dir, "host.d.rx"))));
+  const beside = run("beside", cases.beside);
+  check("a page the host renders outside its declared layout is a mismatch", /host\.d\.rx:5 MISMATCH\s+the host's view: Page renders outside Layout/.test(beside.out) && beside.status === 1, beside.out);
+  const bare = run("bare", cases.bare);
+  check("a host that does not provide a declared context is a mismatch", /host\.d\.rx:5 MISMATCH\s+the host's view: declared provides\(nav\), but the hook that uses it fails in Layout, Home, Page/.test(bare.out), bare.out);
+  const partly = run("partly", cases.partly);
+  check("a component the scene never renders is not verified, and named", /host\.d\.rx:5 unverified the host's view: the scene does not render Page/.test(partly.out) && partly.status === 0, partly.out);
+  const none = run("none", null);
+  check("with no scene, nothing of the view is verified", (none.out.match(/host\.d\.rx:5 unverified the host's view is not run: give a scene/g) ?? []).length === 2, none.out);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

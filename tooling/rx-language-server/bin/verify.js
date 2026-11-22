@@ -137,6 +137,18 @@ async function mount(dir, mod, probeMod, hook, args, fields, run, provide = prob
 async function verify(file) {
   const base = file.slice(0, -".d.rx".length);
   let js = require("../src/beside.js").jsOf(file);
+  // 09 MO-14: a host declaration (`host.d.rx`) declares no JS module's exports: its view is checked against the probe's scene
+  if (/^\s*export\s+default\s+component\b/m.test(fs.readFileSync(file, "utf8"))) {
+    const probeFile = [".probe.mjs", ".probe.js"].map(x => base + x).find(f => fs.existsSync(f));
+    const probeMod = probeFile ? await import(pathToFileURL(path.resolve(probeFile)).href) : null;
+    const dir = path.dirname(path.resolve(file));
+    const host = await require("../src/verify-place.js").verifyHost({ text: require("../src/strict.js").rowText(file), probeMod, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href });
+    if (!js) return [...host, ...require("../src/strict.js").unanswered(file, host)];
+    return [...host, ...(await verifyModule(file, base, js)).filter(r => !host.some(h => h.line === r.line && h.ob === r.ob))];   // a module's own rows beside the view
+  }
+  return verifyModule(file, base, js);
+}
+async function verifyModule(file, base, js) {
   // MO-8k's first place (2026-11-23): a project's declaration of a package, `rx-types/<spec>.d.rx`, declares the module
   // that import resolves to from the folder that holds `rx-types/` — found as the checker finds the declaration, the
   // other way round. (It was "no JS module beside": no row of a project's declaration could be shown, and strict
