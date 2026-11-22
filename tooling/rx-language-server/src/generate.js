@@ -21,9 +21,9 @@ const IMPORT = /^\s*import\b([^"'`;]*?)\bfrom\s*["']([^"']+)["']/gm;
 const GENERATED = /^\/\/@ generated (\S+)@(\S+) \(MO-8l, draft (\d+)(?:, types ([0-9a-f]+))?\)/;
 const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, under any rule
 // The drafting rules a generated file was written under. A draft is kept only while the package's version and this both
-// stand, so a change of rule (2: no fn is guessed `pure`) redrafts what an earlier rule wrote. Bump it with any change to
+// stand, so a change of rule (2: no fn is guessed `pure`; 3: a result is typed a step at a time, a disposer as `() => void`) redrafts what an earlier rule wrote. Bump it with any change to
 // what a draft says.
-const FORMAT = 2;
+const FORMAT = 3;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
@@ -148,7 +148,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
       if (head && head[1] === pkg && head[2] === version && Number(head[3]) === FORMAT && (head[4] ?? "") === stamp) { out.push({ spec, file, status: "current" }); continue; }
     }
     let text;
-    try { text = declare(typescriptFor(dir), spec, dir); }
+    try { text = declare(typescriptFor(dir), spec, dir, {}, { known: false }); }   // from the types alone (MO-8l): what known.js says of a library is for a draft a person reviews
     catch (e) {
       // a draft written for another version or under other rules is not kept when it cannot be redone: its rows (an
       // earlier rule's guessed `pure`) would still be read, so the import falls back to undeclared, the cautious reading

@@ -7,7 +7,11 @@ at every use; the JavaScript itself is not checked (it's the library's).
 ## Declare it
 
 To start from a draft, run `npx rx-declare <package> --out <name>.d.rx` (the language server's package): it writes
-what the package's TypeScript types show and leaves a `// TODO` line for each row only you can decide.
+what the package's TypeScript types show and leaves a `// TODO` line for each row only you can decide. For the routers
+(`@tanstack/solid-router`, `@solidjs/router`) and TanStack Query it also writes the rows types cannot show.
+
+Solid itself needs none of this: `npm i -D @rx-types/solid-js` is its declaration (`createStore`, `snapshot`, `merge`,
+`omit`, `flush`), found as an `@types` package is.
 
 ```rx
 // media.d.rx, beside media.js — or shipped by the package beside the file its import resolves to

@@ -160,17 +160,18 @@ async function runRows(draft, spec, from, opts = {}) {
     const ptodo = /^\/\/ TODO (\w+): does it provide a context to its children\?/.exec(l);
     if (ptodo && provided.has(ptodo[1])) continue;
     const hook = bare(l);
-    if (hook && needs.has(hook)) { out.push(`${l.replace(/ instantiates$/, "")} uses(${needs.get(hook)})`); continue; }
+    const says = (w, c) => new RegExp(`\\b${w}\\([^)]*\\b${c}\\b[^)]*\\)`).test(l);   // a row that already says it (known.js) is left as it is
+    if (hook && needs.has(hook)) { out.push(says("uses", needs.get(hook)) ? l : `${l.replace(/ instantiates$/, "")} uses(${needs.get(hook)})`); continue; }
     const comp = /^export component (\w+)\(/.exec(l);
-    if (comp && provided.has(comp[1])) { out.push(`${l} provides(${[...provided.get(comp[1])].join(", ")})`); continue; }
+    if (comp && provided.has(comp[1])) { const add = [...provided.get(comp[1])].filter(c => !says("provides", c)); out.push(add.length ? `${l} provides(${add.join(", ")})` : l); continue; }
     const named = /^export component ([\w.]+)\(/.exec(l)?.[1];
-    if (named && rootGives.has(named)) { out.push(`${l} provides(${[...rootGives.get(named)].join(", ")})`); continue; }
-    if (named && partNeeds.has(named)) { out.push(`${l} uses(${partNeeds.get(named)})`); continue; }
+    if (named && rootGives.has(named)) { const add = [...rootGives.get(named)].filter(c => !says("provides", c)); out.push(add.length ? `${l} provides(${add.join(", ")})` : l); continue; }
+    if (named && partNeeds.has(named)) { out.push(says("uses", partNeeds.get(named)) ? l : `${l} uses(${partNeeds.get(named)})`); continue; }
     const ptodo2 = /^\/\/ TODO ([\w.]+): its parts likely read a context it provides/.exec(l);
     if (ptodo2 && rootGives.has(ptodo2[1])) continue;
     out.push(l);
   }
-  const ctxLines = used.map(c => `export context ${c}   // drafted by running: ${[...needs.values()].includes(c) ? "hooks that throw with no provider read it" : "compound parts that throw outside their root read it"}`);
+  const ctxLines = used.filter(c => !out.includes(`export context ${c}`)).map(c => `export context ${c}   // drafted by running: ${[...needs.values()].includes(c) ? "hooks that throw with no provider read it" : "compound parts that throw outside their root read it"}`);
   const at = out.findIndex(l => !l.startsWith("//"));
   const merged = at < 0 ? [...out, ...ctxLines] : [...out.slice(0, at), ...ctxLines, ...out.slice(at)];
   const text = merged.join("\n").replace(/\n\/\/ TODO: the module's contexts \([^)]*\):[^\n]*/, used.length ? "" : "$&");

@@ -299,7 +299,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
 
   The project's comes first so that a wrong shipped declaration can be
   replaced without waiting for the package; MO-8f's pin keeps it from going
-  stale. The compiled import stays `from "<spec>"` (MO-8c). In rx-tsc, a
+  stale. The shared declaration of Solid itself is this repository's
+  (`declarations/solid-js`, published as `@rx-types/solid-js`, 2026-11-22):
+  what an `.rx` program still imports from `solid-js` — the store, whose
+  setter's callback is given its draft (MO-10i), `snapshot`, `merge`,
+  `omit`, `flush` — the rest of Solid being the language. The compiled import stays `from "<spec>"` (MO-8c). In rx-tsc, a
   package with no TypeScript types of its own is typed by the declaration
   (TypeScript's `@types` fallback answers with its projection, TY-4b), and a
   project declaration is checked against the package's types where it has
@@ -330,7 +334,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   must be redone and cannot be, its package's types gone, is removed, so
   the import is undeclared rather than read under an earlier rule); a package with no types gets none, and a row
   the notation cannot say is left out as a comment, not the whole file.
-  The draft is `rx-declare`'s from types alone (the package is not run):
+  The draft is `rx-declare`'s from types alone (the package is not run,
+  and what `rx-declare` knows of a named library beyond its types —
+  `known.js`: a router's `renders(later)` and `nests(…)`, a query's
+  field rows, `pure` — is left out here: it is for a draft a person
+  reviews, 2026-11-22):
   every fn io (revised 2026-11-21: a name such as `use…` is a convention,
   not a fact, so no draft guesses `pure`, and an import nothing reviewed
   cannot make the checker accept more; `IO_IN_REACTIVE` on such a call
@@ -446,7 +454,13 @@ export component Search(props: { start: boolean, q: string }) {
     reactive scope is `IO_IN_REACTIVE`; one that answers a value
     (`getRowModel: () => { … }`) is a read, called anywhere. A promise
     of nothing (`invalidateQueries: (…) => Promise<void>`) is nothing
-    to read either. *The same evidence, wherever a type is declared
+    to read either. And one that answers any promise (`mutate: (v) =>
+    Promise<T>`, `refetch`) starts work when it is called: in reactive
+    scope and not awaited, the work starts again on every computation
+    with nothing waiting for it and the view is handed a promise, so
+    the call is `IO_IN_REACTIVE` there and as a handler attribute's
+    value; awaited (`rows = await pager.load(1)`) it is asked, as a
+    question is, and from a handler it is called (2026-11-22). *The same evidence, wherever a type is declared
     (2026-11-22).* A component's props type and a context's declared
     type are read a step at a time as a declared result's is (MO-10k):
     `props.onNext()` with `props: { onNext: () => void }`, and

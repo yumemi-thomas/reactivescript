@@ -11,6 +11,18 @@
   as an iterator over copies, and any other method is `DRAFT_ESCAPES`. A method keeps nothing of a `renders` value only
   when `methods(…)` names it and it is called on the value's own name. A call through a record, an array or a call
   (`box.read()`, `fs[0]()`, `mk()()`) reads what the closures it may call read (`SNAPSHOT_KEPT`, `SNAPSHOT_ARGUMENT`).
+- `@rx-types/solid-js` (in `declarations/solid-js`): the declaration of Solid itself, found as an `@types` package is
+  (09 MO-8k): `createStore` with its draft setter, `snapshot`, `merge`, `omit`, `flush`.
+- `rx-declare` types a result a step at a time: a disposer as `() => void`, a small object by its fields (an accessor
+  `ref`, a function by what it answers), a class instance by the methods that answer nothing or a promise; an accessor of
+  an options object lists its callbacks; the module's own types are named; a generic type is declared with its
+  parameters. For `@tanstack/solid-router`, `@solidjs/router` and `@tanstack/solid-query` it also drafts what types
+  cannot show (`renders(later)`, `nests(…)`, contexts, `pending fails(Error)`, `tracked`/`handler`, `pure`), from
+  `src/known.js`, for the version range each entry was checked against. Generated declarations stay types-only.
+- A function field of a declared result that answers a promise (`mutate`, `refetch`) and is not awaited in reactive
+  scope is `IO_IN_REACTIVE` (09 MO-10b): `{rename.mutate(v)}` in a view started the mutation on every computation.
+- A `draft(…)` equation with a declared type types its draft by it (`sel: Record<string, boolean> = draft({}) { … }`
+  was a TypeScript error on `d[k]`).
 - A function a context provides or a prop is given is read by its declared type, as a method of a JS result is (09
   MO-10b): one that answers nothing (`add: (id: string) => void`), or a promise of nothing, is called for what it
   does, so `{c.add(id)}` in a view and `onClick={c.add(id)}` are refused — `ACTION_CALLED_IN_OWNED_SCOPE` where every

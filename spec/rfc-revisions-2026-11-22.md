@@ -154,6 +154,32 @@ too narrow or too wide. Each change is a rule's own reading, not a case:
 | a disposer behind the library's own type name, a subscription object, a branch that drops it, another name that is dropped | **refused**: `DISPOSER_DROPPED` reads the type as declared and every path | 02 EF-5a |
 | `ASYNC_WATERFALL` was given twice for one cause, and never for a loader as `rx-declare` drafts it (io) | **advice once** per question; an io fn awaited for its answer is a question, and the advice says what only `pure` rules out | 99, the advisory rows |
 
+And the tasks' own reds, each decided by a rule it already had:
+
+| mistake | decision | rule |
+| --- | --- | --- |
+| an action a context provides, called in a view or given to `onClick` called | **refused**: a function a context provides or a prop is given is read by its declared type | 09 MO-10b, 02 SC-4 |
+| a mutation run, a cache invalidated, while the view computes | **refused**: a function field that answers a promise, not awaited in reactive scope, is io | 09 MO-10b |
+| a guess in a handler that awaits nothing | **refused**: `GUESS_OUTSIDE_HOLD`, a run that starts nothing to wait for | 06 AC-3 |
+| a guess written after the `await` | **advice**: `GUESS_AFTER_AWAIT` | 06 AC-3; 99 |
+| the list a JS component hands its view, spliced | **refused**: `MUTATION_IN_PLACE` | 02 W-1a |
+| `<Select.Listbox />` with no children | **accepted**: an optional render prop may be left out | 09 MO-11k |
+| a row found in a draft, written through its local | **refused, said better**: the local is a copy; the message gives the two ways to write the row | 09 MO-10i |
+
+*Proposed, not ruled: a callback keyed by a sibling.* A TanStack query whose
+function reads a value its key does not name is asked once and answered
+from the cache for every value after (`queryKey: ["todo"]`, `queryFn: ()
+=> fetchTodo(props.id)`). Nothing in `.rx` is frozen — the closure reads
+`props.id` when it is called — so no rule of the language is broken; the
+library asks again only when the key changes. A declaration could say
+so: `queryFn: keyed(queryKey) () => Promise<T>`, read as "every changing
+value this closure reads is named in that field of the same record", a
+static check at the call (the names a closure reads outside `peek`
+against the names the key mentions, MO-10k's way). It is one word for
+TanStack Query, SWR-shaped caches and a router's `loaderDeps`. Until it
+is ruled, `bench/tasks/query-mutation` keeps the variant red, with this
+as its reason.
+
 ## RFC 06 — fields of a JS result that wait or fail
 
 **Revised.** A result with field rows is read a field at a time. Its

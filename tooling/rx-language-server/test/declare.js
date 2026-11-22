@@ -69,6 +69,30 @@ check("a callback parameter is a function type; an optional one keeps its `?` (M
 check("a function type is drafted pure, with `handler` suggested for one named like an event (MO-10g)", /\/\/ TODO watch: onChange: called later, outside any computation\? mark it `handler/.test(draft) && !/handler \(/.test(draft.split("\n").filter(l => !l.startsWith("//")).join("\n")), draft);
 check("a component's on… prop is drafted pure too, with `handler` only suggested (MO-10g)", /\/\/ TODO Toggle: onToggle: called later, outside any computation\? mark it `handler/.test(draft) && has("export component Toggle(props: { on: boolean; onToggle: (...args: any[]) => any })"), draft);
 
+// what a result is, a step at a time (EF-5a, MO-10b, MO-10k): a disposer through the library's own name for it, a small
+// object by its fields, a class instance by the methods that answer nothing or a promise, the module's own types by name
+fs.writeFileSync(path.join(ws, "more.js"), "export const listen = () => () => {};\nexport const makePager = () => ({});\nexport const makeClient = () => ({});\nexport const load = async () => ({});\n");
+fs.writeFileSync(path.join(ws, "more.d.ts"), [
+  "export type Unsubscribe = VoidFunction;",
+  "export type Row = { id: string };",
+  "export type Page<T> = { rows: T[] };",
+  "export type Cell<T, V = unknown> = { row: T; value: V };",
+  "export declare class Client { private secret: number; invalidate(key?: string): Promise<void>; fetch<T>(key: string): Promise<T>; size(): number; peek(key: string): Row | undefined; clear(): void; }",
+  "export declare function listen(run: () => void): Unsubscribe;",
+  "export declare function makePager(): { page: () => number; getPageCount: () => number; next: () => void; rows: Row[]; label: string; nested: { open: boolean; close: () => void } };",
+  "export declare function makeClient(): Client;",
+  "export declare function load(id: string): Promise<Row[]>;",
+  "",
+].join("\n"));
+const r1 = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./more.js"], { cwd: ws, encoding: "utf8" });
+const more = r1.stdout; if (process.env.VERBOSE) console.log(more, r1.stderr);
+const hasMore = line => more.split("\n").includes(line);
+check("a result that takes nothing and answers nothing is `() => void`, through the library's own name for it (EF-5a)", hasMore("export fn listen(run: (...args: any[]) => any): () => void"), more);
+check("a small object result is typed by its fields: an accessor `ref`, a called getter and a function by what they answer, a nested object a step further", hasMore("export fn makePager(): { page: ref number; getPageCount: () => number; next: () => void; rows: Row[]; label: string; nested: { open: boolean; close: () => void } }"), more);
+check("a class instance is typed by its methods, each as it is written where it can be (a generic one by what it answers), and stays the library's own object", hasMore("export fn makeClient(): { invalidate: (key?: string) => Promise<void>; fetch: (...args: any[]) => Promise<any>; size: () => number; peek: (key: string) => Row | undefined; clear: () => void }"), more);
+check("a row names the module's own types, which the draft declares", hasMore("export fn load(id: string): Promise<Row[]>") && hasMore("export type Row = import(\"./more.js\").Row"), more);
+check("a generic type is declared with the parameters that have no default", hasMore("export type Page<T> = import(\"./more.js\").Page<T>") && hasMore("export type Cell<T, V> = import(\"./more.js\").Cell<T, V>"), more);
+
 // the run pass (src/declare-run.js): which hook reads which context, which provider provides it
 fs.writeFileSync(path.join(ws, "ctx.mjs"), [
   "import { createContext, useContext, createComponent } from \"solid-js\";",

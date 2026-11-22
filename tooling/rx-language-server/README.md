@@ -81,6 +81,22 @@ cannot show is a `// TODO` line above the declaration it concerns: which context
 result's fields wait or throw (`pending fails(…)`), what a promise rejects with. `rx-tsc` then checks the draft against
 the same types (spec/13 TY-6).
 
+A result is typed a step at a time, as the checker reads it (MO-10b, MO-10k). One that takes nothing and answers
+nothing is `() => void`, through the library's own name for it (`VoidFunction`), so the checker holds a call to keeping
+it (EF-5a). A small object the library declares is drafted by its fields — an accessor `ref`, a getter the app calls
+(`getPageCount()`) and a function by what they answer (`void`, a promise, a primitive), a nested object a step further —
+and an instance of a class by the methods that answer nothing, a promise or a primitive (`invalidateQueries: (...args:
+any[]) => Promise<void>`); a larger type stays `any`. An accessor of an options object lists its callbacks, so `handler`
+or `tracked` is one word on the row. The module's own exported types are named (`Promise<Todo[]>`), and a generic type
+is declared with its parameters (`export type Table<TData> = import(…).Table<TData>`).
+
+For a few libraries the draft also has what types cannot show (`src/known.js`): the routers' `renders(later)`,
+`nests(…)` and the prop that `renders` (`@tanstack/solid-router`, `@solidjs/router`), TanStack Query's context,
+`pending fails(Error)` on `data`, `tracked` and `handler` on its callbacks, and `pure` on those primitives. Each entry
+is for a version range and was checked by running that release; outside the range, and for every other package, the
+draft is the types' alone, with its TODOs. A generated declaration (MO-8l) never takes them: nothing a person reviewed
+makes the checker accept more.
+
 With `--run` it then runs the module (it executes the package's code, so only when asked; run it with
 `node --conditions=browser`) to settle what running can:
 a hook whose parameters are all optional is called with nothing providing anything, and its result read (fields,

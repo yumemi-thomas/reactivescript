@@ -67,10 +67,27 @@ function typesPath(abs) {
   if (!m[3].endsWith(".d.ts")) return null;
   return { root: m[1], spec: rest ? `${pkg}/${rest}` : pkg };
 }
+/** Whether the package installed for `root` ships TypeScript types: a `types`/`typings` field, a `types` condition in its
+ *  exports, or an `index.d.ts`. The `@types` fallback below is for a package that has none. */
+const ownTypes = new Map();
+function hasOwnTypes(root, pkg) {
+  for (let dir = root; ; dir = path.dirname(dir)) {
+    const at = path.join(dir, "node_modules", pkg);
+    const f = path.join(at, "package.json");
+    if (real.existsSync(f)) {
+      if (ownTypes.has(f)) return ownTypes.get(f);
+      let has = false;
+      try { const j = JSON.parse(real.readFileSync.call(fs, f, "utf8")); has = !!(j.types || j.typings || real.existsSync(path.join(at, "index.d.ts")) || /"types"\s*:/.test(JSON.stringify(j.exports ?? {}))); } catch { /* unreadable: no types */ }
+      ownTypes.set(f, has); return has;
+    }
+    if (path.dirname(dir) === dir) return false;
+  }
+}
 /** MO-8k, as the crate's `declaration_for` looks (the package's own .d.rx is TY-4b's case beside its file): the project's
  *  `rx-types/<spec>.d.rx` in `root` or above, a shared `node_modules/@rx-types/…`, a generated `node_modules/.rx-types/…`. */
 function packageDeclaration(root, spec) {
   const seg = spec.split("/"); const n = spec.startsWith("@") ? 2 : 1;
+  if (hasOwnTypes(root, seg.slice(0, n).join("/"))) return null;   // TY-4b: a package with types of its own is typed by them, whatever declares its rows (`@rx-types/solid-js`)
   const shared = seg.slice(0, n).join("/").replace(/^@/, "").replace("/", "__"); const sub = seg.slice(n).join("/") || "index";
   for (const rel of [`rx-types/${spec}.d.rx`, `node_modules/@rx-types/${shared}/${sub}.d.rx`, `node_modules/.rx-types/${spec}.d.rx`])
     for (let dir = root; ; dir = path.dirname(dir)) { const f = path.join(dir, rel); if (real.existsSync(f)) return f; if (path.dirname(dir) === dir) break; }
