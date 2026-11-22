@@ -308,8 +308,9 @@ struct Sym<'a> {
     /// MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a
     /// draft: the parameter positions that are drafts
     updater: Option<Vec<usize>>,
-    /// EF-5a (2026-11-22): a declared JS fn whose result is `() => void`: what undoes the call (a subscription's disposer)
-    disposer: bool,
+    /// EF-5a (2026-11-22): a declared JS fn whose result undoes the call (a subscription's disposer): the declared
+    /// type that says so, `() => void` or `{ unsubscribe: () => void }` (`ty_undoes`)
+    disposer: Option<String>,
     /// MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or
     /// of a part of it, that part's: the closed set of what the value answers (`ty_step`)
     ret_ty: Option<String>,
@@ -422,7 +423,7 @@ impl<'a> Sym<'a> {
             local_renders: false,
             methods: vec![],
             updater: None,
-            disposer: false,
+            disposer: None,
             ret_ty: None,
             carries: vec![],
             undeclared: None,
@@ -2663,7 +2664,7 @@ impl<'a> Checker<'a> {
                     }
                     let mut s = Sym::new(SymKind::Import, alias, region, line);
                     s.io = !xpure;
-                    s.disposer = xret.as_deref().is_some_and(ty_disposer);
+                    s.disposer = xret.as_deref().and_then(|t| ty_undoes(t, &|n| decls.iter().find_map(|y| match y { JsDecl::Type { name, text, .. } if name == n => alias_text(text), _ => None })));
                     s.rejects = Some(rejects.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
                     s.side = *xside;
                     s.cbs = xcbs.clone();
@@ -5410,22 +5411,29 @@ impl<'a> Checker<'a> {
             if let (Some((_, bound)), StmtKind::Let { name, .. }) = (&mut asked, &s.k) {
                 bound.insert(name.clone());
             }
-            // EF-5a (2026-11-22): a call that answers the function that undoes it (`onShortcut(…): () => void`), with
-            // that function dropped — the statement's value, or a local the rest of the block never names
+            // EF-5a (2026-11-22): a call that answers what undoes it (`onShortcut(…): () => void`), with that dropped —
+            // the statement's value, or a local that some path through the rest of the block never names
             if let StmtKind::Let { e, .. } | StmtKind::Expr(e) = &s.k {
                 if let ExprKind::Call { f, .. } = &e.k {
                     if let ExprKind::Id(n) = &f.k {
-                        if self.lookup(env, n).is_some_and(|t| self.syms[t].disposer) {
+                        if let Some(decl) = self.lookup(env, n).and_then(|t| self.syms[t].disposer.clone()) {
                             let dropped = match &s.k {
                                 StmtKind::Let { name, .. } => {
                                     let mut used = IndexSet::new();
                                     free_names_stmts(&ss[at + 1..], &HashSet::new(), &mut used);
-                                    (!used.contains(name)).then(|| format!("`{name}` is never used after it is bound"))
+                                    let paths = disposer_paths(&ss[at + 1..], name, false);
+                                    if !used.contains(name) {
+                                        Some(format!("`{name}` is never used after it is bound"))
+                                    } else if paths.left || (paths.ends && !paths.named) {
+                                        Some(format!("`{name}` is not used on every path after it is bound (a branch that is not taken, an early `return`, another name for it that is never used: the run ends there without it)"))
+                                    } else {
+                                        None
+                                    }
                                 }
                                 _ => Some("the call is a statement, and what it answers is dropped".to_string()),
                             };
                             if let Some(why) = dropped {
-                                self.err("DISPOSER_DROPPED", "EF-5a", format!("{n}(…) answers the function that undoes it (its declaration: `() => void`), and {why}: what it set up — a listener, a subscription, a timer — then outlives the component — keep it and call it when the region ends: in `effect () {{ let stop = {n}(…); return () => {{ stop() }} }}`, or from the handler that ends it"));
+                                self.err("DISPOSER_DROPPED", "EF-5a", format!("{n}(…) answers what undoes it (its declaration: `{decl}`), and {why}: what it set up — a listener, a subscription, a timer — then outlives the component — keep it and call it when the region ends: in `effect () {{ let stop = {n}(…); return () => {{ stop() }} }}`, or from the handler that ends it"));
                             }
                         }
                     }
@@ -8834,6 +8842,148 @@ pub fn ty_scalar(t: &str) -> bool {
 pub fn ty_disposer(t: &str) -> bool {
     let t = ty_clean(t);
     t.starts_with("()") && ty_step(t, &TStep::Call).is_some_and(|r| ty_clean(&r) == "void")
+}
+/// The names under which a record result holds what ends it (`{ unsubscribe: () => void }`): an observable's
+/// subscription, a disposable, an observer, a timer.
+pub const ENDINGS: [&str; 7] = ["unsubscribe", "dispose", "destroy", "disconnect", "stop", "cancel", "close"];
+/// EF-5a: what a declared result says of undoing the call, as the type to quote: `() => void` — written out, behind
+/// a type alias its declaration file declares (`alias`: `export type Unsub = () => void`), or TypeScript's own
+/// `VoidFunction` — or a record with such a function under a name of an ending (`{ unsubscribe: () => void }`).
+pub fn ty_undoes(t: &str, alias: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    fn named(t: &str, alias: &dyn Fn(&str) -> Option<String>) -> String {
+        let mut t = ty_clean(t).to_string();
+        for _ in 0..8 {
+            if t.is_empty() || !t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+                break;
+            }
+            match if t == "VoidFunction" { Some("() => void".to_string()) } else { alias(&t) } {
+                Some(x) => t = ty_clean(&x).to_string(),
+                None => break,
+            }
+        }
+        t
+    }
+    let t = named(t, alias);
+    if ty_disposer(&t) {
+        return Some("() => void".into());
+    }
+    ty_fields(&t)?.into_iter().find(|(k, v)| ENDINGS.contains(&k.as_str()) && ty_disposer(&named(v, alias))).map(|(k, _)| format!("{{ {k}: () => void }}"))
+}
+/// What a declared alias stands for, from its text (`type Unsub = () => void`, `interface Sub { unsubscribe(): void }`
+/// is not read: a method signature is not a field's type); `None` for one that takes type parameters.
+pub fn alias_text(text: &str) -> Option<String> {
+    let t = js_trim(text);
+    let r = t.strip_prefix("type")?;
+    let i = r.find('=')?;
+    let head = js_trim(&r[..i]);
+    if head.is_empty() || !head.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+        return None;
+    }
+    Some(js_trim(&r[i + 1..]).to_string())
+}
+/// EF-5a: the paths through the rest of a block a disposer was bound in. `left`: a `return` reached without `name`
+/// having been named; `named`: it has been named on every path that reaches the end; `ends`: the end is reachable. A
+/// statement names it when one of its own expressions does (a closure that calls it later keeps it); another name
+/// for it (`let t = stop`) names it when that name is kept the same way; a failure's path is not one the block chose.
+struct DisposerPaths {
+    left: bool,
+    named: bool,
+    ends: bool,
+}
+fn disposer_paths(ss: &[Stmt], name: &str, mut named: bool) -> DisposerPaths {
+    let m = |e: &Expr| {
+        let mut o = IndexSet::new();
+        free_names(e, &HashSet::new(), &mut o);
+        o.contains(name)
+    };
+    let mut left = false;
+    for (i, s) in ss.iter().enumerate() {
+        match &s.k {
+            StmtKind::Let { name: t, e, .. } => {
+                if matches!(&e.k, ExprKind::Id(n) if n == name) {
+                    let r = disposer_paths(&ss[i + 1..], t, false);
+                    if !r.left && (r.named || !r.ends) {
+                        named = true;
+                    }
+                } else if m(e) {
+                    named = true;
+                }
+            }
+            StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                if m(e) || target.path.iter().any(|p| matches!(p, PathSeg::Expr(x) if m(x))) {
+                    named = true;
+                }
+            }
+            StmtKind::Expr(e) => {
+                if m(e) {
+                    named = true;
+                }
+            }
+            StmtKind::Throw(_) => return DisposerPaths { left, named: true, ends: false },
+            StmtKind::Return(e) => {
+                if e.as_ref().is_some_and(&m) {
+                    named = true;
+                }
+                return DisposerPaths { left: left || !named, named, ends: false };
+            }
+            StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
+            StmtKind::Action(body) => {
+                let r = disposer_paths(body, name, named);
+                left |= r.left;
+                if !r.ends {
+                    return DisposerPaths { left, named: true, ends: false };
+                }
+                named = r.named;
+            }
+            StmtKind::Sif { c, t, f } => {
+                if m(c) {
+                    named = true;
+                }
+                let (a, b) = (disposer_paths(t, name, named), disposer_paths(f, name, named));
+                left |= a.left || b.left;
+                named = match (a.ends, b.ends) {
+                    (false, false) => return DisposerPaths { left, named: true, ends: false },
+                    (true, false) => a.named,
+                    (false, true) => b.named,
+                    _ => a.named && b.named,
+                };
+            }
+            StmtKind::For { e, body, .. } => {
+                if m(e) {
+                    named = true;
+                }
+                left |= disposer_paths(body, name, named).left; // the body may not run
+            }
+            StmtKind::Try { body, handler, fin, .. } => {
+                // a `finally` runs on every path; a failure may come before anything in the body
+                let fin_names = fin.as_ref().is_some_and(|f| {
+                    let mut o = IndexSet::new();
+                    free_names_stmts(f, &HashSet::new(), &mut o);
+                    o.contains(name)
+                });
+                let start = named || fin_names;
+                let a = disposer_paths(body, name, start);
+                left |= a.left;
+                let (ends, n) = match handler.as_ref().map(|h| disposer_paths(h, name, start)) {
+                    Some(b) => {
+                        left |= b.left;
+                        match (a.ends, b.ends) {
+                            (false, false) => (false, true),
+                            (true, false) => (true, a.named),
+                            (false, true) => (true, b.named),
+                            _ => (true, a.named && b.named),
+                        }
+                    }
+                    None => (a.ends, a.named),
+                };
+                if !ends {
+                    return DisposerPaths { left, named: true, ends: false };
+                }
+                named = n || fin_names;
+            }
+        }
+    }
+    DisposerPaths { left, named, ends: true }
 }
 /// Whether a declared type is a function's.
 pub fn ty_fn(t: &str) -> bool {

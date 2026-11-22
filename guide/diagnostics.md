@@ -846,6 +846,12 @@ declaration says so with a result of `() => void` (EF-5a), and a call whose resu
 handler that calls it would add another on every click. Keep the function and call it when the region ends: an effect's
 cleanup (`return () => { stop() }`), or the handler that ends what the call started.
 
+The type is read through a name the declaration file gives it (`export type Unsubscribe = () => void`) and TypeScript's
+`VoidFunction`, and a subscription object counts too: a record with such a function named `unsubscribe`, `dispose`,
+`destroy`, `disconnect`, `stop`, `cancel` or `close`. The local must be used on every path: `if (on) { return () => {
+stop() } }` drops it when `on` is false (return the cleanup on both paths), and `let later = stop` keeps it only if
+`later` is used.
+
 ```rx before
 -- module: ./keys.d.rx
 export fn onShortcut(key: string, run: handler () => void): () => void

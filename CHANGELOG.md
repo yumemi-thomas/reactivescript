@@ -48,7 +48,12 @@
   is passed to a child or a callback as it is, with its type (MO-11l).
 - `MUTATION_IN_PLACE` (W-1a): `rows.push(x)`, `props.items.sort()` and the like on the value of a source, an equation,
   a prop or a row.
-- `DISPOSER_DROPPED` (EF-5a): a declared JS call whose result is `() => void`, dropped.
+- `DISPOSER_DROPPED` (EF-5a): a declared JS call whose result is `() => void`, dropped. The type is read through a
+  name its declaration file gives it (`export type Unsubscribe = () => void`) and TypeScript's `VoidFunction`; a
+  subscription object counts (`{ unsubscribe: () => void }`, and `dispose`, `destroy`, `disconnect`, `stop`, `cancel`,
+  `close`); and the local it is bound to must be used on every path (`if (on) { return () => { stop() } }` drops it
+  where `on` is false; `let later = stop` keeps it only as far as `later` is used). `rx-declare` drafts such a result
+  as `() => void`.
 - `DUPLICATE_KEY` (ST-4d): two rows of a keyed list written with one key.
 - A handler attribute given a call of something io (`onClick={save()}`) is refused (SC-4); a method declared to answer
   nothing is io where the view computes (MO-10b).

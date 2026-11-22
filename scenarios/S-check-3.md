@@ -12,6 +12,10 @@ does each of the four things the right way.
 -- module: ./keys.d.rx
 // subscribes, and answers the function that unsubscribes
 export fn onShortcut(key: string, run: handler () => void): () => void
+// the same behind the library's own name for the type, and as a subscription object
+export type Unsubscribe = () => void
+export fn onResize(run: handler () => void): Unsubscribe
+export fn subscribe(run: handler () => void): { unsubscribe: () => void }
 // a paging primitive: what it answers is declared, so a method that answers nothing is known to be called for its effect
 export pure fn createPager(): { page: number; next: () => void; count: () => number } instantiates
 ```
@@ -156,6 +160,74 @@ import { onShortcut } from "./keys.js"
 export default component App() {
   source hits := 0
   <button onClick={() => { let stop = onShortcut("k", () => { hits := h => h + 1 }); hits := 0 }}>{hits}</button>
+}
+```
+
+The same when the declaration names the type (an alias of its own file,
+or TypeScript's `VoidFunction`) or answers a subscription object; when
+only one branch keeps it; and when it is only given another name.
+
+```rx
+-- reject: DISPOSER_DROPPED
+import { onResize } from "./keys.js"
+export default component App() {
+  source hits := 0
+  effect () { onResize(() => { hits := h => h + 1 }) }
+  <p>{hits}</p>
+}
+```
+
+```rx
+-- reject: DISPOSER_DROPPED
+import { subscribe } from "./keys.js"
+export default component App() {
+  source hits := 0
+  effect () { subscribe(() => { hits := h => h + 1 }) }
+  <p>{hits}</p>
+}
+```
+
+```rx
+-- reject: DISPOSER_DROPPED
+import { onShortcut } from "./keys.js"
+export default component App() {
+  source hits := 0
+  source on := true
+  effect (on) {
+    let stop = onShortcut("k", () => { hits := h => h + 1 })
+    if ($0) { return () => { stop() } }
+  }
+  <p>{hits}</p>
+}
+```
+
+```rx
+-- reject: DISPOSER_DROPPED
+import { onShortcut } from "./keys.js"
+export default component App() {
+  source hits := 0
+  <button onClick={() => { let stop = onShortcut("k", () => { hits := h => h + 1 }); let later = stop }}>{hits}</button>
+}
+```
+
+Kept on every path: by the cleanup, by a list the cleanup runs, by a
+source another handler calls, by a subscription's own method.
+
+```rx
+-- accept
+import { onShortcut, onResize, subscribe } from "./keys.js"
+export default component App() {
+  source hits := 0
+  source held: (() => void) | null := null
+  effect () {
+    let stops = [onShortcut("k", () => { hits := h => h + 1 })]
+    let sub = subscribe(() => { hits := 0 })
+    let off = onResize(() => { hits := 0 })
+    if (hits > 100) { off(); return () => { sub.unsubscribe(); for (const s of stops) { s() } } }
+    return () => { off(); sub.unsubscribe(); for (const s of stops) { s() } }
+  }
+  <button onClick={() => { held := onShortcut("j", () => { hits := 0 }) }}>on</button>
+  <button onClick={() => { if (held) { held() }; held := null }}>{hits}</button>
 }
 ```
 

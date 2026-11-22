@@ -525,6 +525,24 @@ Function application `f(e…)` covers both language functions and FFI imports;
   whose cleanup the region runs. The evidence is the declared type, as
   09 MO-10k's is; a function that answers anything else, or takes
   arguments, is not read as a disposer.
+
+  *The type, and the paths (2026-11-22, after the review).* The
+  declared type is read as TypeScript would resolve it, as far as the
+  declaration file says: `() => void` written out; a name its own file
+  gives it (`export type Unsubscribe = () => void`); TypeScript's
+  `VoidFunction`; and a record that holds such a function under the name
+  of an ending — `unsubscribe`, `dispose`, `destroy`, `disconnect`,
+  `stop`, `cancel`, `close` (`{ unsubscribe: () => void }`, an
+  observable's subscription). And "the rest of the block never names
+  it" is a statement about every path: a local is kept when each path
+  from its binding to the block's end, and to each `return`, names it —
+  in a statement's own expression, a closure included (it calls it
+  later). `let stop = listen(…); if (on) { return () => { stop() } }`
+  drops it where `on` is false; `let later = stop` keeps it only as far
+  as `later` is kept. A failure's path is not one the block chose, and a
+  `finally` is on every path. `rx-declare` drafts the result's type as
+  TypeScript resolves it, so a library's own alias is `() => void` in
+  the draft (09 MO-8k).
 - **EF-6 (Order is unspecified).** The order in which apply blocks run within
   one instant's observe phase is not specified. A program whose behavior
   depends on it is incorrect. (`ref/` uses declaration order; scenarios must

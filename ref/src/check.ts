@@ -133,7 +133,7 @@ type Sym = {
   methods?: string[];
   rowKey?: string;                     // ST-4: `xs key id`, the field its rows are keyed by
   draftArgs?: number[];                // MO-10i (2026-11-22): a declared JS fn's parameters marked `draft`: changed in place by the call
-  disposer?: boolean;                  // EF-5a (2026-11-22): a declared JS fn whose result is `() => void`: what undoes the call (a subscription's disposer)
+  disposer?: string;                   // EF-5a (2026-11-22): a declared JS fn whose result undoes the call (a subscription's disposer): the declared type that says so, `() => void` or `{ unsubscribe: () => void }` (tyUndoes)
   updater?: number[];                  // MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a draft: the parameter positions that are drafts
   retTy?: string;                      // MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or of a part of it, that part's: the closed set of what the value answers (`tyStep`)                  // E-10 (RFC 14, bounded): a primitive's declared methods(…), and on an instance it made, its own
   localRenders?: boolean;              // MO-11l (revised 2026-11-21): components `renders` checked where this was bound — it may not travel
@@ -922,6 +922,7 @@ class Checker {
       return `${d.declared}#${n}`;
     });
     if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
+    const undoes = (ret: string) => tyUndoes(ret, n => { const y = decls.find(y => y.kind === "type" && y.name === n); return y?.kind === "type" && y.text !== undefined ? aliasText(y.text) : undefined; });   // EF-5a
     const bindComp = (x: Extract<JsDecl, { kind: "comp" }>, alias: string) => {   // MO-11a: a Solid component — its declaration is its summary
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders
         const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
@@ -944,7 +945,7 @@ class Checker {
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
       if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.forwards ? { forwards: true } : {}), ...(x.methods ? { methods: x.methods } : {}), ...(x.ret ? { retTy: x.ret } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.ret !== undefined && tyDisposer(x.ret) ? { disposer: true } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.kind === "fn" && x.forwards ? { forwards: true } : {}), ...(generated ? { generated } : {}) });
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.kind === "fn" && x.forwards ? { forwards: true } : {}), ...(generated ? { generated } : {}) });
     }
   }
   /** CN-3d: `e` can have no value on the first load: it awaits without a first paint, here or in an equation it reads,
@@ -2145,12 +2146,18 @@ class Checker {
         }
       }
       if (asked && s.k === "let") asked.bound.add(s.name);
-      // EF-5a (2026-11-22): a call that answers the function that undoes it (`onShortcut(…): () => void`), with that
-      // function dropped — the statement's value, or a local the rest of the block never names
-      if ((s.k === "let" || s.k === "expr") && s.e.k === "call" && s.e.f.k === "id" && env.lookup(s.e.f.name)?.disposer) {
+      // EF-5a (2026-11-22): a call that answers what undoes it (`onShortcut(…): () => void`), with that dropped — the
+      // statement's value, or a local that some path through the rest of the block never names
+      if ((s.k === "let" || s.k === "expr") && s.e.k === "call" && s.e.f.k === "id" && env.lookup(s.e.f.name)?.disposer !== undefined) {
         let why: string | undefined = "the call is a statement, and what it answers is dropped";
-        if (s.k === "let") { const used = new Set<string>(); freeNamesStmts(ss.slice(at + 1), new Set(), used); why = used.has(s.name) ? undefined : `\`${s.name}\` is never used after it is bound`; }
-        if (why !== undefined) { const n = s.e.f.name; this.err("DISPOSER_DROPPED", "EF-5a", `${n}(…) answers the function that undoes it (its declaration: \`() => void\`), and ${why}: what it set up — a listener, a subscription, a timer — then outlives the component — keep it and call it when the region ends: in \`effect () { let stop = ${n}(…); return () => { stop() } }\`, or from the handler that ends it`); }
+        if (s.k === "let") {
+          const used = new Set<string>(); freeNamesStmts(ss.slice(at + 1), new Set(), used);
+          const paths = disposerPaths(ss.slice(at + 1), s.name, false);
+          why = !used.has(s.name) ? `\`${s.name}\` is never used after it is bound`
+            : paths.left || (paths.ends && !paths.named) ? `\`${s.name}\` is not used on every path after it is bound (a branch that is not taken, an early \`return\`, another name for it that is never used: the run ends there without it)`
+            : undefined;
+        }
+        if (why !== undefined) { const n = s.e.f.name; this.err("DISPOSER_DROPPED", "EF-5a", `${n}(…) answers what undoes it (its declaration: \`${env.lookup(n)!.disposer}\`), and ${why}: what it set up — a listener, a subscription, a timer — then outlives the component — keep it and call it when the region ends: in \`effect () { let stop = ${n}(…); return () => { stop() } }\`, or from the handler that ends it`); }
       }
       if (s.k === "let" || s.k === "expr") { const t = s.e.k === "catch" ? s.e.e : s.e; if (t.k === "await") this.stmtAwaits.add(t); }
       switch (s.k) {
@@ -3000,6 +3007,73 @@ export function tyScalar(t: string): boolean {
 }
 /** Whether a declared result is a function that takes nothing and answers nothing, `() => void`: what undoes a call. */
 export function tyDisposer(t: string): boolean { const c = tyClean(t); const r = tyStep(c, "call"); return c.startsWith("()") && r !== undefined && tyClean(r) === "void"; }
+/** The names under which a record result holds what ends it (`{ unsubscribe: () => void }`): an observable's
+ *  subscription, a disposable, an observer, a timer. */
+export const ENDINGS = ["unsubscribe", "dispose", "destroy", "disconnect", "stop", "cancel", "close"];
+/** EF-5a: what a declared result says of undoing the call, as the type to quote: `() => void` — written out, behind a
+ *  type alias its declaration file declares (`alias`: `export type Unsub = () => void`), or TypeScript's own
+ *  `VoidFunction` — or a record with such a function under a name of an ending (`{ unsubscribe: () => void }`). */
+export function tyUndoes(t: string, alias: (name: string) => string | undefined): string | undefined {
+  const named = (t: string) => {
+    let c = tyClean(t);
+    for (let i = 0; i < 8 && /^[A-Za-z0-9_$]+$/.test(c); i++) { const x = c === "VoidFunction" ? "() => void" : alias(c); if (x === undefined) break; c = tyClean(x); }
+    return c;
+  };
+  const c = named(t);
+  if (tyDisposer(c)) return "() => void";
+  const f = tyFields(c)?.find(([k, v]) => ENDINGS.includes(k) && tyDisposer(named(v)));
+  return f ? `{ ${f[0]}: () => void }` : undefined;
+}
+/** What a declared alias stands for, from its text (`type Unsub = () => void`); undefined for an interface (a method
+ *  signature is not a field's type) and for one that takes type parameters. */
+export function aliasText(text: string): string | undefined {
+  const m = /^\s*type\s+([A-Za-z0-9_$]+)\s*=([\s\S]*)$/.exec(text);
+  return m ? m[2].trim() : undefined;
+}
+/** EF-5a: the paths through the rest of a block a disposer was bound in. `left`: a `return` reached without `name`
+ *  having been named; `named`: it has been named on every path that reaches the end; `ends`: the end is reachable. A
+ *  statement names it when one of its own expressions does (a closure that calls it later keeps it); another name for
+ *  it (`let t = stop`) names it when that name is kept the same way; a failure's path is not one the block chose. */
+function disposerPaths(ss: Stmt[], name: string, named: boolean): { left: boolean; named: boolean; ends: boolean } {
+  const m = (e: Expr) => { const o = new Set<string>(); freeNames(e, new Set(), o); return o.has(name); };
+  let left = false;
+  for (let i = 0; i < ss.length; i++) {
+    const s = ss[i];
+    switch (s.k) {
+      case "let":
+        if (s.e.k === "id" && s.e.name === name) { const r = disposerPaths(ss.slice(i + 1), s.name, false); if (!r.left && (r.named || !r.ends)) named = true; }
+        else if (m(s.e)) named = true;
+        break;
+      case "write": case "optimistic": if (m(s.e) || s.target.path.some(p => typeof p !== "string" && m(p))) named = true; break;
+      case "expr": if (m(s.e)) named = true; break;
+      case "throw": return { left, named: true, ends: false };
+      case "return": if (s.e && m(s.e)) named = true; return { left: left || !named, named, ends: false };
+      case "refresh": case "affects": break;
+      case "action": { const r = disposerPaths(s.body, name, named); left ||= r.left; if (!r.ends) return { left, named: true, ends: false }; named = r.named; break; }
+      case "sif": {
+        if (m(s.c)) named = true;
+        const a = disposerPaths(s.t, name, named), b = disposerPaths(s.f, name, named);
+        left ||= a.left || b.left;
+        if (!a.ends && !b.ends) return { left, named: true, ends: false };
+        named = a.ends && b.ends ? a.named && b.named : a.ends ? a.named : b.named;
+        break;
+      }
+      case "for": if (m(s.e)) named = true; left ||= disposerPaths(s.body, name, named).left; break;   // the body may not run
+      case "try": {
+        // a `finally` runs on every path; a failure may come before anything in the body
+        let finNames = false; if (s.fin) { const o = new Set<string>(); freeNamesStmts(s.fin, new Set(), o); finNames = o.has(name); }
+        const start = named || finNames;
+        const a = disposerPaths(s.body, name, start); left ||= a.left;
+        let ends = a.ends, n = a.named;
+        if (s.handler) { const b = disposerPaths(s.handler, name, start); left ||= b.left; ends = a.ends || b.ends; n = a.ends && b.ends ? a.named && b.named : a.ends ? a.named : b.ends ? b.named : true; }
+        if (!ends) return { left, named: true, ends: false };
+        named = n || finNames;
+        break;
+      }
+    }
+  }
+  return { left, named, ends: true };
+}
 /** Whether a declared type is a function's. */
 export function tyFn(t: string): boolean { return tyStep(t, "call") !== undefined; }
 

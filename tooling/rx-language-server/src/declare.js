@@ -104,10 +104,14 @@ function paramText(ts, checker, p, at, generic = false) {
 
 /** What a type may also be: ` | undefined`, ` | null`, from its union members. */
 const nullish = (ts, t) => !(t.flags & ts.TypeFlags.Union) ? "" : (t.types.some(x => x.flags & ts.TypeFlags.Undefined) ? " | undefined" : "") + (t.types.some(x => x.flags & ts.TypeFlags.Null) ? " | null" : "");
+/** EF-5a: what undoes a call — a function that takes nothing and answers nothing, as TypeScript resolves the type (a
+ *  library's own name for it, `VoidFunction`, is that function). */
+const isDisposer = (ts, checker, t) => { const u = checker.getNonNullableType(t); const sigs = u.getCallSignatures(); return !u.getProperties().length && !u.getConstructSignatures().length && sigs.length === 1 && !sigs[0].getParameters().length && !sigs[0].getTypeParameters()?.length && !!(sigs[0].getReturnType().flags & ts.TypeFlags.Void); };
 function resultText(ts, checker, t, todos, generic = false) {
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return "Component";
   const read = accessorOf(ts, checker, t);
   if (read) return `ref ${text(ts, checker, read)}`;
+  if (isDisposer(ts, checker, t)) return nullish(ts, t) ? `(() => void)${nullish(ts, t)}` : "() => void";   // EF-5a: the checker holds a call to keeping it
   if (isFn(checker, t)) return generic ? "any" : `((...args: any[]) => any)${nullish(ts, t)}`;   // a function part is io (MO-10b); it may be absent
   const tuple = checker.getNonNullableType(t);
   if (checker.isTupleType(tuple)) {
