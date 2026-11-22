@@ -18,8 +18,8 @@ your `.rx` against the package's types either way, and the checker reads only a 
 It never writes the word for you.
 
 A component's props can be the library's own type, with only the fields that carry a word written after it —
-`export component Select<Option>(props: import("@kobalte/core/select").SelectRootProps<Option> & { onChange?: handler
-(value: Option | Option[]) => void }) provides(select)` — and a function with several signatures has a row for each
+`export component Dialog(props: import("@ui-sdk/solid/dialog").DialogProps & { onOpenChange?: handler (open: boolean,
+details: DialogOpenChangeDetails) => void }) provides(dialog)` — and a function with several signatures has a row for each
 (the same words on every row). A field in that record is the library's prop written again: `rx-tsc` refuses one the
 props' type has no prop for, or one given another type than the library's (it may be narrower). Don't write `any` where the library has a type: name the type (`rx-declare --explain`
 says which `any`s are the library's own and which are the draft's).
@@ -51,7 +51,7 @@ Where the file goes:
   `module`, `main`) and reads the `.d.rx` beside that file (`dist/index.jsx` → `dist/index.d.rx`).
 - **A package that doesn't:** put it in `rx-types/`, named by the import: `rx-types/@solid-primitives/media.d.rx` for
   `import { createMediaQuery } from "@solid-primitives/media"` (a subpath is a folder:
-  `rx-types/@kobalte/core/dialog.d.rx`). `npx rx-declare @solid-primitives/media --out rx-types/@solid-primitives/media.d.rx`
+  `rx-types/@ui-sdk/solid/dialog.d.rx`). `npx rx-declare @solid-primitives/media --out rx-types/@solid-primitives/media.d.rx`
   drafts it. Your import stays as written; nothing re-exports it.
 - **A shared declaration:** an `@rx-types/<scope>__<name>` package (like `@types`), with `index.d.rx` (and
   `<subpath>.d.rx`).

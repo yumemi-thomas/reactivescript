@@ -7,7 +7,7 @@ Rules: MO-8d, MO-11a, MO-11q, MO-10g, TY-4b.
 ```rx
 -- module: ./kit.d.rx
 // A kit's select and one of its parts. Each takes the type of the options it is given: the value it holds and what
-// its callback is called with are that type (Kobalte's `Select<Option>`, a table's `Row<TData>`).
+// its callback is called with are that type (UI SDK's `Select<T>`, a table's `Row<TData>`).
 export component Picker<Option>(props: { value?: Option; options: Option[]; onPick?: handler (v: Option) => void })
 export component Chooser<Option>(props: { options: Option[]; onPick?: (v: Option) => void })
 export component Kit.Row<T extends { id: string }>(props: { row: T; label: (row: T) => string })

@@ -7,8 +7,6 @@ formisch-field-array  3/3 ✓          6/6 ✓          7/7 ✓          5/5 ✓
 formisch-field-path   3/3 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            11                  11               0                 0            
 frozen-read           3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                2                   0                0                 0            
 keyed-edits           3/3 ✓          4/4 ✓          7/7 ✓          6/6 ✓          —                —                   —                —                 —            
-kobalte-dialog        3/3 ✓          4/4 ✓          5/5 ✓          3/3 ✓          2/2 ✓            7                   0                0                 0            
-kobalte-select        3/3 ✓          5/5 ✓          6/7 ✗          3/3 ✓          1/1 ✓            5                   1                0                 2            
 listener-cleanup      3/3 ✓          3/3 ✓          4/4 ✓          4/4 ✓          —                1                   0                0                 0            
 optimistic-todo       3/3 ✓          4/4 ✓          6/6 ✓          6/6 ✓          —                —                   —                —                 —            
 primitives-virtual    3/3 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            8                   0                0                 0            
@@ -19,20 +17,21 @@ router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓
 router-provider       3/3 ✓          5/5 ✓          4/4 ✓          5/5 ✓          1/1 ✓            7                   0                0                 1            
 rx-package            3/3 ✓          8/8 ✓          34/34 ✓        9/9 ✓          —                —                   —                —                 —            
 sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                   0                0                 0            
+solid-use-primitives  3/3 ✓          6/6 ✓          10/10 ✓        6/6 ✓          1/1 ✓            6                   0                0                 0            
 source-mutation       3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                —                   —                —                 —            
 ssr-divergence        3/3 ✓          3/3 ✓          3/3 ✓          2/3 ✗          —                3                   0                0                 0            
 start-route           3/3 ✓          5/5 ✓          8/8 ✓          2/2 ✓          1/1 ✓            20                  0                0                 0            
 store-helper          3/3 ✓          4/4 ✓          4/4 ✓          5/5 ✓          —                3                   0                0                 0            
 store-updater         3/3 ✓          5/5 ✓          5/5 ✓          5/5 ✓          —                0                   0                0                 0            
 table-pagination      3/3 ✓          8/8 ✓          10/10 ✓        5/5 ✓          —                43                  0                0                 1            
+ui-sdk-dialog         3/3 ✓          6/6 ✓          9/9 ✓          6/6 ✓          1/1 ✓            23                  10               0                 9            
+wardic-motion         3/3 ✓          6/6 ✓          10/10 ✓        6/6 ✓          1/1 ✓            14                  0                0                 0            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-total                 75/75          115/115        154/155        113/115        8/8              135                 23               0                 4            
+total                 78/78          124/124        172/172        125/127        8/8              166                 32               0                 11           
 
-Not green (3):
+Not green (2):
   ✗ duplicate-keys · bad caught · rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY) — ran silently
     known: 06 ST-4d, 08 CN-2: a key computed at run time is the data's (bin R). The checker refuses rows written out with one key; it cannot see a key that a click computes, a static check does not become a run-time one, and Solid's development build reports no duplicate either. The variant stays as the measure of that limit.
-  ✗ kobalte-select · runtime ok · no console errors or warnings — ["[STRICT_READ_UNTRACKED] Reactive value read directly in an effect callback will not update. Move it into a tracking scope (JSX, a memo, or an effect's compute function).\n[STRICT_READ_UNTRACKED] what it means and how to fix it: https://docs.solidjs.com/reference/solid-js/diagnostics/strict-read-untra"]
-    known: 06 ST-1, ST-2, guide/libraries.md ("A store has one identity"): an `.rx` source of records is a Solid store, so the option the select is given as its `value` is a store's row. Kobalte 2.0.0-alpha reads the value's key inside an effect's callback (`SelectionManager.getKey`, from `SelectBase`'s effect), and Solid's development build warns of any reactive read there (`STRICT_READ_UNTRACKED`). The select works — every other check of this run is green — and the warning is the library's read, in the library: the same happens in a Solid app that keeps its options in `createStore`. `.rx` has no source of records that is not a store (the accepted limit: a structured source has one identity, and its rows are the store's).
   ✗ ssr-divergence · bad caught · a `pure` JS call that answers differently on each side, read by the view (the declaration's assertion: reported when it runs) (dev: HYDRATION_MISMATCH|mismatch) — ran silently
     known: 10 SV-7c (ruled 2026-10-24), 08 CN-5: `pure` is the author's assertion at the JS boundary, the one unchecked word, and that the function answers alike on both machines is part of it. What only the browser knows is `client` JS, which is checked (SV-7b: the good program). Solid's development build adopts the server's text without comparing it, so nothing reports this mismatch, and the language adds no run-time comparison of its own.
 
@@ -43,8 +42,6 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   formisch-field-path/rx-types/valibot.d.rx: 9 words by hand, 11 `any` inherited, 0 introduced, 0 by place
   frozen-read/label.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  kobalte-dialog/rx-types/@kobalte/core/dialog.d.rx: 7 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  kobalte-select/rx-types/@kobalte/core/select.d.rx: 5 words by hand, 1 `any` inherited, 0 introduced, 2 by place
   listener-cleanup/keys.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: 4 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
@@ -58,23 +55,28 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   router-provider/people.d.rx: 7 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-provider/rx-types/@tanstack/solid-router.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 1 by place
   sequential-awaits/api.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  solid-use-primitives/rx-types/solid-use/client-only.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
+  solid-use-primitives/rx-types/solid-use/media-query.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  solid-use-primitives/use.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   ssr-divergence/env.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   start-route/src/people.d.rx: 20 words by hand (rx-declare drafts nothing for it: the module has no types), 0 `any` inherited, 0 introduced, 0 by place
   store-helper/array.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   store-updater/audit.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   table-pagination/table.d.rx: 43 words by hand, 0 `any` inherited, 0 introduced, 1 by place
+  ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: 18 words by hand, 9 `any` inherited, 0 introduced, 9 by place
+  ui-sdk-dialog/rx-types/@ui-sdk/solid/toggle.d.rx: 5 words by hand, 1 `any` inherited, 0 introduced, 0 by place
+  wardic-motion/rx-types/@wardic/dom.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  wardic-motion/rx-types/@wardic/solid.d.rx: 14 words by hand, 0 `any` inherited, 0 introduced, 0 by place
 
 Introduced `any`s (09 MO-8q: none, or on bench/any-allowlist.json): none
 
-Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 25 drafts, 3142 rows): 306 `any` the libraries' own, 0 introduced, 136 by place
+Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 30 drafts, 3364 rows): 323 `any` the libraries' own, 0 introduced, 176 by place
   effect-derived · ./page.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
   formisch-field-array · @formisch/solid/v2: 107 rows, 0 `any` the library's own, 0 introduced, 0 by place
   formisch-field-array · valibot: 981 rows, 66 `any` the library's own, 0 introduced, 20 by place
   formisch-field-path · @formisch/solid/v2: 107 rows, 0 `any` the library's own, 0 introduced, 0 by place
   formisch-field-path · valibot: 981 rows, 66 `any` the library's own, 0 introduced, 20 by place
   frozen-read · ./label.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  kobalte-dialog · @kobalte/core/dialog: 46 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  kobalte-select · @kobalte/core/select: 100 rows, 2 `any` the library's own, 0 introduced, 12 by place
   listener-cleanup · ./keys.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
   primitives-virtual · @solid-primitives/event-listener: 24 rows, 5 `any` the library's own, 0 introduced, 4 by place
   primitives-virtual · @solid-primitives/resize-observer: 12 rows, 0 `any` the library's own, 0 introduced, 1 by place
@@ -88,7 +90,14 @@ Whole drafts (09 MO-8q: every export of each module a task declares, drafted by 
   router-provider · ./people.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   router-provider · @tanstack/solid-router: 296 rows, 52 `any` the library's own, 0 introduced, 28 by place
   sequential-awaits · ./api.js: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  solid-use-primitives · solid-use/client-only: 5 rows, 2 `any` the library's own, 0 introduced, 0 by place
+  solid-use-primitives · solid-use/media-query: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  solid-use-primitives · ./use.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   ssr-divergence · ./env.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
   store-helper · ./array.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   store-updater · ./audit.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   table-pagination · ./table.js: 7 rows, 0 `any` the library's own, 0 introduced, 1 by place
+  ui-sdk-dialog · @ui-sdk/solid/dialog: 49 rows, 10 `any` the library's own, 0 introduced, 9 by place
+  ui-sdk-dialog · @ui-sdk/solid/toggle: 22 rows, 4 `any` the library's own, 0 introduced, 3 by place
+  wardic-motion · @wardic/dom: 30 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  wardic-motion · @wardic/solid: 255 rows, 3 `any` the library's own, 0 introduced, 40 by place

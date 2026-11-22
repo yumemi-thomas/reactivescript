@@ -1,0 +1,22 @@
+// Wardic from .rx: a kit's member components as dotted tags (MO-11q) — Motion's `motion.div` is `wardic.div`, imported
+// under a capital as a component's tag is written — the provider's context (MO-12), an exit animation, and a stylesheet
+// imported for its effect (07 §1a)
+import "./app.css"
+import { DomLive } from "@wardic/dom"
+import { wardic as Motion, AnimatePresence, WardicProvider } from "@wardic/solid"
+
+source shown := true
+source flips := 0
+
+export default component App() {
+  <h1>Wardic</h1>
+  <p class="count">flipped {flips}</p>
+  <button class="toggle" onClick={() => { shown := s => !s; flips := n => n + 1 }}>toggle</button>
+  <WardicProvider env={DomLive}>
+    <AnimatePresence>
+      {if (shown) {
+        <Motion.div class="card" initial={{ opacity: 0 }} animate={{ opacity: 1, x: flips * 10 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>from .rx</Motion.div>
+      }}
+    </AnimatePresence>
+  </WardicProvider>
+}

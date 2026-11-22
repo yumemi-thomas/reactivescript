@@ -371,6 +371,7 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
     if (c.startsWith("{")) { c.expect("{");
     for (;;) {
       c.ws(); if (c.eat("}")) break;
+      { const at = c.i; if (c.keyword("readonly")) { c.ws(false); if (c.startsWith("?") || c.startsWith(":")) c.i = at; } }   // MO-10b: `readonly` is a modifier of the field, not its name (a prop may be named `readonly`)
       const fname = c.ident() ?? c.fail("a prop name"); c.ws(false); const optional = c.eat("?"); c.ws(false);
       let type: string | undefined; let catches: string[] | "*" | undefined;
       if (c.eat(":")) {

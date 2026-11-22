@@ -7,7 +7,7 @@ Rules: MO-8o, MO-8d, MO-11a, MO-11b, MO-10g, TY-4b.
 ```rx
 -- module: ./kit.d.rx
 // The props are a type (here the declaration's own; for a library with types, the one it exports:
-// `import("@kobalte/core/select").SelectRootProps<Option>`). Only a field that carries a word is written again.
+// `import("@ui-sdk/solid/select").SelectProps<Option>`). Only a field that carries a word is written again.
 export type PickerProps<O> = { value?: O; options: O[]; onPick?: (v: O) => void; label?: string }
 export component Picker<Option>(props: PickerProps<Option> & { onPick?: handler (v: Option) => void })
 export component Lister<Option>(props: PickerProps<Option> & { onPick?: (v: Option) => void })

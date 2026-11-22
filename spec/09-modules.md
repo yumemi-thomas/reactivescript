@@ -301,7 +301,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   A package import's declaration is the first of these that exists:
   1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or
      one above it (`rx-types/@tanstack/solid-query.d.rx`; a subpath is a
-     folder, `rx-types/@kobalte/core/dialog.d.rx`);
+     folder, `rx-types/@ui-sdk/solid/dialog.d.rx`);
   2. the package's own, beside the file the import resolves to (MO-10c) —
      for a package written in `.rx`, the printed signature of the module,
      marked as one and read as one (MO-13);
@@ -449,11 +449,12 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     a function that answers nothing or a promise): `createForm<TSchema
     extends FormSchema>(config: FormConfig<TSchema>): FormStore<TSchema>`.
   - *A declared component's props may be a type*, in place of a record of
-    every field: `export component Select<Option, OptGroup = never, T
-    extends ValidComponent = "div">(props: import("@kobalte/core/
-    polymorphic").PolymorphicProps<T, SelectRootProps<Option, OptGroup,
-    T>> & { onChange?: handler (value: Option | Option[]) => void;
-    itemComponent?: Component }) provides(select)`. The type is
+    every field: `export component Toggle(props: ToggleOptions &
+    Omit<import("@ui-sdk/solid").PartProps<"button", ToggleState>,
+    "value" | "defaultValue" | "type" | "onChange" | "onSelect"> & {
+    onPressedChange?: handler (pressed: boolean, details:
+    import("@ui-sdk/core").ChangeDetails<TogglePressedChangeReason>) =>
+    void })`. The type is
     TypeScript's text, up to the `&` before a record that closes the
     props (or to the `)`, where no field is written again:
     `component Portal(props: SelectPortalProps)`); the checker reads
@@ -476,7 +477,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   - *The record is held to the type* (added 2026-11-22, 13 TY-6f). With
     `NoInfer` around it the record takes no part in holding the component
     to the row, and an intersection would hide a wrong field in any case
-    (`P & { onChange?: handler (v: number) => void }` is still something
+    (`P & { onPressedChange?: handler (v: number) => void }` is still something
     the library takes). So each field is checked on its own: it names a
     prop the type has (one member of a union at least; any name where the
     props are open), and the type it is written with is one the library's
@@ -488,14 +489,15 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     the row, with the prop and both types:
 
     ```
-    select.d.rx:15:1 - error DECLARATION_MISMATCH: Select: `onChange` is written `(value: number) => void` in the
-    record after the props' type, and the library's type for that prop does not take it: the record may narrow a prop
-    of import("@kobalte/core/polymorphic").PolymorphicProps<T, SelectRootProps<Option, OptGroup, T>>, not give it
-    another type (MO-8o)
-      Type '(value: number) => void' is not assignable to type '((value: Option | null) => void) | ((value: Option[]) => void) | undefined'.
+    toggle.d.rx:8:1 - error DECLARATION_MISMATCH: Toggle: `onPressedChange` is written `(pressed: number, details:
+    import("@ui-sdk/core").ChangeDetails<TogglePressedChangeReason>) => void` in the record after the props' type, and
+    the library's type for that prop does not take it: the record may narrow a prop of ToggleOptions &
+    Omit<import("@ui-sdk/solid").PartProps<"button", ToggleState>, "value" | "defaultValue" | "type" | "onChange" |
+    "onSelect">, not give it another type (MO-8o)
+      Type '(pressed: number, details: …) => void' is not assignable to type '(pressed: boolean, details: ChangeDetails<TogglePressedChangeReason>) => void'.
     ```
 
-    A field the type has no prop for (`onChanged?: handler …`) is refused
+    A field the type has no prop for (`onPressChange?: handler …`) is refused
     the same way: it would give its word to a prop nobody reads and leave
     the real one without. A draft's rows are held this way before they are
     written, as they are held to the module (MO-8m). S-module-32, the unit
@@ -1311,6 +1313,12 @@ export default component App() {
   Each field is a TypeScript type (TY-4b): `View` for a view (07 §6),
   `Component` (`Component<P>`) for a component value (MO-11c). A field may
   start with `catches(…)`, what the component discharges for it (MO-3).
+  TypeScript's `readonly` before a field is a modifier, as on a result's
+  (MO-10b), and no part of the prop's name: `{ readonly id?: string }`
+  declares `id` (2026-11-22: it was a parse error, and a library whose
+  props are an interface of `readonly` fields — Wardic's — could not be
+  drafted at all: one such row and the whole draft could not be checked,
+  so every row fell back to `any`). A prop may itself be named `readonly`.
   After the props, `fails(…)` says what escapes its root and `shape(…)` what
   SV-7d needs where it is applied (MO-9b's words). Absent, each is empty.
   The application is any component's, `<Link href="/">home</Link>`, and it
@@ -1455,8 +1463,8 @@ export default component App() {
   types the parameters from the component's own types (TY-1c). Other
   children of such a component are `VIEW_FN_EXPECTED`; a view lambda
   anywhere else is `VIEW_FN_MISPLACED`. A render prop the declaration
-  marks optional (`children?: (items: T) => View`, Kobalte's
-  `Select.Listbox`) may be left out — the component then renders by
+  marks optional (`children?: (state: ToggleState) => View`, UI SDK's
+  `Toggle`) may be left out — the component then renders by
   itself — and no children at all is not `VIEW_FN_EXPECTED`
   (2026-11-22; S-module-14). A render prop under another name is
   a named view lambda among the children, `{view header (n) { … }}`: it is
@@ -1689,8 +1697,9 @@ export default component App() {
   `component Outlet(props: {}) uses(router) outlet`. S-module-23.
 - **MO-11q (Compound components: a JS object's member components) —
   proposed 2026-11-19.** UI kits export a component's parts on one object
-  (Kobalte's `<Dialog>` with `<Dialog.Trigger>`, `<Dialog.Content>`; Ark's
-  `<Dialog.Root>`), the object a component itself or not. A `.d.rx`
+  (Ark's `<Dialog.Root>` with `<Dialog.Trigger>`, `<Dialog.Content>`;
+  Motion's `<motion.div>`, which Wardic exports as `wardic`), the object
+  a component itself or not. A `.d.rx`
   declares each member by its written name, `export component
   Dialog.Trigger(props: { … }) uses(dialog)`, with its own rows;
   `import { Dialog } from "./kit.js"` binds each declared member as a
@@ -1702,14 +1711,20 @@ export default component App() {
   its root is `CONTEXT_NOT_FOUND`. The compiled view applies the member
   (`<v$Dialog.Trigger>`), and the projection types it from the library's
   own types; TY-6 checks each member against the object's property (a
-  declared `Dialog.Root` that Kobalte does not have fails the check).
+  declared `Dialog.Root` that the kit does not have fails the check).
   `rx-declare` drafts the members of an exported object of components,
   and running them settles their rows: a part that throws rendered alone
   but renders inside its object's root reads a context that root provides.
   A prop typed with `Component` in a union (`as?: string | Component`, a
   polymorphic `as`) takes a component value as a `Component` prop does
-  (MO-11c). S-module-24; `examples/kobalte` runs Kobalte 2.0 (alpha) in
-  Chromium (`compiler/test/kobalte.mjs`).
+  (MO-11c). A tag is a component's by its capital (07 §4), so an object
+  exported under a lowercase name is imported under a capital to be
+  applied: `import { wardic as Motion }`, then `<Motion.div>`, declared
+  `export component wardic.div(…)` (2026-11-22; `<wardic.div>` is not a
+  member's tag: see `rfc-declaration-types-2026-11-22.md`, the fourth
+  round). S-module-24; `examples/wardic` runs Wardic 2.0 in Chromium
+  (`compiler/test/wardic.mjs`; it ran Kobalte 2.0 alpha until Kobalte
+  left the benchmark, 2026-11-22).
 - **MO-11r (One placement vocabulary) — proposed 2026-11-19.** Where a
   library renders the components a program gives it is said in one
   vocabulary, on the declared fn that takes them; each form replaces DV-24's

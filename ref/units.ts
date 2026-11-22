@@ -292,6 +292,11 @@ export const units: [string, () => void][] = [
     const more = parseDeclarations("export component B(props: { id: string } & Extra & { onPick?: handler () => void })\nexport component C(props: { id: string } & Extra)\n") as typeof comps;
     deepStrictEqual(more.map(d => [d.propsType, d.props.length]), [["{ id: string } & Extra", 1], ["{ id: string } & Extra", 0]]);
   }],
+  ["a_declared_prop_may_be_readonly", () => {   // MO-11a, MO-10b: `readonly` before a declared prop is TypeScript's modifier, not part of its name; a prop may itself be named `readonly`
+    const decls = parseDeclarations("export component Group(props: { readonly children?: View; readonly id?: string | undefined; readonly onPick?: handler (v: string) => void; readonly?: boolean; readonly readonly: boolean })\n");
+    const comp = decls[0] as Extract<typeof decls[number], { kind: "comp" }>;
+    deepStrictEqual(comp.props.map(p => [p.name, p.optional, !!p.callback]), [["children", true, false], ["id", true, false], ["onPick", true, true], ["readonly", true, false], ["readonly", false, false]]);
+  }],
   ["a_props_record_is_held_to_the_props_type", () => {   // MO-8o, TY-6f: what the boundary check holds a record's field by — its name, the type it is written with (the word taken off), the props' type and the row's type parameters — is read here as the crate reads it (the check itself is the crate's to write, 13 TY-6d: compiler/src/project.rs `boundary_checks`, the unit of this name there)
     const decls = parseDeclarations("export component Picker<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>(props: import(\"./kit.js\").PickerProps<Option, G, T> & { onPick?: handler (v: Option) => void; item?: Component; slot?: renders any })\nexport component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n");
     const comps = decls.filter((d): d is Extract<typeof decls[number], { kind: "comp" }> => d.kind === "comp");

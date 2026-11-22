@@ -337,3 +337,264 @@ scorecards before it.
   one instance. A sound "for all `T`" needs TypeScript to read a prop of a
   deferred conditional type, which it does not.
 
+
+## A fourth round: three libraries the benchmark had not seen
+
+Kobalte left the benchmark and three libraries came in, none of which a
+row, a word or a drafting rule had been written against: `@ui-sdk/solid`
+0.1.0-beta.13 (Vercel Labs' UI SDK: a headless kit), `@wardic/solid` 2.0.1
+(Motion's API on Solid 2: elements, gestures, presence) and `solid-use`
+1.0.0 (lxsmnsyc's utilities). Each has a task (`bench/tasks/ui-sdk-dialog`,
+`wardic-motion`, `solid-use-primitives`) declared from `rx-declare`'s
+draft. This is the first check of the vocabulary (MO-8i) outside the
+libraries it grew up with: what it took, and what it could not say.
+(The rounds above are records of their runs: their numbers, and what
+they say of Kobalte's rows, are as measured then.)
+
+| task | modules declared | rows kept | hand-written words | `any` inherited | introduced | by place | whole drafts: rows / library's `any` / introduced / by place |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `ui-sdk-dialog` | `@ui-sdk/solid/dialog`, `/toggle` | 8 components, 1 context | 23 | 10 | 0 | 9 | 71 / 14 / 0 / 12 |
+| `wardic-motion` | `@wardic/solid`, `@wardic/dom` | 3 components, 1 fn, 2 values, 1 context | 14 | 0 | 0 | 0 | 285 / 3 / 0 / 40 |
+| `solid-use-primitives` | `solid-use/media-query`, `/client-only`, `./use.js` | 6 fns, 1 component | 6 | 0 | 0 | 0 | 12 / 2 / 0 / 0 |
+
+No `any` is the draft's, in the kept rows or in the whole drafts, and
+`bench/any-allowlist.json` stays empty. No word was added. One thing was
+fixed, because without it one of the three could not be drafted at all.
+
+**The one change: `readonly` before a declared prop (MO-11a).** Wardic's
+props are interfaces of `readonly` fields, and a draft writes a record as
+the library declares it: `export component LayoutGroup(props: { readonly
+children?: View; readonly id?: string | undefined; … })`. Both parsers
+refused the modifier there (`PARSE: expected '}'`), though MO-10b already
+reads it on a result's fields. One such row and the crate could not read
+the draft, so the draft could not be checked against the module, and every
+row was written "as every draft was": **726 `any`s of the draft's own**
+for `@wardic/solid` (`rx-declare --explain`: "the draft could not be
+checked against the module"). With the modifier read (a prop may still be
+named `readonly`): 0, and 3 the library's. The units
+`a_declared_prop_may_be_readonly` in both checkers; the tree-sitter
+grammar read it already. A draft that cannot be checked says so only
+under `--explain`: it should fail loudly instead, which is proposed below.
+
+### `trusted`
+
+None is written, and none was needed: the benchmark does not run strict
+declarations (MO-8j). Under `--rx-strict` every row of the three packages
+would need it, for a reason that is the tool's and not the rows':
+`rx-verify` pairs a `.d.rx` with the JS module beside it, and for a
+project declaration of a package (`rx-types/<package>.d.rx`, MO-8k's
+first place) it answers `no JS module beside dialog.d.rx`. That is 8 rows
+for UI SDK, 6 for Wardic, 4 for solid-use; the 3 rows of `use.d.rx`, which
+is beside `use.js`, are the only ones it would run. Proposed: `rx-verify`
+resolves an `rx-types/` file to the package it declares, as the checker
+does.
+
+### `any`, and parts said by place
+
+- *UI SDK, 10 inherited.* All are one type of the library's:
+  `RenderProp<State>`, whose first parameter is `Record<string, any>` (the
+  props a part hands a custom element), reproduced in the `render` prop of
+  each part that has one. `Toggle`: 1; the dialog's parts: 9.
+- *UI SDK, 9 by place.* `DialogTitle`, `DialogDescription` and
+  `DialogClose` are `PartComponent<DialogPrimitive, "title", "h2">`: their
+  props are computed from the core primitive's slot map, and the type has
+  no name an app can import. The draft writes the record a field at a
+  time, and three fields of each — `class`, `style`, `children`, each "a
+  value, or a function of the part's state" over a state type with no
+  name — are `Parameters<typeof import("@ui-sdk/solid/dialog").DialogTitle>[0]["class"]`.
+  A row that is the props' place whole (`props: Parameters<typeof
+  DialogTitle>[0]`) would say the same in one part instead of three; the
+  draft prefers a record where it can write one.
+- *Wardic, 0 in the kept rows.* In the whole draft 3 are the library's
+  (`AnimatePresenceProps.custom?: any`, `Feature<I = any, S = any>`), and
+  40 parts in 12 rows are by place: `Reorder`'s and the layout hooks'
+  internal types.
+- *solid-use, 0.* In the whole drafts, 2 the library's
+  (`clientComponent<T extends Component<any>>`).
+
+### Hand-written words
+
+- *UI SDK (23).* `export context dialog`, `provides(dialog)` on the root
+  and `uses(dialog)` on six parts (17 words); `handler` on `onOpenChange`
+  and on `onPressedChange` (2); `children?: (state: ToggleState) => View`
+  on `Toggle` (4). The context is the expensive one, and neither way of
+  finding it works here. The module exports no hook, and its context is
+  not exported, so running finds nothing (`rx-declare --run --dom`: "ran 0
+  hooks"). The package publishes built files only; with a checkout at the
+  release's tag, `--source` finds the toggle's contexts (8 suggestions)
+  and none of the dialog's (0 for 9 rows): its parts are made by a factory
+  (`const dialogParts = createDialogParts(dialogPrimitive, "Dialog", …)`,
+  `const DialogTitle = dialogParts.Title`), and the reading does not
+  follow a component that is a call's result. What is true was read off a
+  run: a part alone throws `<DialogClose> must be used inside <Dialog>`.
+- *Wardic (14).* `export context wardic`, `provides(wardic)` on the
+  provider, and the row `export component wardic.div(props:
+  WardicProps<"div">) uses(wardic)`, which is most of them: the draft has `export
+  const wardic: typeof import("@wardic/solid").wardic` and no row for a
+  member, since the members are a mapped type over every tag. `--source`
+  found the context (`WardicProvider` "renders this context's provider"
+  [src/provider.tsx:192]; the elements read it [src/provider.tsx:81]) but
+  had no row to write it above. And `pure` and `instantiates` on `ward()`.
+- *solid-use (6).* `pure` on six fns. `--source` gives the reason for the
+  three it can read (`createSignal` and a listener added in `onSettled`,
+  src/media-query.ts:26, :28; src/client-only.ts:15); for the three in
+  `use.d.rx` it gives none, because the helper re-exports the package's
+  default exports and the reading stops at the helper ("source: the module
+  itself (use.js)", 0 suggestions).
+
+### What no word of MO-8i says
+
+Each with the row, what the library does, and what would say it. None
+blocked a good program from being written; each decided what the good
+program could be.
+
+1. **A module's default export** (solid-use: `atom`, `fetch`, `string`,
+   `useServerValue`, `useOnlineStatus`, `usePageVisibility` — six of its
+   ten modules). A `.d.rx` declares named exports only; the draft writes
+   `// TODO: the module's default export: import it by name in a JS helper`
+   and nothing else, so `rx-declare solid-use/online-status` is an empty
+   file. The task has `src/use.js` (`export { default as useOnlineStatus }
+   from "solid-use/online-status"`) with a `.d.ts` and a `.d.rx` of its
+   own. *Needed:* a row for it, `export default pure fn
+   useOnlineStatus(): ref boolean`, and `import useOnlineStatus from
+   "solid-use/online-status"` in `.rx`. It is grammar, not a word, in four
+   places (both parsers, the projection, tree-sitter), and it is the
+   largest gap by programs affected: a package in this style cannot be
+   imported without a file written for the purpose.
+2. **One function that reads and writes** (solid-use `atom<T>(value):
+   Atom<T>`, `(): T; (value: T): T`). A result is a reader (`ref T`, read
+   without a call) or a function (io, called in a handler): `count()` in
+   the view is `IO_IN_REACTIVE` when the row says a function, and `count(1)`
+   is not there to call when it says `ref`. The draft's row is the
+   function, its type by place. Not in the task. *Needed:* a result word
+   for a signal in one value, `signal T` (MO-10h has the word for a
+   parameter: "a getter and a setter"), bound as an `.rx` name that is
+   read as an equation and written as a setter is called.
+3. **A callback the library calls once, while the call or the component is
+   made** — synchronously, in the owner, outside tracking. Three rows,
+   two libraries:
+   - Wardic's `wardRef?: (ward) => void`, "as `ref` gets the element"
+     (src/element.tsx:469, under `untrack`). `handler` is false of it, and
+     the run shows it: a closure there that calls an action fails with
+     Solid's `ACTION_CALLED_IN_OWNED_SCOPE`, and the page does not mount.
+     `tracked` is false too. Unmarked, the closure is a pure function,
+     which can do nothing with the ward it is given.
+   - solid-use's `useServerValue<T>(cb: () => T): T`: `cb` runs once, on
+     the server, and is impure on purpose (`Math.random`, an id). The
+     draft reads `() => T` as an accessor, `ref cb: T`, which types cannot
+     tell from it; as `ref`, the argument must be a pure expression. The
+     task's `useTicket` is three lines of JS for that reason.
+   - solid-use's `provide(context, value)` (its own injection, beside
+     `createProvider` and `inject`): a call that must run while the
+     component is made. In `.rx` a call for what it does has no position
+     in a component's body (`PARSE`), and in an effect it runs after the
+     children were made.
+
+   *Needed:* a third function word beside `handler` and `tracked` — say
+   `setup` — for "called once, now, in this owner, untracked": its closure
+   is checked as a component's body is (it may bind primitives and declare
+   effects; no write, no action). For the third case, the same fact on a
+   fn: a call that is a statement of a component's body. The words exist
+   in Solid's terms (an owned scope that is not a computation), so CN-8
+   has no objection; whether one word covers the three is the question.
+   `ref: handler (el) => void` on a declared component (MO-10g) is the
+   nearest row today, and what this round saw of `wardRef` says a
+   declaration should not use it for a callback run during creation.
+4. **A member component under a lowercase name, and a family of members**
+   (Wardic's `wardic.div`, Motion's `motion.div`; `w.div` of an instance).
+   Two things. *(a)* A tag is a component's by its capital (07 §4), so
+   `<wardic.div>` is not a member's tag: it is an element named
+   `wardic.div`, accepted by both checkers with no diagnostic and compiled
+   into the template as written. The spelling that works is MO-11q's
+   alias, `import { wardic as Motion }` and `<Motion.div>` — which reads
+   as Motion's own, and which the task and `examples/wardic` use — but a
+   person porting Motion code gets a silent wrong program first.
+   *Proposed:* a tag with a `.` whose head is a name bound in the module
+   is refused, with the alias in the message (no HTML element has a dot
+   without a hyphen); or read as JSX reads it, a member whatever its
+   case, which is about twenty places in the two checkers. *(b)* The
+   members are `{ readonly [Tag in keyof JSX.IntrinsicElements]:
+   WardicComponent<Tag> }`: one row a tag, by hand. *Needed:* a row for
+   the family, `export component wardic.<Tag extends keyof
+   JSX.IntrinsicElements>(props: WardicProps<Tag>) uses(wardic)`, the
+   member's name a type parameter of the row.
+5. **An element in a prop that is not `children`** (solid-use's
+   `ClientOnly`, `fallback?: Element`; every kit's `icon`, Solid's own
+   `<Show fallback>`). `.rx` gives a JS component a view as its children,
+   a view lambda where the prop is a function (`{view header (n) { … }}`,
+   MO-11k), or a component where the prop is `Component` (MO-11c).
+   `fallback={<span>…</span>}` is `PARSE`, and a prop typed as an element
+   takes none of the three; the task's fallback is a string. *Needed:* a
+   named view with no parameters for a prop typed `View`, `{view fallback
+   { <span>…</span> }}`, lowered to the element (a getter), not a function.
+6. **`children` that is a view or a function of state** (UI SDK, every
+   part: `children?: JSX.Element | ((state: ToggleState) => JSX.Element)`).
+   A row types `children` as `View` or as a function giving one, and the
+   two are told apart at the application (`VIEW_FN_EXPECTED`,
+   `VIEW_FN_MISPLACED`). The task's `Toggle` row narrows it to the
+   function (MO-8o allows a record to narrow), which is right for this
+   app and refuses `<Toggle>Bold</Toggle>` in it. *Needed:* the union
+   read as it is written, `children?: View | ((state: S) => View)`: plain
+   children, or a view lambda as the only child.
+7. **A result that is the library's object and has accessor parts**
+   (Wardic's `ward()`: a callable ref that is spread on an element or
+   given to `wardRef`, with `settled` and `tapped` accessors that hold,
+   `when(name)` and `read(key)` that make a memo each, `next(name)` a
+   promise, `each(name)` an async iterable). A result with a `ref` part
+   is wrapped — a getter a part (MO-10b) — and the wrapper is not the
+   ward: it cannot be spread or handed back to the library. So the task's
+   row is `ward(): Ward<{}>`, an opaque value: `card.next("tap")` is
+   typed by TypeScript and awaited, and `card.tapped` cannot be declared
+   as what holds. And *a method that instantiates*: `card.when("tap")`,
+   and solid-use's `fetch(url, init, true).json<T>()`, make a computation
+   each time they are called and hand back an accessor; "only the return
+   and its tuple or object parts are declared; an accessor nested deeper
+   is a value". For `fetch` the draft says "is a class: construct it in a
+   JS helper". *Needed:* field words on a result that stays the library's
+   own object (read through, not copied), and a function part's own row,
+   `json: <T>() => ref pending T instantiates`.
+8. **Tagged templates** (solid-use `string`: `` string`Hello ${name}` ``).
+   `.rx` has no tagged call (`PARSE`), and a `TemplateStringsArray` cannot
+   be built by hand. The draft's row is fine (`string(strings:
+   TemplateStringsArray, ...args: unknown[]): ref string`); the surface
+   has nowhere to call it. Each interpolation may be a value or an
+   accessor, which a rest parameter cannot say either (`ref` on `...args`).
+   Not in the task; an `.rx` equation over a template literal is the same
+   thing.
+9. **A result whose every field is an accessor, for any shape**
+   (solid-use `destructure<T>(source: T): Spread<T>`, `{ [K in keyof T]:
+   () => T[K] }`). `ref` goes on a field a row lists. Noted only: `.rx`
+   reads props where they are used, and has no use for it.
+
+### What the tools should do, short of a word
+
+- *A draft that cannot be checked fails.* When the crate cannot read a
+  draft, `rx-declare` writes every row with `any` and says why under
+  `--explain` alone. It should exit non-zero with the crate's message and
+  the row: this round's 726 would have been one line.
+- *Running finds a kit's context without a hook.* `rx-declare --run`
+  calls exported hooks. For a module of components and no hook (UI SDK),
+  it could render each exported component alone and inside each other
+  one, as `rx-verify`'s placement check already does for declared rows: a
+  part that throws alone and renders inside the root reads what the root
+  provides.
+- *The source reading follows a component that is a call's result*
+  (`createDialogParts(…).Title`) and a re-export in a helper
+  (`export { default as x } from "pkg"`) to the package's own source.
+- *A place for a family's evidence.* `--source` found Wardic's context
+  and had no member row to put it above.
+- *`rx-verify` on `rx-types/`* (above).
+
+### Outside the vocabulary, found on the way
+
+- An action that starts itself again without awaiting (`action hear() {
+  await card.next("tap"); taps := n => n + 1; hear() }`) never shows its
+  write: the second run belongs to the first's transition, which is then
+  waiting on the next tap. `onFlush(() => { hear() })` starts it after the
+  flush (02 EF-8). The checker has nothing to say and probably should
+  not; the guide could.
+- UI SDK's default build is compiled for the DOM, and its server render
+  is the `solid` condition's source, compiled by the app's bundler. The
+  benchmark imports a package as Node resolves it, so `ui-sdk-dialog` is
+  not rendered on the server there. Wardic through Vite, with the `solid`
+  condition, is `compiler/test/wardic.mjs`.

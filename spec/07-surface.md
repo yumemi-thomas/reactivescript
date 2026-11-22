@@ -60,7 +60,7 @@ export component Profile(props: { id: number }) { … }
   font. It binds nothing, needs no declaration file, and the compiled
   module imports it as written (a bundler loads the stylesheet). An `.rx`
   module is imported for what it exports, never this way (`PARSE`).
-  S-module-24; `examples/kobalte`.
+  S-module-24; `examples/wardic`.
 - `export` works on `component`, `fn`, `action`, `error`, `type`, and
   module-level sources and equations (exported as accessors — a module
   boundary is a value boundary, never a write boundary: W-1 holds across

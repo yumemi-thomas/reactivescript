@@ -1,0 +1,16 @@
+{
+  "name": "rx-wardic-example",
+  "private": true,
+  "type": "module",
+  "description": "Wardic (Motion's API on Solid 2) from .rx: a kit's member components as dotted tags (spec/09 MO-11q) — `wardic.div`, imported under a capital — a provider's context (MO-12), an exit animation, the stylesheet imported for its effect (07 §1a). Built and driven by compiler/test/wardic.mjs.",
+  "dependencies": {
+    "@wardic/solid": "2.0.1",
+    "@wardic/dom": "1.2.0",
+    "effect": "4.1.5",
+    "solid-js": "2.0.2",
+    "@solidjs/web": "2.0.2",
+    "@solidjs/signals": "2.0.2",
+    "vite": "8.1.5",
+    "@solidjs/vite-plugin": "3.0.1"
+  }
+}

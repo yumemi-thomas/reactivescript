@@ -288,90 +288,6 @@
       }
     }
   },
-  "kobalte-dialog": {
-    "good": {
-      "pass": 3,
-      "total": 3,
-      "fails": []
-    },
-    "types": {
-      "pass": 4,
-      "total": 4,
-      "fails": []
-    },
-    "runtime": {
-      "pass": 5,
-      "total": 5,
-      "fails": []
-    },
-    "bad": {
-      "pass": 3,
-      "total": 3,
-      "fails": []
-    },
-    "unrep": {
-      "pass": 2,
-      "total": 2,
-      "fails": []
-    },
-    "decl": {
-      "words": 7,
-      "any": 0,
-      "inherited": 0,
-      "introduced": 0,
-      "places": 0,
-      "draft": {
-        "rows": 46,
-        "any": 0,
-        "vendor": 0,
-        "introduced": 0,
-        "places": 0
-      }
-    }
-  },
-  "kobalte-select": {
-    "good": {
-      "pass": 3,
-      "total": 3,
-      "fails": []
-    },
-    "types": {
-      "pass": 5,
-      "total": 5,
-      "fails": []
-    },
-    "runtime": {
-      "pass": 6,
-      "total": 7,
-      "fails": [
-        "no console errors or warnings"
-      ]
-    },
-    "bad": {
-      "pass": 3,
-      "total": 3,
-      "fails": []
-    },
-    "unrep": {
-      "pass": 1,
-      "total": 1,
-      "fails": []
-    },
-    "decl": {
-      "words": 5,
-      "any": 1,
-      "inherited": 1,
-      "introduced": 0,
-      "places": 2,
-      "draft": {
-        "rows": 100,
-        "any": 2,
-        "vendor": 2,
-        "introduced": 0,
-        "places": 12
-      }
-    }
-  },
   "listener-cleanup": {
     "good": {
       "pass": 3,
@@ -782,6 +698,47 @@
       }
     }
   },
+  "solid-use-primitives": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 10,
+      "total": 10,
+      "fails": []
+    },
+    "bad": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 1,
+      "total": 1,
+      "fails": []
+    },
+    "decl": {
+      "words": 6,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0,
+      "draft": {
+        "rows": 12,
+        "any": 2,
+        "vendor": 2,
+        "introduced": 0,
+        "places": 0
+      }
+    }
+  },
   "source-mutation": {
     "good": {
       "pass": 3,
@@ -1027,6 +984,88 @@
         "vendor": 0,
         "introduced": 0,
         "places": 1
+      }
+    }
+  },
+  "ui-sdk-dialog": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 9,
+      "total": 9,
+      "fails": []
+    },
+    "bad": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 1,
+      "total": 1,
+      "fails": []
+    },
+    "decl": {
+      "words": 23,
+      "any": 10,
+      "inherited": 10,
+      "introduced": 0,
+      "places": 9,
+      "draft": {
+        "rows": 71,
+        "any": 14,
+        "vendor": 14,
+        "introduced": 0,
+        "places": 12
+      }
+    }
+  },
+  "wardic-motion": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 10,
+      "total": 10,
+      "fails": []
+    },
+    "bad": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 1,
+      "total": 1,
+      "fails": []
+    },
+    "decl": {
+      "words": 14,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0,
+      "draft": {
+        "rows": 285,
+        "any": 3,
+        "vendor": 3,
+        "introduced": 0,
+        "places": 40
       }
     }
   }

@@ -58,8 +58,8 @@
   Generated declarations are redrafted (draft 6).
 - The tree-sitter grammar reads a member of an import type, `import("pkg").Types["error"]`.
 - A declared component's props may be a type, with the fields that carry words in a record after it (spec/09 MO-8o):
-  `export component Select<Option>(props: import("@kobalte/core/select").SelectRootProps<Option> & { onChange?: handler
-  (value: Option | Option[]) => void }) provides(select)`. The checker reads the record as it read a record of props; a
+  `export component Dialog(props: import("@ui-sdk/solid/dialog").DialogProps & { onOpenChange?: handler (open: boolean,
+  details: DialogOpenChangeDetails) => void }) provides(dialog)`. The checker reads the record as it read a record of props; a
   prop it does not list is passed as any undeclared prop is. TypeScript reads the intersection; the boundary check
   (TY-6) finds the row's type parameters from the type alone. Props that are a union of records are written as they are.
 - A declaration may hold several rows of one fn's name, one for each of its signatures (spec/09 MO-8p). The checker
@@ -142,6 +142,14 @@
 
 **Fixed**
 
+- A declared component's prop may be `readonly` (`export component Group(props: { readonly id?: string })`, spec/09
+  MO-11a): it was a parse error, and `rx-declare` then wrote every row of such a library with `any` (Wardic: 726).
+- `bench/`: Kobalte's two tasks are gone for now, and three libraries are in: `ui-sdk-dialog` (`@ui-sdk/solid`),
+  `wardic-motion` (`@wardic/solid`) and `solid-use-primitives` (`solid-use`). `compiler/test/kobalte.mjs` and
+  `examples/kobalte` are `compiler/test/wardic.mjs` and `examples/wardic`. What the three libraries' declarations
+  could not say is in `spec/rfc-declaration-types-2026-11-22.md` (*A fourth round*).
+- `compiler/test/vite.mjs`: the dev servers poll for changes. "styles (dev): after the edit" failed on macOS, where the
+  file watcher reports a project copied just before the server started as a late burst and drops an edit made then.
 - `affects` on a keyed or structured source that takes a guess threw `INVALID_AFFECTS_TARGET` in a dev build, so the
   action never reached its `await`, and did nothing in a production build, so `pending?` stayed false (#50,
   S-affects-keyed).
@@ -156,7 +164,7 @@
 **New**
 
 - `bench/`: a representative-task benchmark over the Solid ecosystem's libraries (Formisch, TanStack Query, Router,
-  Start and Table, Kobalte, Solid's store). Each task is a good program (accepted by both checkers, typed by the
+  Start and Table, UI SDK, Wardic, solid-use, Solid's store). Each task is a good program (accepted by both checkers, typed by the
   library's types, run in Chromium) and one-line mistakes that must be refused. `node bench/run.mjs`; CI holds the
   scorecard.
 - A whole query result can be passed to a component whose prop's type keeps the fields' rows:

@@ -100,7 +100,11 @@ const TYPED = new Set(["router", "primitives", "tanstack"]);
 const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
   plugins: [solid()],
-  server: { fs: { allow: [repo, path.dirname(deps), (process.env.SOLID_NEXT ?? path.resolve(repo, "../solid-next")), pluginDir] } },
+  // the dev server polls for changes: what is tested is an edit reaching the page, not the platform's file events. On
+  // macOS they report a project written just before the server started late, as a burst of changes, and an edit made
+  // meanwhile is merged into the burst or never reported (plain Vite, no plugin, shows it): "styles (dev)" then failed
+  // with the old colour, on most runs
+  server: { watch: { usePolling: true, interval: 50 }, fs: { allow: [repo, path.dirname(deps), (process.env.SOLID_NEXT ?? path.resolve(repo, "../solid-next")), pluginDir] } },
   optimizeDeps: { force: true },   // the dev server's prebundled deps are rebuilt every run: a Solid repin never meets a stale cache
   build: { outDir: "dist", sourcemap: true, emptyOutDir: true },
 });

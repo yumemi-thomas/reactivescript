@@ -30,7 +30,7 @@ A folder under `tasks/`: `src/` is the app, `task.mjs` says how it is judged.
 
 - **The good program** (`src/`) is a realistic job: the libraries are the
   ones npm has (Solid 2.0, Formisch, TanStack Query, Router, Start and Table,
-  Kobalte), imported by their own names, declared in `rx-types/` as a project
+  UI SDK, Wardic, solid-use), imported by their own names, declared in `rx-types/` as a project
   declares a package that ships no `.d.rx` (09 MO-8k), and typed by the
   library's own TypeScript types. Solid itself is declared by the shared
   declaration this repository ships (`declarations/solid-js`, copied into the
@@ -101,8 +101,9 @@ a rule in `spec/`, never from a task.
 | `store-updater` | a Solid store updater written once and used by two handlers; a snapshot read out of the draft | the store written outside its setter, the updater called by hand, an `await` in the updater, a closure that writes the draft later |
 | `store-helper` | a Solid store's draft changed in place by a helper written in JS (`moveItem(d.columns, from, to)`) | the helper given the store itself, called while the view computes, the draft kept by a closure |
 | `table-pagination` | a TanStack Table: cell components, pagination buttons, a pager given page numbers and handlers, and — shadcn/ui's `DataTablePagination` — a component given the table itself | a row handed up through a callback, the table kept in state, a cell's context missing, a page turned while the view computes |
-| `kobalte-dialog` | a controlled Kobalte dialog | a part outside its root, a write while the view computes, a stale read of an own write; *(unrepresentable)* a part the kit has not, a write to derived state |
-| `kobalte-select` | a Kobalte Select whose options are objects, each rendered by an `.rx` component | an item outside the select, the options sorted in place, a write while the view computes |
+| `ui-sdk-dialog` | UI SDK for Solid (`@ui-sdk/solid`): a controlled dialog whose parts are flat exports, a change the app's callback cancels through the library's details, a toggle whose child is a function of its state | a part outside its root, the open state written while the view computes or from the function of state, a handler called where it is passed, a stale read of an own write, the controlled state copied by an effect; *(unrepresentable)* a part the library has not |
+| `wardic-motion` | Wardic (`@wardic/solid`, Motion's API on Solid 2): a motion element whose target follows app state, a tap heard from the element's ward, an exit animation under `<AnimatePresence>` | a motion element beside its provider, a ward made in the view or in a handler, the hearing started while the component computes, the ward's end let out of the action, taps counted by an effect; *(unrepresentable)* a prop read once into a local |
+| `solid-use-primitives` | solid-use's primitives: media query, colour scheme, network and page visibility as values; a client-only part; a value the server makes and the browser takes (served and hydrated) | a primitive made in the view or in a handler, its query computed from state, its value written, a layout kept in a source by an effect, the server's value asked for in the view; *(unrepresentable)* the accessor called, as in Solid |
 | `primitives-virtual` | solid-primitives' listeners and resize observer and a TanStack Virtual list, on an element ref | a listener's disposer dropped (its type an alias), a primitive made in a handler; *(unrepresentable)* the ref read before there is an element |
 | `frozen-read` | formatters kept in a record, read by the view, by a primitive and by a seed | a formatter read under a kept `peek`, given to a value parameter, used as a seed |
 | `source-mutation` | a list in a source, added to by a write and sorted for display | `rows.push(…)`, a prop sorted in place, a row written through a local alias, the value a functional write is given reversed in place |
@@ -138,5 +139,18 @@ Three earlier runs are kept beside it:
   declarations measured, eleven tasks added — run on the checker of `2f9baf7`, before any change to it.
 
 Two checks are red in `scorecard.txt`, each with its reason in its task's `known`: a duplicate key computed at run
-time (`duplicate-keys`) and a `pure` JS call that answers differently on the server (`ssr-divergence`). One run check is red with its reason too: Kobalte's own read of a store row in an
-effect's callback, which Solid's development build warns of (`kobalte-select`).
+time (`duplicate-keys`) and a `pure` JS call that answers differently on the server (`ssr-divergence`).
+
+Kobalte's two tasks (`kobalte-dialog`, `kobalte-select`) left the suite on 2026-11-22, and three libraries came in
+(`ui-sdk-dialog`, `wardic-motion`, `solid-use-primitives`), each declared by `rx-declare`'s draft with the hand-written
+words counted; `spec/rfc-declaration-types-2026-11-22.md` (*A fourth round*) lists what their declarations could not
+say. The one run check that was red with a reason, Kobalte's own read of a store row in an effect's callback, went
+with `kobalte-select`. `baseline-rebased.txt` and the two older scorecards are records of their runs and still list the
+Kobalte tasks.
+
+The totals moved with the tasks, not with any check. Before (25 tasks): good 75/75, types 115/115, runtime 154/155,
+bad 113/115, unrepresentable 8/8, 135 hand-written words, 23 `any` inherited, 0 introduced, 4 by place. The two Kobalte
+tasks were 6, 9, 11/12, 6 and 3 of those, with 12 words, 1 inherited `any` and 2 parts by place; the three new tasks
+are 9, 18, 29, 18 and 3, with 43 words, 10 inherited and 9 by place. Now (26 tasks): good 78/78, types 124/124, runtime
+172/172, bad 125/127, unrepresentable 8/8, 166 words, 32 inherited, 0 introduced, 11 by place. `scorecard.json` is that
+run, and what `--check` now holds each task to.

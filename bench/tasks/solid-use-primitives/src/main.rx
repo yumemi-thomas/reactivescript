@@ -1,0 +1,24 @@
+// A status strip on solid-use's primitives: what the window, the system and the network say, each a value the view
+// follows; a part only the browser renders; and a ticket the server makes once and the browser takes from it.
+import { useMediaQuery, usePrefersDark } from "solid-use/media-query"
+import { ClientOnly, createClientSignal } from "solid-use/client-only"
+import { useOnlineStatus, usePageVisibility, useTicket } from "./use.js"
+
+export default component App() {
+  source compact: boolean := false
+  wide = useMediaQuery("(min-width: 600px)")
+  dark = usePrefersDark()
+  online = useOnlineStatus()
+  visible = usePageVisibility()
+  client = createClientSignal()
+  ticket = useTicket()
+  layout = compact || !wide ? "narrow" : "wide"
+  <main class={dark ? "dark" : "light"}>
+    <p class="layout">{layout}, {dark ? "dark" : "light"}</p>
+    <p class="net">{online ? "online" : "offline"}, {visible ? "in view" : "hidden"}</p>
+    <p class="ticket">ticket {ticket}</p>
+    <p class="where">{client ? "in the browser" : "from the server"}</p>
+    <ClientOnly fallback="measuring…"><p class="only">{wide ? "room for two columns" : "one column"}</p></ClientOnly>
+    <button class="compact" onClick={() => { compact := c => !c }}>{compact ? "use the room" : "keep it narrow"}</button>
+  </main>
+}

@@ -1,0 +1,5 @@
+// As `rx-declare ./use.js` drafts it. By hand: `pure` (each makes its own signal, or asks the server's value, and writes
+// nothing else).
+export pure fn useTicket(): string instantiates
+export pure fn useOnlineStatus(): ref boolean
+export pure fn usePageVisibility(): ref boolean

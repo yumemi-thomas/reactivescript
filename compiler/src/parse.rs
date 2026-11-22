@@ -1450,6 +1450,15 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             if c.eat("}") {
                 break;
             }
+            // MO-10b: TypeScript's `readonly` is a modifier of the field, not its name (`readonly id?: string`); a prop
+            // may be named `readonly` (an input's)
+            let at = c.i;
+            if c.keyword("readonly") {
+                c.ws(false);
+                if c.starts_with("?") || c.starts_with(":") {
+                    c.i = at;
+                }
+            }
             let fname = c.ident_or("a prop name")?;
             c.ws(false);
             let optional = c.eat("?");
@@ -4088,6 +4097,18 @@ mod recovering {
         let decls = parse_declarations("export component B(props: { id: string } & Extra & { onPick?: handler () => void })\nexport component C(props: { id: string } & Extra)\n").expect("parses");
         let got: Vec<(Option<&str>, usize)> = decls.iter().map(|d| match d { JsDecl::Comp { props_type, props, .. } => (props_type.as_deref(), props.len()), _ => (None, 0) }).collect();
         assert_eq!(got, [(Some("{ id: string } & Extra"), 1), (Some("{ id: string } & Extra"), 0)]);
+    }
+
+    /// MO-11a, MO-10b: TypeScript's `readonly` before a declared prop is a modifier, not part of its name — a library's
+    /// props are often an interface of `readonly` fields, and a draft writes them as declared — and a prop may itself be
+    /// named `readonly` (an input's).
+    #[test]
+    fn a_declared_prop_may_be_readonly() {
+        let decls = parse_declarations("export component Group(props: { readonly children?: View; readonly id?: string | undefined; readonly onPick?: handler (v: string) => void; readonly?: boolean; readonly readonly: boolean })\n").expect("parses");
+        let JsDecl::Comp { props, .. } = &decls[0] else { panic!("a component") };
+        assert_eq!(props.iter().map(|p| (p.name.as_str(), p.optional, p.callback)).collect::<Vec<_>>(), [("children", true, false), ("id", true, false), ("onPick", true, true), ("readonly", true, false), ("readonly", false, false)]);
+        let dts = crate::project::declaration_file(&decls);
+        assert!(dts.contains("id?: string | undefined;") && dts.contains("onPick?: (v: string) => void;"), "{dts}");
     }
 
     /// MO-8o, TY-6f: each field of the record after a props' type is held against the library's type for that prop —
