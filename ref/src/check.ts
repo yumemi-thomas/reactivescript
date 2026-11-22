@@ -2130,22 +2130,31 @@ class Checker {
   private stmtAwaits = new WeakSet<Expr>();
   private stmts(ss: Stmt[], env0: Env, ctx: Ctx) {
     const env = new Env(env0, env0.region);
-    let asked: { first: string; bound: Set<string> } | undefined;        // 99, advice (ASYNC_WATERFALL): the last question this run awaited, and the locals bound since
+    const asked: { first: string; bound: Set<string>; io: boolean }[] = [];   // 99, advice (ASYNC_WATERFALL): the questions this run awaited and was not advised to move, each with the locals bound since and whether its fn is io
     const line0 = this.line;                                             // a statement's diagnostics are placed on its own line; what follows the block, where it was
     for (const [at, s] of ss.entries()) {
       if (s.line !== undefined) this.line = s.line;
       if (s.k === "let" || s.k === "expr") {
         const t = s.e.k === "catch" ? s.e.e : s.e;
         if (t.k === "await") {
-          const q = t.e; const f = q.k === "call" && q.f.k === "id" ? env.lookup(q.f.name) : undefined; const question = f?.kind === "import" && !f.io;
-          if (asked && question) {
+          // a question: a declared JS fn awaited for what it answers — a `pure` one, or an io one whose answer the
+          // statement binds. An io call awaited for nothing (`await save(a)`) is a command, and so is anything else
+          // awaited: what follows may need what it did, and the order is the run's
+          const q = t.e; const f = q.k === "call" && q.f.k === "id" ? env.lookup(q.f.name) : undefined;
+          const io = f?.kind === "import" ? !!f.io : undefined;
+          if (io !== undefined && (!io || s.k === "let")) {
             const names = new Set<string>(); freeNames(q, new Set(), names);
-            if (![...names].some(n => asked!.bound.has(n.replace(/^pre:/, "")))) this.advice.push({ code: "ASYNC_WATERFALL", rule: "R-pending", line: this.line, msg: `\`await ${show(q)}\` reads nothing that \`await ${asked.first}\` answered: asked one after the other, the second waits for the first for nothing — ask both first and await them together (a JS helper over \`Promise.all\`: \`let [a, b] = await all([f(…), g(…)])\`), or make each an equation (\`a = await f(…)\`), which Solid asks side by side`, ...(this.opts.file ? { file: this.opts.file } : {}) });
-          }
-          asked = question ? { first: show(q), bound: new Set() } : undefined;
+            // once for a question: the first one before it whose answer it does not read; told to move, it holds up
+            // none of those after it
+            const first = asked.find(a => ![...names].some(n => a.bound.has(n.replace(/^pre:/, ""))));
+            if (first) {
+              const unless = io || first.io ? " (they are declared io: unless one needs what the other did, which only a `pure` declaration rules out)" : "";
+              this.advice.push({ code: "ASYNC_WATERFALL", rule: "R-pending", line: this.line, msg: `\`await ${show(q)}\` reads nothing that \`await ${first.first}\` answered: asked one after the other, the second waits for the first for nothing${unless} — ask both first and await them together (a JS helper over \`Promise.all\`: \`let [a, b] = await all([f(…), g(…)])\`), or make each an equation (\`a = await f(…)\`), which Solid asks side by side`, ...(this.opts.file ? { file: this.opts.file } : {}) });
+            } else asked.push({ first: show(q), bound: new Set(), io });
+          } else asked.length = 0;
         }
       }
-      if (asked && s.k === "let") asked.bound.add(s.name);
+      if (s.k === "let") for (const a of asked) a.bound.add(s.name);
       // EF-5a (2026-11-22): a call that answers what undoes it (`onShortcut(…): () => void`), with that dropped — the
       // statement's value, or a local that some path through the rest of the block never names
       if ((s.k === "let" || s.k === "expr") && s.e.k === "call" && s.e.f.k === "id" && env.lookup(s.e.f.name)?.disposer !== undefined) {

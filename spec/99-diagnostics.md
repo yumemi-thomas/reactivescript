@@ -159,11 +159,25 @@ named.
 `advice` beside its diagnostics — `rxc check` prints `advice CODE …`
 lines and `--json` an `advice` list, `ref/check.ts` the same, and the
 two are compared as the diagnostics are. `ASYNC_WATERFALL`: in one
-imperative run, an `await` of a pure question written after another's,
-reading nothing bound since the first — the second waits for the first
+imperative run, an `await` of a question written after another's,
+reading nothing bound since that one — the second waits for the first
 for nothing; ask both and await them together, or make each an equation,
-which Solid asks side by side. Two awaited io calls are not advised:
-their order may be the point. S-await-1, `bench/tasks/sequential-awaits`.
+which Solid asks side by side. A *question* is a declared JS fn awaited
+for what it answers: a `pure` one, or an io one whose answer the
+statement binds (`let user = await loadUser(7)` — the row `rx-declare`
+drafts for a loader is io, and a declaration nobody reviewed is no
+reason to be silent). An io call awaited for nothing (`await save(a);
+await notify(b)`) is a command, and anything else awaited (a promise in
+a local) is unknown: each is a point of order — nothing after it is
+held up by what came before it, since it may need what the command did.
+The advice is given once for a question, on its own statement (a
+statement has its line): it names the first question before it whose
+answer it does not read, and a question told to move holds up none of
+those after it (`a; b; c(a)` is one advice, on `b`). Where either fn is
+io the advice says what it cannot know: that one may need what the
+other did, which only a `pure` declaration rules out. S-await-1,
+`bench/tasks/sequential-awaits`, the unit
+`a_waterfall_is_advised_once_for_each_question`.
 The second row, `SNAPSHOT_IN_EFFECT` (02 EF-1): an apply block's own
 statement reads a changing value its effect does not take as an input —
 once per effect, on the statement. S-check-2, `bench/tasks/effect-derived`.)

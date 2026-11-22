@@ -26,6 +26,10 @@ for (const f of args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--
     else { bad++; for (const d of diags) console.log(`${rel(d.file)}:${d.line}: error ${d.code} [${d.rule}] ${d.msg}`); }
     for (const d of advice) console.log(`${rel(d.file)}:${d.line}: advice ${d.code} [${d.rule}] ${d.msg}`);   // 99, the advisory rows: never an error
     if (sigOut) for (const p of set.order) console.log(printSignature(sigs.get(p)!));
-  } catch (e) { bad++; console.log(`${f}: parse error: ${(e as Error).message}`); }
+  } catch (e) {
+    // a parse error is printed as the crate prints it: its line, and the code of the habit it reads like (99: JS_LOCAL, …), else PARSE
+    bad++; const err = e as Error & { code?: string }; const m = /^(.*?): line (\d+): ([\s\S]*)$/.exec(err.message);
+    console.log(m ? `${m[1].replace(process.cwd() + "/", "")}:${m[2]}: error ${err.code ?? "PARSE"} [07] ${m[3]}` : `${f}: parse error: ${err.message}`);
+  }
 }
 process.exit(bad ? 1 : 0);

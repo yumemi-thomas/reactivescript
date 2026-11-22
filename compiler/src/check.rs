@@ -5387,8 +5387,9 @@ impl<'a> Checker<'a> {
     fn stmts(&mut self, ss: &'a [Stmt], env0: EId, ctx: Ctx) {
         let region = self.reg(env0);
         let env = self.env(Some(env0), region);
-        // 99, advice (ASYNC_WATERFALL): the last question this run awaited, and the locals bound since
-        let mut asked: Option<(String, HashSet<String>)> = None;
+        // 99, advice (ASYNC_WATERFALL): the questions this run awaited and was not advised to move, each with the
+        // locals bound since and whether its fn is io
+        let mut asked: Vec<(String, HashSet<String>, bool)> = vec![];
         // a statement's diagnostics are placed on its own line; what follows the block, where it was
         let line0 = self.line;
         for (at, s) in ss.iter().enumerate() {
@@ -5396,20 +5397,39 @@ impl<'a> Checker<'a> {
             if let StmtKind::Let { e, .. } | StmtKind::Expr(e) = &s.k {
                 let t = if let ExprKind::Catch { e: inner, .. } = &e.k { &**inner } else { e };
                 if let ExprKind::Await { e: q, .. } = &t.k {
-                    let question = matches!(&q.k, ExprKind::Call { f, .. } if matches!(&f.k, ExprKind::Id(n) if self.lookup(env, n).is_some_and(|t| self.syms[t].kind == SymKind::Import && !self.syms[t].io)));
-                    if let (Some((first, bound)), true) = (&asked, question) {
-                        let mut names = IndexSet::new();
-                        free_names(q, &HashSet::new(), &mut names);
-                        if !names.iter().any(|n| bound.contains(strip_pre(n))) {
-                            let msg = format!("`await {}` reads nothing that `await {first}` answered: asked one after the other, the second waits for the first for nothing — ask both first and await them together (a JS helper over `Promise.all`: `let [a, b] = await all([f(…), g(…)])`), or make each an equation (`a = await f(…)`), which Solid asks side by side", show(q));
-                            self.advice.push(Diagnostic { code: "ASYNC_WATERFALL".into(), rule: "R-pending".into(), line: self.line, msg, file: self.opts.file.clone() });
+                    // a question: a declared JS fn awaited for what it answers — a `pure` one, or an io one whose
+                    // answer the statement binds. An io call awaited for nothing (`await save(a)`) is a command, and
+                    // so is anything else awaited: what follows may need what it did, and the order is the run's
+                    let io = match &q.k {
+                        ExprKind::Call { f, .. } => match &f.k {
+                            ExprKind::Id(n) => self.lookup(env, n).filter(|&t| self.syms[t].kind == SymKind::Import).map(|t| self.syms[t].io),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    match io.filter(|io| !io || matches!(s.k, StmtKind::Let { .. })) {
+                        Some(io) => {
+                            let mut names = IndexSet::new();
+                            free_names(q, &HashSet::new(), &mut names);
+                            // once for a question: the first one before it whose answer it does not read; told to
+                            // move, it holds up none of those after it
+                            match asked.iter().find(|(_, bound, _)| !names.iter().any(|n| bound.contains(strip_pre(n)))) {
+                                Some((first, _, first_io)) => {
+                                    let unless = if io || *first_io { " (they are declared io: unless one needs what the other did, which only a `pure` declaration rules out)" } else { "" };
+                                    let msg = format!("`await {}` reads nothing that `await {first}` answered: asked one after the other, the second waits for the first for nothing{unless} — ask both first and await them together (a JS helper over `Promise.all`: `let [a, b] = await all([f(…), g(…)])`), or make each an equation (`a = await f(…)`), which Solid asks side by side", show(q));
+                                    self.advice.push(Diagnostic { code: "ASYNC_WATERFALL".into(), rule: "R-pending".into(), line: self.line, msg, file: self.opts.file.clone() });
+                                }
+                                None => asked.push((show(q), HashSet::new(), io)),
+                            }
                         }
+                        None => asked.clear(),
                     }
-                    asked = question.then(|| (show(q), HashSet::new()));
                 }
             }
-            if let (Some((_, bound)), StmtKind::Let { name, .. }) = (&mut asked, &s.k) {
-                bound.insert(name.clone());
+            if let StmtKind::Let { name, .. } = &s.k {
+                for (_, bound, _) in asked.iter_mut() {
+                    bound.insert(name.clone());
+                }
             }
             // EF-5a (2026-11-22): a call that answers what undoes it (`onShortcut(…): () => void`), with that dropped —
             // the statement's value, or a local that some path through the rest of the block never names
@@ -8357,6 +8377,35 @@ mod tests {
         check_modules(&set, false).diags.iter().map(|d| d.code.clone()).collect()
     }
     const LOCALS: &str = "  o = { f: (x) => x }\n  id = (x) => x\n  k = \"part\"\n";
+
+    /// 99, the advisory rows (2026-11-22): a waterfall is advised once for each question, on its own statement; an io
+    /// fn awaited for its answer is a question, an io call awaited for nothing a point of order. `ref/units.ts` holds
+    /// the same cases.
+    #[test]
+    fn a_waterfall_is_advised_once_for_each_question() {
+        const API: &str = "export pure fn ask(k: string): Promise<string>\nexport fn load(k: string): Promise<string>\nexport fn save(k: string): Promise<void>\n";
+        let advice = |body: &str| -> Vec<String> {
+            let lines: Vec<String> = body.split("; ").map(|l| format!("      {l}")).collect();
+            let src = format!("import {{ ask, load, save }} from \"./api.js\"\nexport default component App() {{\n  source n := \"\"\n  action go() {{\n    try {{\n{}\n    }} catch (e) {{ n := \"\" }}\n  }}\n  <button onClick={{() => {{ go() }}}}>{{n}}</button>\n}}\n", lines.join("\n"));
+            let read = |p: &str| match p {
+                "/app.rx" => Some(src.clone()),
+                "/api.d.rx" => Some(API.to_string()),
+                _ => None,
+            };
+            let set = load_modules("/app.rx", &read).unwrap_or_else(|e| panic!("{}\n{src}", e.0));
+            let c = check_modules(&set, false);
+            assert!(c.diags.is_empty(), "{:?}\n{src}", c.diags.iter().map(|d| &d.code).collect::<Vec<_>>());
+            c.advice.iter().map(|a| format!("{}@{}{}", a.code, a.line - 5, if a.msg.contains("declared io") { " io" } else { "" })).collect()
+        };
+        assert_eq!(advice("let a = await ask(\"a\"); let b = await ask(\"b\"); n := a + b"), ["ASYNC_WATERFALL@2"]);
+        assert_eq!(advice("let a = await ask(\"a\"); let b = await ask(\"b\"); let c = await ask(a); n := b + c"), ["ASYNC_WATERFALL@2"]);
+        assert_eq!(advice("let a = await ask(\"a\"); let b = await ask(a); let c = await ask(\"c\"); n := b + c"), ["ASYNC_WATERFALL@3"]);
+        assert_eq!(advice("let a = await load(\"a\"); let b = await load(\"b\"); n := a + b"), ["ASYNC_WATERFALL@2 io"]);
+        assert_eq!(advice("let a = await ask(\"a\"); let b = await load(\"b\"); n := a + b"), ["ASYNC_WATERFALL@2 io"]);
+        assert_eq!(advice("await save(\"a\"); await save(\"b\"); n := \"\""), Vec::<String>::new());
+        assert_eq!(advice("let a = await ask(\"a\"); await save(a); let b = await ask(\"b\"); n := a + b"), Vec::<String>::new());
+        assert_eq!(advice("let a = await load(\"a\"); let b = await load(a); n := b"), Vec::<String>::new());
+    }
 
     /// MO-10k (closed 2026-11-22): each confined value has a closed set of operations; a method call outside it is
     /// refused, whatever the syntax around it — an inherited method, a record that mentions the value, a closure kept

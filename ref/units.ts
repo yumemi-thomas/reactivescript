@@ -188,6 +188,30 @@ export const units: [string, () => void][] = [
     read = files({ "/w/x.d.rx": "", "/w/y.tsx.d.rx": "", "/w/y.d.rx": "", "/w/z.d.rx": "" });   // TypeScript's are JavaScript's (RFC 23)
     deepStrictEqual(["./x.tsx", "./y.tsx", "./z.mts", "./z.cts"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/x.d.rx", "/w/y.tsx.d.rx", "/w/z.d.rx", "/w/z.d.rx"]);
   }],
+  ["a_waterfall_is_advised_once_for_each_question", () => {   // 99, the advisory rows (2026-11-22): mirrors the crate's test
+    const API = "export pure fn ask(k: string): Promise<string>\nexport fn load(k: string): Promise<string>\nexport fn save(k: string): Promise<void>\n";
+    const advice = (body: string) => {
+      const src = `import { ask, load, save } from "./api.js"\nexport default component App() {\n  source n := ""\n  action go() {\n    try {\n${body.split("; ").map(l => `      ${l}`).join("\n")}\n    } catch (e) { n := "" }\n  }\n  <button onClick={() => { go() }}>{n}</button>\n}\n`;
+      const set = loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/api.d.rx" ? API : undefined);
+      const c = checkModules(set) as { diags: { code: string }[]; advice: { code: string; line: number; msg: string }[] };
+      deepStrictEqual(c.diags.map(d => d.code), [], src);
+      return c.advice.map(a => `${a.code}@${a.line - 5}${/declared io/.test(a.msg) ? " io" : ""}`);
+    };
+    // the first statement of the body is line 1
+    deepStrictEqual(advice("let a = await ask(\"a\"); let b = await ask(\"b\"); n := a + b"), ["ASYNC_WATERFALL@2"]);
+    // once: the second is told to move, and the third reads the first's answer
+    deepStrictEqual(advice("let a = await ask(\"a\"); let b = await ask(\"b\"); let c = await ask(a); n := b + c"), ["ASYNC_WATERFALL@2"]);
+    // a third that reads neither waits for the first too: its own advice, once
+    deepStrictEqual(advice("let a = await ask(\"a\"); let b = await ask(a); let c = await ask(\"c\"); n := b + c"), ["ASYNC_WATERFALL@3"]);
+    // an io fn awaited for its answer is a question: advised, with what only its declaration knows
+    deepStrictEqual(advice("let a = await load(\"a\"); let b = await load(\"b\"); n := a + b"), ["ASYNC_WATERFALL@2 io"]);
+    deepStrictEqual(advice("let a = await ask(\"a\"); let b = await load(\"b\"); n := a + b"), ["ASYNC_WATERFALL@2 io"]);
+    // a command — an io call awaited for nothing — is a point of order: nothing after it is held up by what came before
+    deepStrictEqual(advice("await save(\"a\"); await save(\"b\"); n := \"\""), []);
+    deepStrictEqual(advice("let a = await ask(\"a\"); await save(a); let b = await ask(\"b\"); n := a + b"), []);
+    // what one needs of the other is no waterfall
+    deepStrictEqual(advice("let a = await load(\"a\"); let b = await load(a); n := b"), []);
+  }],
   ["a_folder_named_as_a_module_is_no_module", () => {   // MO-6: MODULE_NOT_FOUND, as the crate says, not a read error (EISDIR)
     const dir = mkdtempSync(join(tmpdir(), "rx-dir-"));
     try {

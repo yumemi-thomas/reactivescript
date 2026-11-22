@@ -699,8 +699,11 @@ user = await fetchUser(id)
 news = await fetchNews()
 ```
 
-A second question that needs the first's answer (`await fetchTeam(user.team)`) is no waterfall, and two awaited io
-calls (`await save(a); await notify(b)`) are left alone: their order may be the point.
+A second question that needs the first's answer (`await fetchTeam(user.team)`) is no waterfall, and an io call awaited
+for nothing (`await save(a); await notify(b)`) is left alone, with whatever follows it: their order may be the point.
+A loader declared io (as `rx-declare` drafts it) is advised too when its answer is bound (`let news = await
+loadNews()`), and the advice then says what it cannot know: that one call may need what the other did. Declare the
+loaders `pure` once you have checked that they only ask. Each question is advised once, on its own line.
 
 ### GUESS_OUTSIDE_HOLD
 

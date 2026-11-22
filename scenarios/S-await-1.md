@@ -115,7 +115,8 @@ first answered, are a correct program — and a slow one: the second waits
 for the first for nothing (Solid's `ASYNC_WATERFALL`). That is advice, not
 an error (99, the advisory rows): the checker lists it beside its
 diagnostics and the program is accepted. A second question that reads the
-first's answer is no waterfall.
+first's answer is no waterfall, and the advice is given once, on the
+statement that waits for nothing (`b` below; `c` reads `a`).
 
 ```rx
 -- accept
