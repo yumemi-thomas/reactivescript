@@ -10,6 +10,9 @@ Rules: MO-10i, W-1, MO-10g, 07 §5.
 export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]
 export fn each(xs: string[], f: (x: { label: string }) => void): void
 export fn later(f: handler () => void): void
+// a helper that changes the list it is given in place (2026-11-22): its parameter is a draft's
+export fn moveItem(draft list: any[], from: number, to: number): void
+export fn show(list: any[]): void
 ```
 
 A library may hand a callback a value to change in place: Solid 2's store
@@ -398,3 +401,66 @@ closure may keep it, and a source may take it. What the compiled callback
 does with each of these — the copies, the loop, the updater — is run by
 `compiler/test/node.mjs` against a draft that is revoked when the setter
 returns.
+
+## Rejected variants, and accepted: a draft given to a JS helper (2026-11-22)
+
+Solid's own advice for a store is to change the draft in place, by hand or
+by a helper (`setStore(s => { arrayMove(s.items, from, to) })`). A helper's
+declaration says so with `draft` on the parameter it changes: the draft is
+then given to it as it is — no copy — and the call is a write of the
+draft, as `d.items.splice(…)` is. A JS fn whose parameter is not marked
+is lent a copy, as before, and in a development build that copy refuses
+to be changed, saying why (`__rt.lend`): a change made to it would be
+lost.
+
+```rx
+-- accept
+import { createStore, moveItem, show } from "./store.js"
+export default component App() {
+  [todos, setTodos] = createStore<{ items: string[] }>({ items: ["a", "b", "c"] })
+  <button onClick={() => { setTodos((d) => { moveItem(d.items, 0, 2); show(d.items) }) }}>move</button>
+  <p>{len(todos.items)}</p>
+}
+```
+
+Compiled: `v$moveItem(v$d?.items, 0, 2)` and `v$show(__rt.lend(v$d?.items, "show"))`.
+
+What such a helper is given is a draft, or a value the code made itself.
+Anything else it would change behind its writes:
+
+```rx
+-- reject: MUTATION_IN_PLACE
+import { createStore, moveItem } from "./store.js"
+export default component App() {
+  [todos, setTodos] = createStore<{ items: string[] }>({ items: ["a", "b", "c"] })
+  <button onClick={() => { moveItem(todos.items, 0, 2) }}>move</button>
+  <p>{len(todos.items)}</p>
+}
+```
+
+The store itself, outside its setter (Solid's development build warns of
+it; here it is refused).
+
+```rx
+-- reject: MUTATION_IN_PLACE
+import { moveItem } from "./store.js"
+export default component App() {
+  source rows: string[] := ["a", "b"]
+  <button onClick={() => { moveItem(rows, 0, 1) }}>move</button>
+  <p>{len(rows)}</p>
+}
+```
+
+A source's value is changed by a write (W-1a): `rows := rs => …`.
+
+```rx
+-- accept
+import { moveItem } from "./store.js"
+source seen: any := null
+export default component App() {
+  <button onClick={() => { let mine = ["a", "b"]; moveItem(mine, 0, 1); seen := mine }}>move</button>
+  <p>{seen == null ? "-" : "moved"}</p>
+}
+```
+
+What the code made itself is its own to change.

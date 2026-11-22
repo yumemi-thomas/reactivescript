@@ -1,3 +1,5 @@
-// Drafted by rx-declare from ./array.js's TypeScript types. Check every TODO, then delete it; rx-tsc checks the rest (TY-6).
-export fn moveItem(list: any, from: number, to: number): void
-export fn sortBy(list: any, key: any): void
+// array.js in rows, from rx-declare's draft. By hand: the two helpers change the list they are given in place
+// (`draft`, MO-10i), so a store's draft is given to them as it is — and nothing else is.
+export fn moveItem<T>(draft list: T[], from: number, to: number): void
+export fn sortBy<T>(draft list: T[], key: keyof T): void
+export fn later(run: handler () => void): void

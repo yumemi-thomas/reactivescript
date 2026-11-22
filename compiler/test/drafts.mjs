@@ -30,6 +30,8 @@ writeFileSync(path.join(ws, "lib.d.rx"), [
   "export pure fn solidStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]",
   "export fn sink(label: string, x: any): void",
   "export fn later(f: handler () => void): void",
+  "export fn moveItem(draft list: any[], from: number, to: number): void",   // changes the list it is given in place (2026-11-22)
+  "export fn sortCopy(list: any[]): void",                                     // changes it too, and does not say so
   "export component Run(props: { go: handler () => void })",
   "",
 ].join("\n"));
@@ -38,6 +40,8 @@ import { createStore as solid } from "solid-js";
 export const sunk = {}; export const laters = []; export const states = []; export const leaked = [];
 export const sink = (label, x) => { sunk[label] = x; };
 export const later = f => { laters.push(f); };
+export const moveItem = (list, from, to) => { const [x] = list.splice(from, 1); list.splice(to, 0, x); };
+export const sortCopy = list => { sunk.lent = list; list.reverse(); };
 export const Run = props => { props.go(); return ""; };
 // a store whose setter takes its draft back: every object the callback is handed is revoked when the setter returns
 export const createStore = init => {
@@ -166,6 +170,19 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   let alive = null; try { JSON.stringify(lib.sunk); } catch (e) { alive = e; }
   check(`every way of handing a read of the draft on, and every pair of them (${all.length}): accepted, run, and all of it reads after the revocation`, !r.refused && !r.threw && Object.keys(lib.sunk).length === all.length && alive === null, r.refused ?? r.threw?.stack ?? alive?.message ?? Object.keys(lib.sunk).length);
   check("and the callback still wrote the draft", lib.states[lib.states.length - 1]?.done === 1, lib.states[lib.states.length - 1]);
+}
+// MO-10i (2026-11-22): a draft given to JS. A fn whose parameter is declared `draft` is given the draft itself, and its
+// change is the store's; a fn whose parameter is not marked is lent a copy — what it keeps reads after the revocation,
+// and what it changes is its copy (in a development build the copy throws instead: compiler/test/confined.mjs)
+{
+  for (const k of Object.keys(lib.sunk)) delete lib.sunk[k];
+  const src = `import { createStore, moveItem, sortCopy, sink, Run } from "./lib.js"\nexport default component App() {\n  [todos, setTodos] = createStore<{ items: string[] }>({ items: ["a", "b", "c"] })\n  <Run go={() => { setTodos((d) => { moveItem(d.items, 0, 2); sortCopy(d.items) }) }} />\n}\n`;
+  const r = await run("helper", src);
+  const state = lib.states[lib.states.length - 1];
+  let kept = null, threw = r.threw; try { kept = JSON.stringify(lib.sunk.lent); } catch (e) { threw = e; }
+  check("a JS helper with a `draft` parameter is given the draft itself: its change is the store's", !r.refused && !threw && same(state?.items, ["b", "c", "a"]), r.refused ?? threw?.stack ?? state);
+  check(`…and one without is lent a copy: what it kept reads after the revocation (${kept}), and what it changed was not the store`, !threw && kept === '["a","c","b"]', threw?.stack ?? kept);
+  check("the compiled call: the draft as it is at the `draft` parameter, `__rt.lend` at the other", /v\$moveItem\(v\$d\?\.items, 0, 2\)/.test(r.code ?? "") && /v\$sortCopy\(__rt\.lend\(v\$d\?\.items, "sortCopy"\)\)/.test(r.code ?? ""), (r.code ?? "").slice((r.code ?? "").indexOf("v$setTodos"), (r.code ?? "").indexOf("v$setTodos") + 300));
 }
 {
   const r = await run("named", named);

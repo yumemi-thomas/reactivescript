@@ -767,6 +767,47 @@ export component Search(props: { start: boolean, q: string }) {
      call no longer says what the call does: the name of a method of
      plain data does, and nothing else is called.
 
+  **A draft given to JS (2026-11-22).** A draft read where a JS fn is
+  called was a copy like any other read, and said nothing: a helper that
+  changes what it is given — `moveItem(d.items, from, to)`, the way
+  Solid's own documentation uses a store (`setStore(s => {
+  arrayMove(s.items, a, b) })`) — changed the copy, and the store stayed
+  as it was, with no error at build time or at run time. A draft is never
+  copied into JS silently now; there are two cases, and the declaration
+  says which:
+  - *The fn changes it: the parameter is declared `draft`.* `export fn
+    moveItem(draft list: T[], from: number, to: number): void` says the
+    fn changes `list` in place, during the call, and keeps nothing of it
+    — the same promise `draft` makes of a callback's parameter, read the
+    other way round. A draft's path written there is given as it is (no
+    copy), and the call is a write of the draft, as the draft's own
+    `splice` is. What such a parameter may be given is a draft, or a
+    value the code made itself (a literal, a local of its own). The value
+    of a source, an equation or a prop, a provision, and a store read
+    beside its setter (`moveItem(board.columns, …)` outside
+    `setBoard(…)`) are `MUTATION_IN_PLACE` (02 W-1a): the fn would change
+    them behind their writes. A fn with a `draft` parameter is not
+    `pure` (a parse error in the declaration). TY-6 checks the type with
+    `draft` removed; `rx-verify` runs the fn on a draft and checks that
+    the change is in the draft when it returns.
+  - *The fn only reads it: the parameter is not marked.* It is lent a
+    copy (`__rt.lend(d.items, "show")`): the fn may keep it, as before,
+    and nothing it holds is the library's. In a development build (the
+    one Solid's `DEV` marks) what is lent refuses to be changed, in its
+    arrays and plain objects at any depth, with an error that names the
+    fn and both remedies: declare the parameter `draft`, or pass a value
+    of its own (`[...d.items]`). So the mistake the first paragraph
+    describes is an error the first time the code runs, in the helper's
+    own stack. A production build lends the plain copy.
+  Why both, and not a refusal: reading a draft out into JS is what
+  `record("items", d.items)` and every logging and analytics call does,
+  and it is safe by the copy; refusing it would cost the common case to
+  catch the rare one. And why not `draft` alone: whether a JS function
+  mutates its argument is not in its type, so no check of a declaration
+  can find the missing word — only running can, and the development
+  build is where it runs. `rx-declare` asks the question as a TODO for a
+  fn that answers nothing and takes an array or a record.
+
   *Guarantee:* in a program the checker accepts, no value `.rx` holds
   after a draft callback returns is the library's draft or a live part of
   it, and no `.rx` code names the draft after its callback returned. The
@@ -775,7 +816,8 @@ export component Search(props: { start: boolean, q: string }) {
   `rx-verify` runs it) and on what `draft` says the library hands out:
   plain data — arrays, plain objects, Maps, Sets — which is what a store
   or a draft library proxies. JS the callback calls with a copy has a
-  copy. `rx-verify` checks the row by running it: the setter must hand
+  copy; JS it calls at a `draft` parameter has the draft for the length
+  of the call, on the declaration's word that it keeps nothing. `rx-verify` checks the row by running it: the setter must hand
   its callback an object, and a write to it must be kept (a library that
   hands a copy is a mismatch). A draft whose objects carry methods of
   their own under those names is, like one that hands out instances of
@@ -894,9 +936,11 @@ export component Search(props: { start: boolean, q: string }) {
   confined value may be passed to one (its result is confined again); an
   `io` fn, a method the declaration does not name, a method of another
   value, and anything the checker cannot name may keep it, so a `renders`
-  value is refused there; a draft passed to JS is a copy; a result with
-  held fields is not passed. Nothing about JS is inferred: not from a
-  method's receiver, nor from the shape of the expression it is called in.
+  value is refused there; a draft passed to JS is lent as a copy, unless
+  the parameter is declared `draft`, which is given the draft itself
+  (MO-10i, "A draft given to JS"); a result with held fields is not
+  passed. Nothing about JS is inferred: not from a method's receiver, nor
+  from the shape of the expression it is called in.
 
 ## MO-11 — Solid components and routers (taken by default 2026-11-13; veto here)
 

@@ -6,7 +6,7 @@
 // runtimes are rt-web.ts and rt-server.ts.
 import { primsSolid } from "./prims-solid.ts";
 import { getObserver } from "@solidjs/signals";
-import { Show, For, Loading, Errored } from "solid-js";
+import { Show, For, Loading, Errored, DEV } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
   flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary, omit,
@@ -134,6 +134,22 @@ function copyOf(v: any, seen: Map<object, unknown>): unknown {
   if (proto !== Object.prototype && proto !== null) return v;
   const out: Record<string, unknown> = {}; seen.set(v, out); for (const k of Object.keys(v)) out[k] = copyOf(v[k], seen); return out;
 }
+/** MO-10i (2026-11-22): what a JS fn is lent of a draft: a copy — and in a development build (Solid's `DEV`) one that
+ *  refuses to be changed, saying why. A change made to it would be made to the copy, and lost without a word. */
+function lent(v: unknown, to: string): unknown {
+  if (!DEV || v === null || typeof v !== "object") return v;
+  const refuse = (): never => { throw new Error(`${to}(…) changed what it was given: a copy of a draft, so the change would be lost. If ${to} is meant to change the draft in place, declare that parameter \`draft\` in its .d.rx (\`export fn ${to}(draft list: …)\`), and it is given the draft itself; if it needs a value of its own to change, pass one (\`${to}([...d.items])\`). (MO-10i)`); };
+  const seen = new WeakMap<object, unknown>();
+  const wrap = (x: any): any => {
+    if (x === null || typeof x !== "object") return x;
+    const proto = Object.getPrototypeOf(x);
+    if (!Array.isArray(x) && proto !== Object.prototype && proto !== null) return x;   // a Map, a Set, an iterator, an instance of a class: itself
+    let p = seen.get(x); if (p) return p;
+    p = new Proxy(x, { get: (t, k, r) => wrap(Reflect.get(t, k, r)), set: refuse, deleteProperty: refuse, defineProperty: refuse, setPrototypeOf: refuse });
+    seen.set(x, p); return p;
+  };
+  return wrap(v);
+}
 export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
@@ -260,6 +276,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** MO-10i (ruled 2026-11-22): a read of a library's draft is a copy — what `.rx` holds of a draft is never the
      *  library's own object, which it may take back when its callback returns (`copyOf`). */
     copy: (v: unknown): unknown => copyOf(v, new Map()),
+    lend: (v: unknown, to: string): unknown => lent(copyOf(v, new Map()), to),
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
     keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key

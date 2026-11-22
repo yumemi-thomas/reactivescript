@@ -531,7 +531,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, joins: Option<String>, forwards: bool, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, methods: Vec<String> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, joins: Option<String>, forwards: bool, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, renders_root: bool, carries: Vec<String>, sigs: Vec<bool>, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, methods: Vec<String>, draft_args: Vec<usize> },
     /// SV-5a: `fields`, what of an instance is sent to the client (`export error HttpError(status, code)`); none, name and message only
     Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
@@ -1727,6 +1727,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         let mut refs = vec![];
         let mut sigs = vec![];
         let mut opts = vec![];
+        let mut draft_args: Vec<usize> = vec![];
         while !c.starts_with(")") {
             let r = c.keyword("ref"); // MO-10a: a ref parameter takes an accessor
             if r {
@@ -1744,6 +1745,19 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
                 }
             }
             sigs.push(g);
+            // MO-10i (2026-11-22): `draft list: T[]` — a parameter the fn changes in place, now, and does not keep: a draft
+            // is given to it as it is (a parameter named draft stays a name)
+            if !r && !g {
+                let sd = c.i;
+                if c.keyword("draft") {
+                    c.ws(true);
+                    if c.peek().is_ascii_alphabetic() || c.peek() == '_' || c.peek() == '$' {
+                        draft_args.push(refs.len() - 1);
+                    } else {
+                        c.i = sd;
+                    }
+                }
+            }
             let rest = !r && !g && c.eat("..."); // MO-8h: a rest parameter, `...items: T[]`
             let n = c.ident_or("param")?;
             params.push(if rest { format!("...{}", n) } else { n });
@@ -1764,6 +1778,9 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
             c.ws(true);
         }
         c.expect(")")?;
+        if pure && !draft_args.is_empty() {
+            return c.fail(&format!("{}: a fn that changes what it is given (`draft {}`) is not `pure` (MO-10i)", name, params[draft_args[0]]));
+        }
         let save = c.i;
         c.ws(false);
         let mut ret = None;
@@ -1973,7 +1990,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         let part_drafts = draft_parts(ret.as_deref());
         let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))))).collect();
         let ret = ret.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, joins, forwards, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts, methods });
+        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, joins, forwards, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts, methods, draft_args });
     }
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).

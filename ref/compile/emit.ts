@@ -15,7 +15,7 @@ import type { Shape, JsDecl } from "../src/parse.ts";
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; sigs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]> };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; sigs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[] };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 class Env {
   vars = new Map<string, Bind>(); parent: Env | null;
@@ -240,7 +240,7 @@ class Gen {
     // names first: hoisted functions and components; every other declaration is a const
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
-      if (d.k === "import") for (const { name, alias } of d.names) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; const dr = x?.kind === "fn" ? { ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}) } : {};   /* MO-10i */ env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], sigs: x.sigs ?? [], shape: x.shape ?? "value", ...dr } : x?.kind === "comp" ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client", ...dr }); }   // MO-10a; MO-11a: a JS component is a JSX tag
+      if (d.k === "import") for (const { name, alias } of d.names) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; const dr = { ...(x?.kind === "fn" ? { ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.draftArgs ? { draftArgs: x.draftArgs } : {}) } : {}), ...(d.resolved ? {} : { jsFn: true }) };   /* MO-10i; jsFn: a JS module's name — a draft it is called with is lent, not given */ env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], sigs: x.sigs ?? [], shape: x.shape ?? "value", ...dr } : x?.kind === "comp" ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client", ...dr }); }   // MO-10a; MO-11a: a JS component is a JSX tag
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
@@ -457,6 +457,8 @@ class Gen {
    *  written to a draft's path, the callback's result, an argument of a draft's own method), or consumed by an operator
    *  that makes a primitive of them. */
   private raw = new Set<Expr>();
+  /** MO-10i: the arguments of a JS fn's call, with the fn's name: a draft read there is lent (`__rt.lend`). */
+  private lent = new Map<Expr, string>();
   /** MO-10i: closures written where a JS fn hands their parameters a draft, with those positions. */
   private draftClosures = new Map<Expr, number[]>();
   /** MO-10i (2026-11-22): where a name is written as a call's whole argument, in the module being emitted: name → (callee's
@@ -508,7 +510,11 @@ class Gen {
    *  or consumed by an operator that makes a primitive of it (`raw`). */
   expr(e: Expr, env: Env, ctx: Ctx): string {
     const x = this.expr0(e, env, ctx);
-    return !this.raw.has(e) && this.draftChain(e, env) ? `__rt.copy(${x})` : x;
+    if (this.raw.has(e) || !this.draftChain(e, env)) return x;
+    // a JS fn called with a read of a draft is lent a copy (in a development build one that refuses to be changed: a
+    // change to it would be lost, MO-10i); its `draft` parameters are given the draft itself (`raw`)
+    const to = this.lent.get(e);
+    return to !== undefined ? `__rt.lend(${x}, ${JSON.stringify(to)})` : `__rt.copy(${x})`;
   }
   private expr0(e: Expr, env: Env, ctx: Ctx): string {
     const sub: Ctx = { ...ctx, tail: false };
@@ -555,6 +561,8 @@ class Gen {
         // a closure written for one of a draft's own methods (`d.items.forEach((row) => { … })`) is called by it with
         // places of the draft: its parameters are read as copies, as the draft is (closed 2026-11-22)
         if ((e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env)) for (const a of e.args) if (a.k === "fn" && !this.draftClosures.has(a)) this.draftClosures.set(a, a.params.map((_, i) => i));
+        // MO-10i (2026-11-22): a JS fn's `draft` parameter is given the draft itself; its other arguments are lent
+        if (e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.jsFn) e.args.forEach((a, i) => { if (f.draftArgs?.includes(i)) this.raw.add(a); else this.lent.set(a, (e.f as { name: string }).name); }); }
         this.raw.add(e.f);
         if (e.f.k === "member") return `${rawGo(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
         return `${go(e.f)}(${e.args.map(go).join(", ")})`;

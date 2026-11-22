@@ -131,6 +131,7 @@ type Sym = {
   jsDraft?: boolean;                   // MO-10i: a callback's parameter the library declares a draft: its paths are written
   draftFn?: number;                    // MO-10i: the closure whose parameter the draft is (its fnStack id)
   methods?: string[];
+  draftArgs?: number[];                // MO-10i (2026-11-22): a declared JS fn's parameters marked `draft`: changed in place by the call
   disposer?: boolean;                  // EF-5a (2026-11-22): a declared JS fn whose result is `() => void`: what undoes the call (a subscription's disposer)
   updater?: number[];                  // MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a draft: the parameter positions that are drafts
   retTy?: string;                      // MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or of a part of it, that part's: the closed set of what the value answers (`tyStep`)                  // E-10 (RFC 14, bounded): a primitive's declared methods(…), and on an instance it made, its own
@@ -941,7 +942,7 @@ class Checker {
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
       if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}), ...(x.rendersRoot ? { rendersRoot: true } : {}), ...(x.carries ? { carries: jsKeys(x.carries) } : {}), ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.forwards ? { forwards: true } : {}), ...(x.methods ? { methods: x.methods } : {}), ...(x.ret ? { retTy: x.ret } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.ret !== undefined && tyDisposer(x.ret) ? { disposer: true } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.kind === "fn" && x.forwards ? { forwards: true } : {}), ...(generated ? { generated } : {}) });
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.ret !== undefined && tyDisposer(x.ret) ? { disposer: true } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.kind === "fn" && x.forwards ? { forwards: true } : {}), ...(generated ? { generated } : {}) });
     }
   }
   /** CN-3d: `e` can have no value on the first load: it awaits without a first paint, here or in an equation it reads,
@@ -1912,6 +1913,17 @@ class Checker {
    *  provision, a row of one, the value a functional write is given, or a local that names a path of one. A JS instance
    *  (a declared result) is the library's; what a call answers, a literal, and a local bound to either are the program's
    *  own to change. */
+  /** MO-10i: `e` reads a JS result one of whose function parts hands out drafts — a store, read beside its setter
+   *  (`[board, setBoard] = createStore(…)`, then `board.columns`): what a change in place would change outside it. */
+  private storeOfDrafts(e: Expr, env: Env): string | undefined {
+    let r = e; while (r.k === "member" || r.k === "index") r = r.o;
+    if (r.k !== "id") return undefined;
+    const s = env.lookup(r.name); if (!s || s.kind === "fn" || s.kind === "import") return undefined;
+    if (s.partDrafts && Object.keys(s.partDrafts).length) return `the store ${r.name}`;
+    const x = s.expr;
+    if (x && (x.k === "member" || x.k === "index") && x.o.k === "id") { const o = (s.env ?? env).lookup(x.o.name); if (o && o.kind !== "fn" && o.kind !== "import" && o.partDrafts && Object.keys(o.partDrafts).length) return `the store ${r.name}`; }
+    return undefined;
+  }
   private reactivePlace(e: Expr, env: Env, depth = 0): string | undefined {
     if (depth > 32) return undefined;
     if (e.k === "member" || e.k === "index") return this.reactivePlace(e.o, env, depth + 1);
@@ -2026,6 +2038,14 @@ class Checker {
             const fix = e.f.p === "sort" ? `\`${o}.toSorted(…)\` gives a sorted copy` : e.f.p === "reverse" ? `\`${o}.toReversed()\` gives a reversed copy` : e.f.p === "splice" ? `\`${o}.toSpliced(…)\` gives a changed copy` : "write the new value, `xs := v => [...v, x]`, in the block that declares the source (or through an action it exports)";
             this.err("MUTATION_IN_PLACE", "W-1a", `${show(e.f)}(…) changes ${what} in place: the value of a source, an equation or a prop is changed by a write (\`:=\`), which tells its readers — a change in place tells none, and changes what every other reader of it holds; ${fix}`);
           }
+        }
+        // MO-10i (2026-11-22): a JS fn whose declaration says it changes a parameter in place (`draft list`) is given a
+        // draft as it is; anything else it would change behind its writes — the value of a source, an equation or a
+        // prop, a store outside its setter — is refused, as a mutating method called on it is
+        if (e.f.k === "id") for (const i of env.lookup(e.f.name)?.draftArgs ?? []) {
+          const a = e.args[i]; if (!a || this.draftChain(a, env)) continue;
+          const what = this.reactivePlace(a, env) ?? this.storeOfDrafts(a, env);
+          if (what !== undefined) this.err("MUTATION_IN_PLACE", "W-1a", `${e.f.name}(…) changes ${what} in place (its declaration marks that parameter \`draft\`): a store is changed inside its setter, on the draft the library hands it — \`set((d) => { ${e.f.name}(d.…) })\` — and the value of a source, an equation or a prop by a write (\`:=\`), which tells its readers; a change in place tells none`);
         }
         // MO-10b (2026-11-22): a function part of a declared result that answers nothing (`nextPage: () => void`) is called
         // for what it does: it is io, called from imperative scope

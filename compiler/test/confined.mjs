@@ -28,12 +28,14 @@ writeFileSync(path.join(dir, "lib.d.rx"), [
   "export pure fn createLabel(text: any): ref string",
   "export component Run(props: { go: handler () => void })",
   "export fn sink(label: string, x: any): void",
+  "export fn reverseIt(list: any[]): void",
   "",
 ].join("\n"));
 writeFileSync(path.join(dir, "lib.js"), `
 import { createSignal, createMemo } from "solid-js";
 export const sunk = {};
 export const sink = (label, x) => { sunk[label] = x; };
+export const reverseIt = list => { list.reverse(); };
 export const Run = props => { props.go(); return ""; };
 // a query whose data throws where it is read with no boundary (as @tanstack/solid-query's does)
 export const useQuery = () => ({ get data() { throw new Error("query read without boundary"); }, status: "ready", refetch() {} });
@@ -58,7 +60,7 @@ export const createLabel = text => { const made = "[" + text + "]"; return () =>
 `);
 let pass = 0, fail = 0;
 const check = (name, ok, got) => { ok ? pass++ : fail++; console.log(`${ok ? "✓" : "✗"} ${name}${ok ? "" : `\n    ${String(typeof got === "string" ? got : JSON.stringify(got)).slice(0, 700)}`}`); };
-const head = 'import { useQuery, createStore, createTable, makeClock, createLabel, Run, sink } from "./lib.js"\n';
+const head = 'import { useQuery, createStore, createTable, makeClock, createLabel, Run, sink, reverseIt } from "./lib.js"\n';
 let seq = 0;
 const file = src => { const f = path.join(dir, `p${++seq}.rx`); writeFileSync(f, head + src); return f; };
 const show = r => `crate: ${r.crate.diagnostics.map(d => d.code).join(",") || "accepted"} / ref: ${r.ref.diagnostics.map(d => d.code).join(",") || "accepted"}`;
@@ -111,6 +113,17 @@ refused("a closure in a forEach callback that names the row later", "DRAFT_ESCAP
   const [, set] = lib.createStore({ items: [{ n: 0 }] }); const kept = []; set(d => { d.items.forEach(row => { kept.push(row); }); });
   let threw = null; try { void kept[0].n; } catch (e) { threw = e; }
   check("unchecked, a row kept by a forEach callback is a revoked proxy", /revoked/.test(threw?.message ?? ""), threw);
+}
+
+{ // MO-10i (2026-11-22): a JS fn that is lent a copy of a draft and changes it. The change would be lost; in a development
+  // build it is refused where it is made, by an error that names the missing word — never a silent no-op
+  const h = accepted("a JS fn whose parameter is not `draft`, given a read of the draft", `export default component App() {\n  [todos, setTodos] = createStore<{ items: { n: number }[] }>({ items: [{ n: 0 }, { n: 1 }] })\n  <button class="b" onClick={() => { setTodos((d) => { reverseIt(d.items) }) }}>go</button>\n}\n`);
+  if (h) {
+    const base = await h.serve(); const page = await h.open(base);
+    await page.click(".b"); await new Promise(r => setTimeout(r, 200));
+    check("…changing what it was lent is an error in a development build, and says which word is missing", h.problems.some(p => /reverseIt\(…\) changed what it was given/.test(p) && /`draft`/.test(p)), h.problems);
+    await h.close();
+  }
 }
 
 // ---------------------------------------------------------------- RFC 17: a `renders` value

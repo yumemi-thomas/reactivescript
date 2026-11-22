@@ -138,6 +138,13 @@ What the compiler catches:
   `bump = (d) => { d.done := d.done + 1 }`, then `setTodos(bump)` wherever it is needed. The name is used for
   nothing else (`DRAFT_ESCAPES`). Inside an updater the draft's own methods work as in JS (`d.items.push(x)`,
   `d.items.forEach((row) => { row.done := true })`), and whatever is read out of it to keep is a copy.
+- **A helper that changes a draft says so.** A JS function that changes the list it is given in place
+  (`moveItem(list, from, to)`, a drag-and-drop library's `arrayMove`) declares that parameter `draft`:
+  `export fn moveItem(draft list: any[], from: number, to: number): void`. Then `setBoard((d) => { moveItem(d.columns,
+  0, 2) })` hands it the draft itself, and the store follows. Given anything else that is not its own to change — a
+  source's list, a prop, the store outside its setter — the call is `MUTATION_IN_PLACE`. A JS function whose parameter
+  is not marked is lent a copy of the draft, to read or to keep; in a development build that copy throws if the
+  function tries to change it, and the error says which word is missing.
 - **What a library's value answers is its declaration's.** A table or a client is declared with the type of what the
   app reads of it: `createTable(…): { getPageCount: () => number; nextPage: () => void; getRowModel: () => { rows:
   { id: string }[] } } renders`. A part declared a primitive (`table.getPageCount()`, a row's `id`) can be passed to

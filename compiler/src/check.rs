@@ -333,6 +333,8 @@ struct Sym<'a> {
     outlet: bool,
     /// MO-10i: a JS fn's callbacks whose parameters are its drafts (argument index, parameter positions)
     drafts: Vec<(usize, Vec<usize>)>,
+    /// MO-10i (2026-11-22): a declared JS fn's parameters marked `draft`: changed in place by the call
+    draft_args: Vec<usize>,
     /// MO-10i: the same, for its result's function parts (tuple index or field)
     part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>,
     /// MO-10i: a callback's parameter the library declares a draft: its paths are written
@@ -430,6 +432,7 @@ impl<'a> Sym<'a> {
             under: None,
             outlet: false,
             drafts: vec![],
+            draft_args: vec![],
             part_drafts: vec![],
             js_draft: false,
             draft_fn: None,
@@ -2608,7 +2611,7 @@ impl<'a> Checker<'a> {
                     bind_comp(self, x, alias);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, forwards: xforwards, methods: xmethods, ret: xret, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, cbs: xcbs, renders: xrenders, renders_root: xroot, carries: xcarries, carrier: xcarrier, under: xunder, drafts: xdrafts, part_drafts: xpart_drafts, forwards: xforwards, methods: xmethods, ret: xret, draft_args: xdraft_args, .. } => {
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -2658,6 +2661,7 @@ impl<'a> Checker<'a> {
                     s.side = *xside;
                     s.cbs = xcbs.clone();
                     s.drafts = xdrafts.clone();
+                    s.draft_args = xdraft_args.clone();
                     s.part_drafts = xpart_drafts.clone();
                     s.forwards = *xforwards;
                     s.generated = generated.clone();
@@ -4842,6 +4846,32 @@ impl<'a> Checker<'a> {
     /// provision, a row of one, the value a functional write is given, or a local that names a path of one. A JS
     /// instance (a declared result) is the library's; what a call answers, a literal, and a local bound to either are
     /// the program's own to change.
+    /// MO-10i: `e` reads a JS result one of whose function parts hands out drafts — a store, read beside its setter
+    /// (`[board, setBoard] = createStore(…)`, then `board.columns`): what a change in place would change outside it.
+    fn store_of_drafts(&self, e: &Expr, env: EId) -> Option<String> {
+        let mut r = e;
+        while let ExprKind::Member { o, .. } | ExprKind::Index { o, .. } = &r.k {
+            r = o;
+        }
+        let ExprKind::Id(n) = &r.k else { return None };
+        let s = &self.syms[self.lookup(env, n)?];
+        if matches!(s.kind, SymKind::Fn | SymKind::Import) {
+            return None;
+        }
+        if !s.part_drafts.is_empty() {
+            return Some(format!("the store {n}"));
+        }
+        let (x, xe) = s.expr?;
+        if let ExprKind::Member { o, .. } | ExprKind::Index { o, .. } = &x.k {
+            if let ExprKind::Id(on) = &o.k {
+                let o = &self.syms[self.lookup(xe, on)?];
+                if !matches!(o.kind, SymKind::Fn | SymKind::Import) && !o.part_drafts.is_empty() {
+                    return Some(format!("the store {n}"));
+                }
+            }
+        }
+        None
+    }
     fn reactive_place(&self, e: &Expr, env: EId, depth: usize) -> Option<String> {
         if depth > 32 {
             return None;
@@ -5141,6 +5171,21 @@ impl<'a> Checker<'a> {
                                 _ => "write the new value, `xs := v => [...v, x]`, in the block that declares the source (or through an action it exports)".to_string(),
                             };
                             self.err("MUTATION_IN_PLACE", "W-1a", format!("{}(…) changes {what} in place: the value of a source, an equation or a prop is changed by a write (`:=`), which tells its readers — a change in place tells none, and changes what every other reader of it holds; {fix}", show(f)));
+                        }
+                    }
+                }
+                // MO-10i (2026-11-22): a JS fn whose declaration says it changes a parameter in place (`draft list`) is
+                // given a draft as it is; anything else it would change behind its writes — the value of a source, an
+                // equation or a prop, a store outside its setter — is refused, as a mutating method called on it is
+                if let ExprKind::Id(fname) = &f.k {
+                    let das = self.lookup(env, fname).map(|t| self.syms[t].draft_args.clone()).unwrap_or_default();
+                    for i in das {
+                        let Some(a) = args.get(i) else { continue };
+                        if self.draft_chain(a, env) {
+                            continue;
+                        }
+                        if let Some(what) = self.reactive_place(a, env, 0).or_else(|| self.store_of_drafts(a, env)) {
+                            self.err("MUTATION_IN_PLACE", "W-1a", format!("{fname}(…) changes {what} in place (its declaration marks that parameter `draft`): a store is changed inside its setter, on the draft the library hands it — `set((d) => {{ {fname}(d.…) }})` — and the value of a source, an equation or a prop by a write (`:=`), which tells its readers; a change in place tells none"));
                         }
                     }
                 }

@@ -72,9 +72,13 @@ struct Bind {
     /// function parts that take such callbacks, by tuple index or field
     drafts: Vec<(usize, Vec<usize>)>,
     part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>,
+    /// MO-10i (2026-11-22): a JS module's name — a draft it is called with is lent, not given; and the parameters its
+    /// declaration marks `draft`, which are given the draft itself
+    js_fn: bool,
+    draft_args: Vec<usize>,
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![] }
+    Bind { kind, js: js.into(), w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -266,6 +270,8 @@ struct Gen<'p> {
     /// written to a draft's path, the callback's result, an argument of a draft's own method), or consumed by an operator
     /// that makes a primitive of them
     raw: HashSet<*const Expr>,
+    /// MO-10i: the arguments of a JS fn's call, with the fn's name: a draft read there is lent (`__rt.lend`)
+    lent: HashMap<*const Expr, String>,
     /// MO-10i: closures written where a JS fn hands their parameters a draft, with those positions
     draft_closures: HashMap<*const Expr, Vec<usize>>,
     /// MO-10i (2026-11-22): where a name is written as a call's whole argument, in the module being emitted: name →
@@ -334,6 +340,7 @@ impl<'p> Gen<'p> {
             frames: vec![],
             style_ids: 0,
             raw: HashSet::new(),
+            lent: HashMap::new(),
             draft_closures: HashMap::new(),
             arg_calls: HashMap::new(),
         }
@@ -685,6 +692,7 @@ impl<'p> Gen<'p> {
                             b.shape = Some(shape.clone());
                             b.drafts = drafts.clone();
                             b.part_drafts = part_drafts.clone();
+                            b.js_fn = true;
                             self.set(env, &n.alias, b);
                             continue;
                         }
@@ -698,10 +706,12 @@ impl<'p> Gen<'p> {
                         let mut b = val(mg(&n.alias));
                         b.client = *side == Some(crate::ast::Side::Client)
                             || declared_side.as_ref().is_some_and(|ds| ds.iter().any(|(k, s)| *k == n.name && *s == crate::ast::Side::Client));
-                        if let Some(JsDecl::Fn { drafts, part_drafts, .. }) = x {
+                        if let Some(JsDecl::Fn { drafts, part_drafts, draft_args, .. }) = x {
                             b.drafts = drafts.clone();
                             b.part_drafts = part_drafts.clone();
+                            b.draft_args = draft_args.clone();
                         }
+                        b.js_fn = true;
                         self.set(env, &n.alias, b);
                     }
                 }
@@ -1517,6 +1527,11 @@ impl<'p> Gen<'p> {
     fn expr(&mut self, e: &Expr, env: Env, ctx: &Ctx) -> R<E> {
         let x = self.expr0(e, env, ctx)?;
         if !self.raw.contains(&(e as *const Expr)) && self.draft_chain(e, env) {
+            // a JS fn called with a read of a draft is lent a copy (in a development build one that refuses to be
+            // changed: a change to it would be lost, MO-10i); its `draft` parameters are given the draft itself (`raw`)
+            if let Some(to) = self.lent.get(&(e as *const Expr)) {
+                return Ok(rtc("lend", vec![x, str(to.clone())]));
+            }
             return Ok(rtc("copy", vec![x]));
         }
         Ok(x)
@@ -1666,6 +1681,18 @@ impl<'p> Gen<'p> {
                 if own || scalar {
                     for a in args {
                         self.raw.insert(a as *const Expr);
+                    }
+                }
+                // MO-10i (2026-11-22): a JS fn's `draft` parameter is given the draft itself; its other arguments are lent
+                if let ExprKind::Id(n) = &f.k {
+                    if let Some(b) = self.lookup(env, n).filter(|b| b.js_fn) {
+                        for (i, a) in args.iter().enumerate() {
+                            if b.draft_args.contains(&i) {
+                                self.raw.insert(a as *const Expr);
+                            } else {
+                                self.lent.insert(a as *const Expr, n.clone());
+                            }
+                        }
                     }
                 }
                 self.raw.insert(&**f as *const Expr);
