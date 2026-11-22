@@ -395,7 +395,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     .inner>[0]`, a prop `Parameters<typeof import("kit").Dialog
     ["Trigger"]>[0]["onClick"]`. It is the weakest of the four: it says
     "the library's, here" and nothing a reader can use, and it exists
-    only where the fn has one signature.
+    only where the fn has one signature. MO-8o leaves it few places.
 
   A row written this way must still be one TypeScript holds (TY-6), and
   the draft does not leave that to `rx-tsc`: each reading of a row — its
@@ -406,11 +406,121 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   that leaves the fewest `any`s, and the row every draft had where it
   holds none. A draft therefore never brings a `DECLARATION_MISMATCH` of
   its own making. What stays `any` has a cause `rx-declare --explain`
-  names: a fn with several signatures (a row is one of them, MO-8a, so it
-  has no one place to take a type from), a component whose props are a
-  union of records (a single record is not that type), a type the library
-  itself declares `any`. `--any` drafts as before this rule.
-  A generated declaration (MO-8l) is drafted the same way (draft 4).
+  names (MO-8q says whose it is). `--any` drafts as before this rule.
+  A generated declaration (MO-8l) is drafted the same way (draft 5: with
+  MO-8o and MO-8p).
+- **MO-8o (A row's types are the library's declaration's; a component's
+  props may be a type) — proposed 2026-11-22.** MO-8m read a library's
+  types as TypeScript resolves them, and named what it found. A resolved
+  type has lost the name it was declared with wherever the library computes
+  it (a polymorphic component's props, a schema a builder returns), and
+  only the entry module's exports had names: such a part was written a
+  field at a time, or by its place. So:
+  - *A row's types are written from the annotation the library's own
+    declaration gives* the parameter, the result, the prop, the bound of a
+    type parameter — `object<const TEntries extends ObjectEntries>(entries:
+    TEntries): ObjectSchema<TEntries, undefined>` is that row — with each
+    name in it rewritten to a module the app can import it from, and the
+    row's type parameters as the library declares them (a bundle's rename,
+    `TEntries$1`, by the name it was written with). A field of a generic
+    type is declared in that type's parameters, not the row's, and its
+    annotation is used only where it is the field's type as it stands.
+    The resolved type (MO-8m) is what is written where the annotation
+    cannot be.
+  - *A name is looked for in every module the app can import*: the module
+    being declared, the modules its declarations import from, every
+    subpath the package's `exports` lists (`@formisch/solid/v2/internals`,
+    a `./*` pattern by what it matches), the package that declares the
+    type, and — for a type another package declares — the packages the
+    library depends on; under the name it has *there* (a bundle's
+    `Store$1` is `BaseStore` to whoever imports it), the main entry
+    before a subpath, a shorter subpath before a longer. A helper alias
+    or an interface of fields that no module exports is written out
+    (`Many<T>` is `T | T[]`); a generic method is written with its type
+    parameters at their defaults. A part with no name at all is still
+    said by its place (MO-8m), the last way.
+  - *A result the library names is written by that name* where a step at
+    a time would say nothing the checker reads (MO-10b: an accessor part,
+    a function that answers nothing or a promise): `createForm<TSchema
+    extends FormSchema>(config: FormConfig<TSchema>): FormStore<TSchema>`.
+  - *A declared component's props may be a type*, in place of a record of
+    every field: `export component Select<Option, OptGroup = never, T
+    extends ValidComponent = "div">(props: import("@kobalte/core/
+    polymorphic").PolymorphicProps<T, SelectRootProps<Option, OptGroup,
+    T>> & { onChange?: handler (value: Option | Option[]) => void;
+    itemComponent?: Component }) provides(select)`. The type is
+    TypeScript's text, up to the `&` before a record that closes the
+    props (or to the `)`, where no field is written again:
+    `component Portal(props: SelectPortalProps)`); the checker reads
+    none of it. The record after it holds the fields the checker reads
+    something of — a function type and its `handler` or `tracked`, a
+    render prop, `Component`, `catches(…)`, `renders` — each read as a
+    record's field always was (MO-11a); a prop it does not list is
+    passed as any undeclared prop is (MO-11b), which is what a field of
+    a plain type was to the checker already. TypeScript reads the row as
+    the intersection it spells: the declaration's `.d.ts` writes it so,
+    and the boundary check (13 TY-6) holds the module's component to it
+    with the row's type parameters found from the library's type alone
+    (`NoInfer` around the record), so a field written again narrows the
+    props and never decides what `Option` is. Props that are a union of
+    records (a select that holds one option or several) are written this
+    way as they stand; no one record is that type. A record alone is read
+    as before (S-module-30, the unit
+    `a_component_row_may_name_its_props_type` in both checkers; the
+    tree-sitter grammar reads both forms).
+
+  Every row is still held against the module before the draft is written
+  (MO-8m): a row TypeScript does not hold this way is written as MO-8m
+  wrote it, and one it does not hold that way either as every draft was.
+- **MO-8p (A fn with several signatures) — proposed 2026-11-22.** A
+  declaration may hold several rows of one fn's name: they are its
+  signatures (TypeScript's overloads), one row each, in the library's
+  order.
+
+  ```rx
+  export pure fn createEventListener<Target extends TargetWithEventMap, …>(ref target: Target | Target[], ref type_: EventType | EventType[], handler: handler (event: EventMap[EventType]) => void): void instantiates
+  export pure fn createEventListener<EventMap extends Record<string, Event>, …>(ref target: EventTarget | EventTarget[], ref type_: EventType | EventType[], handler: handler (event: EventMap[EventType]) => void): void instantiates
+  ```
+
+  The checker reads no type, so it cannot tell which signature a call
+  takes; it reads the *first* row, and a later row may differ from it in
+  types alone. Another word on the row (`pure`, `rejects`, `instantiates`,
+  `uses`, `renders`, …), on a parameter both rows have (`ref`, `signal`,
+  `draft`, a callback's `handler` or `tracked`), a result of another shape
+  (MO-10b), or any word on a parameter the first row has not, is a parse
+  error of the declaration, which names the rule: the rows of one name
+  are one fn, and a word is a fact about the fn. The declaration's
+  `.d.ts` (13 TY-4b) writes an overload per row, and TY-6 holds the
+  module's fn to each row. A draft writes a row for each signature where
+  the rows agree (up to twelve), and the shortest signature's row, as
+  before, where they do not: an overload whose words would differ is a fn
+  the notation does not say, and it stays one signature with the others
+  left to TypeScript, which types the `.rx` call against the library's
+  own overloads in any case (TY-4b). S-module-31, the unit
+  `a_fn_may_have_several_rows` in both checkers.
+- **MO-8q (`any` is the library's, or it is not written) — ruled
+  2026-11-22.** A `.d.rx` for a module with types of its own may contain
+  `any` only where the library's own declared type has `any` at that
+  position — a bound `T = any`, a `Record<string, any>`, a parameter the
+  library leaves open — and there it is written as it is: reproduced, not
+  narrowed. An `any` written where the library has a type (*introduced*)
+  is not allowed, in a drafted row or a hand-written one: the type is
+  named (MO-8o), or the part is said by its place (MO-8m). The library's
+  `unknown` stays `unknown`. A part said by its place
+  (`Parameters<typeof import(…)>`) is not a way around the rule — it says
+  nothing a reader can use — and is counted on its own. `rx-declare
+  --explain` reports the two kinds of `any` apart (`vendor-any` is the
+  library's; every other cause is the draft's) and the parts said by
+  place, and `--causes <file>` writes them by row. The benchmark holds
+  the rule (`bench/README.md`): each task's declarations are counted as
+  *inherited* (for an export, as many `any`s as the draft of that export
+  writes for the library's own) and *introduced* (every other);
+  `bench --check` fails on an introduced `any` that is not on
+  `bench/any-allowlist.json` with its reason and what blocks naming the
+  type, and on a task whose `any`s or by-place parts rise above the
+  recorded scorecard. A module with no types has no library type to
+  inherit from: its declaration is all there is (13 TY-6c), and an `any`
+  there is the author's.
 - **MO-8n (Evidence from the library's source) — proposed 2026-11-22.**
   The words of MO-8i that say what a library *does* — `handler`,
   `tracked`, `uses`, `provides`, `instantiates`, a result that undoes the

@@ -89,25 +89,27 @@ const more = r1.stdout; if (process.env.VERBOSE) console.log(more, r1.stderr);
 const hasMore = line => more.split("\n").includes(line);
 check("a result that takes nothing and answers nothing is `() => void`, through the library's own name for it (EF-5a)", hasMore("export fn listen(run: () => void): () => void"), more);
 check("a small object result is typed by its fields: an accessor `ref`, a called getter and a function by what they answer, a nested object a step further", hasMore("export fn makePager(): { page: ref number; getPageCount: () => number; next: () => void; rows: Row[]; label: string; nested: { open: boolean; close: () => void } }"), more);
-check("a class instance is typed by its methods, each as it is written where it can be (a generic one by what it answers), and stays the library's own object", hasMore("export fn makeClient(): { invalidate: (key?: string) => Promise<void>; fetch: (...args: Parameters<ReturnType<typeof import(\"./more.js\").makeClient>[\"fetch\"]>) => Promise<Awaited<ReturnType<ReturnType<typeof import(\"./more.js\").makeClient>[\"fetch\"]>>>; size: () => number; peek: (key: string) => Row | undefined; clear: () => void }"), more);
+check("a class instance is typed by its methods, each as it is written where it can be (a generic one by what it answers), and stays the library's own object", hasMore("export fn makeClient(): { invalidate: (key?: string) => Promise<void>; fetch: (key: string) => Promise<unknown>; size: () => number; peek: (key: string) => Row | undefined; clear: () => void }"), more);
 check("a row names the module's own types, which the draft declares", hasMore("export fn load(id: string): Promise<Row[]>") && hasMore("export type Row = import(\"./more.js\").Row"), more);
 check("a generic type is declared with the parameters that have no default", hasMore("export type Page<T> = import(\"./more.js\").Page<T>") && hasMore("export type Cell<T, V = unknown> = import(\"./more.js\").Cell<T, V>"), more);
 
 // MO-8m: the library's types are named, not `any` — by the name the module exports, by `import("<package>")` for another
 // package's, by its place in the library's declaration for one no module exports; a row TypeScript does not hold with
 // them is written as every draft was
-fs.writeFileSync(path.join(ws, "named.js"), "export const make = o => o;\nexport const inner = x => x;\nexport const over = x => x;\nexport const watchAll = (a, b) => b;\nexport const pick = (rows, by) => rows[0];\nexport const lossy = () => ({});\nexport const all = ps => Promise.all(ps);\nexport const atLeast = n => ({ expects: `>=${n}` });\nexport const Picker = props => null;\nexport const loose = x => x;\n");
+fs.writeFileSync(path.join(ws, "named.js"), "export const make = o => o;\nexport const inner = x => x;\nexport const over = x => x;\nexport const open = x => 1;\nexport const watchAll = (a, b) => b;\nexport const pick = (rows, by) => rows[0];\nexport const lossy = () => ({});\nexport const all = ps => Promise.all(ps);\nexport const atLeast = n => ({ expects: `>=${n}` });\nexport const Picker = props => null;\nexport const loose = x => x;\n");
 fs.writeFileSync(path.join(ws, "named.d.ts"), [
   "import type { Accessor } from \"solid-js\";",
   "interface Secret { id: string; tags: string[] }",
+  "declare class Sealed { private key; id: string }",
   "export type Opts<T extends object = object> = { seed: T; depth?: number };",
   "export interface Shape { kind: \"a\" | \"b\" }",
   "export declare function make<const T extends object>(opts: Opts<T>, shapes: Shape[]): Opts<T>;",
-  "export declare function inner(x: Secret, n?: number): Secret;",
-  "export declare function over(a: Secret): number;",
-  "export declare function over(a: Secret, b: number): number;",
+  "export declare function inner(x: Sealed, n?: number): Secret;",
+  "export declare function open(x: Secret): number;",
+  "export declare function over(a: Sealed): number;",
+  "export declare function over(a: Sealed, b: number): number;",
   "export declare function watchAll(source: Accessor<number>, done: (shape: Shape, from: Accessor<number>) => void): Map<string, Accessor<Shape>>;",
-  "export declare function pick<T>(rows: readonly T[], by: Secret): T | undefined;",
+  "export declare function pick<T>(rows: readonly T[], by: Sealed): T | undefined;",
   "export declare function lossy(): { at: Secret | null; n: number };",
   "export declare function all<T extends readonly unknown[] | []>(ps: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]> }>;",
   "export declare function atLeast<const N extends number>(n: N): { expects: `>=${N}`; kind: N extends 0 ? \"none\" : \"some\" };",
@@ -121,10 +123,11 @@ const rn = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"
 const named = rn.stdout; if (process.env.VERBOSE) console.log(named, rn.stderr);
 const hasNamed = line => named.split("\n").includes(line);
 check("a generic type is declared with its parameters' bounds and defaults, as the library declares them (MO-8m)", hasNamed("export type Opts<T extends object = object> = import(\"./named.js\").Opts<T>"), named);
-check("a generic fn keeps its type parameters, and names the module's own types by the draft's aliases (MO-8d, MO-8m)", hasNamed("export fn make<const T extends object>(opts: Opts<T>, shapes: Shape[]): { seed: T; depth?: number | undefined }"), named);
+check("a generic fn keeps its type parameters, and names the module's own types by the draft's aliases — its result too, where its fields say nothing the checker reads (MO-8d, MO-8m, MO-8o)", hasNamed("export fn make<const T extends object>(opts: Opts<T>, shapes: Shape[]): Opts<T>"), named);
 check("a type no module exports is named by its place in the library's declaration", hasNamed("export fn inner(x: Parameters<typeof import(\"./named.js\").inner>[0], n?: number): { id: string; tags: string[] }"), named);
 check("another package's type is named by an import of that package; a callback is written with its own signature", hasNamed("export fn watchAll(ref source: number, done: (shape: Shape, from: import(\"solid-js\").Accessor<number>) => void): Map<string, import(\"solid-js\").Accessor<Shape>>"), named);
-check("an overloaded fn has no one place: what cannot be named there stays `any`, and --explain says why", hasNamed("export fn over(a: any): number") && /1 `any` drafted — 1 overload/.test(rn.stderr), named + rn.stderr);
+check("an overloaded fn has a row for each signature (MO-8p) and no one place: what cannot be named there stays `any`, and --explain says why and whose", hasNamed("export fn over(a: any): number") && hasNamed("export fn over(a: any, b: number): number") && /2 `any` drafted \(0 the library's own, 2 the draft's\) — 2 overload/.test(rn.stderr), named + rn.stderr);
+check("an interface of fields that no module exports is written as the record of them (MO-8o)", hasNamed("export fn open(x: { id: string; tags: string[] }): number"), named);
 check("beside a type parameter, a part with no name is said by its place, where TypeScript holds the row", hasNamed("export fn pick<T>(rows: readonly T[], by: Parameters<typeof import(\"./named.js\").pick>[1]): T | undefined"), named);
 check("a nested object keeps what it may also be (`| null`)", hasNamed("export fn lossy(): { at: { id: string; tags: string[] } | null; n: number }"), named);
 check("a computed type is written as the library computes it: a mapped tuple, a template of a literal, a conditional (MO-8m)", hasNamed("export fn all<T extends readonly unknown[] | []>(ps: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]> }>") && hasNamed("export fn atLeast<const N extends number>(n: N): { expects: `>=${N}`; kind: N extends 0 ? \"none\" : \"some\" }"), named);
@@ -133,9 +136,46 @@ check("a bound that is `unknown` bounds nothing, and is not written", hasNamed("
 const rl = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./named.js", "--any"], { cwd: ws, encoding: "utf8" });
 check("--any drafts as before MO-8m: every type the draft cannot restate is `any`", rl.stdout.split("\n").includes("export fn inner(x: any, n?: number): { id: string; tags: string[] }") && rl.stdout.split("\n").includes("export fn make(opts: any, shapes: Shape[]): { seed: any; depth?: number | undefined }") && rl.stdout.split("\n").includes("export type Opts = import(\"./named.js\").Opts"), rl.stdout + rl.stderr);
 fs.writeFileSync(path.join(ws, "named.d.rx"), named);
-fs.writeFileSync(path.join(ws, "named.rx"), "import { inner } from \"./named.js\"\nexport default component N() {\n  <button onClick={() => { inner({ id: \"a\", tags: [] }) }}>x</button>\n}\n");
+fs.writeFileSync(path.join(ws, "named.rx"), "import { open } from \"./named.js\"\nexport default component N() {\n  <button onClick={() => { open({ id: \"a\", tags: [] }) }}>x</button>\n}\n");
 const tn = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--noEmit", "-p", "tsconfig.named.json"], { cwd: (fs.writeFileSync(path.join(ws, "tsconfig.named.json"), JSON.stringify({ extends: "./tsconfig.json", include: ["named.rx"] })), ws), encoding: "utf8" });
 check("the draft that names the library's types passes rx-tsc against them (TY-6)", tn.status === 0 && tn.stdout.trim() === "", { status: tn.status, out: tn.stdout + tn.stderr });
+
+// MO-8o, MO-8p, MO-8q: a package whose declarations are a bundle — its types named by the module that exports them (a
+// subpath, under the name it has there), its props by their type, a row for each signature, its own `any`s as they are
+{
+  const app = path.join(ws, "wideapp"); const pkg = path.join(app, "node_modules/wide");
+  fs.mkdirSync(path.join(pkg, "dist"), { recursive: true });
+  for (const n of ["@solidjs", "solid-js"]) fs.symlinkSync(path.join(repo, "ref/node_modules", n), path.join(app, "node_modules", n), "dir");
+  fs.writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "wide", version: "1.0.0", type: "module", exports: { ".": { types: "./dist/index.d.ts", default: "./dist/index.js" }, "./internals": { types: "./dist/internals.d.ts", default: "./dist/internals.js" } } }));
+  fs.writeFileSync(path.join(pkg, "dist/index.js"), "export const insert = () => {};\nexport const on = () => () => {};\nexport const loosely = () => ({});\nexport const Picker = () => null;\n");
+  fs.writeFileSync(path.join(pkg, "dist/internals.js"), "export {};\n");
+  fs.writeFileSync(path.join(pkg, "dist/chunk.d.ts"), [
+    "interface Store$1<TItem$1> { readonly items: TItem$1[]; readonly size: number }",
+    "type Row$1 = { id: string };",
+    "interface PickerOwn<O> { value?: O; onPick?: (v: O) => void; render?: (v: O) => import(\"@solidjs/web\").JSX.Element; label?: string }",
+    "export { Store$1 as S, Row$1 as R, PickerOwn as P };", ""].join("\n"));
+  fs.writeFileSync(path.join(pkg, "dist/internals.d.ts"), "export type { S as BaseStore } from \"./chunk.js\";\n");
+  fs.writeFileSync(path.join(pkg, "dist/index.d.ts"), [
+    "import { S as Store$1, R as Row$1, P as PickerOwn } from \"./chunk.js\";",
+    "export declare function insert<TItem$1 extends Row$1>(store: Store$1<TItem$1>, item: TItem$1): void;",
+    "export declare function on(target: Window, cb: (e: Event) => void): () => void;",
+    "export declare function on(target: Document, cb: (e: Event) => void, capture?: boolean): () => void;",
+    "export declare function loosely(x: any, y: unknown): Record<string, any>;",
+    "export declare function Picker<O>(props: PickerOwn<O>): import(\"@solidjs/web\").JSX.Element;",
+    "export type { Row$1 as Row, PickerOwn as PickerProps };", ""].join("\n"));
+  const rw = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "wide", "--explain", "--causes", path.join(app, "causes.json")], { cwd: app, encoding: "utf8" });
+  const wide = rw.stdout.split("\n"); if (process.env.VERBOSE) console.log(rw.stdout, rw.stderr);
+  check("a type the entry does not export is named by the subpath that does, under its name there; a bundle's `$1` names are not the row's (MO-8o)", wide.includes("export fn insert<TItem extends Row>(store: import(\"wide/internals\").BaseStore<TItem>, item: TItem): void"), rw.stdout + rw.stderr);
+  check("a fn with several signatures has a row for each (MO-8p)", wide.includes("export fn on(target: Window, cb: (e: Event) => void): () => void") && wide.includes("export fn on(target: Document, cb: (e: Event) => void, capture?: boolean): () => void"), rw.stdout);
+  check("a component's props are the type the library declares them with, and after it the fields the checker reads (MO-8o)", wide.includes("export component Picker<O>(props: PickerProps<O> & { onPick?: (v: O) => void; render?: Component })"), rw.stdout);
+  const causes = JSON.parse(fs.readFileSync(path.join(app, "causes.json"), "utf8")).causes;
+  check("the library's own `any` is written as it is, and counted as the library's; its `unknown` stays `unknown` (MO-8q)", wide.includes("export fn loosely(x: any, y: unknown): Record<string, any>") && causes.length === 2 && causes.every(c => c.cause === "vendor-any" && c.name === "loosely") && /2 `any` drafted \(2 the library's own, 0 the draft's\)/.test(rw.stderr), rw.stdout + rw.stderr);
+  fs.writeFileSync(path.join(app, "tsconfig.json"), fs.readFileSync(path.join(ws, "tsconfig.json"), "utf8"));
+  fs.mkdirSync(path.join(app, "rx-types"), { recursive: true }); fs.writeFileSync(path.join(app, "rx-types/wide.d.rx"), rw.stdout);
+  fs.writeFileSync(path.join(app, "main.rx"), "import { Picker, on } from \"wide\"\nexport default component N() {\n  <Picker value=\"a\" label=\"x\" />\n}\n");
+  const tw = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--noEmit", "-p", "tsconfig.json"], { cwd: app, encoding: "utf8" });
+  check("that draft passes rx-tsc against the package's own types: the props type, the record after it, each signature (TY-6)", tw.status === 0 && tw.stdout.trim() === "", { status: tw.status, out: tw.stdout + tw.stderr });
+}
 
 // MO-8n: `--source` — what the library's own source shows of the words its types cannot, as comments above the rows
 // (never as rows), each with the file and line that is the reason
@@ -251,7 +291,7 @@ const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirn
 const kit = r3.stdout;
 if (process.env.VERBOSE) console.log(kit, r3.stderr);
 const kitHas = line => kit.split("\n").includes(line);
-check("a compound root is a component that provides its parts' context (MO-11q, by running)", kitHas("export component Dialog(props: { open?: boolean | undefined; children?: View }) provides(dialog)"), kit + r3.stderr);
+check("a compound root is a component that provides its parts' context (MO-11q, by running)", kitHas("export component Dialog(props: { open?: boolean; children?: View }) provides(dialog)"), kit + r3.stderr);
 check("its parts are dotted members that use it (MO-11q, by running)", kitHas("export component Dialog.Trigger(props: { children?: View }) uses(dialog)") && kitHas("export component Dialog.Content(props: { children?: View }) uses(dialog)"), kit);
 check("the same part exported by its own name gets the same rows; a prop a .d.rx cannot name (`aria-label`) is left out", kitHas("export component Trigger(props: { children?: View }) uses(dialog)") && /^export context dialog   \/\/ drafted by running: compound parts/m.test(kit), kit);
 check("a value is declared a value (MO-8g)", kitHas("export const normalizeProps: typeof import(\"./kit.mjs\").normalizeProps"), kit);

@@ -4,6 +4,25 @@
 
 **Changed**
 
+- A declared component's props may be a type, with the fields that carry words in a record after it (spec/09 MO-8o):
+  `export component Select<Option>(props: import("@kobalte/core/select").SelectRootProps<Option> & { onChange?: handler
+  (value: Option | Option[]) => void }) provides(select)`. The checker reads the record as it read a record of props; a
+  prop it does not list is passed as any undeclared prop is. TypeScript reads the intersection; the boundary check
+  (TY-6) finds the row's type parameters from the type alone. Props that are a union of records are written as they are.
+- A declaration may hold several rows of one fn's name, one for each of its signatures (spec/09 MO-8p). The checker
+  reads the first; a later row that says another word (on the row, a parameter, the result) is a parse error. The
+  declaration's `.d.ts` writes an overload per row, and TY-6 holds each.
+- `rx-declare` writes a row's types from the library's own declaration (spec/09 MO-8o): the annotation of each parameter,
+  result and prop, with every name rewritten to a module the app can import it from — any subpath the package exports
+  (`@formisch/solid/v2/internals`), the packages it depends on — under the name it has there (a bundle's `Store$1` is
+  `BaseStore`). A result the library names is written by that name unless its parts say something the checker reads; a
+  component's props are its props type and the fields that carry words; a fn with several signatures has a row for each;
+  a generic method is written at its type parameters' defaults. Generated declarations are redrafted (draft 5).
+- `any` is the library's, or it is not written (spec/09 MO-8q): a `.d.rx` holds `any` only where the library's own type
+  has it, reproduced as it is; `unknown` stays `unknown`. `rx-declare --explain` reports the library's `any`s and the
+  draft's apart, with the parts said by place; `--causes <file>` writes them by row. `bench --check` counts inherited
+  and introduced `any`s and by-place parts for each task, fails on an introduced `any` that is not on
+  `bench/any-allowlist.json`, and on any of the numbers rising.
 - A declared component may have type parameters, as a declared fn may (spec/09 MO-8d): `export component
   Picker<Option>(props: { value?: Option; options: Option[]; onPick?: handler (v: Option) => void })`, on a member
   component too. It was a parse error, so a generic component's props could only be `any`. The checker reads none of

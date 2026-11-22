@@ -113,7 +113,7 @@ function lookup(file, spec) {
   return ask("lookup", { file, spec });
 }
 /** MO-8j, TY-7: a declaration file's rows as the parser reads them: `{ rows: [{ name, kind, line, end, trusted }] }`. */
-function rows(file) {
-  return ask("rows", { file });
+function rows(file, text) {
+  return ask("rows", text === undefined ? { file } : { file, text });
 }
 module.exports = { analyze, checkProgram, preludeFor, boundary, declaration, lookup, rows, rxcPath, wasmPath };

@@ -138,7 +138,9 @@ export function accessorResult(ret: string | undefined, shape: Shape | undefined
 function declarationFile(decls: JsDecl[]): string {
   const own = new Set(decls.filter(d => d.kind === "type").map(d => d.name));
   const head = decls.some(d => d.kind === "comp" || (d.kind === "fn" && d.shape === "comp")) ? [...own.has("View") ? [] : ["type View = import(\"@solidjs/web/jsx-runtime\").JSX.Element;"], ...own.has("Component") ? [] : ["type Component<P = any> = (props: P) => View;"]] : [];   // MO-11a: a field's types
-  const fnOf = (d: Extract<JsDecl, { kind: "comp" }>) => `${d.tparams ?? ""}(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }) => View`;
+  // MO-8o: props that are a type the library declares, and the record of the fields that carry words after it
+  const propsOf = (d: Extract<JsDecl, { kind: "comp" }>) => { const rec = `{ ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }`; return d.propsType === undefined ? rec : d.props.length ? `${d.propsType} & ${rec}` : d.propsType; };
+  const fnOf = (d: Extract<JsDecl, { kind: "comp" }>) => `${d.tparams ?? ""}(props: ${propsOf(d)}) => View`;
   // MO-11q: `Dialog.Root` and its siblings are members of one exported object (itself a component when it is declared one)
   const members = new Map<string, Extract<JsDecl, { kind: "comp" }>[]>();
   for (const d of decls) if (d.kind === "comp" && d.name.includes(".")) { const h = d.name.slice(0, d.name.indexOf(".")); members.set(h, [...members.get(h) ?? [], d]); }
@@ -146,7 +148,7 @@ function declarationFile(decls: JsDecl[]): string {
   const objects = [...members.keys()].filter(h => !decls.some(d => d.kind === "comp" && d.name === h)).map(h => `export declare const ${h}: ${objectOf(h)};`);
   return [...head, ...objects, ...decls.filter(d => d.kind !== "context" && !(d.kind === "comp" && d.name.includes("."))).map(d => {   // MO-12a: a JS context has no TypeScript of its own
     if (d.kind === "type") return `export ${d.text ?? `type ${d.name} = any`}`;
-    if (d.kind === "comp") return members.has(d.name) ? `export declare const ${d.name}: (${fnOf(d)}) & ${objectOf(d.name)};` : `export declare function ${d.name}${d.tparams ?? ""}(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }): View;`;
+    if (d.kind === "comp") return members.has(d.name) ? `export declare const ${d.name}: (${fnOf(d)}) & ${objectOf(d.name)};` : `export declare function ${d.name}${d.tparams ?? ""}(props: ${propsOf(d)}): View;`;
     if (d.kind === "value") return `export declare const ${d.name}: ${d.type ?? "any"};`;   // MO-8g
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
     const ps = d.params.map((n, i) => { const o = d.opts?.[i] ? "?" : ""; return d.sigs?.[i] ? `${n}${o}: import("solid-js").Signal<${d.ptypes?.[i] ?? "any"}>` : d.refs?.[i] ? `${n}${o}: (() => ${d.ptypes?.[i] ?? "any"})` : d.ptypes?.[i] ? `${n}${o}: ${d.ptypes[i]}` : o ? `${n}?: any` : n; }).join(", ");   // MO-8e: an optional parameter   // MO-10a: a `ref` parameter is an accessor in JS

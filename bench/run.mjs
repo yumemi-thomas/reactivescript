@@ -38,7 +38,7 @@ async function runTask(id) {
   const dir = stage(id);
   if (task.prepare) await task.prepare(dir);
   const cell = () => ({ pass: 0, total: 0, fails: [], notes: [] });
-  const res = { id, title: task.title, good: cell(), types: cell(), runtime: cell(), bad: cell(), unrep: cell(), decl: { words: 0, any: 0, files: [] }, known: task.known ?? {} };
+  const res = { id, title: task.title, good: cell(), types: cell(), runtime: cell(), bad: cell(), unrep: cell(), decl: { words: 0, any: 0, inherited: 0, introduced: 0, places: 0, files: [] }, known: task.known ?? {} };
   const mark = (c, name, ok, why) => { c.total++; if (ok) c.pass++; else c.fails.push(`${name}${why ? ` — ${String(why).replace(/\s+/g, " ").slice(0, 420)}` : ""}`); };
   const show = x => x.diagnostics.map(d => `${d.code}@${d.line}: ${String(d.message ?? "").slice(0, 160)}`).join(" | ") || "accepted";
   const entries = task.entries ?? [task.entry ?? "main.rx"];
@@ -56,7 +56,7 @@ async function runTask(id) {
   }
 
   // the declarations, against rx-declare's draft of the same modules (before anything is edited)
-  try { res.decl = declarations(dir, task.declare ?? {}); } catch (e) { res.decl = { words: 0, any: 0, files: [], error: String(e.message ?? e) }; }
+  try { res.decl = declarations(dir, task.declare ?? {}); } catch (e) { res.decl = { words: 0, any: 0, inherited: 0, introduced: 0, places: 0, files: [], error: String(e.message ?? e) }; }
 
   // (b) TYPES: rx-tsc is clean with the library's own types, the program wrote no `any`, and each probe — a mistake
   // only the library's real type refuses — is refused by TypeScript, on the line the probe wrote
@@ -156,7 +156,9 @@ for (const id of ids) {
 // ---- the scorecard ----
 const cols = [["good", "good accepted"], ["types", "types kept"], ["runtime", "runtime ok"], ["bad", "bad caught"], ["unrep", "unrepresentable"]];
 // the declarations' two numbers (lower is better; no pass or fail): words written by hand over rx-declare's draft, and `any`s
-const nums = [["words", "hand-written .d.rx words"], ["any", "`any` in .d.rx"]];
+// (09 MO-8q): an `any` the library's own declaration has (inherited) and one written where it has a type (introduced, which
+// must be none, or on bench/any-allowlist.json with its reason); and the parts said by their place in the library's declaration
+const nums = [["words", "hand-written words"], ["inherited", "`any` inherited"], ["introduced", "`any` introduced"], ["places", "by-place"]];
 const cellText = c => !c || !c.total ? "—" : `${c.pass}/${c.total}`;
 const lines = [];
 const w = Math.max(...results.map(r => r.id.length), 4);
@@ -182,11 +184,16 @@ for (const r of results) {
   }
 }
 // the declarations, file by file: where the hand-written words are
-const declLines = results.filter(r => !r.crash && r.decl.files.length).flatMap(r => r.decl.files.map(f => `  ${r.id}/${f.file}: ${f.words} word${f.words === 1 ? "" : "s"} by hand${f.drafted ? "" : " (rx-declare drafts nothing for it: the module has no types)"}, ${f.any} \`any\``));
-const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green.") + (declLines.length ? `\n\nDeclarations (words written by hand over rx-declare's draft; \`any\`s held):\n${declLines.join("\n")}` : "");
+const declLines = results.filter(r => !r.crash && r.decl.files.length).flatMap(r => r.decl.files.map(f => `  ${r.id}/${f.file}: ${f.words} word${f.words === 1 ? "" : "s"} by hand${f.drafted ? "" : " (rx-declare drafts nothing for it: the module has no types)"}, ${f.inherited} \`any\` inherited, ${f.introduced} introduced${f.rows.length ? ` (${f.rows.map(x => `${x.name}: ${x.introduced}`).join(", ")})` : ""}, ${f.places} by place`));
+// 09 MO-8q: an `any` written where the library has a type is allowed only by name, with its reason
+const allow = JSON.parse(readFileSync(path.join(here, "any-allowlist.json"), "utf8")).allow;
+const allowed = (id, file, name) => allow.find(a => a.task === id && a.file === file && a.name === name);
+const introducedRows = results.filter(r => !r.crash).flatMap(r => r.decl.files.flatMap(f => f.rows.map(x => ({ id: r.id, file: f.file, ...x, entry: allowed(r.id, f.file, x.name) }))));
+const allowLines = introducedRows.map(x => `  ${x.id}/${x.file} · ${x.name}: ${x.introduced} — ${x.entry ? `allowed (${x.entry.count}): ${x.entry.reason} Blocked by: ${x.entry.blocked}` : "NOT ON bench/any-allowlist.json"}`);
+const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green.") + (declLines.length ? `\n\nDeclarations (words written by hand over rx-declare's draft; \`any\`s the library's own declaration has, and \`any\`s written where it has a type; parts said by place):\n${declLines.join("\n")}` : "") + `\n\nIntroduced \`any\`s (09 MO-8q: none, or on bench/any-allowlist.json):${allowLines.length ? `\n${allowLines.join("\n")}` : " none"}`;
 console.log("\n" + card);
 
-const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, any: r.decl.any } }]));
+const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places } }]));
 if (flag("--write")) {
   writeFileSync(path.join(here, "scorecard.json"), JSON.stringify(snapshot, null, 2) + "\n");
   writeFileSync(path.join(here, "scorecard.txt"), card.replaceAll(ws, "bench/.out/ws") + "\n");
@@ -205,9 +212,13 @@ if (flag("--check")) {
       else if (flag("--strict") && !Object.keys(r.known).some(n => name.includes(n))) problems.push(`${r.id} · ${t} · ${name}: fails, and the task's \`known\` gives no reason for it`);
     }
     // the declarations may not need more hand-written words, nor hold more `any`s, than the committed scorecard's
-    for (const [k, t] of nums) if (old?.decl && r.decl[k] > old.decl[k]) problems.push(`${r.id} · ${t}: ${r.decl[k]}, was ${old.decl[k]} in bench/scorecard.json`);
+    // nor more parts said by place (09 MO-8q: each of the numbers, and the `any`s together, task by task)
+    for (const [k, t] of [...nums, ["any", "`any` in .d.rx"]]) if (old?.decl && old.decl[k] !== undefined && r.decl[k] > old.decl[k]) problems.push(`${r.id} · ${t}: ${r.decl[k]}, was ${old.decl[k]} in bench/scorecard.json`);
     if (flag("--strict")) for (const n of Object.keys(r.known)) if (!cols.some(([k]) => r[k].fails.some(f => f.split(" — ")[0].includes(n)))) problems.push(`${r.id}: \`known\` names "${n}", which does not fail (remove it)`);
   }
+  // 09 MO-8q: an `any` where the library has a type is on the allowlist, by name and count, or it fails
+  for (const x of introducedRows) { if (!x.entry) problems.push(`${x.id}/${x.file} · ${x.name}: ${x.introduced} \`any\` written where the library has a type (09 MO-8q): name its type, or add it to bench/any-allowlist.json with the reason`); else if (x.introduced > x.entry.count) problems.push(`${x.id}/${x.file} · ${x.name}: ${x.introduced} introduced \`any\`s, ${x.entry.count} allowed in bench/any-allowlist.json`); }
+  if (!filters.length) for (const a of allow) if (!introducedRows.some(x => x.entry === a)) problems.push(`bench/any-allowlist.json: ${a.task}/${a.file} · ${a.name} holds no introduced \`any\` now (remove the entry)`);
   if (problems.length) { console.log(`\n--check: ${problems.length} problem(s)\n${problems.map(p => `  ${p}`).join("\n")}`); exit = 1; } else console.log("\n--check: as bench/scorecard.json, or better; every failure is a documented one");
 }
 process.exit(exit);

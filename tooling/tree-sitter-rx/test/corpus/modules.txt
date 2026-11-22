@@ -781,3 +781,114 @@ export fn list(): { items: ref import("kit").Item[]; rows: import("kit").Row<str
                     (property_identifier))
                   (type_arguments
                     (predefined_type)))))))))))
+
+========================================
+Declaration file components: props named by their type, the fields that carry words after it
+========================================
+
+export component Picker<Option>(props: import("kit").PickerProps<Option> & { onPick?: handler (v: Option) => void; item?: Component }) uses(kit)
+export component Plain(props: import("kit").PlainProps)
+
+---
+
+(program
+  (export_statement
+    (component_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (intersection_type
+              (import_type
+                (member_expression
+                  (call_expression
+                    (import)
+                    (arguments
+                      (string
+                        (string_fragment))))
+                  (property_identifier))
+                (type_arguments
+                  (type_identifier)))
+              (object_type
+                (property_signature
+                  (property_identifier)
+                  (type_annotation
+                    (callback_type
+                      (function_type
+                        (formal_parameters
+                          (required_parameter
+                            (identifier)
+                            (type_annotation
+                              (type_identifier))))
+                        (predefined_type)))))
+                (property_signature
+                  (property_identifier)
+                  (type_annotation
+                    (type_identifier))))))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (member_expression
+              (call_expression
+                (import)
+                (arguments
+                  (string
+                    (string_fragment))))
+              (property_identifier))))))))
+
+========================================
+Declaration file rows: a fn with several signatures
+========================================
+
+export pure fn pick(from: string[], at: number): string
+export pure fn pick(from: number[], at: number, fallback?: number): number
+
+---
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (array_type
+              (predefined_type))))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (array_type
+              (predefined_type))))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type)))
+        (optional_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (predefined_type)))))

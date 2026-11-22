@@ -53,10 +53,13 @@ and five columns score it, with two numbers beside them:
 | number | what it counts (lower is better) |
 | --- | --- |
 | **hand-written `.d.rx` words** | for every `.d.rx` of the task, the words a person wrote on top of what `rx-declare` drafts for the same module (run by the suite, with the flags the task's `declare` names: `--run --dom` where the draft was made by running the package). A row the draft has word for word costs nothing, a row it has otherwise costs the words that differ, a row it has not costs every word; rows left out cost nothing. It is what an app pays to use the library |
-| **`any` in `.d.rx`** | the `any`s those files hold: what the checker is told nothing about |
+| **`any` inherited** | the `any`s those files hold that the library's own declaration has at that place (09 MO-8q): for an export, as many as `rx-declare`'s draft of the same export writes for the library's own (`rx-declare --causes`, cause `vendor-any`). They are reproduced, not narrowed |
+| **`any` introduced** | every other `any` those files hold: written where the library has a type. It must be none. One that cannot be named yet is listed in `any-allowlist.json` — the task, the file, the export, how many, a one-line reason and what blocks naming it — and nowhere else |
+| **by-place** | the parts those files say by their place in the library's declaration (`Parameters<typeof import(…)>`, `ReturnType<…>`): a type in name only, counted apart so that it is not a way around the rule above |
 
-`--check` holds both numbers too: a task's declarations may not need more hand-written words, nor hold more `any`s,
-than `scorecard.json` records.
+`--check` holds these numbers too: a task's declarations may not need more hand-written words, hold more `any`s (of
+either kind, or together), nor say more parts by place, than `scorecard.json` records; an introduced `any` that is not
+on `any-allowlist.json`, or more of them than its entry allows, fails; so does an entry that no longer holds one.
 
 What is not in the suite: probes written to find the edge of a rule rather than a mistake a user makes (an
 inherited `valueOf()`, a draft's iterator kept, a callback kept in a record, `[f][0]()`). They were here once and

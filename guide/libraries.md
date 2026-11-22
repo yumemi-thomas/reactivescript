@@ -17,6 +17,12 @@ your `.rx` against the package's types either way, and the checker reads only a 
 `// SOURCE …: called from addEventListener … — `handler`? [src/eventListener.ts:67]` — as a suggestion with its place.
 It never writes the word for you.
 
+A component's props can be the library's own type, with only the fields that carry a word written after it —
+`export component Select<Option>(props: import("@kobalte/core/select").SelectRootProps<Option> & { onChange?: handler
+(value: Option | Option[]) => void }) provides(select)` — and a function with several signatures has a row for each
+(the same words on every row). Don't write `any` where the library has a type: name the type (`rx-declare --explain`
+says which `any`s are the library's own and which are the draft's).
+
 Solid itself needs none of this: `npm i -D @rx-types/solid-js` is its declaration (`createStore`, `snapshot`, `merge`,
 `omit`, `flush`), found as an `@types` package is.
 

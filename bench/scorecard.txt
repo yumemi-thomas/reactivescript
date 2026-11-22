@@ -1,31 +1,31 @@
-task                  good accepted  types kept     runtime ok     bad caught     unrepresentable  hand-written .d.rx words  `any` in .d.rx
--------------------------------------------------------------------------------------------------------------------------------------------
-context-provider      3/3 ✓          5/5 ✓          4/4 ✓          7/7 ✓          —                —                         —             
-duplicate-keys        3/3 ✓          3/3 ✓          3/3 ✓          1/2 ✗          —                —                         —             
-effect-derived        3/3 ✓          3/3 ✓          4/4 ✓          5/5 ✓          —                0                         0             
-formisch-field-array  3/3 ✓          6/6 ✓          7/7 ✓          5/5 ✓          —                12                        0             
-formisch-field-path   3/3 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            12                        0             
-frozen-read           3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                2                         0             
-keyed-edits           3/3 ✓          4/4 ✓          7/7 ✓          6/6 ✓          —                —                         —             
-kobalte-dialog        3/3 ✓          4/4 ✓          5/5 ✓          3/3 ✓          2/2 ✓            18                        0             
-kobalte-select        3/3 ✓          5/5 ✓          6/7 ✗          3/3 ✓          1/1 ✓            1                         15            
-listener-cleanup      3/3 ✓          3/3 ✓          4/4 ✓          4/4 ✓          —                1                         0             
-optimistic-todo       3/3 ✓          4/4 ✓          6/6 ✓          6/6 ✓          —                —                         —             
-primitives-virtual    3/3 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            8                         2             
-projection-selection  3/3 ✓          4/4 ✓          4/4 ✓          4/4 ✓          —                —                         —             
-query-forward         3/3 ✓          6/6 ✓          6/6 ✓          5/5 ✓          —                5                         0             
-query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                4                         0             
-router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                4                         0             
-router-provider       3/3 ✓          5/5 ✓          4/4 ✓          5/5 ✓          1/1 ✓            7                         1             
-sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                         0             
-source-mutation       3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                —                         —             
-ssr-divergence        3/3 ✓          3/3 ✓          3/3 ✓          2/3 ✗          —                3                         0             
-start-route           3/3 ✓          5/5 ✓          8/8 ✓          2/2 ✓          1/1 ✓            20                        0             
-store-helper          3/3 ✓          4/4 ✓          4/4 ✓          5/5 ✓          —                3                         0             
-store-updater         3/3 ✓          5/5 ✓          5/5 ✓          5/5 ✓          —                0                         0             
-table-pagination      3/3 ✓          8/8 ✓          10/10 ✓        5/5 ✓          —                44                        6             
--------------------------------------------------------------------------------------------------------------------------------------------
-total                 72/72          107/107        120/121        104/106        8/8              144                       24            
+task                  good accepted  types kept     runtime ok     bad caught     unrepresentable  hand-written words  `any` inherited  `any` introduced  by-place     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+context-provider      3/3 ✓          5/5 ✓          4/4 ✓          7/7 ✓          —                —                   —                —                 —            
+duplicate-keys        3/3 ✓          3/3 ✓          3/3 ✓          1/2 ✗          —                —                   —                —                 —            
+effect-derived        3/3 ✓          3/3 ✓          4/4 ✓          5/5 ✓          —                0                   0                0                 0            
+formisch-field-array  3/3 ✓          6/6 ✓          7/7 ✓          5/5 ✓          —                11                  11               0                 0            
+formisch-field-path   3/3 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            11                  11               0                 0            
+frozen-read           3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                2                   0                0                 0            
+keyed-edits           3/3 ✓          4/4 ✓          7/7 ✓          6/6 ✓          —                —                   —                —                 —            
+kobalte-dialog        3/3 ✓          4/4 ✓          5/5 ✓          3/3 ✓          2/2 ✓            7                   0                0                 0            
+kobalte-select        3/3 ✓          5/5 ✓          6/7 ✗          3/3 ✓          1/1 ✓            5                   1                0                 2            
+listener-cleanup      3/3 ✓          3/3 ✓          4/4 ✓          4/4 ✓          —                1                   0                0                 0            
+optimistic-todo       3/3 ✓          4/4 ✓          6/6 ✓          6/6 ✓          —                —                   —                —                 —            
+primitives-virtual    3/3 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            8                   0                0                 0            
+projection-selection  3/3 ✓          4/4 ✓          4/4 ✓          4/4 ✓          —                —                   —                —                 —            
+query-forward         3/3 ✓          6/6 ✓          6/6 ✓          5/5 ✓          —                5                   0                0                 0            
+query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                5                   0                0                 0            
+router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                4                   0                0                 0            
+router-provider       3/3 ✓          5/5 ✓          4/4 ✓          5/5 ✓          1/1 ✓            7                   0                0                 1            
+sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                   0                0                 0            
+source-mutation       3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                —                   —                —                 —            
+ssr-divergence        3/3 ✓          3/3 ✓          3/3 ✓          2/3 ✗          —                3                   0                0                 0            
+start-route           3/3 ✓          5/5 ✓          8/8 ✓          2/2 ✓          1/1 ✓            20                  0                0                 0            
+store-helper          3/3 ✓          4/4 ✓          4/4 ✓          5/5 ✓          —                3                   0                0                 0            
+store-updater         3/3 ✓          5/5 ✓          5/5 ✓          5/5 ✓          —                0                   0                0                 0            
+table-pagination      3/3 ✓          8/8 ✓          10/10 ✓        5/5 ✓          —                43                  0                0                 1            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+total                 72/72          107/107        120/121        104/106        8/8              135                 23               0                 4            
 
 Not green (3):
   ✗ duplicate-keys · bad caught · rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY) — ran silently
@@ -35,30 +35,32 @@ Not green (3):
   ✗ ssr-divergence · bad caught · a `pure` JS call that answers differently on each side, read by the view (the declaration's assertion: reported when it runs) (dev: HYDRATION_MISMATCH|mismatch) — ran silently
     known: 10 SV-7c (ruled 2026-10-24), 08 CN-5: `pure` is the author's assertion at the JS boundary, the one unchecked word, and that the function answers alike on both machines is part of it. What only the browser knows is `client` JS, which is checked (SV-7b: the good program). Solid's development build adopts the server's text without comparing it, so nothing reports this mismatch, and the language adds no run-time comparison of its own.
 
-Declarations (words written by hand over rx-declare's draft; `any`s held):
-  effect-derived/page.d.rx: 0 words by hand, 0 `any`
-  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 7 words by hand, 0 `any`
-  formisch-field-array/rx-types/valibot.d.rx: 5 words by hand, 0 `any`
-  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 7 words by hand, 0 `any`
-  formisch-field-path/rx-types/valibot.d.rx: 5 words by hand, 0 `any`
-  frozen-read/label.d.rx: 2 words by hand, 0 `any`
-  kobalte-dialog/rx-types/@kobalte/core/dialog.d.rx: 18 words by hand, 0 `any`
-  kobalte-select/rx-types/@kobalte/core/select.d.rx: 1 word by hand, 15 `any`
-  listener-cleanup/keys.d.rx: 1 word by hand, 0 `any`
-  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: 4 words by hand, 2 `any`
-  primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: 3 words by hand, 0 `any`
-  primitives-virtual/virtual.d.rx: 1 word by hand, 0 `any`
-  query-forward/api.d.rx: 5 words by hand, 0 `any`
-  query-forward/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 0 `any`
-  query-mutation/api.d.rx: 4 words by hand, 0 `any`
-  query-mutation/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 0 `any`
-  router-data/people.d.rx: 4 words by hand, 0 `any`
-  router-data/rx-types/@solidjs/router.d.rx: 0 words by hand, 0 `any`
-  router-provider/people.d.rx: 7 words by hand, 0 `any`
-  router-provider/rx-types/@tanstack/solid-router.d.rx: 0 words by hand, 1 `any`
-  sequential-awaits/api.d.rx: 0 words by hand, 0 `any`
-  ssr-divergence/env.d.rx: 3 words by hand, 0 `any`
-  start-route/src/people.d.rx: 20 words by hand (rx-declare drafts nothing for it: the module has no types), 0 `any`
-  store-helper/array.d.rx: 3 words by hand, 0 `any`
-  store-updater/audit.d.rx: 0 words by hand, 0 `any`
-  table-pagination/table.d.rx: 44 words by hand, 6 `any`
+Declarations (words written by hand over rx-declare's draft; `any`s the library's own declaration has, and `any`s written where it has a type; parts said by place):
+  effect-derived/page.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  formisch-field-array/rx-types/valibot.d.rx: 9 words by hand, 11 `any` inherited, 0 introduced, 0 by place
+  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  formisch-field-path/rx-types/valibot.d.rx: 9 words by hand, 11 `any` inherited, 0 introduced, 0 by place
+  frozen-read/label.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  kobalte-dialog/rx-types/@kobalte/core/dialog.d.rx: 7 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  kobalte-select/rx-types/@kobalte/core/select.d.rx: 5 words by hand, 1 `any` inherited, 0 introduced, 2 by place
+  listener-cleanup/keys.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
+  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: 4 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  primitives-virtual/virtual.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
+  query-forward/api.d.rx: 5 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  query-forward/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  query-mutation/api.d.rx: 5 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  query-mutation/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-data/people.d.rx: 4 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-data/rx-types/@solidjs/router.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-provider/people.d.rx: 7 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-provider/rx-types/@tanstack/solid-router.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 1 by place
+  sequential-awaits/api.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  ssr-divergence/env.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  start-route/src/people.d.rx: 20 words by hand (rx-declare drafts nothing for it: the module has no types), 0 `any` inherited, 0 introduced, 0 by place
+  store-helper/array.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  store-updater/audit.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  table-pagination/table.d.rx: 43 words by hand, 0 `any` inherited, 0 introduced, 1 by place
+
+Introduced `any`s (09 MO-8q: none, or on bench/any-allowlist.json): none

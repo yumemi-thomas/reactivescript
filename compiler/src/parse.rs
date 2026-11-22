@@ -537,7 +537,9 @@ pub enum JsDecl {
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
     /// `tparams`: MO-8d, a generic component's type parameters (`component Select<Option>(…)`), TypeScript's text
-    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, outlet: bool, tparams: Option<String> },
+    /// `props_type`: MO-8o, the props are a type the library declares (`props: Kit.SelectProps<Option> & { … }`), and
+    /// `props` the fields of the record after `&`, the ones that carry words
+    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, outlet: bool, tparams: Option<String>, props_type: Option<String> },
     /// MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
     Context { name: String, line: usize },
     /// MO-8g: a value the module exports (`export const pageSearch: Schema`)
@@ -1427,6 +1429,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
     c.expect("(")?;
     c.ws(true);
     let mut props = vec![];
+    let mut props_type = None;
     if !c.starts_with(")") {
         if c.ident().as_deref() != Some("props") {
             return c.fail("a component's props: `(props: { … })`");
@@ -1434,8 +1437,15 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         c.ws(true);
         c.expect(":")?;
         c.ws(true);
-        c.expect("{")?;
+        // MO-8o: `props: import("kit").SelectProps<Option> & { onChange?: handler (v: Option) => void }`
+        if !c.starts_with("{") || !closes_props(c.src.as_bytes(), c.i) {
+            props_type = Some(props_type_of(c)?);
+        }
+        let record = c.eat("{");
         loop {
+            if !record {
+                break;
+            }
             c.ws(true);
             if c.eat("}") {
                 break;
@@ -1588,7 +1598,86 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         }
         break;
     }
-    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides, outlet, tparams })
+    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides, outlet, tparams, props_type })
+}
+/// MO-8o: a component's props as a type the library declares, `props: Kit.SelectProps<Option>`, with the fields that carry
+/// words in a record after it, `… & { onChange?: handler (v: Option) => void }`: the type's text, TypeScript's (the checker
+/// reads none of it), up to the `&` before a record that closes the props, or to the `)` that does. The cursor is left on
+/// that record's `{`, or on the `)`.
+fn skip_string_at(b: &[u8], mut j: usize) -> usize {
+    let q = b[j];
+    j += 1;
+    while j < b.len() && b[j] != q {
+        if b[j] == b'\\' {
+            j += 1;
+        }
+        j += 1;
+    }
+    j + 1
+}
+/// Whether the record that opens at `j` closes a component's props: its `}` is followed by the `)` of the parameter.
+fn closes_props(b: &[u8], j: usize) -> bool {
+    let (mut k, mut braces) = (j, 0i32);
+    while k < b.len() {
+        let x = b[k];
+        if x == b'"' || x == b'\'' || x == b'`' {
+            k = skip_string_at(b, k);
+            continue;
+        }
+        if x == b'{' {
+            braces += 1;
+        } else if x == b'}' {
+            braces -= 1;
+            if braces == 0 {
+                break;
+            }
+        }
+        k += 1;
+    }
+    let mut e = k + 1;
+    while e < b.len() && b[e].is_ascii_whitespace() {
+        e += 1;
+    }
+    e < b.len() && b[e] == b')'
+}
+fn props_type_of(c: &mut Cursor) -> R<String> {
+    let t0 = c.i;
+    let b = c.src.as_bytes();
+    let mut depth = 0i32;
+    while !c.eof() {
+        let ch = c.peek();
+        if ch == '"' || ch == '\'' || ch == '`' {
+            c.i = skip_string_at(b, c.i).min(c.src.len());
+            continue;
+        }
+        let mut end = None;
+        if depth == 0 && ch == ')' {
+            end = Some((c.i, c.i));
+        } else if depth == 0 && ch == '&' {
+            let mut j = c.i + 1;
+            while j < b.len() && b[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < b.len() && b[j] == b'{' && closes_props(b, j) {
+                end = Some((c.i, j));
+            }
+        }
+        if let Some((end, to)) = end {
+            let t = js_trim(&c.src[t0..end]).to_string();
+            if t.is_empty() {
+                return c.fail("a component's props: `(props: { … })`, or a type and the fields that carry words, `(props: Kit.Props & { … })`");
+            }
+            c.i = to;
+            return Ok(t);
+        }
+        if "([{<".contains(ch) {
+            depth += 1;
+        } else if ")]}".contains(ch) || (ch == '>' && c.i > 0 && b[c.i - 1] != b'=') {
+            depth -= 1;
+        }
+        c.bump();
+    }
+    c.fail("a component's props: the `)` that closes them")
 }
 /// MO-12: `(router, theme)` — contexts the same declaration file declares.
 fn context_names(c: &mut Cursor) -> R<Vec<String>> {
@@ -1993,8 +2082,46 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>, Vec<usiz
         let part_drafts = draft_parts(ret.as_deref());
         let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))))).collect();
         let ret = ret.map(|t| strip_handler(&strip_tracked(&strip_draft(&t))));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, joins, forwards, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts, methods, draft_args });
+        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, joins, forwards, held, cbs, opts, renders, renders_root, carries, sigs, carrier, under, drafts, part_drafts, methods, draft_args };
+        // MO-8p: a second row of one name is another signature of the same fn (an overload): TypeScript's, and the words are the first row's
+        if let Some(first) = out.iter().find(|d| matches!(d, JsDecl::Fn { .. }) && d.name() == row.name()) {
+            if let Some(w) = overload_differs(first, &row) {
+                return c.fail(&format!("fn {} is declared again with {}: the rows of one name are one fn's signatures, each with the same words — what differs between them is types alone (MO-8p)", row.name(), w));
+            }
+        }
+        out.push(row);
     }
+}
+/// MO-8p: what a later row of a fn's name says that its first row does not — the checker reads the first row, so every
+/// word must be the same: on the row, on each parameter both have, on the result; a parameter the first row has not
+/// carries none. None: the rows differ in types alone.
+fn overload_differs(a: &JsDecl, b: &JsDecl) -> Option<String> {
+    let (JsDecl::Fn { params: ap, .. }, JsDecl::Fn { params: bp, .. }) = (a, b) else { return None };
+    let at = |d: &JsDecl, i: usize| -> String {
+        let JsDecl::Fn { refs, sigs, cbs, draft_args, drafts, params, .. } = d else { return String::new() };
+        format!("{:?}", (refs.get(i).copied().unwrap_or(false), sigs.get(i).copied().unwrap_or(false), cbs.get(i).cloned().flatten(), draft_args.contains(&i), drafts.iter().filter(|x| x.0 == i).collect::<Vec<_>>(), params.get(i).is_some_and(|p| p.starts_with("..."))))
+    };
+    for (i, p) in bp.iter().enumerate() {
+        let plain = format!("{:?}", (false, false, None::<(bool, Vec<String>)>, false, Vec::<&(usize, Vec<usize>)>::new(), p.starts_with("...")));
+        if if i < ap.len() { at(a, i) != at(b, i) } else { at(b, i) != plain } {
+            return Some(format!("other words on its parameter {}", p.trim_start_matches("...")));
+        }
+    }
+    let row = |d: &JsDecl| -> String {
+        let JsDecl::Fn { pure, rejects, side, instantiates, uses, provides, nests, joins, forwards, renders, renders_root, carries, carrier, under, methods, .. } = d else { return String::new() };
+        format!("{:?}", (pure, rejects, side, instantiates, uses, provides, nests, joins, forwards, renders, (renders_root, carries, carrier, under, methods)))
+    };
+    if row(a) != row(b) {
+        return Some("other row words".into());
+    }
+    let res = |d: &JsDecl| -> String {
+        let JsDecl::Fn { shape, held, part_drafts, .. } = d else { return String::new() };
+        format!("{:?}", (shape, held, part_drafts))
+    };
+    if res(a) != res(b) {
+        return Some("a result of another shape".into());
+    }
+    None
 }
 /// A declaration line without its `// comment` (not a `//` inside a string literal type).
 /// `t` with every byte inside a string literal, or inside brackets (`()`, `[]`, `{}`, `<>`), replaced by `_`: the same
@@ -3936,6 +4063,55 @@ mod recovering {
         assert!(dts.contains("Row: <T extends { id: string }>(props: { row: T; }) => View;"), "{dts}");
         let (check, _) = crate::project::boundary_file(&decls, "./kit.js");
         assert!(check.contains("type __decl_Picker = <Option, G = never>(props: {"), "{check}");
+    }
+
+    /// MO-8o: `props: Kit.SelectProps<Option> & { … }` — the props are the type the library declares, TypeScript's
+    /// text, and the record after `&` its fields that carry words; a record alone is read as it was
+    #[test]
+    fn a_component_row_may_name_its_props_type() {
+        let src = "export type PickerProps<O> = { value?: O; options: O[]; onPick?: (v: O) => void; label?: string }\nexport component Picker<Option>(props: PickerProps<Option> & { onPick?: handler (v: Option) => void; item?: Component }) uses(kit)\nexport component Kit.Row(props: import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>)\nexport component Plain(props: { id: string })\nexport context kit\n";
+        let decls = parse_declarations(src).expect("parses");
+        let types: Vec<Option<&str>> = decls.iter().filter_map(|d| match d { JsDecl::Comp { props_type, .. } => Some(props_type.as_deref()), _ => None }).collect();
+        assert_eq!(types, [Some("PickerProps<Option>"), Some("import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>"), None]);
+        let JsDecl::Comp { props, uses, .. } = &decls[1] else { panic!("a component") };
+        assert_eq!(props.iter().map(|p| (p.name.as_str(), p.callback, p.component)).collect::<Vec<_>>(), [("onPick", true, false), ("item", false, true)]);
+        assert_eq!(uses, &["kit".to_string()]);
+        let JsDecl::Comp { props, .. } = &decls[2] else { panic!("a component") };
+        assert!(props.is_empty());
+        let dts = crate::project::declaration_file(&decls);
+        assert!(dts.contains("export declare function Picker<Option>(props: PickerProps<Option> & { onPick?: (v: Option) => void; item?: Component; }): View;"), "{dts}");
+        assert!(dts.contains("Row: (props: import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>) => View;"), "{dts}");
+        let (check, _) = crate::project::boundary_file(&decls, "./kit.js");
+        assert!(check.contains("type __decl_Picker = <Option>(props: PickerProps<Option> & NoInfer<{ onPick?: (v: Option) => void; item?: Component; }>) => any;"), "{check}");
+        assert!(parse_declarations("export component A(props: & { a: string })\n").is_err());
+        // a type that begins with a record is a type all the same: the record that closes the props is the last
+        let decls = parse_declarations("export component B(props: { id: string } & Extra & { onPick?: handler () => void })\nexport component C(props: { id: string } & Extra)\n").expect("parses");
+        let got: Vec<(Option<&str>, usize)> = decls.iter().map(|d| match d { JsDecl::Comp { props_type, props, .. } => (props_type.as_deref(), props.len()), _ => (None, 0) }).collect();
+        assert_eq!(got, [(Some("{ id: string } & Extra"), 1), (Some("{ id: string } & Extra"), 0)]);
+    }
+
+    /// MO-8p: several rows of one name are one fn's signatures; the words are the same on each, and TypeScript holds
+    /// each against the module
+    #[test]
+    fn a_fn_may_have_several_rows() {
+        let src = "export pure fn on(ref target: Window, type_: string, handler: handler (e: Event) => void): () => void\nexport pure fn on(ref target: Document, type_: string, handler: handler (e: Event) => void, options?: boolean): () => void\nexport fn other(): void\n";
+        let decls = parse_declarations(src).expect("parses");
+        assert_eq!(decls.iter().map(|d| d.name()).collect::<Vec<_>>(), ["on", "on", "other"]);
+        let dts = crate::project::declaration_file(&decls);
+        assert_eq!(dts.matches("export declare function on(").count(), 2, "{dts}");
+        let (check, checks) = crate::project::boundary_file(&decls, "./kit.js");
+        assert!(check.contains("const __check_on: __decl_on = __real.on;") && check.contains("const __check_on$$1: __decl_on$$1 = __real.on;"), "{check}");
+        assert_eq!(checks.iter().map(|c| c.1).collect::<Vec<_>>(), [1, 2, 3]);
+        for bad in [
+            "export pure fn on(ref a: number): void\nexport pure fn on(a: string): void\n",                 // `ref` on one row only
+            "export pure fn on(a: number): void\nexport fn on(a: string): void\n",                         // `pure` on one row only
+            "export fn on(a: number): void\nexport fn on(a: string, ref b: number): void\n",                // a word on a parameter the first row has not
+            "export fn on(a: number): void\nexport fn on(a: string): ref number\n",                         // a result of another shape
+            "export fn on(f: handler (e: Event) => void): void\nexport fn on(f: (e: Event) => void): void\n", // `handler` on one row only
+        ] {
+            let e = parse_declarations(bad).expect_err(bad);
+            assert!(e.0.contains("MO-8p"), "{}", e.0);
+        }
     }
 
     #[test]

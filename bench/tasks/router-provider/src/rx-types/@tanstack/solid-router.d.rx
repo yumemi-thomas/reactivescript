@@ -4,10 +4,12 @@
 // (MO-11p). Its hooks read the router's context. The types are the package's own.
 export context router
 export type AnyRouter = import("@tanstack/solid-router").AnyRouter
+export type RegisteredRouter<TRegister = Register> = import("@tanstack/solid-router").RegisteredRouter<TRegister>
+export type Register = import("@tanstack/solid-router").Register
 export pure fn createRootRoute(options: { component?: Component }): import("@tanstack/solid-router").AnyRoute renders(later) methods(addChildren)
 export pure fn createRoute(options: { getParentRoute: () => import("@tanstack/solid-router").AnyRoute; path: string; component?: Component }): import("@tanstack/solid-router").AnyRoute renders(later) methods(addChildren) nests(component under getParentRoute)
 export pure fn createRouter(options: { routeTree: import("@tanstack/solid-router").AnyRoute }): import("@tanstack/solid-router").AnyRouter instantiates
 export component RouterProvider(props: { router: renders import("@tanstack/solid-router").AnyRouter }) provides(router)
 export component Outlet(props: {}) uses(router) outlet
 export component Link(props: { to: string; params?: Parameters<typeof import("@tanstack/solid-router").Link>[0]["params"]; children?: View }) uses(router)
-export pure fn useParams(opts: { from: string }): ref any uses(router)
+export pure fn useParams<TRouter extends AnyRouter = RegisteredRouter, const TFrom extends string | undefined = undefined, TStrict extends boolean = true, TThrow extends boolean = true, TSelected = unknown>(opts: import("@tanstack/router-core").StrictOrFrom<TRouter, TFrom, TStrict> & { select?: (params: import("@tanstack/router-core").ResolveUseParams<TRouter, TFrom, TStrict>) => TSelected; shouldThrow?: import("@tanstack/router-core").ThrowConstraint<TStrict, TThrow> }): ref import("@tanstack/router-core").ThrowOrOptional<import("@tanstack/router-core").UseParamsResult<TRouter, TFrom, TStrict, TSelected>, TThrow> uses(router)

@@ -1,0 +1,4 @@
+{
+  "//": "09 MO-8q: every `any` a task's .d.rx writes where the library's own declaration has a type. Each entry: the task, the file, the export, how many, a one-line reason, and what blocks naming the type. bench --check fails on an introduced `any` that is not here, on more than `count`, and on an entry that no longer holds one.",
+  "allow": []
+}

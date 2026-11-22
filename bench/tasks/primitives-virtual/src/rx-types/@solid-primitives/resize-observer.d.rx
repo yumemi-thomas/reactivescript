@@ -1,4 +1,4 @@
 //@ for @solid-primitives/resize-observer ^4.0.0
 // As rx-declare drafts it. By hand: the callback is called later (`handler`), and the observer is made once where it
 // is written (`pure … instantiates`): its own cleanup is the component's.
-export pure fn makeResizeObserver<T extends Element>(callback: handler (...args: Parameters<Parameters<typeof import("@solid-primitives/resize-observer").makeResizeObserver>[0]>) => ReturnType<Parameters<typeof import("@solid-primitives/resize-observer").makeResizeObserver>[0]>, options?: ResizeObserverOptions): { observe: (ref_: T) => void; unobserve: (ref_: T) => void } instantiates
+export pure fn makeResizeObserver<T extends Element>(callback: handler (entries: (ResizeObserverEntry & { readonly target: T })[], observer: ResizeObserver) => void, options?: ResizeObserverOptions): { observe: (ref_: T) => void; unobserve: (ref_: T) => void } instantiates

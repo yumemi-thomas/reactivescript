@@ -1,10 +1,10 @@
 // The table adapter in rows. A table renders the components its columns are given, in the view that calls flexRender
 // on them: where the table is bound (MO-11l).
-export type CellContext<TData, TValue> = import("./table.js").CellContext<TData, TValue>
-export type Table<TData> = import("./table.js").Table<TData>
-export pure fn getCoreRowModel<TData>(): any
-export pure fn getPaginationRowModel<TData>(opts?: { initialSync: boolean; }): any
+export type CellContext<TData extends import("@tanstack/table-core").RowData, TValue> = import("./table.js").CellContext<TData, TValue>
+export type Table<TData extends import("@tanstack/table-core").RowData> = import("./table.js").Table<TData>
+export pure fn getCoreRowModel<TData extends import("@tanstack/table-core").RowData>(): ((table: Table<TData>) => () => import("@tanstack/table-core").RowModel<TData>)
+export pure fn getPaginationRowModel<TData extends import("@tanstack/table-core").RowData>(opts?: { initialSync: boolean; }): ((table: Table<TData>) => () => import("@tanstack/table-core").RowModel<TData>)
 // The result's type is what the app reads of the table (MO-10k): what is a primitive there — a page count, a row's id —
 // leaves the view it is rendered in; the rest is the table's.
-export pure fn createTable<T>(ref options: Omit<import("@tanstack/table-core").TableOptions<T>, "state" | "onStateChange" | "renderFallbackValue">): { getHeaderGroups: () => { headers: { column: { columnDef: { header?: any } }; getContext: () => any }[] }[]; getRowModel: () => { rows: { id: string; getVisibleCells: () => { column: { columnDef: { cell?: any } }; getContext: () => any }[] }[] }; getState: () => { pagination: { pageIndex: number; pageSize: number } }; getPageCount: () => number; getCanNextPage: () => boolean; getCanPreviousPage: () => boolean; nextPage: () => void; previousPage: () => void; setPageIndex: (index: number) => void } renders
+export pure fn createTable<T>(ref options: Omit<import("@tanstack/table-core").TableOptions<T>, "state" | "onStateChange" | "renderFallbackValue">): { getHeaderGroups: () => import("@tanstack/table-core").HeaderGroup<T>[]; getRowModel: () => { rows: { id: string; getVisibleCells: () => import("@tanstack/table-core").Cell<T, unknown>[] }[] }; getState: () => { pagination: { pageIndex: number; pageSize: number } }; getPageCount: () => number; getCanNextPage: () => boolean; getCanPreviousPage: () => boolean; nextPage: () => void; previousPage: () => void; setPageIndex: (index: number) => void } renders
 export pure fn flexRender<P>(comp: Parameters<typeof import("./table.js").flexRender>[0], props: P): View

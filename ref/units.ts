@@ -280,4 +280,27 @@ export const units: [string, () => void][] = [
     deepStrictEqual(picker.props.map(p => p.name), ["value", "options", "onPick"]);
     deepStrictEqual(picker.uses, ["kit"]);
   }],
+  ["a_component_row_may_name_its_props_type", () => {   // MO-8o: `props: Kit.SelectProps<Option> & { … }` — the library's type, and the record of the fields that carry words
+    const decls = parseDeclarations("export type PickerProps<O> = { value?: O; options: O[]; onPick?: (v: O) => void; label?: string }\nexport component Picker<Option>(props: PickerProps<Option> & { onPick?: handler (v: Option) => void; item?: Component }) uses(kit)\nexport component Kit.Row(props: import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>)\nexport component Plain(props: { id: string })\nexport context kit\n");
+    const comps = decls.filter((d): d is Extract<typeof decls[number], { kind: "comp" }> => d.kind === "comp");
+    deepStrictEqual(comps.map(d => d.propsType), ["PickerProps<Option>", "import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>", undefined]);
+    deepStrictEqual(comps[0].props.map(p => [p.name, !!p.callback, p.component]), [["onPick", true, false], ["item", false, true]]);
+    deepStrictEqual(comps[0].uses, ["kit"]);
+    deepStrictEqual(comps[1].props, []);
+    let failed = false; try { parseDeclarations("export component A(props: & { a: string })\n"); } catch { failed = true; }
+    deepStrictEqual(failed, true);
+    const more = parseDeclarations("export component B(props: { id: string } & Extra & { onPick?: handler () => void })\nexport component C(props: { id: string } & Extra)\n") as typeof comps;
+    deepStrictEqual(more.map(d => [d.propsType, d.props.length]), [["{ id: string } & Extra", 1], ["{ id: string } & Extra", 0]]);
+  }],
+  ["a_fn_may_have_several_rows", () => {   // MO-8p: several rows of one name are one fn's signatures, with the same words on each
+    const decls = parseDeclarations("export pure fn on(ref target: Window, type_: string, handler: handler (e: Event) => void): () => void\nexport pure fn on(ref target: Document, type_: string, handler: handler (e: Event) => void, options?: boolean): () => void\nexport fn other(): void\n");
+    deepStrictEqual(decls.map(d => d.name), ["on", "on", "other"]);
+    for (const bad of [
+      "export pure fn on(ref a: number): void\nexport pure fn on(a: string): void\n",
+      "export pure fn on(a: number): void\nexport fn on(a: string): void\n",
+      "export fn on(a: number): void\nexport fn on(a: string, ref b: number): void\n",
+      "export fn on(a: number): void\nexport fn on(a: string): ref number\n",
+      "export fn on(f: handler (e: Event) => void): void\nexport fn on(f: (e: Event) => void): void\n",
+    ]) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual(/MO-8p/.test(msg), true, bad); }
+  }],
 ];

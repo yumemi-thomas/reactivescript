@@ -240,10 +240,7 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
         }
     }
     // MO-8d: a generic component's type parameters come before its props, as a generic function's do
-    let fn_of = |props: &[crate::parse::JsProp], tparams: &Option<String>| -> String {
-        let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
-        format!("{}(props: {{ {} }}) => View", tparams.as_deref().unwrap_or(""), fs.join(" "))
-    };
+    let fn_of = |props: &[crate::parse::JsProp], tparams: &Option<String>, props_type: &Option<String>| -> String { format!("{}(props: {}) => View", tparams.as_deref().unwrap_or(""), props_text(props, props_type, false)) };
     // MO-11q: `Dialog.Root` and its siblings are members of one exported object (itself a component when it is declared one)
     let mut members: IndexMap<String, Vec<&JsDecl>> = IndexMap::new();
     for d in decls {
@@ -257,7 +254,7 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
         let ms: Vec<String> = members[h]
             .iter()
             .map(|m| match m {
-                JsDecl::Comp { name, props, tparams, .. } => format!("{}: {};", &name[h.len() + 1..], fn_of(props, tparams)),
+                JsDecl::Comp { name, props, tparams, props_type, .. } => format!("{}: {};", &name[h.len() + 1..], fn_of(props, tparams, props_type)),
                 _ => unreachable!(),
             })
             .collect();
@@ -267,11 +264,8 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
     head.into_iter()
         .chain(objects)
         .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. }) && !matches!(d, JsDecl::Comp { name, .. } if name.contains('.'))).map(|d| match d {
-            JsDecl::Comp { name, props, tparams, .. } if members.contains_key(name) => format!("export declare const {name}: ({}) & {};", fn_of(props, tparams), object_of(name)),
-            JsDecl::Comp { name, props, tparams, .. } => {
-                let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
-                format!("export declare function {name}{}(props: {{ {} }}): View;", tparams.as_deref().unwrap_or(""), fs.join(" "))
-            }
+            JsDecl::Comp { name, props, tparams, props_type, .. } if members.contains_key(name) => format!("export declare const {name}: ({}) & {};", fn_of(props, tparams, props_type), object_of(name)),
+            JsDecl::Comp { name, props, tparams, props_type, .. } => format!("export declare function {name}{}(props: {}): View;", tparams.as_deref().unwrap_or(""), props_text(props, props_type, false)),
             JsDecl::Type { text, .. } => format!("export {text}"),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
             JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, opts, sigs, .. } => {
@@ -1272,6 +1266,20 @@ pub(crate) fn accessor_result(ret: Option<&String>, shape: &crate::parse::Shape)
         _ => r.clone(),
     }
 }
+/// A declared component's props as TypeScript reads them: the record of its fields, or (MO-8o) the type the library
+/// declares and, after `&`, the record of the fields that carry words.
+/// `held`: for the boundary check (TY-6), where the row's type parameters are found from the library's type alone
+/// (`NoInfer`): a field written again must not decide what `Option` is.
+fn props_text(props: &[crate::parse::JsProp], props_type: &Option<String>, held: bool) -> String {
+    let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
+    let rec = format!("{{ {} }}", fs.join(" "));
+    match props_type {
+        None => rec,
+        Some(t) if props.is_empty() => t.clone(),
+        Some(t) if held => format!("{} & NoInfer<{}>", t, rec),
+        Some(t) => format!("{} & {}", t, rec),
+    }
+}
 /// TY-6: the boundary check for a `.d.rx` — its rows as TypeScript types, and the real module's exports assigned to them.
 /// A `ref` parameter or result part is an accessor (`() => T`); a component is a function of its declared props; an error
 /// class a constructor of an `Error`. Rows TypeScript cannot see (`pure`, `uses`, `pending`, `fails`) are not checked here.
@@ -1308,15 +1316,17 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
                     .collect();
                 (name, *line, format!("{}({}) => {}", tparams.as_deref().unwrap_or(""), ps.join(", "), result(ret.as_ref(), shape)))
             }
-            JsDecl::Comp { name, line, props, tparams, .. } => {
-                let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
-                (name, *line, format!("{}(props: {{ {} }}) => any", tparams.as_deref().unwrap_or(""), fs.join(" ")))
-            }
+            JsDecl::Comp { name, line, props, tparams, props_type, .. } => (name, *line, format!("{}(props: {}) => any", tparams.as_deref().unwrap_or(""), props_text(props, props_type, true))),
             JsDecl::Error { name, line, .. } => (name, *line, "abstract new (...args: any[]) => Error".into()),
             JsDecl::Value { name, line, ty } => (name, *line, ty.clone().unwrap_or_else(|| "any".into())),
             JsDecl::Type { .. } | JsDecl::Context { .. } => continue,
         };
-        let key = name.replace('.', "$$"); // MO-11q: a member (`Dialog.Trigger`), read as a property of its object
+        let mut key = name.replace('.', "$$"); // MO-11q: a member (`Dialog.Trigger`), read as a property of its object
+        // MO-8p: a fn's further signatures are held one by one, as its first is
+        let nth = checks.iter().filter(|c: &&(usize, usize, String)| &c.2 == name).count();
+        if nth > 0 {
+            key = format!("{}$${}", key, nth);
+        }
         out.push(format!("type __decl_{} = {};", key, ty));
         out.push(format!("const __check_{}: __decl_{} = __real.{};", key, key, name));
         checks.push((out.len(), line, name.clone()));

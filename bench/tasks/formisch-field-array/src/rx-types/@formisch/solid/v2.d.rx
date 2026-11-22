@@ -4,10 +4,19 @@
 export type FormSchema = import("@formisch/solid/v2").FormSchema
 export type FormStore<TSchema extends FormSchema = FormSchema> = import("@formisch/solid/v2").FormStore<TSchema>
 export type FormConfig<TSchema extends FormSchema = FormSchema> = import("@formisch/solid/v2").FormConfig<TSchema>
-export component Field(props: { of: Parameters<typeof import("@formisch/solid/v2").Field>[0]["of"]; path: Parameters<typeof import("@formisch/solid/v2").Field>[0]["path"]; children: (store: Parameters<Parameters<typeof import("@formisch/solid/v2").Field>[0]["children"]>[0]) => View })
-export component FieldArray(props: { of: Parameters<typeof import("@formisch/solid/v2").FieldArray>[0]["of"]; path: Parameters<typeof import("@formisch/solid/v2").FieldArray>[0]["path"]; children: (store: Parameters<Parameters<typeof import("@formisch/solid/v2").FieldArray>[0]["children"]>[0]) => View })
-export component Form<TSchema extends FormSchema>(props: { of: FormStore<TSchema>; children: View; onSubmit: handler (output: import("valibot").InferOutput<TSchema>, event: SubmitEvent) => unknown })
+export type FieldArrayProps<TSchema extends FormSchema = FormSchema, TFieldArrayPath extends RequiredPath = RequiredPath> = import("@formisch/solid/v2").FieldArrayProps<TSchema, TFieldArrayPath>
+export type FieldArrayStore<TSchema extends FormSchema = FormSchema, TFieldArrayPath extends RequiredPath = RequiredPath> = import("@formisch/solid/v2").FieldArrayStore<TSchema, TFieldArrayPath>
+export type FieldProps<TSchema extends FormSchema = FormSchema, TFieldPath extends RequiredPath = RequiredPath> = import("@formisch/solid/v2").FieldProps<TSchema, TFieldPath>
+export type FieldStore<TSchema extends FormSchema = FormSchema, TFieldPath extends RequiredPath = RequiredPath> = import("@formisch/solid/v2").FieldStore<TSchema, TFieldPath>
+export type FormProps<TSchema extends FormSchema = FormSchema> = import("@formisch/solid/v2").FormProps<TSchema>
+export type InsertConfig<TSchema extends FormSchema, TFieldArrayPath extends RequiredPath> = import("@formisch/solid/v2").InsertConfig<TSchema, TFieldArrayPath>
+export type MoveConfig<TSchema extends FormSchema, TFieldArrayPath extends RequiredPath> = import("@formisch/solid/v2").MoveConfig<TSchema, TFieldArrayPath>
+export type RemoveConfig<TSchema extends FormSchema, TFieldArrayPath extends RequiredPath> = import("@formisch/solid/v2").RemoveConfig<TSchema, TFieldArrayPath>
+export type RequiredPath = import("@formisch/solid/v2").RequiredPath
+export component Field<TSchema extends FormSchema, TFieldPath extends RequiredPath>(props: FieldProps<TSchema, TFieldPath> & { children: (store: FieldStore<TSchema, TFieldPath>) => View })
+export component FieldArray<TSchema extends FormSchema, TFieldArrayPath extends RequiredPath>(props: FieldArrayProps<TSchema, TFieldArrayPath> & { children: (store: FieldArrayStore<TSchema, TFieldArrayPath>) => View })
+export component Form<TSchema extends FormSchema>(props: FormProps<TSchema> & { onSubmit: handler (output: import("valibot").InferOutput<TSchema>, event: SubmitEvent) => unknown })
 export pure fn createForm<TSchema extends FormSchema>(config: FormConfig<TSchema>): FormStore<TSchema> instantiates
-export fn insert(form: Parameters<typeof import("@formisch/solid/v2").insert>[0], config: Parameters<typeof import("@formisch/solid/v2").insert>[1]): void
-export fn move(form: Parameters<typeof import("@formisch/solid/v2").move>[0], config: Parameters<typeof import("@formisch/solid/v2").move>[1]): void
-export fn remove(form: Parameters<typeof import("@formisch/solid/v2").remove>[0], config: Parameters<typeof import("@formisch/solid/v2").remove>[1]): void
+export fn insert<TSchema extends FormSchema, TFieldArrayPath extends RequiredPath>(form: import("@formisch/solid/v2/internals").BaseFormStore<TSchema>, config: InsertConfig<TSchema, TFieldArrayPath>): void
+export fn move<TSchema extends FormSchema, TFieldArrayPath extends RequiredPath>(form: import("@formisch/solid/v2/internals").BaseFormStore<TSchema>, config: MoveConfig<TSchema, TFieldArrayPath>): void
+export fn remove<TSchema extends FormSchema, TFieldArrayPath extends RequiredPath>(form: import("@formisch/solid/v2/internals").BaseFormStore<TSchema>, config: RemoveConfig<TSchema, TFieldArrayPath>): void

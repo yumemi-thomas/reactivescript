@@ -27,7 +27,10 @@
     },
     "decl": {
       "words": 0,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "duplicate-keys": {
@@ -60,7 +63,10 @@
     },
     "decl": {
       "words": 0,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "effect-derived": {
@@ -91,7 +97,10 @@
     },
     "decl": {
       "words": 0,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "formisch-field-array": {
@@ -121,8 +130,11 @@
       "fails": []
     },
     "decl": {
-      "words": 12,
-      "any": 0
+      "words": 11,
+      "any": 11,
+      "inherited": 11,
+      "introduced": 0,
+      "places": 0
     }
   },
   "formisch-field-path": {
@@ -152,8 +164,11 @@
       "fails": []
     },
     "decl": {
-      "words": 12,
-      "any": 0
+      "words": 11,
+      "any": 11,
+      "inherited": 11,
+      "introduced": 0,
+      "places": 0
     }
   },
   "frozen-read": {
@@ -184,7 +199,10 @@
     },
     "decl": {
       "words": 2,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "keyed-edits": {
@@ -215,7 +233,10 @@
     },
     "decl": {
       "words": 0,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "kobalte-dialog": {
@@ -245,8 +266,11 @@
       "fails": []
     },
     "decl": {
-      "words": 18,
-      "any": 0
+      "words": 7,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "kobalte-select": {
@@ -278,8 +302,11 @@
       "fails": []
     },
     "decl": {
-      "words": 1,
-      "any": 15
+      "words": 5,
+      "any": 1,
+      "inherited": 1,
+      "introduced": 0,
+      "places": 2
     }
   },
   "listener-cleanup": {
@@ -310,7 +337,10 @@
     },
     "decl": {
       "words": 1,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "optimistic-todo": {
@@ -341,7 +371,10 @@
     },
     "decl": {
       "words": 0,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "primitives-virtual": {
@@ -372,7 +405,10 @@
     },
     "decl": {
       "words": 8,
-      "any": 2
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "projection-selection": {
@@ -403,7 +439,10 @@
     },
     "decl": {
       "words": 0,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "query-forward": {
@@ -434,7 +473,10 @@
     },
     "decl": {
       "words": 5,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "query-mutation": {
@@ -464,8 +506,11 @@
       "fails": []
     },
     "decl": {
-      "words": 4,
-      "any": 0
+      "words": 5,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "router-data": {
@@ -496,7 +541,10 @@
     },
     "decl": {
       "words": 4,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "router-provider": {
@@ -527,7 +575,10 @@
     },
     "decl": {
       "words": 7,
-      "any": 1
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 1
     }
   },
   "sequential-awaits": {
@@ -558,7 +609,10 @@
     },
     "decl": {
       "words": 0,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "source-mutation": {
@@ -589,7 +643,10 @@
     },
     "decl": {
       "words": 0,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "ssr-divergence": {
@@ -622,7 +679,10 @@
     },
     "decl": {
       "words": 3,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "start-route": {
@@ -653,7 +713,10 @@
     },
     "decl": {
       "words": 20,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "store-helper": {
@@ -684,7 +747,10 @@
     },
     "decl": {
       "words": 3,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "store-updater": {
@@ -715,7 +781,10 @@
     },
     "decl": {
       "words": 0,
-      "any": 0
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0
     }
   },
   "table-pagination": {
@@ -745,8 +814,11 @@
       "fails": []
     },
     "decl": {
-      "words": 44,
-      "any": 6
+      "words": 43,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 1
     }
   }
 }

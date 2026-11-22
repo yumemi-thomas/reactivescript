@@ -25,8 +25,9 @@ module.exports = {
       RouterProvider: "export component RouterProvider(props: { router: renders import(\"@tanstack/solid-router\").AnyRouter }) provides(router)",
       Outlet: "export component Outlet(props: {}) uses(router) outlet",
       Link: "export component Link(props: { to: string; params?: Parameters<typeof import(\"@tanstack/solid-router\").Link>[0][\"params\"]; children?: View }) uses(router)",
-      useParams: "export pure fn useParams(opts: { from: string }): ref any uses(router)",
     },
+    // its hooks read the router's context; their types are the library's, as drafted
+    words: { useParams: { pure: true, after: "uses(router)" } },
   },
   "@solidjs/router": {
     range: ">=2.0.0 <3.0.0",

@@ -225,31 +225,51 @@ function declares(dir, file) {
   return { spec: `./${path.basename(stem)}${js ?? ".js"}`, from: path.dirname(file) };
 }
 /** What `rx-declare` drafts for a module (its lines, comments dropped), with the flags the task says its draft was made
- *  with (`--run`, `--dom`: 09 MO-12, what running the package shows); [] when the module has no types to draft from. */
+ *  with (`--run`, `--dom`: 09 MO-12, what running the package shows); [] when the module has no types to draft from.
+ *  `draftOf.inherited`: per export, the `any`s of the draft that are the library's own (09 MO-8q). */
 export function draftOf(spec, from, flags = []) {
-  const r = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/declare.js"), spec, ...flags], { cwd: from, encoding: "utf8", maxBuffer: 1 << 26 });
-  return r.status === 0 ? code(r.stdout).map(l => l.trim()).filter(Boolean) : [];
+  const at = path.join(ws, `.causes-${process.pid}.json`); rmSync(at, { force: true });
+  const r = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/declare.js"), spec, "--causes", at, ...flags], { cwd: from, encoding: "utf8", maxBuffer: 1 << 26 });
+  const inherited = new Map();
+  try { for (const c of JSON.parse(readFileSync(at, "utf8")).causes) if (c.cause === "vendor-any" && c.name) inherited.set(c.name, (inherited.get(c.name) ?? 0) + 1); } catch { /* no draft */ }
+  rmSync(at, { force: true });
+  const lines = r.status === 0 ? code(r.stdout).map(l => l.trim()).filter(Boolean) : [];
+  lines.inherited = inherited;
+  return lines;
 }
+const PLACE = new Set(["Parameters", "ReturnType", "ConstructorParameters", "InstanceType"]);
 /** A task's declarations, measured against the tool that drafts them: for each `.d.rx` of the task, the words a person
  *  wrote on top of `rx-declare`'s draft of the same module (a row the draft has, word for word, costs nothing; a row it
  *  has otherwise costs the words that differ; a row it has not costs every word; a row left out costs nothing), and the
- *  `any`s the file holds — what the checker is told nothing about. `{ words, any, files: [{ file, words, any, drafted }] }`. */
+ *  `any`s the file holds — what the checker is told nothing about — in two numbers (09 MO-8q): `inherited`, the ones the
+ *  library's own declaration has at that place (as many, for an export, as the draft of the same export writes for the
+ *  library's own), and `introduced`, every other: an `any` where the library has a type. `places`: the parts said by
+ *  their place in the library's declaration (`Parameters<typeof import(…)>`), counted apart — not a way around the rule.
+ *  `{ words, any, inherited, introduced, places, files: [{ file, words, any, inherited, introduced, places, drafted, rows }] }`. */
 export function declarations(dir, flagsFor = {}) {
   const files = [];
   for (const p of own(dir, n => n.endsWith(".d.rx"))) {
     const { spec, from } = declares(dir, p);
     const draft = draftOf(spec, from, flagsFor[spec] ?? []);
     const whole = new Set(draft), byName = new Map(draft.map(l => [exported(l), l]).filter(([n]) => n));
-    let words = 0, any = 0;
+    // a fn with several rows (09 MO-8p): each is measured against the draft's row for the same name it is nearest to
+    const allByName = new Map(); for (const l of draft) { const n = exported(l); if (n) allByName.set(n, [...(allByName.get(n) ?? []), l]); }
+    let words = 0, places = 0; const anyBy = new Map();
     for (const line of code(readFileSync(p, "utf8")).map(l => l.trim()).filter(Boolean)) {
-      any += tokens(line).filter(t => t === "any").length;
+      const k = tokens(line).filter(t => t === "any").length;
+      if (k) anyBy.set(exported(line) ?? line, (anyBy.get(exported(line) ?? line) ?? 0) + k);
+      places += tokens(line).filter(t => PLACE.has(t)).length;
       if (whole.has(line)) continue;
-      const was = byName.get(exported(line));
-      words += was ? written(line, was) : tokens(line).filter(isWord).length;
+      const was = allByName.get(exported(line));
+      words += was ? Math.min(...was.map(w => written(line, w))) : tokens(line).filter(isWord).length;
     }
-    files.push({ file: path.relative(dir, p), words, any, drafted: draft.length > 0 });
+    let any = 0, inherited = 0; const rows = [];
+    for (const [n, k] of anyBy) { any += k; const h = Math.min(k, draft.inherited.get(n) ?? 0); inherited += h; if (k > h) rows.push({ name: n, introduced: k - h }); }
+    void byName;
+    files.push({ file: path.relative(dir, p), words, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows });
   }
-  return { words: files.reduce((n, f) => n + f.words, 0), any: files.reduce((n, f) => n + f.any, 0), files };
+  const sum = k => files.reduce((n, f) => n + f[k], 0);
+  return { words: sum("words"), any: sum("any"), inherited: sum("inherited"), introduced: sum("introduced"), places: sum("places"), files };
 }
 
 /** rx-tsc's errors that are on the lines an edit wrote: `file(line,col): error …` rows whose file is the edited one and

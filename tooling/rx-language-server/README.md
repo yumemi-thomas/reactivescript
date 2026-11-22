@@ -59,7 +59,7 @@ TypeScript's errors are reported.
 
 ## Drafting a declaration
 
-`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--explain] [--any] [--source [checkout]]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
+`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--explain] [--causes file.json] [--any] [--source [checkout]]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
 types, resolved from the current directory as an import there would be. A package's declaration goes in the project's
 `rx-types/` folder, named by the import (spec/09 MO-8k); the import in `.rx` stays as written:
 
@@ -90,6 +90,15 @@ written (`src/declare-check.js`: the crate's TY-6 boundary check on the draft's 
 hold falls back to the row with `any`s, so the draft passes `rx-tsc` as it stands. `--explain` prints, on stderr, how
 many `any`s are left and why (`overload`, `generic`, `generic-computed`, `internal-type`, `vendor-any`, …) and each
 row that fell back with TypeScript's reason; `--any` drafts as before, every unnamed type `any`.
+
+The types are written from the library's own declaration (spec/09 MO-8o): each parameter's, result's and prop's
+annotation, with every name rewritten to a module the app can import it from — the module itself, a subpath its
+package exports (`@formisch/solid/v2/internals`), a package it depends on — under the name it has there. A component's
+props are its props type and, after `&`, the fields the checker reads (`props: SelectRootProps<Option> & { onChange?:
+(…) => void; itemComponent?: Component }`); a fn with several signatures has a row for each where they say the same
+words (MO-8p); a result the library names keeps that name unless its parts say something the checker reads. An `any`
+is written only where the library's own type has one (MO-8q): `--explain` counts the library's (`vendor-any`) and the
+draft's apart, with the parts said by place, and `--causes <file>` writes them by row as JSON (what `bench/` counts).
 
 `--source [<checkout>]` adds what the library's own TypeScript source shows of the words types cannot
 (`src/declare-source.js`, spec/09 MO-8n). The source is the folder you name (a checkout of the package's repository:

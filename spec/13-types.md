@@ -168,6 +168,10 @@ does for `.tsrx`. Nothing here is a second type system.
   does not take, a prop type the real component does not accept, or a
   result the real function does not give is `DECLARATION_MISMATCH`, on the
   declaration's line, with TypeScript's reason.
+  A component whose props are written as a type and a record of the
+  fields that carry words (09 MO-8o) is a function of their intersection,
+  its type parameters found from the type alone (`props: P &
+  NoInfer<{ … }>`); a fn with several rows (09 MO-8p) is held to each.
 - **TY-6b.** The direction is the boundary's: the real export must fit the
   declared one, so `.rx` code checked against the declaration is right
   about the module. A declaration may say less than the types (`any`, an

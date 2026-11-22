@@ -141,7 +141,7 @@ export type JsDecl =
   | { kind: "fn"; name: string; pure: boolean; params: string[]; draftArgs?: number[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; forwards?: boolean; joins?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string }; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; methods?: string[] }   // methods: E-10 (RFC 14, bounded)   // drafts, partDrafts: MO-10i   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
   | { kind: "error"; name: string; line: number; fields?: string[] }   // fields: SV-5a, what of an instance is sent (`export error HttpError(status, code?)`; `code?`: it may be absent)
   | { kind: "type"; name: string; line: number; text?: string }
-  | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean; tparams?: string }   // tparams: MO-8d, a generic component's (`component Select<Option>(…)`)   // outlet: MO-11p   // MO-11a: a Solid component
+  | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean; tparams?: string; propsType?: string }   // propsType: MO-8o, the props are a type the library declares, and the record after `&` its fields that carry words   // tparams: MO-8d, a generic component's (`component Select<Option>(…)`)   // outlet: MO-11p   // MO-11a: a Solid component
   | { kind: "context"; name: string; line: number }
   | { kind: "value"; name: string; line: number; type?: string };   // MO-8g: a value the module exports (`export const pageSearch: Schema`)   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
@@ -218,7 +218,11 @@ export function parseDeclarations(src: string): JsDecl[] {
     for (const t of [...ptypes, ret]) if (t && HANDLER_MISPLACED.test(t)) c.fail(`\`handler\` on fn ${name}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`);
     const cbs = callbacks(ptypes);   // MO-10g: before the word is taken out — only a function type marked `handler` is a callback
     for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripHandler(stripTracked(stripDraft(ptypes[i]))); ret = stripHandler(stripTracked(stripDraft(ret)));
-    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(draftArgs.length ? { draftArgs } : {}), ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(joins ? { joins } : {}), ...(forwards ? { forwards } : {}), ...(held ? { held } : {}), ...(cbs ? { cbs } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}), ...(methods.length ? { methods } : {}) });
+    const row: Extract<JsDecl, { kind: "fn" }> = { kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(draftArgs.length ? { draftArgs } : {}), ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(joins ? { joins } : {}), ...(forwards ? { forwards } : {}), ...(held ? { held } : {}), ...(cbs ? { cbs } : {}), ...(opts.some(Boolean) ? { opts } : {}), ...(renders ? { renders } : {}), ...(rendersRoot ? { rendersRoot } : {}), ...(carries.length ? { carries } : {}), ...(sigs.some(Boolean) ? { sigs } : {}), ...(carrier ? { carrier } : {}), ...(under ? { under } : {}), ...(methods.length ? { methods } : {}) };
+    // MO-8p: a second row of one name is another signature of the same fn (an overload): TypeScript's, and the words are the first row's
+    const first = out.find((d): d is Extract<JsDecl, { kind: "fn" }> => d.kind === "fn" && d.name === name);
+    if (first) { const w = overloadDiffers(first, row); if (w) c.fail(`fn ${name} is declared again with ${w}: the rows of one name are one fn's signatures, each with the same words — what differs between them is types alone (MO-8p)`); }
+    out.push(row);
   }
 }
 /** `t` with every character inside a string literal, or inside brackets (`()`, `[]`, `{}`, `<>`), replaced by `_`: the
@@ -339,15 +343,32 @@ const HANDLER_MISPLACED = /\bhandler\s+(?!\()/;
 const stripHandler = (t: string | undefined) => t?.replace(/\bhandler\s+(?=\()/g, "");
 const stripDraft = (t: string | undefined) => t?.replace(/\bdraft\s+(?=[A-Za-z_$][\w$]*\s*[?:,)])/g, "");
 
+/** MO-8p: what a later row of a fn's name says that its first row does not — the checker reads the first row, so every
+ *  word must be the same: on the row, on each parameter both have, on the result; a parameter the first row has not
+ *  carries none. undefined: the rows differ in types alone. */
+function overloadDiffers(a: Extract<JsDecl, { kind: "fn" }>, b: Extract<JsDecl, { kind: "fn" }>): string | undefined {
+  const n = a.params.length;
+  const at = (d: typeof a, i: number) => JSON.stringify([!!d.refs?.[i], !!d.sigs?.[i], d.cbs?.[i] ?? null, !!d.draftArgs?.includes(i), (d.drafts ?? []).filter(x => x[0] === i), d.params[i]?.startsWith("...") ?? false]);
+  for (let i = 0; i < b.params.length; i++) {
+    if (i < n ? at(a, i) !== at(b, i) : at(b, i) !== JSON.stringify([false, false, null, false, [], b.params[i].startsWith("...")])) return `other words on its parameter ${b.params[i].replace(/^\.\.\./, "")}`;
+  }
+  const row = (d: typeof a) => JSON.stringify([d.pure, d.rejects ?? null, d.side ?? null, !!d.instantiates, d.uses ?? [], d.provides ?? [], d.nests ?? null, d.joins ?? null, !!d.forwards, !!d.renders, !!d.rendersRoot, d.carries ?? [], !!d.carrier, d.under ?? null, d.methods ?? []]);
+  if (row(a) !== row(b)) return "other row words";
+  const res = (d: typeof a) => JSON.stringify([d.shape ?? (d.ret === undefined ? "value" : shapeOf(d.ret)), d.held ?? [], d.partDrafts ?? null]);
+  if (res(a) !== res(b)) return "a result of another shape";
+  return undefined;
+}
 /** MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`. */
 function parseJsComponent(c: Cursor, line: number): JsDecl {
   c.ws(); let name = c.ident() ?? c.fail("component name");
   while (c.peek() === ".") { c.i++; name += "." + (c.ident() ?? c.fail("a member component's name: `component Dialog.Root(…)`")); }   // MO-11q
   c.ws(); const tparams = typeParams(c);   // MO-8d: `component Select<Option, G = never>(…)`, TypeScript's, for TY
   c.ws(); c.expect("("); c.ws();
-  const props: JsProp[] = [];
+  const props: JsProp[] = []; let propsType: string | undefined;
   if (!c.startsWith(")")) {
-    if (c.ident() !== "props") c.fail("a component's props: `(props: { … })`"); c.ws(); c.expect(":"); c.ws(); c.expect("{");
+    if (c.ident() !== "props") c.fail("a component's props: `(props: { … })`"); c.ws(); c.expect(":"); c.ws();
+    if (!c.startsWith("{") || !closesProps(c.src, c.i)) propsType = propsTypeOf(c);   // MO-8o: `props: import("kit").SelectProps<Option> & { onChange?: handler (v: Option) => void }`
+    if (c.startsWith("{")) { c.expect("{");
     for (;;) {
       c.ws(); if (c.eat("}")) break;
       const fname = c.ident() ?? c.fail("a prop name"); c.ws(false); const optional = c.eat("?"); c.ws(false);
@@ -368,7 +389,7 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
       let handler = false; if (type && /^handler\s+/.test(type)) { handler = true; type = type.replace(/^handler\s+/, "") || undefined; if (!type || partOf(type) !== "fn") c.fail(`\`handler\` on prop ${fname}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`); }
       props.push({ name: fname, optional, ...(carried ? { carried } : {}), ...(type ? { type } : {}), ...(catches ? { catches } : {}), component: !!type && isComponentType(type), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && handler && !tracked && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : type && !isComponentType(type) && partOf(type) === "fn" ? { pure: true } : {}) });   // pure: MO-10g, a function type without `handler`: the declaration decides, whatever the prop's name
       c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
-    }
+    } }
     c.ws();
   }
   c.expect(")");
@@ -383,7 +404,36 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
     if (c.keyword("shape")) { c.ws(false); c.expect("("); const t0 = c.i; while (!c.eof() && c.peek() !== ")") c.i++; const t = c.src.slice(t0, c.i); c.expect(")"); try { content = contentShapeOf(t); } catch (e) { c.fail((e as Error).message); } continue; }
     break;
   }
-  return { kind: "comp", name, line, props, fails, ...(content ? { content } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(outlet ? { outlet } : {}), ...(tparams ? { tparams } : {}) };
+  return { kind: "comp", name, line, props, fails, ...(content ? { content } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(outlet ? { outlet } : {}), ...(tparams ? { tparams } : {}), ...(propsType ? { propsType } : {}) };
+}
+/** MO-8o: a component's props as a type the library declares, `props: Kit.SelectProps<Option>`, with the fields that carry
+ *  words in a record after it, `… & { onChange?: handler (v: Option) => void }`: the type's text, TypeScript's (the checker
+ *  reads none of it), up to the `&` before a record that closes the props, or to the `)` that does. The cursor is left on
+ *  that record's `{`, or on the `)`. */
+const skipStringAt = (src: string, j: number) => { const q = src[j]; j++; while (j < src.length && src[j] !== q) { if (src[j] === "\\") j++; j++; } return j + 1; };
+/** Whether the record that opens at `j` closes a component's props: its `}` is followed by the `)` of the parameter. */
+function closesProps(src: string, j: number): boolean {
+  let k = j, braces = 0;
+  for (; k < src.length; k++) { const x = src[k]; if (x === '"' || x === "'" || x === "`") { k = skipStringAt(src, k) - 1; continue; } if (x === "{") braces++; else if (x === "}" && --braces === 0) break; }
+  let e = k + 1; while (/\s/.test(src[e] ?? "")) e++;
+  return src[e] === ")";
+}
+function propsTypeOf(c: Cursor): string {
+  const t0 = c.i; let depth = 0;
+  const skipString = (j: number) => skipStringAt(c.src, j);
+  const done = (end: number) => { const t = c.src.slice(t0, end).trim(); if (!t) c.fail("a component's props: `(props: { … })`, or a type and the fields that carry words, `(props: Kit.Props & { … })`"); return t; };
+  while (!c.eof()) {
+    const ch = c.peek();
+    if (ch === '"' || ch === "'" || ch === "`") { c.i = skipString(c.i); continue; }
+    if (depth === 0 && ch === ")") return done(c.i);
+    if (depth === 0 && ch === "&") {
+      let j = c.i + 1; while (/\s/.test(c.src[j] ?? "")) j++;
+      if (c.src[j] === "{" && closesProps(c.src, j)) { const t = done(c.i); c.i = j; return t; }
+    }
+    if ("([{<".includes(ch)) depth++; else if (")]}".includes(ch) || (ch === ">" && c.src[c.i - 1] !== "=")) depth--;
+    c.i++;
+  }
+  return c.fail("a component's props: the `)` that closes them");
 }
 /** MO-12: `(router, theme)` — contexts the same declaration file declares. */
 function contextNames(c: Cursor): string[] {
