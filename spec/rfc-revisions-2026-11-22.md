@@ -360,6 +360,22 @@ build started in).
 `ref/check.ts` and `ref/model.ts` read a folder named `x.rx` as no
 module (`MODULE_NOT_FOUND`, as the crate), not as a read error.
 
+## After the coverage suite (2026-11-23): two rules made true at run time
+
+The benchmark's second measure — every package of four libraries, used
+once (`bench/coverage/`) — changed no check and one thing the compiled
+program does, in two parts (09 MO-10a, 03 RG-6b):
+
+| what a Solid app writes | was | now |
+| --- | --- | --- |
+| `online = createConnectivitySignal()`, then markup, server-rendered | hydrated with every key after the primitive one off (`Hydration key miss`): the library returns early on the server and calls `onSettled` in the browser, and what a primitive made was the component's own | the primitive is called in an owner of its own (RG-6a's nested region): one child of the component on both sides |
+| `audio = createAudio("a.mp3")`, `fs = createFullscreen(el)` | Solid's `STRICT_READ_UNTRACKED` in development, against the app's component: the argument was an equation even when a constant, and the library reads it once while it is made | a constant `ref` argument is the plain accessor; the call is untracked, as a call made once is |
+
+Neither is a check, and neither adds to what Solid does at run time: an
+owner and `untrack` are Solid's own, placed where the language already
+said the call's region is. Both emitters emit it (`__rt.inst`), and the
+crate's lowering is held to `ref/`'s as before.
+
 ## Limits that remain, and why they are inside the goal
 
 - **Declarations are trusted** (CN-5): `pure`, `draft`, the field rows,

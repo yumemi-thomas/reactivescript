@@ -202,5 +202,18 @@ console.log(await cases[process.argv[2]]());
   check("a client boundary typed with the subclass gives the sent error its class", cl.child === "Child", JSON.stringify(cl));
   check("a client boundary typed with the base catches it, as its own class where the client declares it", cl.base === "Child", JSON.stringify(cl));
   check("a client that declares only the base gives it the base", cl.baseOnly === "Base", JSON.stringify(cl));
+  // 09 MO-10a: a declared JS primitive is called in an owner of its own (`__rt.inst`), so it is one child of the place
+  // it is written whatever it makes inside — a library whose browser path makes effects its server path does not
+  // (`if (isServer) return …`) leaves the hydration keys after it alone. On both builds; and the call is untracked.
+  const scoped = `import { createApp } from "@reactivescript/runtime";
+import { createRoot, getOwner, getNextChildId, getObserver, onSettled, createEffect, createMemo } from "solid-js";
+const app = createApp({ root: null });
+const after = made => createRoot(() => { app.inst(made); return getNextChildId(getOwner()); }, { id: "t" });
+let tracked = "?"; createRoot(() => { createMemo(() => { app.inst(() => { tracked = getObserver() ? "tracked" : "untracked"; }); })(); });
+console.log([after(() => {}), after(() => { onSettled(() => {}); createEffect(() => 1, () => {}); createMemo(() => 1); }), tracked].join(" "));`;
+  for (const cond of ["browser", "node"]) {
+    const got = execFileSync(process.execPath, ["--conditions=" + cond, "--input-type=module", "-e", scoped], { cwd: tmp }).toString().trim();
+    check(`a primitive's own owner (${cond}): one id of its component's, whatever it makes${cond === "browser" ? "; called untracked" : ""} (MO-10a)`, got === (cond === "browser" ? "t1 t1 untracked" : "t1 t1 tracked"), got);   // the server's build tracks nothing: its \`untrack\` is a call
+  }
 } finally { rmSync(tmp, { recursive: true, force: true }); }
 process.exit(fail ? 1 : 0);

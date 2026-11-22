@@ -156,7 +156,9 @@ A call to a function with a `ref` parameter or a node-declaring body (E-9).
 - **RG-6b (Arguments).** Ref arguments are equations passed by reference and
   keep updating inside the body. Value arguments are snapshots at
   instantiation (E-4). An expression passed to a ref parameter is wrapped as an
-  equation at the call site.
+  equation at the call site. To a declared JS primitive (09 MO-10a), one
+  written out as a constant is passed as the plain accessor `() => e`: an
+  equation of a constant has nothing to follow (2026-11-23).
 - **RG-6c (Composition).** Pure transforms compose by lifting (`double(count)`
   is an equation); primitives compose by instantiation (`debounce(ref query,
   300)` owns an effect). A function's kind is visible in its signature; the

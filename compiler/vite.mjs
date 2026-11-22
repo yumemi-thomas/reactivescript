@@ -378,8 +378,12 @@ export default function rx(options = {}) {
       // CSS-4: each module links its own stylesheet, so a module several programs share links it once
       // CP-4d: a library's components by name, bound to the host's app (`import { PersonCard } from "./pages.rx?rx-lib"`);
       // the default export stays the module, for `components(pages)`. Appended, so the source map's lines still hold.
-      const named = lib && file === entry && out.components?.length
-        ? `\nimport { components as __rxComponents } from "@reactivescript/runtime";\nconst __rx = __rxComponents(module);\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n`
+      // MO-13h: the module's name — its path from the project's root, the same in the browser's build and the server's —
+      // is given to `components`, and left on the module for a host that calls `components(pages)` itself: the module is
+      // then rooted as a package's is (state that lasts as the page or the request does, ids that are the server's)
+      const libName = JSON.stringify(path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/"));
+      const named = lib && file === entry
+        ? `\nmodule.__rxName = ${libName};` + (out.components?.length ? `\nimport { components as __rxComponents } from "@reactivescript/runtime";\nconst __rx = __rxComponents(module, undefined, ${libName});\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n` : "\n")
         : "";
       return { code: tagDeps(m.code) + named, map: m.map, css: m.css ?? "" };
   }

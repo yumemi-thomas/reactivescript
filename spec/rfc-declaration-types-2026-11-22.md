@@ -632,3 +632,190 @@ out where it had not: found on CI, where a fresh install moved
   benchmark imports a package as Node resolves it, so `ui-sdk-dialog` is
   not rendered on the server there. Wardic through Vite, with the `solid`
   condition, is `compiler/test/wardic.mjs`.
+
+## A fifth round: the whole of solid-primitives and solid-use, and the families of Wardic and UI SDK (2026-11-23)
+
+The fourth round met three libraries through one task each. This one asks
+the same of everything those libraries ship: every `@solid-primitives`
+package whose latest release accepts `solid-js ^2` (98 of the 110 on npm,
+read off each package's `peerDependencies`; the 12 that do not —
+`autofocus`, `composites`, `cookies-store`, `countdown`, `db-store`,
+`fetch`, `immutable`, `local-store`, `page-visibility`, `reducer`,
+`resource`, `stream` — are recorded in `bench/coverage/libraries.json`
+and not tested), every module of `solid-use`, and each family of
+`@wardic/solid` and `@ui-sdk/solid`. Two things are held for each
+(`bench/coverage/`, `bench/README.md`): the module drafted whole by
+`rx-declare` with no `any` of the draft's own (MO-8q), and a program that
+uses it as its documentation does — accepted by both checkers, typed by
+the library's own types, run (rendered on the server and hydrated where
+the package allows it). Where reactivity matters the packages are also in
+six tasks with their mistakes (`primitives-sensors`, `primitives-listeners`,
+`primitives-state`, `solid-use-state`, `ui-sdk-forms`, `wardic-values`).
+
+| library | modules drafted whole | rows | library's `any` | introduced | by place | programs | green | hand-written words |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `@solid-primitives/*` (98 packages) | 107 | 1237 | 127 | 0 | 264 | 98 | 98 | 148 |
+| `solid-use` | 10 | 28 | 6 | 0 | 0 | 10 | 10 | 18 |
+| `@wardic/solid`, `@wardic/dom` | 4 | 751 | 10 | 0 | 96 | 6 | 6 | 78 |
+| `@ui-sdk/solid` | 69 | 2861 | 1052 | 0 | 1159 | 6 | 6 | 9 |
+| | **190** | **4877** | **1195** | **0** | **1519** | **120** | **120** | **253** |
+
+`bench/coverage/coverage.txt` has the row of each module (its rows, its
+`any`s, the program that imports it, whether it is rendered on the server
+and hydrated) and what each entry says of its package.
+
+### What the drafts needed
+
+Drafted as `rx-declare` stood at the fourth round, the 190 modules (and
+`@ui-sdk/core`'s 68, which no app imports) held **47 `any`s of the draft's
+own**: 24 in solid-primitives, 13 in UI SDK's core, 6 in UI SDK, 4 in
+Wardic's `v1`. None is left. Each cause, and what removed it:
+
+| cause | where | what it took |
+| --- | --- | --- |
+| a tuple's part that is a record written in place (`[value, { stop, start }]`) had no text, and no place | `createTimeAgo` and three more of `date`, `createAmplitudeStream`, `createInfiniteScroll`, `makeGeolocationWatcher`, `createViewportObserver`, `createMutationObserver` | the record as the library writes it (an accessor in it is a value, MO-10b), else the part's place; a result named by an alias with no parameters is read through to its tuple |
+| an accessor nested deeper than a result's own fields was drafted `ref`, which the boundary check refuses (MO-10b), and the row fell back to `any` | `createFormControlInput` (`a11y`, `form`) | nested deeper, an accessor is the function it is |
+| Solid's `JSX.Element` inside a union printed as `Element`, the DOM's | `resolveRichTemplate` (`i18n`) | a `View`, wherever it is |
+| a value or a function of something (`boolean \| ((page: number) => boolean)`) | `createPagination`'s options | TypeScript's text with the function last (the checker reads a function type where a type is one) |
+| props whose library type ends in a record (`RangeProps & { fallback?: T; … }`): the record was read as the row's own, and held to the type before it | `Range`, `IndexRange` | written in parentheses |
+| a result that ranges over an alias's parameters | `createVirtualList` | what the accessor answers, by its place |
+| a file re-exported as a namespace (`export * as Point from "./Point"`) taken for the type declared where the file begins | Wardic `v1` `createProjectionNode` | a declaration is known by its kind too |
+| a method that answers a record or `null` lost its `null` | UI SDK `createTriggerMenuController` | kept |
+| options with a method generic in itself, taken apart at its bounds | UI SDK core `createPopup` | in the last reading, such options are their place whole |
+
+Four readings were wrong without being `any`, and are corrected:
+
+- a function of nothing that answers `Promise<void>` (`exit`,
+  `requestPermission`) was drafted `ref`: a read of the field would have
+  called it. It is a function, called for what it does;
+- Solid 2's own getter, `SourceAccessor<T>` (what `createSignal` hands
+  back: an accessor with a brand), was not seen as an accessor, so a
+  signal a primitive hands back was a function value (`createUserTheme`,
+  `createControllableSignal`, `createHydratableSignal`);
+- a render prop generic in what it gives (`children: (item: Accessor<T>)
+  => U`, `U extends JSX.Element`) was not a render prop (`List`,
+  `VirtualList`: `VIEW_FN_MISPLACED` at the use);
+- an optional parameter that is a type parameter (`initialValue?: I`) was
+  written `NonNullable<I>`, which no call satisfies.
+
+One thing types cannot say stays a review's: a function of nothing that
+answers a value is drafted `ref`, and `createQueue`'s `remove: () => T |
+undefined` takes an item out. The draft's `TODO` says so ("one the app
+calls instead is a function"), and the entry's row is corrected by hand.
+
+### Two changes at run time (09 MO-10a)
+
+The first 25 programs compiled, type-checked, rendered on the server — and
+16 of them failed hydration: `Hydration key miss`, the page detached. The
+packages return early on the server (`if (isServer) return () => true`)
+and call `onSettled` or `createEffect` in the browser; each takes an
+owner's id in Solid 2 (`getNextChildId` after `onSettled`, `createEffect`
+or `createMemo` is one further, on both builds), so everything the
+component writes after the primitive is looked for under a key the server
+never wrote. It is the library's defect, and a `.tsx` app meets it
+unchanged. An `.rx` app does not have to: a declared primitive is now
+called in an owner of its own (`__rt.inst`), which is RG-6a's nested
+region made real, so to its component it is one child on both sides
+whatever it makes. All 16 hydrate.
+
+The second: every `ref` argument was passed as an equation, `__rt.memo(null,
+() => "a.mp3")`, a constant too. A library that reads such a parameter
+once while it is made (`access(src)`: solid-primitives' `MaybeAccessor`
+idiom) then read a reactive value where nothing tracks, and Solid's
+development build said so against the app's component. A constant is the
+plain accessor now, and the primitive's call is untracked, as a call made
+once is.
+
+### What the libraries themselves do
+
+Recorded because each decided what a program could be, and none is
+`.rx`'s (each is the same in a `.tsx` app); `coverage.txt` has them entry
+by entry.
+
+- *Not rendered on the server (12 programs of solid-primitives and
+  solid-use; Wardic's and UI SDK's 12 for the reason the fourth round
+  gives).* A module that calls a client-only API where it is loaded or
+  rendered (`favicon`, `virtual`'s `<VirtualList>`, `controlled-props`:
+  one build, its JSX compiled for the DOM), a primitive with no server
+  path (`createDevices`: `navigator.mediaDevices`), and what is the
+  browser's by nature (a worker, a websocket, a stream, a position, the
+  network).
+- *Rendered on the server and mounted, not hydrated (3).* `<Key>` and
+  `<Refs>` render their children by another path on the server, so the
+  children's keys differ — inside a component, where an owner around the
+  call does not help; `createVisibilityObserver` is ready on the server
+  and waits in the browser.
+- *Broken as shipped.* `createMap()` and `createSet()` hand back a proxy
+  whose methods lose their `this` (`Cannot read private member`); the
+  classes work (`new ReactiveMap()`). `createTimeAgo`'s effect reads a
+  `const` declared after it, which Solid 2 computes where the effect is
+  made. `createEventProps` names its props as Solid 1 named events
+  (`onclick`), which Solid 2 sets as attributes. `createWorker`'s own
+  example (`{ add(a, b) { … } }`) does not survive its serialization (a
+  method's text is not an expression).
+
+### What no word says: the gaps this round found
+
+Thirty of the 120 programs have a module of the app's own beside them
+(MO-8r's second way). By what the library's shape was, with the decision
+on each, by the bar of MO-8r:
+
+| the shape | where | decision | what is written |
+| --- | --- | --- | --- |
+| a module's default export | solid-use: `atom`, `fetch`, `string`, `server-value`, `online-status`, `page-visibility` | as decided: no row | `export { default as x } from "pkg"` |
+| **a function a primitive hands back that the view calls** — a reader, by itself or as a tuple's part | `@solid-primitives/i18n` `translator()`, `marker` `createMarker()`, Wardic's sensors | no word | the function as a *field* of a record the module makes (`{ t }`): a field that answers a value is a read (MO-10b), a function bound by a name is io. Two libraries and the commonest shape here (`t("key")`); the spelling it would take is `pure` before the result's function type, a new place for an old word. Not taken: the same evidence for a name-bound function would read Solid's own `Setter<T>` (it answers the value set) as a reader |
+| one function that is two things by how it is called | solid-use `atom` (`(): T; (v: T): T`), Wardic `Sensor` and `IsPresent` (`(): A; (el: Element): void`) | no word | two names for its two uses. Two libraries now, and still no surface: one `.rx` name cannot be both a value read without a call and a function given to `ref` |
+| a class the app constructs | `ReactiveMap`, `ReactiveSet`; solid-use's fetch responses | no form (`.rx` has no `new`) | `export const makeMap = init => new ReactiveMap(init)`, declared `instantiates` |
+| a component that is a part of a result | `drag-drop` `createDragContext().Provider`, `controlled-props` `[value, set, Field]`, `context` `createContextProvider()` | no form: MO-11f reads a fn whose *whole* result is a component | a component of the module's own that renders it |
+| `ref` on a rest parameter | `signal-builders` (`...a: MaybeAccessor<number>[]`) | no | an `.rx` equation says the same (`total = price + tax`) |
+| a callback that is handed a callback that is handed a draft | `flux-store`'s `actions: (setState) => …` | no: `draft` is said on a callback's parameter, one function deep | the actions in JavaScript |
+| an accessor of a promise | `geolocation` `() => Promise<Coordinates>` | no | `createMemo(() => location())` in the module: an equation bound to it would hold a promise (`MISSING_AWAIT`) |
+| a callback called once while the call is made, impure on purpose; a call made for what it does while a component is made | solid-use `useServerValue`, `provide` | as decided | JavaScript |
+| a tagged template; a RegExp | solid-use `string`, `graphql`'s `gql`; `marker` | no | `.rx` has neither literal |
+| a store whose assignment is the write | `mutable` | no | `.rx` writes its own sources |
+| options the library names, with a callback that writes | `script-loader` `ScriptProps`, `idle`, `createShortcut` | no form | the row narrows the options to a record with the fields the app gives, `onLoad?: handler (…) => void` (TY-6b: a declaration may say less) |
+| **an element in a prop that is not `children`** | solid-use `ClientOnly` `fallback`; solid-primitives `Key`, `List`, `Range`, `Repeat`, `VirtualList` `fallback`, `createPagination`'s `prevContent` | **accepted**: it meets the bar now (a second library of the benchmark, six components) | until it lands, a string. The form chosen needs no grammar: a component of the app's that takes no props, given by name to a prop typed `View` (`fallback={Empty}`), as MO-11c gives one to a prop typed `Component`. Not in this change |
+
+One limit of the second way itself: a module of the app's own that wraps
+a library's hook cannot say `uses(…)` of the *library's* context — a JS
+declaration names the contexts its own file declares (MO-12a). Wardic's
+`createHover()` needs the provider above it; behind `sensors.js` the
+checker no longer knows (the page throws, as in Solid). It is the same
+question as a signature that names another package's context
+(`rfc-rx-packages`), and is answered there.
+
+Outside the vocabulary, the language's own: `.rx` has no `Math`, no
+RegExp literal and no `as`; a store row is one object for its life, so a
+library that keys rows by identity (`<Key>`) sees a row's fields change
+under a key it already has.
+
+### The three kept on one library's evidence
+
+MO-8r kept `renders(later)`, bare `renders` and `pending`/`fails` on a
+result's field with one library each behind them. Against 190 more
+modules:
+
+| kept | what the wider evidence has | decision |
+| --- | --- | --- |
+| `renders(later)`, `renders` on a prop (MO-11o) | a second library asks the same question: UI SDK's `toast()` and `confirm()` open into a registry from anywhere, and `<OverlayHost overlays={…}>`, mounted once, "renders what `toast()` and `confirm()` open" — views that travel in a value and are rendered later, under a host elsewhere | **kept**: two libraries |
+| `pending`, `fails(E)` on a result's field (MO-10f) | none of the four libraries hands out a store whose plain fields wait: every waiting value is an accessor (MO-10d) or a promise. But the shape is Solid 2's own — `createStore(fn)` and `createProjection` over an async function are stores whose fields wait where they are read — so it is said of Solid itself and of TanStack Query | **kept**, as `.rx`'s own row words at a field: the rule is Solid's (08 CN-8a), not a library's |
+| bare `renders` (MO-11l) | no second library: no module here is given components and renders them where its value is bound | **kept as the first form of the kept word**, and said plainly: one library (a headless table). It adds no word that `renders(later)` does not have, and without it the table's cell components cannot read the app's context |
+
+### Declared by a tool
+
+- `rx-verify` pairs a project's declaration of a package
+  (`rx-types/<package>.d.rx`) with the module that import resolves to
+  (it answered "no JS module beside"), so its rows can be shown, and
+  strict declarations (MO-8j) can be asked of a package the project
+  declares. That is what strict mode requires now that no row opts out:
+  every row the program imports is one `rx-verify --record` ran — a
+  project's declarations included — or the import is left to the
+  generated draft, whose rows claim nothing a run could contradict
+  (every fn io).
+- The proposals of the third round stay proposals, for the reasons given
+  there: a predicate as a fn's own result (text nothing reads), a copy of
+  a library's unexported helper types (the place refers, a copy
+  restates), `handler` on a callback said by its place (a new reading of
+  the word). Holding a props record for every type argument (TY-6f) stays
+  at one instance: the limit is TypeScript's, and the 85 component rows of
+  this round's programs hold at it.

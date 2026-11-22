@@ -11,7 +11,8 @@ node bench/run.mjs                 # the scorecard
 node bench/run.mjs table query     # some tasks
 node bench/run.mjs --check         # compared with bench/scorecard.json: a green check may not turn red (CI)
 node bench/run.mjs --check --strict  # and every failure is one its task's `known` gives a reason for
-node bench/run.mjs --write         # write bench/scorecard.json and bench/scorecard.txt from this run
+node bench/run.mjs --write         # write bench/scorecard.json and bench/scorecard.txt from this run (and the coverage suite's record)
+node bench/run.mjs --tasks-only    # the tasks alone; --coverage-only: the coverage suite alone (below)
 ```
 
 It needs the crate (`cargo build --release` and `npm run build` in
@@ -94,6 +95,37 @@ expected diagnostics are the ones the language already has for the mistake
 (or the one its spec says it should have). A fix to the compiler follows from
 a rule in `spec/`, never from a task.
 
+## The coverage suite
+
+A task is one job with its mistakes; it samples a library. The coverage suite (`bench/coverage/`, `coverage.mjs`,
+`cover.mjs`) is the other measure: *every* package of the libraries `coverage/libraries.json` lists, so that "the
+ecosystem" is a list that is held. Today: every `@solid-primitives` package whose latest release accepts `solid-js ^2`
+(98; the 12 that do not are listed there with their peer range, and not tested), every module of `solid-use`, and each
+family of `@wardic/solid` and `@ui-sdk/solid`. For each module two things are held:
+
+- **it is drafted whole** by `rx-declare`, with no `any` of the draft's own (09 MO-8q) — the same count the tasks make
+  of the modules they declare, here over every module the library exports;
+- **a program uses it** as its documentation does — an *entry*, `coverage/<group>/<name>/`: `main.rx`, the rows it
+  keeps of the draft under `rx-types/`, and `use.mjs`, which says what the page must say. An entry is judged as a
+  task's good program is (accepted by both checkers, typed by the library's own types with no `any` written, run),
+  rendered on the server and hydrated where the package allows it. Where it does not, the entry says why (`server`,
+  `hydration`): a package whose module is compiled for the DOM alone, a primitive with no server path, a component
+  that renders its children by another path on the server. Where a shape has no row (09 MO-8r) the entry has a module
+  of the app's own beside it, and says which shape (`note`).
+
+`coverage/coverage.txt` is the last run committed — a row a module: its rows, the library's own `any`s, the parts said
+by place, the program that imports it, the words written by hand, whether it is rendered on the server and hydrated,
+and after the tables what each entry says of its package — and `coverage/coverage.json` the same as data. `--check`
+holds it as it holds the scorecard: an entry that was green may not turn red, its declarations may not need more
+words nor hold more `any`s, no draft may write an `any` of its own (or say more by place than recorded), and the list
+itself is held — every module `libraries.json` names is drafted, every one it says a program must import is imported
+by an entry, each package is at its recorded version in `bench/package.json` and still accepts Solid 2. Entries run
+several at once (`BENCH_JOBS`, 8 by default); a module no entry's program imports is drafted in a process of its own.
+
+To add a package: its name and version in `bench/package.json` (and the lock), its modules in `libraries.json`, and an
+entry. `use(import.meta, { pkg, title, ssr: /what the server's render says/, dom: /what the page says/ | async (h,
+page) => { … } })` is all an entry's `use.mjs` is.
+
 ## The tasks
 
 | task | the job | the mistakes |
@@ -109,8 +141,14 @@ a rule in `spec/`, never from a task.
 | `store-helper` | a Solid store's draft changed in place by a helper written in JS (`moveItem(d.columns, from, to)`) | the helper given the store itself, called while the view computes, the draft kept by a closure |
 | `table-pagination` | a TanStack Table: cell components, pagination buttons, a pager given page numbers and handlers, and — shadcn/ui's `DataTablePagination` — a component given the table itself | a row handed up through a callback, the table kept in state, a cell's context missing, a page turned while the view computes |
 | `ui-sdk-dialog` | UI SDK for Solid (`@ui-sdk/solid`): a controlled dialog whose parts are flat exports, a change the app's callback cancels through the library's details, a toggle whose child is a function of its state | a part outside its root, the open state written while the view computes or from the function of state, a handler called where it is passed, a stale read of an own write, the controlled state copied by an effect; *(unrepresentable)* a part the library has not |
+| `ui-sdk-forms` | UI SDK's form controls: a checkbox and a radio group whose values the app holds, a button its state enables | a radio beside its group, the change handler called where it is passed, a stale read of an own write, the controlled value copied by an effect; *(unrepresentable)* a function the program has not, a part the library has not |
+| `wardic-values` | Wardic's values: a number derived from a prop, a size that cycles, an element that animates to them, under the provider | the meter beside the provider, a value made in a handler, the cycle turned while the view computes, a transform that writes, the derived value written or kept in a source by an effect |
 | `wardic-motion` | Wardic (`@wardic/solid`, Motion's API on Solid 2): a motion element whose target follows app state, a tap heard from the element's ward, an exit animation under `<AnimatePresence>` | a motion element beside its provider, a ward made in the view or in a handler, the hearing started while the component computes, the ward's end let out of the action, taps counted by an effect; *(unrepresentable)* a prop read once into a local |
+| `solid-use-state` | solid-use's atom and its own injection, each behind a module of the app's own: a reader and a setter, a scope and a hook whose context the declaration names | the hook's reader beside its scope, the atom's setter called while the view computes, its value written, an atom made in a handler or seeded from state, the count copied by an effect |
 | `solid-use-primitives` | solid-use's primitives: media query, colour scheme, network and page visibility as values; a client-only part; a value the server makes and the browser takes (served and hydrated) | a primitive made in the view or in a handler, its query computed from state, its value written, a layout kept in a source by an effect, the server's value asked for in the view; *(unrepresentable)* the accessor called, as in Solid |
+| `primitives-sensors` | solid-primitives' browser sensors (`media`, `connectivity`, `keyboard`, `mouse`): accessors and a store read as values, a shortcut whose callback writes; served and hydrated | a primitive made in the view or in a handler, a query computed from state, a sensor's value written, a layout kept in a source by an effect, the callback called where it is given; *(unrepresentable)* the accessor called, as in Solid |
+| `primitives-listeners` | solid-primitives' listeners and schedulers (`focus`, `event-bus`, `scheduled`, `raf`): a listener kept by its effect, a bus, a debounced save, an animation-frame loop | a disposer dropped or kept and never called, a debounced function made in a handler, a source read after its own write, a function a primitive handed back called while the view computes or given called to a handler |
+| `primitives-state` | solid-primitives' state helpers (`storage`, `static-store`, `memo`, `sortable`, `pagination`): a persisted signal, a store's fields, a sorted and paged list, a writable memo; served and hydrated | a setter called in the view or given called to a handler, a source's list sorted in place, a memo's function that writes, a value copied by an effect, a primitive's value written, a page read once under `peek` |
 | `primitives-virtual` | solid-primitives' listeners and resize observer and a TanStack Virtual list, on an element ref | a listener's disposer dropped (its type an alias), a primitive made in a handler; *(unrepresentable)* the ref read before there is an element |
 | `frozen-read` | formatters kept in a record, read by the view, by a primitive and by a seed | a formatter read under a kept `peek`, given to a value parameter, used as a seed |
 | `source-mutation` | a list in a source, added to by a write and sorted for display | `rows.push(…)`, a prop sorted in place, a row written through a local alias, the value a functional write is given reversed in place |

@@ -264,6 +264,12 @@ does for `.tsrx`. Nothing here is a second type system.
 
 ## TY-7 — Strict declarations (proposed 2026-11-20)
 
+  *At one instance (decided 2026-11-23).* The row's type parameters are
+  types of their own in these checks (default, else bound), so a field is
+  held for one choice of them, not for every one. It stays so: holding it
+  for all `T` needs TypeScript to read a prop of a deferred conditional
+  type, which it does not, and no row of the benchmark or of the coverage
+  suite's 85 component rows is one the instance lets through wrongly.
 - **TY-7a.** With `--rx-strict` (or `"reactivescript": { "strict": true }`
   in the tsconfig), `rx-tsc` reads, beside each `.d.rx` the program
   imports (as the loader resolved it, TY-6e) or the tsconfig names, the record `rx-verify --record` wrote (09 MO-8j). A row is

@@ -455,13 +455,26 @@ export function sendErrors<F extends (...a: any[]) => unknown>(fn: F): F { retur
 export function holdRequest(): () => void { throw new Error("holdRequest() holds the state of a request on the server (MO-13g); in the browser the page's state lasts as the page does, and there is nothing to hold"); }
 /** CP-4d: an `.rx` module's components for a JS host (`import pages from "./pages.rx?rx-lib"`; `const { Home } =
  *  components(pages)`): Solid components bound to the page's app (`pageApp`), made on first use, or to the app passed. */
-export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: App): T {
+export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: App, name?: string): T {
   const made = new Map<string, unknown>();
+  // MO-13h (2026-11-23): a module the plugin named (`?rx-lib` writes its path into the call, and on the module for a
+  // host that calls `components(pages)` itself) is instantiated in a root of its own, as a package's is: its state is
+  // the page's, not the first component's that rendered it, and its ids are the server's wherever that first use is
+  const id = name ?? (factory as { __rxName?: string }).__rxName;
+  const inst = id === undefined ? factory : rootedBy(factory, id);
   return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) =>
-    (((app ?? pageApp()).module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
+    (((app ?? pageApp()).module(factory, inst as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
 }
 
 const moduleSeq = new WeakMap<object, number>();
+/** A module instantiated in a root of its own that no owner holds, its id the module's name (MO-13h). */
+function rootedBy<T>(factory: (rt: unknown) => T, name: string | undefined) {
+  return (rt: unknown) => {
+    const top = topOwner();   // the render's root: its id is the render's (`renderId`)
+    const n = moduleSeq.get(rt as object) ?? 0; moduleSeq.set(rt as object, n + 1);
+    return runWithOwner(null, () => createRoot(() => factory(rt), { id: (top?.id ?? "") + moduleRootId(name, n) }));
+  };
+}
 /** The id of a module's root: its name, in the letters a hydration key is written with (as rt-server.ts). */
 const moduleRootId = (name: string | undefined, n: number) => name === undefined ? `rx${n}_` : `rx_${name.replace(/[^A-Za-z0-9]/g, c => "_" + c.charCodeAt(0).toString(36))}_`;
 /** MO-13e: a compiled `.rx` module as a Solid library for JavaScript (a `.tsx` app): each export as a function of the
@@ -474,11 +487,7 @@ const moduleRootId = (name: string | undefined, n: number) => name === undefined
 export function library<T extends Record<string, unknown>>(factory: (rt: unknown) => T, name?: string | App, app?: App): T {
   if (typeof name === "object") { app = name; name = undefined; }
   const made = new Map<string, unknown>();
-  const rooted = (rt: unknown) => {
-    const top = topOwner();   // the render's root: its id is the render's (`renderId`)
-    const n = moduleSeq.get(rt as object) ?? 0; moduleSeq.set(rt as object, n + 1);
-    return runWithOwner(null, () => createRoot(() => factory(rt), { id: (top?.id ?? "") + moduleRootId(name as string | undefined, n) }));
-  };
+  const rooted = rootedBy(factory, name as string | undefined);
   const inst = () => (app ?? pageApp()).module(factory, rooted as never) as Record<string, any>;
   return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, Object.defineProperty((...a: unknown[]) => inst()[k](...a), Symbol.hasInstance, { value: (e: unknown) => { const c = inst()[k]?.cls; return typeof c === "function" && e instanceof c; } })), made.get(k)) });
 }

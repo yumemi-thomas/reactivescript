@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+**Four libraries, whole** (spec/rfc-declaration-types-2026-11-22.md, *A fifth round*; bench/coverage/)
+
+Every `@solid-primitives` package on Solid 2 (98), every module of `solid-use`, and each family of Wardic and UI SDK is
+now drafted whole by `rx-declare` and used by a program the suite checks, types and runs: 190 modules, 4877 rows, no
+`any` of the draft's own; 120 programs. No word was added to the notation. What changed for an app:
+
+- **A primitive from JavaScript runs in an owner of its own** (spec/09 MO-10a). A library whose server render makes
+  fewer effects than its browser one (`if (isServer) return …` — sixteen of the first twenty-five solid-primitives
+  packages tried) shifted the hydration keys of everything written after it: `Hydration key miss`, in an `.rx` app as
+  in a `.tsx` one. It hydrates now. The call is also untracked, and a `ref` argument that is a constant is passed as a
+  plain `() => "a.mp3"` rather than a memo, so a library that reads a parameter once while it is made no longer trips
+  Solid's `STRICT_READ_UNTRACKED` against your component.
+- **`rx-declare` drafts more of what libraries write**: a record inside a tuple result, a value-or-function option, a
+  render prop generic in what it gives, Solid's own getter type as an accessor. A function of nothing that answers
+  `Promise<void>` (`exit`, `requestPermission`) is a function now; it was drafted `ref`, which would have called it on
+  a read.
+- **`rx-verify rx-types/<package>.d.rx`** runs a project's declaration against the package it declares (it said "no JS
+  module beside"), so `rx-tsc --rx-strict` can be used with them.
+- **`rx-lib`**: a module's scoped stylesheet is imported by the browser entry it builds (nothing linked it); a
+  signature that names another package's context through `node_modules` is refused, with the module and the key.
+- **`?rx-lib` modules** (a JS host's `import { Page } from "./pages.rx?rx-lib"`) keep their module state for the page or
+  the request, not for the first component that rendered them, and their ids are the server's (spec/09 MO-13h).
+
+Shapes that still have no row, and what to write instead (guide/libraries.md): a function a primitive hands back that
+the view calls (give it as a field of a record), a class you construct, one function that is two things by how it is
+called, a component that is a part of a result. An element in a prop that is not `children` (`fallback={…}`) is
+accepted as the next form — a component with no props given by name — and is not in this release.
+
 **The vocabulary of a declaration, pruned** (spec/09 MO-8r)
 
 A word or a form of a `.d.rx` is kept only if, without it, a correct Solid program people commonly write cannot be

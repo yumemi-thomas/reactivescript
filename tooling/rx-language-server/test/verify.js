@@ -369,5 +369,22 @@ check("an unmarked prop is pure however it is called: inside a computation, or w
 const prStrict = checkStrict(path.join(ws, "props.d.rx"));
 check("...and strict mode accepts those rows, refusing only the mismatch", !prStrict.some(u => ["Later", "Each", "Pick"].includes(u.name)) && prStrict.some(u => u.name === "Now"), prStrict);
 
+// MO-8k's first place: a project's declaration of a package, `rx-types/<package>.d.rx`, is paired with the module that
+// import resolves to from the folder that holds `rx-types/` (it was "no JS module beside": no such row could be shown)
+{
+  const pkg = path.join(ws, "node_modules/tickpkg"); fs.mkdirSync(pkg, { recursive: true }); fs.mkdirSync(path.join(ws, "rx-types"), { recursive: true });
+  fs.writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "tickpkg", version: "1.0.0", type: "module", exports: { ".": "./index.mjs" } }));
+  fs.writeFileSync(path.join(pkg, "index.mjs"), "export const onTick = cb => { setTimeout(() => cb(1), 0); };\n");
+  fs.writeFileSync(path.join(ws, "rx-types/tickpkg.d.rx"), "export fn onTick(cb: handler (n: number) => void): void\n");
+  fs.writeFileSync(path.join(ws, "rx-types/tickpkg.probe.mjs"), "export const probes = { onTick: { args: () => [n => {}] } };\n");
+  fs.writeFileSync(path.join(ws, "rx-types/nopkg.d.rx"), "export fn nothing(): void\n");
+  fs.rmSync(path.join(ws, "rx-types/tickpkg.verified.json"), { force: true });
+  const rp = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "rx-types/tickpkg.d.rx", "rx-types/nopkg.d.rx"], { cwd: ws, encoding: "utf8" });
+  const outp = rp.stdout + rp.stderr;
+  check("a project's declaration of a package (rx-types/) is run against the package it declares", /tickpkg\.d\.rx:1 ok\s+onTick: callback cb holds/.test(outp), outp);
+  check("...its record is written beside it, and strict mode accepts the row", fs.existsSync(path.join(ws, "rx-types/tickpkg.verified.json")) && checkStrict(path.join(ws, "rx-types/tickpkg.d.rx")).length === 0, checkStrict(path.join(ws, "rx-types/tickpkg.d.rx")));
+  check("...and one whose package does not resolve says so", /nopkg\.d\.rx.*not a project's declaration of a package that resolves/.test(outp), outp);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -82,7 +82,10 @@ A draft says only what types show:
 
 To say those, write `rx-types/<package>.d.rx` (it wins over the draft): `npx rx-declare <package> --out
 rx-types/<package>.d.rx` starts from the same draft, with a `// TODO` for each guess to confirm (`pure`, `handler`);
-`--run` also runs the package to find which hooks need a provider (it executes the package's code).
+`--run` also runs the package to find which hooks need a provider (it executes the package's code). `npx rx-verify
+rx-types/<package>.d.rx` runs your rows against the package (`--record` keeps the result for `rx-tsc --rx-strict`).
+One thing to look at in a draft: a function that takes nothing and answers a value is drafted `ref`, as an accessor is,
+and types cannot tell `size: () => number` from `remove: () => Item` — write the second as the function it is.
 Turn drafting off with `RX_GENERATE=0` or `rx({ generate: false })`.
 
 ## Use it
@@ -110,6 +113,10 @@ fields: `component Panel(props: { query: { data: pending fails(Error) Todo[]; st
 prop typed any other way, the whole result is `RESULT_AS_VALUE`: on the other side it would be a plain value. What
 is read from the result is a field its declaration names: `todos.valueOf()` and a field the `.d.rx` leaves out are
 refused too (declare the field).
+
+A primitive runs in an owner of its own, under the place you wrote it. You don't see it, except that a library whose
+server render makes fewer effects than its browser one — many return early under `isServer` — no longer breaks the
+hydration of what you write after it, as it does in a `.tsx` app (`Hydration key miss`).
 
 `isOn`, `query` and `wide` are equations like any other: read them without calling them. They may hold, like a
 value from an `await` (Solid promises nothing about an accessor), so `latest`, `pending?` and `loading` apply.
@@ -225,6 +232,31 @@ used correctly. What a single package does, you say without one, in one of three
   export pure fn createAtom<T>(init: T): [ref T, (v: T) => void]
   export pure fn useTicket(): string
   ```
+
+  The same module is where these go (each met in more than one library, none with a row of its own):
+
+  ```js
+  // a function the view calls, handed back by a primitive (a translator's `t`): give it as a field
+  import { translator, resolveTemplate } from "@solid-primitives/i18n"
+  export const createI18n = locale => ({ t: translator(() => dictionaries[locale()], resolveTemplate) })
+  // a class you construct
+  import { ReactiveMap } from "@solid-primitives/map"
+  export const makeMap = initial => new ReactiveMap(initial)
+  // one function that is the ref and the reading (a Wardic sensor): two names
+  import { createHover } from "@wardic/solid"
+  export const createHoverSensor = () => { const h = createHover(); return { ref: el => h(el), hovered: () => h() } }
+  ```
+
+  ```rx
+  export pure fn createI18n(ref locale: "en" | "fr"): { t: (key: string, args?: Record<string, string>) => string } instantiates
+  export pure fn makeMap<K, V>(initial?: [K, V][]): import("@solid-primitives/map").ReactiveMap<K, V> instantiates
+  export pure fn createHoverSensor(): { ref: (element: Element) => void; hovered: ref boolean } instantiates
+  ```
+
+  `i18n.t("hello")` in the view is then a read: a function that is a *field* of a result and answers a value may be
+  called anywhere, while a function a primitive hands back by itself (or as a tuple's part) is io — it is how a setter
+  is told from a reader. A wrapper like these cannot say `uses(…)` of the library's own context, though: a hook that
+  needs the library's provider above it is not checked for it once it is behind your module.
 
 - **The library's own types.** A row restates no more of a type than its words need: props can be the library's type
   (`props: DialogProps & { onOpenChange?: handler (…) => void }`), a result its name, and of several signatures one.

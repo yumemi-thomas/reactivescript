@@ -284,7 +284,12 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   string literals: `"a  b"` and `"a b"` are different rows). A row nothing recorded, one
   recorded as a mismatch or as not checked, and one edited since the record
   (its hash changed) are `UNVERIFIED_ROW` (13 TY-7), each saying which and
-  what to run. No word of a row opts it out (revised 2026-11-22, MO-8r:
+  what to run. A project's declaration of a package (`rx-types/<spec>.d.rx`,
+  MO-8k's first place) is run against the module that import resolves to
+  from the folder that holds `rx-types/` (2026-11-23: `rx-verify` paired a
+  declaration only with a module beside it, so no row of a project's
+  declaration could be shown and strict mode could not be asked of a
+  package the project declares). No word of a row opts it out (revised 2026-11-22, MO-8r:
   `trusted` after a signature did, and no declaration wrote it — strict
   mode is the project's choice, and a row a project cannot yet show is a
   reason not to make it, not a word in a library's row). A row is verified only when every claim the parser reads in it
@@ -637,6 +642,19 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   `bench/any-allowlist.json` (an entry with `draft`: the module, the
   export, how many, the reason, what blocks naming the type) and on a
   task whose whole drafts say more by place than the recorded scorecard.
+  The coverage suite holds the same over every module of the libraries it
+  lists (2026-11-23: 190 modules, 4877 rows, none of the draft's own;
+  47 before, each with what removed it in
+  `rfc-declaration-types-2026-11-22.md`, *A fifth round*). What that took
+  of the drafting rules: a tuple's part that is a record is written as
+  the library writes it, or by its place; an accessor nested deeper than
+  a result's own fields is the function it is (MO-10b); a value or a
+  function of something is TypeScript's text with the function last;
+  props whose type ends in a record are written in parentheses, so that
+  record is not the row's own; a function of nothing that answers
+  `Promise<void>` is called, not read; Solid's own getter
+  (`SourceAccessor`) is an accessor; a render prop generic in what it
+  gives is a render prop.
 - **MO-8n (Evidence from the library's source) — proposed 2026-11-22.**
   The words of MO-8i that say what a library *does* — `handler`,
   `uses`, `provides`, `instantiates`, a result that undoes the
@@ -763,6 +781,32 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   not a word of a declaration: it is taken up when a second library of
   the benchmark needs it.
 
+  *Held against the rest of four libraries (2026-11-23).* The bar was
+  applied again to 190 more modules — every `@solid-primitives` package
+  on Solid 2, every module of `solid-use`, each family of Wardic and of
+  UI SDK — each drafted whole and used by a program
+  (`bench/coverage/`; `rfc-declaration-types-2026-11-22.md`, *A fifth
+  round*). No word was added. Thirty of the 120 programs have a module of
+  the app's own beside them, for shapes that stay without a row: a
+  function a primitive hands back that the view calls (a translator's
+  `t`: given as a field of a record, which is a read, where a function
+  bound by a name is io, MO-10b); one function that is two things by how
+  it is called (an atom, a sensor that is also a ref); a class the app
+  constructs; a component that is a part of a result; `ref` on a rest
+  parameter; an accessor of a promise. The element in a prop is
+  **accepted**: a second library of the benchmark has it
+  (solid-primitives' `fallback` on five components, beside solid-use's
+  `ClientOnly`), and the form chosen is not grammar — a component of the
+  app's that takes no props, given by name to a prop typed `View`, as
+  MO-11c gives one to a prop typed `Component`; it is not in this change.
+  And the three kept on one library's evidence: `renders(later)` and
+  `renders` on a prop have a second library (UI SDK's `toast()` and
+  `confirm()` open into a registry that `<OverlayHost>` renders
+  elsewhere); `pending` and `fails` on a field stay as Solid's own rule
+  for Solid's own shape (`createStore(fn)` over an async function is a
+  store whose fields wait), written by one library; bare `renders` has
+  one library still, and is kept as the first form of the kept word.
+
 ## MO-9 — A signature read in place of its module
 
 - **MO-9a.** `import … from "./x.rx"` where there is no `x.rx` but there is
@@ -845,6 +889,35 @@ export component Search(props: { start: boolean, q: string }) {
   instantiates`): making it writes no reactive state but its own, so it is
   called where its value is bound; what it hands back is MO-10b's. `.rx` has no accessor type: `ref` is the one
   word for an accessor at the boundary, in either direction.
+  *An owner of its own (2026-11-23).* The call is made in an owner of its
+  own under the place it is written (RG-6a's nested region, made at run
+  time: `__rt.inst`, Solid's `createOwner`), and outside tracking. To the
+  place it is written the primitive is then one child, on the server and
+  in the browser, whatever it makes inside. Before, what it made was the
+  component's own: a library whose server path makes fewer effects than
+  its browser path — `if (isServer) return () => true`, before the
+  `onSettled` the browser's path runs — took one hydration id more in the
+  browser than on the server, and every element written after it was
+  looked for under a key the server had not written (`Hydration key miss`,
+  the page detached). Sixteen of the first twenty-five packages of
+  solid-primitives the coverage suite met do that
+  (`createConnectivitySignal`, `createIsMounted`, `createActiveElement`,
+  `createPageVisibility`, …), in a `.tsx` app as in an `.rx` one; with the
+  owner, each of them hydrates here. The call is untracked because it is
+  made once (E-9): what a library reads of a `ref` argument while it is
+  being made (`const initial = access(ref)`) is a read it means to make
+  once, and Solid's development build reports it against the component
+  (`STRICT_READ_UNTRACKED`) — in `.rx` an element ref is a source, so
+  `createFullscreen(el)` passes a signal where a `.tsx` author passes
+  `() => el`. And a `ref` argument written out as a constant (a literal,
+  or an array, a record or a template of literals) is the plain accessor
+  `() => "a.mp3"`, not an equation (RG-6b): there is nothing to follow, a
+  node for it took an id for no reader, and reading it was a read of a
+  reactive value. Cleanups registered in the call are that owner's, and
+  run with the region. `runtime/test.mjs` holds the owner on both builds
+  (one id of the component's, whatever the call makes);
+  `bench/tasks/primitives-sensors` serves and hydrates three such
+  packages; the coverage suite (`bench/coverage/`) the rest.
 - **MO-10b (What the result is).** The return says what `.rx` sees:
   - `ref T` is a *reader*. Bound by destructuring or projection, it is an
     equation of `T`, read without a call (`isOn`, not `isOn()`): the name is
@@ -2150,7 +2223,13 @@ package's `.d.rx` is the signature the compiler printed (MO-3).
   `CONTEXT_NOT_FOUND` at the application, as for a local module. A package
   ships the signature of every module its entries reach, at the place the
   module has under the package's source root, so every relative key names
-  a file that is there.
+  a file that is there. A key that leaves the package — one that goes
+  through `node_modules`, the context of another package where it
+  happened to be installed when this one was built — is refused by
+  `rx-lib` (2026-11-23), with the module and the key: it is right in one
+  layout of an install and wrong in the others (hoisted or not, linked,
+  in a store). Such a package takes the context's value as a prop, or
+  provides it from a component of its own.
 - **MO-13c (The compiled module).** The import stays an ES import of the
   specifier the program wrote (MO-8c), and what it imports is the module's
   factory, exported as `__rx`: `import { __rx as __m0 } from
@@ -2179,7 +2258,10 @@ package's `.d.rx` is the signature the compiler printed (MO-3).
   arguments): every module they reach is checked and compiled once for the
   browser (Solid's `dom`, hydratable) and once for the server (`ssr`), and
   written with its signature and its types in the layout above, at its
-  place under the source root; the JavaScript modules the package's `.rx`
+  place under the source root (a module with scoped styles has `x.css`
+  beside them, which what the browser's import resolves to, `x.js`,
+  imports for the app's bundler to link — 2026-11-23: it was written and
+  exported, and nothing linked it; the server's entry imports none); the JavaScript modules the package's `.rx`
   imports by relative paths are copied beside them with their `.d.ts` and
   `.d.rx`. `rx-tsc` emits the projections' declarations, which is the
   package's type-check too. The package.json's `exports` are held to the
@@ -2282,8 +2364,8 @@ package's `.d.rx` is the signature the compiler printed (MO-3).
     request's app, so they read one live instance: the modules
     JavaScript instantiates in a request are under an owner the runtime
     makes for that request and no render owns (MO-13h; a `?rx-lib`
-    module, CP-4d, is not yet rooted so, and is still made where it is
-    first rendered). Solid's request
+    module, CP-4d, too, since 2026-11-23: the plugin names it, and a
+    named module is rooted as a package's is). Solid's request
     event has no end to listen for, so the lifetime is counted: each
     render of the request that uses the app *holds* it until that render
     ends, and when the last hold is gone the state is released — the
@@ -2323,7 +2405,14 @@ package's `.d.rx` is the signature the compiler printed (MO-3).
   ids follow from it: the same on the server and in the browser wherever
   the first use is on each side, and no id is taken from the owner that
   happened to use it first. A module an `.rx` program instantiates first
-  is made where the program's imports are, as before (MO-1b).
+  is made where the program's imports are, as before (MO-1b). A module a
+  JS host imports with `?rx-lib` (11 CP-4d) is rooted the same way
+  (2026-11-23): the plugin writes its name — its path from the project's
+  root, the same in the browser's build and the server's — into the call
+  of `components`, and onto the module for a host that calls
+  `components(pages)` itself. It was instantiated where it was first
+  rendered: its state died with that component, and in a request with
+  two renders it was the first render's.
   *What this reads of Solid.* Solid 2 publishes which render the caller
   is in (`getHydrationWriter()`), and not the root owner of that render,
   nor when it ends, nor the request scope's event without a warning

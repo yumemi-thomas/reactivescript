@@ -134,8 +134,16 @@ async function mount(dir, mod, probeMod, hook, args, fields, run, provide = prob
 
 async function verify(file) {
   const base = file.slice(0, -".d.rx".length);
-  const js = require("../src/beside.js").jsOf(file);
-  if (!js) return [{ line: 1, status: "fail", what: `no JS module beside ${path.basename(file)}` }];
+  let js = require("../src/beside.js").jsOf(file);
+  // MO-8k's first place (2026-11-23): a project's declaration of a package, `rx-types/<spec>.d.rx`, declares the module
+  // that import resolves to from the folder that holds `rx-types/` — found as the checker finds the declaration, the
+  // other way round. (It was "no JS module beside": no row of a project's declaration could be shown, and strict
+  // declarations, MO-8j, could not be asked of a package the project declares.)
+  if (!js) {
+    const parts = path.resolve(file).split(path.sep); const at = parts.lastIndexOf("rx-types");
+    if (at > 0) { const spec = parts.slice(at + 1).join("/").slice(0, -".d.rx".length); js = require("../src/declare-run.js").resolveModule(spec, parts.slice(0, at).join(path.sep)) || undefined; }
+  }
+  if (!js) return [{ line: 1, status: "fail", what: `no JS module beside ${path.basename(file)}, and it is not a project's declaration of a package that resolves (rx-types/<package>.d.rx)` }];
   require("../src/declare-run.js").compileJsx(path.dirname(path.resolve(js)));   // a package that ships .jsx runs compiled (its solid build)
   const mod = await import(pathToFileURL(path.resolve(js)).href);
   const probeFile = [".probe.mjs", ".probe.js"].map(x => base + x).find(f => fs.existsSync(f));

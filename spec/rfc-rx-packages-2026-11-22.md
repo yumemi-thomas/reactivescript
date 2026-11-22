@@ -289,3 +289,27 @@ not say so.
    it does a JS declaration, so there is no hover on a signature's rows.
    Go-to-definition from an app lands in `x.rx.d.ts`; with the `.rx` in
    the source maps it could land in the source.
+
+## Decided (2026-11-23)
+
+Each item of *Still proposals*, by the same rule as the vocabulary (09
+MO-8r): done where a correct program was wrong without it, refused where
+the build can know, and otherwise left as a limit that is said, with the
+reason it is not worth a mechanism.
+
+| item | decision | what is true now |
+| --- | --- | --- |
+| 1. a signature that names another package's context | **refused at the build** | `rx-lib` fails when a printed signature's `uses(…)`, `provides(…)` or `retains(…)` holds a key that goes through `node_modules`, with the module and the key (`foreignKeys`, `compiler/test/lib.mjs`). A key by the package's name was the proposal; it changes what a key is for every module of every program and makes two installed versions one context. A package that needs another's context takes its value as a prop, or provides it from a component of its own. The same answer for a JS module of the app's own that wraps a library's hook (`rfc-declaration-types`, fifth round): it cannot say `uses(…)` of the library's context |
+| 2. scoped styles | **fixed** | what the browser's import resolves to (`x.js`) imports the module's stylesheet (`import "./x.css"`), for the app's bundler to link; the server's entry does not. The stylesheet was written and exported, and nothing linked it |
+| 3. server fns in a package | **dropped** as a proposal: `rx-lib` refuses, and stays so | the contract is Solid's `"use server"` pass, which extracts from the app's own modules. A package exports the fn the app wraps |
+| 4a. a `?rx-lib` module rooted where it is first rendered | **fixed** | the plugin writes the module's name (its path from the project's root, the same in both builds) into `components(module, undefined, name)` and onto the module, and the runtime roots a named module as `library` roots a package's: under no owner in the browser, under the request's owner in a request, with the module's name for its id (MO-13h, MO-13g) |
+| 4b. a dependency two packages share takes its ids from whichever needed it first | **left, as a limit** | both builds of a page instantiate in one order, so the ids agree; they differ only for a host that uses two packages' exports in another order on each side, which is that host's code. A named root in `__rt.module` would change the ids of every program for it |
+| 4c. Solid's internals | as it was: one checked file; *Proposed to Solid* stands | — |
+| 5a. what a request's module asks is serialized by the first render | **left, as a limit** | one render a request is what frameworks do, and a second render (a head) is not hydrated |
+| 5a′. a request no render held does not run its modules' cleanups | **left, as a limit**; `holdRequest()` is the way | Solid's request event has no end to hear (*Proposed to Solid*, 3). A server function that instantiates a module with cleanups holds the request and releases it |
+| 5a″. an export first used in a request before any render | **left, as a limit** | the same cause: nothing public says which render a handler belongs to before one exists |
+| 5b, 5c | as they were | Solid's own owner-bound APIs have the first; nothing has needed the second |
+| 6. a package's own TypeScript, a JS module typed only by its `.d.rx` | **dropped** as a proposal | a package builds its TypeScript before `rx-lib`, as the message says; a `.d.ts` for a JS module is its author's to write, as for any package |
+| 7. a hash on the `//@ signature` line, for strict mode | **dropped** | strict declarations ask that a person's assertion about someone else's JavaScript was run. A printed signature is the publisher's artifact, as the compiled module beside it is, and no more forgeable than that module: a hash the publisher writes proves nothing the publisher could not also write. Strict mode exempts a marked file (MO-13b), and that is the whole rule |
+| 8. `rxc lib` | not taken up: no program is wrong without it | — |
+| 9. the language server on a package's `.d.rx` | not taken up: tooling comfort, no check | — |

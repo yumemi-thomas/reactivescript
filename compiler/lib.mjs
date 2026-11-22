@@ -70,12 +70,21 @@ function splitTop(s) {
   return out;
 }
 
+/** The context keys of a printed signature that leave the package: a key is a path relative to the signature's module
+ *  (MO-13b), and one that goes through `node_modules` names another package's module where it happened to be installed. */
+export function foreignKeys(signature) {
+  const out = new Set();
+  for (const m of signature.matchAll(/\b(?:uses|provides|retains)\(([^)]*)\)/g)) for (const k of m[1].split(",").map(x => x.trim()).filter(Boolean)) if (/(^|\/)node_modules\//.test(k)) out.add(k);
+  return [...out];
+}
 const VALUES = new Set(["accessor", "action", "error", "component", "primitive", "fn"]);
 /** x.js / x.server.js: the factory, and each export bound to the page's app (the runtime's `library`, MO-13g); `id`
  *  names the module (`<package>/<module>`), for the root it is instantiated in (MO-13h). */
-function wrapper(name, factory, exports, id) {
+function wrapper(name, factory, exports, id, css) {
   const vals = exports.filter(([, k]) => VALUES.has(k));
-  return `// compiled by ReactiveScript from ${name}.rx — do not edit (spec/09 MO-13e)\n` +
+  // the module's scoped styles (07 CSS-4): what the browser's import resolves to imports its stylesheet, for the app's
+  // bundler to link (it was written and exported, and nothing linked it); the server's build has no stylesheet to load
+  return `// compiled by ReactiveScript from ${name}.rx — do not edit (spec/09 MO-13e)\n` + (css ? `import ${JSON.stringify(css)};\n` : "") +
     `import { library as __library } from "@reactivescript/runtime";\nimport __rx from ${JSON.stringify(factory)};\n` +
     `/** The module as an .rx app instantiates it: once per app (MO-13c). */\nexport { __rx };\nconst __lib = __library(__rx, ${JSON.stringify(id)});\n` +
     vals.map(([n]) => n === "default" ? `export default __lib.default;` : `export const ${n} = __lib.${n};`).join("\n") + "\n";
@@ -148,7 +157,8 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
     const exports = exportsOf(m.signature);
     for (const [n, k] of exports) if (k === "server") problems.push(`${path.relative(dir, p)}: exports the server fn ${n}: a server fn is extracted by the app's bundler from the app's own modules, and a compiled package cannot carry one (MO-13f) — export a fn the app wraps in a server fn of its own`);
     const id = pkg.name ? `${pkg.name}/${name}` : name;   // the module's name: its root's id, the same on both sides (MO-13h)
-    put(`${name}.js`, wrapper(base, `./${base}.dom.js`, exports, id));
+    put(`${name}.js`, wrapper(base, `./${base}.dom.js`, exports, id, m.dom.css ? `./${base}.css` : undefined));
+    for (const key of foreignKeys(m.signature)) problems.push(`${path.relative(dir, p)}: its signature names a context of another package (${key}): a context's key is a path from this module, right only where that package is installed as it was when this one was built (hoisted or not, linked, in a store) — take the context's value as a prop or provide it from a component of this package (MO-13b)`);
     put(`${name}.server.js`, wrapper(base, `./${base}.ssr.js`, exports, id));
     put(`${name}.d.rx`, m.signature);
     put(`${name}.d.ts`, declaration(base, exports));

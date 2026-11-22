@@ -79,6 +79,10 @@ SOLID_VITE_PLUGIN=<that checkout> node test/vite-hosts.mjs   # whole-program hos
 SOLID_VITE_PLUGIN=<that checkout> node test/vite-watch.mjs   # vite build --watch: a .ts-only edit is type-checked, a created .d.rx is read
 ```
 
+(`vite-watch` polls, and makes an edit again until a rebuild has started for it: Rolldown's watcher takes a file's
+state some time after the build that named it has ended, and on macOS an edit made before that was never seen. Run at
+`27e56ed` of that branch, 2026-11-23: `vite-hosts` 6/6, `vite-watch` 7/7.)
+
 What happens to a `.rx` module in Vite:
 
 - **Entries find themselves.** JavaScript imports only a program's entry,

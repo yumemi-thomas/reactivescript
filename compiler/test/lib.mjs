@@ -13,7 +13,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
 const rxc = process.env.RXC || path.join(repo, "compiler/target/release/rxc");
 if (existsSync(rxc)) process.env.RXC = rxc;   // else the Node-API build
-const { build, exportsOf } = await import("../lib.mjs");
+const { build, exportsOf, foreignKeys } = await import("../lib.mjs");
 
 let fail = 0;
 const check = (name, ok, got) => { if (!ok) fail++; console.log(`${ok ? "✓" : "✗"} ${name}${ok ? "" : ` — ${typeof got === "string" ? got : JSON.stringify(got)}`.slice(0, 900)}`); };
@@ -56,6 +56,12 @@ check("an exported server fn is refused (MO-13f)", !r.ok && r.problems.some(p =>
 writeFileSync(path.join(pkg, "src/extra.rx"), "export component Bad() {\n  source n := 1\n  <p>{n := 2}</p>\n}\n");
 r = build(pkg, { types: false, entries: ["src/extra.rx"] });
 check("a module the checker refuses is not built", !r.ok && r.problems.length > 0, r.problems);
+// a module's scoped styles are linked by what the browser's import resolves to, and by nothing on the server
+writeFileSync(path.join(pkg, "src/extra.rx"), "export component Tag() {\n  <b class=\"tag\">new</b>\n  <style>.tag { color: red }</style>\n}\n");
+r = build(pkg, { types: false, entries: ["src/index.rx", "src/theme.rx", "src/extra.rx"], write: true });
+check("a module's stylesheet is written, and imported by the browser's entry alone (07 CSS-4)", r.ok && existsSync(dist("extra.css")) && /^import "\.\/extra\.css";$/m.test(read("extra.js")) && !/extra\.css/.test(read("extra.server.js")) && !/\.css/.test(read("index.js")), r.ok ? read("extra.js") : r.problems);
+check("a signature that names a context through node_modules is found (MO-13b): another package's, by where it was installed", JSON.stringify(foreignKeys("//@ signature a.rx\nexport component A() uses(./theme.rx#theme, ../node_modules/b/dist/index.rx#mode)\nexport component B() provides(../../node_modules/@s/c/dist/x.rx#c)")) === JSON.stringify(["../node_modules/b/dist/index.rx#mode", "../../node_modules/@s/c/dist/x.rx#c"]) && foreignKeys(read("index.d.rx")).length === 0, foreignKeys(read("index.d.rx")));
+writeFileSync(path.join(pkg, "package.json"), JSON.stringify(written));
 rmSync(path.join(pkg, "src/extra.rx"));
 check("the package builds again", build(pkg, { types: false }).ok, "third build");
 

@@ -496,10 +496,15 @@ function assignDraft(draft: any, v: unknown) {
  *  components(pages)`): Solid components bound to the request's app (SV-4: module state is per request), or outside a
  *  request to the render's (`pageApp`), or to the app passed (`components(pages, createApp({ request }))`). Outside
  *  both, rendering one throws rather than share one app's module state across unrelated renders. */
-export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ServerApp): T {
+export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ServerApp, name?: string): T {
   const made = new Map<string, unknown>();
+  // MO-13h, MO-13g (2026-11-23): a module the plugin named is rooted as a package's is — under the request's owner in a
+  // request (it lasts as the request does, whichever of its renders ends first), under the render's root otherwise — and
+  // its ids are the browser's. Unnamed (a host that hands `components` a factory of its own making), as before.
+  const id = name ?? (factory as { __rxName?: string }).__rxName;
+  const inst = id === undefined ? factory : rooted(factory as never, id);
   return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) =>
-    (((app ?? pageApp("an .rx component imported with ?rx-lib")).module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
+    (((app ?? pageApp("an .rx component imported with ?rx-lib")).module(factory, inst as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
 }
 
 /** MO-13e: a compiled `.rx` module as a Solid library for JavaScript (a `.tsx` app): each export as a function of the
