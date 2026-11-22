@@ -370,6 +370,129 @@
       }
     }
   },
+  "primitives-listeners": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "bad": {
+      "pass": 7,
+      "total": 7,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 0,
+      "total": 0,
+      "fails": []
+    },
+    "decl": {
+      "words": 11,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 2,
+      "draft": {
+        "rows": 58,
+        "any": 14,
+        "vendor": 14,
+        "introduced": 0,
+        "places": 27
+      }
+    }
+  },
+  "primitives-sensors": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 8,
+      "total": 8,
+      "fails": []
+    },
+    "bad": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 1,
+      "total": 1,
+      "fails": []
+    },
+    "decl": {
+      "words": 6,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0,
+      "draft": {
+        "rows": 46,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
+    }
+  },
+  "primitives-state": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 8,
+      "total": 8,
+      "fails": []
+    },
+    "bad": {
+      "pass": 7,
+      "total": 7,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 0,
+      "total": 0,
+      "fails": []
+    },
+    "decl": {
+      "words": 6,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 4,
+      "draft": {
+        "rows": 37,
+        "any": 7,
+        "vendor": 7,
+        "introduced": 0,
+        "places": 17
+      }
+    }
+  },
   "primitives-virtual": {
     "good": {
       "pass": 3,
@@ -612,7 +735,7 @@
         "any": 52,
         "vendor": 52,
         "introduced": 0,
-        "places": 28
+        "places": 26
       }
     }
   },
@@ -736,6 +859,47 @@
         "vendor": 2,
         "introduced": 0,
         "places": 0
+      }
+    }
+  },
+  "solid-use-state": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 4,
+      "total": 4,
+      "fails": []
+    },
+    "bad": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 0,
+      "total": 0,
+      "fails": []
+    },
+    "decl": {
+      "words": 9,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0,
+      "draft": {
+        "rows": 3,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 1
       }
     }
   },
@@ -1028,6 +1192,47 @@
       }
     }
   },
+  "ui-sdk-forms": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "bad": {
+      "pass": 4,
+      "total": 4,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 2,
+      "total": 2,
+      "fails": []
+    },
+    "decl": {
+      "words": 9,
+      "any": 9,
+      "inherited": 9,
+      "introduced": 0,
+      "places": 10,
+      "draft": {
+        "rows": 43,
+        "any": 10,
+        "vendor": 10,
+        "introduced": 0,
+        "places": 10
+      }
+    }
+  },
   "wardic-motion": {
     "good": {
       "pass": 3,
@@ -1065,7 +1270,48 @@
         "any": 3,
         "vendor": 3,
         "introduced": 0,
-        "places": 40
+        "places": 42
+      }
+    }
+  },
+  "wardic-values": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 4,
+      "total": 4,
+      "fails": []
+    },
+    "bad": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 0,
+      "total": 0,
+      "fails": []
+    },
+    "decl": {
+      "words": 16,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0,
+      "draft": {
+        "rows": 277,
+        "any": 3,
+        "vendor": 3,
+        "introduced": 0,
+        "places": 42
       }
     }
   }

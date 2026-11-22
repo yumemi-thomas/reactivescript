@@ -1,211 +1,262 @@
 Coverage: 120 programs, 120 green; 190 modules drafted whole (4877 rows): 1195 `any` the libraries' own, 0 introduced, 1519 by place; 253 hand-written words, 109 `any` inherited and 0 introduced in the kept rows, 195 by place
 
 primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 introduced, 264 by place); 98 programs, 98 green; 148 hand-written words
-  module                                        version  rows drafted  `any` library's  introduced  by place  used by                           hand words  accepted  types  runs  server
-  --------------------------------------------  -------  ------------  ---------------  ----------  --------  --------------------------------  ----------  --------  -----  ----  ------
-  @solid-primitives/a11y                        1.0.0    12            0                0           0         primitives/a11y                   2           3/3       2/2    3/3   yes   
-  @solid-primitives/active-element              3.0.0    3             0                0           0         primitives/active-element         1           3/3       2/2    3/3   yes   
-  @solid-primitives/analytics                   2.0.0    21            0                0           0         primitives/analytics              1           3/3       2/2    3/3   yes   
-  @solid-primitives/analytics/relay             2.0.0    1             0                0           0         — (primitives/analytics)                                                   
-  @solid-primitives/analytics/relay/solidstart  2.0.0    1             0                0           0         — (primitives/analytics)                                                   
-  @solid-primitives/analytics/relay/tanstack    2.0.0    1             0                0           0         — (primitives/analytics)                                                   
-  @solid-primitives/animation                   1.0.1    23            0                0           0         primitives/animation              1           3/3       2/2    3/3   yes   
-  @solid-primitives/async                       0.0.101  9             7                0           14        primitives/async                  1           3/3       2/2    4/4   yes   
-  @solid-primitives/audio                       3.0.0    7             0                0           0         primitives/audio                  1           3/3       2/2    3/3   yes   
-  @solid-primitives/bounds                      1.0.0    6             0                0           0         primitives/bounds                 1           3/3       2/2    4/4   yes   
-  @solid-primitives/broadcast-channel           1.0.0    4             0                0           0         primitives/broadcast-channel      1           3/3       2/2    3/3   yes   
-  @solid-primitives/clipboard                   2.0.0    15            4                0           0         primitives/clipboard              0           3/3       2/2    4/4   yes   
-  @solid-primitives/connectivity                1.0.0    11            0                0           0         primitives/connectivity           1           3/3       2/2    4/4   yes   
-  @solid-primitives/context                     2.0.0    9             0                0           8         primitives/context                8           3/3       2/2    3/3   yes   
-  @solid-primitives/controlled-props            1.0.0    13            0                0           24        primitives/controlled-props       1           3/3       2/2    2/2   no    
-  @solid-primitives/controlled-signal           1.0.0    8             0                0           16        primitives/controlled-signal      2           3/3       2/2    3/3   yes   
-  @solid-primitives/cookies                     2.0.0    8             0                0           8         primitives/cookies                1           3/3       2/2    4/4   yes   
-  @solid-primitives/cursor                      1.0.0    7             0                0           0         primitives/cursor                 1           3/3       2/2    4/4   yes   
-  @solid-primitives/date                        3.0.1    33            0                0           0         primitives/date                   1           3/3       2/2    3/3   yes   
-  @solid-primitives/deep                        1.0.0    6             0                0           0         primitives/deep                   1           3/3       2/2    3/3   yes   
-  @solid-primitives/destructure                 1.0.0    6             6                0           0         primitives/destructure            1           3/3       2/2    3/3   yes   
-  @solid-primitives/devices                     3.0.0    4             0                0           0         primitives/devices                1           3/3       2/2    2/2   no    
-  @solid-primitives/drag-drop                   0.1.0    34            0                0           0         primitives/drag-drop              1           3/3       2/2    3/3   yes   
-  @solid-primitives/event-bus                   3.0.0    27            11               0           20        primitives/event-bus              5           3/3       2/2    3/3   yes   
-  @solid-primitives/event-dispatcher            1.0.0    3             6                0           2         primitives/event-dispatcher       1           3/3       2/2    3/3   yes   
-  @solid-primitives/event-listener              3.0.0    19            5                0           2         primitives/event-listener         2           3/3       2/2    3/3   yes   
-  @solid-primitives/event-props                 1.0.0    5             0                0           0         primitives/event-props            1           3/3       2/2    3/3   yes   
-  @solid-primitives/favicon                     1.0.0    24            0                0           0         primitives/favicon                1           3/3       2/2    3/3   no    
-  @solid-primitives/filesystem                  3.0.0    26            0                0           6         primitives/filesystem             2           3/3       2/2    3/3   yes   
-  @solid-primitives/flux-store                  1.0.0    9             2                0           2         primitives/flux-store             1           3/3       2/2    3/3   yes   
-  @solid-primitives/focus                       1.0.0    15            0                0           0         primitives/focus                  1           3/3       2/2    3/3   yes   
-  @solid-primitives/form                        1.0.1    16            0                0           15        primitives/form                   1           3/3       2/2    3/3   yes   
-  @solid-primitives/fullscreen                  2.0.0    4             0                0           0         primitives/fullscreen             1           3/3       2/2    3/3   yes   
-  @solid-primitives/geolocation                 3.0.0    7             0                0           2         primitives/geolocation            1           3/3       2/2    2/2   no    
-  @solid-primitives/gestures                    3.0.0    19            0                0           0         primitives/gestures               2           3/3       2/2    3/3   yes   
-  @solid-primitives/graphql                     3.0.0    13            3                0           4         primitives/graphql                1           3/3       2/2    2/2   no    
-  @solid-primitives/history                     1.0.0    3             0                0           0         primitives/history                2           3/3       2/2    4/4   yes   
-  @solid-primitives/i18n                        3.0.0    34            3                0           21        primitives/i18n                   2           3/3       2/2    3/3   yes   
-  @solid-primitives/idle                        1.0.0    5             0                0           0         primitives/idle                   2           3/3       2/2    4/4   yes   
-  @solid-primitives/input-mask                  1.0.0    14            0                0           0         primitives/input-mask             1           3/3       2/2    3/3   yes   
-  @solid-primitives/interaction                 1.0.1    12            0                0           0         primitives/interaction            2           3/3       2/2    3/3   yes   
-  @solid-primitives/intersection-observer       3.0.0    19            0                0           2         primitives/intersection-observer  1           3/3       2/2    3/3   yes   
-  @solid-primitives/jsx-tokenizer               3.0.0    9             1                0           0         primitives/jsx-tokenizer          1           3/3       2/2    2/2   no    
-  @solid-primitives/keyboard                    2.0.0    10            0                0           0         primitives/keyboard               3           3/3       2/2    4/4   yes   
-  @solid-primitives/keyed                       3.0.0    7             1                0           0         primitives/keyed                  0           3/3       2/2    3/3   yes   
-  @solid-primitives/lifecycle                   1.0.0    3             0                0           0         primitives/lifecycle              1           3/3       2/2    3/3   yes   
-  @solid-primitives/list                        1.0.0    3             3                0           0         primitives/list                   0           3/3       2/2    3/3   yes   
-  @solid-primitives/list-state                  1.0.0    9             0                0           0         primitives/list-state             1           3/3       2/2    4/4   yes   
-  @solid-primitives/map                         1.0.0    3             0                0           0         primitives/map                    3           3/3       2/2    3/3   yes   
-  @solid-primitives/marker                      2.0.0    2             0                0           0         primitives/marker                 1           3/3       2/2    3/3   yes   
-  @solid-primitives/masonry                     2.0.0    4             0                0           0         primitives/masonry                1           3/3       2/2    3/3   yes   
-  @solid-primitives/match                       1.0.0    3             0                0           0         primitives/match                  0           3/3       2/2    3/3   yes   
-  @solid-primitives/media                       4.0.0    9             0                0           0         primitives/media                  2           3/3       2/2    3/3   yes   
-  @solid-primitives/mediastream                 1.0.0    9             0                0           0         primitives/mediastream            1           3/3       2/2    3/3   yes   
-  @solid-primitives/memo                        2.0.0    10            3                0           9         primitives/memo                   1           3/3       2/2    4/4   yes   
-  @solid-primitives/mouse                       4.0.0    16            0                0           0         primitives/mouse                  1           3/3       2/2    3/3   yes   
-  @solid-primitives/mutable                     3.0.0    3             1                0           0         primitives/mutable                1           3/3       2/2    3/3   yes   
-  @solid-primitives/mutation-observer           3.0.0    4             0                0           0         primitives/mutation-observer      2           3/3       2/2    3/3   yes   
-  @solid-primitives/notification                1.0.0    5             0                0           0         primitives/notification           1           3/3       2/2    3/3   yes   
-  @solid-primitives/orientation                 1.0.0    4             0                0           0         primitives/orientation            1           3/3       2/2    3/3   yes   
-  @solid-primitives/page-utilities              3.0.0    4             0                0           0         primitives/page-utilities         1           3/3       2/2    3/3   yes   
-  @solid-primitives/pagination                  1.0.0    7             0                0           2         primitives/pagination             1           3/3       2/2    3/3   yes   
-  @solid-primitives/permission                  2.0.0    1             0                0           0         primitives/permission             1           3/3       2/2    3/3   yes   
-  @solid-primitives/platform                    1.0.0    23            0                0           0         primitives/platform               0           3/3       2/2    3/3   yes   
-  @solid-primitives/pointer                     1.0.0    15            0                0           2         primitives/pointer                1           3/3       2/2    3/3   yes   
-  @solid-primitives/presence                    1.0.0    5             0                0           2         primitives/presence               1           3/3       2/2    4/4   yes   
-  @solid-primitives/promise                     2.0.0    10            4                0           0         primitives/promise                0           3/3       2/2    3/3   yes   
-  @solid-primitives/props                       4.0.0    9             4                0           0         primitives/props                  2           3/3       2/2    3/3   no    
-  @solid-primitives/queue                       1.0.0    11            0                0           12        primitives/queue                  1           3/3       2/2    4/4   yes   
-  @solid-primitives/raf                         4.0.0    8             3                0           1         primitives/raf                    2           3/3       2/2    4/4   yes   
-  @solid-primitives/range                       1.0.0    8             0                0           0         primitives/range                  2           3/3       2/2    3/3   yes   
-  @solid-primitives/refs                        3.0.0    10            0                0           1         primitives/refs                   3           3/3       2/2    3/3   yes   
-  @solid-primitives/resize-observer             4.0.0    11            0                0           1         primitives/resize-observer        1           3/3       2/2    4/4   yes   
-  @solid-primitives/rootless                    2.0.0    11            2                0           6         primitives/rootless               1           3/3       2/2    3/3   yes   
-  @solid-primitives/scheduled                   2.0.0    8             0                0           6         primitives/scheduled              3           3/3       2/2    3/3   yes   
-  @solid-primitives/script-loader               3.0.0    2             0                0           0         primitives/script-loader          8           3/3       2/2    3/3   yes   
-  @solid-primitives/scroll                      3.0.0    8             0                0           0         primitives/scroll                 1           3/3       2/2    3/3   yes   
-  @solid-primitives/selection                   1.0.0    3             0                0           2         primitives/selection              1           3/3       2/2    3/3   yes   
-  @solid-primitives/sensors                     1.0.0    17            0                0           2         primitives/sensors                1           3/3       2/2    3/3   yes   
-  @solid-primitives/set                         1.0.0    8             0                0           0         primitives/set                    3           3/3       2/2    3/3   yes   
-  @solid-primitives/share                       4.0.0    39            0                0           0         primitives/share                  1           3/3       2/2    3/3   yes   
-  @solid-primitives/signal-builders             1.0.0    40            17               0           4         primitives/signal-builders        1           3/3       2/2    3/3   yes   
-  @solid-primitives/sortable                    1.0.0    14            4                0           0         primitives/sortable               2           3/3       2/2    3/3   yes   
-  @solid-primitives/spring                      1.0.0    9             0                0           4         primitives/spring                 1           3/3       2/2    3/3   yes   
-  @solid-primitives/sse                         1.0.0    22            1                0           0         primitives/sse                    1           3/3       2/2    2/2   no    
-  @solid-primitives/sse/worker                  1.0.0    3             0                0           4         — (primitives/sse)                                                         
-  @solid-primitives/sse/worker-handler          1.0.0    0             0                0           0         — (primitives/sse)                                                         
-  @solid-primitives/state-machine               1.0.0    9             2                0           0         primitives/state-machine          11          3/3       2/2    3/3   yes   
-  @solid-primitives/static-store                1.0.0    5             0                0           6         primitives/static-store           1           3/3       2/2    3/3   yes   
-  @solid-primitives/storage                     5.0.0    19            9                0           2         primitives/storage                1           3/3       2/2    4/4   yes   
-  @solid-primitives/storage/tauri               5.0.0    1             0                0           0         — (primitives/storage)                                                     
-  @solid-primitives/styles                      1.0.0    4             0                0           0         primitives/styles                 1           3/3       2/2    3/3   yes   
-  @solid-primitives/timer                       1.4.5    6             0                0           5         primitives/timer                  1           3/3       2/2    3/3   yes   
-  @solid-primitives/transition-group            2.0.0    8             0                0           6         primitives/transition-group       3           3/3       2/2    3/3   yes   
-  @solid-primitives/trigger                     3.0.0    3             0                0           0         primitives/trigger                1           3/3       2/2    3/3   yes   
-  @solid-primitives/tween                       2.0.0    2             0                0           0         primitives/tween                  1           3/3       2/2    3/3   yes   
-  @solid-primitives/upload                      1.0.0    20            0                0           6         primitives/upload                 1           3/3       2/2    3/3   yes   
-  @solid-primitives/url                         0.2.0    23            0                0           5         primitives/url                    1           3/3       2/2    3/3   yes   
-  @solid-primitives/utils                       7.0.1    80            18               0           20        primitives/utils                  2           3/3       2/2    3/3   yes   
-  @solid-primitives/utils/colors                7.0.1    26            0                0           0         — (primitives/utils)                                                       
-  @solid-primitives/utils/immutable             7.0.1    41            5                0           2         — (primitives/utils)                                                       
-  @solid-primitives/vibrate                     1.0.0    9             0                0           0         primitives/vibrate                1           3/3       2/2    4/4   yes   
-  @solid-primitives/video                       1.0.0    14            0                0           0         primitives/video                  1           3/3       2/2    3/3   yes   
-  @solid-primitives/virtual                     1.0.1    2             2                0           3         primitives/virtual                0           3/3       2/2    2/2   no    
-  @solid-primitives/websocket                   2.0.0    16            0                0           2         primitives/websocket              2           3/3       2/2    2/2   no    
-  @solid-primitives/workers                     2.0.1    12            0                0           3         primitives/workers                1           3/3       2/2    2/2   no    
-  @solid-primitives/workers/worker              2.0.1    2             0                0           0         — (primitives/workers)                                                     
+  module                                        version  rows drafted  `any` library's  introduced  by place  used by                           hand words  accepted  types  runs  server  hydrated
+  --------------------------------------------  -------  ------------  ---------------  ----------  --------  --------------------------------  ----------  --------  -----  ----  ------  --------
+  @solid-primitives/a11y                        1.0.0    12            0                0           0         primitives/a11y                   2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/active-element              3.0.0    3             0                0           0         primitives/active-element         1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/analytics                   2.0.0    21            0                0           0         primitives/analytics              1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/analytics/relay             2.0.0    1             0                0           0         — (primitives/analytics)                                                             
+  @solid-primitives/analytics/relay/solidstart  2.0.0    1             0                0           0         — (primitives/analytics)                                                             
+  @solid-primitives/analytics/relay/tanstack    2.0.0    1             0                0           0         — (primitives/analytics)                                                             
+  @solid-primitives/animation                   1.0.1    23            0                0           0         primitives/animation              1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/async                       0.0.101  9             7                0           14        primitives/async                  1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/audio                       3.0.0    7             0                0           0         primitives/audio                  1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/bounds                      1.0.0    6             0                0           0         primitives/bounds                 1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/broadcast-channel           1.0.0    4             0                0           0         primitives/broadcast-channel      1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/clipboard                   2.0.0    15            4                0           0         primitives/clipboard              0           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/connectivity                1.0.0    11            0                0           0         primitives/connectivity           1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/context                     2.0.0    9             0                0           8         primitives/context                8           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/controlled-props            1.0.0    13            0                0           24        primitives/controlled-props       1           3/3       2/2    2/2   no      no      
+  @solid-primitives/controlled-signal           1.0.0    8             0                0           16        primitives/controlled-signal      2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/cookies                     2.0.0    8             0                0           8         primitives/cookies                1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/cursor                      1.0.0    7             0                0           0         primitives/cursor                 1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/date                        3.0.1    33            0                0           0         primitives/date                   1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/deep                        1.0.0    6             0                0           0         primitives/deep                   1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/destructure                 1.0.0    6             6                0           0         primitives/destructure            1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/devices                     3.0.0    4             0                0           0         primitives/devices                1           3/3       2/2    2/2   no      no      
+  @solid-primitives/drag-drop                   0.1.0    34            0                0           0         primitives/drag-drop              1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/event-bus                   3.0.0    27            11               0           20        primitives/event-bus              5           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/event-dispatcher            1.0.0    3             6                0           2         primitives/event-dispatcher       1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/event-listener              3.0.0    19            5                0           2         primitives/event-listener         2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/event-props                 1.0.0    5             0                0           0         primitives/event-props            1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/favicon                     1.0.0    24            0                0           0         primitives/favicon                1           3/3       2/2    3/3   no      no      
+  @solid-primitives/filesystem                  3.0.0    26            0                0           6         primitives/filesystem             2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/flux-store                  1.0.0    9             2                0           2         primitives/flux-store             1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/focus                       1.0.0    15            0                0           0         primitives/focus                  1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/form                        1.0.1    16            0                0           15        primitives/form                   1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/fullscreen                  2.0.0    4             0                0           0         primitives/fullscreen             1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/geolocation                 3.0.0    7             0                0           2         primitives/geolocation            1           3/3       2/2    2/2   no      no      
+  @solid-primitives/gestures                    3.0.0    19            0                0           0         primitives/gestures               2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/graphql                     3.0.0    13            3                0           4         primitives/graphql                1           3/3       2/2    2/2   no      no      
+  @solid-primitives/history                     1.0.0    3             0                0           0         primitives/history                2           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/i18n                        3.0.0    34            3                0           21        primitives/i18n                   2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/idle                        1.0.0    5             0                0           0         primitives/idle                   2           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/input-mask                  1.0.0    14            0                0           0         primitives/input-mask             1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/interaction                 1.0.1    12            0                0           0         primitives/interaction            2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/intersection-observer       3.0.0    19            0                0           2         primitives/intersection-observer  1           3/3       2/2    3/3   yes     no      
+  @solid-primitives/jsx-tokenizer               3.0.0    9             1                0           0         primitives/jsx-tokenizer          1           3/3       2/2    2/2   no      no      
+  @solid-primitives/keyboard                    2.0.0    10            0                0           0         primitives/keyboard               3           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/keyed                       3.0.0    7             1                0           0         primitives/keyed                  0           3/3       2/2    3/3   yes     no      
+  @solid-primitives/lifecycle                   1.0.0    3             0                0           0         primitives/lifecycle              1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/list                        1.0.0    3             3                0           0         primitives/list                   0           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/list-state                  1.0.0    9             0                0           0         primitives/list-state             1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/map                         1.0.0    3             0                0           0         primitives/map                    3           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/marker                      2.0.0    2             0                0           0         primitives/marker                 1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/masonry                     2.0.0    4             0                0           0         primitives/masonry                1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/match                       1.0.0    3             0                0           0         primitives/match                  0           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/media                       4.0.0    9             0                0           0         primitives/media                  2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/mediastream                 1.0.0    9             0                0           0         primitives/mediastream            1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/memo                        2.0.0    10            3                0           9         primitives/memo                   1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/mouse                       4.0.0    16            0                0           0         primitives/mouse                  1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/mutable                     3.0.0    3             1                0           0         primitives/mutable                1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/mutation-observer           3.0.0    4             0                0           0         primitives/mutation-observer      2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/notification                1.0.0    5             0                0           0         primitives/notification           1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/orientation                 1.0.0    4             0                0           0         primitives/orientation            1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/page-utilities              3.0.0    4             0                0           0         primitives/page-utilities         1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/pagination                  1.0.0    7             0                0           2         primitives/pagination             1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/permission                  2.0.0    1             0                0           0         primitives/permission             1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/platform                    1.0.0    23            0                0           0         primitives/platform               0           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/pointer                     1.0.0    15            0                0           2         primitives/pointer                1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/presence                    1.0.0    5             0                0           2         primitives/presence               1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/promise                     2.0.0    10            4                0           0         primitives/promise                0           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/props                       4.0.0    9             4                0           0         primitives/props                  2           3/3       2/2    3/3   no      no      
+  @solid-primitives/queue                       1.0.0    11            0                0           12        primitives/queue                  1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/raf                         4.0.0    8             3                0           1         primitives/raf                    2           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/range                       1.0.0    8             0                0           0         primitives/range                  2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/refs                        3.0.0    10            0                0           1         primitives/refs                   3           3/3       2/2    3/3   yes     no      
+  @solid-primitives/resize-observer             4.0.0    11            0                0           1         primitives/resize-observer        1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/rootless                    2.0.0    11            2                0           6         primitives/rootless               1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/scheduled                   2.0.0    8             0                0           6         primitives/scheduled              3           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/script-loader               3.0.0    2             0                0           0         primitives/script-loader          8           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/scroll                      3.0.0    8             0                0           0         primitives/scroll                 1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/selection                   1.0.0    3             0                0           2         primitives/selection              1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/sensors                     1.0.0    17            0                0           2         primitives/sensors                1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/set                         1.0.0    8             0                0           0         primitives/set                    3           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/share                       4.0.0    39            0                0           0         primitives/share                  1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/signal-builders             1.0.0    40            17               0           4         primitives/signal-builders        1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/sortable                    1.0.0    14            4                0           0         primitives/sortable               2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/spring                      1.0.0    9             0                0           4         primitives/spring                 1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/sse                         1.0.0    22            1                0           0         primitives/sse                    1           3/3       2/2    2/2   no      no      
+  @solid-primitives/sse/worker                  1.0.0    3             0                0           4         — (primitives/sse)                                                                   
+  @solid-primitives/sse/worker-handler          1.0.0    0             0                0           0         — (primitives/sse)                                                                   
+  @solid-primitives/state-machine               1.0.0    9             2                0           0         primitives/state-machine          11          3/3       2/2    3/3   yes     yes     
+  @solid-primitives/static-store                1.0.0    5             0                0           6         primitives/static-store           1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/storage                     5.0.0    19            9                0           2         primitives/storage                1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/storage/tauri               5.0.0    1             0                0           0         — (primitives/storage)                                                               
+  @solid-primitives/styles                      1.0.0    4             0                0           0         primitives/styles                 1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/timer                       1.4.5    6             0                0           5         primitives/timer                  1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/transition-group            2.0.0    8             0                0           6         primitives/transition-group       3           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/trigger                     3.0.0    3             0                0           0         primitives/trigger                1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/tween                       2.0.0    2             0                0           0         primitives/tween                  1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/upload                      1.0.0    20            0                0           6         primitives/upload                 1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/url                         0.2.0    23            0                0           5         primitives/url                    1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/utils                       7.0.1    80            18               0           20        primitives/utils                  2           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/utils/colors                7.0.1    26            0                0           0         — (primitives/utils)                                                                 
+  @solid-primitives/utils/immutable             7.0.1    41            5                0           2         — (primitives/utils)                                                                 
+  @solid-primitives/vibrate                     1.0.0    9             0                0           0         primitives/vibrate                1           3/3       2/2    4/4   yes     yes     
+  @solid-primitives/video                       1.0.0    14            0                0           0         primitives/video                  1           3/3       2/2    3/3   yes     yes     
+  @solid-primitives/virtual                     1.0.1    2             2                0           3         primitives/virtual                0           3/3       2/2    2/2   no      no      
+  @solid-primitives/websocket                   2.0.0    16            0                0           2         primitives/websocket              2           3/3       2/2    2/2   no      no      
+  @solid-primitives/workers                     2.0.1    12            0                0           3         primitives/workers                1           3/3       2/2    2/2   no      no      
+  @solid-primitives/workers/worker              2.0.1    2             0                0           0         — (primitives/workers)                                                               
 
 solid-use: 10 modules drafted (28 rows, 6 `any` the libraries' own, 0 introduced, 0 by place); 10 programs, 10 green; 18 hand-written words
-  module                     version  rows drafted  `any` library's  introduced  by place  used by                    hand words  accepted  types  runs  server
-  -------------------------  -------  ------------  ---------------  ----------  --------  -------------------------  ----------  --------  -----  ----  ------
-  solid-use/atom             1.0.0    1             0                0           0         solid-use/atom             1           3/3       2/2    3/3   yes   
-  solid-use/client-only      1.0.0    5             2                0           0         solid-use/client-only      1           3/3       2/2    3/3   yes   
-  solid-use/fetch            1.0.0    4             0                0           0         solid-use/fetch            1           3/3       2/2    2/2   no    
-  solid-use/media-query      1.0.0    4             0                0           0         solid-use/media-query      2           3/3       2/2    3/3   yes   
-  solid-use/online-status    1.0.0    0             0                0           0         solid-use/online-status    1           3/3       2/2    3/3   yes   
-  solid-use/page-visibility  1.0.0    0             0                0           0         solid-use/page-visibility  1           3/3       2/2    3/3   yes   
-  solid-use/props            1.0.0    7             2                0           0         solid-use/props            1           3/3       2/2    3/3   yes   
-  solid-use/provider         1.0.0    7             2                0           0         solid-use/provider         8           3/3       2/2    3/3   yes   
-  solid-use/server-value     1.0.0    0             0                0           0         solid-use/server-value     1           3/3       2/2    3/3   yes   
-  solid-use/string           1.0.0    0             0                0           0         solid-use/string           1           3/3       2/2    3/3   yes   
+  module                     version  rows drafted  `any` library's  introduced  by place  used by                    hand words  accepted  types  runs  server  hydrated
+  -------------------------  -------  ------------  ---------------  ----------  --------  -------------------------  ----------  --------  -----  ----  ------  --------
+  solid-use/atom             1.0.0    1             0                0           0         solid-use/atom             1           3/3       2/2    3/3   yes     yes     
+  solid-use/client-only      1.0.0    5             2                0           0         solid-use/client-only      1           3/3       2/2    3/3   yes     yes     
+  solid-use/fetch            1.0.0    4             0                0           0         solid-use/fetch            1           3/3       2/2    2/2   no      no      
+  solid-use/media-query      1.0.0    4             0                0           0         solid-use/media-query      2           3/3       2/2    3/3   yes     yes     
+  solid-use/online-status    1.0.0    0             0                0           0         solid-use/online-status    1           3/3       2/2    3/3   yes     yes     
+  solid-use/page-visibility  1.0.0    0             0                0           0         solid-use/page-visibility  1           3/3       2/2    3/3   yes     yes     
+  solid-use/props            1.0.0    7             2                0           0         solid-use/props            1           3/3       2/2    3/3   yes     yes     
+  solid-use/provider         1.0.0    7             2                0           0         solid-use/provider         8           3/3       2/2    3/3   yes     yes     
+  solid-use/server-value     1.0.0    0             0                0           0         solid-use/server-value     1           3/3       2/2    3/3   yes     yes     
+  solid-use/string           1.0.0    0             0                0           0         solid-use/string           1           3/3       2/2    3/3   yes     yes     
 
 ui-sdk: 69 modules drafted (2861 rows, 1052 `any` the libraries' own, 0 introduced, 1159 by place); 6 programs, 6 green; 9 hand-written words
-  module                           version        rows drafted  `any` library's  introduced  by place  used by  hand words  accepted  types  runs  server
-  -------------------------------  -------------  ------------  ---------------  ----------  --------  -------  ----------  --------  -----  ----  ------
-  @ui-sdk/solid                    0.1.0-beta.13  1329          522              0           577       —                                                 
-  @ui-sdk/solid/accordion          0.1.0-beta.13  21            9                0           28        —                                                 
-  @ui-sdk/solid/agent              0.1.0-beta.13  8             0                0           2         —                                                 
-  @ui-sdk/solid/alert-dialog       0.1.0-beta.13  29            10               0           10        —                                                 
-  @ui-sdk/solid/async-options      0.1.0-beta.13  7             0                0           0         —                                                 
-  @ui-sdk/solid/autocomplete       0.1.0-beta.13  52            27               0           38        —                                                 
-  @ui-sdk/solid/avatar             0.1.0-beta.13  9             6                0           6         —                                                 
-  @ui-sdk/solid/button             0.1.0-beta.13  6             2                0           4         —                                                 
-  @ui-sdk/solid/calendar           0.1.0-beta.13  38            9                0           0         —                                                 
-  @ui-sdk/solid/carousel           0.1.0-beta.13  33            12               0           9         —                                                 
-  @ui-sdk/solid/checkbox           0.1.0-beta.13  22            4                0           3         —                                                 
-  @ui-sdk/solid/collapsible        0.1.0-beta.13  15            6                0           6         —                                                 
-  @ui-sdk/solid/color              0.1.0-beta.13  15            0                0           0         —                                                 
-  @ui-sdk/solid/color-picker       0.1.0-beta.13  33            22               0           30        —                                                 
-  @ui-sdk/solid/combobox           0.1.0-beta.13  70            34               0           39        —                                                 
-  @ui-sdk/solid/command            0.1.0-beta.13  47            20               0           24        —                                                 
-  @ui-sdk/solid/date               0.1.0-beta.13  31            0                0           0         —                                                 
-  @ui-sdk/solid/date-input         0.1.0-beta.13  18            2                0           0         —                                                 
-  @ui-sdk/solid/date-picker        0.1.0-beta.13  50            18               0           11        —                                                 
-  @ui-sdk/solid/dialog             0.1.0-beta.13  49            10               0           9         —                                                 
-  @ui-sdk/solid/drawer             0.1.0-beta.13  34            13               0           12        —                                                 
-  @ui-sdk/solid/field              0.1.0-beta.13  21            12               0           0         —                                                 
-  @ui-sdk/solid/file-input         0.1.0-beta.13  30            7                0           7         —                                                 
-  @ui-sdk/solid/gesture            0.1.0-beta.13  5             0                0           0         —                                                 
-  @ui-sdk/solid/history            0.1.0-beta.13  6             0                0           0         —                                                 
-  @ui-sdk/solid/hover-card         0.1.0-beta.13  17            4                0           3         —                                                 
-  @ui-sdk/solid/image              0.1.0-beta.13  5             0                0           0         —                                                 
-  @ui-sdk/solid/image-cropper      0.1.0-beta.13  28            18               0           24        —                                                 
-  @ui-sdk/solid/input              0.1.0-beta.13  18            4                0           3         —                                                 
-  @ui-sdk/solid/label              0.1.0-beta.13  3             2                0           0         —                                                 
-  @ui-sdk/solid/listbox            0.1.0-beta.13  29            12               0           19        —                                                 
-  @ui-sdk/solid/menu               0.1.0-beta.13  56            17               0           8         —                                                 
-  @ui-sdk/solid/menubar            0.1.0-beta.13  9             1                0           0         —                                                 
-  @ui-sdk/solid/meter              0.1.0-beta.13  11            10               0           12        —                                                 
-  @ui-sdk/solid/navigation-menu    0.1.0-beta.13  34            13               0           12        —                                                 
-  @ui-sdk/solid/number             0.1.0-beta.13  25            0                0           2         —                                                 
-  @ui-sdk/solid/number-input       0.1.0-beta.13  18            10               0           9         —                                                 
-  @ui-sdk/solid/observe            0.1.0-beta.13  4             0                0           1         —                                                 
-  @ui-sdk/solid/otp-input          0.1.0-beta.13  16            6                0           6         —                                                 
-  @ui-sdk/solid/overlays           0.1.0-beta.13  6             0                0           2         —                                                 
-  @ui-sdk/solid/pagination         0.1.0-beta.13  22            11               0           6         —                                                 
-  @ui-sdk/solid/password-input     0.1.0-beta.13  10            4                0           3         —                                                 
-  @ui-sdk/solid/popover            0.1.0-beta.13  26            11               0           14        —                                                 
-  @ui-sdk/solid/preferences        0.1.0-beta.13  3             0                0           0         —                                                 
-  @ui-sdk/solid/primitive          0.1.0-beta.13  9             0                0           0         —                                                 
-  @ui-sdk/solid/progress           0.1.0-beta.13  12            10               0           12        —                                                 
-  @ui-sdk/solid/radio              0.1.0-beta.13  15            4                0           3         —                                                 
-  @ui-sdk/solid/rating             0.1.0-beta.13  12            2                0           0         —                                                 
-  @ui-sdk/solid/resizable          0.1.0-beta.13  20            6                0           6         —                                                 
-  @ui-sdk/solid/scroll-area        0.1.0-beta.13  18            12               0           12        —                                                 
-  @ui-sdk/solid/segmented-control  0.1.0-beta.13  16            4                0           3         —                                                 
-  @ui-sdk/solid/select             0.1.0-beta.13  61            30               0           39        —                                                 
-  @ui-sdk/solid/separator          0.1.0-beta.13  5             2                0           0         —                                                 
-  @ui-sdk/solid/shortcuts          0.1.0-beta.13  13            0                0           0         —                                                 
-  @ui-sdk/solid/slider             0.1.0-beta.13  20            11               0           27        —                                                 
-  @ui-sdk/solid/switch             0.1.0-beta.13  10            3                0           3         —                                                 
-  @ui-sdk/solid/tabs               0.1.0-beta.13  24            11               0           30        —                                                 
-  @ui-sdk/solid/text-match         0.1.0-beta.13  5             0                0           0         —                                                 
-  @ui-sdk/solid/textarea           0.1.0-beta.13  16            1                0           0         —                                                 
-  @ui-sdk/solid/time-input         0.1.0-beta.13  16            2                0           0         —                                                 
-  @ui-sdk/solid/timeline           0.1.0-beta.13  22            14               0           18        —                                                 
-  @ui-sdk/solid/toast              0.1.0-beta.13  27            6                0           2         —                                                 
-  @ui-sdk/solid/toggle             0.1.0-beta.13  22            4                0           3         —                                                 
-  @ui-sdk/solid/token-input        0.1.0-beta.13  30            3                0           0         —                                                 
-  @ui-sdk/solid/toolbar            0.1.0-beta.13  21            10               0           12        —                                                 
-  @ui-sdk/solid/tooltip            0.1.0-beta.13  20            5                0           3         —                                                 
-  @ui-sdk/solid/tree               0.1.0-beta.13  38            6                0           0         —                                                 
-  @ui-sdk/solid/trigger-menu       0.1.0-beta.13  55            17               0           17        —                                                 
-  @ui-sdk/solid/waterfall          0.1.0-beta.13  36            21               0           30        —                                                 
+  module                           version        rows drafted  `any` library's  introduced  by place  used by  hand words  accepted  types  runs  server  hydrated
+  -------------------------------  -------------  ------------  ---------------  ----------  --------  -------  ----------  --------  -----  ----  ------  --------
+  @ui-sdk/solid                    0.1.0-beta.13  1329          522              0           577       —                                                           
+  @ui-sdk/solid/accordion          0.1.0-beta.13  21            9                0           28        —                                                           
+  @ui-sdk/solid/agent              0.1.0-beta.13  8             0                0           2         —                                                           
+  @ui-sdk/solid/alert-dialog       0.1.0-beta.13  29            10               0           10        —                                                           
+  @ui-sdk/solid/async-options      0.1.0-beta.13  7             0                0           0         —                                                           
+  @ui-sdk/solid/autocomplete       0.1.0-beta.13  52            27               0           38        —                                                           
+  @ui-sdk/solid/avatar             0.1.0-beta.13  9             6                0           6         —                                                           
+  @ui-sdk/solid/button             0.1.0-beta.13  6             2                0           4         —                                                           
+  @ui-sdk/solid/calendar           0.1.0-beta.13  38            9                0           0         —                                                           
+  @ui-sdk/solid/carousel           0.1.0-beta.13  33            12               0           9         —                                                           
+  @ui-sdk/solid/checkbox           0.1.0-beta.13  22            4                0           3         —                                                           
+  @ui-sdk/solid/collapsible        0.1.0-beta.13  15            6                0           6         —                                                           
+  @ui-sdk/solid/color              0.1.0-beta.13  15            0                0           0         —                                                           
+  @ui-sdk/solid/color-picker       0.1.0-beta.13  33            22               0           30        —                                                           
+  @ui-sdk/solid/combobox           0.1.0-beta.13  70            34               0           39        —                                                           
+  @ui-sdk/solid/command            0.1.0-beta.13  47            20               0           24        —                                                           
+  @ui-sdk/solid/date               0.1.0-beta.13  31            0                0           0         —                                                           
+  @ui-sdk/solid/date-input         0.1.0-beta.13  18            2                0           0         —                                                           
+  @ui-sdk/solid/date-picker        0.1.0-beta.13  50            18               0           11        —                                                           
+  @ui-sdk/solid/dialog             0.1.0-beta.13  49            10               0           9         —                                                           
+  @ui-sdk/solid/drawer             0.1.0-beta.13  34            13               0           12        —                                                           
+  @ui-sdk/solid/field              0.1.0-beta.13  21            12               0           0         —                                                           
+  @ui-sdk/solid/file-input         0.1.0-beta.13  30            7                0           7         —                                                           
+  @ui-sdk/solid/gesture            0.1.0-beta.13  5             0                0           0         —                                                           
+  @ui-sdk/solid/history            0.1.0-beta.13  6             0                0           0         —                                                           
+  @ui-sdk/solid/hover-card         0.1.0-beta.13  17            4                0           3         —                                                           
+  @ui-sdk/solid/image              0.1.0-beta.13  5             0                0           0         —                                                           
+  @ui-sdk/solid/image-cropper      0.1.0-beta.13  28            18               0           24        —                                                           
+  @ui-sdk/solid/input              0.1.0-beta.13  18            4                0           3         —                                                           
+  @ui-sdk/solid/label              0.1.0-beta.13  3             2                0           0         —                                                           
+  @ui-sdk/solid/listbox            0.1.0-beta.13  29            12               0           19        —                                                           
+  @ui-sdk/solid/menu               0.1.0-beta.13  56            17               0           8         —                                                           
+  @ui-sdk/solid/menubar            0.1.0-beta.13  9             1                0           0         —                                                           
+  @ui-sdk/solid/meter              0.1.0-beta.13  11            10               0           12        —                                                           
+  @ui-sdk/solid/navigation-menu    0.1.0-beta.13  34            13               0           12        —                                                           
+  @ui-sdk/solid/number             0.1.0-beta.13  25            0                0           2         —                                                           
+  @ui-sdk/solid/number-input       0.1.0-beta.13  18            10               0           9         —                                                           
+  @ui-sdk/solid/observe            0.1.0-beta.13  4             0                0           1         —                                                           
+  @ui-sdk/solid/otp-input          0.1.0-beta.13  16            6                0           6         —                                                           
+  @ui-sdk/solid/overlays           0.1.0-beta.13  6             0                0           2         —                                                           
+  @ui-sdk/solid/pagination         0.1.0-beta.13  22            11               0           6         —                                                           
+  @ui-sdk/solid/password-input     0.1.0-beta.13  10            4                0           3         —                                                           
+  @ui-sdk/solid/popover            0.1.0-beta.13  26            11               0           14        —                                                           
+  @ui-sdk/solid/preferences        0.1.0-beta.13  3             0                0           0         —                                                           
+  @ui-sdk/solid/primitive          0.1.0-beta.13  9             0                0           0         —                                                           
+  @ui-sdk/solid/progress           0.1.0-beta.13  12            10               0           12        —                                                           
+  @ui-sdk/solid/radio              0.1.0-beta.13  15            4                0           3         —                                                           
+  @ui-sdk/solid/rating             0.1.0-beta.13  12            2                0           0         —                                                           
+  @ui-sdk/solid/resizable          0.1.0-beta.13  20            6                0           6         —                                                           
+  @ui-sdk/solid/scroll-area        0.1.0-beta.13  18            12               0           12        —                                                           
+  @ui-sdk/solid/segmented-control  0.1.0-beta.13  16            4                0           3         —                                                           
+  @ui-sdk/solid/select             0.1.0-beta.13  61            30               0           39        —                                                           
+  @ui-sdk/solid/separator          0.1.0-beta.13  5             2                0           0         —                                                           
+  @ui-sdk/solid/shortcuts          0.1.0-beta.13  13            0                0           0         —                                                           
+  @ui-sdk/solid/slider             0.1.0-beta.13  20            11               0           27        —                                                           
+  @ui-sdk/solid/switch             0.1.0-beta.13  10            3                0           3         —                                                           
+  @ui-sdk/solid/tabs               0.1.0-beta.13  24            11               0           30        —                                                           
+  @ui-sdk/solid/text-match         0.1.0-beta.13  5             0                0           0         —                                                           
+  @ui-sdk/solid/textarea           0.1.0-beta.13  16            1                0           0         —                                                           
+  @ui-sdk/solid/time-input         0.1.0-beta.13  16            2                0           0         —                                                           
+  @ui-sdk/solid/timeline           0.1.0-beta.13  22            14               0           18        —                                                           
+  @ui-sdk/solid/toast              0.1.0-beta.13  27            6                0           2         —                                                           
+  @ui-sdk/solid/toggle             0.1.0-beta.13  22            4                0           3         —                                                           
+  @ui-sdk/solid/token-input        0.1.0-beta.13  30            3                0           0         —                                                           
+  @ui-sdk/solid/toolbar            0.1.0-beta.13  21            10               0           12        —                                                           
+  @ui-sdk/solid/tooltip            0.1.0-beta.13  20            5                0           3         —                                                           
+  @ui-sdk/solid/tree               0.1.0-beta.13  38            6                0           0         —                                                           
+  @ui-sdk/solid/trigger-menu       0.1.0-beta.13  55            17               0           17        —                                                           
+  @ui-sdk/solid/waterfall          0.1.0-beta.13  36            21               0           30        —                                                           
 
 wardic: 4 modules drafted (751 rows, 10 `any` the libraries' own, 0 introduced, 96 by place); 6 programs, 6 green; 78 hand-written words
-  module                     version  rows drafted  `any` library's  introduced  by place  used by  hand words  accepted  types  runs  server
-  -------------------------  -------  ------------  ---------------  ----------  --------  -------  ----------  --------  -----  ----  ------
-  @wardic/dom                1.2.0    30            0                0           0         —                                                 
-  @wardic/solid              2.0.1    247           3                0           42        —                                                 
-  @wardic/solid/unstable/v2  2.0.1    247           3                0           42        —                                                 
-  @wardic/solid/v1           2.0.1    227           4                0           12        —                                                 
+  module                     version  rows drafted  `any` library's  introduced  by place  used by  hand words  accepted  types  runs  server  hydrated
+  -------------------------  -------  ------------  ---------------  ----------  --------  -------  ----------  --------  -----  ----  ------  --------
+  @wardic/dom                1.2.0    30            0                0           0         —                                                           
+  @wardic/solid              2.0.1    247           3                0           42        —                                                           
+  @wardic/solid/unstable/v2  2.0.1    247           3                0           42        —                                                           
+  @wardic/solid/v1           2.0.1    227           4                0           12        —                                                           
 
 All green.
+
+What the entries say of their packages (49):
+  primitives/context: A JS module of the app's own: the factory given to createContextProvider makes state (a component's body, in a callback), and `.rx` has `context` and `provide` of its own.
+  primitives/controlled-props: not rendered on the server — the control is the library's JSX, compiled for the DOM alone (one build): it calls a client-only API of @solidjs/web on the server, in any app. A JS module of the app's own: createControlledProp hands back a component as a part of a tuple, and a component is rendered by its own name.
+  primitives/date: CreateTimeAgo and createTimeDifferenceFromNow are not used: their effect reads `diff`, a const declared after it, and Solid 2 computes an effect where it is made — `Cannot access 'diff' before initialization`, in any app.
+  primitives/destructure: A JS module of the app's own: the result has an accessor for each field of whatever it is given (a mapped type), and a row lists the fields that are `ref`.
+  primitives/devices: not rendered on the server — createDevices reads navigator.mediaDevices where it is called, with no server path (index.js: `navigator.mediaDevices.enumerateDevices()`): a .tsx app meets the same TypeError in its server render.
+  primitives/event-props: The library's props are lowercase (`onpointerdown`): spread on an element, Solid 2 sets them as attributes (LOWERCASE_EVENT_ATTRIBUTE), in any app; the program gives each to the element's own handler.
+  primitives/favicon: not rendered on the server — the package's module calls a client-only API of @solidjs/web where it is loaded on the server (`Client-only API called on the server side`), in any app.
+  primitives/flux-store: A JS module of the app's own: the actions are written over a store's setter the library hands a callback, whose own callback is given the draft: two functions deep, where `draft` is said on a callback's parameter.
+  primitives/geolocation: not rendered on the server — the position is the browser's: the server's render waits on a promise that the server never settles. A JS module of the app's own: the library's accessor answers a promise (`() => Promise<GeolocationCoordinates>`), which a memo unwraps; an `.rx` equation bound to it would hold a promise (MISSING_AWAIT).
+  primitives/graphql: not rendered on the server — the query is asked of the network where the primitive is made. A JS module of the app's own: the client is a function that makes a query each time it is called (a method that instantiates), and its query is a tagged template.
+  primitives/history: A JS module of the app's own: the library takes one function that is tracked and answers a function that writes.
+  primitives/i18n: A JS module of the app's own: `translator(dict)` hands back the function the view calls, and a function that is a primitive's whole result is io to `.rx` (MO-10b): the module gives it as a field.
+  primitives/intersection-observer: Rendered on the server and mounted in the browser, not hydrated — the value is ready on the server and waits in the browser until the observer first reports: the server's page has the view where the browser's first render has the fallback, in any app.
+  primitives/jsx-tokenizer: not rendered on the server — the tokens are resolved from the children the browser makes; the module is compiled for the DOM. A JS module of the app's own: a token component is made by a factory at the module's top level and read by the parent it is written for: a library author's tool.
+  primitives/keyed: Rendered on the server and mounted in the browser, not hydrated — <Key> renders its rows by another path on the server (`if (isServer)`, index.js:20) than in the browser, so the rows' hydration keys differ: the library's, in any app.
+  primitives/map: A JS module of the app's own constructs the class (`new ReactiveMap()`); the package's `createMap` hands back a proxy whose methods lose their `this` (`Cannot read private member`), in any app.
+  primitives/marker: A JS module of the app's own: createMarker hands back the function the view calls (io when it is a primitive's whole result, MO-10b), and takes a RegExp, which `.rx` has no literal for.
+  primitives/mutable: A JS module of the app's own: a mutable is written by assigning to it, and `.rx` writes its own sources (`:=`): the assignment is JavaScript's.
+  primitives/props: not rendered on the server — button.js makes its element with the DOM. A JS module of the app's own: combineProps is for a component that spreads props it merges onto its own element: a component author's tool, in a component written in JavaScript.
+  primitives/refs: Rendered on the server and mounted in the browser, not hydrated — <Refs> hands its children back as they are on the server (`if (isServer) return props.children`) and resolves them in a memo in the browser, so the children's hydration keys differ: the library's, in any app.
+  primitives/rootless: A JS module of the app's own: createSingletonRoot is called at a module's top level with a function that makes state, and hands back the hook.
+  primitives/set: A JS module of the app's own constructs the class (`new ReactiveSet()`); the package's `createSet` hands back a proxy whose methods lose their `this` (`Cannot read private member`), in any app.
+  primitives/signal-builders: A JS module of the app's own: each argument is a value or an accessor, in a rest parameter (`...a: MaybeAccessor<number>[]`), where `ref` is said of one parameter.
+  primitives/sse: not rendered on the server — the stream is opened where the primitive is made, from the browser.
+  primitives/state-machine: A JS module of the app's own: the machine is one function that is an accessor of its state and has that state's fields too, with a state type computed from the record of states.
+  primitives/storage: A JS module of the app's own: makePersisted takes a Solid signal (a getter and a setter), and an `.rx` program has none to pass.
+  primitives/trigger: A JS module of the app's own: `track()` answers nothing and is called where a value is computed: to `.rx` a function that answers nothing is called for what it does (MO-10b).
+  primitives/virtual: not rendered on the server — the package ships one build, its JSX compiled for the DOM: <VirtualList> calls a client-only API of @solidjs/web on the server, in any app.
+  primitives/websocket: not rendered on the server — createWS opens a WebSocket where it is called: on the server it would connect from the server, and the package has no server path.
+  primitives/workers: not rendered on the server — a worker is the browser's (`new Worker`). A JS module of the app's own: createWorker is given functions (their source is sent to the worker) and hands back a tuple whose first part has a method for each: a mapped type.
+  solid-use/atom: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and an atom is one function that reads and writes, where a result's part is a reader or a function.
+  solid-use/fetch: not rendered on the server — the request is made where the primitive is made, from the browser. A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and what it answers is an object whose method makes the accessor (a method that instantiates).
+  solid-use/online-status: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports.
+  solid-use/page-visibility: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports.
+  solid-use/provider: A JS module of the app's own: `provide(context, value)` is a call made for what it does while a component is made, which has no place in an `.rx` component's body.
+  solid-use/server-value: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and its callback is called once, while the call is made, and is impure on purpose.
+  solid-use/string: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and it is a tagged template, which `.rx` has no call for.
+  ui-sdk/disclosure: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
+  ui-sdk/forms: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
+  ui-sdk/popups: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
+  ui-sdk/selection: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
+  ui-sdk/status: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
+  ui-sdk/utilities: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
+  wardic/easing: not rendered on the server — the benchmark imports a package as Node resolves it, and Wardic's server render is its `solid` condition's source, compiled by the app's bundler (compiler/test/wardic.mjs runs it through Vite).
+  wardic/elements: not rendered on the server — the benchmark imports a package as Node resolves it, and Wardic's server render is its `solid` condition's source, compiled by the app's bundler (compiler/test/wardic.mjs runs it through Vite).
+  wardic/gestures: not rendered on the server — the benchmark imports a package as Node resolves it, and Wardic's server render is its `solid` condition's source, compiled by the app's bundler (compiler/test/wardic.mjs runs it through Vite). A JS module of the app's own for the sensor: Wardic's `createHover()` is one function that is given to `ref` and called for its reading, where a result's part is a reader or a function.
+  wardic/layout: not rendered on the server — the benchmark imports a package as Node resolves it, and Wardic's server render is its `solid` condition's source, compiled by the app's bundler (compiler/test/wardic.mjs runs it through Vite).
+  wardic/presence: not rendered on the server — the benchmark imports a package as Node resolves it, and Wardic's server render is its `solid` condition's source, compiled by the app's bundler (compiler/test/wardic.mjs runs it through Vite).
+  wardic/values: not rendered on the server — the benchmark imports a package as Node resolves it, and Wardic's server render is its `solid` condition's source, compiled by the app's bundler (compiler/test/wardic.mjs runs it through Vite).
 
 Not on Solid 2, and not tested (the latest release's peer range): @solid-primitives/autofocus@0.1.5 (solid-js ^1.6.12), @solid-primitives/composites@1.1.1 (solid-js ^1.3.1), @solid-primitives/cookies-store@1.1.11 (solid-js ^1.0.7), @solid-primitives/countdown@1.0.9 (solid-js ^1.2.5), @solid-primitives/db-store@1.1.4 (solid-js ^1.6.12), @solid-primitives/fetch@2.5.2 (solid-js ^1.6.12), @solid-primitives/immutable@1.1.5 (solid-js ^1.6.12), @solid-primitives/local-store@1.1.4 (solid-js ^1.0.7), @solid-primitives/page-visibility@2.1.6 (solid-js ^1.6.12), @solid-primitives/reducer@0.0.101 (solid-js ^1.3.0), @solid-primitives/resource@0.4.3 (solid-js ^1.6.0), @solid-primitives/stream@0.7.4 (solid-js ^1.6.12)

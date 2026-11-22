@@ -199,3 +199,13 @@ tasks were 6, 9, 11/12, 6 and 3 of those, with 12 words, 1 inherited `any` and 2
 are 9, 18, 29, 18 and 3, with 43 words, 10 inherited and 9 by place. Now (26 tasks): good 78/78, types 124/124, runtime
 172/172, bad 125/127, unrepresentable 8/8, 166 words, 32 inherited, 0 introduced, 11 by place. `scorecard.json` is that
 run, and what `--check` now holds each task to.
+
+On 2026-11-23 six tasks came in with the coverage suite (`primitives-sensors`, `primitives-listeners`,
+`primitives-state`, `solid-use-state`, `ui-sdk-forms`, `wardic-values`): 18 good, 31 types, 35 runtime, 36 bad and 3
+unrepresentable checks, all green, with 57 hand-written words, 9 inherited `any`s and 16 parts by place. The 26 tasks
+before them are as they were (good 78/78, types 124/124, runtime 172/172, bad 125/127, unrepresentable 8/8, 158 words,
+32 inherited, 0 introduced, 11 by place), through a change to what a compiled program does at run time (09 MO-10a: a
+primitive's own owner). Now (32 tasks): good 96/96, types 155/155, runtime 207/207, bad 161/163, unrepresentable
+11/11, 215 words, 41 inherited, 0 introduced, 27 by place. The coverage suite beside them: 120 programs, 120 green;
+190 modules drafted whole (4877 rows), 1195 `any`s the libraries' own, none introduced, 1519 by place; 253
+hand-written words.

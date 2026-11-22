@@ -812,6 +812,13 @@ modules:
   project's declarations included — or the import is left to the
   generated draft, whose rows claim nothing a run could contradict
   (every fn io).
+- Of the fourth round's *What the tools should do*: the three left
+  (running a kit's components inside each other to find a context no hook
+  shows; following a component that is a call's result in the source
+  reading; a place to put a family's evidence) are not taken up. Each
+  would write a suggestion a person still confirms, and none changes a
+  verdict; the contexts this round's tasks declare (a radio in its group,
+  Wardic's provider) were read off one run of the page.
 - The proposals of the third round stay proposals, for the reasons given
   there: a predicate as a fn's own result (text nothing reads), a copy of
   a library's unexported helper types (the place refers, a copy

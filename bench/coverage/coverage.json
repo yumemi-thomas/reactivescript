@@ -17,6 +17,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/a11y"
    ],
@@ -53,6 +54,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/active-element"
    ],
@@ -89,6 +91,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/analytics"
    ],
@@ -143,6 +146,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/animation"
    ],
@@ -179,6 +183,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/async"
    ],
@@ -215,6 +220,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/audio"
    ],
@@ -251,6 +257,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/bounds"
    ],
@@ -287,6 +294,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/broadcast-channel"
    ],
@@ -323,6 +331,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/clipboard"
    ],
@@ -359,6 +368,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/connectivity"
    ],
@@ -395,6 +405,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/context"
    ],
@@ -431,6 +442,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/controlled-props"
    ],
@@ -467,6 +479,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/controlled-signal"
    ],
@@ -503,6 +516,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/cookies"
    ],
@@ -539,6 +553,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/cursor"
    ],
@@ -575,6 +590,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/date"
    ],
@@ -611,6 +627,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/deep"
    ],
@@ -647,6 +664,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/destructure"
    ],
@@ -683,6 +701,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/devices"
    ],
@@ -719,6 +738,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/drag-drop"
    ],
@@ -755,6 +775,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/event-bus"
    ],
@@ -791,6 +812,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/event-dispatcher"
    ],
@@ -827,6 +849,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/event-listener"
    ],
@@ -863,6 +886,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/event-props"
    ],
@@ -899,6 +923,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/favicon"
    ],
@@ -935,6 +960,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/filesystem"
    ],
@@ -971,6 +997,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/flux-store"
    ],
@@ -1007,6 +1034,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/focus"
    ],
@@ -1043,6 +1071,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/form"
    ],
@@ -1079,6 +1108,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/fullscreen"
    ],
@@ -1115,6 +1145,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/geolocation"
    ],
@@ -1151,6 +1182,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/gestures"
    ],
@@ -1187,6 +1219,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/graphql"
    ],
@@ -1223,6 +1256,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/history"
    ],
@@ -1259,6 +1293,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/i18n"
    ],
@@ -1295,6 +1330,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/idle"
    ],
@@ -1331,6 +1367,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/input-mask"
    ],
@@ -1367,6 +1404,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/interaction"
    ],
@@ -1403,6 +1441,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/intersection-observer"
    ],
@@ -1439,6 +1478,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/jsx-tokenizer"
    ],
@@ -1475,6 +1515,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/keyboard"
    ],
@@ -1511,6 +1552,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/keyed"
    ],
@@ -1547,6 +1589,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/lifecycle"
    ],
@@ -1583,6 +1626,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/list"
    ],
@@ -1619,6 +1663,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/list-state"
    ],
@@ -1655,6 +1700,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/map"
    ],
@@ -1691,6 +1737,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/marker"
    ],
@@ -1727,6 +1774,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/masonry"
    ],
@@ -1763,6 +1811,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/match"
    ],
@@ -1799,6 +1848,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/media"
    ],
@@ -1835,6 +1885,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/mediastream"
    ],
@@ -1871,6 +1922,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/memo"
    ],
@@ -1907,6 +1959,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/mouse"
    ],
@@ -1943,6 +1996,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/mutable"
    ],
@@ -1979,6 +2033,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/mutation-observer"
    ],
@@ -2015,6 +2070,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/notification"
    ],
@@ -2051,6 +2107,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/orientation"
    ],
@@ -2087,6 +2144,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/page-utilities"
    ],
@@ -2123,6 +2181,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/pagination"
    ],
@@ -2159,6 +2218,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/permission"
    ],
@@ -2195,6 +2255,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/platform"
    ],
@@ -2231,6 +2292,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/pointer"
    ],
@@ -2267,6 +2329,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/presence"
    ],
@@ -2303,6 +2366,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/promise"
    ],
@@ -2339,6 +2403,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/props"
    ],
@@ -2375,6 +2440,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/queue"
    ],
@@ -2411,6 +2477,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/raf"
    ],
@@ -2447,6 +2514,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/range"
    ],
@@ -2483,6 +2551,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/refs"
    ],
@@ -2519,6 +2588,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/resize-observer"
    ],
@@ -2555,6 +2625,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/rootless"
    ],
@@ -2591,6 +2662,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/scheduled"
    ],
@@ -2627,6 +2699,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/script-loader"
    ],
@@ -2663,6 +2736,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/scroll"
    ],
@@ -2699,6 +2773,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/selection"
    ],
@@ -2735,6 +2810,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/sensors"
    ],
@@ -2771,6 +2847,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/set"
    ],
@@ -2807,6 +2884,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/share"
    ],
@@ -2843,6 +2921,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/signal-builders"
    ],
@@ -2879,6 +2958,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/sortable"
    ],
@@ -2915,6 +2995,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/spring"
    ],
@@ -2951,6 +3032,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/sse"
    ],
@@ -2999,6 +3081,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/state-machine"
    ],
@@ -3035,6 +3118,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/static-store"
    ],
@@ -3071,6 +3155,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/storage"
    ],
@@ -3113,6 +3198,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/styles"
    ],
@@ -3149,6 +3235,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/timer"
    ],
@@ -3185,6 +3272,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/transition-group"
    ],
@@ -3221,6 +3309,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/trigger"
    ],
@@ -3257,6 +3346,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/tween"
    ],
@@ -3293,6 +3383,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/upload"
    ],
@@ -3329,6 +3420,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/url"
    ],
@@ -3365,6 +3457,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/utils"
    ],
@@ -3413,6 +3506,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/vibrate"
    ],
@@ -3449,6 +3543,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "@solid-primitives/video"
    ],
@@ -3485,6 +3580,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/virtual"
    ],
@@ -3521,6 +3617,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/websocket"
    ],
@@ -3557,6 +3654,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@solid-primitives/workers"
    ],
@@ -3599,6 +3697,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "solid-use/atom"
    ],
@@ -3635,6 +3734,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "solid-use/client-only"
    ],
@@ -3671,6 +3771,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "solid-use/fetch"
    ],
@@ -3707,6 +3808,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "solid-use/media-query"
    ],
@@ -3743,6 +3845,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "solid-use/online-status"
    ],
@@ -3779,6 +3882,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "solid-use/page-visibility"
    ],
@@ -3815,6 +3919,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "solid-use/props"
    ],
@@ -3851,6 +3956,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "solid-use/provider"
    ],
@@ -3887,6 +3993,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "solid-use/server-value"
    ],
@@ -3923,6 +4030,7 @@
     "fails": []
    },
    "server": true,
+   "hydrates": true,
    "uses": [
     "solid-use/string"
    ],
@@ -3959,6 +4067,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@ui-sdk/solid/accordion",
     "@ui-sdk/solid/collapsible",
@@ -3990,6 +4099,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@ui-sdk/solid/button",
     "@ui-sdk/solid/checkbox",
@@ -4026,6 +4136,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@ui-sdk/solid/menu",
     "@ui-sdk/solid/popover",
@@ -4057,6 +4168,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@ui-sdk/solid/listbox",
     "@ui-sdk/solid/select"
@@ -4087,6 +4199,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@ui-sdk/solid/avatar",
     "@ui-sdk/solid/meter",
@@ -4119,6 +4232,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@ui-sdk/solid/date",
     "@ui-sdk/solid/number"
@@ -4149,6 +4263,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@wardic/dom",
     "@wardic/solid"
@@ -4179,6 +4294,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@wardic/dom",
     "@wardic/solid"
@@ -4209,6 +4325,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@wardic/dom",
     "@wardic/solid"
@@ -4239,6 +4356,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@wardic/dom",
     "@wardic/solid"
@@ -4269,6 +4387,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@wardic/dom",
     "@wardic/solid"
@@ -4299,6 +4418,7 @@
     "fails": []
    },
    "server": false,
+   "hydrates": false,
    "uses": [
     "@wardic/dom",
     "@wardic/solid"
