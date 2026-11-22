@@ -9,7 +9,7 @@
 const path = require("node:path");
 
 /** A type's text, kept where it names nothing the draft cannot see; `any` otherwise (types are text to the checker). */
-const KNOWN = new Set(["Promise", "Record", "Array", "ReadonlyArray", "Partial", "Readonly", "View", "Component", "Error", "Date", "Map", "Set", "Element", "HTMLElement", "Event"]);
+const KNOWN = new Set(["Promise", "Record", "Array", "ReadonlyArray", "Partial", "Readonly", "View", "Component", "Error", "Date", "Map", "Set", "Event"]);   // not `Element`: Solid's JSX.Element prints under that name too (`string | Element`), and is a View
 /** The module's own exported type names that the draft declares (`export type Todo = import(…).Todo`): a row may name them. */
 let OWN = new Set();
 function text(ts, checker, t, at, node) {
@@ -241,7 +241,7 @@ function wideIndex(ts, pkg) {
       for (const e of checker.getExportsOfModule(mod)) {
         if (e.name === "default") continue;
         let y = e; try { if (e.flags & ts.SymbolFlags.Alias) y = checker.getAliasedSymbol(e); } catch { continue; }
-        for (const d of y.declarations ?? []) { const k = `${d.getSourceFile().fileName}:${d.pos}`; if (!index.has(k)) index.set(k, { spec, name: e.name }); }
+        for (const d of y.declarations ?? []) { const k = `${d.getSourceFile().fileName}:${d.pos}:${d.kind}`; if (!index.has(k)) index.set(k, { spec, name: e.name }); }   // with its kind: a file re-exported as a namespace (`export * as Point from "./Point"`) begins where its first declaration does
       }
     }
   }
@@ -249,7 +249,7 @@ function wideIndex(ts, pkg) {
   WIDE.set(key, out);
   return out;
 }
-const keyOf = sym => { const d = sym.declarations?.[0]; return d && `${d.getSourceFile().fileName}:${d.pos}`; };
+const keyOf = sym => { const d = sym.declarations?.[0]; return d && `${d.getSourceFile().fileName}:${d.pos}:${d.kind}`; };
 /** MO-8o: a module that exports `sym`, beyond the one being declared and those its declarations import from: a subpath
  *  of the declared module's package, one of the package that declares it, then (for a type another package declares)
  *  the packages the library depends on. */
@@ -337,7 +337,16 @@ function print(ts, checker, node, open = false, given) {
       case K.NamedTupleMember: return `${n.dotDotDotToken ? "..." : ""}${n.name.text}${n.questionToken ? "?" : ""}: ${p(n.type, false)}`;
       case K.OptionalType: return `${p(n.type, false)}?`;
       case K.RestType: return `...${p(n.type, false)}`;
-      case K.UnionType: return list(n.types, top).join(" | ");
+      case K.UnionType: {
+        // a value or a function of something (`boolean | ((page: number) => boolean)`): the checker reads a function
+        // type where a type is one, and this is not — written with what is no function first, it is TypeScript's text
+        const fn = x => ts.isParenthesizedTypeNode(x) ? fn(x.type) : ts.isFunctionTypeNode(x);
+        if (top && real && n.types.some(fn) && n.types.some(x => !fn(x) && x.kind !== K.UndefinedKeyword && !(x.kind === K.LiteralType && x.literal.kind === K.NullKeyword))) {
+          const rest = n.types.filter(x => !fn(x)), fns = n.types.filter(fn);
+          return [...list(rest, top), ...fns.map(x => { const y = p(x, false); return /^\(.*\)$/s.test(y) && !/^\([^()]*\) =>/.test(y) ? y : `(${y})`; })].join(" | ");
+        }
+        return list(n.types, top).join(" | ");
+      }
       case K.IntersectionType: return list(n.types, false).join(" & ");
       case K.TypeOperator: return `${ts.tokenToString(n.operator)} ${p(n.type, false)}`;
       case K.IndexedAccessType: return `${p(n.objectType, false)}[${p(n.indexType, false)}]`;
@@ -479,11 +488,17 @@ function accessorOf(ts, checker, t) {
   t = checker.getNonNullableType(t);
   // `MaybeAccessor<T>` (`T | Accessor<T>`): it takes an accessor, so `.rx` passes one (a live value, MO-10a)
   if (t.flags & ts.TypeFlags.Union) { const a = t.types.map(x => accessorOf(ts, checker, x)).find(Boolean); if (a) return a; }
-  if (t.getConstructSignatures().length || t.getProperties().length) return undefined;
+  // Solid 2's own getter (`SourceAccessor<T>`, what `createSignal` hands back) is an accessor with a brand: a property
+  // named by a symbol is no field of a value
+  if (t.getConstructSignatures().length || t.getProperties().some(q => !q.name.startsWith("__@"))) return undefined;
   const sigs = t.getCallSignatures();
   if (sigs.length !== 1 || sigs[0].getParameters().length) return undefined;
   const r = sigs[0].getReturnType();
-  return r.flags & ts.TypeFlags.Void ? undefined : r;   // `() => void` is a callback, not an accessor
+  if (r.flags & ts.TypeFlags.Void) return undefined;   // `() => void` is a callback, not an accessor
+  // nor is a function of nothing that answers a promise of nothing (`exit: () => Promise<void>`, `requestPermission`):
+  // there is nothing to read, so it is called for what it does (drafted `ref`, a read of the field would have called it)
+  if (checker.typeToString(r) === "Promise<void>") return undefined;
+  return r;
 }
 // Solid's JSX.Element is a union with null and undefined: its name, not its members, says it is an element
 // (by its declaration: the DOM's `Element`, `HTMLElement`, a function of an element, are not)
@@ -522,16 +537,19 @@ function fnText(ts, checker, t) {
   const sigs = checker.getNonNullableType(t).getCallSignatures();
   if (sigs.length !== 1 || sigs[0].getTypeParameters()?.length) return undefined;
   const ps = [];
+  // a part that is itself a function or a record (`(id: string) => () => void`) has no text as a row's own type would
+  // (the checker would read it); inside a function's signature it is TypeScript's, as the library declares it
+  const said = (x, n) => { const a = text(ts, checker, x, undefined, n); if (!CTX.decl || !introduced(a)) return a; const o = declared(ts, checker, n, x, true); return o && !introduced(o) ? (/^\([^]*\) => /.test(o) || /=>/.test(o) && /[|&]/.test(o) ? `(${o})` : o) : a; };
   for (const p of sigs[0].getParameters()) {
     const d = p.valueDeclaration;
     if (!/^[A-Za-z_$][\w$]*$/.test(p.name) || p.name === "this") return undefined;
     if (d && ts.isParameter(d) && d.dotDotDotToken) { ps.push(`...${p.name}: ${ANY("rest")}[]`); continue; }
     const opt = d && ts.isParameter(d) && (d.questionToken || d.initializer) ? "?" : "";
     const pt = checker.getTypeOfSymbol(p);
-    ps.push(`${RESERVED.has(p.name) ? `${p.name}_` : p.name}${opt}: ${text(ts, checker, opt ? checker.getNonNullableType(pt) : pt, undefined, annotation(ts, p))}`);
+    ps.push(`${RESERVED.has(p.name) ? `${p.name}_` : p.name}${opt}: ${said(opt ? checker.getNonNullableType(pt) : pt, annotation(ts, p))}`);
   }
   const r = sigs[0].getReturnType(); const rs = checker.typeToString(r);
-  const named = text(ts, checker, r, undefined, sigs[0].declaration?.type);
+  const named = said(r, sigs[0].declaration?.type);
   const rt = r.flags & ts.TypeFlags.Void ? "void" : /^Promise</.test(rs) && /^any\u00ab/.test(named) ? `Promise<${named}>` : named;
   return `(${ps.join(", ")}) => ${rt}`;
 }
@@ -616,6 +634,9 @@ function paramText(ts, checker, p, at, generic = false, here) {
     // MO-8q: where a field has no text (a predicate, a function generic in itself), the options by the name the library
     // declares them with, or by their place, before an `any` of the draft's
     const whole_ = CTX.decl && introduced(rec) ? whole(ts, checker, opt ? checker.getNonNullableType(t) : t, opt ? present(checker, t, here) : here, node) : undefined;
+    // the last reading: options with a field said by its place (a method generic in itself, taken apart, is the function
+    // at its bounds, which TypeScript may not hold) are the library's own, whole, at their place
+    if (!whole_ && CTX.whole && here && (byPlace(rec) || introduced(rec))) return `${name}${opt}: ${opt ? present(checker, t, here) : here}`;
     return whole_ ? `${name}${opt}: ${whole_}` : rec;
   }
   return `${name}${opt}: ${text(ts, checker, opt ? checker.getNonNullableType(t) : t, opt ? present(checker, t, here) : here, node)}`;   // `?` already says it may be absent
@@ -692,12 +713,28 @@ function structural(ts, checker, t, depth = 0, here) {
     const qt = typeOf(q);
     if (isDisposer(ts, checker, qt)) return "() => void";
     const read = accessorOf(ts, checker, qt);
-    if (read) return CALLED.test(q.name) ? `() => ${structural(ts, checker, read, depth + 1) ?? text(ts, checker, read)}` : `ref ${text(ts, checker, read)}`;
+    // MO-10b: only the result's own fields are declared accessors; one nested deeper is a value — the function it is
+    if (read && depth > 0) return `() => ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
+    if (read) return CALLED.test(q.name) ? `() => ${(st => st ? st + nullish(ts, read) : text(ts, checker, read))(structural(ts, checker, read, depth + 1))}` : `ref ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
     if (isFn(checker, qt)) return fnResultText(ts, checker, qt, at(q));
     const st = depth < 2 ? structural(ts, checker, qt, depth + 1, at(q)) : undefined;
     return st ? st + (CTX.refs ? nullish(ts, qt) : "") : text(ts, checker, qt, at(q), annotation(ts, q));
   };
   return `{ ${props.map(q => `${q.name}${opt(q)}: ${field(q)}`).join("; ")} }`;
+}
+/** The tuple a result's annotation writes: itself, under `readonly` or parentheses, or what an alias with no type
+ *  parameters stands for (`MutationObserverReturn`), so each part is read where the library declares it. */
+function tupleNode(ts, checker, node, depth = 0) {
+  if (!node || node.pos < 0 || depth > 4) return undefined;
+  if (ts.isTupleTypeNode(node)) return node;
+  if (ts.isTypeOperatorNode(node) || ts.isParenthesizedTypeNode(node)) return tupleNode(ts, checker, node.type, depth + 1);
+  if (ts.isTypeReferenceNode(node) && !node.typeArguments?.length) {
+    let y = checker.getSymbolAtLocation(ts.isQualifiedName(node.typeName) ? node.typeName.right : node.typeName);
+    if (y && y.flags & ts.SymbolFlags.Alias) y = checker.getAliasedSymbol(y);
+    const d = y?.declarations?.[0];
+    if (d && ts.isTypeAliasDeclaration(d) && !d.typeParameters?.length) return tupleNode(ts, checker, d.type, depth + 1);
+  }
+  return undefined;
 }
 /** A tuple's function part (a signal's setter): what it takes, where it can be named and it answers nothing. */
 const setter = (ts, checker, x, node, at) => { const c = CTX.refs ? callbackText(ts, checker, x, CTX.decl ? at : undefined, "function-result", node) : ""; return (CTX.decl ? !introduced(c) && c : /\) => void$/.test(c) && !/\bany\b/.test(c)) ? c : `(...args: ${ANY("function-result")}[]) => void`; };
@@ -716,9 +753,19 @@ function resultText(ts, checker, t, todos, generic = false, here, node) {
   if (checker.isTupleType(tuple) && (tuple.target?.elementFlags ?? []).every(f => f & ts.ElementFlags.Required) && (!CTX.decl || tuple === t)) {
     const ro = tuple.target?.readonly ? "readonly " : "";   // MO-10b: `as const` results stay read-only
     // the parts as the library's declaration writes them, where it writes a tuple of as many
-    const tn = node && ts.isTypeOperatorNode(node) ? node.type : node;
-    const parts = tn && ts.isTupleTypeNode(tn) && tn.elements.length === checker.getTypeArguments(tuple).length ? tn.elements.map(e => ts.isNamedTupleMember(e) ? e.type : e) : [];
-    return `${ro}[${checker.getTypeArguments(tuple).map((x, i) => accessorOf(ts, checker, x) ? `ref ${text(ts, checker, accessorOf(ts, checker, x), undefined, innerNode(ts, checker, parts[i], accessorOf(ts, checker, x)))}` : isFn(checker, x) ? (generic && !CTX.decl ? ANY("generic") : setter(ts, checker, x, parts[i], here && `${here}[${i}]`)) : text(ts, checker, x, undefined, parts[i])).join(", ")}]`;
+    const tn = tupleNode(ts, checker, node);
+    const parts = tn && tn.elements.length === checker.getTypeArguments(tuple).length ? tn.elements.map(e => ts.isNamedTupleMember(e) ? e.type : e) : [];
+    // MO-8q: a part with no text of its own — a record written in place (`[value, { stop, start }]`), a type that ranges
+    // over an alias's parameters — is the record as the library writes it (an accessor in it is a value: MO-10b declares
+    // the result's own parts), else its place in the library's result
+    const partAt = i => here && CTX.refs ? `${here}[${i}]` : undefined;
+    const value = (x, i) => {
+      const said = text(ts, checker, x, undefined, parts[i]);
+      if (!CTX.decl || !introduced(said)) return said;
+      const open = declared(ts, checker, parts[i], x, true);
+      return open && !introduced(open) ? open : partAt(i) ?? said;
+    };
+    return `${ro}[${checker.getTypeArguments(tuple).map((x, i) => accessorOf(ts, checker, x) ? `ref ${text(ts, checker, accessorOf(ts, checker, x), CTX.decl && partAt(i) ? `ReturnType<${partAt(i)}>` : undefined, innerNode(ts, checker, parts[i], accessorOf(ts, checker, x)))}` : isFn(checker, x) ? (generic && !CTX.decl ? ANY("generic") : setter(ts, checker, x, parts[i], partAt(i))) : value(x, i)).join(", ")}]`;
   }
   let s = text(ts, checker, t, here, node);
   // a promise is said to be one, whatever it answers (MO-10b reads it): by its place, else of `any`
@@ -834,6 +881,9 @@ function declare(ts, spec, from, options = {}, how = {}) {
       // the last reading (MO-8q): props with a field that has no text are the library's own, by their place, and the
       // record after them holds the fields that do
       if (mode.whole && here && !named && introduced(props.join("; "))) { named = here; props = props.filter(x => !introduced(x)); }
+      // a type that itself ends in a record (`RangeProps & { fallback?: T }`) is written in parentheses: a record that
+      // closes the props is the row's own, the fields that carry words (MO-8o), and this one is the library's text
+      if (named && /\}\s*$/.test(named.replace(MARK, ""))) named = `(${named})`;
       if (named) props = props.filter(x => /^[\w$]+\??: (?:Component$|string \| Component$|\(.*=>)/.test(x.replace(MARK, "")));
       // MO-10g: a prop's function type is pure unless it says `handler`, whatever its name, so an event-like name is only
       // a suggestion here, never the word
