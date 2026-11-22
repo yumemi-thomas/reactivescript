@@ -71,12 +71,13 @@ function splitTop(s) {
 }
 
 const VALUES = new Set(["accessor", "action", "error", "component", "primitive", "fn"]);
-/** x.js / x.server.js: the factory, and each export bound to the app that renders (the runtime's `library`). */
-function wrapper(name, factory, exports) {
+/** x.js / x.server.js: the factory, and each export bound to the page's app (the runtime's `library`, MO-13g); `id`
+ *  names the module (`<package>/<module>`), for the root it is instantiated in (MO-13h). */
+function wrapper(name, factory, exports, id) {
   const vals = exports.filter(([, k]) => VALUES.has(k));
   return `// compiled by ReactiveScript from ${name}.rx — do not edit (spec/09 MO-13e)\n` +
     `import { library as __library } from "@reactivescript/runtime";\nimport __rx from ${JSON.stringify(factory)};\n` +
-    `/** The module as an .rx app instantiates it: once per app (MO-13c). */\nexport { __rx };\nconst __lib = __library(__rx);\n` +
+    `/** The module as an .rx app instantiates it: once per app (MO-13c). */\nexport { __rx };\nconst __lib = __library(__rx, ${JSON.stringify(id)});\n` +
     vals.map(([n]) => n === "default" ? `export default __lib.default;` : `export const ${n} = __lib.${n};`).join("\n") + "\n";
 }
 /** x.d.ts: the types of x.js, from the projection's (x.rx.d.ts): a source or an equation is an accessor, an instantiating
@@ -146,8 +147,9 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
     }
     const exports = exportsOf(m.signature);
     for (const [n, k] of exports) if (k === "server") problems.push(`${path.relative(dir, p)}: exports the server fn ${n}: a server fn is extracted by the app's bundler from the app's own modules, and a compiled package cannot carry one (MO-13f) — export a fn the app wraps in a server fn of its own`);
-    put(`${name}.js`, wrapper(base, `./${base}.dom.js`, exports));
-    put(`${name}.server.js`, wrapper(base, `./${base}.ssr.js`, exports));
+    const id = pkg.name ? `${pkg.name}/${name}` : name;   // the module's name: its root's id, the same on both sides (MO-13h)
+    put(`${name}.js`, wrapper(base, `./${base}.dom.js`, exports, id));
+    put(`${name}.server.js`, wrapper(base, `./${base}.ssr.js`, exports, id));
     put(`${name}.d.rx`, m.signature);
     put(`${name}.d.ts`, declaration(base, exports));
     if (m.dom.css) put(`${name}.css`, m.dom.css);

@@ -9,7 +9,19 @@
   module an import resolves to on each side, the printed signature as its `.d.rx`, the projection's types
   (`x.rx.d.ts`) and the types of the JavaScript (`x.d.ts`), and it holds the package.json's `exports` to that layout
   (`--write` writes them). An `.rx` app is checked against the shipped `.d.rx` as against the package's source; a
-  `.tsx` app gets TypeScript's checks only. The runtime has `library(factory)` for the JavaScript side.
+  `.tsx` app gets TypeScript's checks only. The runtime has `library(factory, name)` for the JavaScript side.
+- A package's module has one instance in a page, whoever imports it (spec/09 MO-13g): an `.rx` program and a `.tsx`
+  host that both import it share its state (they had an instance each). `library` and `components` bind to the page's
+  app — the first app made in the page; the app the runtime makes for JavaScript is the one a program's `createApp`
+  then returns. A second `createApp` in a page is still a second app.
+- On the server, a `.tsx` app that uses an `.rx` package (or `?rx-lib` components) renders with a plain
+  `renderToString` or `renderToStream`: outside Solid's request event the state is the render's, found through the
+  owner, never shared by two renders. It threw before. Used where nothing renders and no request is answered, it still
+  throws, and the message says what to do.
+
+- A package's module that JavaScript uses first is instantiated in a root no owner holds, whose id is the module's
+  name (spec/09 MO-13h): it is not disposed with the component that first read it, and its nodes have the server's
+  ids wherever the first use is.
 - A `.d.rx` that begins `//@ signature <module>.rx` is the printed signature of a compiled `.rx` module, and is read
   as one wherever a JS import finds it (beside a relative module, or a package's): absent `rejects(…)` is nothing,
   sources, equations, actions, contexts with relative keys, `catches`, `shape(…)` are the signature's. The compiler

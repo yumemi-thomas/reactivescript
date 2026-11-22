@@ -176,13 +176,19 @@ record argued each way; this is the decision.
   renders itself (`const { PersonCard } = components(pages)`), or, the
   same bound, by name (`import { PersonCard } from "./pages.rx?rx-lib"`;
   the build's `components` lists the module's exported components). They are
-  bound to an app made on first use: on the client, one for the page; on
-  the server, one per request, kept on Solid's request event
-  (`getRequestEvent().locals`), so module state is per request (SV-4) as
-  in a program's own server. A host may pass the app itself
-  (`components(pages, app)`); a server render outside any request with
+  bound to the page's app (09 MO-13g), made on first use where the page
+  has none: on the client, the first app of the page — an `.rx` program's
+  own, where there is one; on
+  the server, the request's, kept on Solid's request event
+  (`locals`), so module state is per request (SV-4) as
+  in a program's own server, and outside a request the render's (one per
+  `renderToString` or `renderToStream`, found through the owner). A host
+  may pass the app itself
+  (`components(pages, app)`); on the server, a use outside any render and
+  any request with
   none passed throws (proposed 2026-11-21: one app for the process would
-  share module state across unrelated renders). The
+  share module state across unrelated renders; 2026-11-22: a render alone
+  is enough, since it has an owner the app can be kept by). The
   module is checked as an entry is (its components' failures reach their
   own boundaries, or are refused: with the hosts known — a whole-program
   build, `rxc check --whole-program --host m.rx` — each component a host's
@@ -207,14 +213,22 @@ record argued each way; this is the decision.
   the package resolves to. That module exports the factory as `__rx`,
   which a compiled `.rx` importer instantiates in its own app
   (`__rt.module(__rx, __rx)`, 09 MO-13c), and every other export through
-  the runtime's `library(factory)`: a function per export that finds the
-  app as `components` does (the page's; on the server the request's) and
+  the runtime's `library(factory, name)`: a function per export that finds
+  the app as `components` does (the page's, 09 MO-13g: on the server the
+  request's, else the render's) and
   calls the instance's export — so one helper serves a component, an
   accessor, a fn, an action and an error class (`Symbol.hasInstance` tests
   the instance's class). `library` instantiates the module in a root of
-  its own (`createRoot`), so the state of a module first read inside a
-  `<Show>` is not disposed with it. It is the one name the runtime adds
-  for packages, and it is Solid's `createRoot` and a `Proxy`.
+  its own, named by `name` (`createRoot(…, { id })`, 09 MO-13h): made
+  under no owner in the browser and under the render's root owner on the
+  server, so the state of a module first read inside a
+  `<Show>` is not disposed with it, and its nodes' ids do not depend on
+  where that was. It is the one name the runtime adds
+  for packages, and it is Solid's `createRoot` and a `Proxy`. The render's
+  root owner is found by walking `_parent` to the owner Solid's own
+  `getRequestEvent` finds a render by (`Symbol.for("@solidjs/web/render-roots")`),
+  else to the topmost: Solid's internals, as the server build's owner
+  context already is.
 
 ## CP-5 — `ref/` is the conformance suite
 

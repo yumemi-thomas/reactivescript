@@ -2069,11 +2069,9 @@ package's `.d.rx` is the signature the compiler printed (MO-3).
   is in the `.d.ts`, and a server fn cannot be exported by a package at all
   (`rx-lib` refuses it: Solid's `"use server"` pass extracts a server fn
   from the app's own modules, 12 SF-7a, and a compiled package is not
-  one). The exports are bound by the runtime's `library(factory)` to the
-  page's one app, made at first use — on the server to the request's, found
-  through Solid's request event as CP-4d's components are, so a render
-  outside any request throws — and the module is instantiated in a root of
-  its own, so its state is not the first reader's.
+  one). The exports are bound by the runtime's `library(factory, name)` to
+  the page's app (MO-13g), and the module is instantiated there in a root
+  of its own (MO-13h).
   **What stops at that boundary.** A `.tsx` caller gets TypeScript's
   checks and no others: nothing refuses a package's component rendered
   outside its provider, a read of `rate()` under no `<Loading>` or
@@ -2081,21 +2079,70 @@ package's `.d.rx` is the signature the compiler printed (MO-3).
   called in a handler, an accessor read once where it should be followed.
   They fail, or misbehave, at run time as they do with any Solid library.
   The checks an `.rx` app has across the boundary are the signature's, and
-  the signature is not read by TypeScript. An app with both — `.rx`
-  modules and a `.tsx` host that each import the package — has two
-  instances of the package's state unless the host renders the `.rx`
-  program's app (CP-4d).
+  the signature is not read by TypeScript.
   **Solid 2.** The compiled modules call Solid 2.0's primitives
   (`@solidjs/web`'s compiled-template API and `@solidjs/signals`, through
   the runtime): the package's peers are `solid-js` and `@solidjs/web`
   `^2.0.0` and `@reactivescript/runtime`. It does not run on Solid 1.
+- **MO-13g (One instance in a page).** MO-1b's rule holds across the
+  boundary: a package's module has one instance in a page — on the server,
+  in a request — whoever imports it, `.rx` modules, JavaScript, or both.
+  JavaScript's use of a module (`library`, and CP-4d's `components`) is
+  bound to *the page's app*, and an `.rx` program's `createApp` is that
+  app:
+  - *In the browser*, the page's app is the first app made in the page. A
+    program's `createApp` makes it; where JavaScript used a package first
+    (a `.tsx` host that renders before the program starts) the runtime
+    made it, and the first `createApp` after that returns that app rather
+    than a new one. Either way the program and the host read and write one
+    instance, whichever came first.
+  - *On the server*, inside a request (Solid's request event, as a
+    framework provides it and as an app's own `stream` does) it is the
+    request's app, kept in the event's `locals`: the app that streams, the
+    first `createApp` called inside the event, or one the runtime makes at
+    the first use — which that first `createApp` then returns. Outside a
+    request it is the *render's*: one app for each call of
+    `renderToString` or `renderToStream`, found through the owner (every
+    owner a render makes is under the root owner Solid keeps for that
+    render) and released when that root is disposed. So a plain
+    `renderToString(() => <App />)` works, as it does for any Solid
+    library, and two renders running at once never share an instance. It
+    is never the process's: an export used where nothing renders and no
+    request is being answered throws, saying to use it in a render or
+    inside `provideRequestEvent`. (An async function's code after an
+    `await` has no owner; outside a request event that is such a place.)
+  - *A page with two apps.* A second `createApp` in one page (two programs
+    mounted side by side) is a second app, with instances of its own, as
+    two apps always were (MO-1b). JavaScript stays bound to the page's
+    first app wherever it renders — one rule, where a rule by position
+    would have a component render one app's state and its handler, which
+    runs under no owner, write the other's. A host that wants another
+    binding passes the app (`components(pages, app)`).
+- **MO-13h (A module's root, for JavaScript).** Where JavaScript's use is
+  what first instantiates a module, it is made in a root of its own
+  (Solid's `createRoot`) that is not owned by the place of that use: in
+  the browser by no owner, so its state lasts as long as the page — a
+  root made under an owner is disposed with it, and the module's
+  questions with it; on the server under the render's root owner, so what
+  the module asks is sent with that render. The root's id is the module's
+  name (`rx-lib` writes it into the call, `<package>/<module>`, in the
+  letters a hydration key has, after the render's own id), and its nodes'
+  ids follow from it: the same on the server and in the browser wherever
+  the first use is on each side, and no id is taken from the owner that
+  happened to use it first. A module an `.rx` program instantiates first
+  is made where the program's imports are, as before (MO-1b).
 
 Executable: S-module-33 (the marker, both checkers);
 `compiler/test/lib.mjs` (the build); `bench/tasks/rx-package` (a package
 built and installed, an `.rx` app checked against its shipped `.d.rx` with
 the verdicts it gets against the package's source, a `.tsx` app
 type-checked by `tsc` against its `.d.ts`, both run in Chromium and served
-and hydrated). What is still a proposal is in
+and hydrated — the `.tsx` app by a plain `renderToStream` and inside a
+request event; two renders at once, each with its own instance; an `.rx`
+program and JavaScript sharing one, in the browser and in a stream);
+`runtime/test.mjs` (MO-13g and MO-13h on the built runtime: a plain
+`renderToString`, the message outside a render, a module outliving its
+first reader). What is still a proposal is in
 `spec/rfc-rx-packages-2026-11-22.md`.
 
 ---

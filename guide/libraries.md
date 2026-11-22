@@ -360,8 +360,10 @@ const label = useLabel(amount);              // amount: Accessor<number>; label:
 ```
 
 TypeScript checks the types and nothing else: a component outside its provider, a read with no boundary or an action
-called during render compile, and fail at run time as with any Solid library. On the server, render inside the
-framework's request (Solid's request event), so the package's state is per request. A package cannot export a server
+called during render compile, and fail at run time as with any Solid library. The package's state is one per page, shared with an `.rx` program in the same page. On the server it is per request
+inside Solid's request event (a framework's), and per render otherwise: a plain `renderToString(() => <App />)` works,
+and two renders never share it. Reading an export where nothing renders and no request is answered (a module's top
+level, a timer) throws on the server: do it in the render, or inside `provideRequestEvent` from `@solidjs/web/storage`. A package cannot export a server
 fn or a context to JavaScript: export a provider component and the components or fns that read it. It needs Solid 2.
 
 Rules: `spec/09-modules.md` MO-10, MO-11 and MO-12 (and MO-8 for declaration files); MO-13 for packages written in `.rx`.

@@ -43,14 +43,39 @@ try {
     const r = spawnSync(process.execPath, ["twice.mjs"], { cwd: dup, encoding: "utf8" });
     check(name, r.stdout.trim() === keyed && warnings(r) === warned && (!warned || (/different copies \(solid-js/.test(r.stderr) && /may not be able to hydrate/.test(r.stderr))), (r.stdout + r.stderr).slice(0, 300));
   }
-  // CP-4d: a ?rx-lib component rendered on the server outside a request throws, unless the host passes the app
+  // CP-4d, MO-13g: a ?rx-lib component rendered on the server where nothing renders and no request is answered throws,
+  // unless the host passes the app; inside any Solid render it is that render's
   writeFileSync(path.join(tmp, "lib.rx"), "export component Hello() {\n  <b>hi</b>\n}\n");
   const lib = JSON.parse(compile(path.join(tmp, "lib.rx"), "ssr", "@solidjs/web", false, true));
   writeFileSync(path.join(tmp, "lib.mjs"), lib.modules[Object.keys(lib.modules).find(k => k.endsWith("lib.rx"))].code);
   writeFileSync(path.join(tmp, "host.mjs"), `import pages from "./lib.mjs";\nimport { components, createApp } from "@reactivescript/runtime";\nlet threw = "";\ntry { components(pages).Hello({}); } catch (e) { threw = String(e.message); }\nlet ok = true;\ntry { components(pages, createApp()).Hello({}); } catch (e) { ok = String(e.message); }\nconsole.log(JSON.stringify({ threw, ok }));\n`);
   const host = JSON.parse(execFileSync(process.execPath, ["host.mjs"], { cwd: tmp }).toString());
-  check("a ?rx-lib component rendered on the server outside a request throws (CP-4d)", /outside a request/.test(host.threw), host.threw);
+  check("a ?rx-lib component used on the server outside a render and outside a request throws, and says what to do (CP-4d)", /outside a render and outside a request/.test(host.threw) && /renderToString/.test(host.threw) && /provideRequestEvent/.test(host.threw) && /components\(pages, createApp/.test(host.threw), host.threw);
   check("the same with the app passed renders", host.ok === true, String(host.ok));
+  writeFileSync(path.join(tmp, "host2.mjs"), `import pages from "./lib.mjs";\nimport { components, library } from "@reactivescript/runtime";\nimport { renderToString } from "@solidjs/web";\nconst out = {};\ntry { out.components = renderToString(() => components(pages).Hello({})); out.library = renderToString(() => library(pages, "t/lib").Hello({})); } catch (e) { out.threw = String(e.message); }\nconsole.log(JSON.stringify(out));\n`);
+  const host2 = spawnSync(process.execPath, ["host2.mjs"], { cwd: tmp, encoding: "utf8" });
+  const plainRender = JSON.parse(host2.stdout.trim().split("\n").pop() || "{}");
+  check("inside a plain renderToString, with no request event, both render (MO-13g) and Solid warns of no missing event", /hi/.test(plainRender.components ?? "") && /hi/.test(plainRender.library ?? "") && !/RequestEvent is missing/.test(host2.stderr + host2.stdout), JSON.stringify(plainRender) + host2.stderr.slice(0, 300));
+  // MO-13g, MO-13h, in the browser's build: a module JavaScript uses is instantiated in a root no owner holds — it
+  // outlives the owner that first read it — in the page's app, which is the app of the .rx program that starts after
+  writeFileSync(path.join(tmp, "state.rx"), "export source n: number := 1\nexport doubled = n * 2\nexport action bump() { n := n => n + 1 }\n");
+  const st = JSON.parse(compile(path.join(tmp, "state.rx"), "dom", "@solidjs/web", false, true));
+  writeFileSync(path.join(tmp, "state.mjs"), st.modules[Object.keys(st.modules).find(k => k.endsWith("state.rx"))].code);
+  writeFileSync(path.join(tmp, "page.mjs"), `import mod from "./state.mjs";
+import { library, createApp } from "@reactivescript/runtime";
+import { createRoot, createEffect, flush } from "solid-js";
+const lib = library(mod, "t/state"); const seen = [];
+createRoot(dispose => { lib.doubled(); dispose(); });                 // the first reader, gone at once
+createRoot(() => { createEffect(() => lib.doubled(), v => { seen.push(v); }); });
+flush(); await lib.bump(); flush();
+const app = createApp({ root: null });                                // an .rx program starts: the page's app
+const second = createApp({ root: null });
+console.log(JSON.stringify({ seen, program: app.module(mod, mod).n(), second: second !== app && second.module(mod, mod).n() }));
+`);
+  const pageOut = spawnSync(process.execPath, ["--conditions=browser", "page.mjs"], { cwd: tmp, encoding: "utf8" });
+  let pg = {}; try { pg = JSON.parse(pageOut.stdout.trim().split("\n").pop()); } catch { pg = { error: pageOut.stdout + pageOut.stderr }; }
+  check("a module JavaScript uses outlives the owner that first read it (MO-13h)", JSON.stringify(pg.seen) === "[2,4]", JSON.stringify(pg));
+  check("the .rx program that starts in the page has the instance JavaScript used; a second app has its own (MO-13g)", pg.program === 2 && pg.second === 1, JSON.stringify(pg));
   // SV-5a: a declared JS error class's instance is stamped with the nearest declared class up its prototype chain, whatever
   // order the program registered them in; it arrives through Solid's serializer, and a client boundary typed with the
   // class, or a base class, gives it back its own class

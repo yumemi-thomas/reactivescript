@@ -150,7 +150,7 @@ function lent(v: unknown, to: string): unknown {
   };
   return wrap(v);
 }
-export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown> }) {
+function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown> }) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const truthOf = new Map<Acc, Acc>();                                  // an optimistic signal-form source: its guess layer -> its question
@@ -398,7 +398,24 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   };
   return app;
 }
-export type App = ReturnType<typeof createApp>;
+export type App = ReturnType<typeof makeApp>;
+type AppOpts = Parameters<typeof makeApp>[0];
+/** MO-13g: the page's app — the first one made in it: the one every JS importer of an `.rx` module is bound to
+ *  (`library`, `components`), so a module has one instance in the page however many importers it has, in `.rx` or not. */
+let page: App | null = null;
+/** The options the page's app was made with, while it is one the runtime made for a JS importer and no `.rx` program
+ *  has taken it. */
+let madeForJs: AppOpts | null = null;
+const pageApp = (): App => page ?? (madeForJs = { root: null }, page = makeApp(madeForJs));
+/** An app. The first made in a page is the page's (MO-13g); where the runtime had already made the page's for a JS
+ *  importer (a `.tsx` host that used an `.rx` package before the program started), the program's app is that one, so
+ *  the two share every module. A second `createApp` is a second app, with instances of its own (09 MO-1b). */
+export function createApp(opts: AppOpts): App {
+  if (page && madeForJs) { Object.assign(madeForJs, opts); madeForJs = null; page.root = opts?.root; return page; }
+  const app = makeApp(opts);
+  page ??= app;
+  return app;
+}
 
 /** A path write `x.a.b := v` as a store setter's mutation. */
 // W-6: a path target applies an updater to the path's value (`xs[i].title := t => `${t}!``), as a root write and a guess do
@@ -427,23 +444,31 @@ function assignDraft(draft: any, v: unknown) {
  *  instances safe to send; on the client there is nothing to send, so it is `fn`. */
 export function sendErrors<F extends (...a: any[]) => unknown>(fn: F): F { return fn; }
 /** CP-4d: an `.rx` module's components for a JS host (`import pages from "./pages.rx?rx-lib"`; `const { Home } =
- *  components(pages)`): Solid components bound to the page's one app, made on first use, or to the app passed. */
-let hostApp: ReturnType<typeof createApp> | null = null;
-export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ReturnType<typeof createApp>): T {
+ *  components(pages)`): Solid components bound to the page's app (`pageApp`), made on first use, or to the app passed. */
+export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: App): T {
   const made = new Map<string, unknown>();
-  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) => {
-    const a = app ?? (hostApp ??= createApp({ root: null }));
-    return ((a.module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props);
-  }), made.get(k)) });
+  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) =>
+    (((app ?? pageApp()).module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
 }
 
+const moduleSeq = new WeakMap<object, number>();
+/** The id of a module's root: its name, in the letters a hydration key is written with (as rt-server.ts). */
+const moduleRootId = (name: string | undefined, n: number) => name === undefined ? `rx${n}_` : `rx_${name.replace(/[^A-Za-z0-9]/g, c => "_" + c.charCodeAt(0).toString(36))}_`;
 /** MO-13e: a compiled `.rx` module as a Solid library for JavaScript (a `.tsx` app): each export as a function of the
- *  page's one app — a component, a source's or an equation's accessor, a fn, an action, an error class (called, it makes
- *  one; `e instanceof C` holds). The module is instantiated at its first use, in a root of its own, so its state is the
- *  app's (09 MO-1b) and not the first reader's; an `.rx` app instantiates the same factory itself (`__rx`, MO-13c). */
-export function library<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ReturnType<typeof createApp>): T {
+ *  page's app — a component, a source's or an equation's accessor, a fn, an action, an error class (called, it makes
+ *  one; `e instanceof C` holds). The module is instantiated at its first use, in a root of its own that no owner
+ *  holds (MO-13h): its state is the page's (09 MO-1b), not the first reader's, and is not disposed with it; the root's
+ *  id is the module's name (`name`, as `rx-lib` writes it: `<package>/<module>`), so its nodes have the server's ids
+ *  wherever the first use is. An `.rx` program of the same page instantiates the same factory in the same app (`__rx`,
+ *  MO-13c): one instance. */
+export function library<T extends Record<string, unknown>>(factory: (rt: unknown) => T, name?: string | App, app?: App): T {
+  if (typeof name === "object") { app = name; name = undefined; }
   const made = new Map<string, unknown>();
-  const rooted = (rt: unknown) => createRoot(() => factory(rt));
-  const inst = () => (app ?? (hostApp ??= createApp({ root: null }))).module(factory, rooted as never) as Record<string, any>;
+  const rooted = (rt: unknown) => {
+    let top = getOwner() as { id?: string; _parent?: unknown } | null; while (top?._parent) top = top._parent as typeof top;   // the render's root: its id is the render's (`renderId`)
+    const n = moduleSeq.get(rt as object) ?? 0; moduleSeq.set(rt as object, n + 1);
+    return runWithOwner(null, () => createRoot(() => factory(rt), { id: (top?.id ?? "") + moduleRootId(name as string | undefined, n) }));
+  };
+  const inst = () => (app ?? pageApp()).module(factory, rooted as never) as Record<string, any>;
   return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, Object.defineProperty((...a: unknown[]) => inst()[k](...a), Symbol.hasInstance, { value: (e: unknown) => { const c = inst()[k]?.cls; return typeof c === "function" && e instanceof c; } })), made.get(k)) });
 }

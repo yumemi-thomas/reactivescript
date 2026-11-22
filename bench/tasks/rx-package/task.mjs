@@ -5,6 +5,9 @@
 //
 // The package (`src/package`) is built by `rx-lib` (compiler/lib.mjs) when the task is staged and installed as
 // `node_modules/@bench/rates`: its `dist/` only. No `.d.rx` of it is written by hand, and `rx-declare` drafts nothing.
+//
+// The package's state is one per page, whoever imports it (MO-13g): `src/mixed.mjs` is an .rx program's app and
+// JavaScript over one instance, and `web/server.tsx` renders the .tsx app with a plain renderToStream, two at once.
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
@@ -129,7 +132,7 @@ export default {
         if (!ssr) return out.end(`<!doctype html><html><head><meta charset="utf-8"></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>`);
         out.write(`<!doctype html><html><head>${server.generateHydrationScript()}</head><body><div id="app">`);
         let first = true;
-        try { server.render(new Request("http://localhost" + rq.url), { write: c => { out.write(c); if (first) { first = false; out.write(`</div><script type="module" src="/client.js"></script>`); } }, end: () => out.end("</body></html>") }); } catch (e) { h.problems.push("server: " + e.message); out.end(); }
+        try { server[ssr](new Request("http://localhost" + rq.url), { write: c => { out.write(c); if (first) { first = false; out.write(`</div><script type="module" src="/client.js"></script>`); } }, end: () => out.end("</body></html>") }); } catch (e) { h.problems.push("server: " + e.message); out.end(); }
       });
       s.listen(0, "127.0.0.1", () => { h.servers.push(s); res(`http://127.0.0.1:${s.address().port}`); });
     });
@@ -143,16 +146,43 @@ export default {
       await page.click(".off");
       h.check(".tsx: the declared error is an instance of the class the package exports", await h.until(async () => (await h.text(page, ".err")) === "offline: ???"), await h.text(page));
     }
-    {
-      const base = await serve(true);
+    // the server's render is a plain renderToStream, as any Solid app's (MO-13g: the package's state is the render's), and
+    // the same inside Solid's request event (a framework's: the request's)
+    for (const [how, entry] of [["a plain renderToStream", "render"], ["inside a request event", "renderInRequest"]]) {
+      const base = await serve(entry);
       const html = plain(await (await fetch(base)).text());
-      h.check(".tsx, on the server: the package's server build renders and streams the rate, with hydration keys", /_hk=/.test(html) && /class="badge"[^>]*>2 EUR</.test(html) && /EUR at 1</.test(html), html.slice(0, 900));
+      h.check(`.tsx, on the server, ${how}: the package's server build renders and streams the rate, with hydration keys`, /_hk=/.test(html) && /class="badge"[^>]*>2 EUR</.test(html) && /EUR at 1</.test(html), html.slice(0, 900));
       const again = plain(await (await fetch(base)).text());
-      h.check(".tsx, on the server: a second request renders the same page (the package's state is each request's)", again === html, again.slice(0, 900));
+      h.check(`.tsx, on the server, ${how}: a second request renders the same page (the package's state is each one's)`, again === html, again.slice(0, 900));
       const page = await h.open(base);
-      h.check(".tsx, hydrated: the browser takes the server's page over", await h.until(async () => (await h.text(page, "header")) === "2 EUR" && (await h.text(page, ".raw")) === "EUR=1"), await h.text(page));
+      // the module's nodes have the server's ids (MO-13h): with other ids the rate would be pending again here, and Solid
+      // reports the fallback it cannot find in the server's page (a console error: the last check)
+      h.check(`.tsx, hydrated (${how}): the browser takes the server's page over`, await h.until(async () => (await h.text(page, "header")) === "2 EUR" && (await h.text(page, ".raw")) === "EUR=1"), await h.text(page));
       await page.click(".more"); await page.click(".usd");
-      h.check(".tsx, hydrated: the page is live", await h.until(async () => (await h.text(page, "header")) === "3 USD" && (await h.text(page, ".rate")) === "USD at 1.25"), await h.text(page));
+      h.check(`.tsx, hydrated (${how}): the page is live`, await h.until(async () => (await h.text(page, "header")) === "3 USD" && (await h.text(page, ".rate")) === "USD at 1.25"), await h.text(page));
+    }
+    {
+      // two renders at once, each a plain renderToStream: each has its own instance of the package's module, before its
+      // rate is known and after (the instances are numbered as they are made)
+      const collect = entry => new Promise(res => { let out = ""; server[entry]({ write: c => { out += c; }, end: () => res(plain(out)) }); });
+      const seen = html => { const a = /<p[^>]*>(\d+):EUR/.exec(html), b = /<b[^>]*>1@(\d+)<\/b>/.exec(html); return a && b ? [a[1], b[1]] : null; };
+      for (const [how, entry] of [["plain renders", "probe"], ["requests", "probeInRequest"]]) {
+        const [x, y] = (await Promise.all([collect(entry), collect(entry)])).map(seen);
+        h.check(`two ${how} at once: each reads its own instance of the package's state, before the rate lands and after, and never the other's`, !!x && !!y && x[0] === x[1] && y[0] === y[1] && x[0] !== y[0], { x, y });
+      }
+      const one = /(\d+):EUR:(\d+)/.exec(plain(server.probeString())), two = /(\d+):EUR:(\d+)/.exec(plain(server.probeString()));
+      h.check("a plain renderToString: one instance for the render, another for the next", !!one && !!two && one[1] === one[2] && two[1] === two[2] && one[1] !== two[1], { one, two });
+      const outside = server.outside();
+      h.check("an export read on the server where nothing renders and no request is answered throws, and says what to do", /^threw: /.test(outside) && /outside a render and outside a request/.test(outside) && /renderToString/.test(outside) && /provideRequestEvent/.test(outside), outside);
+    }
+    {
+      // one page, an .rx program and JavaScript both importing the package: one instance of its state (MO-13g)
+      const mixed = cond => { const r = spawnSync(process.execPath, [...cond, path.join(dir, "mixed.mjs")], { cwd: dir, encoding: "utf8" }); try { return JSON.parse(r.stdout.trim().split("\n").pop()); } catch { return { error: r.stdout + r.stderr }; } };
+      const b = mixed(["--conditions=browser"]);
+      h.check("in the browser, an .rx program and JavaScript that import the package share one instance: each reads what the other wrote, whichever came first", b.programSeesJs === "USD" && b.jsSeesProgram === "GBP", b);
+      h.check("a second .rx program in the page is a second app, with an instance of its own; JavaScript stays with the page's first", b.second === "EUR" && b.jsStaysWithFirst === "GBP", b);
+      const s = mixed([]);
+      h.check("on the server, inside an .rx program's stream, JavaScript reads the program's instance: the rate is asked once", /EUR\|EUR\|/.test(s.html ?? "") && s.asked === 1 && s.plain === "EUR", s);
     }
     h.check("no console errors or warnings", h.problems.length === 0, h.problems);
   },

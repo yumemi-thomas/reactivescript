@@ -9,8 +9,8 @@ import { primsSolid } from "./prims-solid.ts";
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver, DEV } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
-import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit, createRoot } from "solid-js";
-import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
+import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit, createRoot, onCleanup } from "solid-js";
+import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent, RequestContext } from "@solidjs/web";
 let warnedCopies = false;   // once per process
 const warnedFields = new Set<string>();   // SV-5a: a declared field an instance came without, once per class and field
 import { $TARGET } from "@solidjs/signals";
@@ -121,7 +121,7 @@ function lent(v: unknown, to: string): unknown {
   };
   return wrap(v);
 }
-export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request?: Request } = {}) {
+function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request?: Request } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const registry = new Map<string, Entry[]>();
@@ -148,7 +148,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       // (runtime/test.mjs renders both ways)
       let first = true;
       const sink = { end: () => sink0.end(), write: (c: string) => { if (first) { first = false; if (!process.env.SV_SCOPE && /<[a-z][^>]*>/i.test(c) && !/\b_hk=/.test(c) && !warnedCopies) { warnedCopies = true; console.warn("[reactivescript] the server's first chunk has markup but no hydration keys, so the client may not be able to hydrate it (markup a page renders on purpose without keys, or keys in a later chunk, would show this too). If hydration fails, check for two copies of Solid: the compiled modules and @reactivescript/runtime may load different copies (solid-js, and with it @solidjs/web) — keep Solid, the runtime and libraries that render all external to the server build, or all bundled together"); } } sink0.write(c); } };
-      return provideRequestEvent({ request: opts.request ?? new Request("http://127.0.0.1/"), locals: { [REQUEST_APP]: app } }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
+      return provideRequestEvent({ request: opts.request ?? new Request("http://127.0.0.1/"), locals: { [REQUEST_APP]: app, [HOST_APP]: app } }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
 
     B: {
       len: (x: unknown) => (Array.isArray(x) || typeof x === "string") ? x.length : (typeof x === "object" && x) ? Object.keys(x).length : 0,
@@ -355,7 +355,67 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   };
   return app;
 }
-export type ServerApp = ReturnType<typeof createApp>;
+export type ServerApp = ReturnType<typeof makeApp>;
+type AppOpts = NonNullable<Parameters<typeof makeApp>[0]>;
+type Ev = { request: Request; locals: Record<PropertyKey, unknown> };
+type Own = { id?: string; _parent?: Own } | null;
+const HOST_APP = Symbol.for("reactivescript.app");            // the request's app, in its event's locals
+const REQUEST_APP = Symbol.for("reactivescript.request-app");   // the app whose stream this request event is
+/** The apps the runtime made for JavaScript (`pageApp`), with the options each was made with: the first `createApp` of
+ *  the same request is that app (MO-13g). */
+const madeForJs = new WeakMap<ServerApp, AppOpts>();
+/** The apps of renders outside a request, by the owner the render started under. */
+const renderApps = new WeakMap<object, ServerApp>();
+/** The request's event where there is one, without Solid's warning where there is none (a render outside a request is
+ *  an ordinary thing): the request scope's, else the one an integration put on the caller's own render. */
+function requestEvent(): Ev | undefined {
+  const ev = (globalThis as any)[RequestContext as never]?.getStore?.() ?? (globalThis as any)[RENDER_ROOTS]?.get(renderRoot(getOwner() as Own) as object)?.event;
+  return ev as Ev | undefined;
+}
+const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");   // Solid's own: each render's root owner → its context
+/** The owner a render started under: the one Solid keeps for it (renderToString's, renderToStream's), else the topmost
+ *  owner above `o`. Every owner a render makes, at any await, is under it. */
+function renderRoot(o: Own): Own {
+  const roots = (globalThis as any)[RENDER_ROOTS] as WeakMap<object, unknown> | undefined;
+  let top = o;
+  for (let p = o; p; p = p._parent ?? null) { if (roots?.has(p)) return p; top = p; }
+  return top;
+}
+/** MO-13g: the app a JS importer's use of an `.rx` module belongs to — the request's (the app that streams it, the first
+ *  `createApp` made inside it, else one made here and kept in the event's locals); outside a request, the render's: one
+ *  per call of renderToString or renderToStream, found through the owner, gone with it. Never the process's. */
+function pageApp(what: string): ServerApp {
+  const ev = requestEvent();
+  if (ev) { const l = (ev.locals ??= {}); let a = l[HOST_APP] as ServerApp | undefined; if (!a) { const o: AppOpts = { request: ev.request }; a = makeApp(o); madeForJs.set(a, o); l[HOST_APP] = a; } return a; }
+  const root = renderRoot(getOwner() as Own);
+  if (!root) throw new Error(`${what} was used on the server outside a render and outside a request, so there is no page its module's state could belong to (it is never the process's: every request would share it). Use it while a Solid render runs (renderToString, renderToStream: the state is that render's), or inside Solid's request event (provideRequestEvent({ request, locals: {} }, () => …) from "@solidjs/web/storage": the state is that request's)${what.startsWith("an .rx component") ? ", or pass the app: components(pages, createApp({ request })) (CP-4d)" : " (MO-13e)"}`);
+  let a = renderApps.get(root);
+  if (!a) { a = makeApp(); const made = a; renderApps.set(root, made); runWithOwner(root as never, () => onCleanup(() => { if (renderApps.get(root) === made) renderApps.delete(root); })); }   // owners are reused: a later render's is not this one
+  return a;
+}
+/** An app: a request (SV-4). Made inside a request's event it is that request's app, the one every JS importer of an
+ *  `.rx` module finds (MO-13g); where the runtime had already made one for such an importer, it is that app. */
+export function createApp(opts: AppOpts = {}): ServerApp {
+  const ev = (globalThis as any)[RequestContext as never]?.getStore?.() as Ev | undefined;
+  const had = ev?.locals?.[HOST_APP] as ServerApp | undefined;
+  if (had && madeForJs.has(had)) { Object.assign(madeForJs.get(had)!, opts); madeForJs.delete(had); return had; }
+  const app = makeApp(opts);
+  if (ev && !had) (ev.locals ??= {})[HOST_APP] = app;
+  return app;
+}
+const moduleSeq = new WeakMap<object, number>();
+/** MO-13h: a module a JS importer instantiates is a root of its own, under the render's root owner (so what it asks is
+ *  sent with that render) and not under the owner that first used it; its nodes' ids start from the module's name, the
+ *  same on both sides wherever the first use is. */
+function rooted(factory: (rt: unknown) => Record<string, unknown>, name: string | undefined) {
+  return (rt: unknown) => {
+    const root = renderRoot(getOwner() as Own);
+    const n = moduleSeq.get(rt as object) ?? 0; moduleSeq.set(rt as object, n + 1);
+    return runWithOwner(root as never, () => createRoot(() => factory(rt), { id: (root?.id ?? "") + moduleRootId(name, n) }));
+  };
+}
+/** The id of a module's root: its name, in the letters a hydration key is written with. */
+const moduleRootId = (name: string | undefined, n: number) => name === undefined ? `rx${n}_` : `rx_${name.replace(/[^A-Za-z0-9]/g, c => "_" + c.charCodeAt(0).toString(36))}_`;
 
 /** A keyed answer is returned from the derive, and Solid reconciles it by key at any depth (ST-4a): a row whose key is
  *  still there keeps its object and takes the new leaves, so an equal answer changes nothing (#51, #64). Any other
@@ -374,39 +434,27 @@ function assignDraft(draft: any, v: unknown) {
 }
 
 /** CP-4d: an `.rx` module's components for a JS host (`import pages from "./pages.rx?rx-lib"`; `const { Home } =
- *  components(pages)`): Solid components bound to the request's app (SV-4: module state is per request), found through
- *  Solid's request event and made on first use. A host that renders outside a request passes the app itself
- *  (`components(pages, createApp({ request }))`); with neither, rendering one throws rather than share one app's module
- *  state across unrelated renders. */
-export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ReturnType<typeof createApp>): T {
+ *  components(pages)`): Solid components bound to the request's app (SV-4: module state is per request), or outside a
+ *  request to the render's (`pageApp`), or to the app passed (`components(pages, createApp({ request }))`). Outside
+ *  both, rendering one throws rather than share one app's module state across unrelated renders. */
+export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ServerApp): T {
   const made = new Map<string, unknown>();
-  const appNow = () => {
-    if (app) return app;
-    const ev = getRequestEvent() as { request: Request; locals: Record<PropertyKey, unknown> } | undefined;
-    if (!ev) throw new Error("an .rx component imported with ?rx-lib was rendered on the server outside a request: its module state would be shared by every render in the process. Render it inside the framework's request (Solid's request event), or pass the app: components(pages, createApp({ request })) (CP-4d)");
-    return (ev.locals[HOST_APP] ??= createApp({ request: ev.request })) as ReturnType<typeof createApp>;
-  };
   return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) =>
-    ((appNow().module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
+    (((app ?? pageApp("an .rx component imported with ?rx-lib")).module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
 }
 
 /** MO-13e: a compiled `.rx` module as a Solid library for JavaScript (a `.tsx` app): each export as a function of the
- *  request's app (SV-4: module state is per request), found as `components` finds it — a component, a source's or an
- *  equation's accessor, a fn, an action, an error class. The module is instantiated at its first use in the request, in
- *  a root of its own. */
-export function library<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ReturnType<typeof createApp>): T {
+ *  page's app (`pageApp`: the request's, else the render's) — a component, a source's or an equation's accessor, a fn,
+ *  an action, an error class. The module is instantiated at its first use there, in a root of its own (`rooted`); `name`
+ *  is the module's, as `rx-lib` writes it (`<package>/<module>`). An `.rx` program of the same page instantiates the
+ *  same factory in the same app (`__rx`, MO-13c): one instance. */
+export function library<T extends Record<string, unknown>>(factory: (rt: unknown) => T, name?: string | ServerApp, app?: ServerApp): T {
+  if (typeof name === "object") { app = name; name = undefined; }
   const made = new Map<string, unknown>();
-  const rooted = (rt: unknown) => createRoot(() => factory(rt));
-  const inst = () => {
-    if (app) return app.module(factory, rooted as never) as Record<string, any>;
-    const ev = getRequestEvent() as { request: Request; locals: Record<PropertyKey, unknown> } | undefined;
-    if (!ev) throw new Error("an export of a compiled .rx package was used on the server outside a request: its module state would be shared by every render in the process. Render inside the framework's request (Solid's request event) (MO-13e)");
-    return ((ev.locals[HOST_APP] ??= createApp({ request: ev.request })) as ReturnType<typeof createApp>).module(factory, rooted as never) as Record<string, any>;
-  };
-  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, Object.defineProperty((...a: unknown[]) => inst()[k](...a), Symbol.hasInstance, { value: (e: unknown) => { const c = inst()[k]?.cls; return typeof c === "function" && e instanceof c; } })), made.get(k)) });
+  const root = rooted(factory, name);
+  const inst = (k: string) => (app ?? pageApp(`${k}, an export of the compiled .rx module ${name ?? "of a package"},`)).module(factory, root as never) as Record<string, any>;
+  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, Object.defineProperty((...a: unknown[]) => inst(k)[k](...a), Symbol.hasInstance, { value: (e: unknown) => { const c = inst(k)[k]?.cls; return typeof c === "function" && e instanceof c; } })), made.get(k)) });
 }
-const HOST_APP = Symbol.for("reactivescript.app");
-const REQUEST_APP = Symbol.for("reactivescript.request-app");   // the app whose stream this request event is
 /** SV-5a: the copies `markSendable` made, which are what is sent. */
 const SENT = new WeakSet<object>();
 /** SV-5a, a library-cache adapter: `fn` with its rejections (and throws) of a JS error class the request's app declares

@@ -87,17 +87,23 @@ so a wrong prop is a type error in the TSX; for a TypeScript without `.rx`
 support, add `"types": ["@reactivescript/runtime/rx-lib"]` and they are
 untyped.
 
-On the client they share one app; on the server, one per request, found
-through Solid's request event, so module state is per request. A server render
-outside any request throws instead of sharing one app across renders: render
-inside the framework's request, or pass the app, `components(pages,
-createApp({ request }))`. TanStack
+On the client they share the page's app (the first made in the page: an `.rx`
+program's `createApp`, or one the runtime makes at first use, which a program
+that starts later takes over). On the server it is the request's, found through
+Solid's request event, and outside a request the render's: one per
+`renderToString` or `renderToStream`, found through the owner, so a plain
+render works and no two renders share module state (spec/09 MO-13g). A use
+outside any render and any request throws instead of sharing one app across the
+process: use it in a render, inside `provideRequestEvent`, or pass the app,
+`components(pages, createApp({ request }))`. TanStack
 Start's file routes use this (`examples/start`).
 
 A package written in `.rx` and built by `rx-lib` (spec/09 MO-13e) is a Solid library to JavaScript through
-`library(factory)`: each export of the compiled module as a function bound the same way — to the page's one app, on
-the server to the request's — with the module instantiated in a root of its own at its first use. A package's
-`index.js` calls it; an app does not.
+`library(factory, name)`: each export of the compiled module as a function bound the same way — to the page's app; on
+the server to the request's, else the render's — with the module instantiated at its first use in a root of its own,
+whose id is the module's name (spec/09 MO-13h): it is not disposed with whatever read it first, and its nodes have the
+same ids on both sides. An `.rx` program in the same page has the same instance. A package's `index.js` calls it; an
+app does not.
 
 Solid is a peer: `solid-js`, `@solidjs/web` and `@solidjs/signals` (the
 runtime reads owner context from `@solidjs/signals`, which `solid-js` runs on;

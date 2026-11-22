@@ -42,6 +42,47 @@ why; the second lists what was not done, each as a proposal.
 - **Hydration** needed no decision of the compiler's: keys are the
   runtime's owner ids (MO-13e). It is tested, for an `.rx` app and for a
   `.tsx` app.
+- **One instance in a page, whoever imports** (MO-13g; items 4 and 5 of
+  this list as it first stood). *What was true:* an `.rx` program and
+  JavaScript that both imported a package had an instance each, in the
+  browser and on the server — the program's app and a second one the
+  runtime made for the host (`library`'s own `hostApp`; in a stream, an app
+  under another key of the event's locals). A probe that instantiates the
+  package's factory as compiled `.rx` does and then reads the package's
+  JavaScript export counted two instantiations on each side; it counts
+  one now (`bench/tasks/rx-package`, `mixed.mjs`). The first report's "one
+  compiled module is one instance" was true of the *code* and of a page
+  with one kind of importer, and false of the mixed page; the sentence in
+  MO-13f that said so is gone. *The rule:* the page's app is the first
+  app made in the page, and JavaScript is bound to it. The order does not
+  matter: where JavaScript came first the runtime made that app, and the
+  program's `createApp` returns it. Considered and not done: finding the
+  app by position (Solid's context, through the owner), which is exact
+  while a component renders and unavailable in its handlers — a page with
+  two apps would then render one app's state and write the other's.
+- **A plain render on the server** (MO-13g). `library` needed Solid's
+  request event for one thing: somewhere to keep the app that is not the
+  process, so two requests never share module state. A render has such a
+  place without an event — its root owner, which Solid itself keeps a
+  table of (`getRequestEvent`'s fallback finds a render's context by
+  walking the owner's parents to it). The app outside a request is kept by
+  that owner and dropped when it is disposed (owners are reused, so the
+  entry must not outlive its render). The request event still wins where
+  there is one, so a framework's server functions and its render share an
+  app. What still throws is a use with neither: the message names both
+  ways out.
+- **A module's root** (MO-13h). The proposal here was to instantiate under
+  the render's root owner. That alone does not fix what it was for: a root
+  made there takes the root owner's next child id, which depends on when
+  the first use happens just as much. And the text was wrong about
+  disposal: Solid disposes a root made under an owner with that owner, so
+  a module first read inside a component died with it (its question
+  stopped answering; `runtime/test.mjs` holds the case). What landed: the
+  root is owned by nothing in the browser and by the render's root owner
+  on the server, and its id is given, not taken — the module's name, which
+  `rx-lib` writes into the call. The `.tsx` app's hydration in the
+  benchmark depends on it: with another id on one side Solid reports the
+  `<Loading>` fallback it cannot find in the server's page.
 
 ## Still proposals
 
@@ -74,22 +115,30 @@ why; the second lists what was not done, each as a proposal.
    function plus a manifest row, and the app's build wrapping it in a
    server fn of its own module. That is a contract with Solid's
    `"use server"` pass that this repository does not own.
-4. **A module's state under a JavaScript host is rooted where it is first
-   read.** `library` instantiates a module in a root of its own
-   (`createRoot`), made under the owner current at first use, so it is not
-   disposed with that owner, and its ids are the same on both sides when
-   the first use is at the same place — true of a page that hydrates. A
-   first use inside something only the browser renders, before hydration
-   has finished, would number the module's nodes apart from the server's.
-   *Proposed:* instantiate under the render's root owner, which needs a
-   way to reach it that is not Solid's internals (`getOwner()` gives the
-   current owner only).
-5. **An `.rx` program and a `.tsx` host in one app, each importing the
-   package**, have two instances of its state: the program's app and the
-   host's (CP-4d has the same limit for `?rx-lib` modules). *Proposed:*
-   `library` and `components` find an app the page already made
-   (`createApp` registering itself as the host's when the host has none),
-   which is a rule about which app is *the* app when a page has two.
+4. **What MO-13h leaves.** (a) A `?rx-lib` module (CP-4d's `components`)
+   is still instantiated where it is first rendered: `components(pages)`
+   is given no name to make a root's id from. *Proposed:* the plugin
+   passes the module's path relative to the project, and `components`
+   roots it as `library` does. (b) A dependency two packages share is
+   instantiated inside the root of whichever module needed it first; its
+   ids follow that module's, so two packages first used in another order
+   on each side would number it differently. *Proposed:* `__rt.module`
+   itself makes a named root for a module of a package, which changes the
+   ids of every program and wants its own change. (c) The render's root
+   owner is reached through `_parent` and Solid's table of render roots,
+   both internal. Solid has no public "the root of this render"; asking
+   for one is the right end of this.
+5. **What MO-13g leaves.** (a) Two renders inside *one* request event
+   share the request's app, and a module's nodes are under the first
+   render's root: the second render reads nodes the first disposed. One
+   render per request is what frameworks do; a per-render app inside a
+   request would instead split a render from the server functions of its
+   request. (b) Outside a request, an export used after an `await` in an
+   async function has no owner, so it throws as a use outside any render:
+   Solid's own owner-bound APIs have the same limit, and the request
+   event (AsyncLocalStorage) is what carries across an `await`. (c) A
+   second program in a page cannot ask for JavaScript's binding: there is
+   no `createApp({ … , page: true })`. Nothing has needed it.
 6. **A package's own JavaScript.** `rx-lib` copies the JS modules the
    `.rx` imports by relative paths, with their `.d.ts` and `.d.rx`, and
    what they import beside them; it does not build TypeScript, bundle, or
