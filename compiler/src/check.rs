@@ -1921,6 +1921,8 @@ pub struct Checker<'a> {
     awaited_calls: HashSet<*const Expr>,
     server_exprs: HashMap<*const Expr, SId>,
     stmt_awaits: HashSet<*const Expr>,
+    /// MO-10b: the expressions an `await` is written on (`await x.load()`): a promise that is awaited is asked for
+    awaited: HashSet<*const Expr>,
     shapes: HashMap<SId, Option<Shape>>,
     // the application tree (resolve_tree), kept for the signature's component summaries
     occ: Vec<Occ>,
@@ -2103,6 +2105,7 @@ impl<'a> Checker<'a> {
             awaited_calls: HashSet::new(),
             server_exprs: HashMap::new(),
             stmt_awaits: HashSet::new(),
+            awaited: HashSet::new(),
             shapes: HashMap::new(),
             occ: vec![],
             r_memo: HashMap::new(),
@@ -5288,6 +5291,12 @@ impl<'a> Checker<'a> {
     fn void_method(&self, f: &Expr, env: EId) -> bool {
         matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| matches!(ty_clean(&r), "void" | "Promise<void>"))
     }
+    /// MO-10b (2026-11-22): a function field whose declared type answers a promise (`mutate: (v) => Promise<T>`,
+    /// `refetch`): calling it starts work. Not awaited in reactive scope, nothing waits for that work and the view is
+    /// handed a promise.
+    fn promise_method(&self, f: &Expr, env: EId) -> bool {
+        matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| ty_clean(&r).starts_with("Promise<"))
+    }
     /// R-io-3, CN-1b: whether what a void function field names is an action, as far as this module says: the field of a
     /// context every provision of which, in this module, gives it a name declared by `action`. Solid's runtime names
     /// that call `ACTION_CALLED_IN_OWNED_SCOPE`; any other io is `IO_IN_REACTIVE`.
@@ -5334,6 +5343,7 @@ impl<'a> Checker<'a> {
                         _ => None,
                     },
                     _ if self.void_method(f, env) => Some(if self.provided_action(f, env) { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" }),
+                    _ if self.promise_method(f, env) => Some("IO_IN_REACTIVE"),
                     _ => None,
                 };
                 if let Some(code) = code {
@@ -5452,6 +5462,7 @@ impl<'a> Checker<'a> {
                 self.expr(x, env, ctx, None)
             }
             ExprKind::Await { e: inner, init, .. } => {
+                self.awaited.insert(&**inner as *const Expr);
                 if ctx.imperative && !self.stmt_awaits.contains(&(e as *const Expr)) {
                     let sh = show(e);
                     self.err(
@@ -5607,6 +5618,14 @@ impl<'a> Checker<'a> {
                         self.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", format!("{}(…) is an action (what the context provides there), called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action", show(f)));
                     } else {
                         self.err("IO_IN_REACTIVE", "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (`() => void`), so it is called for what it does — from a handler or an action", show(f)));
+                    }
+                }
+                // …and one that answers a promise starts work: not awaited, nothing waits for it and the view reads a promise
+                if !ctx.imperative && !self.awaited.contains(&(e as *const Expr)) && !self.void_method(f, env) && self.promise_method(f, env) {
+                    if ctx.in_fn {
+                        self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io (its declaration says it answers a promise: calling it starts work); a fn is pure by definition", show(f)));
+                    } else {
+                        self.err("IO_IN_REACTIVE", "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers a promise, so calling it starts work, here on every computation, with nothing waiting for it — call it from a handler or an action; if it only asks, `await` it", show(f)));
                     }
                 }
                 if let ExprKind::Id(fname) = &f.k {

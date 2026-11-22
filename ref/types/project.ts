@@ -62,7 +62,7 @@ export declare function ctx<T>(d?: T): Ctx<T>;
 export declare function use<T>(c: Ctx<T>): T;
 export declare function provide<T>(c: Ctx<T>, v: NoInfer<T>): void;
 export declare function effect(f: () => void | (() => void)): void;
-export declare function draft<T>(seed: T, f: (d: T) => void): T;
+export declare function draft<S, T = S>(seed: S, f: (d: T) => void): T;   // ST-3: the draft has the equation's type where one is written, else its seed's
 export declare function len(x: unknown): number;
 export declare function until<T>(p: () => T): Promise<Exclude<T, false | 0 | "" | null | undefined>>;   // AC-6: Solid's until — the first truthy value
 export declare function onSettled(f: () => void): void;                   // EF-7: imperative scope only, so no cleanup return

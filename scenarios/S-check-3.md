@@ -17,7 +17,7 @@ export type Unsubscribe = () => void
 export fn onResize(run: handler () => void): Unsubscribe
 export fn subscribe(run: handler () => void): { unsubscribe: () => void }
 // a paging primitive: what it answers is declared, so a method that answers nothing is known to be called for its effect
-export pure fn createPager(): { page: number; next: () => void; count: () => number } instantiates
+export pure fn createPager(): { page: number; next: () => void; count: () => number; save: () => Promise<string>; load: (page: number) => Promise<string[]> } instantiates
 // a list that hands its view the rows it holds
 export component Rows(props: { children: (rows: number[]) => View })
 ```
@@ -229,6 +229,41 @@ import { createPager } from "./keys.js"
 export default component App() {
   pager = createPager()
   <p>{pager.next()} {pager.count()}</p>
+}
+```
+
+One that answers a promise starts work (2026-11-22): not awaited where the
+view computes, nothing waits for it and the view is handed a promise.
+Awaited, it is asked; from a handler, it is called.
+
+```rx
+-- reject: IO_IN_REACTIVE
+import { createPager } from "./keys.js"
+export default component App() {
+  pager = createPager()
+  <p>{pager.save()} {pager.count()}</p>
+}
+```
+
+```rx
+-- reject: IO_IN_REACTIVE
+import { createPager } from "./keys.js"
+export default component App() {
+  pager = createPager()
+  <button onClick={pager.save()}>{pager.count()}</button>
+}
+```
+
+```rx
+-- accept
+import { createPager } from "./keys.js"
+export default component App() {
+  pager = createPager()
+  rows = await pager.load(1)
+  errored fallback(e) { <p>failed</p> } {
+    loading fallback { <p>…</p> } { <p>{len(rows)}</p> }
+  }
+  <button onClick={() => { pager.save() }}>{pager.count()}</button>
 }
 ```
 

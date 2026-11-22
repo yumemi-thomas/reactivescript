@@ -2134,6 +2134,14 @@ class Checker {
     const t = this.declTy(f, env); const r = t === undefined ? undefined : tyStep(t, "call");
     return r !== undefined && (tyClean(r) === "void" || tyClean(r) === "Promise<void>");
   }
+  /** MO-10b (2026-11-22): a function field whose declared type answers a promise (`mutate: (v) => Promise<T>`, `refetch`):
+   *  calling it starts work. Not awaited in reactive scope, nothing waits for that work and the view is handed a promise. */
+  private awaited = new WeakSet<Expr>();
+  private promiseMethod(f: Expr, env: Env): boolean {
+    if (f.k !== "member" && f.k !== "index") return false;
+    const t = this.declTy(f, env); const r = t === undefined ? undefined : tyStep(t, "call");
+    return r !== undefined && tyClean(r).startsWith("Promise<");
+  }
   /** R-io-3, CN-1b: whether what a void function field names is an action, as far as this module says: the field of a
    *  context every provision of which, in this module, gives it a name declared by `action`. Solid's runtime names that
    *  call `ACTION_CALLED_IN_OWNED_SCOPE`; any other io is `IO_IN_REACTIVE`. */
@@ -2157,6 +2165,7 @@ class Checker {
       let code: string | undefined;
       if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io ? "IO_IN_REACTIVE" : !s && e.f.name === "log" ? "IO_IN_REACTIVE" : undefined; }
       else if (this.voidMethod(e.f, env)) code = this.providedAction(e.f, env) ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE";
+      else if (this.promiseMethod(e.f, env)) code = "IO_IN_REACTIVE";
       if (code) this.err(code, "SC-4", `${attr}={${show(e)}} calls ${show(e.f)}(…) while the view computes, and gives the handler what it answers: a handler is a function, called when its event happens — \`${attr}={() => { ${show(e)} }}\``);
     } else if (e.k === "if") { this.handlerCalled(e.t, env, attr); this.handlerCalled(e.f, env, attr); }
     else if (e.k === "bin" && (e.op === "&&" || e.op === "||" || e.op === "??")) { if (e.op !== "&&") this.handlerCalled(e.l, env, attr); this.handlerCalled(e.r, env, attr); }
@@ -2201,6 +2210,7 @@ class Checker {
         go(x); return;
       }
       case "await":
+        this.awaited.add(e.e);                                                               // MO-10b: a promise that is awaited is asked for
         if (ctx.scope === "imperative" && !this.stmtAwaits.has(e)) this.err("AWAIT_IN_EXPRESSION", "AC-1", `\`${show(e)}\` inside an expression of imperative scope: a run suspends only at a statement — bind it first, \`let v = ${show(e)}\` (a \`catch (e) => alt\` may follow it)`);
         // MO-10i: the draft is the callback's only while the library's call of it runs
         if (this.draftCbs.length && this.draftCbs[this.draftCbs.length - 1] === this.fnStack[this.fnStack.length - 1]) this.err("DRAFT_ESCAPES", "MO-10i", "an `await` in a callback that is handed a library's draft: the callback ends when the library's call of it does, and what runs after the `await` would write a draft the library has taken back — await first, then call the setter with what was answered");
@@ -2256,6 +2266,11 @@ class Checker {
           if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (its declaration says it answers nothing: it is called for what it does); a fn is pure by definition`);
           else if (this.providedAction(e.f, env)) this.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${show(e.f)}(…) is an action (what the context provides there), called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action`);
           else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (\`() => void\`), so it is called for what it does — from a handler or an action`);
+        }
+        // …and one that answers a promise starts work: not awaited, nothing waits for it and the view reads a promise
+        if (ctx.scope !== "imperative" && !this.awaited.has(e) && !this.voidMethod(e.f, env) && this.promiseMethod(e.f, env)) {
+          if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (its declaration says it answers a promise: calling it starts work); a fn is pure by definition`);
+          else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers a promise, so calling it starts work, here on every computation, with nothing waiting for it — call it from a handler or an action; if it only asks, \`await\` it`);
         }
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
           if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited");
