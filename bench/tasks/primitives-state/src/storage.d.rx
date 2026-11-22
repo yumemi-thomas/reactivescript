@@ -1,0 +1,3 @@
+// storage.js makes the signal that makePersisted keeps: the library takes a Solid signal, and an `.rx` program has none
+// to pass (09 MO-8r: a module of the app's own). By hand: every word.
+export pure fn persisted(init: string, options: { name: string }): [ref string, (value: string) => void]

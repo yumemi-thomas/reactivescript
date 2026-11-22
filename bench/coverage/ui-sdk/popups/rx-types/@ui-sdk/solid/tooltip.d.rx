@@ -1,0 +1,11 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type TooltipProps = import("@ui-sdk/solid/tooltip").TooltipProps
+export type TooltipOpenChangeReason = import("@ui-sdk/solid/tooltip").TooltipOpenChangeReason
+export type TooltipPayloadChangeReason = import("@ui-sdk/solid/tooltip").TooltipPayloadChangeReason
+export type TooltipContentState<Payload = unknown> = import("@ui-sdk/solid/tooltip").TooltipContentState<Payload>
+export type TooltipContentProps = import("@ui-sdk/solid/tooltip").TooltipContentProps
+export type TooltipTriggerState = import("@ui-sdk/solid/tooltip").TooltipTriggerState
+export type TooltipTriggerProps = import("@ui-sdk/solid/tooltip").TooltipTriggerProps
+export component Tooltip(props: TooltipProps & { onOpenChange?: (open: boolean, details: import("@ui-sdk/core").ChangeDetails<TooltipOpenChangeReason>) => void; onOpenChangeComplete?: (open: boolean) => void; onPayloadChange?: (payload: unknown, details: import("@ui-sdk/core").ChangeDetails<TooltipPayloadChangeReason>) => void })
+export component TooltipContent<Payload = unknown>(props: import("@ui-sdk/solid").PartProps<"div", TooltipContentState<Payload>> & TooltipContentProps & { render?: (props: Record<string, any>, state: TooltipContentState<Payload>) => View })
+export component TooltipTrigger(props: (Omit<import("@ui-sdk/solid").PartProps<"button", TooltipTriggerState>, "value" | "defaultValue" | "onChange"> & TooltipTriggerProps) & { render?: (props: Record<string, any>, state: { open: boolean; }) => View })

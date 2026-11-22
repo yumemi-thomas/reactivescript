@@ -1,0 +1,14 @@
+// UI SDK's status components: a progress bar and a meter that follow a value, an avatar, a separator.
+import { Progress, ProgressIndicator, ProgressLabel, ProgressTrack, ProgressValue } from "@ui-sdk/solid/progress"
+import { Meter, MeterIndicator, MeterLabel, MeterTrack, MeterValue } from "@ui-sdk/solid/meter"
+import { Avatar, AvatarFallback } from "@ui-sdk/solid/avatar"
+import { Separator } from "@ui-sdk/solid/separator"
+
+export default component App() {
+  source done := 60
+  <Progress class="progress" value={done}><ProgressLabel>Exporting video</ProgressLabel><ProgressValue /><ProgressTrack><ProgressIndicator /></ProgressTrack></Progress>
+  <Separator />
+  <Meter value={68}><MeterLabel>Storage used</MeterLabel><MeterValue /><MeterTrack><MeterIndicator /></MeterTrack></Meter>
+  <Avatar><AvatarFallback>AL</AvatarFallback></Avatar>
+  <button onClick={() => { done := 100 }}>finish</button>
+}

@@ -1,0 +1,18 @@
+// A shipping form on UI SDK's controls: a checkbox and a radio group whose values the app holds, and a button the
+// app's state enables.
+import { Checkbox, CheckboxIndicator } from "@ui-sdk/solid/checkbox"
+import { Radio, RadioGroup, RadioIndicator } from "@ui-sdk/solid/radio"
+import { Button } from "@ui-sdk/solid/button"
+
+export default component App() {
+  source accepted: boolean := false
+  source speed: string | null := "standard"
+  source sent: number := 0
+  <label><Checkbox class="terms" checked={accepted} onCheckedChange={(checked: boolean | "indeterminate") => { accepted := checked == true }}><CheckboxIndicator>x</CheckboxIndicator></Checkbox> Accept terms</label>
+  <RadioGroup value={speed} onValueChange={(value: string | null) => { speed := value }}>
+    <label><Radio value="standard"><RadioIndicator /></Radio> Standard</label>
+    <label><Radio class="express" value="express"><RadioIndicator /></Radio> Express</label>
+  </RadioGroup>
+  <Button class="send" disabled={!accepted} onClick={() => { sent := n => n + 1 }}>Send</Button>
+  <p class="state">{accepted ? "accepted" : "not accepted"}, {speed}, sent {sent}</p>
+}

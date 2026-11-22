@@ -17,7 +17,7 @@
 //        VERBOSE=1                            prints every check, not only the failures
 // Needs: the crate (`cargo build --release` in compiler/), the runtime (`npm run build` in runtime/), the language
 // server's packages (`npm ci` in tooling/rx-language-server), Node 22.6+, and the network once (bench/package.json).
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -148,6 +148,14 @@ if (one) {
   process.exit(0);
 }
 
+// one module drafted whole, for the coverage suite: a module of a listed library that no entry's program imports
+const draftOnly = args.includes("--draft") ? args[args.indexOf("--draft") + 1] : null;
+if (draftOnly) {
+  const id = `draft-${draftOnly.replace(/[^\w.-]+/g, "_")}`;
+  let r; try { const dir = path.join(ws, "tasks", id); mkdirSync(dir, { recursive: true }); const w = draftOf(draftOnly, dir).whole; r = { spec: draftOnly, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; } catch (e) { r = { spec: draftOnly, crash: e.stack ?? String(e) }; }
+  writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify(r));
+  process.exit(0);
+}
 if (cover) {
   const id = `cover-${cover.replaceAll("/", "-")}`;
   const r = await runTask(id, cover).catch(e => ({ id, entry: cover, crash: e.stack ?? String(e) }));

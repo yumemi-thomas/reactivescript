@@ -1,0 +1,23 @@
+// A status bar on solid-primitives' browser sensors: the window's width, the network, the keys held, the pointer — each
+// a value the view follows — and a shortcut whose callback counts.
+import { createMediaQuery } from "@solid-primitives/media"
+import { createConnectivitySignal } from "@solid-primitives/connectivity"
+import { useKeyDownList, createShortcut } from "@solid-primitives/keyboard"
+import { createMousePosition } from "@solid-primitives/mouse"
+
+export default component App() {
+  source compact: boolean := false
+  source saves: number := 0
+  wide = createMediaQuery("(min-width: 600px)")
+  online = createConnectivitySignal()
+  keys = useKeyDownList()
+  pointer = createMousePosition()
+  save = createShortcut(["Control", "S"], () => { saves := n => n + 1 }, { preventDefault: true })
+  layout = compact || !wide ? "narrow" : "wide"
+  <main class={layout}>
+    <p class="layout">{layout}, {online ? "online" : "offline"}</p>
+    <p class="keys">held: {keys.join("+") || "none"}; saved {saves}</p>
+    <p class="pointer">pointer at {pointer.x}, {pointer.y}</p>
+    <button class="compact" onClick={() => { compact := c => !c }}>{compact ? "use the room" : "keep it narrow"}</button>
+  </main>
+}

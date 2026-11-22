@@ -1,0 +1,3 @@
+//@ for @solid-primitives/scheduled ^2.0.0
+export type Scheduled<Args extends unknown[]> = import("@solid-primitives/scheduled").Scheduled<Args>
+export pure fn debounce<Args extends unknown[]>(callback: handler (...args: Args) => void, wait?: number): Scheduled<Args> instantiates

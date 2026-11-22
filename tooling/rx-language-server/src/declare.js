@@ -282,7 +282,8 @@ const sameType = (ts, checker, a, b) => a === b || (checker.typeToString(a, unde
  *  type at hand (`t`: a field of a generic type is declared in the type's own parameters, not the row's). */
 function declared(ts, checker, node, t, open = false) {
   if (!CTX.decl || !node || node.pos < 0) return undefined;
-  if (t) { let dt; try { dt = checker.getTypeFromTypeNode(node); } catch { return undefined; } if (!sameType(ts, checker, dt, t) && !sameType(ts, checker, dt, checker.getNonNullableType(t))) return undefined; }
+  if (t) { let dt; try { dt = checker.getTypeFromTypeNode(node); } catch { return undefined; } // (an optional parameter that is a type parameter, `initial?: I`, is asked for without its `undefined`: `NonNullable<I>` there is `I`)
+    if (!sameType(ts, checker, dt, t) && !sameType(ts, checker, dt, checker.getNonNullableType(t)) && !(dt.flags & ts.TypeFlags.TypeParameter && sameType(ts, checker, checker.getNonNullableType(dt), t))) return undefined; }
   const r = print(ts, checker, node, open);
   return r.text;
 }
@@ -518,6 +519,8 @@ const isElement = isJsxElement;
 const givesElement = (ts, checker, s) => {
   const r = s.getReturnType();
   if (isElement(ts, checker, r)) return true;
+  // a render prop generic in what it gives (`children: (item: Accessor<T>) => U`, `U extends JSX.Element`) gives an element
+  if (r.flags & ts.TypeFlags.TypeParameter) { const c = checker.getBaseConstraintOfType(r); if (c && isElement(ts, checker, c)) return true; }
   const n = s.declaration?.type;
   return !!(r.flags & ts.TypeFlags.Any) && r.intrinsicName === "error" && !!n && n.pos >= 0 && /(^|[.\s])JSX\.Element$/.test(n.getText());
 };
@@ -745,7 +748,7 @@ const byPlace = s => /\b(?:Parameters|ReturnType)</.test(s);
 function resultText(ts, checker, t, todos, generic = false, here, node) {
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return "Component";
   const read = accessorOf(ts, checker, t);
-  if (read) return `ref ${text(ts, checker, read, undefined, innerNode(ts, checker, node, read))}`;
+  if (read) return `ref ${text(ts, checker, read, CTX.decl && here ? `ReturnType<${here}>` : undefined, innerNode(ts, checker, node, read))}`;   // MO-8q: what the accessor answers, by its place, before an `any`
   if (isDisposer(ts, checker, t)) return nullish(ts, t) ? `(() => void)${nullish(ts, t)}` : "() => void";   // EF-5a: the checker holds a call to keeping it
   if (isFn(checker, t)) return generic && !CTX.decl ? ANY("generic") : `(${callbackText(ts, checker, t, here, "function-result", node)})${nullish(ts, t)}`;   // a function part is io (MO-10b); it may be absent
   const tuple = checker.getNonNullableType(t);

@@ -1,0 +1,16 @@
+// Wardic's values: a value derived from another, one that cycles, and the user's reduced-motion preference.
+import { DomLive } from "@wardic/dom"
+import { WardicProvider, createTransform, createCycle, createReducedMotion } from "@wardic/solid"
+
+component Meter() {
+  source progress := 0.25
+  percent = createTransform(progress, (p: number) => p * 100)
+  [size, next] = createCycle("small", "large")
+  reduced = createReducedMotion()
+  <p>{percent}% {size}{reduced ? ", reduced motion" : ""}</p>
+  <button class="more" onClick={() => { progress := 0.5 }}>more</button>
+  <button class="size" onClick={() => { next() }}>size</button>
+}
+export default component App() {
+  <WardicProvider env={DomLive}><Meter /></WardicProvider>
+}

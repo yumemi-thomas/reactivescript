@@ -1,0 +1,3 @@
+//@ for @solid-primitives/static-store ^1.0.0
+export type StaticStoreSetter<T extends object> = import("@solid-primitives/static-store").StaticStoreSetter<T>
+export pure fn createStaticStore<T extends Record<string, Exclude<unknown, Function>>>(init: T): [T, (...args: Parameters<StaticStoreSetter<T>>) => ReturnType<StaticStoreSetter<T>>] instantiates

@@ -1,0 +1,27 @@
+// UI SDK's disclosure components: an accordion, a collapsible, and tabs whose value the app holds.
+import { Accordion, AccordionHeader, AccordionItem, AccordionPanel, AccordionTrigger } from "@ui-sdk/solid/accordion"
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/solid/collapsible"
+import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/solid/tabs"
+
+export default component App() {
+  source tab: string | null := "account"
+  <Accordion>
+    <AccordionItem value="shipping">
+      <AccordionHeader><AccordionTrigger class="question">What are your shipping options?</AccordionTrigger></AccordionHeader>
+      <AccordionPanel>Standard, express and overnight.</AccordionPanel>
+    </AccordionItem>
+  </Accordion>
+  <Collapsible>
+    <CollapsibleTrigger class="order">Order #4189</CollapsibleTrigger>
+    <CollapsiblePanel>Three items.</CollapsiblePanel>
+  </Collapsible>
+  <Tabs value={tab} onValueChange={(value: string | null) => { tab := value }}>
+    <TabsList aria-label="Settings">
+      <TabsTab value="account">Account</TabsTab>
+      <TabsTab class="password" value="password">Password</TabsTab>
+    </TabsList>
+    <TabsPanel value="account">Manage your profile.</TabsPanel>
+    <TabsPanel value="password">Choose a new password.</TabsPanel>
+  </Tabs>
+  <p class="tab">tab: {tab}</p>
+}

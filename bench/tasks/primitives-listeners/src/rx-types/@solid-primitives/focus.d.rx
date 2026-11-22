@@ -1,0 +1,2 @@
+//@ for @solid-primitives/focus ^1.0.0
+export fn makeFocusListener(target: Element, callback: handler (isActive: boolean) => void, useCapture?: boolean): () => void

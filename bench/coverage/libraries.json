@@ -684,7 +684,7 @@
   }
  },
  "@wardic/solid": {
-  "about": "Wardic (Motion on Solid 2): every module is drafted; `use` is filled by the families the entries cover.",
+  "about": "Wardic (Motion on Solid 2): every module is drafted whole; the entries cover its families (elements, gestures, layout, presence, values, easing). bench/tasks/wardic-motion has an element with its ward and presence, with their mistakes.",
   "packages": {
    "@wardic/solid": {
     "version": "2.0.1",
@@ -702,12 +702,14 @@
     "modules": [
      "@wardic/dom"
     ],
-    "use": []
+    "use": [
+     "@wardic/dom"
+    ]
    }
   }
  },
  "@ui-sdk/solid": {
-  "about": "UI SDK for Solid (Vercel Labs): every module is drafted; `use` lists the component families a program must import.",
+  "about": "UI SDK for Solid (Vercel Labs): every module is drafted whole; `use` lists the modules a program of the suite imports \u2014 its component families (disclosure, form controls, status, popups, selection) and its utilities. bench/tasks/ui-sdk-dialog has the dialog and the toggle, with their mistakes.",
   "packages": {
    "@ui-sdk/solid": {
     "version": "0.1.0-beta.13",
@@ -782,7 +784,30 @@
      "@ui-sdk/solid/trigger-menu",
      "@ui-sdk/solid/waterfall"
     ],
-    "use": []
+    "use": [
+     "@ui-sdk/solid/accordion",
+     "@ui-sdk/solid/avatar",
+     "@ui-sdk/solid/button",
+     "@ui-sdk/solid/checkbox",
+     "@ui-sdk/solid/collapsible",
+     "@ui-sdk/solid/date",
+     "@ui-sdk/solid/field",
+     "@ui-sdk/solid/input",
+     "@ui-sdk/solid/listbox",
+     "@ui-sdk/solid/menu",
+     "@ui-sdk/solid/meter",
+     "@ui-sdk/solid/number",
+     "@ui-sdk/solid/popover",
+     "@ui-sdk/solid/progress",
+     "@ui-sdk/solid/radio",
+     "@ui-sdk/solid/segmented-control",
+     "@ui-sdk/solid/select",
+     "@ui-sdk/solid/separator",
+     "@ui-sdk/solid/slider",
+     "@ui-sdk/solid/switch",
+     "@ui-sdk/solid/tabs",
+     "@ui-sdk/solid/tooltip"
+    ]
    }
   }
  }

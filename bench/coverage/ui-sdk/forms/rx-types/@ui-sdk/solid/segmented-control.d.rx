@@ -1,0 +1,9 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type SegmentedControlOptions<T extends string = string> = import("@ui-sdk/solid/segmented-control").SegmentedControlOptions<T>
+export type SegmentedControlState = import("@ui-sdk/solid/segmented-control").SegmentedControlState
+export type SegmentedControlValueChangeReason = import("@ui-sdk/solid/segmented-control").SegmentedControlValueChangeReason
+export type SegmentedControlOrientation = import("@ui-sdk/solid/segmented-control").SegmentedControlOrientation
+export type SegmentedControlItemState = import("@ui-sdk/solid/segmented-control").SegmentedControlItemState
+export type SegmentedControlItemProps = import("@ui-sdk/solid/segmented-control").SegmentedControlItemProps
+export component SegmentedControl<T extends string = string>(props: SegmentedControlOptions<T> & Omit<import("@ui-sdk/solid").PartProps<"div", SegmentedControlState>, "onChange" | "onSelect"> & { onValueChange?: (value: T | null, details: import("@ui-sdk/core").ChangeDetails<SegmentedControlValueChangeReason>) => void; render?: (props: Record<string, any>, state: { value: string | null; disabled: boolean; readOnly: boolean; required: boolean; orientation: SegmentedControlOrientation; }) => View })
+export component SegmentedControlItem(props: Omit<import("@ui-sdk/solid").PartProps<"button", SegmentedControlItemState>, "value" | "onSelect"> & SegmentedControlItemProps & { render?: (props: Record<string, any>, state: { checked: boolean; disabled: boolean; readOnly: boolean; required: boolean; }) => View })

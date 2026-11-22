@@ -1,0 +1,2 @@
+//@ for @solid-primitives/event-bus ^3.0.0
+export pure fn createEventBus<T>(): { listen: (listener: handler (payload: T) => void) => () => void; emit: (...args: Parameters<ReturnType<typeof import("@solid-primitives/event-bus").createEventBus<T>>["emit"]>) => void; clear: () => void } instantiates

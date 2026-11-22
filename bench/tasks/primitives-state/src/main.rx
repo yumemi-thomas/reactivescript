@@ -1,0 +1,25 @@
+// A directory page on solid-primitives' state helpers: a name kept in localStorage, a list sorted and paged, a window
+// size in a static store, and a page size that can be overridden until the list changes.
+import { createStaticStore } from "@solid-primitives/static-store"
+import { createWritableMemo } from "@solid-primitives/memo"
+import { createSorted, by } from "@solid-primitives/sortable"
+import { createSegment } from "@solid-primitives/pagination"
+import { persisted } from "./storage.js"
+
+export default component App() {
+  source people: { name: string, born: number }[] := [{ name: "Grace", born: 1906 }, { name: "Ada", born: 1815 }, { name: "Alan", born: 1912 }]
+  source page: number := 1
+  [name, setName] = persisted("anonymous", { name: "rx-bench-name" })
+  [size, setSize] = createStaticStore({ width: 0, height: 0 })
+  [perPage, setPerPage] = createWritableMemo<number>(() => people.length > 3 ? 3 : 2)
+  sorted = createSorted(people, by((p: { name: string, born: number }) => p.born))
+  shown = createSegment(sorted, perPage, page)
+  <p class="who">hello {name}</p>
+  <ol>{for p in shown { <li>{p.name}</li> }}</ol>
+  <p class="size">{size.width} by {size.height}; {perPage} a page</p>
+  <button class="next" onClick={() => { page := p => p + 1 }}>next</button>
+  <button class="all" onClick={() => { setPerPage(10); page := 1 }}>show all</button>
+  <button class="add" onClick={() => { people := ps => [...ps, { name: "Edsger", born: 1930 }] }}>add</button>
+  <button class="sign" onClick={() => { setName("Ada") }}>sign in</button>
+  <button class="measure" onClick={() => { setSize({ width: 640, height: 480 }) }}>measure</button>
+}

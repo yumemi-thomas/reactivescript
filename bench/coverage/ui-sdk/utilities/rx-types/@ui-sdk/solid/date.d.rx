@@ -1,0 +1,4 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type ISODate = import("@ui-sdk/solid/date").ISODate
+export pure fn addDays(date: ISODate, days: number): string
+export pure fn formatDate(date: ISODate, locale?: string, options?: Intl.DateTimeFormatOptions): string

@@ -1,0 +1,17 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type MenuProps = import("@ui-sdk/solid/menu").MenuProps
+export type MenuOpenChangeReason = import("@ui-sdk/solid/menu").MenuOpenChangeReason
+export type MenuPayloadChangeReason = import("@ui-sdk/solid/menu").MenuPayloadChangeReason
+export type MenuActionDetails = import("@ui-sdk/solid/menu").MenuActionDetails
+export type MenuCheckedChangeDetails = import("@ui-sdk/solid/menu").MenuCheckedChangeDetails
+export type MenuValueChangeDetails = import("@ui-sdk/solid/menu").MenuValueChangeDetails
+export type MenuContentState<Payload = unknown> = import("@ui-sdk/solid/menu").MenuContentState<Payload>
+export type MenuContentProps = import("@ui-sdk/solid/menu").MenuContentProps
+export type MenuItemState = import("@ui-sdk/solid/menu").MenuItemState
+export type MenuItemProps = import("@ui-sdk/solid/menu").MenuItemProps
+export type MenuTriggerState = import("@ui-sdk/solid/menu").MenuTriggerState
+export type MenuTriggerProps = import("@ui-sdk/solid/menu").MenuTriggerProps
+export component Menu(props: MenuProps & { onOpenChange?: (open: boolean, details: import("@ui-sdk/core").ChangeDetails<MenuOpenChangeReason>) => void; onOpenChangeComplete?: (open: boolean) => void; onPayloadChange?: (payload: unknown, details: import("@ui-sdk/core").ChangeDetails<MenuPayloadChangeReason>) => void; onAction?: (value: string, details: MenuActionDetails) => unknown; onCheckedChange?: (checked: boolean, details: MenuCheckedChangeDetails) => void; onValueChange?: (value: string, details: MenuValueChangeDetails) => void; onDismissAttempt?: (...args: Parameters<NonNullable<Parameters<typeof import("@ui-sdk/solid/menu").Menu>[0]["onDismissAttempt"]>>) => void })
+export component MenuContent<Payload = unknown>(props: import("@ui-sdk/solid").PartProps<"div", MenuContentState<Payload>> & MenuContentProps & { render?: (props: Record<string, any>, state: MenuContentState<Payload>) => View })
+export component MenuItem(props: Omit<import("@ui-sdk/solid").PartProps<"div", MenuItemState>, ("value" | "defaultValue" | "onChange" | "onSelect" | "defaultChecked")> & MenuItemProps & { render?: (props: Record<string, any>, state: { highlighted: boolean; disabled: boolean; pending: boolean; error: unknown; }) => View; onSelect?: handler (event: Event) => unknown })
+export component MenuTrigger(props: Omit<import("@ui-sdk/solid").PartProps<"button", MenuTriggerState>, ("value" | "defaultValue" | "onChange" | "onSelect" | "defaultChecked")> & MenuTriggerProps & { render?: (props: Record<string, any>, state: { open: boolean; disabled: boolean; }) => View })

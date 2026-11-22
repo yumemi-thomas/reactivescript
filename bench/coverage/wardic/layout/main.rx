@@ -1,0 +1,13 @@
+// Wardic's layout: elements that animate to where the layout puts them, in a group, and a list reordered in place.
+import { DomLive } from "@wardic/dom"
+import { wardic as Motion, WardicProvider, LayoutGroup } from "@wardic/solid"
+
+export default component App() {
+  source items := ["one", "two", "three"]
+  <WardicProvider env={DomLive}>
+    <LayoutGroup>
+      <ul>{for item in items { <Motion.li layout transition={{ duration: 0.05 }}>{item}</Motion.li> }}</ul>
+    </LayoutGroup>
+    <button onClick={() => { items := xs => [xs[2], xs[0], xs[1]] }}>shuffle</button>
+  </WardicProvider>
+}

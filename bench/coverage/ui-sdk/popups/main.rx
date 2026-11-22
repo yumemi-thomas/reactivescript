@@ -1,0 +1,25 @@
+// UI SDK's popups: a popover and a menu opened from their triggers, a tooltip.
+import { Popover, PopoverClose, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger } from "@ui-sdk/solid/popover"
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/solid/menu"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@ui-sdk/solid/tooltip"
+
+export default component App() {
+  source picked := "nothing"
+  <Popover>
+    <PopoverTrigger class="share">Share</PopoverTrigger>
+    <PopoverContent>
+      <PopoverTitle>Share this document</PopoverTitle>
+      <PopoverDescription>Anyone with the link can view it.</PopoverDescription>
+      <PopoverClose class="cancel">Cancel</PopoverClose>
+    </PopoverContent>
+  </Popover>
+  <Menu>
+    <MenuTrigger class="actions">Actions</MenuTrigger>
+    <MenuContent>
+      <MenuItem class="rename" value="rename" onSelect={() => { picked := "rename" }}>Rename</MenuItem>
+      <MenuItem value="duplicate">Duplicate</MenuItem>
+    </MenuContent>
+  </Menu>
+  <Tooltip defaultOpen><TooltipTrigger aria-label="Add to library">+</TooltipTrigger><TooltipContent>Add to library</TooltipContent></Tooltip>
+  <p class="picked">picked {picked}</p>
+}

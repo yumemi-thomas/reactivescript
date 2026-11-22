@@ -1,0 +1,2 @@
+//@ for @solid-primitives/raf ^4.0.0
+export pure fn createRAF(callback: handler (time: DOMHighResTimeStamp) => void): [ref boolean, () => void, () => void]

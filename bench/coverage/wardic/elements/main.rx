@@ -1,0 +1,11 @@
+// Wardic's elements: a motion element animates to the values the app gives it, by name where they are variants.
+import { DomLive } from "@wardic/dom"
+import { wardic as Motion, WardicProvider } from "@wardic/solid"
+
+export default component App() {
+  source open := false
+  <WardicProvider env={DomLive}>
+    <Motion.div class="panel" initial={false} animate={open ? "open" : "closed"} variants={{ open: { opacity: 1, height: 80 }, closed: { opacity: 0.5, height: 20 } }} transition={{ duration: 0.05 }}>a panel</Motion.div>
+    <Motion.button class="toggle" whileTap={{ scale: 0.95 }} onClick={() => { open := o => !o }}>{open ? "close" : "open"}</Motion.button>
+  </WardicProvider>
+}

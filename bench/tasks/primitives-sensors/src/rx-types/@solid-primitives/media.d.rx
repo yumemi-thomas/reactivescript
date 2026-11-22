@@ -1,0 +1,2 @@
+//@ for @solid-primitives/media ^4.0.0
+export pure fn createMediaQuery(query: string, serverFallback?: boolean): ref boolean instantiates

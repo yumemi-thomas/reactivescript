@@ -1,0 +1,20 @@
+// A progress meter on Wardic's values: a number derived from the app's state, a size that cycles, and a bar that
+// animates to them. The values and the element are made under the provider, which gives them their runtime.
+import { DomLive } from "@wardic/dom"
+import { wardic as Motion, WardicProvider, createTransform, createCycle } from "@wardic/solid"
+
+component Meter(props: { progress: number }) {
+  percent = createTransform(props.progress, (p: number) => p * 100)
+  [size, next] = createCycle("small", "large")
+  <Motion.div class="bar" animate={{ width: percent * 2, height: size == "small" ? 10 : 20 }} transition={{ duration: 0.05 }} style="background:teal"></Motion.div>
+  <p class="label">{percent}% {size}</p>
+  <button class="size" onClick={() => { next() }}>size</button>
+}
+
+export default component App() {
+  source progress: number := 0.25
+  <WardicProvider env={DomLive}>
+    <Meter progress={progress} />
+    <button class="more" onClick={() => { progress := 0.5 }}>more</button>
+  </WardicProvider>
+}
