@@ -62,6 +62,11 @@ What is not in the suite: probes written to find the edge of a rule rather than 
 inherited `valueOf()`, a draft's iterator kept, a callback kept in a record, `[f][0]()`). They were here once and
 are now `compiler/test/confined.mjs`'s, which runs each with its controls.
 
+Nor a mistake against one library's own rules (08 CN-8): a variant is a Solid mistake — reactivity, ownership, or a
+contract a declaration states in the generic words — made while using a library. A TanStack query key that misses an
+input of its function is the cache's contract, and `@tanstack/eslint-plugin-query`'s `exhaustive-deps` to refuse; it
+was a variant of `query-mutation` and is not one now.
+
 Nothing in a task names a rule of the checker: the programs come from the
 libraries' documentation and from what goes wrong in Solid apps, and the
 expected diagnostics are the ones the language already has for the mistake
@@ -117,8 +122,6 @@ Three earlier runs are kept beside it:
 - `baseline-rebased.txt`: the suite as it is now — the probes moved out, the unwritable variants counted apart, the
   declarations measured, eleven tasks added — run on the checker of `2f9baf7`, before any change to it.
 
-Three checks are red in `scorecard.txt`, each with its reason in its task's `known`: a duplicate key computed at run
-time (`duplicate-keys`), a `pure` JS call that answers differently on the server (`ssr-divergence`), and a TanStack
-query key that misses an input of its function (`query-mutation`: the library's cache contract, for which a
-declaration word is proposed). One run check is red with its reason too: Kobalte's own read of a store row in an
+Two checks are red in `scorecard.txt`, each with its reason in its task's `known`: a duplicate key computed at run
+time (`duplicate-keys`) and a `pure` JS call that answers differently on the server (`ssr-divergence`). One run check is red with its reason too: Kobalte's own read of a store row in an
 effect's callback, which Solid's development build warns of (`kobalte-select`).

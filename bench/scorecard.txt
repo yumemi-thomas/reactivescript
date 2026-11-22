@@ -14,7 +14,7 @@ optimistic-todo       3/3 ✓          4/4 ✓          6/6 ✓          6/6 ✓
 primitives-virtual    3/3 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            8                         15            
 projection-selection  3/3 ✓          4/4 ✓          4/4 ✓          4/4 ✓          —                —                         —             
 query-forward         3/3 ✓          6/6 ✓          6/6 ✓          5/5 ✓          —                6                         6             
-query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          6/7 ✗          —                4                         13            
+query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                4                         13            
 router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                4                         7             
 router-provider       3/3 ✓          5/5 ✓          4/4 ✓          5/5 ✓          1/1 ✓            7                         8             
 sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                         2             
@@ -25,15 +25,13 @@ store-helper          3/3 ✓          4/4 ✓          4/4 ✓          5/5 ✓
 store-updater         3/3 ✓          5/5 ✓          5/5 ✓          5/5 ✓          —                0                         0             
 table-pagination      3/3 ✓          8/8 ✓          10/10 ✓        5/5 ✓          —                57                        12            
 -------------------------------------------------------------------------------------------------------------------------------------------
-total                 72/72          107/107        120/121        104/107        8/8              216                       193           
+total                 72/72          107/107        120/121        104/106        8/8              216                       193           
 
-Not green (4):
+Not green (3):
   ✗ duplicate-keys · bad caught · rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY) — ran silently
     known: 06 ST-4d, 08 CN-2: a key computed at run time is the data's (bin R). The checker refuses rows written out with one key; it cannot see a key that a click computes, a static check does not become a run-time one, and Solid's development build reports no duplicate either. The variant stays as the measure of that limit.
   ✗ kobalte-select · runtime ok · no console errors or warnings — ["[STRICT_READ_UNTRACKED] Reactive value read directly in an effect callback will not update. Move it into a tracking scope (JSX, a memo, or an effect's compute function).\n[STRICT_READ_UNTRACKED] what it means and how to fix it: https://docs.solidjs.com/reference/solid-js/diagnostics/strict-read-untra"]
     known: 06 ST-1, ST-2, guide/libraries.md ("A store has one identity"): an `.rx` source of records is a Solid store, so the option the select is given as its `value` is a store's row. Kobalte 2.0.0-alpha reads the value's key inside an effect's callback (`SelectionManager.getKey`, from `SelectBase`'s effect), and Solid's development build warns of any reactive read there (`STRICT_READ_UNTRACKED`). The select works — every other check of this run is green — and the warning is the library's read, in the library: the same happens in a Solid app that keeps its options in `createStore`. `.rx` has no source of records that is not a store (the accepted limit: a structured source has one identity, and its rows are the store's).
-  ✗ query-mutation · bad caught · the query's function reads the id, its key does not: the cache answers the first todo for every id (KEY_MISSES_INPUT, or harmless) — accepted, and not harmless when run: the other todo is shown: milk
-    known: 08 CN-3b, CN-5; 09 MO-10g: what a library does with a callback is its declaration's to say, and the checker reads no library's semantics. The closure is not frozen — it reads `props.id` when TanStack calls it, so E-10 holds — but TanStack asks again only when the key's hash changes: the staleness is the cache's contract (its ESLint plugin's `exhaustive-deps`), and `.d.rx` has no word for "this callback is asked again only when that sibling key changes". `tracked` says when the callback is called, not what re-runs it. A word for it (`queryFn: keyed(queryKey) () => Promise<T>`: every changing value the closure reads is named in the key) would make this a static check; it is proposed in spec/rfc-revisions-2026-11-22.md and not ruled, so the variant stays as the measure of the gap.
   ✗ ssr-divergence · bad caught · a `pure` JS call that answers differently on each side, read by the view (the declaration's assertion: reported when it runs) (dev: HYDRATION_MISMATCH|mismatch) — ran silently
     known: 10 SV-7c (ruled 2026-10-24), 08 CN-5: `pure` is the author's assertion at the JS boundary, the one unchecked word, and that the function answers alike on both machines is part of it. What only the browser knows is `client` JS, which is checked (SV-7b: the good program). Solid's development build adopts the server's text without comparing it, so nothing reports this mismatch, and the language adds no run-time comparison of its own.
 

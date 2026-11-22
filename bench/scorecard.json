@@ -455,10 +455,8 @@
     },
     "bad": {
       "pass": 6,
-      "total": 7,
-      "fails": [
-        "the query's function reads the id, its key does not: the cache answers the first todo for every id (KEY_MISSES_INPUT, or harmless)"
-      ]
+      "total": 6,
+      "fails": []
     },
     "unrep": {
       "pass": 0,
