@@ -7,7 +7,7 @@
 // The projection is for checking only: it is never run, and its order is the dependency order (E-7).
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
-import { isRx, relativeModule, type ModuleSet } from "../src/modules.ts";
+import { isRx, relativeModule, ViewProps, type ModuleSet } from "../src/modules.ts";
 import { splitTop, shapeHasRef, type JsDecl, type Shape } from "../src/parse.ts";
 import type { ModSig } from "../src/check.ts";
 
@@ -160,7 +160,8 @@ class Proj {
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
   private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
   private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
-  constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
+  constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; this.views = new ViewProps(set, set.programs.get(path)?.decls ?? []); }
+  private views: ViewProps;   // MO-11t
 
   module(p: Program) {
     const body = new W(); const saved = this.w; this.w = body;
@@ -352,7 +353,7 @@ class Proj {
       case "read": this.w.emit(`${ind}{${this.expr(m.e, false)}}`, line); return;
       case "el": {
         if (m.tag === "") { this.w.emit(`${ind}<>`, line); for (const c of m.children) this.child(c, ind + "  "); this.w.emit(`${ind}</>`, line); return; }
-        const attrs = m.attrs.map(a => a.name === "..." ? ` {...${this.expr(a.e, false)}}` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : ` ${a.name}={${this.expr(a.e, isHandler(a.name))}}`).join("");
+        const attrs = m.attrs.map(a => a.name === "..." ? ` {...${this.expr(a.e, false)}}` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : this.views.given(m.tag, a.name, a.e) ? ` ${a.name}={<${this.views.given(m.tag, a.name, a.e)} />}` : ` ${a.name}={${this.expr(a.e, isHandler(a.name))}}`).join("");   // MO-11t: a component given by name to a prop typed `View` is the component applied, which is what the library's type takes
         const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
         const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
         if (named.length) {

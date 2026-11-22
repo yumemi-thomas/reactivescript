@@ -1,7 +1,7 @@
 // 09-modules: a program is a set of `.rx` modules. The loader resolves each `.rx` import to a path, parses every module once,
 // and orders them dependencies first (MO-1). A cycle is refused (MO-5): signatures are computed in that order.
 import { parseProgram, parseDeclarations, ParseError, type JsDecl } from "./parse.ts";
-import type { Program } from "./ast.ts";
+import type { Decl, Expr, Program } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
@@ -142,7 +142,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
         if (!printed.has(rx) && !declarations.has(dts)) { const src = read(dts); if (src !== undefined && isPrintedSignature(src)) { try { signatures.set(rx, parseSignature(src, rx)); printed.add(rx); } catch (e) { if (e instanceof SignatureError) throw new ParseError(e.message); throw e; } } }
         if (printed.has(rx)) { d.resolved = rx; continue; }
         if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try {
-          const ds = parseDeclarations(src);
+          const ds = parseDeclarations(src); contextSources(dts, ds, read);
           // SV-5a: the declaration's identity; two that would name an error class alike are not told apart
           const id = packageRelative(dts, read);
           if (d.from.startsWith(".")) for (const x of ds) {
@@ -176,3 +176,57 @@ export function loadModules(entry: string, read: (path: string) => string | unde
 
 /** One program with no `.rx` imports — the common case, and every scenario before 09. */
 export function singleModule(p: Program, entry = "main.rx"): ModuleSet { return { entry, programs: new Map([[entry, p]]), order: [entry], diags: [] }; }
+
+/** MO-12e: where each context a declaration takes from another module (`export context c from "<module>"`) is declared:
+ *  that module's declaration file, found as an import of it from this file would find it (MO-8k, MO-10c), and followed
+ *  while it too takes the context from elsewhere. Left unset where no declaration declares it (`NOT_EXPORTED`). */
+export function contextSources(dts: string, ds: JsDecl[], read: (path: string) => string | undefined): void {
+  for (const d of ds) {
+    if (d.kind !== "context" || d.from === undefined) continue;
+    let at = dts, spec = d.from;
+    for (let i = 0; i < 8; i++) {
+      const target = spec.startsWith(".") || spec.startsWith("/") ? besideDeclaration(at, spec, read) : declarationFor(at, spec, read);
+      if (target === undefined) break;
+      const src = read(target); if (src === undefined || isPrintedSignature(src)) break;   // an .rx module's context is imported and used by its name (MO-7)
+      let theirs: JsDecl[]; try { theirs = parseDeclarations(src); } catch { break; }
+      const c = theirs.find(x => x.kind === "context" && x.name === d.name); if (!c || c.kind !== "context") break;
+      if (c.from === undefined) { d.resolved = target; break; }
+      at = target; spec = c.from;
+    }
+  }
+}
+
+/** MO-11f, MO-11j: an equation bound from a declared factory's call is a component (`Router = createRouter(…)`). */
+export function madeComponent(p: { decls: Decl[] }, name: string, declarations?: Map<string, JsDecl[]>): boolean {
+  const d = p.decls.find(x => x.k === "eq" && x.name === name); if (!d || d.k !== "eq" || d.e.k !== "call" || d.e.f.k !== "id") return false;
+  const g = d.e.f.name;
+  for (const i of p.decls) if (i.k === "import" && i.declared) { const n = i.names.find(x => x.alias === g); if (n) return declarations?.get(i.declared)?.some(x => x.kind === "fn" && x.name === n.name && x.shape === "comp") ?? false; }
+  return false;
+}
+
+/** MO-11t: what a module's emitters need to know of a component given by name to a declared JS component's prop typed
+ *  `View` — the props that take a view, by the tag as the module writes it (an alias, a member), and the names that are
+ *  components here. The checker has both from its own symbols; the compiled module and the TSX projection write the
+ *  component applied (`fallback={<Empty />}`), which this decides. */
+export class ViewProps {
+  private props = new Map<string, Set<string>>(); private comps = new Set<string>();
+  constructor(set: ModuleSet | undefined, decls: Decl[]) {
+    const made = (ds: Decl[], name: string) => madeComponent({ decls: ds }, name, set?.declarations);
+    for (const d of decls) {
+      if (d.k === "component") this.comps.add(d.name);
+      else if (d.k === "eq" && made(decls, d.name)) this.comps.add(d.name);
+      else if (d.k === "import" && d.resolved) { for (const n of d.names) {
+        const src = set?.programs.get(d.resolved);
+        const inSource = !!src && (src.decls.some(x => x.k === "component" && x.name === n.name) || made(src.decls, n.name));
+        if (inSource || set?.signatures?.get(d.resolved)?.exports.get(n.name)?.kind === "comp") this.comps.add(n.alias);
+      } }
+      else if (d.k === "import" && d.declared) { for (const n of d.names) for (const x of set?.declarations?.get(d.declared) ?? []) {
+        if (x.kind !== "comp" || !(x.name === n.name || x.name.startsWith(n.name + "."))) continue;   // MO-11q: a member is written after the name its object is imported under
+        const rest = x.name.slice(n.name.length); if (!rest) this.comps.add(n.alias);
+        const views = x.props.filter(p => p.view).map(p => p.name); if (views.length) this.props.set(n.alias + rest, new Set(views));
+      } }
+    }
+  }
+  /** The component `attr={e}` of `<tag>` gives by name to a prop that takes a view, if it does. */
+  given(tag: string, attr: string, e: Expr): string | undefined { return e.k === "id" && this.props.get(tag)?.has(attr) && this.comps.has(e.name) ? e.name : undefined; }
+}

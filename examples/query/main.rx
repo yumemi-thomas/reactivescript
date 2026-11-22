@@ -1,5 +1,5 @@
-// TanStack Query 6 (Solid 2.0) from .rx: the client's context (MO-12), a query whose `data` holds and fails when read
-// (MO-10f), and a mutation whose onSuccess callback writes an .rx source (MO-10g).
+// TanStack Query 6 (Solid 2.0) from .rx: the client's context (MO-12), a query whose `data` waits and throws where it
+// is read — an accessor, through query.js (MO-10d) — and a mutation whose onSuccess callback writes an .rx source (MO-10g).
 import { QueryClientProvider, makeClient, useQuery, useMutation, useQueryClient } from "./query.js"
 import { fetchTodos, addTodo } from "./api.js"
 

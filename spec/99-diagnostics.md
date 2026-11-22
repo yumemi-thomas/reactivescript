@@ -104,8 +104,8 @@ named.
 | `WRITE_TO_NON_SOURCE`             | S   | W-1   | S-core-1, S-check-1 |
 | `DRAFT_WRITE_OUTSIDE_DRAFT`       | S   | ST-3a | S-store-2 |
 | `DRAFT_ESCAPES` (new)             | S   | 09 MO-10i: a library's draft is a place — named only in its own callback (not in a closure made there, nor after an `await`), handed only to a closure written at its setter's call, by a setter that is called by its own name | S-module-25 |
-| `RESULT_AS_VALUE` (new)           | S   | 09 MO-10f: a JS result whose fields hold or fail is read a field at a time, never used as a value | S-module-11 |
-| `RENDERS_ESCAPES` (new)           | S   | 09 MO-11l: a value `renders` checked where it is bound, or anything that may hold a part of it, leaving its region; MO-11o: a `renders` prop given a value whose components the checker cannot name | S-module-16, S-module-22 |
+| `RESULT_AS_VALUE` (new)           | S   | 09 MO-10f: a prop whose type says which of its fields hold or fail is read a field at a time, never used as a value (the same on a declared JS result's field is withdrawn, 09 MO-8r) | S-module-11 |
+| `RENDERS_ESCAPES` (new)           | S   | 09 MO-11o: a `renders` prop given a value whose components the checker cannot name | S-module-22 |
 | `ASYNC_STORE_SETTER`              | S   | ST-3b | S-check-1 |
 | `GUESS_OUTSIDE_HOLD`         | S   | AC-3 (an `effect`'s apply block: never an action, AC-1b; an action that starts nothing its guess would wait for, 2026-11-22) | S-check-1, S-infer-1 |
 | `HELD_WRITE`                      | S   | AC-1c | S-infer-2 |

@@ -215,5 +215,36 @@ console.log([after(() => {}), after(() => { onSettled(() => {}); createEffect(()
     const got = execFileSync(process.execPath, ["--conditions=" + cond, "--input-type=module", "-e", scoped], { cwd: tmp }).toString().trim();
     check(`a primitive's own owner (${cond}): one id of its component's, whatever it makes${cond === "browser" ? "; called untracked" : ""} (MO-10a)`, got === (cond === "browser" ? "t1 t1 untracked" : "t1 t1 tracked"), got);   // the server's build tracks nothing: its \`untrack\` is a call
   }
+  // 09 MO-10a: what the primitive's owner is for its region. Its cleanups are its region's: none runs while the region
+  // lives, each runs when the region goes (the primitives' before the component's own), and a region made again takes
+  // the primitive it made with it. A failure is the caller's: one thrown while the primitive is made is thrown where the
+  // call is written, to the boundary the caller is under; one thrown later by what it made reaches that boundary too.
+  const owned = `import { createApp } from "@reactivescript/runtime";
+import { createRoot, createSignal, createMemo, createEffect, onCleanup, createErrorBoundary, flush } from "solid-js";
+const app = createApp({ root: null });
+const out = {};
+{ const log = [];
+  const dispose = createRoot(d => { app.inst(() => { onCleanup(() => log.push("primitive")); }); onCleanup(() => log.push("component")); app.inst(() => { onCleanup(() => log.push("second primitive")); }); return d; });
+  out.before = log.slice(); dispose(); out.disposed = log.slice(); }
+{ const log = []; const [n, setN] = createSignal(0);
+  const dispose = createRoot(d => { const m = createMemo(() => { const k = n(); app.inst(() => { onCleanup(() => log.push("cleanup " + k)); }); log.push("made " + k); return k; }); createEffect(m, () => {}); return d; });
+  flush(); setN(1); flush(); out.rerun = log.slice(); dispose(); out.rerunDisposed = log.slice(); }
+{ let caught = null; try { createRoot(() => { app.inst(() => { throw new Error("while made"); }); }); } catch (e) { caught = e.message; } out.sync = caught; }
+{ createRoot(() => { const v = createErrorBoundary(() => { const made = createMemo(() => app.inst(() => { throw new Error("under a boundary"); })); return made(); }, err => "caught: " + err().message); out.boundary = v(); }); }
+{ let shown; const [n, setN] = createSignal(0);
+  createRoot(() => { const v = createErrorBoundary(() => { const read = app.inst(() => createMemo(() => { if (n() > 0) throw new Error("later"); return "fine"; })); return read(); }, err => "caught: " + err().message); createEffect(v, x => { shown = x; }); out.first = v(); });
+  flush(); setN(1); flush(); out.later = shown; }
+console.log(JSON.stringify(out));`;
+  for (const cond of ["browser", "node"]) {
+    const o = JSON.parse(execFileSync(process.execPath, ["--conditions=" + cond, "--input-type=module", "-e", owned], { cwd: tmp }).toString().trim());
+    const j = JSON.stringify;
+    check(`a primitive's cleanups (${cond}): none while its region lives; with the region, the primitives' and then the component's own (MO-10a)`, j(o.before) === "[]" && j(o.disposed) === j(["second primitive", "primitive", "component"]), j([o.before, o.disposed]));
+    check(`a failure while a primitive is made (${cond}) is thrown where the call is written, and caught by the boundary above the caller`, o.sync === "while made" && /^caught: /.test(o.boundary ?? ""), j([o.sync, o.boundary]));
+    // the server's build computes once: nothing is made again there, and nothing fails later
+    if (cond === "browser") {
+      check("a region made again disposes the primitive it made, once; the last one goes with the region", j(o.rerun) === j(["made 0", "made 1", "cleanup 0"]) && j(o.rerunDisposed) === j(["made 0", "made 1", "cleanup 0", "cleanup 1"]), j([o.rerun, o.rerunDisposed]));
+      check("a failure thrown later by what the primitive made reaches the boundary above the caller", o.first === "fine" && o.later === "caught: later", j([o.first, o.later]));
+    } else check("…and on the server's build the region's end runs them too", j(o.rerunDisposed) === j(["made 0", "cleanup 0"]) && o.first === "fine", j([o.rerunDisposed, o.first]));
+  }
 } finally { rmSync(tmp, { recursive: true, force: true }); }
 process.exit(fail ? 1 : 0);

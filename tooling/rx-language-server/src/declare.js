@@ -2,8 +2,8 @@
 // types show is written as rows: an accessor parameter or result is `ref`, a function of props to a JSX element is a
 // component, a `JSX.Element` prop is a `View`, a component-typed prop or result is `Component`, a tuple result keeps
 // its `ref` parts, an `Error` subclass is an `error`. What types cannot show is left for a person, as a `TODO` comment
-// on the line it concerns: whether a hook reads a context (`uses(…)`), whether a result's field waits or throws when
-// read (`pending fails(…)`), what a promise rejects with. A fn is `pure` only where Solid's convention says a primitive
+// on the line it concerns: whether a hook reads a context (`uses(…)`), whether a result is a store whose fields wait or
+// throw when read (no row says it: a module of the app's own hands each out as an accessor), what a promise rejects with. A fn is `pure` only where Solid's convention says a primitive
 // is (`create*`, `use*`) or a config helper is (`define*`, `*Options`); everything else stays io, the row that cannot be wrong in the unsafe direction (R-io-4).
 // `rx-tsc` then checks the draft against the same types (spec/13 TY-6).
 const path = require("node:path");
@@ -775,7 +775,7 @@ function resultText(ts, checker, t, todos, generic = false, here, node) {
   if (CTX.refs && /^Promise</.test(checker.typeToString(t)) && !/^Promise</.test(s)) s = s === here ? `Promise<Awaited<${here}>>` : /^any\u00ab[^\u00bb]*\u00bb$/.test(s) ? `Promise<${s}>` : s;
   if (/^Promise</.test(checker.typeToString(t))) todos.push("what does its promise reject with? add rejects(<classes>) (default Error)");
   else {
-    if (ownObject(ts, t, checker)) todos.push("is the result a store with fields that wait or throw when read? mark them `pending fails(<classes>)` (MO-10f)");
+    if (ownObject(ts, t, checker)) todos.push("is the result a store with fields that wait or throw when read? a row cannot say so (MO-8r): hand each such field out as a function from a module of the app's own, declared `ref` (MO-10d)");
     // what the type does not say as text (it names the library's own types) is said a step at a time
     // MO-8o: a result the library names is written by that name, unless its parts say what the checker reads
     if (unsaid(ts, checker, t)) { const st = structural(ts, checker, t, 0, here); if (st && !(CTX.decl && !introduced(s) && (introduced(st) || (CTX.whole && byPlace(st)) || (!EVIDENCE.test(st) && (!byPlace(s) || byPlace(st)))))) { s = st + nullish(ts, t); if (/\bref /.test(st)) todos.push("its fields drafted `ref` are read as values (`x.items`); one the app calls instead (`x.items()`) is a function, `() => T` (MO-10b)"); } }
@@ -877,7 +877,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
       const here = mode.paths && pt && single ? present(checker, pt, `Parameters<typeof import(${real}).${root}${rest.map(m => `[${JSON.stringify(m)}]`).join("")}>[0]`) : undefined;
       let props = pt ? checker.getNonNullableType(pt).getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)).map(q => propText(ts, checker, q, imp, false, here)) : [];
       // MO-8o: the props by the type the library declares them with, and after it only the fields the checker reads
-      // something of — a function type (a callback, a render prop), a `Component`: any other prop is the type's
+      // something of — a function type (a callback, a render prop), a `Component`, a `View`: any other prop is the type's
       // (props the library writes as a record in place are that record: there is no type to name)
       const pn = p && annotation(ts, p);
       let named = mode.decl && pn && !ts.isTypeLiteralNode(pn) && single ? declared(ts, checker, pn, undefined, true) : undefined;
@@ -887,7 +887,8 @@ function declare(ts, spec, from, options = {}, how = {}) {
       // a type that itself ends in a record (`RangeProps & { fallback?: T }`) is written in parentheses: a record that
       // closes the props is the row's own, the fields that carry words (MO-8o), and this one is the library's text
       if (named && /\}\s*$/.test(named.replace(MARK, ""))) named = `(${named})`;
-      if (named) props = props.filter(x => /^[\w$]+\??: (?:Component$|string \| Component$|\(.*=>)/.test(x.replace(MARK, "")));
+      // (MO-11t: and a prop that takes a view, other than `children` — a component given to it by name is applied there)
+      if (named) props = props.filter(x => /^[\w$]+\??: (?:Component$|string \| Component$|\(.*=>)/.test(x.replace(MARK, "")) || /^(?!children\b)[\w$]+\??: (?:View|View \| undefined|string \| View)$/.test(x.replace(MARK, "")));
       // MO-10g: a prop's function type is pure unless it says `handler`, whatever its name, so an event-like name is only
       // a suggestion here, never the word
       const events = [...new Set(props.map(x => /^(on[A-Z][\w$]*)\??\s*:\s*\(/.exec(x)?.[1]).filter(Boolean))];

@@ -1280,3 +1280,121 @@ export type Tag<T extends keyof import("pkg").JSX.Elements> = T
                   property: (property_identifier))
                 property: (property_identifier))))))
       value: (type_identifier))))
+
+================================================================================
+A declared component's props that take a view (09 MO-11t)
+================================================================================
+
+export component Rows<T>(props: { each: T[]; fallback?: View; icon?: string | View; children: (item: T) => View }) provides(kit)
+export component Later(props: import("kit").LaterProps & { fallback?: View | undefined })
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (component_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (array_type
+                    (type_identifier))))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (union_type
+                    (predefined_type)
+                    (type_identifier))))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (function_type
+                    (formal_parameters
+                      (required_parameter
+                        (identifier)
+                        (type_annotation
+                          (type_identifier))))
+                    (type_identifier))))))))
+      (provides_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (intersection_type
+              (member_expression
+                (call_expression
+                  (import)
+                  (arguments
+                    (string
+                      (string_fragment))))
+                (property_identifier))
+              (object_type
+                (property_signature
+                  (property_identifier)
+                  (type_annotation
+                    (union_type
+                      (type_identifier)
+                      (literal_type
+                        (undefined)))))))))))))
+
+================================================================================
+A declaration names another module's context (09 MO-12e)
+================================================================================
+
+export context client from "@demo/query"
+export pure fn useTodos(): { data: ref string } uses(client)
+export component Frame(props: { children?: View }) provides(client)
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (context_declaration
+      (identifier)
+      (string
+        (string_fragment))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters)
+      (type_annotation
+        (object_type
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (ref_type
+                (ref_modifier)
+                (predefined_type))))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (provides_clause
+        (identifier)))))

@@ -51,7 +51,7 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), [
   "export pure fn useMissing(): number",
   "export error NotFound",
   "export error Plain",
-  "export pure fn useLoad(ref opts: { load: () => Promise<any> }): { data: pending fails(Error) any; size: number }",
+  "export pure fn useLoad(ref opts: { load: () => Promise<any> }): { data: any; size: number }",
   "export pure fn useEager(ref opts: { load: () => Promise<any> }): { data: any; size: number }",
   "export pure fn useLater(ref opts: { x: string }): any uses(theme)",
   "export pure fn useWrongly(ref opts: { x: string }): any uses(theme)",
@@ -75,9 +75,8 @@ check("a hook that throws with no provider holds its uses(…)", /lib\.d\.rx:2 o
 check("a hook that does not is a mismatch", /lib\.d\.rx:3 MISMATCH\s+useClock: declared uses\(…\), but called with no provider it neither throws nor warns/.test(out), out);
 check("an export the module lacks is a mismatch", /lib\.d\.rx:4 MISMATCH\s+useMissing: lib\.mjs exports nothing by that name/.test(out), out);
 check("an error class is checked to be an Error subclass", /lib\.d\.rx:5 ok\s+NotFound/.test(out) && /lib\.d\.rx:6 MISMATCH\s+Plain: declared an error/.test(out), out);
-check("a probe's fields: a held, failing field read as declared", /lib\.d\.rx:7 ok\s+useLoad: its fields read as declared \(data held, then answered\)/.test(out), out);
-check("a probe's failing arguments fail with the declared class", /lib\.d\.rx:7 ok\s+useLoad: under the failing arguments it fails with Error/.test(out), out);
-check("a field that holds without holds is a mismatch", /lib\.d\.rx:8 MISMATCH\s+useEager: size holds/.test(out), out);
+check("a plain field that waits where it is read is a mismatch, with what to write instead", /lib\.d\.rx:7 MISMATCH\s+useLoad: data holds \(its first read is not ready\): a plain field that waits where it is read has no row/.test(out), out);
+check("...whichever field it is", /lib\.d\.rx:8 MISMATCH\s+useEager: size holds/.test(out), out);
 check("a hook that reads its context only when used: the probe's run finds it", /lib\.d\.rx:9 ok\s+useLater: uses\(…\) holds/.test(out), out);
 check("a probe whose run throws under its providers too is not evidence", /lib\.d\.rx:10 unverified useWrongly: the probe's run throws under its providers too/.test(out), out);
 check("a tuple's ref part is read as an accessor", /lib\.d\.rx:11 ok\s+usePair: its fields read as declared/.test(out), out);

@@ -1,23 +1,30 @@
-# S-module-11 — a JS result's fields that hold and fail: a query's `data`
+# S-module-11 — a query whose `data` waits: an accessor, from a module of the app's own
 
-Rules: MO-10f, MO-10b, MO-10d, MO-12, R-f-5, CN-3d.
+Rules: MO-10d, MO-10b, MO-8r, MO-10c, MO-12e, 04 CN-4a, R-f-5, CN-3d.
 
 ## Modules
 
 ```rx
--- module: ./query.d.rx
-// a query library's hook: the result is a store, and reading its `data` waits for the first answer (it suspends into the
-// nearest loading region) and throws the query's error (into the nearest errored one)
+-- module: ./rx-types/@demo/query.d.rx
+// a query library: the client's provider, and a hook whose result is a store — reading its `data` waits for the first
+// answer and throws the query's error. Its row here says what the types say: a record of plain fields
 export context queryClient
 export component QueryClientProvider(props: { client: any; children?: View }) provides(queryClient)
 export pure fn makeClient(): any instantiates
-export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<any> }): { data: pending fails(Error) any; isFetching: boolean } uses(queryClient)
 ```
 
 ```rx
--- module: ./thing.d.rx
-// a result whose rows are on a nested field: `q.result.data`, or `r.data` with `r = q.result`
-export pure fn useThing(): { result: { data: pending fails(Error) any; at: number }; status: string }
+-- module: ./query.d.rx
+// query.js, the app's own: `useQuery` over the library's, each field handed out as a function
+//   export const useQuery = o => { const q = lib.useQuery(o); return { data: () => q.data, isFetching: () => q.isFetching, refetch: () => q.refetch() }; }
+export context queryClient from "@demo/query"
+export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<any> }): { data: ref any; isFetching: ref boolean; refetch: () => Promise<unknown> } uses(queryClient)
+```
+
+```rx
+-- module: ./old.d.rx
+// as it was written until 2026-11-23
+export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<any> }): { data: pending fails(Error) any; isFetching: boolean }
 ```
 
 ```rx
@@ -25,24 +32,33 @@ export pure fn useThing(): { result: { data: pending fails(Error) any; at: numbe
 export pure fn fetchTodos(): Promise<string[]>
 ```
 
-`pending` and `fails(…)` on a field of a declared result say what a read of
-that field does: `todos.data` is read as a question's reader is (MO-10d),
-so it may hold, and it can fail with `Error`. The rest of the result is a
-value whose fields track (MO-10b): `todos.isFetching` neither holds nor
-fails. A part bound from such a field (`{ data } = useQuery(…)`) is a
-reader with the same rows. Nothing changes at run time: `todos.data` is the
-same property read.
+What a library hands back that waits or throws where it is read is an
+accessor to `.rx` (`ref T`, MO-10b): a reader, whose every read may hold
+(MO-10d), which is all Solid says of an accessor. One library hands back a
+store whose plain field does that instead (a query's `data`). Until
+2026-11-23 a declaration could say so on the field, `{ data: pending
+fails(Error) T }` (MO-10f), and the checker then asked for a `loading` and
+an `errored` region above each read; one library wrote it, and it is
+withdrawn (MO-8r). The store is handed out by a few lines of the app's own
+JavaScript, a function a field, declared `ref`: its reads are then what
+every library's waiting value is. The wrapper names the library's context
+(MO-12e), so its hook is still refused outside the provider.
 
 ## Program
 
 ```rx
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { QueryClientProvider, makeClient } from "@demo/query"
+import { useQuery } from "./query.js"
 import { fetchTodos } from "./api.js"
 
+component List(props: { items: string[] }) {
+  <ul>{for t in props.items { <li>{t}</li> }}</ul>
+}
 component Todos() {
   todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <ul>{for t in todos.data { <li>{t}</li> }}</ul>
+  <List items={todos.data} />
   <small>{todos.isFetching ? "refreshing" : ""}</small>
+  <button onClick={() => { todos.refetch() }}>again</button>
 }
 
 export default component App() {
@@ -55,473 +71,30 @@ export default component App() {
 }
 ```
 
-Accepted: `todos.data`'s `Error` is discharged by the `errored` above it,
-and its first load is held by the `loading` region (in a client-only build,
-CN-3d asks for that region; without it the crate's `check --spa` refuses
-the program with `ASYNC_OUTSIDE_LOADING_BOUNDARY`).
+Accepted. The regions are the app's to write: nothing in the declaration
+asks for them.
 
 ## Rejected variants
-
-```rx
--- reject: UNHANDLED_FAILURE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <ul>{for t in todos.data { <li>{t}</li> }}</ul>
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {loading fallback { <p>loading…</p> } { <Todos /> }}
-  </QueryClientProvider>
-}
-```
-
-A read of `todos.data` throws the query's error: with no `errored` above
-it, R-f-5 refuses it, where before MO-10f the checker saw a plain value.
-
-```rx
--- reject: UNHANDLED_FAILURE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Todos() {
-  { data } = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <ul>{for t in data { <li>{t}</li> }}</ul>
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {loading fallback { <p>loading…</p> } { <Todos /> }}
-  </QueryClientProvider>
-}
-```
-
-A part bound from the field carries its rows.
 
 ```rx
 -- reject: CONTEXT_NOT_FOUND
 import { useQuery } from "./query.js"
 import { fetchTodos } from "./api.js"
-component Todos() {
+export default component App() {
   todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <ul>{for t in todos.data catch (e) => [] { <li>{t}</li> }}</ul>
-}
-export default component App() {
-  <Todos />
+  <p>{len(todos.data)}</p>
 }
 ```
 
-The hook still needs its provider (MO-12b); a `catch` on the read
-discharges the field's failure where it is read.
+The wrapper's hook with no client above it.
 
 ```rx
--- reject: UNHANDLED_FAILURE
-import { useThing } from "./thing.js"
-export default component App() {
-  q = useThing()
-  <p>{q.result.data} {q.result.at} {q.status}</p>
-}
-```
-
-The rows are kept by the field's path (`result.data`): a read of it, at any
-depth, can fail; its siblings cannot.
-
-```rx
--- reject: UNHANDLED_FAILURE
-import { useThing } from "./thing.js"
-export default component App() {
-  q = useThing()
-  r = q.result
-  <p>{r.data}</p>
-}
-```
-
-A record part bound from the result keeps its fields' rows.
-
-```rx
--- reject: ASYNC_OUTSIDE_LOADING_BOUNDARY
--- spa
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+-- reject: INSTANTIATION_NOT_BOUND
+import { QueryClientProvider, makeClient } from "@demo/query"
+import { useQuery } from "./query.js"
 import { fetchTodos } from "./api.js"
 component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <ul>{for t in todos.data { <li>{t}</li> }}</ul>
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {errored fallback(e) { <p>failed: {e.message}</p> } { <Todos /> }}
-  </QueryClientProvider>
-}
-```
-
-In a client-only build (`-- spa`, CN-3d) the first load waits on
-`todos.data`, and with no `loading` above it nothing would show until it
-answers.
-
-
-```rx
--- reject: UNHANDLED_FAILURE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <ul>{for t in todos["data"] { <li>{t}</li> }}</ul>
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {loading fallback { <p>loading…</p> } { <Todos /> }}
-  </QueryClientProvider>
-}
-```
-
-The field's rows do not depend on how the read is spelled: `todos["data"]`
-is `todos.data`.
-
-```rx
--- reject: ASYNC_OUTSIDE_LOADING_BOUNDARY
--- spa
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <ul>{for t in todos["data"] { <li>{t}</li> }}</ul>
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {errored fallback(e) { <p>failed: {e.message}</p> } { <Todos /> }}
-  </QueryClientProvider>
-}
-```
-
-It holds too.
-
-```rx
--- reject: UNHANDLED_FAILURE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  key = "data"
-  <ul>{for t in todos[key] { <li>{t}</li> }}</ul>
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {loading fallback { <p>loading…</p> } { <Todos /> }}
-  </QueryClientProvider>
-}
-```
-
-A key the checker cannot name may be any field of the result, so the read
-has every field's rows at that depth: here `data`'s.
-
-```rx
--- reject: ASYNC_OUTSIDE_LOADING_BOUNDARY
--- spa
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  key = "data"
-  <ul>{for t in todos[key] { <li>{t}</li> }}</ul>
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {errored fallback(e) { <p>failed: {e.message}</p> } { <Todos /> }}
-  </QueryClientProvider>
-}
-```
-
-```rx
--- reject: UNHANDLED_FAILURE
-import { useThing } from "./thing.js"
-export default component App() {
-  q = useThing()
-  <p>{q["result"]["data"]}</p>
-}
-```
-
-```rx
--- reject: UNHANDLED_FAILURE
-import { useThing } from "./thing.js"
-export default component App() {
-  q = useThing()
-  k = "result"
-  r = q[k]
-  <p>{r["data"]}</p>
-}
-```
-
-An alias of a part named by a dynamic key keeps the rows of every part it
-may be.
-
-```rx
--- reject: UNHANDLED_FAILURE
-import { useThing } from "./thing.js"
-export default component App() {
-  orig = useThing()
-  q = orig
-  <p>{q["result"]["data"]}</p>
-}
-```
-
-An alias of the result is the result: it keeps its shape and its fields'
-rows.
-
-```rx
--- reject: ASYNC_OUTSIDE_LOADING_BOUNDARY
--- spa
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Todos() {
-  orig = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  todos = orig
-  <ul>{for t in todos.data { <li>{t}</li> }}</ul>
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {errored fallback(e) { <p>failed: {e.message}</p> } { <Todos /> }}
-  </QueryClientProvider>
-}
-```
-
-## The result is read a field at a time (ruled 2026-11-22)
-
-A result whose fields hold or fail is not a value the program holds: it is
-read a field at a time, by a path from the name it is bound to (MO-10f).
-That is what makes the check above complete. Every read of a held field is
-written as a path the checker sees, so there is no other way to `data` — a
-closure that returns the result, a prop, a provision, an export or a source
-that holds it would each be one, and each is `RESULT_AS_VALUE`. What
-travels is the field, which carries its rows as any `.rx` value does.
-
-Spread, it is read whole:
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-export default component App() {
-  orig = useThing()
-  q = { ...orig }
-  <p>{q.status}</p>
-}
-```
-
-and so it is shown,
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-export default component App() {
-  orig = useThing()
-  <p>{orig}</p>
-}
-```
-
-held in a record,
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-export default component App() {
-  orig = useThing()
-  box = { q: orig }
-  <p>{box.q.result.data}</p>
-}
-```
-
-returned by a closure,
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-export default component App() {
-  orig = useThing()
-  get = () => orig
-  q = get()
-  <p>{q.result.data}</p>
-}
-```
-
-or passed to a component. On the other side of each of these the field
-would be read where no check could see that it holds and fails: `props.q`
-is a value like any other to `Child`, whatever boundary `Child` has.
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-component Child(props: { q: any }) {
-  <p>{props.q.status}</p>
-}
-export default component App() {
-  orig = useThing()
-  <Child q={orig} />
-}
-```
-
-A closure given to a component is a way out too (the component calls it and
-reads the field), and so are a provision, a write to a source from a
-handler, a call, and an export — the result's name, a part of it that is a
-record of held fields (`q.result`), or a fn that gives it. A module's
-signature carries an equation's rows, not its fields'.
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-component Kid(props: { get: () => any }) {
-  {errored fallback(e) { <p>failed</p> } { <p>{props.get().status}</p> }}
-}
-export default component App() {
-  orig = useThing()
-  <Kid get={() => orig} />
-}
-```
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-context qctx: any
-component Reader() {
-  q = use qctx
-  <p>{q.status}</p>
-}
-export default component App() {
-  orig = useThing()
-  provide qctx = orig
-  <Reader />
-}
-```
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-export default component App() {
-  source saved: any := null
-  orig = useThing()
-  <button onClick={() => { saved := orig }}>keep</button>
-  <p>{saved == null ? "none" : saved.status}</p>
-}
-```
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-fn statusOf(q) { q.status }
-export default component App() {
-  orig = useThing()
-  <p>{statusOf(orig)}</p>
-}
-```
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-export default component App() {
-  orig = useThing()
-  <p>{orig.status}</p>
-  <ul>{for q in [orig] { <li>{q.status}</li> }}</ul>
-}
-```
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-export thing = useThing()
-export default component App() {
-  <p>{thing.status}</p>
-}
-```
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-thing = useThing()
-export fn getThing() { thing }
-export default component App() {
-  <p>{thing.status}</p>
-}
-```
-
-```rx
--- reject: RESULT_AS_VALUE
-import { useThing } from "./thing.js"
-component Child(props: { r: any }) {
-  <p>{props.r.at}</p>
-}
-export default component App() {
-  q = useThing()
-  <Child r={q.result} />
-}
-```
-
-The rest of a destructuring is the result without the fields named beside
-it: it is a value only when every field that holds or fails is named.
-
-```rx
--- reject: RESULT_AS_VALUE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Todos() {
-  { isFetching, ...rest } = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <small>{isFetching ? "refreshing" : ""} {rest.data}</small>
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {errored fallback(e) { <p>failed</p> } { <Todos /> }}
-  </QueryClientProvider>
-}
-```
-
-What is not a use of its value is accepted: another name for it (an
-equation), a part of it that is a record (`r = q.result`), a comparison, a
-test, and the fields themselves, wherever they go — to a component (the prop
-carries the field's rows to where it is read), into a handler, or to a
-source.
-
-```rx
--- accept
-import { useThing } from "./thing.js"
-component Btn(props: { onPress: () => void; label: string }) {
-  <button onClick={() => { props.onPress() }}>{props.label}</button>
-}
-component Shown(props: { data: any; at: number }) {
-  <p>{props.data} at {props.at}</p>
-}
-export default component App() {
-  source n := 0
-  source saved: any := null
-  orig = useThing()
-  q = orig
-  r = q.result
-  <p>{q.status} {r.at} {orig.status} {orig == null ? "none" : "some"} {orig && orig.status}</p>
-  <Btn label="again" onPress={() => { n := orig.status == "idle" ? 1 : 2 }} />
-  {if orig { <small>{orig.result.at}</small> }}
-  {errored fallback(e) { <p>failed</p> } {
-    <Shown data={orig.result.data} at={r.at} />
-    <button onClick={() => { try { saved := r.data } catch (e) { saved := null } }}>keep</button>
-  }}
-}
-```
-
-The compiled result reads each field where it is read (it is the
-library's own object), so `q.status` and `r.at` read no `data`: the
-program does what the checker counts.
-
-```rx
--- accept
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Todos() {
-  { data, ...rest } = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <small>{rest.isFetching ? "refreshing" : ""}</small>
-  {errored fallback(e) { <p>failed</p> } { <ul>{for t in data { <li>{t}</li> }}</ul> }}
+  <p>{len(useQuery({ queryKey: ["todos"], queryFn: fetchTodos }).data)}</p>
 }
 export default component App() {
   client = makeClient()
@@ -529,164 +102,76 @@ export default component App() {
 }
 ```
 
-`rest` holds no field that holds or fails: `data` is named beside it.
-
-The words are a record field's. A tuple's part that holds is an accessor
-(`ref T`, MO-10b), and a result that may be absent, or sits inside another
-type, has no field the checker could follow: a row word written there is
-refused where it is declared, not ignored.
+The query is made once, where it is bound (MO-10a).
 
 ```rx
--- module: ./pair.d.rx
-export pure fn usePair(): [pending fails(Error) any, boolean]
+-- reject: IO_IN_REACTIVE
+import { QueryClientProvider, makeClient } from "@demo/query"
+import { useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+component Todos() {
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <p>{todos.refetch()}</p>
+}
+export default component App() {
+  client = makeClient()
+  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+}
 ```
+
+`refetch` answers a promise: it starts work, and is called from a handler
+(MO-10b).
 
 ```rx
 -- reject: PARSE
-import { usePair } from "./pair.js"
-export default component App() {
-  [a, b] = usePair()
-  <p>{b}</p>
-}
-```
-
-## Rejected variants, and accepted ones: the whole result, through an interface that keeps its fields' rows (2026-11-22)
-
-A Solid app passes a query down. The result still is not a value, but a
-component may say, in its props' type, that a prop is such a result: a
-record type whose fields carry the row words, `query: { data: pending
-fails(Error) T; isFetching: boolean }`. In that component `props.query`
-is read as the result is — a field at a time, each held field's read
-checked where it is — and at an application a result (or a record of
-held fields below one) is given whole to such a prop when the prop's
-type marks every field the result holds or fails with, at least as the
-declaration does. The interface is in the component's signature
-(`query: takes(data pending fails(Error))`), so it holds across modules.
-What is erased for TypeScript is the row words alone: the prop's type is
-the record, and the library's result is assignable to it.
-
-```rx
--- accept
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
+import { useQuery } from "./old.js"
 import { fetchTodos } from "./api.js"
-component Count(props: { n: number }) { <small>{props.n}</small> }
-component Panel(props: { query: { data: pending fails(Error) any; isFetching: boolean }; title: string }) {
-  q = props.query
-  <h2>{props.title} {props.query.isFetching ? "…" : ""}</h2>
-  <ul>{for t in q.data { <li>{t}</li> }}</ul>
-  <Count n={len(props.query.data)} />
-}
-component Frame(props: { query: { data: pending fails(Error) any; isFetching: boolean } }) {
-  <Panel query={props.query} title="todos" />
-}
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <Frame query={todos} />
-}
 export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}>
-    {errored fallback(e) { <p>failed</p> } { <Todos /> }}
-  </QueryClientProvider>
+  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
+  <p>{len(todos.data)}</p>
 }
 ```
 
-The reads in `Panel` are question readers: with no `errored` above them,
-in `Panel` or above where it is applied, the program is refused as it is
-for a read of `todos.data` itself.
+`pending` and `fails(…)` on a declared result's field are refused by name,
+with what says it now.
+
+The row words are `.rx`'s own before a type (04 CN-4a), and an `.rx`
+component may still write them on a field of a prop's type: the prop is
+then read a field at a time, each read checked where it is.
 
 ```rx
 -- reject: UNHANDLED_FAILURE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Panel(props: { query: { data: pending fails(Error) any; isFetching: boolean } }) {
-  <ul>{for t in props.query.data { <li>{t}</li> }}</ul>
-}
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <Panel query={todos} />
+component Panel(props: { query: { data: pending fails(Error) string[]; status: string } }) {
+  <p>{props.query.status}: {len(props.query.data)}</p>
 }
 export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
-}
-```
-
-A prop whose type does not say the field holds and fails takes it for
-plain data, so the result is not given to it; nor to one that says less
-than the declaration (`pending` alone: the failure would be read under
-no boundary the check asked for).
-
-```rx
--- reject: RESULT_AS_VALUE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Panel(props: { query: { data: any; isFetching: boolean } }) {
-  {errored fallback(e) { <p>failed</p> } { <ul>{for t in props.query.data { <li>{t}</li> }}</ul> }}
-}
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <Panel query={todos} />
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+  <Panel query={{ data: ["milk"], status: "success" }} />
 }
 ```
 
 ```rx
 -- reject: RESULT_AS_VALUE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Panel(props: { query: { data: pending any; isFetching: boolean } }) {
-  {errored fallback(e) { <p>failed</p> } { <ul>{for t in props.query.data { <li>{t}</li> }}</ul> }}
+component Count(props: { of: any }) {
+  <b>{len(props.of.data)}</b>
 }
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <Panel query={todos} />
+component Panel(props: { query: { data: pending fails(Error) string[]; status: string } }) {
+  {errored fallback(e) { <p>failed</p> } { <Count of={props.query} /> }}
 }
 export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
-}
-```
-
-Inside the component the prop is held to the same closed set as the
-result (MO-10f): it is not passed on to a prop that does not take it, put
-in a record, or asked for a method its type does not name.
-
-```rx
--- reject: RESULT_AS_VALUE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Plain(props: { v: any }) { <p>{props.v}</p> }
-component Panel(props: { query: { data: pending fails(Error) any; isFetching: boolean } }) {
-  {errored fallback(e) { <p>failed</p> } { <Plain v={props.query} /> }}
-}
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <Panel query={todos} />
-}
-export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+  <Panel query={{ data: ["milk"], status: "success" }} />
 }
 ```
 
 ```rx
--- reject: RESULT_AS_VALUE
-import { QueryClientProvider, makeClient, useQuery } from "./query.js"
-import { fetchTodos } from "./api.js"
-component Plain(props: { v: any }) { <p>{props.v}</p> }
-component Panel(props: { query: { data: pending fails(Error) any; isFetching: boolean } }) {
-  {errored fallback(e) { <p>failed</p> } { <Plain v={props.query.valueOf()} /> }}
+-- accept
+component Count(props: { of: string[] }) {
+  <b>{len(props.of)}</b>
 }
-component Todos() {
-  todos = useQuery({ queryKey: ["todos"], queryFn: fetchTodos })
-  <Panel query={todos} />
+component Panel(props: { query: { data: pending fails(Error) string[]; status: string } }) {
+  <p>{props.query.status}</p>
+  {errored fallback(e) { <p>failed</p> } { <Count of={props.query.data} /> }}
 }
 export default component App() {
-  client = makeClient()
-  <QueryClientProvider client={client}><Todos /></QueryClientProvider>
+  <Panel query={{ data: ["milk"], status: "success" }} />
 }
 ```

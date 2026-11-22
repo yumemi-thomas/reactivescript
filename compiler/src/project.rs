@@ -181,7 +181,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), views: crate::modules::ViewProps::of(set, &set.programs[path].decls), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -338,6 +338,8 @@ struct Proj<'a> {
     ref_fns: HashMap<String, JsDecl>,
     /// MO-10b: equations bound to such a fn's tuple or record result
     ref_parts: HashMap<String, crate::parse::Shape>,
+    /// MO-11t: the props of the JS components this module imports that take a view
+    views: crate::modules::ViewProps,
     prelude: Option<&'a str>,
 }
 
@@ -1024,6 +1026,13 @@ impl Proj<'_> {
                     }
                     let name_at = (!at.span.is_none() && at.span.text(self.src) == at.name).then_some(at.span.start as usize);
                     a = a.t(" ").at(&at.name, name_at);
+                    // MO-11t: a component given by name to a prop typed `View` is the component applied, which is what
+                    // the library's type takes (an element) and what types its props (it is given none)
+                    if let Some(n) = self.views.given(tag, &at.name, &at.e) {
+                        let n_at = (!at.e.span.is_none() && at.e.span.text(self.src) == n).then_some(at.e.span.start as usize);
+                        a = a.t("={<").at(n, n_at).t(" />}");
+                        continue;
+                    }
                     if !matches!(at.e.k, ExprKind::Lit(Lit::Bool(true))) {
                         a = a.t("={").c(self.expr(&at.e, is_handler(&at.name), None)).t("}");
                     }

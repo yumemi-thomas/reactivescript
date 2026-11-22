@@ -252,22 +252,23 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | --- | --- | --- |
   | the kind of fn | before `fn` | `pure`, `server`, `client` |
   | a parameter | before the parameter, as in an `.rx` fn (`fn f(ref n)`) | `ref`, `...` (rest); `draft` on a parameter the fn changes in place, and on a callback's parameter |
-  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor), `pending`, `fails(E)` on a result, a field or a part; `renders` and `catches(E)` on a prop; `handler` on a function type (MO-10g) |
-  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `renders`, `renders(later)`, `nests(…)`, `outlet`, `shape(…)`, a component's `fails(E)` |
+  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor); `renders` and `catches(E)` on a prop; `handler` on a function type (MO-10g) |
+  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `renders(later)`, `nests(…)`, `outlet`, `shape(…)`, a component's `fails(E)` |
   | a pin | a comment line | `//@ for <package> <range>` |
 
-  A row word names the same row as the `.rx` word for it: a field that may
-  wait is `pending` (first drafted as `holds`, now refused with the word
-  that replaced it), as an `.rx` value that may wait carries `pending`
-  (CN-4a). `rejects(E)` is what a returned promise rejects with, `fails(E)`
-  what a read or a render throws: the two words keep the two places apart.
+  A row word names the same row as the `.rx` word for it. `rejects(E)` is
+  what a returned promise rejects with, `fails(E)` what a render throws:
+  the two words keep the two places apart. (`pending` and `fails(E)` before
+  a result's field were words here until 2026-11-23, MO-8r: what waits or
+  throws where it is read is an accessor, `ref`.)
   A member component is named as it is written (`Dialog.Trigger`, MO-11q).
   The table is what MO-8r left of it (2026-11-22): `signal`, `tracked`,
   `forwards`, `joins(field)`, `methods(m, …)`, `renders(root, c…)` and
   `trusted` were words here, and a second row of one fn's name was a
-  form (MO-8p). A row written with one of them is refused by name, with
-  what says it now, so that it is never read as a type that ends in a
-  name.
+  form (MO-8p); on 2026-11-23 `pending` and `fails(E)` before a result's
+  field and `renders` alone after a signature went too. A row written
+  with one of them is refused by name, with what says it now, so that it
+  is never read as a type that ends in a name.
 
 - **MO-8j (Strict declarations) — proposed 2026-11-20.** A row is an
   assertion (MO-8b); by default the checker takes it on trust. A project may
@@ -728,13 +729,13 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | `handler` on a function type (MO-10g) | 7 tasks: 4 libraries and 3 modules of an app's own | kept | without it a closure given to a library cannot write a source: every `onSuccess`, every listener |
   | `draft` on a callback's parameter (MO-10i) | Solid's own store (`declarations/solid-js`), 2 tasks | kept | `setStore(d => { d.done := true })` is how a Solid 2 store is written; no module of JavaScript can stand in for it |
   | `draft` on a fn's parameter (MO-10i) | 1 task (a helper of the app's own) | kept | the same word read the other way; without it `setStore(s => { arrayMove(s.items, a, b) })`, as Solid's documentation writes it, changes a copy and says nothing |
-  | `pending`, `fails(E)` on a result's field (MO-10f) | 2 tasks, 1 library (TanStack Query) | kept | they are `.rx`'s own row words in a new place, not new words; a store whose fields wait and throw where they are read is Solid 2's own shape (an async store), and without them `q.data` under no boundary — three of the benchmark's mistakes — is not refused. A module of JavaScript would have to turn every query into a tuple |
+  | `pending`, `fails(E)` on a result's field (MO-10f) | 2 tasks, 1 library (TanStack Query) | kept, then **withdrawn** 2026-11-23 (*Settled*, below) | kept as `.rx`'s own row words in a new place, for Solid 2's own shape (an async store); no second library hands out a store whose plain fields wait, and Solid's own declaration does not write them |
   | `uses(c)`, `provides(c)`, `export context c` for JS (MO-12) | 6 tasks, 5 libraries | kept | a hook outside its provider, a part outside its root: refused in six tasks, in the words `.rx` contexts already have |
   | `export component`, a member's name, a render prop's type (MO-11a, k, q) | 8 tasks, 6 libraries | kept | a component library cannot be used otherwise (`UNKNOWN_COMPONENT`) |
   | `catches(E)` on a JS component's prop, `fails(E)` and `shape(…)` after one (MO-11a) | no task | kept | upstream's words in upstream's place, a component's row (MO-3, MO-9b): refusing them in a JS component's row would make that row differ from a printed one and take no word out |
   | a fn that hands back a `Component` (MO-11f) | 1 task (`@solidjs/router`) | kept: no word | the result's type says it |
-  | `renders` (MO-11l) | 1 task (a table) | kept | the placement of what a library is given is the question three libraries of the benchmark ask (two routers and a table), each in the one form its API has; without this one a cell component that reads the app's context cannot be written, and a table kept in state or handed up is not refused |
-  | `renders(later)`, `renders T` on a prop (MO-11o) | 1 task, 1 library (TanStack Router); its example | kept | the same question for components that travel in values; without it no page of a code-based route tree may read the router's context, or a hook outside the provider is not refused. A module of JavaScript that hid the tree would lose the registered route types |
+  | `renders` (MO-11l) | 1 task (a table) | kept, then **withdrawn** 2026-11-23 (*Settled*, below) | kept because three libraries ask where what they are given is rendered, each in the one form its API has; the form is one library's |
+  | `renders(later)`, `renders T` on a prop (MO-11o) | 1 task, 1 library (TanStack Router); its example | kept; **fails the bar** 2026-11-23 (*Settled*, below), its removal a change of its own | the same question for components that travel in values; without it no page of a code-based route tree may read the router's context, or a hook outside the provider is not refused. A module of JavaScript that hid the tree would lose the registered route types |
   | `nests(kids in inside)`, `nests(inside under parent)`, `outlet` (MO-11i, MO-11p) | 2 tasks, 2 libraries (the two routers, a form each; `outlet` is the second form's other half) | kept | a boundary or a provider in a layout, around its pages, is how every routed app is written, and without `nests` it must be hoisted above the router, where a failure takes the navigation with it |
   | `instantiates` inferred from more (a `uses`, a field row, a setter that hands a draft, a `renders`) | — | kept | no word: fewer are written |
   | `export const` (MO-8g) | 3 tasks, 3 libraries | kept | with a declaration, an export it does not name is `NOT_EXPORTED`: a value needs a row |
@@ -754,11 +755,13 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   twelve of its own: `const`, `handler`, `tracked`, `draft`, `signal`,
   `renders`, `nests`, `joins`, `forwards`, `outlet`, `methods`,
   `trusted`. Six of the twelve are left — `const`, `handler`, `draft`,
-  `renders`, `nests`, `outlet` — with `renders` in three forms where it
-  had four (bare, `renders(later)`, on a prop) and one form of grammar
-  fewer (a row a signature). Each of the six is written for a mistake
-  the benchmark refuses or a program it runs, in more than one library
-  or (the placement words) for a question more than one library asks.
+  `renders`, `nests`, `outlet` — with `renders` in two forms where it
+  had four (`renders(later)`, on a prop; `renders` alone went on
+  2026-11-23) and one form of grammar fewer (a row a signature). `const`,
+  `handler`, `draft` and `nests(children in component)` are each written
+  in more than one library. `renders(later)`, a prop's `renders`,
+  `nests(component under parent)` and `outlet` are one library's, and are
+  held to be withdrawn (*Settled*, below).
 
   *What no word says, and stays so* (the gaps
   `rfc-declaration-types-2026-11-22.md` lists after three libraries the
@@ -798,14 +801,49 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   (solid-primitives' `fallback` on five components, beside solid-use's
   `ClientOnly`), and the form chosen is not grammar — a component of the
   app's that takes no props, given by name to a prop typed `View`, as
-  MO-11c gives one to a prop typed `Component`; it is not in this change.
-  And the three kept on one library's evidence: `renders(later)` and
-  `renders` on a prop have a second library (UI SDK's `toast()` and
-  `confirm()` open into a registry that `<OverlayHost>` renders
-  elsewhere); `pending` and `fails` on a field stay as Solid's own rule
-  for Solid's own shape (`createStore(fn)` over an async function is a
-  store whose fields wait), written by one library; bare `renders` has
-  one library still, and is kept as the first form of the kept word.
+  MO-11c gives one to a prop typed `Component` (MO-11t, 2026-11-23).
+  Three forms were kept there on one library's evidence each; they are
+  settled next.
+
+  *Settled (2026-11-23).* The bar counts libraries, and "removing it
+  breaks a good program of one library" or "loses the benchmark's
+  catches in one library" is one library. Applied to the three:
+
+  | form | the evidence, looked for again | decision | what is written instead | what is given up |
+  | --- | --- | --- | --- | --- |
+  | `pending`, `fails(E)` before a declared result's field (MO-10f) | none of the 190 modules of the coverage suite nor a library of the tasks hands out a store whose plain fields wait or throw, but TanStack Query; `declarations/solid-js` does not write it (an `.rx` program asks with `await`, not `createStore(fn)`) | **withdrawn**: refused by name | the store behind a module of the app's own that hands each field out as a function, declared `ref` (`data: () => q.data`, MO-10c): to `.rx` what waits where it is read is an accessor, and an accessor asks for no region (MO-10d) — as every other library's waiting value already was | the `loading` and `errored` regions the checker asked for above a query's `data`, and the result read a field at a time: five of the benchmark's bad variants, each listed in `bench/README.md` |
+  | `renders` alone after a fn (MO-11l) | no module of the four libraries is given components and renders them where its value is bound; the one writer was a table, through an adapter of the app's own | **withdrawn**: refused by name | no word: each component the fn is given is checked under a root of its own (MO-11s), and takes what it needs as its props (a table's cell is given its context); the result is a plain value | a cell that reads the app's context cannot be written; the table kept in state or handed up is no longer a mistake to refuse: three bad variants |
+  | `renders(later)`, a prop's `renders T` (MO-11o), and with them `nests(component under parent)` and `outlet` (MO-11p) | the second library claimed on 2026-11-23, UI SDK's `toast()`, `confirm()` and `<OverlayHost>`, was declared and used (`bench/coverage/ui-sdk/overlays`): `toast()` is given a message and answers an id, `confirm()` a title and a promise; nothing they are given is a component, nothing they answer is given to the host, and the three rows are the draft's with no word. One library, TanStack Router's code-based route tree | **they fail the bar, and are to be withdrawn**; not in this change | a route tree that carries components is a factory's (MO-11f with `nests(children in component)`, which `@solidjs/router` has natively and a module of the app's own gives TanStack Router), or JavaScript's (a route module that imports the `.rx` pages, as a file-based tree does, `bench/tasks/start-route`) | when it lands: the registered route types of a tree written in `.rx` (a link to no route), and `router-provider`'s three variants as they are written |
+
+  The third is decided and not done, and that is said plainly: its
+  removal rewrites `bench/tasks/router-provider`, `examples/tanstack`
+  (with the typed-link check `compiler/test/vite.mjs` runs on it), the
+  scenarios that write the words (S-module-22, 23, 27), `rx-verify`'s
+  placement checks and the tree-sitter rules,
+  and takes the carried-value half of MO-10k out of both checkers. Until
+  then the four words parse, are written by one library's rows, and no
+  new row should write them.
+
+  What the first two leave in the checkers. The rule for a prop whose
+  type says which of its fields wait or fail (`props: { query: { data:
+  pending fails(Error) T } }`, MO-10f's "wherever a type is declared",
+  with `RESULT_AS_VALUE` and a printed signature's `takes(…)`) is
+  `.rx`'s own row annotation at a prop and stays, with S-module-11's last
+  three programs; nothing a declaration says reaches it now. The
+  "rendered where it is bound" half of MO-10k (a `renders` value kept in
+  its region, `keeps(…)` in a printed signature) is reached by no source
+  and is to go with the third.
+
+  *A wrapper names the library's context (MO-12e, 2026-11-23).* The
+  second way cost one check: a module of the app's own around a library's
+  hook could not say `uses(…)` of the library's context, so the hook
+  outside its provider was no longer refused. The word that says it is
+  the one a hook has; what was missing is the name. `export context c
+  from "<module>"` in the wrapper's declaration is the context that
+  module's declaration declares, under that declaration's key. It is the
+  context row with JavaScript's `from`, no new word, and three modules of
+  the benchmark write it over three libraries (TanStack Query in two
+  tasks, Wardic's sensor). S-module-35.
 
 ## MO-9 — A signature read in place of its module
 
@@ -914,8 +952,20 @@ export component Search(props: { start: boolean, q: string }) {
   `() => "a.mp3"`, not an equation (RG-6b): there is nothing to follow, a
   node for it took an id for no reader, and reading it was a read of a
   reactive value. Cleanups registered in the call are that owner's, and
-  run with the region. `runtime/test.mjs` holds the owner on both builds
-  (one id of the component's, whatever the call makes);
+  the owner is the region's: none runs while the region lives; when the
+  region goes they run, the primitives' (the last made first) before the
+  region's own; and a region that is made again (a branch, a row) takes
+  the primitive it made with it, once. A failure is the caller's: an
+  error thrown while the primitive is made is thrown where the call is
+  written, to the `errored` region the caller is under, and one thrown
+  later by what the primitive made (a memo of its own) reaches the same
+  region — the owner is under the caller's, so Solid's search for a
+  boundary passes through it. `runtime/test.mjs` holds each on both
+  builds (one id of the component's, whatever the call makes; the order
+  of cleanups; both failures), `compiler/test/confined.mjs` through a
+  compiled program in Chromium (a cleanup under a branch that closes, a
+  failing primitive under `errored`), and `ref/crate.ts --lower` that
+  both emitters write the same call;
   `bench/tasks/primitives-sensors` serves and hydrates three such
   packages; the coverage suite (`bench/coverage/`) the rest.
 - **MO-10b (What the result is).** The return says what `.rx` sees:
@@ -1004,7 +1054,15 @@ export component Search(props: { start: boolean, q: string }) {
   after `setOn(v)` in the same action reads the value before the write, under
   Solid's batching, and AC-1d cannot say so; the guide teaches it. A plain
   closure passed as a callback option is unchecked, as O-4a's is.
-- **MO-10f (Fields that hold or fail) — proposed 2026-11-18.** A field of
+- **MO-10f (Fields that hold or fail) — proposed 2026-11-18; withdrawn
+  from declarations 2026-11-23 (MO-8r, *Settled*).** A declared result's
+  field no longer takes `pending` or `fails(…)`: both parsers refuse them
+  by name, with what says it now (a module of the app's own that hands
+  the field out as a function, declared `ref`: MO-10c, MO-10d). What
+  follows is the rule as it was, kept because its second half — a type
+  that says which fields hold, read a field at a time — is still how an
+  `.rx` component's prop typed that way is read (`props: { query: { data:
+  pending fails(Error) T } }`; S-module-11). *As it was:* A field of
   a declared result may start with `pending` and `fails(…)`: `useQuery(…): {
   data: pending fails(Error) T; isFetching: boolean }`. The result is still a
   value whose fields track (MO-10b); a read of that field, `todos.data`, is
@@ -1561,7 +1619,8 @@ export default component App() {
   waits on (CN-3d) and its content model (SV-7d) are checked above that
   application, on every path, whether or not the library ever renders it.
   Its props are the library's (`params`, `location`, `children`) and carry
-  no rows. It lowers to the compiled component itself.
+  no rows. It lowers to the compiled component itself. A prop typed `View`
+  takes one too, applied (MO-11t).
 - **MO-11d (Hooks).** A library's hooks are MO-10's primitives. `useParams`
   and `useLocation` hand back a store, a value whose fields track at run
   time (MO-10b), so `id = params.id` follows the URL. `useNavigate` hands
@@ -1684,7 +1743,11 @@ export default component App() {
   that prop (`header={(n) => …}`), checked as the children are; a name the
   declaration does not type as a function giving a `View` is
   `VIEW_FN_MISPLACED`. Executable: S-module-14.
-- **MO-11l (Fns that render what they are given) — proposed 2026-11-18.**
+- **MO-11l (Fns that render what they are given) — proposed 2026-11-18;
+  withdrawn 2026-11-23 (MO-8r, *Settled*): `renders` alone after a
+  signature is refused by name, and a fn with no word is MO-11s's. The
+  rule as it was, kept for the record and for the carried values of
+  MO-11o, which borrow its confinement.**
   `renders` on a declared fn that hands back no component (`createTable(ref
   options: { columns: { cell: Component }[] }): any renders`) says it
   renders the components in its argument literals, through something the
@@ -2046,6 +2109,54 @@ export default component App() {
   (MO-5); the route tree's definitions go in a module of their own, with no
   page imports, and `pathsOf(defs)` builds the typed paths from them; the
   routing module adds the components to the same definitions. S-module-17.
+- **MO-11t (An element in a prop) — accepted 2026-11-23 (MO-8r).** A
+  library's component takes an element in a prop that is not `children`:
+  Solid's own `<Show fallback={<p>none</p>}>`, a list's `fallback`, a
+  kit's `icon`. `.rx` writes markup in a view, never in an expression, so
+  the element is a component of the app's given to the prop by its name,
+  as MO-11c gives one to a prop typed `Component`:
+
+  ```rx
+  component Empty() {
+    <li>nobody yet</li>
+  }
+  <Key each={people} by="id" fallback={Empty}>{view (person) { <li>{person().name}</li> }}</Key>
+  ```
+
+  *Which props.* A prop of a declared JS component whose type is `View` —
+  alone, optional (`View | undefined`) or beside values (`string | View`)
+  — and that is not `children` (the children are written inside the tag)
+  nor a function giving a view (a render prop, MO-11k), a `Component`
+  (MO-11c) or a `renders` prop (MO-11o). An undeclared prop takes no
+  component; `rx-declare` drafts such a prop in the record after a props'
+  type (MO-8o: it is one of the fields the checker reads something of).
+  *What is given.* A name bound to a component — declared in the module,
+  imported, a declared JS component, a made one (MO-11j) — written alone,
+  as a tag names it. Anything else in that prop is a value, and a view
+  prop still takes a value that is a view (a string). A computed
+  component (`ok ? A : B`), a member (`Kit.Spinner`) and a call
+  (`Empty()`) are `COMPONENT_AS_VALUE`, as anywhere.
+  *What it means.* The component is applied there with no arguments:
+  `fallback={Empty}` is JSX's `fallback={<Empty />}`, the element made
+  where the library reads the prop (a getter in the compiled props), each
+  time it reads it. It is checked as MO-11c checks a component value,
+  among the application's children: under what the library's component
+  provides, above what it catches, with its content model where the
+  component declares a shape. A component whose props are required is
+  given none, which is TypeScript's to refuse: the projection writes
+  `fallback={<Empty />}` (13 TY-4b), so the error is on the name.
+  *Why a name and not markup.* `fallback={<p>none</p>}` would put a view
+  in an expression, which nothing else in `.rx` does (07 §4); a named
+  view lambda without parameters (`{view fallback { … }}`) was the other
+  candidate, and is a second spelling of a component with no props. Two
+  libraries of the benchmark need the form: solid-use's `ClientOnly` and
+  five components of solid-primitives (`Key`, `List`, `Range`, `Repeat`,
+  `VirtualList`), each used that way now. Not covered: an element in a
+  record a *fn* is given (`createPagination({ prevContent })`), where a
+  string stands. Executable: S-module-34; the units
+  `a_prop_typed_view_takes_a_component_by_name`; `bench/coverage/`
+  `primitives/keyed`, `list`, `range`, `virtual`, `solid-use/client-only`
+  (each shows its fallback's element), `bench/tasks/solid-use-primitives`.
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check
@@ -2143,6 +2254,33 @@ export component RouterProvider(props: { children?: View }) provides(router)
   so with `uses(…)` (`export component DevtoolsProvider(props) uses(queryClient)
   provides(devtools)`): nested in the wrong order, it is `CONTEXT_NOT_FOUND`
   like any other use. Nothing new is needed.
+
+- **MO-12e (A context of another module) — 2026-11-23.** `export context
+  c from "<module>"` in a JS module's `.d.rx` names the context `c` that
+  the declaration of `<module>` declares, where MO-12a's row declares one
+  of the file's own. The module is found as an import of it written in
+  the declaration's own file would be (a relative module's `.d.rx` beside
+  it, MO-8a; a package's by MO-8k's places), and the context's key is
+  that declaration's (`rx-types/@tanstack/solid-query.d.rx#queryClient`),
+  followed through a module that takes it from another in turn. So the
+  file's `uses(c)` and `provides(c)` mean the library's context: a hook
+  of the app's own that calls the library's hook is refused outside the
+  library's provider, and a component of the app's own that renders the
+  library's provider discharges the library's hooks. A name that module's
+  declaration does not declare, a module with no declaration, and a
+  module that is a compiled `.rx` one (its context is imported and used
+  by name, MO-7) are `NOT_EXPORTED`. It adds no word: the context row,
+  and JavaScript's `from`. It is what MO-8r's second way needs to keep
+  MO-12b's check — a module of the app's own around a library's hook is
+  how a shape with no row is used — and what a signature printed for a
+  package (MO-13) still may not do, since its keys are paths
+  (`rfc-rx-packages-2026-11-22.md`): this one is resolved where the
+  program is checked, from the file that writes it. `rx-verify` runs the
+  wrapper's `uses(…)` as it runs any (the hook with no provider must
+  throw). S-module-35; the units
+  `a_declaration_names_another_modules_context`;
+  `bench/tasks/query-forward`, `query-mutation`,
+  `bench/coverage/wardic/gestures`.
 
 Executable: S-module-7.
 
@@ -2456,12 +2594,12 @@ of a Solid shaped otherwise). What is still a proposal is in
 | `MODULE_CYCLE` | S | MO-5 |
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a; MO-8b for a declared JS module |
 | `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
-| `UNKNOWN_COMPONENT` for an undeclared JS component, `COMPONENT_AS_VALUE` outside MO-11c's places | S | MO-11a, MO-11c, MO-11f |
+| `UNKNOWN_COMPONENT` for an undeclared JS component, `COMPONENT_AS_VALUE` outside MO-11c's and MO-11t's places | S | MO-11a, MO-11c, MO-11t, MO-11f |
 | `CONTEXT_NOT_FOUND` for a JS hook with no provider above; `NOT_EXPORTED` for an undeclared JS context | S | MO-12b, MO-12a |
 | `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k |
-| `RESULT_AS_VALUE` | S | MO-10f: a result with held fields, used as a value |
+| `RESULT_AS_VALUE` | S | MO-10f: a prop whose type says which of its fields hold or fail, used as a value (a declared result's field no longer says so, MO-8r) |
 | `DRAFT_ESCAPES` | S | MO-10i: a draft named outside its callback's own run, or handed where its parameter is not known |
-| `RENDERS_ESCAPES` | S | MO-11l: a `renders` value, or what may hold a part of it, leaving its region; MO-11o: a `renders` prop given what cannot be named |
+| `RENDERS_ESCAPES` | S | MO-11o: a `renders` prop given what cannot be named, a carried value written where it would render unchecked (MO-11l's "where it is bound" is withdrawn, MO-8r) |
 
 ## Implementation
 
@@ -2588,7 +2726,8 @@ of a Solid shaped otherwise). What is still a proposal is in
      projection, `joins(path)`, was taken with them and is withdrawn,
      MO-8r: it gave one router's types what they do not have in TSX.)
    - *`pending`/`fails(…)` on result fields, nested paths included* (MO-10f)
-     are kept at field granularity. A store is read field by field, and
+     were kept at field granularity, and are withdrawn from declarations
+     (2026-11-23, MO-8r: one library). As it was ruled: A store is read field by field, and
      only some fields wait or throw; whole-result rows would refuse its
      plain fields' reads. rx-verify reads every field under a provider and
      reports an undeclared hold or failure, which is how `isFetching`'s

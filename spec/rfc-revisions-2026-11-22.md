@@ -376,10 +376,29 @@ owner and `untrack` are Solid's own, placed where the language already
 said the call's region is. Both emitters emit it (`__rt.inst`), and the
 crate's lowering is held to `ref/`'s as before.
 
+## After the fifth round's open ends (2026-11-23): four decisions
+
+Recorded in 09 MO-8r (*Settled*), MO-11t and MO-12e, and in
+`rfc-declaration-types-2026-11-22.md` (*A sixth round*). What each changed
+for a program:
+
+| what a Solid app writes | was | now |
+| --- | --- | --- |
+| `<Key each={rows} by="id" fallback={<li>none</li>}>`, `<ClientOnly fallback={<p>…</p>}>` | no spelling: `COMPONENT_AS_VALUE` for a component, and a string where a string would do | a component of the app's with no props, given by name: `fallback={Nobody}` is the component applied there (MO-11t) |
+| a hook of the app's own around a library's (`useTodos = () => useQuery(…)`), outside the provider | accepted: a module of the app's own could not name the library's context | `CONTEXT_NOT_FOUND`: `export context queryClient from "@tanstack/solid-query"` and `uses(queryClient)` in the wrapper's declaration (MO-12e) |
+| `todos = useQuery(…)`, `{todos.data}` under no `errored` region (RFC 06, below) | `UNHANDLED_FAILURE`, by `data: pending fails(Error) T` on the library's row | accepted: the form was one library's and is withdrawn; `data` is an accessor through a module of the app's own, and an accessor asks for no region |
+| a table's cell component that reads the app's context; the table kept in a source (RFC 17, below) | the first accepted, the second `RENDERS_ESCAPES`, by `renders` on the adapter's row | the first `CONTEXT_NOT_FOUND` (a cell is checked under a root of its own), the second accepted: the form was one library's and is withdrawn |
+
+RFC 06 and RFC 17 below describe rules that held from 2026-11-22 to
+2026-11-23 for declarations; what they say of an `.rx` prop typed with
+field rows (RFC 06) still holds. RFC 18's words (`renders(later)`, a
+prop's `renders`, `nests(… under …)`, `outlet`) are one library's too,
+and are to be withdrawn in a change of their own.
+
 ## Limits that remain, and why they are inside the goal
 
-- **Declarations are trusted** (CN-5): `pure`, `draft`, the field rows,
-  `renders`, `methods(…)`. `rx-verify` checks them by running.
+- **Declarations are trusted** (CN-5): `pure`, `draft`, `handler`,
+  `uses(…)`. `rx-verify` checks them by running.
 - **`__rt.copy` copies arrays, plain objects, Maps and Sets.** A library
   whose draft hands out live instances of its own classes is outside
   what `draft` says.

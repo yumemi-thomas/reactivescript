@@ -141,6 +141,10 @@ does for `.tsrx`. Nothing here is a second type system.
   `./x.cts` — by the file's whole name (`x.tsx.d.rx`), then by `x.d.rx`.
   (The checker read only `x.tsx.d.rx` for `./x.tsx` and the tooling only
   `x.d.rx`, so each ignored the file the other read.)
+  A component given by name to a prop typed `View` (09 MO-11t) is projected
+  applied, `fallback={<Empty />}`: an element is what the library's type
+  takes, and a prop the component requires is then missing on its name
+  (2026-11-23; S-module-34).
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such

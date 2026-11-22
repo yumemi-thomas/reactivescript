@@ -12,9 +12,9 @@
 // `provide(children)`, the providers a `uses(…)` hook needs, as a tree (`createComponent(Ctx, { value, get children() {
 // return children() } })`). With them: a `uses(…)` hook that needs arguments is run with no provider (it, or `run`, must throw);
 // and the hook is mounted (@solidjs/universal) under `provide`, beneath an errored boundary, and every field of its
-// declared result (a record's fields, a tuple's parts, a `ref` result) is read in a render effect: a part that holds
-// (Solid's NotReadyError) or fails without `pending` or `fails(…)` on it is a mismatch, as is a `ref` part that is not an
-// accessor; under `fail`'s arguments a `fails(C)` field must fail with a C. A `pure` fn (one that makes nothing) is
+// declared result (a record's fields, a tuple's parts, a `ref` result) is read in a render effect: a plain field that
+// holds (Solid's NotReadyError) or fails where it is read is a mismatch (no row describes it: MO-8r withdrew `pending`
+// and `fails(…)` there, and an accessor's read may hold, MO-10d), as is a `ref` part that is not an accessor. A `pure` fn (one that makes nothing) is
 // called twice with the same arguments and must answer alike. For each `c` a component `provides(c)`, it is mounted
 // (with the probe's `props`) around a hook or a part of the same file that uses `c` alone and fails without it, which
 // must then run cleanly. A component's function-typed props are run with the probe's props, each wrapped in a spy.
@@ -199,9 +199,10 @@ async function verify(file) {
       const bad = [];
       for (const f of x.fields) {
         const st = ran.seen.get(f.path.join("."));
-        if (st.pending && !f.holds) bad.push(`${f.path.join(".")} holds (its first read is not ready), and is not declared pending`);
+        // MO-10d: an accessor's read may hold, and no row says more; a plain field that does is one a row cannot describe (MO-8r)
+        if (st.pending && !f.holds && !f.ref) bad.push(`${f.path.join(".")} holds (its first read is not ready): a plain field that waits where it is read has no row — hand it out as a function from a module of the app's own, declared \`ref\` (MO-10d)`);
         if (st.notAccessor) bad.push(`${f.path.join(".") || "the result"} is declared ref, but is not an accessor (a function)`);
-        if (st.failed && !f.fails.length) bad.push(`${f.path.join(".")} fails (${String(st.failed?.message ?? st.failed).slice(0, 40)}), and is not declared fails(…)`);
+        if (st.failed && !f.fails.length && !f.ref) bad.push(`${f.path.join(".")} fails (${String(st.failed?.message ?? st.failed).slice(0, 40)}) where it is read: a plain field that does has no row — hand it out as a function, declared \`ref\` (MO-10d)`);
       }
       if (ran.boundary && !fails.length && !(ran.boundary?.name === "NotReadyError")) bad.push(`it fails into the errored boundary (${String(ran.boundary?.message ?? ran.boundary).slice(0, 40)}), and no field is declared fails(…)`);
       const held = x.fields.filter(f => f.holds).map(f => f.path.join("."));

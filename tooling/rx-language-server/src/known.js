@@ -1,8 +1,7 @@
 // What `rx-declare` knows of a library that its types cannot show (09 MO-8k): for a package it has been checked against,
 // the rows a person would otherwise write by hand over the draft — where a router renders the components its routes are
 // given (`renders(later)`, a prop that `renders`, MO-11o), which route nests under which (`nests(…)`, MO-11i), the
-// context its provider provides and its hooks read (MO-12), a query whose `data` waits and throws where it is read
-// (MO-10f), a callback the library calls later (`handler`, MO-10g), and `pure`
+// context its provider provides and its hooks read (MO-12), a callback the library calls later (`handler`, MO-10g), and `pure`
 // for a primitive that writes nothing but its own state (MO-8a). Each entry is for a version range: outside it the draft
 // is the types' alone, with its TODOs.
 //
@@ -45,9 +44,6 @@ module.exports = {
     contexts: ["queryClient"],
     rows: {
       QueryClientProvider: "export component QueryClientProvider(props: { client: import(\"@tanstack/solid-query\").QueryClient; children?: View }) provides(queryClient)",
-      // `data` waits and throws where it is read (MO-10f); `queryFn` is called inside the library's computation: a function
-      // type with no `handler`, so a closure there is pure (MO-10g)
-      useQuery: "export pure fn useQuery<TData = unknown>(ref options: { queryKey: import(\"@tanstack/solid-query\").QueryKey; queryFn: () => Promise<TData> }): { data: pending fails(Error) TData | undefined; isFetching: boolean; status: string; refetch: () => Promise<unknown> } uses(queryClient)",
       useMutation: "export pure fn useMutation<TData = unknown, TVariables = void>(ref options: { mutationFn: (v: TVariables) => Promise<TData>; onSuccess?: handler () => void }): { mutate: (v: TVariables) => Promise<TData>; isPending: boolean; status: string; reset: () => void } uses(queryClient)",
     },
     words: { useQueryClient: { pure: true, after: "uses(queryClient)", drop: "instantiates" } },

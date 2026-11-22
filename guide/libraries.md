@@ -103,20 +103,17 @@ export component Search(props: { start: boolean, q: string }) {
 }
 ```
 
-A result that is a store whose field waits or throws when read (a query's `data`) says so on that field:
-`export pure fn useQuery(ref options: { … }): { data: pending fails(Error) any; isFetching: boolean }`. A read of
-`todos.data` then needs an `errored` (or a `catch`) above it, and in a client-only build a `loading`, like an `await`.
-Such a result is read a field at a time: pass `todos.data` to a component, and the field carries what it needs to
-where it is read. To pass the whole result, the component says so in its prop's type, with the same words on the
-fields: `component Panel(props: { query: { data: pending fails(Error) Todo[]; status: string } })`. Then
-`<Panel query={todos} />` is accepted, and `props.query.data` in `Panel` is checked as `todos.data` is. Given to a
-prop typed any other way, the whole result is `RESULT_AS_VALUE`: on the other side it would be a plain value. What
-is read from the result is a field its declaration names: `todos.valueOf()` and a field the `.d.rx` leaves out are
-refused too (declare the field).
+What a library hands back that waits or throws where it is read is an accessor to `.rx`: declared `ref`, read as a
+value, and able to hold like a value from an `await`. One library hands back a store whose plain field does that
+instead (a query's `data`), and no row says so of a plain field (until 2026-11-23 `pending` and `fails(…)` before
+the field did: one library wrote them, and they are refused now). Hand the field out as a function, in a few lines of
+your own (`data: () => q.data`), and declare it `ref`: see *When no word says what a library does*, below.
 
 A primitive runs in an owner of its own, under the place you wrote it. You don't see it, except that a library whose
 server render makes fewer effects than its browser one — many return early under `isServer` — no longer breaks the
-hydration of what you write after it, as it does in a `.tsx` app (`Hydration key miss`).
+hydration of what you write after it, as it does in a `.tsx` app (`Hydration key miss`). What it registers with
+`onCleanup` runs when the place you wrote it goes (the branch closes, the row leaves), and a failure while it is made,
+or later in what it made, goes to the `errored` region you wrote it under.
 
 `isOn`, `query` and `wide` are equations like any other: read them without calling them. They may hold, like a
 value from an `await` (Solid promises nothing about an accessor), so `latest`, `pending?` and `loading` apply.
@@ -128,7 +125,6 @@ What the compiler catches:
 | `createToggle(props.start)` | `SNAPSHOT_ARGUMENT`: a value argument is read once; write `peek props.start`, or the library should take `ref` |
 | `x = setOn(true)` | `IO_IN_REACTIVE`: a setter is called from an action or handler |
 | `<p>{createMediaQuery(q)}</p>` | `INSTANTIATION_NOT_BOUND`: bind it, `wide = createMediaQuery(q)` |
-| `<List query={todos} />` for a result with a `pending` or `fails` field | `RESULT_AS_VALUE`: pass the field, `items={todos.data}`, or type the prop with the fields' rows |
 | `onClick={setOn(true)}`, `onNext={table.nextPage()}` | `IO_IN_REACTIVE`: a handler is passed, not called: `onClick={() => { setOn(true) }}` |
 | `rows.push(x)` on a source, `props.items.sort()` | `MUTATION_IN_PLACE`: write it (`rows := rs => [...rs, x]`), or take a copy (`toSorted()`) |
 | `listen(…)` as a statement, when `listen` is declared `(): () => void` | `DISPOSER_DROPPED`: keep what it answers and call it in the effect's cleanup |
@@ -187,10 +183,12 @@ What the compiler catches:
   function tries to change it, and the error says which word is missing.
 - **What a library's value answers is its declaration's.** A table or a client is declared with the type of what the
   app reads of it: `createTable(…): { getPageCount: () => number; nextPage: () => void; getRowModel: () => { rows:
-  { id: string }[] } } renders`. A part declared a primitive (`table.getPageCount()`, a row's `id`) can be passed to
-  a child or a callback as it is; a method declared to answer nothing (`nextPage`) is called from a handler; the
-  rest stays in the view the value is bound in (`RENDERS_ESCAPES`). `rx-tsc` checks the declared type against the
-  library's own.
+  { id: string }[] } } instantiates`. A method declared to answer nothing (`nextPage`) is called from a handler, one
+  that answers a value is read where you like, and the table is a value you may hand to a component of your own.
+  `rx-tsc` checks the declared type against the library's own. The components you give such a function (a column's
+  cell) are checked each under a root of its own: a cell takes what it needs from the context the table hands it,
+  not from a context of your app (until 2026-11-23 `renders` after the row said "where the table is bound"; one
+  library wrote it, and it is refused now).
 - **A store has one identity.** An `.rx` source of records is a Solid store: a write changes what it holds, not which
   object it is. A library that sees a change by identity (TanStack Table's `data`) is given a fresh list,
   `data: [...rows]`.
@@ -255,8 +253,25 @@ used correctly. What a single package does, you say without one, in one of three
 
   `i18n.t("hello")` in the view is then a read: a function that is a *field* of a result and answers a value may be
   called anywhere, while a function a primitive hands back by itself (or as a tuple's part) is io — it is how a setter
-  is told from a reader. A wrapper like these cannot say `uses(…)` of the library's own context, though: a hook that
-  needs the library's provider above it is not checked for it once it is behind your module.
+  is told from a reader.
+
+  A store whose plain field waits or throws where it is read goes the same way, a function a field:
+
+  ```js
+  import { useQuery as useLibraryQuery } from "@tanstack/solid-query"
+  export const useQuery = options => { const q = useLibraryQuery(options); return { data: () => q.data, isFetching: () => q.isFetching, refetch: o => q.refetch(o) } }
+  ```
+
+  ```rx
+  export context queryClient from "@tanstack/solid-query"
+  export pure fn useQuery<T>(ref options: { queryKey: unknown[]; queryFn: () => Promise<T> }): { data: ref T; isFetching: ref boolean; refetch: () => Promise<unknown> } uses(queryClient)
+  ```
+
+  **Your wrapper still needs the library's provider, and says so.** `export context queryClient from
+  "@tanstack/solid-query"` names the context that package's declaration declares, so `uses(queryClient)` on your hook
+  is the library's context: the hook outside `<QueryClientProvider>` is `CONTEXT_NOT_FOUND`, as the library's own is.
+  The same line lets a component of yours that renders the library's provider say `provides(…)` of it. The module
+  you name must be declared (your `rx-types/`, or the package's own `.d.rx`) and declare that context.
 
 - **The library's own types.** A row restates no more of a type than its words need: props can be the library's type
   (`props: DialogProps & { onOpenChange?: handler (…) => void }`), a result its name, and of several signatures one.
@@ -326,6 +341,27 @@ export default component App() {
   it is bound, so `instantiates` is implied.
 - **A JS import you apply must be declared.** Without `export component X(…)` in its `.d.rx`, `<X />` is
   `UNKNOWN_COMPONENT`.
+
+### An element in a prop
+
+Solid's JSX puts an element in a prop: `<Show fallback={<p>none</p>}>`, a list's `fallback`, a kit's `icon`. In `.rx`
+markup is written in a view, so the element is a component of yours, given to the prop by its name:
+
+```rx
+component Nobody() {
+  <li>nobody yet</li>
+}
+<Key each={people} by="id" fallback={Nobody}>{view (person) { <li>{person().name}</li> }}</Key>
+<ClientOnly fallback={Measuring}><Chart /></ClientOnly>
+```
+
+The declaration says which props take one: a prop typed `View` (`fallback?: View`, `icon?: string | View`), other than
+`children`. The component is applied there with no arguments — it is `fallback={<Nobody />}` — so it is checked as the
+library's children are: under what the library's component provides, above what it catches. It is given no props (one
+it requires is a type error on its name), and it is given by name: `fallback={Nobody()}` and `fallback={ok ? A : B}`
+are `COMPONENT_AS_VALUE`. A string is still a view: `fallback="none"`. `rx-declare` drafts such props for you; for a
+library whose props are a type of its own, they are in the record after it (`props: ClientOnlyProps & { fallback?:
+View }`).
 
 ### Render props
 

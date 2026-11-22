@@ -299,6 +299,8 @@ struct Gen<'p> {
     /// a module-level server fn → its hoisted function
     server_names: IndexMap<String, String>,
     mod_decls: &'p [Decl],
+    /// MO-11t: the props of the JS components this module imports that take a view
+    views: crate::modules::ViewProps,
     sf_seq: usize,
     /// CSS-2: the scope class of the view being emitted
     style_hash: Option<String>,
@@ -342,6 +344,7 @@ impl<'p> Gen<'p> {
             top_fns: HashSet::new(),
             server_names: IndexMap::new(),
             mod_decls: &[],
+            views: Default::default(),
             sf_seq: 0,
             style_hash: None,
             hoisted: HashMap::new(),
@@ -404,6 +407,7 @@ impl<'p> Gen<'p> {
         self.top = vec![];
         self.top_fns = HashSet::new();
         self.mod_decls = decls;
+        self.views = crate::modules::ViewProps::of(self.set, decls);
         self.arg_calls = HashMap::new();
         crate::check::arg_calls(&crate::ast::decls_json(decls), &mut self.arg_calls);
         self.server_names = IndexMap::new();
@@ -2127,6 +2131,15 @@ impl<'p> Gen<'p> {
                 };
                 let mut xs = vec![];
                 for a in attrs {
+                    // MO-11t: a component given by name to a prop typed `View` is applied there, with no arguments: the
+                    // element, made where the library reads the prop (JSX's `fallback={<Empty />}`, a getter)
+                    if let Some(n) = self.views.given(tag, &a.name, &a.e) {
+                        let applied = Markup { kind: MarkupKind::El { tag: n.to_string(), attrs: vec![], children: vec![] }, line: m.line, span: m.span };
+                        if let Some(Child::Jsx(j)) = self.child(&applied, env)? {
+                            xs.push((a.name.clone(), AttrValue::Expr(E::Jsx(Box::new(j)))));
+                        }
+                        continue;
+                    }
                     xs.push(self.attr(&a.name, &a.e, env)?);
                 }
                 // MO-11k: named render props are attributes
@@ -2340,10 +2353,13 @@ pub fn lower_view(module: &[S], filename: &str, target: Target, module_name: &st
 
 /// MO-11f, MO-11j: an equation bound from a declared factory's call is a component (`Router = createRouter(…)`).
 fn made_component(p: &Program, name: &str, declarations: &indexmap::IndexMap<String, Vec<crate::parse::JsDecl>>) -> bool {
-    let Some(Decl::Eq { e, .. }) = p.decls.iter().find(|x| matches!(x, Decl::Eq { name: n, .. } if n == name)) else { return false };
+    made_component_in(&p.decls, name, declarations)
+}
+pub(crate) fn made_component_in(decls: &[Decl], name: &str, declarations: &indexmap::IndexMap<String, Vec<crate::parse::JsDecl>>) -> bool {
+    let Some(Decl::Eq { e, .. }) = decls.iter().find(|x| matches!(x, Decl::Eq { name: n, .. } if n == name)) else { return false };
     let ExprKind::Call { f, .. } = &e.k else { return false };
     let ExprKind::Id(g) = &f.k else { return false };
-    for i in &p.decls {
+    for i in decls {
         if let Decl::Import { names, declared: Some(dp), .. } = i {
             if let Some(n) = names.iter().find(|x| &x.alias == g) {
                 return declarations.get(dp).is_some_and(|ds| ds.iter().any(|x| matches!(x, crate::parse::JsDecl::Fn { name, shape: crate::parse::Shape::Comp, .. } if *name == n.name)));

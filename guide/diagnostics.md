@@ -1445,102 +1445,83 @@ name, `export component Dialog.Trigger(props: { … })` (MO-11q), and a member i
 
 ### RENDERS_ESCAPES
 
-A JS fn declared `renders` (a headless table) has the components it is given checked where its result is bound, so
-that is where the result must be rendered (MO-11l). The result, and anything that may hold a part of it — an alias, a
-record or an array holding it, a field read out of it (`table.rows`), a row of a `for` over it, what a call given it
-returns — stays beneath the region it is bound in: provided, exported, written to a source, thrown, or handed to a call
-that may keep it, it could be rendered under other boundaries and providers than the ones it was checked under.
+A JS fn declared `renders(later)` (a route of a code-based route tree) hands back a value that carries the components
+it was given, and a JS component's prop declared `renders` renders them (MO-11o): the components are checked where
+that component is applied — under its providers, above its boundaries. So the prop must be given a value whose
+components the checker can name: one this module builds from its own `renders(later)` calls, or a prop of this
+component read as it is (`props.router`), which is then one this component renders in turn. A source, a parameter, a
+provision or a value another `.rx` module made may hold anything, and what it carried would render unchecked. The
+same code is reported where such a value is written to a source, provided or given to a parameter: it could then be
+rendered under other boundaries and providers than the ones it was checked under.
 
-A component is beneath the view that applies it, so the table may be a component's prop — shadcn/ui's
-`<DataTablePagination table={table} />` — when the component keeps it: it renders it, reads it, calls its methods from
-handlers, gives it on to a component that keeps it in turn, and lets it out by none of the ways above. A component
-that does not is where the value leaves, and the diagnostic at the application names the line in it. A JS component
-does not say what it does with a prop, so it is never one that keeps it.
-
-What else leaves that view is a primitive made of it: `str(row.id)`, a template, arithmetic, a comparison,
-`len(table.rows)`; a part its declaration types as a primitive (`getPageCount: () => number`,
-`rows: { id: string }[]`); and a handler that only calls it, `onPress={() => { table.nextPage() }}`, gives nothing away.
-A method keeps nothing only when it is given no part of the value: `table.setSorting(next)` is free,
-`table.setPage(table.rows)` is not. A library whose result is rendered elsewhere declares where: `renders(later)` with a
-component prop that `renders` it; one that says nothing is checked under a root of its own, and its result travels freely. The same code is reported where a prop
-that `renders` (MO-11o) is given a value the checker cannot name the components of: a prop, a parameter, a source, a
-provision, or a value another `.rx` module made.
+A library that says nothing of where it renders the components it is given has each checked under a root of its own
+(MO-11s), and its result travels freely.
 
 ```rx before
--- module: ./table.d.rx
-export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders
-export pure fn flexRender(comp: any, props: any): any
+-- module: ./router.d.rx
+export pure fn createRoute(options: { path: string; component?: Component }): any renders(later)
+export component RouterProvider(props: { router: renders any })
 -- main
-import { createTable, flexRender } from "./table.js"
-source shown: any := null
-component Cell() {
-  <b>cell</b>
-}
-component Pick(props: { table: any }) {
-  <button onClick={() => { shown := props.table }}>show it elsewhere</button>
+import { createRoute, RouterProvider } from "./router.js"
+source current: any := null
+component Home() {
+  <h1>home</h1>
 }
 export default component App() {
-  table = createTable({ columns: [{ cell: Cell }] })
-  <Pick table={table} />
+  <RouterProvider router={current} />
 }
 ```
 
 ```rx after
--- module: ./table.d.rx
-export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders
-export pure fn flexRender(comp: any, props: any): any
+-- module: ./router.d.rx
+export pure fn createRoute(options: { path: string; component?: Component }): any renders(later)
+export component RouterProvider(props: { router: renders any })
 -- main
-import { createTable, flexRender } from "./table.js"
-component Cell() {
-  <b>cell</b>
-}
-component Grid(props: { table: any }) {
-  <p>{for c in props.table.cells { <span>{flexRender(c, {})}</span> }}</p>
+import { createRoute, RouterProvider } from "./router.js"
+component Home() {
+  <h1>home</h1>
 }
 export default component App() {
-  table = createTable({ columns: [{ cell: Cell }] })
-  <Grid table={table} />
+  home = createRoute({ path: "/", component: Home })
+  <RouterProvider router={home} />
 }
 ```
 
 ### RESULT_AS_VALUE
 
-A JS result whose fields hold or fail (`useQuery(…): { data: pending fails(Error) T; isFetching: boolean }`, MO-10f) is
-read a field at a time: `todos.data` is checked where it is read, so every read of it has to be one the checker sees.
-The result itself is therefore not a value. Passed to a component, returned by a closure, provided, exported, written to
-a source, spread or put in a record, it would be read on the other side as a plain value, with no `errored` or `loading`
-asked for. Read the field where the result is bound and pass that: the field carries its rows (a prop, a provision and
-an export all do). Another name for the result is an equation (`q = todos`); comparing or testing it (`todos == null`)
-reads no field. To pass the whole result to a component, type the prop with the rows on its fields
-(`props: { query: { data: pending fails(Error) T; isFetching: boolean } }`): the component then reads it as the result
-is read. The same code is reported for a read that is not a field the declaration names: an inherited method
-(`todos.valueOf()` answers the result itself), or a field the `.d.rx` leaves out (declare it).
+A prop whose type says which of its fields wait or fail (`props: { query: { data: pending fails(Error) T; status:
+string } }`, the row words `.rx` writes before a type, 04 CN-4a) is read a field at a time: `props.query.data` is
+checked where it is read, so every read of it has to be one the checker sees. The record itself is therefore not a
+value. Passed to a component, returned by a closure, provided, exported, written to a source, spread or put in a
+record, it would be read on the other side as a plain value, with no `errored` or `loading` asked for. Read the field
+and pass that: the field carries its rows (a prop, a provision and an export all do). Another name for the record is
+an equation (`q = props.query`); comparing or testing it reads no field. To pass it whole to a component, type that
+component's prop with the same rows on its fields. The same code is reported for a read that is not a field the type
+names: an inherited method (`props.query.valueOf()` answers the record itself).
 
 ```rx before
--- module: ./query.d.rx
-export pure fn useQuery(key: string): { data: pending fails(Error) any; isFetching: boolean }
--- main
-import { useQuery } from "./query.js"
-component List(props: { query: any }) {
-  <ul>{for t in props.query.data { <li>{t}</li> }}</ul>
+component Count(props: { of: any }) {
+  <b>{len(props.of.data)}</b>
+}
+component Panel(props: { query: { data: pending fails(Error) string[]; status: string } }) {
+  <p>{props.query.status}</p>
+  {errored fallback(e) { <p>failed</p> } { <Count of={props.query} /> }}
 }
 export default component App() {
-  todos = useQuery("todos")
-  {errored fallback(e) { <p>failed</p> } { <List query={todos} /> }}
+  <Panel query={{ data: ["milk"], status: "success" }} />
 }
 ```
 
 ```rx after
--- module: ./query.d.rx
-export pure fn useQuery(key: string): { data: pending fails(Error) any; isFetching: boolean }
--- main
-import { useQuery } from "./query.js"
-component List(props: { items: any }) {
-  <ul>{for t in props.items { <li>{t}</li> }}</ul>
+component Count(props: { of: string[] }) {
+  <b>{len(props.of)}</b>
+}
+component Panel(props: { query: { data: pending fails(Error) string[]; status: string } }) {
+  <p>{props.query.status}</p>
+  {errored fallback(e) { <p>failed</p> } { <Count of={props.query.data} /> }}
 }
 export default component App() {
-  todos = useQuery("todos")
-  {errored fallback(e) { <p>failed</p> } { <List items={todos.data} /> }}
+  <Panel query={{ data: ["milk"], status: "success" }} />
 }
 ```
 

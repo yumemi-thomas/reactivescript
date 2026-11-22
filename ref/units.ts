@@ -17,7 +17,7 @@ const files = (fs: Record<string, string>) => (p: string) => fs[p];
 // ---- MO-10k (ruled 2026-11-22): the guarantees, over every way a value is handed on ----
 // Not a list of cases: each confined value is put through every wrapper below and every pair of them (one inside the
 // other), and each result into every way out. The crate runs the same matrix (`check.rs`, the tests of these names).
-const LIB = "export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders\nexport pure fn flexRender(comp: any, props: any): any\nexport fn stashJs(x: any): void\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: number): any instantiates\nexport pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport fn later(f: handler () => void): void\n";
+const LIB = "export fn stashJs(x: any): void\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: number): any instantiates\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport fn later(f: handler () => void): void\n";
 /** The ways an expression hands a value on: `X` is the value. */
 const WRAPS = [
   "X", "[X]", "[X][0]", "({ a: X })", "({ a: X }).a", "keep(X)", "keep(keep(X))", "id(id(X))", "o.f(X)", "[(y) => y][0](X)", "(true ? keep : keep)(X)", "mk(X)()",
@@ -30,30 +30,13 @@ function wrapped(of: string): string[] {
   return out;
 }
 function codesOf(main: string): string[] {
-  const src = `import { createTable, flexRender, stashJs, createClock, createLabel, useQ, createStore, later } from "./lib.js"\nfn keep(x) { x }\nfn mk(x) { () => x }\nsource held: any := null\ncontext ctx: any\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any }) { <button onClick={() => { held := props.t }}>ok</button> }\n${main}`;
+  const src = `import { stashJs, createClock, createLabel, createStore, later } from "./lib.js"\nfn keep(x) { x }\nfn mk(x) { () => x }\nsource held: any := null\ncontext ctx: any\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any }) { <button onClick={() => { held := props.t }}>ok</button> }\n${main}`;
   const set = loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB : undefined);
   return checkModules(set).diags.map(d => d.code);
 }
 const LOCALS = "  o = { f: (x) => x }\n  id = (x) => x\n  k = \"part\"\n";
 const must = (ok: boolean, what: string, src: string) => { if (!ok) throw new Error(`${what}:\n${src}`); };
 export const units: [string, () => void][] = [
-  ["a_renders_value_leaves_through_no_way_out", () => {   // MO-11l
-    const outs = ["  <Grid t={E} />", "  <Grid t={() => E} />", "  provide ctx = E\n  <p>x</p>", "  <button onClick={() => { held := E }}>x</button>", "  <button onClick={() => { stashJs(E) }}>x</button>", "  v = true ? throw E : 1\n  <p>x</p>"];
-    for (const e of wrapped("table")) {
-      for (const out of outs) { const src = `export default component App() {\n  table = createTable({ columns: [{ cell: Cell }] })\n${LOCALS}${out.replaceAll("E", e)}\n}\n`; must(codesOf(src).includes("RENDERS_ESCAPES"), "accepted", src); }
-      const src = `table = createTable({ columns: [{ cell: Cell }] })\no = { f: (x) => x }\nid = (x) => x\nk = "part"\nexport out = ${e}\nexport default component App() {\n  <p>x</p>\n}\n`;
-      must(codesOf(src).includes("RENDERS_ESCAPES"), "accepted", src);
-    }
-  }],
-  ["a_primitive_made_of_a_renders_value_leaves", () => {   // MO-11l: the rule refuses values, not mentions
-    const prims = ["len(E)", "str(E)", "E == null", "!E", "`${E}`", "(E ? 1 : 2)", "len(E) + 1"];
-    // (a call of a function the checker cannot name is refused itself, whatever is made of its result)
-    for (const e of wrapped("table").slice(0, WRAPS.length).filter(e => !["o.f(", "[0](", "? keep", "concat"].some(u => e.includes(u)))) for (const p of prims) {
-      const v = p.replaceAll("E", e);
-      const src = `export default component App() {\n  table = createTable({ columns: [{ cell: Cell }] })\n${LOCALS}  provide ctx = ${v}\n  <Grid t={${v}} />\n  <Grid t={() => { table.next() }} />\n}\n`;
-      must(!codesOf(src).includes("RENDERS_ESCAPES"), "refused", src);
-    }
-  }],
   ["a_read_through_what_may_be_an_instance_changes", () => {   // E-10, E-5a
     for (const e of wrapped("clock")) for (const [read, code] of [["createLabel(E.now())", "SNAPSHOT_ARGUMENT"], ["createLabel(E.size)", "SNAPSHOT_ARGUMENT"], ["peek E.now()", "SNAPSHOT_KEPT"]]) {
       const src = `export default component App() {\n  clock = createClock()\n${LOCALS}  label = ${read.replaceAll("E", e)}\n  <p>{label}</p>\n}\n`;
@@ -61,14 +44,6 @@ export const units: [string, () => void][] = [
     }
     const src = `export default component App() {\n  clock = createClock()\n  c = clock\n${LOCALS}  a = createLabel(peek clock.format())\n  b = createLabel(peek c.format())\n  d = createLabel(clock)\n  <p>{a} {b} {d}</p>\n}\n`;
     deepStrictEqual(codesOf(src), []);
-  }],
-  ["a_result_with_held_fields_is_never_a_value", () => {   // MO-10f
-    // a field read out of it by a path (`orig.part`) is a value like any other: every other way of handing it on
-    for (const e of wrapped("orig").filter(e => !["orig.part", "orig[\"part\"]", "orig[k]"].some(p => e.includes(p)))) for (const out of ["  <Grid t={E} />", "  y = [E]\n  <p>x</p>", "  <button onClick={() => { held := E }}>x</button>", "  provide ctx = E\n  <p>x</p>"]) {
-      const src = `export default component App() {\n  orig = useQ()\n${LOCALS}${out.replaceAll("E", e)}\n}\n`;
-      must(codesOf(src).includes("RESULT_AS_VALUE"), "accepted", src);
-    }
-    deepStrictEqual(codesOf("export default component App() {\n  orig = useQ()\n  q = orig\n  <p>{q.isFetching ? 1 : 2} {orig == null} {!orig}</p>\n  <Grid t={orig.isFetching} />\n}\n"), []);
   }],
   ["a_draft_is_named_only_in_its_callback", () => {   // MO-10i
     const store = "  [todos, setTodos] = createStore<{ done: number }>({ done: 0 })\n";
@@ -80,19 +55,12 @@ export const units: [string, () => void][] = [
     }
   }],
   ["each_confined_value_has_a_closed_set_of_operations", () => {   // MO-10k (closed 2026-11-22); mirrors the crate's test
-    const LIB2 = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
+    const LIB2 = "export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
     const run = (main: string): string[] => {
-      const src = `import { useQ, createStore, createTable, createClock, createLabel, later, stashJs } from "./lib.js"\nsource held: any := null\nsource n := 0\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any; onF: (x: any) => void }) { <button onClick={() => { held := props.t }}>ok</button> }\n${main}`;
+      const src = `import { createStore, createClock, createLabel, later, stashJs } from "./lib.js"\nsource held: any := null\nsource n := 0\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any; onF: (x: any) => void }) { <button onClick={() => { held := props.t }}>ok</button> }\n${main}`;
       return checkModules(loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB2 : undefined)).diags.map(d => d.code);
     };
-    // MO-10f: what is read from a result with held fields is a field its declaration names
-    for (const m of ["valueOf", "toJSON", "toString", "hasOwnProperty", "constructor", "part"]) for (const read of ["orig.M()", "orig[\"M\"]()", "orig.M", "q.M()", "orig.inner.M()", "orig.inner.M"]) {
-      const src = `export default component App() {\n  orig = useQ()\n  q = orig\n  k = "valueOf"\n  <Grid t={${read.replaceAll("M", m)}} onF={(x) => {}} />\n}\n`;
-      must(run(src).includes("RESULT_AS_VALUE"), "accepted", src);
-    }
-    let src = "export default component App() {\n  orig = useQ()\n  k = \"valueOf\"\n  <Grid t={orig[k]()} onF={(x) => {}} />\n}\n";
-    must(run(src).includes("RESULT_AS_VALUE"), "accepted", src);
-    deepStrictEqual(run("export default component App() {\n  orig = useQ()\n  <Grid t={orig.isFetching} onF={(x) => { orig.refetch() }} />\n  <p>{orig.inner.n}</p>\n}\n"), []);
+    let src = "";
     // MO-10i: what is called on a draft is a method of plain data, by name; a function it calls is a closure written there
     const store = "  [todos, setTodos] = createStore<{ items: { n: number }[] }>({ items: [] })\n";
     for (const body of ["d.items.forEach(keep)", "d.items.map(keep)", "d.items.sort(keep)", "d.items.each((x) => x)", "d.items.push.bind(d.items)", "d.valueOf.call(d)", "d.items[\"forEach\"](keep)", "d.items[m]((x) => x)", "d.items.forEach((row) => { later(() => { held := row }) })", "d.items.slice(0).forEach(keep)"]) {
@@ -100,18 +68,6 @@ export const units: [string, () => void][] = [
       must(run(src).includes("DRAFT_ESCAPES"), "accepted", src);
     }
     deepStrictEqual(run(`export default component App() {\n${store}  <button onClick={() => { setTodos((d) => { d.items.forEach((row) => { held := row; row.n := 1 }); held := d.items.values(); held := d.items.map((row) => row).filter((row) => row.n > 0); d.items.push({ n: 1 }); d.items.sort((a, b) => a.n - b.n); held := d.items.valueOf() }) }}>x</button>\n}\n`), []);
-    // MO-11l: a method given a part of the value may keep it, whatever it is called on — the value's own name too
-    for (const call of ["({ f: props.onF, t: table }).f(table)", "[props.onF, table][0](table)", "box.f(table)", "table.meta.f(table)", "table.rows.push(table)", "table.other(table.rows)", "table.setPage(table.rows)", "alias.f(table.rows[0])"]) {
-      src = `component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  box = { f: props.onF, t: table }\n  alias = box\n  <button onClick={() => { ${call} }}>x</button>\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n`;
-      must(run(src).includes("RENDERS_ESCAPES"), "accepted", src);
-    }
-    // …and a method given nothing of the value, a declared scalar, a primitive made of a part are free
-    deepStrictEqual(run("component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <button onClick={() => { table.setPage(2); props.onF(table.label); props.onF(table.count()); props.onF(table.rows[0].id); props.onF(len(table.rows)) }}>x</button>\n  <Grid t={table.label} onF={(x) => {}} />\n  {for row in table.rows { <Grid t={row.id} onF={(x) => {}} /> }}\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n"), []);
-    // …but an undeclared field of it, or a part whose type is not a primitive's, is the value's
-    for (const arg of ["table.meta", "table.rows[0]", "table.rows[0].cells", "table.rows", "table.other"]) {
-      src = `component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <Grid t={${arg}} onF={(x) => {}} />\n}\nexport default component App() {\n  <Host onF={(x) => {}} />\n}\n`;
-      must(run(src).includes("RENDERS_ESCAPES"), "accepted", src);
-    }
     // E-10, E-5a: a closure kept in a value reads, when it is called, what its body reads
     for (const holder of ["box.read()", "fs[0]()", "mk()()", "again.read()", "({ read: () => n }).read()", "[() => n][0]()", "pick.any()", "boxes[0].read()"]) for (const [read, code] of [["createLabel(E)", "SNAPSHOT_ARGUMENT"], ["peek E", "SNAPSHOT_KEPT"]]) {
       src = `export default component App() {\n  box = { read: () => n }\n  fs = [() => n]\n  mk = () => () => n\n  again = box\n  pick = true ? box : { any: () => 1 }\n  boxes = [box]\n  label = ${read.replaceAll("E", holder)}\n  <p onClick={() => { n := n + 1 }}>{label}</p>\n}\n`;
@@ -187,38 +143,6 @@ export const units: [string, () => void][] = [
     deepStrictEqual(["./v.jsx", "./old.cjs"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/v.jsx.d.rx", "/w/old.d.rx"]);
     read = files({ "/w/x.d.rx": "", "/w/y.tsx.d.rx": "", "/w/y.d.rx": "", "/w/z.d.rx": "" });   // TypeScript's are JavaScript's (RFC 23)
     deepStrictEqual(["./x.tsx", "./y.tsx", "./z.mts", "./z.cts"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/x.d.rx", "/w/y.tsx.d.rx", "/w/z.d.rx", "/w/z.d.rx"]);
-  }],
-  ["a_prop_that_keeps_what_it_is_given_is_no_way_out", () => {   // MO-11l (2026-11-22): mirrors the crate's test
-    const run = (comps: string, app: string) => {
-      const src = `import { createTable, flexRender, stashJs, later } from "./lib.js"\nfn keep(x) { x }\nfn mk(x) { () => x }\nsource held: any := null\ncontext ctx: any\ncomponent Cell() { <b>c</b> }\n${comps}\nexport default component App() {\n  table = createTable({ columns: [{ cell: Cell }] })\n${LOCALS}${app}\n}\n`;
-      const set = loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB : undefined);
-      return checkModules(set).diags.map(d => d.code);
-    };
-    const keeps = [
-      "component Kid(props: { t: any }) { <p>{flexRender(props.t.cell, {})} {len(props.t.rows)}</p> }",
-      "component Kid(props: { t: any }) { <button onClick={() => { props.t.nextPage() }}>next</button> }",
-      "component Kid(props: { t: any }) {\n  u = props.t\n  <p>{len(u.rows)}</p>\n  <Leaf t={u} />\n}\ncomponent Leaf(props: { t: any }) { <p>{len(props.t.rows)}</p> }",
-      "component Kid(props: { t: any; n: number }) { <Kid t={props.t} n={props.n + 1} /> }",
-      "component Kid(props: { t: any }) { <p>kid</p> }",
-    ];
-    // however the value is handed to the prop, by the ways that are not themselves a way out
-    const handed = ["table", "[table][0]", "({ a: table }).a", "keep(table)", "(true ? table : null)", "(table ?? null)", "table.part", "(() => table)()", "[...[table]]"];
-    for (const k of keeps) for (const e of handed) deepStrictEqual(run(k, `  <Kid t={${e}} n={0} />`), [], `refused:\n${k}\n${e}`);
-    const lets = [
-      "<button onClick={() => { held := props.t }}>x</button>",
-      "<button onClick={() => { stashJs(props.t) }}>x</button>",
-      "<button onClick={() => { props.up(props.t.rows) }}>x</button>",
-      "<button onClick={() => { later(() => { held := [props.t] }) }}>x</button>",
-      "<button onClick={() => { let u = props.t; held := u }}>x</button>",
-    ];
-    for (const l of lets) {
-      const direct = `component Kid(props: { t: any; up: (x: any) => void }) { ${l} }`;
-      const through = `component Kid(props: { t: any }) { <Leaf t={props.t} up={(x) => { }} /> }\ncomponent Leaf(props: { t: any; up: (x: any) => void }) { ${l} }`;
-      for (const k of [direct, through]) must(run(k, "  <Kid t={table} up={(x) => { }} />").includes("RENDERS_ESCAPES"), "accepted", k);
-    }
-    for (const k of ["component Kid(props: { t: any }) {\n  provide ctx = props.t\n  <p>x</p>\n}", "component Kid(props: { t: any }) { <Kid {...props} /> }\ncomponent Other(props: { t: any }) { <p>x</p> }"]) {
-      deepStrictEqual(run(k, "  <Kid t={table} />").includes("RENDERS_ESCAPES"), k.includes("provide"), k);
-    }
   }],
   ["a_guess_needs_something_to_wait_for", () => {   // 06 AC-3 (2026-11-22): mirrors the crate's test
     const API = "export fn save(k: string): Promise<void>\nexport fn track(k: string): void\n";
@@ -297,6 +221,12 @@ export const units: [string, () => void][] = [
     const comp = decls[0] as Extract<typeof decls[number], { kind: "comp" }>;
     deepStrictEqual(comp.props.map(p => [p.name, p.optional, !!p.callback]), [["children", true, false], ["id", true, false], ["onPick", true, true], ["readonly", true, false], ["readonly", false, false]]);
   }],
+  ["a_prop_typed_view_takes_a_component_by_name", () => {   // MO-11t: a prop that takes a view is one typed `View` (alone, optional, or beside a string), other than `children`; a function giving a view is a render prop, a `Component` a component value, a `renders` prop what its value carries
+    const decls = parseDeclarations("export component Rows(props: KitProps & { fallback?: View; icon: View | undefined; label?: string | View; children?: View; item: (n: number) => View; as?: Component; either?: View | (() => View); router: renders View; title?: string })\n");
+    const comp = decls[0] as Extract<typeof decls[number], { kind: "comp" }>;
+    deepStrictEqual(comp.props.filter(p => p.view).map(p => p.name), ["fallback", "icon", "label"]);
+    deepStrictEqual(comp.props.filter(p => p.render).map(p => p.name), ["item"]);
+  }],
   ["a_props_record_is_held_to_the_props_type", () => {   // MO-8o, TY-6f: what the boundary check holds a record's field by — its name, the type it is written with (the word taken off), the props' type and the row's type parameters — is read here as the crate reads it (the check itself is the crate's to write, 13 TY-6d: compiler/src/project.rs `boundary_checks`, the unit of this name there)
     const decls = parseDeclarations("export component Picker<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>(props: import(\"./kit.js\").PickerProps<Option, G, T> & { onPick?: handler (v: Option) => void; item?: Component; slot?: renders any })\nexport component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n");
     const comps = decls.filter((d): d is Extract<typeof decls[number], { kind: "comp" }> => d.kind === "comp");
@@ -326,11 +256,36 @@ export const units: [string, () => void][] = [
       ["export pure fn f(options: { template: Component }): any renders(root, theme)\n", "renders\\(root"],
       ["export pure fn f(ref options: { queryFn: tracked () => Promise<any> }): any\n", "tracked"],
       ["export component C(props: { onCompare: tracked (v: number) => number })\n", "tracked"],
+      // withdrawn 2026-11-23 (MO-8r, Settled): a field's rows, wherever in the result; `renders` alone
+      ["export pure fn useQ(): { data: pending fails(Error) any; n: number }\n", "pending"],
+      ["export pure fn useQ(): { inner: { data: fails(Error) any } }\n", "pending"],
+      ["export pure fn useQ(): [pending string, () => void]\n", "pending"],
+      ["export pure fn createTable(options: { cell: Component }): any renders\n", "renders` alone"],
+      ["export pure fn createTable(options: { cell: Component }): { rows: any[] } renders uses(kit)\n", "renders` alone"],
     ] as const) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual(new RegExp("`" + word + ".*is not a word of a declaration").test(msg), true, `${bad} → ${msg}`); }
     // `signal init: T` is no parameter word: the row does not parse
     { let msg = ""; try { parseDeclarations("export pure fn makePersisted(signal init: string): [ref string, (v: string) => void]\n"); } catch (e) { msg = (e as Error).message; } deepStrictEqual(msg !== "", true); }
     // and a name that is one of them is still a name where a name goes
     deepStrictEqual(parseDeclarations("export pure fn f(signal: string, tracked: boolean, methods?: string[]): { trusted: boolean; forwards: string }\n").map(d => d.kind === "fn" ? d.params : []), [["signal", "tracked", "methods"]]);
+    deepStrictEqual(parseDeclarations("export pure fn f(): { pending: ref boolean; fails: number; renders: string }\nexport pure fn g(options: any): any renders(later)\n").length, 2);
+  }],
+  ["a_declaration_names_another_modules_context", () => {   // MO-12e: `export context c from "<module>"` names the context that module's declaration declares, under that declaration's key: found as an import from the declaration's own file would find it, and through a module that takes it from another
+    const fs = files({
+      "/app/rx-types/@demo/query.d.rx": "export context client\nexport component ClientProvider(props: { children?: View }) provides(client)\n",
+      "/app/src/todos.d.rx": "export context client from \"@demo/query\"\nexport pure fn useTodos(): ref string uses(client)\n",
+      "/app/src/deep/count.d.rx": "export context client from \"../todos.js\"\nexport pure fn useCount(): ref number uses(client)\n",
+      "/app/src/typo.d.rx": "export context klient from \"@demo/query\"\nexport pure fn useTypo(): ref number uses(klient)\n",
+      "/app/src/main.rx": "import { ClientProvider } from \"@demo/query\"\nimport { useTodos } from \"./todos.js\"\nimport { useCount } from \"./deep/count.js\"\ncomponent Todos() {\n  t = useTodos()\n  n = useCount()\n  <p>{t}{n}</p>\n}\nexport default component App() {\n  <ClientProvider><Todos /></ClientProvider>\n}\n",
+      "/app/src/bare.rx": "import { useCount } from \"./deep/count.js\"\nexport default component App() {\n  n = useCount()\n  <p>{n}</p>\n}\n",
+      "/app/src/typo.rx": "import { useTypo } from \"./typo.js\"\nexport default component App() {\n  n = useTypo()\n  <p>{n}</p>\n}\n",
+    });
+    const codes = (entry: string) => checkModules(loadModules(entry, fs)).diags.map(d => d.code);
+    const set = loadModules("/app/src/main.rx", fs);
+    const at = (dts: string) => { const c = set.declarations!.get(dts)!.find(d => d.kind === "context") as { from?: string; resolved?: string }; return [c.from, c.resolved]; };
+    deepStrictEqual([at("/app/rx-types/@demo/query.d.rx"), at("/app/src/todos.d.rx"), at("/app/src/deep/count.d.rx")], [[undefined, undefined], ["@demo/query", "/app/rx-types/@demo/query.d.rx"], ["../todos.js", "/app/rx-types/@demo/query.d.rx"]]);
+    deepStrictEqual([codes("/app/src/main.rx"), codes("/app/src/bare.rx"), codes("/app/src/typo.rx")], [[], ["CONTEXT_NOT_FOUND"], ["NOT_EXPORTED", "CONTEXT_NOT_FOUND"]]);
+    let failed = false; try { parseDeclarations("export context client from query\n"); } catch { failed = true; }
+    deepStrictEqual(failed, true);
   }],
   ["a_marked_declaration_is_read_as_a_signature", () => {   // MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)
     deepStrictEqual(["//@ signature x.rx\nexport a", "\n// built\n//@signature\nexport a", "//@ signatures\nexport a", "export a\n//@ signature", "// signature\nexport a", ""].map(isPrintedSignature), [true, true, false, false, false, false]);

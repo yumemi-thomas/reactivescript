@@ -4,7 +4,8 @@
 // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { singleModule, isRx, type ModuleSet } from "../src/modules.ts";
+import { singleModule, isRx, madeComponent, ViewProps, type ModuleSet } from "../src/modules.ts";
+export { madeComponent };
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
@@ -101,10 +102,12 @@ class Gen {
   top: string[] = [];                                   // module-level code: hoisted server functions and the module's error classes
   serverNames = new Map<string, string>();              // a module-level server fn → its hoisted function
   private modDecls: Decl[] = [];
+  private views = new ViewProps(undefined, []);   // MO-11t: the props of the JS components this module imports that take a view
   private sfSeq = 0;
   /** Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns). */
   beginModule(path: string, decls: Decl[]) {
     this.file = path; this.top = []; this.modDecls = decls; this.serverNames = new Map();
+    this.views = new ViewProps(this.mods?.set, decls);
     this.argCalls = new Map(); argCalls(decls, this.argCalls);
     for (const d of decls) if (d.k === "server" || (d.k === "eq" && unwrapServer(d.e))) this.serverNames.set(d.name, `sf$${d.name}`);
     // a package's JS (\`@solidjs/web/server-functions\`): a real import at module level, where a hoisted server fn's wrappers are
@@ -693,7 +696,7 @@ class Gen {
         if (/^[A-Z]/.test(m.tag)) {
           const dot = m.tag.indexOf("."); const head = dot > 0 && !env.lookup(m.tag) ? env.lookup(m.tag.slice(0, dot)) : undefined;   // MO-11q: `<Dialog.Root>`, a member of a declared JS object
           const b = head ? { kind: "comp" as const, js: `${head.js}${m.tag.slice(dot)}`, shape: "comp" as const } : env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
-          const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
+          const attrs = m.attrs.map(a => { const given = this.views.given(m.tag, a.name, a.e); return " " + (given ? `${a.name}={${this.child({ k: "el", tag: given, attrs: [], children: [], line: m.line }, env, ind + 1).trim()}}` : this.attr(a.name, a.e, env)); }).join("");   // MO-11t: a component given by name to a prop typed `View` is applied there, with no arguments: the element, made where the library reads the prop (JSX's `fallback={<Empty />}`, a getter)
           const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
           const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
           const props = attrs + named.map(v => ` ${v.prop}={${this.regionFn(v.decls, v.body, env, ind + 1, v.params.map(mg).join(", "), e => { for (const p of v.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}`).join("");
@@ -732,14 +735,6 @@ class Gen {
       }
     }
   }
-}
-
-/** MO-11f, MO-11j: an equation bound from a declared factory's call is a component (`Router = createRouter(…)`). */
-export function madeComponent(p: Program, name: string, declarations?: Map<string, JsDecl[]>): boolean {
-  const d = p.decls.find(x => x.k === "eq" && x.name === name); if (!d || d.k !== "eq" || d.e.k !== "call" || d.e.f.k !== "id") return false;
-  const g = d.e.f.name;
-  for (const i of p.decls) if (i.k === "import" && i.declared) { const n = i.names.find(x => x.alias === g); if (n) return declarations?.get(i.declared)?.some(x => x.kind === "fn" && x.name === n.name && x.shape === "comp") ?? false; }
-  return false;
 }
 
 /** An expression written out as a constant: a literal, or an array, a record, a template or a sign over them. */

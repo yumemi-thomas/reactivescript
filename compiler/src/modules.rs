@@ -1,12 +1,12 @@
 //! 09-modules: a program is a set of `.rx` modules (`ref/src/modules.ts`). The loader resolves each `.rx` import to a path,
 //! parses every module once, and orders them dependencies first (MO-1). A cycle is refused (MO-5).
 
-use crate::ast::{Decl, Program};
+use crate::ast::{Decl, Expr, ExprKind, Program};
 use crate::check::Diagnostic;
 use crate::parse::{parse_declarations, parse_program, JsDecl, ParseError};
 use crate::signature::{parse_signature, ModSig};
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct ModuleSet {
     pub entry: String,
@@ -344,7 +344,8 @@ impl Loader<'_> {
                 }
                 if !self.declarations.contains_key(&dts) {
                     if let Some(src) = (self.read)(&dts) {
-                        let ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", dts, e.0), e.1, Some(dts.clone()), e.3))?;
+                        let mut ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", dts, e.0), e.1, Some(dts.clone()), e.3))?;
+                        context_sources(&dts, &mut ds, &*self.read);
                         // SV-5a: the declaration's identity; two that would name an error class alike are not told apart
                         let id = package_relative(&dts, &*self.read);
                         if from.starts_with('.') {
@@ -552,6 +553,37 @@ mod tests {
         assert_eq!(beside_declaration("/w/main.rx", "./z.cts", &read), "/w/z.d.rx");
         assert_eq!(declaration_names("./x.tsx"), vec!["./x.tsx.d.rx", "./x.d.rx"]);
     }
+    /// MO-12e: `export context c from "<module>"` in a declaration names the context that module's declaration declares,
+    /// under that declaration's key — found as an import from the declaration's own file would find it, and through a
+    /// module that takes it from another. A wrapper's hook is then discharged by the library's provider, and refused
+    /// outside it; a context the named module has not, or a module with no declaration, is `NOT_EXPORTED`.
+    #[test]
+    fn a_declaration_names_another_modules_context() {
+        let fs: Vec<(String, String)> = [
+            ("/app/rx-types/@demo/query.d.rx", "export context client\nexport component ClientProvider(props: { children?: View }) provides(client)\n"),
+            ("/app/src/todos.d.rx", "export context client from \"@demo/query\"\nexport pure fn useTodos(): ref string uses(client)\n"),
+            ("/app/src/deep/count.d.rx", "export context client from \"../todos.js\"\nexport pure fn useCount(): ref number uses(client)\n"),
+            ("/app/src/typo.d.rx", "export context klient from \"@demo/query\"\nexport pure fn useTypo(): ref number uses(klient)\n"),
+            ("/app/src/main.rx", "import { ClientProvider } from \"@demo/query\"\nimport { useTodos } from \"./todos.js\"\nimport { useCount } from \"./deep/count.js\"\ncomponent Todos() {\n  t = useTodos()\n  n = useCount()\n  <p>{t}{n}</p>\n}\nexport default component App() {\n  <ClientProvider><Todos /></ClientProvider>\n}\n"),
+            ("/app/src/bare.rx", "import { useCount } from \"./deep/count.js\"\nexport default component App() {\n  n = useCount()\n  <p>{n}</p>\n}\n"),
+            ("/app/src/typo.rx", "import { useTypo } from \"./typo.js\"\nexport default component App() {\n  n = useTypo()\n  <p>{n}</p>\n}\n"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let read = |p: &str| fs.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+        let codes = |entry: &str| -> Vec<String> { crate::check::check_modules(&load_modules(entry, &read).unwrap(), false).diags.iter().map(|d| d.code.clone()).collect() };
+        let set = load_modules("/app/src/main.rx", &read).unwrap();
+        let at = |dts: &str| set.declarations[dts].iter().find_map(|d| if let JsDecl::Context { from, resolved, .. } = d { Some((from.clone(), resolved.clone())) } else { None }).unwrap();
+        assert_eq!(at("/app/rx-types/@demo/query.d.rx"), (None, None));
+        assert_eq!(at("/app/src/todos.d.rx"), (Some("@demo/query".into()), Some("/app/rx-types/@demo/query.d.rx".into())));
+        assert_eq!(at("/app/src/deep/count.d.rx"), (Some("../todos.js".into()), Some("/app/rx-types/@demo/query.d.rx".into())));
+        assert_eq!(codes("/app/src/main.rx"), Vec::<String>::new());
+        assert_eq!(codes("/app/src/bare.rx"), ["CONTEXT_NOT_FOUND"]);
+        assert_eq!(codes("/app/src/typo.rx"), ["NOT_EXPORTED", "CONTEXT_NOT_FOUND"]);
+        assert!(parse_declarations("export context client from query\n").is_err());
+    }
+
     /// MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)
     #[test]
     fn a_marked_declaration_is_read_as_a_signature() {
@@ -600,5 +632,94 @@ mod tests {
         let local = load_modules("/app/local.rx", &read).unwrap(); // beside a relative JS module (MO-8a), the same
         assert_eq!(local.signatures.keys().collect::<Vec<_>>(), ["/app/vendor/kit.rx"]);
         assert!(crate::check::check_modules(&local, false).diags.is_empty());
+    }
+}
+
+/// MO-12e: where each context a declaration takes from another module (`export context c from "<module>"`) is declared:
+/// that module's declaration file, found as an import of it from this file would find it (MO-8k, MO-10c), and followed
+/// while it too takes the context from elsewhere. `None` is left where no declaration declares it (`NOT_EXPORTED`).
+pub fn context_sources(dts: &str, ds: &mut [JsDecl], read: &dyn Fn(&str) -> Option<String>) {
+    for d in ds.iter_mut() {
+        let JsDecl::Context { name, from: Some(from), resolved, .. } = d else { continue };
+        let (mut at, mut spec) = (dts.to_string(), from.clone());
+        for _ in 0..8 {
+            let target = if spec.starts_with('.') || spec.starts_with('/') { Some(beside_declaration(&at, &spec, read)) } else { declaration_for(&at, &spec, read) };
+            let Some(target) = target else { break };
+            let Some(src) = read(&target) else { break };
+            if is_printed_signature(&src) {
+                break; // an .rx module's context is imported and used by its name (MO-7)
+            }
+            let Ok(theirs) = parse_declarations(&src) else { break };
+            match theirs.iter().find_map(|x| if let JsDecl::Context { name: n, from, .. } = x { (n == name).then(|| from.clone()) } else { None }) {
+                Some(None) => {
+                    *resolved = Some(target);
+                    break;
+                }
+                Some(Some(next)) => {
+                    at = target;
+                    spec = next;
+                }
+                None => break,
+            }
+        }
+    }
+}
+
+/// MO-11t: what a module's emitters need to know of a component given by name to a declared JS component's prop typed
+/// `View` — the props that take a view, by the tag as the module writes it (an alias, a member), and the names that are
+/// components here. The checker has both from its own symbols; the compiled module and the TSX projection write the
+/// component applied (`fallback={<Empty />}`), which this decides.
+#[derive(Debug, Default, Clone)]
+pub struct ViewProps {
+    props: HashMap<String, HashSet<String>>,
+    comps: HashSet<String>,
+}
+impl ViewProps {
+    pub fn of(set: &ModuleSet, decls: &[Decl]) -> ViewProps {
+        let mut out = ViewProps::default();
+        let made = |ds: &[Decl], name: &str| crate::emit::made_component_in(ds, name, &set.declarations);
+        for d in decls {
+            match d {
+                Decl::Component { name, .. } => {
+                    out.comps.insert(name.clone());
+                }
+                Decl::Eq { name, .. } if made(decls, name) => {
+                    out.comps.insert(name.clone());
+                }
+                Decl::Import { names, resolved: Some(r), .. } => {
+                    for n in names {
+                        let in_source = set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::Component { name, .. } if *name == n.name)) || made(&p.decls, &n.name));
+                        let in_signature = set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).is_some_and(|x| matches!(x, crate::signature::ExportSig::Comp { .. }));
+                        if in_source || in_signature {
+                            out.comps.insert(n.alias.clone());
+                        }
+                    }
+                }
+                Decl::Import { names, declared: Some(dp), .. } => {
+                    let Some(ds) = set.declarations.get(dp) else { continue };
+                    for n in names {
+                        for x in ds {
+                            let JsDecl::Comp { name, props, .. } = x else { continue };
+                            // MO-11q: a member is written after the name its object is imported under
+                            let Some(rest) = name.strip_prefix(n.name.as_str()).filter(|r| r.is_empty() || r.starts_with('.')) else { continue };
+                            if rest.is_empty() {
+                                out.comps.insert(n.alias.clone());
+                            }
+                            let views: HashSet<String> = props.iter().filter(|p| p.view).map(|p| p.name.clone()).collect();
+                            if !views.is_empty() {
+                                out.props.insert(format!("{}{}", n.alias, rest), views);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+    /// The component `attr={e}` of `<tag>` gives by name to a prop that takes a view, if it does.
+    pub fn given<'e>(&self, tag: &str, attr: &str, e: &'e Expr) -> Option<&'e str> {
+        let ExprKind::Id(n) = &e.k else { return None };
+        (self.props.get(tag).is_some_and(|v| v.contains(attr)) && self.comps.contains(n)).then_some(n.as_str())
     }
 }

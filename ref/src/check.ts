@@ -998,7 +998,11 @@ class Checker {
     const decls = this.opts.declarations?.get(d.declared!) ?? []; const file = d.declared!.split("/").pop();
     const generated = /(^|\/)node_modules\/\.rx-types\//.test(d.declared!) ? d.from : undefined;   // MO-8l
     const jsKeys = (names?: string[]) => (names ?? []).map(n => {                          // MO-12a: a JS context's key is its declaration file's
-      if (!decls.some(y => y.kind === "context" && y.name === n)) this.err("NOT_EXPORTED", "MO-12", `${file} names context ${n} in uses(…) or provides(…) but declares none: add \`export context ${n}\``);
+      const c = decls.find(y => y.kind === "context" && y.name === n);
+      if (!c || c.kind !== "context") { this.err("NOT_EXPORTED", "MO-12", `${file} names context ${n} in uses(…) or provides(…) but declares none: add \`export context ${n}\``); return `${d.declared}#${n}`; }
+      if (c.from === undefined) return `${d.declared}#${n}`;
+      if (c.resolved !== undefined) return `${c.resolved}#${n}`;                             // MO-12e: the context another module's declaration declares, under that declaration's key
+      this.err("NOT_EXPORTED", "MO-12", `${file} takes context ${n} from "${c.from}", whose declaration declares none: it is declared there as \`export context ${n}\`, in the \`.d.rx\` an import of "${c.from}" finds (MO-12e)`);
       return `${d.declared}#${n}`;
     });
     if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
@@ -1009,6 +1013,7 @@ class Checker {
         for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true, ...(p.optional ? { renderOptional: true } : {}) } : {}), ...(p.callback ? { callback: true } : {}), ...(p.pure ? { pure: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig; r.js = true;
         const cp = x.props.filter(p => p.carried).map(p => p.name); if (cp.length) this.carriedProps.set(r, new Set(cp));   // MO-11o
+        { const vp = x.props.filter(p => p.view).map(p => p.name); if (vp.length) this.viewProps.set(r, new Set(vp)); }   // MO-11t: the props that take a view
         this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(x.outlet ? { outlet: true } : {}) });
     };
     for (const { name, alias } of d.names) {
@@ -2199,7 +2204,7 @@ class Checker {
     const go = (x: Expr) => this.expr(x, env, ctx);
     switch (e.k) {
       case "lit": return;
-      case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.updater && !this.updaterOk.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, \`setStore(${e.name})\` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one`);   /* MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else */ if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory && !s.factory.here)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes a \`Component\`: a JS component's prop, or a JS factory's arguments (MO-11c, MO-11f)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
+      case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.updater && !this.updaterOk.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, \`setStore(${e.name})\` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one`);   /* MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else */ if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory && !s.factory.here)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed \`Component\` or \`View\`, or a JS factory's arguments (MO-11c, MO-11t, MO-11f)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", true); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
       case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c) this.model.read(c, ctx.scope === "imperative"); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": this.model.snap++; go(e.e); this.model.snap--; return;                  // E-5: a snapshot
@@ -2700,7 +2705,8 @@ class Checker {
   private componentValues(m: Extract<Markup, { k: "el" }>, env: Env): Map<unknown, Markup> {
     const out = new Map<unknown, Markup>();
     const sig = env.lookup(m.tag)?.compRegion?.sig;
-    for (const a of m.attrs) if (sig?.props[a.name]?.component && a.e.k === "id" && /^[A-Z]/.test(a.e.name) && env.lookup(a.e.name)?.kind === "comp") { out.set(a, this.applied([a.e.name], m.line)[0]); const k = env.lookup(a.e.name)!.compRegion?.key; if (k) this.escapes.add(k); }   // E-5a: a JS component applies it
+    const views = env.lookup(m.tag)?.compRegion ? this.viewProps.get(env.lookup(m.tag)!.compRegion!) : undefined;   // MO-11t: and the components given by name to its props typed `View`, each applied there with no arguments
+    for (const a of m.attrs) if ((sig?.props[a.name]?.component || views?.has(a.name)) && a.e.k === "id" && /^[A-Z]/.test(a.e.name) && env.lookup(a.e.name)?.kind === "comp") { out.set(a, this.applied([a.e.name], m.line)[0]); const k = env.lookup(a.e.name)!.compRegion?.key; if (k) this.escapes.add(k); }   // E-5a: a JS component applies it
     const cp = env.lookup(m.tag)?.compRegion ? this.carriedProps.get(env.lookup(m.tag)!.compRegion!) : undefined;   // MO-11o: what a prop renders
     if (cp && env.lookup(m.tag)!.compRegion!.js) { const names: string[] = []; const seen = new Set<Sym>(); for (const a of m.attrs) if (cp.has(a.name)) this.carriedNames(a.e, env, seen, names); for (const el of this.carriedTree(seen, names, m.line)) out.set({ carried: el }, el); }
     return out;
@@ -2735,6 +2741,7 @@ class Checker {
   /** MO-11o: the props that render what their value carries, by component: a JS component's props declared `renders`,
    *  and an .rx component's props it gives on to such a prop (`forwardedProps`; an imported one's, from its signature). */
   private carriedProps = new Map<Region, Set<string>>();
+  private viewProps = new Map<Region, Set<string>>();   // MO-11t: a JS component's props that take a view (typed `View`, not `children`)
   /** MO-11o (2026-11-22): each place a component gives a prop of its own on to a prop that renders what it carries: the
    *  component and its prop, and the region what the prop carries is rendered in. */
   private forwards: { comp: Region; field: string; region: Region }[] = [];

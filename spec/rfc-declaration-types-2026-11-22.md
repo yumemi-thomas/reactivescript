@@ -826,3 +826,136 @@ modules:
   the word). Holding a props record for every type argument (TY-6f) stays
   at one instance: the limit is TypeScript's, and the 85 component rows of
   this round's programs hold at it.
+
+## A sixth round: what the fifth left open (2026-11-23)
+
+The fifth round ended with one form accepted and not built, three kept on
+one library's evidence, and a limit of the second way (a module of the
+app's own) recorded. Each is settled here; 09 MO-8r (*Settled*), MO-11t
+and MO-12e are the rules.
+
+### The element in a prop, built (MO-11t)
+
+A component of the app's that takes no props, given by name to a declared
+JS component's prop typed `View`: `<Key each={people} by="id"
+fallback={Nobody}>`. It is the component applied there, JSX's
+`fallback={<Nobody />}` — the element is made where the library reads the
+prop — and it is checked as MO-11c checks a component value, among the
+application's children. No grammar was added: an attribute whose value
+is a name already parsed, and the tree-sitter corpus has it as it is.
+What changed, in each place:
+
+| place | change |
+| --- | --- |
+| both declaration parsers | a prop typed `View` (alone, optional, or beside values), other than `children`, is one that takes a view; a function giving a view stays a render prop, a `Component` a component value |
+| both checkers | a component named in such a prop is applied among the application's children (it was `COMPONENT_AS_VALUE`) |
+| both emitters | the attribute is the component's element (`createComponent` behind a getter, by Solid's JSX), where it was the component's function |
+| both projections | `fallback={<Nobody />}`, so the library's own type (`JSX.Element`) takes it and the component's props are typed: one it requires is `TS2322` on its name |
+| `rx-declare` | for props that are a type of the library's, such a prop is one of the fields written in the record after it (`props: ClientOnlyProps & { fallback?: View }`): no word by hand |
+
+The six programs that wanted it use it, and each shows its fallback's
+element when its list is empty or before the browser has it:
+`solid-use/client-only`, and `primitives/keyed`, `list`, `range`
+(`Repeat`, and `Range`, which had no program), `virtual`. Their
+`fallback` was a string, or left out. What it does not cover is an
+element in a record given to a *fn* (`createPagination({ prevContent })`):
+a string stands there, and one library asks.
+
+### The three kept on one library's evidence
+
+| kept | looked for again | found | decision |
+| --- | --- | --- | --- |
+| `pending`, `fails(E)` before a result's field | a store whose plain fields wait or throw where they are read, in the 190 modules and the tasks' libraries; in `declarations/solid-js` | TanStack Query's `useQuery`, alone. Solid's declaration does not write it: an `.rx` program asks with `await`, it does not call `createStore(fn)` | **withdrawn** |
+| `renders` alone | a fn that is given components and renders them where its value is bound | the table adapter of one task, alone | **withdrawn** |
+| `renders(later)`, a prop's `renders` | UI SDK's `toast()`, `confirm()`, `<OverlayHost>`, declared and used (`bench/coverage/ui-sdk/overlays`) | not a second library: `toast(message)` answers an id, `confirm({ title })` a promise of a boolean, nothing either is given is a component, nothing either answers is handed to the host, which reads a registry of the library's own. The program is the draft's three rows with no word, and runs: a toast and a confirmation opened from handlers, rendered by the host, the answer back in the action | **fails the bar; to be withdrawn**, with `nests(component under parent)` and `outlet`, which exist for it |
+
+*Why the first is not rescued by "Solid's own shape".* The fifth round
+kept it because `createStore(fn)` over an async function is a store whose
+fields wait. That is true of Solid and of no declaration: the bar asks
+who writes the form, and one library does.
+
+*What would meet the bar, and is not taken.* The mistake itself — a value
+that waits or throws, read with no region above it — is made with more
+than one library: solid-use's `fetch(…).json()`, solid-primitives'
+`createGraphQLClient`, `createStream`, `createGeolocation` hand out
+accessors that wait and fail, and their programs in the coverage suite
+wrote `loading` and `errored` because their authors knew to. No row can
+say it of them: an accessor "promises nothing" (MO-10d, ruled
+2026-11-13), which the checker reads as "asks for nothing". `pending` and
+`fails(E)` before a `ref` part would be the multi-library form of the
+withdrawn words. It is a new reading of a ruled rule, so it is recorded
+as a proposal for an issue, not made here.
+
+*What the withdrawals cost, counted.* Eight bad variants of three tasks,
+each listed with its reason in `bench/README.md`; and two shapes of good
+program: a query's whole result passed to a child (its fields are passed,
+each a value) and a table cell that reads the app's context (it takes
+what it needs through the table). Five variants came in with the new
+shapes.
+
+*The third, decided and not done.* Its removal is the largest of the
+three: `bench/tasks/router-provider`, `examples/tanstack` and the
+typed-link check `compiler/test/vite.mjs` runs on it, the scenarios that
+write the words (S-module-22, 23, 27),
+`rx-verify`'s placement checks, the tree-sitter rules, `known.js`'s rows
+for TanStack Router, and the carried-value half of MO-10k in both
+checkers. What replaces it is known: a route tree that carries
+components is a factory's — `createAppRouter({ component: Root,
+children: [{ path, component }] })` from a module of the app's own,
+declared `Component provides(router) nests(children in component)`, the
+form `@solidjs/router` has natively, which would then have two routers
+behind it — or JavaScript's, a route module that imports the `.rx` pages
+(`bench/tasks/start-route`). What it gives up is the registered route
+types of a tree written in `.rx`. Until that change the four words
+parse; one library's rows write them.
+
+### A wrapper names the library's context (MO-12e)
+
+The fifth round's limit: a module of the app's own around a library's
+hook could not say `uses(…)` of the library's context. With two forms
+withdrawn in favour of such modules, the limit would have cost every
+"hook outside its provider" behind one. `export context c from
+"<module>"` in the wrapper's declaration names the context that module's
+declaration declares — the context row, and JavaScript's `from`; the
+loader finds the module's declaration as an import from the wrapper's
+file would, and the key is that declaration's. Written by three modules
+over three libraries: `query.js` in `query-forward` and `query-mutation`
+(the variant *the query's hook beside the client's provider* is refused
+through it), and Wardic's `sensors.js` (`createHover()` needs the
+provider: the fifth round's example of the limit).
+
+### The primitive's owner, to the end (MO-10a)
+
+The fifth round's run-time change had a rule, a changelog entry and a
+test of the ids. It now says, and holds by test on both builds, what the
+owner is to its region: cleanups registered while the primitive is made
+run when the region goes (the primitives', last made first, before the
+region's own; none before), a region made again takes the primitive it
+made with it, a failure while the primitive is made is thrown where the
+call is written and caught by the `errored` region above the caller, and
+one thrown later by what it made reaches the same region
+(`runtime/test.mjs`; through a compiled program in Chromium,
+`compiler/test/confined.mjs`).
+
+### The numbers
+
+`node bench/run.mjs`, at `b9fe0d4` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `b9fe0d4` (32 tasks) | 96/96 | 155/155 | 207/207 | 161/163 | 11/11 | 215 | 41 | 0 | 27 |
+| now (32 tasks) | 96/96 | 155/155 | 207/207 | 158/160 | 11/11 | 249 | 41 | 0 | 27 |
+
+The two red checks are the two each task's `known` gives a reason for,
+unchanged. Bad variants: 163, less the eight given up, plus five. Words:
+the wrapper over `useQuery` is the app's own module in two tasks, 17 words
+each, where the library's row had come from `known.js`.
+
+| coverage | programs | green | modules drafted | rows | library's `any` | introduced | by place | hand-written words |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `b9fe0d4` | 120 | 120 | 190 | 4877 | 1195 | 0 | 1519 | 253 |
+| now | 121 | 121 | 190 | 4877 | 1195 | 0 | 1519 | 268 |
+
+`ui-sdk/overlays` is the new program (no word); `primitives/range`
+declares `<Range>` by hand for its fallback (+8) and `wardic/gestures`
+names Wardic's context (+7).

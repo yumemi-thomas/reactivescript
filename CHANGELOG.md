@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+**What the fifth round left open, settled** (spec/09 MO-8r *Settled*, MO-11t, MO-12e; spec/rfc-declaration-types-2026-11-22.md, *A sixth round*)
+
+- **An element in a prop**: a component of yours given by name to a JS component's prop typed `View` —
+  `<Key each={rows} by="id" fallback={Nobody}>`, `<ClientOnly fallback={Measuring}>` — is applied there with no
+  arguments (JSX's `fallback={<Nobody />}`), and checked as the library's children are (spec/09 MO-11t). It was
+  `COMPONENT_AS_VALUE`, and the fallback had to be a string. `rx-declare` drafts such props.
+- **A wrapper around a library's hook names the library's context**: `export context queryClient from
+  "@tanstack/solid-query"` in the `.d.rx` of a module of your own, then `uses(queryClient)` on its hook. The hook
+  outside the library's provider is `CONTEXT_NOT_FOUND` again; it was not checked behind a wrapper (spec/09 MO-12e).
+- **Withdrawn: `pending` and `fails(…)` before a declared result's field** (MO-10f). One library wrote them (TanStack
+  Query's `data`), and no other library of the 190 modules covered hands out a store whose plain fields wait. A row
+  that writes them is refused, with what to write: hand the field out as a function from a module of your own and
+  declare it `ref` (guide/libraries.md has the six lines). **What you lose:** the checker no longer asks for a
+  `loading` and an `errored` region above a query's `data`; an accessor asks for none (spec/09 MO-10d), as every
+  other library's waiting value already did. An `.rx` component's prop may still be typed with the words on its
+  fields.
+- **Withdrawn: `renders` alone after a fn** (MO-11l: "rendered where its result is bound"). One library wrote it (a
+  table, through an adapter). Leave the word out: the components the fn is given are checked each under a root of its
+  own, the result is a plain value. **What you lose:** a cell component can no longer read a context of your app;
+  give it what it needs through the table's cell context.
+- **`renders(later)`, a prop's `renders`, `nests(component under parent)` and `outlet` are one library's** (TanStack
+  Router's code-based route tree). The second library claimed for them, UI SDK's `toast()` and `<OverlayHost>`, was
+  declared and used: it needs no word (`bench/coverage/ui-sdk/overlays`). They fail the bar and are to be
+  withdrawn in a change of their own (it rewrites the TanStack Router example and task onto a factory of the app's
+  own); they still parse, and no new row should write them.
+- **A primitive's own owner, specified to the end** (spec/09 MO-10a): its cleanups run when the place it is written
+  goes, the primitives' before the component's own; a failure while it is made, or later in what it made, reaches
+  the `errored` region its caller is under. `runtime/test.mjs` and `compiler/test/confined.mjs` hold both.
+- **`rx-verify`**: a plain field that waits or fails where it is read is a mismatch, with what to write (it asked for
+  `pending`); a `ref` part that holds is not one.
+- CI: the benchmark ran 31 minutes in one job once the coverage suite joined it; it is four jobs now (the tasks, and
+  the coverage suite in three shards, `node bench/run.mjs --coverage-only --shard i/3`).
+  `compiler/test/ssr-held.mjs` is gone with the form it ran.
+
 **Four libraries, whole** (spec/rfc-declaration-types-2026-11-22.md, *A fifth round*; bench/coverage/)
 
 Every `@solid-primitives` package on Solid 2 (98), every module of `solid-use`, and each family of Wardic and UI SDK is
@@ -27,8 +61,8 @@ now drafted whole by `rx-declare` and used by a program the suite checks, types 
 
 Shapes that still have no row, and what to write instead (guide/libraries.md): a function a primitive hands back that
 the view calls (give it as a field of a record), a class you construct, one function that is two things by how it is
-called, a component that is a part of a result. An element in a prop that is not `children` (`fallback={…}`) is
-accepted as the next form — a component with no props given by name — and is not in this release.
+called, a component that is a part of a result. An element in a prop that is not `children` (`fallback={…}`) was
+accepted here as the next form — a component with no props given by name — and is the first entry above.
 
 **The vocabulary of a declaration, pruned** (spec/09 MO-8r)
 

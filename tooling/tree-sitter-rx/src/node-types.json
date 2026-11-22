@@ -1937,6 +1937,16 @@
           }
         ]
       },
+      "source": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
       "type": {
         "multiple": false,
         "required": false,

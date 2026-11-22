@@ -403,6 +403,8 @@ module.exports = grammar(tsx, {
       field('name', $._binding_name),
       optional(seq(':', optional('source'), field('type', $.type))),
       optional(seq('=', field('value', $.expression))),
+      // 09 MO-12e, in a `.d.rx`: `export context client from "@demo/query"`, the context another module's declaration declares
+      optional(seq('from', field('source', $.string))),
       $._semicolon,
     ),
 

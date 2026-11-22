@@ -78,7 +78,8 @@ subclass is an `error`, a function that hands back a component is a factory. Eve
 `use*`, `define*` or `*Options` name (Solid's convention for primitives and config helpers) only suggests `pure`, as a
 `// TODO`, as an `on…` callback suggests `handler`; a name is a convention, not a fact, so a person decides. What types
 cannot show is a `// TODO` line above the declaration it concerns: which context a hook reads (`uses(…)`), whether a
-result's fields wait or throw (`pending fails(…)`), what a promise rejects with. `rx-tsc` then checks the draft against
+result is a store whose fields wait or throw (no row says it: a module of the app's own hands each out as an accessor,
+09 MO-8r), what a promise rejects with. `rx-tsc` then checks the draft against
 the same types (spec/13 TY-6).
 
 A type the draft cannot restate is named where the library declares it rather than written `any` (spec/09 MO-8m): the
@@ -134,7 +135,7 @@ is declared with its parameters (`export type Table<TData> = import(…).Table<T
 
 For a few libraries the draft also has what types cannot show (`src/known.js`): the routers' `renders(later)`,
 `nests(…)` and the prop that `renders` (`@tanstack/solid-router`, `@solidjs/router`), TanStack Query's context,
-`pending fails(Error)` on `data`, `handler` on its callbacks, and `pure` on those primitives. Each entry
+`handler` on its callbacks, and `pure` on those primitives. Each entry
 is for a version range and was checked by running that release; outside the range, and for every other package, the
 draft is the types' alone, with its TODOs. A generated declaration (MO-8l) never takes them: nothing a person reviewed
 makes the checker accept more.

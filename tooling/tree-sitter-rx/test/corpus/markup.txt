@@ -509,3 +509,71 @@ component App() {
           (identifier))
         (jsx_closing_element
           (identifier))))))
+
+================================================================================
+A component given by name to a prop that takes a view (09 MO-11t)
+================================================================================
+
+component Empty() {
+  <p>nothing yet</p>
+}
+component App() {
+  <Rows each={names} fallback={Empty}>{view (name) { <p>{name}</p> }}</Rows>
+  <Menu.Item icon={Dot}>open</Menu.Item>
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (component_declaration
+    (identifier)
+    (formal_parameters)
+    (view_block
+      (jsx_element
+        (jsx_opening_element
+          (identifier))
+        (jsx_text)
+        (jsx_closing_element
+          (identifier)))))
+  (component_declaration
+    (identifier)
+    (formal_parameters)
+    (view_block
+      (jsx_element
+        (jsx_opening_element
+          (identifier)
+          (jsx_attribute
+            (property_identifier)
+            (jsx_expression
+              (identifier)))
+          (jsx_attribute
+            (property_identifier)
+            (jsx_expression
+              (identifier))))
+        (jsx_expression
+          (render_block
+            (identifier)
+            (view_block
+              (jsx_element
+                (jsx_opening_element
+                  (identifier))
+                (jsx_expression
+                  (identifier))
+                (jsx_closing_element
+                  (identifier))))))
+        (jsx_closing_element
+          (identifier)))
+      (jsx_element
+        (jsx_opening_element
+          (member_expression
+            (identifier)
+            (property_identifier))
+          (jsx_attribute
+            (property_identifier)
+            (jsx_expression
+              (identifier))))
+        (jsx_text)
+        (jsx_closing_element
+          (member_expression
+            (identifier)
+            (property_identifier)))))))

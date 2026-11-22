@@ -539,7 +539,9 @@ pub enum JsDecl {
     /// `props` the fields of the record after `&`, the ones that carry words
     Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, outlet: bool, tparams: Option<String>, props_type: Option<String> },
     /// MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
-    Context { name: String, line: usize },
+    /// `from`: MO-12e, the context is another module's (`export context router from "@tanstack/solid-router"`): this
+    /// file's rows name the context that module's declaration declares; `resolved`, that declaration's file (the loader's)
+    Context { name: String, line: usize, from: Option<String>, resolved: Option<String> },
     /// MO-8g: a value the module exports (`export const pageSearch: Schema`)
     Value { name: String, line: usize, ty: Option<String> },
 }
@@ -560,6 +562,9 @@ pub struct JsProp {
     pub pure: bool,
     /// MO-11o: it renders the components its value carries (`router: renders any`)
     pub carried: bool,
+    /// MO-11t: it takes a view (its type is `View`, and it is not `children`): a component given to it by name is applied
+    /// there, with no arguments
+    pub view: bool,
 }
 impl JsDecl {
     pub fn name(&self) -> &str {
@@ -742,6 +747,8 @@ fn is_handler(t: &str) -> bool {
 fn tracked_word(t: &str) -> bool {
     TRACKED_WORD.is_match(&masked_strings(t))
 }
+const RENDERS_GONE: &str = "`renders` alone is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a component given to a fn that says nothing of where it renders it is checked under a root of its own (MO-11s) — leave the word out, and give the component what it needs as its props";
+const FIELD_ROWS_GONE: &str = "`pending` before a result's field is not a word of a declaration, nor is `fails(…)` there (MO-8r, withdrawn 2026-11-23: one library wrote them): what a library hands back that waits or throws where it is read is an accessor, `ref T`, whose every read may hold (MO-10d). A store whose plain fields wait is handed out by a few lines of the app's own JavaScript, a function a field (`data: () => q.data`), declared `{ data: ref T }` (MO-10c)";
 const TRACKED_GONE: &str = "`tracked` is not a word of a declaration: a function type without `handler` is a pure function already, however the library calls it (MO-10g) — leave the word out";
 /// Words a declaration had and has no more (09 MO-8i, the pruning of 2026-11-22): each is refused with what says it now,
 /// so a row written with one is not read as a type that ends in a name.
@@ -1369,6 +1376,12 @@ fn type_args_at(s: &str) -> Option<(String, usize)> {
     }
     None
 }
+/// MO-11t: `View`, `View | undefined`, `string | View` — a prop that takes a view where the library reads it. A function
+/// giving one is a render prop (MO-11k), and a union with a function in it is not read as either.
+fn is_view_type(t: &str) -> bool {
+    let alts = split_top(t, "|");
+    alts.iter().any(|a| js_trim(a) == "View") && !alts.iter().any(|a| a.contains("=>") || is_component_type(a))
+}
 fn is_component_type(t: &str) -> bool {
     // MO-11c: `string | Component` (a polymorphic `as`), `Component | undefined`
     let alts = split_top(t, "|");
@@ -1526,7 +1539,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
             let callback = handler && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
             let pure = !callback && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
-            props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, pure, carried });
+            let view = fname != "children" && !carried && ty.as_deref().is_some_and(is_view_type);
+            props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, pure, carried, view });
             // a newline separates fields too, as in TypeScript
             c.ws(false);
             if !c.eat(";") && !c.eat(",") && c.peek() != '\n' {
@@ -1780,7 +1794,20 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             // MO-12a
             c.ws(true);
             let name = c.ident_or("context name")?;
-            out.push(JsDecl::Context { name, line });
+            // MO-12e: `export context router from "@tanstack/solid-router"` — the context another module's declaration declares
+            let save = c.i;
+            c.ws(false);
+            let mut from = None;
+            if c.keyword("from") {
+                c.ws(false);
+                from = match parse_primary(&mut c)?.k {
+                    ExprKind::Lit(Lit::Str(m)) => Some(m),
+                    _ => return c.fail("export context c from \"<module>\": the module whose declaration declares the context (MO-12e)"),
+                };
+            } else {
+                c.i = save;
+            }
+            out.push(JsDecl::Context { name, line, from, resolved: None });
             continue;
         }
         if c.keyword("component") {
@@ -1858,7 +1885,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         c.ws(false);
         let mut ret = None;
         let mut shape = None;
-        let mut held = vec![];
+        let held = vec![];
         if c.peek() == ':' {
             c.bump();
             c.ws(true);
@@ -1877,10 +1904,11 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 return c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)");
             }
             let head = js_trim(head).to_string();
-            let (head, h) = field_rows(&head); // MO-10f
-            held = h;
-            if STRAY_ROW_WORD.is_match(&masked_strings(&head)) {
-                return c.fail("`pending` and `fails(…)` are written on a field of a result that is a record, `{ data: pending fails(Error) T }` (MO-10f): the read of that field is what holds or fails. A tuple's part that holds is an accessor, `ref T`; a result that may be absent, or one inside another type, has no field the checker could follow");
+            // MO-10f, withdrawn (MO-8r, 2026-11-23): a field's `pending` and `fails(…)` are refused by name, wherever in the
+            // result they are written
+            let (head, h) = field_rows(&head);
+            if !h.is_empty() || STRAY_ROW_WORD.is_match(&masked_strings(&head)) {
+                return c.fail(FIELD_ROWS_GONE);
             }
             if !head.is_empty() {
                 shape = Some(shape_of(&head)); // MO-10b: `ref T` is an accessor, read as T
@@ -1900,7 +1928,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             c.ws(true);
             c.expect(")")?;
         }
-        let (mut written, mut uses, mut provides, mut nests, mut renders) = (false, vec![], vec![], None, false);
+        let (mut written, mut uses, mut provides, mut nests, renders) = (false, vec![], vec![], None, false);
         let mut carrier = false;
         let mut under: Option<(String, String)> = None;
         loop {
@@ -1915,7 +1943,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                     return c.fail(why);
                 }
             }
-            // MO-11r: one placement vocabulary — `renders` (here), `renders(later)`; `nests(…)` for the tree
+            // MO-11r: one placement vocabulary — `renders(later)`; `nests(…)` for the tree
             if c.keyword("carries") {
                 return c.fail("`carries` is now `renders(later)`: the components travel in the result and a JS component's prop declared `renders` renders them (MO-11r)");
             }
@@ -1925,9 +1953,8 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             if c.keyword("renders") {
                 c.ws(false);
                 if c.peek() != '(' {
-                    // MO-11l: here, where its result is bound
-                    renders = true;
-                    continue;
+                    // MO-11l, withdrawn (MO-8r, 2026-11-23): "here, where its result is bound"
+                    return c.fail(RENDERS_GONE);
                 }
                 c.i += 1;
                 c.ws(true);
@@ -1941,7 +1968,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 if c.keyword("root") {
                     return c.fail(GONE_ROOT);
                 }
-                return c.fail("renders or renders(later): where the library renders the components it is given (MO-11r)");
+                return c.fail("renders(later): the components a fn is given travel in its result, and a JS component's prop declared `renders` renders them (MO-11r)");
             }
             if c.keyword("uses") {
                 c.ws(false);
@@ -3998,6 +4025,17 @@ mod recovering {
         assert!(dts.contains("id?: string | undefined;") && dts.contains("onPick?: (v: string) => void;"), "{dts}");
     }
 
+    /// MO-11t: a prop that takes a view is one typed `View` (alone, optional, or beside a string), other than `children`:
+    /// a component given to it by name is applied there. A function giving a view is a render prop, a `Component` a
+    /// component value, a `renders` prop what its value carries, and none of them is read as a view.
+    #[test]
+    fn a_prop_typed_view_takes_a_component_by_name() {
+        let decls = parse_declarations("export component Rows(props: KitProps & { fallback?: View; icon: View | undefined; label?: string | View; children?: View; item: (n: number) => View; as?: Component; either?: View | (() => View); router: renders View; title?: string })\n").expect("parses");
+        let JsDecl::Comp { props, .. } = &decls[0] else { panic!("a component") };
+        assert_eq!(props.iter().filter(|p| p.view).map(|p| p.name.as_str()).collect::<Vec<_>>(), ["fallback", "icon", "label"]);
+        assert_eq!(props.iter().filter(|p| p.render).map(|p| p.name.as_str()).collect::<Vec<_>>(), ["item"]);
+    }
+
     /// MO-8o, TY-6f: each field of the record after a props' type is held against the library's type for that prop —
     /// the prop exists, and the field's type is one the library's takes — with the row's type parameters as types of the
     /// check (a default, else a bound, else a type of its own; `any` where a bound comes back to itself)
@@ -4059,6 +4097,12 @@ mod recovering {
             ("export pure fn f(options: { template: Component }): any renders(root, theme)\n", "`renders(root"),
             ("export pure fn f(ref options: { queryFn: tracked () => Promise<any> }): any\n", "`tracked`"),
             ("export component C(props: { onCompare: tracked (v: number) => number })\n", "`tracked`"),
+            // withdrawn 2026-11-23 (MO-8r, Settled): a field's rows, wherever in the result; `renders` alone
+            ("export pure fn useQ(): { data: pending fails(Error) any; n: number }\n", "`pending`"),
+            ("export pure fn useQ(): { inner: { data: fails(Error) any } }\n", "`pending`"),
+            ("export pure fn useQ(): [pending string, () => void]\n", "`pending`"),
+            ("export pure fn createTable(options: { cell: Component }): any renders\n", "`renders` alone"),
+            ("export pure fn createTable(options: { cell: Component }): { rows: any[] } renders uses(kit)\n", "`renders` alone"),
         ] {
             let e = parse_declarations(bad).expect_err(bad);
             assert!(e.0.contains(word) && e.0.contains("is not a word of a declaration"), "{bad} → {}", e.0);
@@ -4068,6 +4112,7 @@ mod recovering {
         // and a name that is one of them is still a name where a name goes
         let decls = parse_declarations("export pure fn f(signal: string, tracked: boolean, methods?: string[]): { trusted: boolean; forwards: string }\n").expect("parses");
         assert!(matches!(&decls[0], JsDecl::Fn { params, .. } if params == &["signal", "tracked", "methods"]));
+        assert!(parse_declarations("export pure fn f(): { pending: ref boolean; fails: number; renders: string }\nexport pure fn g(options: any): any renders(later)\n").is_ok());
     }
 
     #[test]

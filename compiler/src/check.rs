@@ -1871,6 +1871,8 @@ pub struct Checker<'a> {
     render_props: HashMap<RId, HashSet<String>>,
     /// MO-11k: those of them the declaration marks optional (`children?: (item: T) => View`)
     render_optional: HashMap<RId, HashSet<String>>,
+    /// MO-11t: a JS component's props that take a view (typed `View`, not `children`)
+    view_props: HashMap<RId, HashSet<String>>,
     /// MO-11o: the JS components' props that render what their value carries
     carried_props: HashMap<RId, HashSet<String>>,
     /// MO-11o: the component values carrying calls were given (the value, its name, the line, the call), and those a
@@ -2076,6 +2078,7 @@ impl<'a> Checker<'a> {
             fn_seq: 0,
             render_props: HashMap::new(),
             render_optional: HashMap::new(),
+            view_props: HashMap::new(),
             carried_props: HashMap::new(),
             carried_pending: vec![],
             outlets: vec![],
@@ -2707,11 +2710,18 @@ impl<'a> Checker<'a> {
         // MO-12a: a JS context's key is its declaration file's
         let js_keys = |c: &mut Self, ns: &[String]| -> Vec<String> {
             ns.iter()
-                .map(|n| {
-                    if !decls.iter().any(|y| matches!(y, JsDecl::Context { name, .. } if name == n)) {
+                .map(|n| match decls.iter().find_map(|y| if let JsDecl::Context { name, from, resolved, .. } = y { (name == n).then_some((from, resolved)) } else { None }) {
+                    None => {
                         c.err("NOT_EXPORTED", "MO-12", format!("{} names context {} in uses(…) or provides(…) but declares none: add `export context {}`", file, n, n));
+                        format!("{}#{}", declared, n)
                     }
-                    format!("{}#{}", declared, n)
+                    Some((None, _)) => format!("{}#{}", declared, n),
+                    // MO-12e: the context another module's declaration declares, under that declaration's key
+                    Some((Some(_), Some(at))) => format!("{}#{}", at, n),
+                    Some((Some(from), None)) => {
+                        c.err("NOT_EXPORTED", "MO-12", format!("{} takes context {} from \"{}\", whose declaration declares none: it is declared there as `export context {}`, in the `.d.rx` an import of \"{}\" finds (MO-12e)", file, n, from, n, from));
+                        format!("{}#{}", declared, n)
+                    }
                 })
                 .collect()
         };
@@ -2742,6 +2752,11 @@ impl<'a> Checker<'a> {
                 if !renders.is_empty() {
                     c.render_props.insert(r, renders);
                     c.render_optional.insert(r, xprops.iter().filter(|p| p.render && p.optional).map(|p| p.name.clone()).collect());
+                }
+                // MO-11t: the props that take a view
+                let views: HashSet<String> = xprops.iter().filter(|p| p.view).map(|p| p.name.clone()).collect();
+                if !views.is_empty() {
+                    c.view_props.insert(r, views);
                 }
                 let callbacks: HashSet<String> = xprops.iter().filter(|p| p.callback).map(|p| p.name.clone()).collect();
                 if !callbacks.is_empty() {
@@ -5365,7 +5380,7 @@ impl<'a> Checker<'a> {
                     match self.syms[s].kind {
                         // MO-11m: a made component's properties (`Router.paths`) are values
                         SymKind::Comp if field.is_some() && self.syms[s].factory.is_some() && !self.syms[s].renders => {}
-                        SymKind::Comp => self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} used as a value: apply it in a view, or pass it where JS takes a `Component`: a JS component's prop, or a JS factory's arguments (MO-11c, MO-11f)", name)),
+                        SymKind::Comp => self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed `Component` or `View`, or a JS factory's arguments (MO-11c, MO-11t, MO-11f)", name)),
                         SymKind::Context => self.err("CONTEXT_AS_VALUE", "RG-7", format!("context {} used as a value: read the nearest provision with `use {}`", name, name)),
                         _ => {}
                     }
@@ -6848,9 +6863,11 @@ impl<'a> Checker<'a> {
     /// with no arguments, among the application's children (DV-24).
     fn component_values(&self, tag: &str, attrs: &'a [Attr], env: EId) -> Vec<(usize, VTree)> {
         let Some(sig) = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.regions[r].sig.as_ref()) else { return vec![] };
+        // MO-11t: and the components given by name to its props typed `View`, each applied there with no arguments
+        let views = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.view_props.get(&r));
         let mut out = vec![];
         for (i, a) in attrs.iter().enumerate() {
-            if !sig.props.get(&a.name).is_some_and(|p| p.component) {
+            if !sig.props.get(&a.name).is_some_and(|p| p.component) && !views.is_some_and(|v| v.contains(&a.name)) {
                 continue;
             }
             if let ExprKind::Id(n) = &a.e.k {
@@ -8783,7 +8800,7 @@ mod tests {
     // ---- MO-10k (ruled 2026-11-22): the guarantees, over every way a value is handed on ----
     // Not a list of cases: each confined value is put through every wrapper below and every pair of them (one inside
     // the other), and each result into every way out. The reference runs the same matrix (`ref/units.ts`).
-    const LIB: &str = "export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders\nexport pure fn flexRender(comp: any, props: any): any\nexport fn stashJs(x: any): void\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: number): any instantiates\nexport pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport fn later(f: handler () => void): void\n";
+    const LIB: &str = "export fn stashJs(x: any): void\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: number): any instantiates\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport fn later(f: handler () => void): void\n";
     /// The ways an expression hands a value on: `X` is the value.
     const WRAPS: &[&str] = &[
         "X", "[X]", "[X][0]", "({ a: X })", "({ a: X }).a", "keep(X)", "keep(keep(X))", "id(id(X))", "o.f(X)", "[(y) => y][0](X)", "(true ? keep : keep)(X)", "mk(X)()",
@@ -8801,7 +8818,7 @@ mod tests {
         out
     }
     fn codes_of(main: &str) -> Vec<String> {
-        let main = format!("import {{ createTable, flexRender, stashJs, createClock, createLabel, useQ, createStore, later }} from \"./lib.js\"\nfn keep(x) {{ x }}\nfn mk(x) {{ () => x }}\nsource held: any := null\ncontext ctx: any\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any }}) {{ <button onClick={{() => {{ held := props.t }}}}>ok</button> }}\n{main}");
+        let main = format!("import {{ stashJs, createClock, createLabel, createStore, later }} from \"./lib.js\"\nfn keep(x) {{ x }}\nfn mk(x) {{ () => x }}\nsource held: any := null\ncontext ctx: any\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any }}) {{ <button onClick={{() => {{ held := props.t }}}}>ok</button> }}\n{main}");
         let read = |p: &str| match p {
             "/app.rx" => Some(main.clone()),
             "/lib.d.rx" => Some(LIB.to_string()),
@@ -8811,57 +8828,6 @@ mod tests {
         check_modules(&set, false).diags.iter().map(|d| d.code.clone()).collect()
     }
     const LOCALS: &str = "  o = { f: (x) => x }\n  id = (x) => x\n  k = \"part\"\n";
-
-    /// MO-11l (2026-11-22): a prop of a component that keeps what it is given is no way out — the component is beneath
-    /// the binding's region — and one that lets it out is, by any of the ways out, through any way of handing it on, and
-    /// through a component it gives it to. `ref/units.ts` holds the same cases.
-    #[test]
-    fn a_prop_that_keeps_what_it_is_given_is_no_way_out() {
-        let run = |comps: &str, app: &str| -> Vec<String> {
-            let main = format!("import {{ createTable, flexRender, stashJs, later }} from \"./lib.js\"\nfn keep(x) {{ x }}\nfn mk(x) {{ () => x }}\nsource held: any := null\ncontext ctx: any\ncomponent Cell() {{ <b>c</b> }}\n{comps}\nexport default component App() {{\n  table = createTable({{ columns: [{{ cell: Cell }}] }})\n{LOCALS}{app}\n}}\n");
-            let read = |p: &str| match p {
-                "/app.rx" => Some(main.clone()),
-                "/lib.d.rx" => Some(LIB.to_string()),
-                _ => None,
-            };
-            let set = load_modules("/app.rx", &read).unwrap_or_else(|e| panic!("{}\n{main}", e.0));
-            check_modules(&set, false).diags.iter().map(|d| d.code.clone()).collect()
-        };
-        // kept: rendered, read, its methods called from handlers, another name for it, given on to a component that keeps it
-        let keeps = [
-            "component Kid(props: { t: any }) { <p>{flexRender(props.t.cell, {})} {len(props.t.rows)}</p> }",
-            "component Kid(props: { t: any }) { <button onClick={() => { props.t.nextPage() }}>next</button> }",
-            "component Kid(props: { t: any }) {\n  u = props.t\n  <p>{len(u.rows)}</p>\n  <Leaf t={u} />\n}\ncomponent Leaf(props: { t: any }) { <p>{len(props.t.rows)}</p> }",
-            "component Kid(props: { t: any; n: number }) { <Kid t={props.t} n={props.n + 1} /> }",
-            "component Kid(props: { t: any }) { <p>kid</p> }",
-        ];
-        // however the value is handed to the prop, by the ways that are not themselves a way out
-        let handed = ["table", "[table][0]", "({ a: table }).a", "keep(table)", "(true ? table : null)", "(table ?? null)", "table.part", "(() => table)()", "[...[table]]"];
-        for k in keeps {
-            for e in handed {
-                assert_eq!(run(k, &format!("  <Kid t={{{e}}} n={{0}} />")), Vec::<String>::new(), "refused:\n{k}\n{e}");
-            }
-        }
-        // let out: each way out, in the component and in one it gives it to
-        let lets = [
-            "<button onClick={() => { held := props.t }}>x</button>",
-            "<button onClick={() => { stashJs(props.t) }}>x</button>",
-            "<button onClick={() => { props.up(props.t.rows) }}>x</button>",
-            "<button onClick={() => { later(() => { held := [props.t] }) }}>x</button>",
-            "<button onClick={() => { let u = props.t; held := u }}>x</button>",
-        ];
-        for l in lets {
-            let direct = format!("component Kid(props: {{ t: any; up: (x: any) => void }}) {{ {l} }}");
-            let through = format!("component Kid(props: {{ t: any }}) {{ <Leaf t={{props.t}} up={{(x) => {{ }}}} /> }}\ncomponent Leaf(props: {{ t: any; up: (x: any) => void }}) {{ {l} }}");
-            for k in [direct, through] {
-                assert!(run(&k, "  <Kid t={table} up={(x) => { }} />").iter().any(|c| c == "RENDERS_ESCAPES"), "accepted:\n{k}");
-            }
-        }
-        for k in ["component Kid(props: { t: any }) {\n  provide ctx = props.t\n  <p>x</p>\n}", "component Kid(props: { t: any }) { <Kid {...props} /> }\ncomponent Other(props: { t: any }) { <p>x</p> }"] {
-            let got = run(k, "  <Kid t={table} />");
-            assert_eq!(got.iter().any(|c| c == "RENDERS_ESCAPES"), k.contains("provide"), "{k}: {got:?}");
-        }
-    }
 
     /// 06 AC-3 (2026-11-22): a guess in a run that starts nothing to wait for has no hold, and the first guess written
     /// after an `await` is advised. `ref/units.ts` holds the same cases.
@@ -8924,9 +8890,9 @@ mod tests {
     /// in a value. The safe forms beside each are accepted.
     #[test]
     fn each_confined_value_has_a_closed_set_of_operations() {
-        const LIB2: &str = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
+        const LIB2: &str = "export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
         let run = |main: &str| -> Vec<String> {
-            let main = format!("import {{ useQ, createStore, createTable, createClock, createLabel, later, stashJs }} from \"./lib.js\"\nsource held: any := null\nsource n := 0\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any; onF: (x: any) => void }}) {{ <button onClick={{() => {{ held := props.t }}}}>ok</button> }}\n{main}");
+            let main = format!("import {{ createStore, createClock, createLabel, later, stashJs }} from \"./lib.js\"\nsource held: any := null\nsource n := 0\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any; onF: (x: any) => void }}) {{ <button onClick={{() => {{ held := props.t }}}}>ok</button> }}\n{main}");
             let read = |p: &str| match p {
                 "/app.rx" => Some(main.clone()),
                 "/lib.d.rx" => Some(LIB2.to_string()),
@@ -8935,17 +8901,6 @@ mod tests {
             let set = load_modules("/app.rx", &read).unwrap();
             check_modules(&set, false).diags.iter().map(|d| d.code.clone()).collect()
         };
-        // MO-10f: what is read from a result with held fields is a field its declaration names
-        for m in ["valueOf", "toJSON", "toString", "hasOwnProperty", "constructor", "part"] {
-            for read in ["orig.M()", "orig[\"M\"]()", "orig.M", "q.M()", "orig.inner.M()", "orig.inner.M"] {
-                let src = format!("export default component App() {{\n  orig = useQ()\n  q = orig\n  k = \"valueOf\"\n  <Grid t={{{}}} onF={{(x) => {{}}}} />\n}}\n", read.replace('M', m));
-                assert!(run(&src).iter().any(|c| c == "RESULT_AS_VALUE"), "accepted:\n{src}");
-            }
-        }
-        let src = "export default component App() {\n  orig = useQ()\n  k = \"valueOf\"\n  <Grid t={orig[k]()} onF={(x) => {}} />\n}\n";
-        assert!(run(src).iter().any(|c| c == "RESULT_AS_VALUE"), "accepted:\n{src}");
-        let src = "export default component App() {\n  orig = useQ()\n  <Grid t={orig.isFetching} onF={(x) => { orig.refetch() }} />\n  <p>{orig.inner.n}</p>\n}\n";
-        assert_eq!(run(src), Vec::<String>::new(), "{src}");
         // MO-10i: what is called on a draft is a method of plain data, by name; a function it calls is a closure written there
         let store = "  [todos, setTodos] = createStore<{ items: { n: number }[] }>({ items: [] })\n";
         for body in ["d.items.forEach(keep)", "d.items.map(keep)", "d.items.sort(keep)", "d.items.each((x) => x)", "d.items.push.bind(d.items)", "d.valueOf.call(d)", "d.items[\"forEach\"](keep)", "d.items[m]((x) => x)", "d.items.forEach((row) => { later(() => { held := row }) })", "d.items.slice(0).forEach(keep)"] {
@@ -8954,19 +8909,6 @@ mod tests {
         }
         let src = format!("export default component App() {{\n{store}  <button onClick={{() => {{ setTodos((d) => {{ d.items.forEach((row) => {{ held := row; row.n := 1 }}); held := d.items.values(); held := d.items.map((row) => row).filter((row) => row.n > 0); d.items.push({{ n: 1 }}); d.items.sort((a, b) => a.n - b.n); held := d.items.valueOf() }}) }}}}>x</button>\n}}\n");
         assert_eq!(run(&src), Vec::<String>::new(), "{src}");
-        // MO-11l: a method given a part of the value may keep it, whatever it is called on — the value's own name too
-        for call in ["({ f: props.onF, t: table }).f(table)", "[props.onF, table][0](table)", "box.f(table)", "table.meta.f(table)", "table.rows.push(table)", "table.other(table.rows)", "table.setPage(table.rows)", "alias.f(table.rows[0])"] {
-            let src = format!("component Host(props: {{ onF: (x: any) => void }}) {{\n  table = createTable({{ columns: [{{ cell: Cell }}] }})\n  box = {{ f: props.onF, t: table }}\n  alias = box\n  <button onClick={{() => {{ {call} }}}}>x</button>\n}}\nexport default component App() {{\n  <Host onF={{(x) => {{ held := x }}}} />\n}}\n");
-            assert!(run(&src).iter().any(|c| c == "RENDERS_ESCAPES"), "accepted:\n{src}");
-        }
-        // …and a method given nothing of the value, a declared scalar, a primitive made of a part are free
-        let src = "component Host(props: { onF: (x: any) => void }) {\n  table = createTable({ columns: [{ cell: Cell }] })\n  <button onClick={() => { table.setPage(2); props.onF(table.label); props.onF(table.count()); props.onF(table.rows[0].id); props.onF(len(table.rows)) }}>x</button>\n  <Grid t={table.label} onF={(x) => {}} />\n  {for row in table.rows { <Grid t={row.id} onF={(x) => {}} /> }}\n}\nexport default component App() {\n  <Host onF={(x) => { held := x }} />\n}\n";
-        assert_eq!(run(src), Vec::<String>::new(), "{src}");
-        // …but an undeclared field of it, or a part whose type is not a primitive's, is the value's
-        for arg in ["table.meta", "table.rows[0]", "table.rows[0].cells", "table.rows", "table.other"] {
-            let src = format!("component Host(props: {{ onF: (x: any) => void }}) {{\n  table = createTable({{ columns: [{{ cell: Cell }}] }})\n  <Grid t={{{arg}}} onF={{(x) => {{}}}} />\n}}\nexport default component App() {{\n  <Host onF={{(x) => {{}}}} />\n}}\n");
-            assert!(run(&src).iter().any(|c| c == "RENDERS_ESCAPES"), "accepted:\n{src}");
-        }
         // E-10, E-5a: a closure kept in a value reads, when it is called, what its body reads
         for holder in ["box.read()", "fs[0]()", "mk()()", "again.read()", "({ read: () => n }).read()", "[() => n][0]()", "pick.any()", "boxes[0].read()"] {
             for (read, code) in [("createLabel(E)", "SNAPSHOT_ARGUMENT"), ("peek E", "SNAPSHOT_KEPT")] {
@@ -8999,32 +8941,6 @@ mod tests {
             assert!(ty_scalar(yes), "{yes}");
         }
     }
-    /// MO-11l: whatever is made of a `renders` value by handing it on, it leaves through no way out.
-    #[test]
-    fn a_renders_value_leaves_through_no_way_out() {
-        let outs = ["  <Grid t={E} />", "  <Grid t={() => E} />", "  provide ctx = E\n  <p>x</p>", "  <button onClick={() => { held := E }}>x</button>", "  <button onClick={() => { stashJs(E) }}>x</button>", "  v = true ? throw E : 1\n  <p>x</p>"];
-        for e in wrapped("table") {
-            for out in outs {
-                let src = format!("export default component App() {{\n  table = createTable({{ columns: [{{ cell: Cell }}] }})\n{LOCALS}{}\n}}\n", out.replace('E', &e));
-                assert!(codes_of(&src).iter().any(|c| c == "RENDERS_ESCAPES"), "accepted:\n{src}");
-            }
-            let src = format!("table = createTable({{ columns: [{{ cell: Cell }}] }})\no = {{ f: (x) => x }}\nid = (x) => x\nk = \"part\"\nexport out = {e}\nexport default component App() {{\n  <p>x</p>\n}}\n");
-            assert!(codes_of(&src).iter().any(|c| c == "RENDERS_ESCAPES"), "accepted:\n{src}");
-        }
-    }
-    /// MO-11l: and what makes a primitive of it is free to leave — the rule refuses values, not mentions.
-    #[test]
-    fn a_primitive_made_of_a_renders_value_leaves() {
-        let prims = ["len(E)", "str(E)", "E == null", "!E", "`${E}`", "(E ? 1 : 2)", "len(E) + 1"];
-        // (a call of a function the checker cannot name is refused itself, whatever is made of its result)
-        for e in wrapped("table").into_iter().take(WRAPS.len()).filter(|e| !["o.f(", "[0](", "? keep", "concat"].iter().any(|u| e.contains(u))) {
-            for p in prims {
-                let v = p.replace('E', &e);
-                let src = format!("export default component App() {{\n  table = createTable({{ columns: [{{ cell: Cell }}] }})\n{LOCALS}  provide ctx = {v}\n  <Grid t={{{v}}} />\n  <Grid t={{() => {{ table.next() }}}} />\n}}\n");
-                assert!(!codes_of(&src).iter().any(|c| c == "RENDERS_ESCAPES"), "refused:\n{src}");
-            }
-        }
-    }
     /// E-10, E-5a: a method the declaration does not name, or a field, read through anything made of an instance is a read
     /// of what may change.
     #[test]
@@ -9037,20 +8953,6 @@ mod tests {
         }
         // and the instance itself stays one: named, passed whole, its declared method called
         let src = format!("export default component App() {{\n  clock = createClock()\n  c = clock\n{LOCALS}  a = createLabel(peek clock.format())\n  b = createLabel(peek c.format())\n  d = createLabel(clock)\n  <p>{{a}} {{b}} {{d}}</p>\n}}\n");
-        assert_eq!(codes_of(&src), Vec::<String>::new(), "{src}");
-    }
-    /// MO-10f: a result whose fields hold or fail is never a value: however it is handed on, it is refused, so a held
-    /// field is only ever read by a path.
-    #[test]
-    fn a_result_with_held_fields_is_never_a_value() {
-        // a field read out of it by a path (`orig.part`) is a value like any other: every other way of handing it on
-        for e in wrapped("orig").into_iter().filter(|e| !["orig.part", "orig[\"part\"]", "orig[k]"].iter().any(|p| e.contains(p))) {
-            for out in ["  <Grid t={E} />", "  y = [E]\n  <p>x</p>", "  <button onClick={() => { held := E }}>x</button>", "  provide ctx = E\n  <p>x</p>"] {
-                let src = format!("export default component App() {{\n  orig = useQ()\n{LOCALS}{}\n}}\n", out.replace('E', &e));
-                assert!(codes_of(&src).iter().any(|c| c == "RESULT_AS_VALUE"), "accepted:\n{src}");
-            }
-        }
-        let src = format!("export default component App() {{\n  orig = useQ()\n  q = orig\n  <p>{{q.isFetching ? 1 : 2}} {{orig == null}} {{!orig}}</p>\n  <Grid t={{orig.isFetching}} />\n}}\n");
         assert_eq!(codes_of(&src), Vec::<String>::new(), "{src}");
     }
     /// MO-10i: a draft is named only in its own callback, and there every read of it is accepted (it is a copy).
