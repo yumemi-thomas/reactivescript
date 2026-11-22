@@ -239,9 +239,10 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
             head.push("type Component<P = any> = (props: P) => View;".into());
         }
     }
-    let fn_of = |props: &[crate::parse::JsProp]| -> String {
+    // MO-8d: a generic component's type parameters come before its props, as a generic function's do
+    let fn_of = |props: &[crate::parse::JsProp], tparams: &Option<String>| -> String {
         let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
-        format!("(props: {{ {} }}) => View", fs.join(" "))
+        format!("{}(props: {{ {} }}) => View", tparams.as_deref().unwrap_or(""), fs.join(" "))
     };
     // MO-11q: `Dialog.Root` and its siblings are members of one exported object (itself a component when it is declared one)
     let mut members: IndexMap<String, Vec<&JsDecl>> = IndexMap::new();
@@ -256,7 +257,7 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
         let ms: Vec<String> = members[h]
             .iter()
             .map(|m| match m {
-                JsDecl::Comp { name, props, .. } => format!("{}: {};", &name[h.len() + 1..], fn_of(props)),
+                JsDecl::Comp { name, props, tparams, .. } => format!("{}: {};", &name[h.len() + 1..], fn_of(props, tparams)),
                 _ => unreachable!(),
             })
             .collect();
@@ -266,10 +267,10 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
     head.into_iter()
         .chain(objects)
         .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. }) && !matches!(d, JsDecl::Comp { name, .. } if name.contains('.'))).map(|d| match d {
-            JsDecl::Comp { name, props, .. } if members.contains_key(name) => format!("export declare const {name}: ({}) & {};", fn_of(props), object_of(name)),
-            JsDecl::Comp { name, props, .. } => {
+            JsDecl::Comp { name, props, tparams, .. } if members.contains_key(name) => format!("export declare const {name}: ({}) & {};", fn_of(props, tparams), object_of(name)),
+            JsDecl::Comp { name, props, tparams, .. } => {
                 let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
-                format!("export declare function {name}(props: {{ {} }}): View;", fs.join(" "))
+                format!("export declare function {name}{}(props: {{ {} }}): View;", tparams.as_deref().unwrap_or(""), fs.join(" "))
             }
             JsDecl::Type { text, .. } => format!("export {text}"),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
@@ -1307,9 +1308,9 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
                     .collect();
                 (name, *line, format!("{}({}) => {}", tparams.as_deref().unwrap_or(""), ps.join(", "), result(ret.as_ref(), shape)))
             }
-            JsDecl::Comp { name, line, props, .. } => {
+            JsDecl::Comp { name, line, props, tparams, .. } => {
                 let fs: Vec<String> = props.iter().map(|p| format!("{}{}: {};", p.name, if p.optional { "?" } else { "" }, p.ty.as_deref().unwrap_or("any"))).collect();
-                (name, *line, format!("(props: {{ {} }}) => any", fs.join(" ")))
+                (name, *line, format!("{}(props: {{ {} }}) => any", tparams.as_deref().unwrap_or(""), fs.join(" ")))
             }
             JsDecl::Error { name, line, .. } => (name, *line, "abstract new (...args: any[]) => Error".into()),
             JsDecl::Value { name, line, ty } => (name, *line, ty.clone().unwrap_or_else(|| "any".into())),

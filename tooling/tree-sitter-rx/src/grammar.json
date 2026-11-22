@@ -9380,89 +9380,103 @@
       "type": "CHOICE",
       "members": [
         {
-          "type": "SYMBOL",
-          "name": "parenthesized_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "predefined_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "_type_identifier"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "nested_type_identifier"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "generic_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "object_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "array_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "tuple_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "flow_maybe_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "type_query"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "index_type_query"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "parenthesized_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "predefined_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_type_identifier"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "nested_type_identifier"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "generic_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "object_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "array_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "tuple_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "flow_maybe_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "type_query"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "index_type_query"
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "this"
+              },
+              "named": true,
+              "value": "this_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "existential_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "literal_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "lookup_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "conditional_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "template_literal_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "intersection_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "union_type"
+            },
+            {
+              "type": "STRING",
+              "value": "const"
+            }
+          ]
         },
         {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
-            "name": "this"
+            "name": "import_array_type"
           },
           "named": true,
-          "value": "this_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "existential_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "literal_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "lookup_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "conditional_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "template_literal_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "intersection_type"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "union_type"
-        },
-        {
-          "type": "STRING",
-          "value": "const"
+          "value": "array_type"
         }
       ]
     },
@@ -12383,6 +12397,22 @@
           }
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "type_parameters",
+              "content": {
+                "type": "SYMBOL",
+                "name": "type_parameters"
+              }
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "FIELD",
           "name": "parameters",
           "content": {
@@ -13922,6 +13952,41 @@
           }
         }
       ]
+    },
+    "import_array_type": {
+      "type": "PREC",
+      "value": 1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_type_query_member_expression_in_type_annotation"
+                },
+                "named": true,
+                "value": "member_expression"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "import_type"
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": "["
+          },
+          {
+            "type": "STRING",
+            "value": "]"
+          }
+        ]
+      }
     },
     "ref_type": {
       "type": "PREC_RIGHT",

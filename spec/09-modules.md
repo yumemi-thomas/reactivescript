@@ -201,7 +201,15 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   (`export type RouteParams<S> = …`). They are TypeScript's text: the
   checker reads none of it, and the projection's `.d.ts` carries it as
   written (TY-1c), so a library's own inference reaches `.rx` code that
-  calls it (S-module-8).
+  calls it (S-module-8). A declared component may have them too (revised
+  2026-11-22: it was a parse error, and a generic component — a kit's
+  `Select<Option>`, whose value and callbacks range over the type of its
+  options — could only be declared with `any`): `export component
+  Picker<Option>(props: { value?: Option; options: Option[]; onPick?:
+  handler (v: Option) => void })`, between the name and the props, on a
+  member component as on any other (`component Kit.Row<T>(…)`). The
+  checker reads none of it there either: each prop is the row it was
+  (S-module-29).
 - **MO-8e (Optional parameters) — proposed 2026-11-18.** A declared fn's
   parameter may be optional, `export pure fn createDebounced(ref source:
   string, ms?: number): ref string`. A call may leave it out (a trailing
@@ -356,6 +364,86 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   siblings of a workspace, each with its own version) get a draft each,
   beside each copy; only imports that reach the same copy and subpath
   share one.
+
+- **MO-8m (A draft names the library's types) — proposed 2026-11-22.**
+  A row's types are TypeScript's text (MO-8d): the checker reads the
+  shape around them — `ref`, a function type and its word, `() => void`,
+  `Promise<…>`, `View`, `Component`, a record's fields — and nothing of
+  what a name means. So a draft does not restate a type it cannot write
+  whole, and does not write `any` for it either (as every draft did: 193
+  of them in the benchmark's declarations). It names the type where the
+  library declares it, in the first of these ways that applies:
+  - by the name a module exports it under: the module's own type by the
+    alias the draft declares for it (`export type FormStore<TSchema
+    extends FormSchema = FormSchema> = import("@formisch/solid/v2")
+    .FormStore<TSchema>`, with its parameters' bounds and defaults as the
+    library declares them), another package's by `import("<package>").T`,
+    looked for under the names the library's own declarations import it
+    by (`import("solid-js").Accessor<number>`);
+  - with the row's own type parameters, as the library declares them
+    (MO-8d, a component's too), so a type that ranges over them is
+    written: `createForm<TSchema extends FormSchema>(config:
+    FormConfig<TSchema>): FormStore<TSchema>`. A component's row keeps
+    only the parameters its props name (a polymorphic `as`'s element
+    parameter is not one);
+  - a callback by its own signature, where every part of it can be named
+    (`onOpenChange?: (isOpen: boolean) => void`), and a conditional,
+    mapped or template type as the library computes it (`Promise<{
+    -readonly [P in keyof T]: Awaited<T[P]> }>`);
+  - a type no module exports (an internal one) by its place in the
+    library's own declaration: `Parameters<typeof import("kit")
+    .inner>[0]`, a prop `Parameters<typeof import("kit").Dialog
+    ["Trigger"]>[0]["onClick"]`. It is the weakest of the four: it says
+    "the library's, here" and nothing a reader can use, and it exists
+    only where the fn has one signature.
+
+  A row written this way must still be one TypeScript holds (TY-6), and
+  the draft does not leave that to `rx-tsc`: each reading of a row — its
+  type parameters carried or not, a part said by its place or not — is
+  checked against the module as TY-6 checks it (`rxc serve`'s `boundary`
+  on the draft's text, `tooling/rx-language-server/src/declare-check.js`)
+  before the draft is written; a row takes the reading TypeScript holds
+  that leaves the fewest `any`s, and the row every draft had where it
+  holds none. A draft therefore never brings a `DECLARATION_MISMATCH` of
+  its own making. What stays `any` has a cause `rx-declare --explain`
+  names: a fn with several signatures (a row is one of them, MO-8a, so it
+  has no one place to take a type from), a component whose props are a
+  union of records (a single record is not that type), a type the library
+  itself declares `any`. `--any` drafts as before this rule.
+  A generated declaration (MO-8l) is drafted the same way (draft 4).
+- **MO-8n (Evidence from the library's source) — proposed 2026-11-22.**
+  The words of MO-8i that say what a library *does* — `handler`,
+  `tracked`, `uses`, `provides`, `instantiates`, a result that undoes the
+  call — are in no type, and they are in the source. `rx-declare <module>
+  --source [<checkout>]` reads the TypeScript the package was built from:
+  a checkout the person names (the package is found in it by its name), the
+  `src/` the package publishes, or the sources its source maps carry
+  (`sourcesContent`); for a package that ships built files only it says
+  so, with the repository and the version to check out. It follows each
+  export's implementation — what a parameter, or a field of an options
+  object or of a component's props, is given to, through the library's
+  own helpers — and answers in Solid's terms and the platform's: a
+  callback run inside `createMemo` or an effect's first function is
+  called inside a computation (`tracked`, MO-10j); one given to
+  `addEventListener`, a timer, an observer, `onCleanup` or an effect's
+  second function is called later (`handler`, MO-10g); a `useContext`
+  of a context the library makes is `uses(…)`, its provider rendered is
+  `provides(…)`; a call that reaches `createSignal`, `createEffect` or
+  `onCleanup` makes state the owner keeps (`instantiates`); a function
+  handed back that removes, clears or disconnects undoes the call (EF-5a).
+  A callback handed to another package's function is followed no further.
+  Each finding is written as a comment above the row it is about, with the
+  file and line that is the reason — `// SOURCE makeEventListener:
+  `handler`: called from addEventListener, after the call and outside any
+  computation — `handler`? (MO-10g) [src/eventListener.ts:67]` — and
+  never as the row: a word is the declaration's assertion (MO-8b), and a
+  reading of syntax is a reason to look, not a proof (the analysis reads
+  no types, follows names, and the checkout may be another version than
+  the one installed, which it says). The types stay the published
+  declaration's: read from the source instead, they are the same rows
+  where the source type-checks in the app's project and worse where it
+  does not (its own dependencies and compiler options are not the app's).
+  Nothing in it names a library (08 CN-8c).
 
 ## MO-9 — A signature read in place of its module
 

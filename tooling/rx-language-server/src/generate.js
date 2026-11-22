@@ -21,9 +21,9 @@ const IMPORT = /^\s*import\b([^"'`;]*?)\bfrom\s*["']([^"']+)["']/gm;
 const GENERATED = /^\/\/@ generated (\S+)@(\S+) \(MO-8l, draft (\d+)(?:, types ([0-9a-f]+))?\)/;
 const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, under any rule
 // The drafting rules a generated file was written under. A draft is kept only while the package's version and this both
-// stand, so a change of rule (2: no fn is guessed `pure`; 3: a result is typed a step at a time, a disposer as `() => void`) redrafts what an earlier rule wrote. Bump it with any change to
+// stand, so a change of rule (2: no fn is guessed `pure`; 3: a result is typed a step at a time, a disposer as `() => void`; 4: the library's types are named where a draft wrote `any`, MO-8m) redrafts what an earlier rule wrote. Bump it with any change to
 // what a draft says.
-const FORMAT = 3;
+const FORMAT = 4;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];

@@ -1,5 +1,8 @@
 //@ for @formisch/solid ^1.3.0
 // Formisch's Solid 2 build in rows (as rx-declare drafts it, kept to what the form uses). The types are the package's own.
-export component Field(props: { of: any; path: any; children: (store: any) => View })
-export component Form(props: { of: any; children: View; onSubmit: handler (output: any, event: any) => any })
-export pure fn createForm(config: any): any instantiates
+export type FormSchema = import("@formisch/solid/v2").FormSchema
+export type FormStore<TSchema extends FormSchema = FormSchema> = import("@formisch/solid/v2").FormStore<TSchema>
+export type FormConfig<TSchema extends FormSchema = FormSchema> = import("@formisch/solid/v2").FormConfig<TSchema>
+export component Field(props: { of: Parameters<typeof import("@formisch/solid/v2").Field>[0]["of"]; path: Parameters<typeof import("@formisch/solid/v2").Field>[0]["path"]; children: (store: Parameters<Parameters<typeof import("@formisch/solid/v2").Field>[0]["children"]>[0]) => View })
+export component Form<TSchema extends FormSchema>(props: { of: FormStore<TSchema>; children: View; onSubmit: handler (output: import("valibot").InferOutput<TSchema>, event: SubmitEvent) => unknown })
+export pure fn createForm<TSchema extends FormSchema>(config: FormConfig<TSchema>): FormStore<TSchema> instantiates

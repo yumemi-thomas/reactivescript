@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readDisk } from "./disk.ts";
 import { packageRelative, besideDeclaration } from "./src/modules.ts";
-import { looksLikeTypes, parseProgram } from "./src/parse.ts";
+import { looksLikeTypes, parseProgram, parseDeclarations } from "./src/parse.ts";
 import { loadModules } from "./src/modules.ts";
 import { checkModules, tyStep, tyScalar } from "./src/check.ts";
 
@@ -272,5 +272,12 @@ export const units: [string, () => void][] = [
       deepStrictEqual([/error MODULE_NOT_FOUND \[MO-6\]/.test(run("x.rx")), /EISDIR|parse error/.test(run("x.rx"))], [true, false]);
       deepStrictEqual([/MODULE_NOT_FOUND/.test(run("main.rx")), /EISDIR|parse error/.test(run("main.rx"))], [true, false]);
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  }],
+  ["a_component_row_may_have_type_parameters", () => {   // MO-8d: `component Picker<Option>(…)`, on a member component too; the props are read as they were
+    const decls = parseDeclarations("export component Picker<Option, G = never>(props: { value?: Option; options: Option[]; onPick?: handler (v: Option) => void }) uses(kit)\nexport component Kit.Row<T extends { id: string }>(props: { row: T })\nexport component Plain(props: { id: string })\n");
+    deepStrictEqual(decls.map(d => d.kind === "comp" ? d.tparams : "?"), ["<Option, G = never>", "<T extends { id: string }>", undefined]);
+    const picker = decls[0] as Extract<typeof decls[number], { kind: "comp" }>;
+    deepStrictEqual(picker.props.map(p => p.name), ["value", "options", "onPick"]);
+    deepStrictEqual(picker.uses, ["kit"]);
   }],
 ];

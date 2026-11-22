@@ -141,7 +141,7 @@ export type JsDecl =
   | { kind: "fn"; name: string; pure: boolean; params: string[]; draftArgs?: number[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string; forwards?: boolean; joins?: string; nests?: { kids: string; inside: string }; held?: [string, boolean, string[]][]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; renders?: boolean; rendersRoot?: boolean; carries?: string[]; sigs?: boolean[]; carrier?: boolean; under?: { parent: string; inside: string }; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; methods?: string[] }   // methods: E-10 (RFC 14, bounded)   // drafts, partDrafts: MO-10i   // opts: MO-8e, parameters a caller may leave out; renders: MO-11l   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
   | { kind: "error"; name: string; line: number; fields?: string[] }   // fields: SV-5a, what of an instance is sent (`export error HttpError(status, code?)`; `code?`: it may be absent)
   | { kind: "type"; name: string; line: number; text?: string }
-  | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean }   // outlet: MO-11p   // MO-11a: a Solid component
+  | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; outlet?: boolean; tparams?: string }   // tparams: MO-8d, a generic component's (`component Select<Option>(…)`)   // outlet: MO-11p   // MO-11a: a Solid component
   | { kind: "context"; name: string; line: number }
   | { kind: "value"; name: string; line: number; type?: string };   // MO-8g: a value the module exports (`export const pageSearch: Schema`)   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
@@ -343,6 +343,7 @@ const stripDraft = (t: string | undefined) => t?.replace(/\bdraft\s+(?=[A-Za-z_$
 function parseJsComponent(c: Cursor, line: number): JsDecl {
   c.ws(); let name = c.ident() ?? c.fail("component name");
   while (c.peek() === ".") { c.i++; name += "." + (c.ident() ?? c.fail("a member component's name: `component Dialog.Root(…)`")); }   // MO-11q
+  c.ws(); const tparams = typeParams(c);   // MO-8d: `component Select<Option, G = never>(…)`, TypeScript's, for TY
   c.ws(); c.expect("("); c.ws();
   const props: JsProp[] = [];
   if (!c.startsWith(")")) {
@@ -382,7 +383,7 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
     if (c.keyword("shape")) { c.ws(false); c.expect("("); const t0 = c.i; while (!c.eof() && c.peek() !== ")") c.i++; const t = c.src.slice(t0, c.i); c.expect(")"); try { content = contentShapeOf(t); } catch (e) { c.fail((e as Error).message); } continue; }
     break;
   }
-  return { kind: "comp", name, line, props, fails, ...(content ? { content } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(outlet ? { outlet } : {}) };
+  return { kind: "comp", name, line, props, fails, ...(content ? { content } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(outlet ? { outlet } : {}), ...(tparams ? { tparams } : {}) };
 }
 /** MO-12: `(router, theme)` — contexts the same declaration file declares. */
 function contextNames(c: Cursor): string[] {

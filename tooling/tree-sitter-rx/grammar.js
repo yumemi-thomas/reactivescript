@@ -254,6 +254,7 @@ module.exports = grammar(tsx, {
     component_signature: $ => seq(
       'component',
       field('name', choice($.identifier, $.member_component_name)),
+      optional(field('type_parameters', $.type_parameters)),   // MO-8d: a generic component, `component Select<Option>(…)`
       field('parameters', $.formal_parameters),
       repeat(choice(
         $.row_word,
@@ -605,6 +606,18 @@ module.exports = grammar(tsx, {
       alias($._type_query_member_expression_in_type_annotation, $.member_expression),
       field('type_arguments', $.type_arguments),
     ),
+
+    // `items: import("pkg").Item[]`, `ref import("pkg").Item[]`: an import type as an array's element (TSX reads an
+    // import type only whole, as an annotation's type)
+    primary_type: ($, previous) => choice(
+      previous,
+      alias($.import_array_type, $.array_type),
+    ),
+    import_array_type: $ => prec(1, seq(
+      choice(alias($._type_query_member_expression_in_type_annotation, $.member_expression), $.import_type),
+      '[',
+      ']',
+    )),
 
     ref_type: $ => prec.right(seq($.ref_modifier, $.type)),
 

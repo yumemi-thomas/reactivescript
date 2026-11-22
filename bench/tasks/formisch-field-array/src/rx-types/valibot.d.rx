@@ -1,7 +1,14 @@
 //@ for valibot ^1.5.0
-// valibot's schema builders: each makes a value from what it is given
-export pure fn object(entries: any): any
-export pure fn array(item: any): any
-export pure fn string(): any
-export pure fn pipe(...items: any[]): any
-export pure fn minLength(n: number, message?: string): any
+// valibot's schema builders, as rx-declare drafts them (each with the types of its own that it names). By hand: `pure` — each
+// makes a value from what it is given.
+export type ObjectEntries = import("valibot").ObjectEntries
+export type BaseIssue<TInput$1> = import("valibot").BaseIssue<TInput$1>
+export type BaseSchema<TInput$1, TOutput$1, TIssue extends BaseIssue<unknown>> = import("valibot").BaseSchema<TInput$1, TOutput$1, TIssue>
+export type PipeAction<TInput$1, TOutput$1, TIssue extends BaseIssue<unknown>> = import("valibot").PipeAction<TInput$1, TOutput$1, TIssue>
+export type PipeItem<TInput$1, TOutput$1, TIssue extends BaseIssue<unknown>> = import("valibot").PipeItem<TInput$1, TOutput$1, TIssue>
+export type LengthInput = import("valibot").LengthInput
+export pure fn object<const TEntries$1 extends ObjectEntries>(entries: TEntries$1): { type: "object"; reference: (...args: Parameters<typeof import("valibot").object>) => ReturnType<typeof import("valibot").object>; expects: "Object"; entries: TEntries$1; message: undefined; kind: "schema"; async: false }
+export pure fn array<const TItem$1 extends BaseSchema<unknown, unknown, BaseIssue<unknown>>>(item: TItem$1): { type: "array"; reference: (...args: Parameters<typeof import("valibot").array>) => ReturnType<typeof import("valibot").array>; expects: "Array"; item: TItem$1; message: undefined; kind: "schema"; async: false }
+export pure fn string(): { type: "string"; reference: (...args: Parameters<typeof import("valibot").string>) => ReturnType<typeof import("valibot").string>; expects: "string"; message: undefined; kind: "schema"; async: false }
+export pure fn pipe<const TSchema extends BaseSchema<unknown, unknown, BaseIssue<unknown>>, const TItem1 extends PipeItem<import("valibot").InferOutput<TSchema>, unknown, BaseIssue<unknown>>>(schema: TSchema, item1: TItem1 | PipeAction<import("valibot").InferOutput<TSchema>, import("valibot").InferOutput<TItem1>, import("valibot").InferIssue<TItem1>>): import("valibot").SchemaWithPipe<readonly [TSchema, TItem1]>
+export pure fn minLength<TInput$1 extends LengthInput, const TRequirement extends number>(requirement: TRequirement): { type: "min_length"; reference: (...args: Parameters<typeof import("valibot").minLength>) => ReturnType<typeof import("valibot").minLength>; expects: `>=${TRequirement}`; requirement: TRequirement; message: undefined; kind: "validation"; async: false }

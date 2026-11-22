@@ -97,9 +97,10 @@ function preludeFor(file) {
   return at;
 }
 
-/** TY-6: the boundary check for a `.d.rx` against the JS module it declares (`module`, as an import from beside it). */
-function boundary(file, module) {
-  return ask("boundary", { file, module });
+/** TY-6: the boundary check for a `.d.rx` against the JS module it declares (`module`, as an import from beside it);
+ *  `text`: the declaration's text, where it is not the file's (a draft not yet written, MO-8m). */
+function boundary(file, module, text) {
+  return ask("boundary", text === undefined ? { file, module } : { file, module, text });
 }
 
 /** TY-4b: the `.d.ts` a `.d.rx` stands for, for a JS module with no TypeScript types of its own. */

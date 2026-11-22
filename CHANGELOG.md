@@ -4,6 +4,20 @@
 
 **Changed**
 
+- A declared component may have type parameters, as a declared fn may (spec/09 MO-8d): `export component
+  Picker<Option>(props: { value?: Option; options: Option[]; onPick?: handler (v: Option) => void })`, on a member
+  component too. It was a parse error, so a generic component's props could only be `any`. The checker reads none of
+  it; the declaration's `.d.ts` and the boundary check (TY-6) carry it.
+- `rx-declare` names a library's types where it wrote `any` (spec/09 MO-8m): another package's type by
+  `import("<package>").T`, the module's own by an alias with its bounds, a row's type parameters as the library
+  declares them, a callback by its own signature, a conditional or mapped type as the library computes it, an internal
+  type by its place. Each row is checked against the module before the draft is written, and one TypeScript does not
+  hold is written as before, so a draft passes `rx-tsc` as it stands. `--explain` says why each `any` left is one;
+  `--any` drafts as before. Generated declarations are redrafted (draft 4).
+- `rx-declare --source [<checkout>]` reads the library's own TypeScript source — a checkout, the `src/` the package
+  publishes, or the sources its source maps carry — and writes what it shows of the words types cannot (`handler`,
+  `tracked`, `ref`, `uses`, `provides`, `instantiates`, a result that undoes the call) as `// SOURCE` comments above
+  the rows, each with its file and line (spec/09 MO-8n). It never writes a word into a row.
 - Values the checker confines have a closed set of operations (spec/09 MO-10k, spec/08 CN-7d). A JS result whose
   fields wait or fail is read by the fields its declaration names: `q.valueOf()`, `q.toJSON()`, an undeclared field and
   `q[k]()` are `RESULT_AS_VALUE`. What is called on a library's draft is a method of plain data; a callback given to one

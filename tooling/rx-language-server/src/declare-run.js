@@ -102,7 +102,7 @@ async function runRows(draft, spec, from, opts = {}) {
   // → dialog), else its one compound object's (`Dialog.Trigger` → dialog), else the module's
   const lower = n => n.replace(/^./, c => c.toLowerCase());
   const fromHooks = [...new Set(hooks.map(h => /^use([A-Z]\w*?)Context$/.exec(h.name)?.[1]).filter(Boolean))];
-  const objects = [...new Set(lines.flatMap(l => { const m = /^export component (\w+)\.\w+\(/.exec(l); return m ? [m[1]] : []; }))];
+  const objects = [...new Set(lines.flatMap(l => { const m = /^export component (\w+)\.\w+[(<]/.exec(l); return m ? [m[1]] : []; }))];
   const pkgCtx = opts.context ?? (fromHooks.length === 1 ? lower(fromHooks[0]) : objects.length === 1 ? lower(objects[0]) : ident(spec.startsWith(".") ? path.basename(spec).replace(/\.[^.]+$/, "") : spec));
   const needs = new Map();   // hook → context name
   const unsettled = new Set();
@@ -128,7 +128,7 @@ async function runRows(draft, spec, from, opts = {}) {
   const partNeeds = new Map();   // "Dialog.Trigger" → context name
   const rootGives = new Map();   // "Dialog" / "Dialog.Root" → context names
   const partsOf = new Map();
-  for (const l of lines) { const m = /^export component (\w+)\.(\w+)\(/.exec(l); if (m && mod[m[1]] && typeof mod[m[1]][m[2]] === "function") partsOf.set(m[1], [...partsOf.get(m[1]) ?? [], m[2]]); }
+  for (const l of lines) { const m = /^export component (\w+)\.(\w+)[(<]/.exec(l); if (m && mod[m[1]] && typeof mod[m[1]][m[2]] === "function") partsOf.set(m[1], [...partsOf.get(m[1]) ?? [], m[2]]); }
   for (const [obj, parts] of partsOf) {
     const O = mod[obj]; const rootName = typeof O === "function" ? obj : typeof O.Root === "function" ? `${obj}.Root` : null; if (!rootName) continue;
     const Root = typeof O === "function" ? O : O.Root;
@@ -162,9 +162,9 @@ async function runRows(draft, spec, from, opts = {}) {
     const hook = bare(l);
     const says = (w, c) => new RegExp(`\\b${w}\\([^)]*\\b${c}\\b[^)]*\\)`).test(l);   // a row that already says it (known.js) is left as it is
     if (hook && needs.has(hook)) { out.push(says("uses", needs.get(hook)) ? l : `${l.replace(/ instantiates$/, "")} uses(${needs.get(hook)})`); continue; }
-    const comp = /^export component (\w+)\(/.exec(l);
+    const comp = /^export component (\w+)[(<]/.exec(l);   // `(`, or a generic component's `<` (MO-8d)
     if (comp && provided.has(comp[1])) { const add = [...provided.get(comp[1])].filter(c => !says("provides", c)); out.push(add.length ? `${l} provides(${add.join(", ")})` : l); continue; }
-    const named = /^export component ([\w.]+)\(/.exec(l)?.[1];
+    const named = /^export component ([\w.]+)[(<]/.exec(l)?.[1];
     if (named && rootGives.has(named)) { const add = [...rootGives.get(named)].filter(c => !says("provides", c)); out.push(add.length ? `${l} provides(${add.join(", ")})` : l); continue; }
     if (named && partNeeds.has(named)) { out.push(says("uses", partNeeds.get(named)) ? l : `${l} uses(${partNeeds.get(named)})`); continue; }
     const ptodo2 = /^\/\/ TODO ([\w.]+): its parts likely read a context it provides/.exec(l);

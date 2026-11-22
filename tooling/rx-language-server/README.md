@@ -59,7 +59,7 @@ TypeScript's errors are reported.
 
 ## Drafting a declaration
 
-`rx-declare <module> [--out file.d.rx]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
+`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--explain] [--any] [--source [checkout]]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
 types, resolved from the current directory as an import there would be. A package's declaration goes in the project's
 `rx-types/` folder, named by the import (spec/09 MO-8k); the import in `.rx` stays as written:
 
@@ -80,6 +80,33 @@ subclass is an `error`, a function that hands back a component is a factory. Eve
 cannot show is a `// TODO` line above the declaration it concerns: which context a hook reads (`uses(…)`), whether a
 result's fields wait or throw (`pending fails(…)`), what a promise rejects with. `rx-tsc` then checks the draft against
 the same types (spec/13 TY-6).
+
+A type the draft cannot restate is named where the library declares it rather than written `any` (spec/09 MO-8m): the
+module's own exported type by an alias the draft declares, another package's by `import("<package>").T`, a row's type
+parameters as the library declares them (a component's too: `export component Select.Item<T extends …>(…)`), a
+callback by its own signature, a conditional or mapped type as the library computes it, and an internal type by its
+place (`Parameters<typeof import("kit").inner>[0]`). Each row is checked against the module before the draft is
+written (`src/declare-check.js`: the crate's TY-6 boundary check on the draft's text), and a row TypeScript does not
+hold falls back to the row with `any`s, so the draft passes `rx-tsc` as it stands. `--explain` prints, on stderr, how
+many `any`s are left and why (`overload`, `generic`, `generic-computed`, `internal-type`, `vendor-any`, …) and each
+row that fell back with TypeScript's reason; `--any` drafts as before, every unnamed type `any`.
+
+`--source [<checkout>]` adds what the library's own TypeScript source shows of the words types cannot
+(`src/declare-source.js`, spec/09 MO-8n). The source is the folder you name (a checkout of the package's repository:
+the package is found in it by name), else the `src/` the package publishes, else the sources its source maps carry;
+for a package that ships only built files the command says so, with the repository and version to check out:
+
+```sh
+npx rx-declare @tanstack/solid-query --source                       # it publishes src/
+npx rx-declare @solid-primitives/event-listener --source ../solid-primitives   # a checkout at the installed version
+```
+
+Each finding is a `// SOURCE` comment above the row it is about, with the reason's file and line, and never a change
+to the row: `// SOURCE makeEventListener: `handler`: called from addEventListener, after the call and outside any
+computation — `handler`? (MO-10g) [src/eventListener.ts:67]`. It suggests `handler` and `tracked` for a callback (by
+where the library calls it), `ref` for a parameter read as an accessor inside a computation, `uses(…)` and
+`provides(…)` for a context the library makes, `instantiates`, and a result that undoes the call. A callback handed
+to another package is followed no further. Read the place it names before writing the word.
 
 A result is typed a step at a time, as the checker reads it (MO-10b, MO-10k). One that takes nothing and answers
 nothing is `() => void`, through the library's own name for it (`VoidFunction`), so the checker holds a call to keeping

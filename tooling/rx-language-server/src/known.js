@@ -19,12 +19,12 @@ module.exports = {
     rows: {
       // a route carries the components it is given: the router renders them under <RouterProvider>, a child route at
       // its parent's <Outlet /> (MO-11o, MO-11p)
-      createRootRoute: "export pure fn createRootRoute(options: { component?: Component }): any renders(later) methods(addChildren)",
-      createRoute: "export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) methods(addChildren) nests(component under getParentRoute)",
-      createRouter: "export pure fn createRouter(options: { routeTree: any }): any instantiates",
-      RouterProvider: "export component RouterProvider(props: { router: renders any }) provides(router)",
+      createRootRoute: "export pure fn createRootRoute(options: { component?: Component }): import(\"@tanstack/solid-router\").AnyRoute renders(later) methods(addChildren)",
+      createRoute: "export pure fn createRoute(options: { getParentRoute: () => import(\"@tanstack/solid-router\").AnyRoute; path: string; component?: Component }): import(\"@tanstack/solid-router\").AnyRoute renders(later) methods(addChildren) nests(component under getParentRoute)",
+      createRouter: "export pure fn createRouter(options: { routeTree: import(\"@tanstack/solid-router\").AnyRoute }): import(\"@tanstack/solid-router\").AnyRouter instantiates",
+      RouterProvider: "export component RouterProvider(props: { router: renders import(\"@tanstack/solid-router\").AnyRouter }) provides(router)",
       Outlet: "export component Outlet(props: {}) uses(router) outlet",
-      Link: "export component Link(props: { to: string; params?: any; children?: View }) uses(router)",
+      Link: "export component Link(props: { to: string; params?: Parameters<typeof import(\"@tanstack/solid-router\").Link>[0][\"params\"]; children?: View }) uses(router)",
       useParams: "export pure fn useParams(opts: { from: string }): ref any uses(router)",
     },
   },
@@ -35,17 +35,17 @@ module.exports = {
       // the factory provides the router and nests each route's children in its component, joining their paths (MO-11i)
       createRouter: "export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component) joins(path)",
       defineRoute: "export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition forwards",
-      useSubmissions: "export pure fn useSubmissions(fn_: any, filter?: (...args: any[]) => any): { input: any; result?: any; error: any }[] uses(router)",
+      useSubmissions: "export pure fn useSubmissions<T extends unknown[], U, V>(fn_: import(\"@solidjs/router\").FormAction<T, U, V>, filter?: (input: V) => boolean): { input: V; result?: unknown; error: unknown }[] uses(router)",
     },
   },
   "@tanstack/solid-query": {
     range: ">=6.0.0-rc.0 <7.0.0",
     contexts: ["queryClient"],
     rows: {
-      QueryClientProvider: "export component QueryClientProvider(props: { client: any; children?: View }) provides(queryClient)",
+      QueryClientProvider: "export component QueryClientProvider(props: { client: import(\"@tanstack/solid-query\").QueryClient; children?: View }) provides(queryClient)",
       // `data` waits and throws where it is read (MO-10f); `queryFn` is called inside the library's computation (MO-10g)
-      useQuery: "export pure fn useQuery(ref options: { queryKey: any[]; queryFn: tracked () => Promise<any> }): { data: pending fails(Error) any; isFetching: boolean; status: string; refetch: () => Promise<any> } uses(queryClient)",
-      useMutation: "export pure fn useMutation(ref options: { mutationFn: (v: any) => Promise<any>; onSuccess?: handler () => void }): { mutate: (...args: any[]) => Promise<any>; isPending: boolean; status: string; reset: () => void } uses(queryClient)",
+      useQuery: "export pure fn useQuery<TData = unknown>(ref options: { queryKey: import(\"@tanstack/solid-query\").QueryKey; queryFn: tracked () => Promise<TData> }): { data: pending fails(Error) TData | undefined; isFetching: boolean; status: string; refetch: () => Promise<unknown> } uses(queryClient)",
+      useMutation: "export pure fn useMutation<TData = unknown, TVariables = void>(ref options: { mutationFn: (v: TVariables) => Promise<TData>; onSuccess?: handler () => void }): { mutate: (v: TVariables) => Promise<TData>; isPending: boolean; status: string; reset: () => void } uses(queryClient)",
     },
     words: { useQueryClient: { pure: true, after: "uses(queryClient)", drop: "instantiates" } },
   },

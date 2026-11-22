@@ -874,6 +874,14 @@
       "required": true,
       "types": [
         {
+          "type": "import_type",
+          "named": true
+        },
+        {
+          "type": "member_expression",
+          "named": true
+        },
+        {
           "type": "primary_type",
           "named": true
         }
@@ -1703,6 +1711,16 @@
         "types": [
           {
             "type": "formal_parameters",
+            "named": true
+          }
+        ]
+      },
+      "type_parameters": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_parameters",
             "named": true
           }
         ]

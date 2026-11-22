@@ -6,4 +6,4 @@ export fn loadTeam(team: string): Promise<{ name: string; size: number; }>
 // TODO loadNews: what does its promise reject with? add rejects(<classes>) (default Error)
 export fn loadNews(): Promise<string[]>
 // TODO all: what does its promise reject with? add rejects(<classes>) (default Error)
-export fn all(ps: any): any
+export fn all<T extends readonly unknown[] | []>(ps: T): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }>

@@ -15,7 +15,7 @@ export default {
     { name: "the table kept in app state", edit: ["onClick={() => { people := ps => [...ps, { name: \"Di\", age: 52 }, { name: \"Ed\", age: 19 }] }}", "onClick={() => { people := [table] }}"], expect: "RENDERS_ESCAPES" },
     { name: "a cell component's context provided nowhere above the table", edit: ['  provide accent = "dark"\n', ""], expect: "CONTEXT_NOT_FOUND" },
     { name: "a page turned while the view computes (the handler called, not passed)", edit: ["onNext={() => { table.nextPage() }} />", "onNext={table.nextPage()} />"], expect: "IO_IN_REACTIVE" },
-    { name: "the table made from data read once: it would not follow the source", edit: ["createTable(ref options", "createTable(options"], file: "table.d.rx", expect: "SNAPSHOT_ARGUMENT" },
+    { name: "the table made from data read once: it would not follow the source", edit: ["createTable<T>(ref options", "createTable<T>(options"], file: "table.d.rx", expect: "SNAPSHOT_ARGUMENT" },
   ],
   async run(h) {
     const base = await h.serve(); const page = await h.open(base);

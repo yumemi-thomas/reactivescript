@@ -3,4 +3,4 @@
 export type Person = import("./people.js").Person
 export error NotFound
 export pure fn getPerson(id: string): Promise<Person> rejects(NotFound)
-export const promoteForm: any
+export const promoteForm: (...vars: [form: FormData]) => Promise<string>

@@ -4,10 +4,10 @@
 // (MO-11p). Its hooks read the router's context. The types are the package's own.
 export context router
 export type AnyRouter = import("@tanstack/solid-router").AnyRouter
-export pure fn createRootRoute(options: { component?: Component }): any renders(later) methods(addChildren)
-export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) methods(addChildren) nests(component under getParentRoute)
-export pure fn createRouter(options: { routeTree: any }): any instantiates
-export component RouterProvider(props: { router: renders any }) provides(router)
+export pure fn createRootRoute(options: { component?: Component }): import("@tanstack/solid-router").AnyRoute renders(later) methods(addChildren)
+export pure fn createRoute(options: { getParentRoute: () => import("@tanstack/solid-router").AnyRoute; path: string; component?: Component }): import("@tanstack/solid-router").AnyRoute renders(later) methods(addChildren) nests(component under getParentRoute)
+export pure fn createRouter(options: { routeTree: import("@tanstack/solid-router").AnyRoute }): import("@tanstack/solid-router").AnyRouter instantiates
+export component RouterProvider(props: { router: renders import("@tanstack/solid-router").AnyRouter }) provides(router)
 export component Outlet(props: {}) uses(router) outlet
-export component Link(props: { to: string; params?: any; children?: View }) uses(router)
+export component Link(props: { to: string; params?: Parameters<typeof import("@tanstack/solid-router").Link>[0]["params"]; children?: View }) uses(router)
 export pure fn useParams(opts: { from: string }): ref any uses(router)

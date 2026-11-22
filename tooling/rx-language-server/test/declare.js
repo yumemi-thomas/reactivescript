@@ -60,14 +60,14 @@ if (process.env.VERBOSE) console.log(draft);
 const has = line => draft.split("\n").includes(line);
 check("an Error subclass is an error", has("export error NotFound"), draft);
 check("an accessor parameter and result are ref", has("export fn createDebounced(ref source: string, ms: number): ref string"), draft);
-check("a tuple keeps its ref part and its setter (instantiates is inferred from the ref)", has("export fn createToggle(initial: boolean): [ref boolean, (...args: any[]) => void]"), draft);
+check("a tuple keeps its ref part and its setter (instantiates is inferred from the ref)", has("export fn createToggle(initial: boolean): [ref boolean, (v: boolean) => void]"), draft);
 check("a plain result gets no store TODO", !/TODO useTheme: is the result a store/.test(draft), draft);
 check("a hook instantiates, is io until a person writes `pure` (a TODO suggests it), with a TODO for its context", has("export fn useTheme(): string instantiates") && /\/\/ TODO useTheme: pure\? its name is a primitive's/.test(draft) && /\/\/ TODO useTheme: which context does this hook read\?/.test(draft), draft);
 check("a component's JSX children are a View", has("export component Card(props: { title: string; children?: View })"), draft);
-check("a function-typed children prop is a render prop (MO-11k)", has("export component List(props: { items: string[]; children: (item: any, index: any) => View })"), draft);
-check("a callback parameter is a function type; an optional one keeps its `?` (MO-8e)", has("export fn onIdle(run: (...args: any[]) => any, delay?: number): void"), draft);
+check("a function-typed children prop is a render prop (MO-11k)", has("export component List(props: { items: string[]; children: (item: string, index: number) => View })"), draft);
+check("a callback parameter is a function type; an optional one keeps its `?` (MO-8e)", has("export fn onIdle(run: () => void, delay?: number): void"), draft);
 check("a function type is drafted pure, with `handler` suggested for one named like an event (MO-10g)", /\/\/ TODO watch: onChange: called later, outside any computation\? mark it `handler/.test(draft) && !/handler \(/.test(draft.split("\n").filter(l => !l.startsWith("//")).join("\n")), draft);
-check("a component's on… prop is drafted pure too, with `handler` only suggested (MO-10g)", /\/\/ TODO Toggle: onToggle: called later, outside any computation\? mark it `handler/.test(draft) && has("export component Toggle(props: { on: boolean; onToggle: (...args: any[]) => any })"), draft);
+check("a component's on… prop is drafted pure too, with `handler` only suggested (MO-10g)", /\/\/ TODO Toggle: onToggle: called later, outside any computation\? mark it `handler/.test(draft) && has("export component Toggle(props: { on: boolean; onToggle: (v: boolean) => void })"), draft);
 
 // what a result is, a step at a time (EF-5a, MO-10b, MO-10k): a disposer through the library's own name for it, a small
 // object by its fields, a class instance by the methods that answer nothing or a promise, the module's own types by name
@@ -87,11 +87,112 @@ fs.writeFileSync(path.join(ws, "more.d.ts"), [
 const r1 = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./more.js"], { cwd: ws, encoding: "utf8" });
 const more = r1.stdout; if (process.env.VERBOSE) console.log(more, r1.stderr);
 const hasMore = line => more.split("\n").includes(line);
-check("a result that takes nothing and answers nothing is `() => void`, through the library's own name for it (EF-5a)", hasMore("export fn listen(run: (...args: any[]) => any): () => void"), more);
+check("a result that takes nothing and answers nothing is `() => void`, through the library's own name for it (EF-5a)", hasMore("export fn listen(run: () => void): () => void"), more);
 check("a small object result is typed by its fields: an accessor `ref`, a called getter and a function by what they answer, a nested object a step further", hasMore("export fn makePager(): { page: ref number; getPageCount: () => number; next: () => void; rows: Row[]; label: string; nested: { open: boolean; close: () => void } }"), more);
-check("a class instance is typed by its methods, each as it is written where it can be (a generic one by what it answers), and stays the library's own object", hasMore("export fn makeClient(): { invalidate: (key?: string) => Promise<void>; fetch: (...args: any[]) => Promise<any>; size: () => number; peek: (key: string) => Row | undefined; clear: () => void }"), more);
+check("a class instance is typed by its methods, each as it is written where it can be (a generic one by what it answers), and stays the library's own object", hasMore("export fn makeClient(): { invalidate: (key?: string) => Promise<void>; fetch: (...args: Parameters<ReturnType<typeof import(\"./more.js\").makeClient>[\"fetch\"]>) => Promise<Awaited<ReturnType<ReturnType<typeof import(\"./more.js\").makeClient>[\"fetch\"]>>>; size: () => number; peek: (key: string) => Row | undefined; clear: () => void }"), more);
 check("a row names the module's own types, which the draft declares", hasMore("export fn load(id: string): Promise<Row[]>") && hasMore("export type Row = import(\"./more.js\").Row"), more);
-check("a generic type is declared with the parameters that have no default", hasMore("export type Page<T> = import(\"./more.js\").Page<T>") && hasMore("export type Cell<T, V> = import(\"./more.js\").Cell<T, V>"), more);
+check("a generic type is declared with the parameters that have no default", hasMore("export type Page<T> = import(\"./more.js\").Page<T>") && hasMore("export type Cell<T, V = unknown> = import(\"./more.js\").Cell<T, V>"), more);
+
+// MO-8m: the library's types are named, not `any` — by the name the module exports, by `import("<package>")` for another
+// package's, by its place in the library's declaration for one no module exports; a row TypeScript does not hold with
+// them is written as every draft was
+fs.writeFileSync(path.join(ws, "named.js"), "export const make = o => o;\nexport const inner = x => x;\nexport const over = x => x;\nexport const watchAll = (a, b) => b;\nexport const pick = (rows, by) => rows[0];\nexport const lossy = () => ({});\nexport const all = ps => Promise.all(ps);\nexport const atLeast = n => ({ expects: `>=${n}` });\nexport const Picker = props => null;\nexport const loose = x => x;\n");
+fs.writeFileSync(path.join(ws, "named.d.ts"), [
+  "import type { Accessor } from \"solid-js\";",
+  "interface Secret { id: string; tags: string[] }",
+  "export type Opts<T extends object = object> = { seed: T; depth?: number };",
+  "export interface Shape { kind: \"a\" | \"b\" }",
+  "export declare function make<const T extends object>(opts: Opts<T>, shapes: Shape[]): Opts<T>;",
+  "export declare function inner(x: Secret, n?: number): Secret;",
+  "export declare function over(a: Secret): number;",
+  "export declare function over(a: Secret, b: number): number;",
+  "export declare function watchAll(source: Accessor<number>, done: (shape: Shape, from: Accessor<number>) => void): Map<string, Accessor<Shape>>;",
+  "export declare function pick<T>(rows: readonly T[], by: Secret): T | undefined;",
+  "export declare function lossy(): { at: Secret | null; n: number };",
+  "export declare function all<T extends readonly unknown[] | []>(ps: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]> }>;",
+  "export declare function atLeast<const N extends number>(n: N): { expects: `>=${N}`; kind: N extends 0 ? \"none\" : \"some\" };",
+  "export declare function Picker<Option, Group = never>(props: { value?: Option; options: Option[]; onPick?: (v: Option) => void }): import(\"@solidjs/web\").JSX.Element;",
+  "type Anything = unknown;",
+  "export declare function loose<T extends Anything>(x: T): T;",
+  "export {};",
+  "",
+].join("\n"));
+const rn = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./named.js", "--explain"], { cwd: ws, encoding: "utf8" });
+const named = rn.stdout; if (process.env.VERBOSE) console.log(named, rn.stderr);
+const hasNamed = line => named.split("\n").includes(line);
+check("a generic type is declared with its parameters' bounds and defaults, as the library declares them (MO-8m)", hasNamed("export type Opts<T extends object = object> = import(\"./named.js\").Opts<T>"), named);
+check("a generic fn keeps its type parameters, and names the module's own types by the draft's aliases (MO-8d, MO-8m)", hasNamed("export fn make<const T extends object>(opts: Opts<T>, shapes: Shape[]): { seed: T; depth?: number | undefined }"), named);
+check("a type no module exports is named by its place in the library's declaration", hasNamed("export fn inner(x: Parameters<typeof import(\"./named.js\").inner>[0], n?: number): { id: string; tags: string[] }"), named);
+check("another package's type is named by an import of that package; a callback is written with its own signature", hasNamed("export fn watchAll(ref source: number, done: (shape: Shape, from: import(\"solid-js\").Accessor<number>) => void): Map<string, import(\"solid-js\").Accessor<Shape>>"), named);
+check("an overloaded fn has no one place: what cannot be named there stays `any`, and --explain says why", hasNamed("export fn over(a: any): number") && /1 `any` drafted — 1 overload/.test(rn.stderr), named + rn.stderr);
+check("beside a type parameter, a part with no name is said by its place, where TypeScript holds the row", hasNamed("export fn pick<T>(rows: readonly T[], by: Parameters<typeof import(\"./named.js\").pick>[1]): T | undefined"), named);
+check("a nested object keeps what it may also be (`| null`)", hasNamed("export fn lossy(): { at: { id: string; tags: string[] } | null; n: number }"), named);
+check("a computed type is written as the library computes it: a mapped tuple, a template of a literal, a conditional (MO-8m)", hasNamed("export fn all<T extends readonly unknown[] | []>(ps: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]> }>") && hasNamed("export fn atLeast<const N extends number>(n: N): { expects: `>=${N}`; kind: N extends 0 ? \"none\" : \"some\" }"), named);
+check("a generic component keeps the type parameters its props name (MO-8d): the others are not the row's", hasNamed("export component Picker<Option>(props: { value?: Option | undefined; options: Option[]; onPick?: (v: Option) => void })"), named);
+check("a bound that is `unknown` bounds nothing, and is not written", hasNamed("export fn loose<T>(x: T): T"), named);
+const rl = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./named.js", "--any"], { cwd: ws, encoding: "utf8" });
+check("--any drafts as before MO-8m: every type the draft cannot restate is `any`", rl.stdout.split("\n").includes("export fn inner(x: any, n?: number): { id: string; tags: string[] }") && rl.stdout.split("\n").includes("export fn make(opts: any, shapes: Shape[]): { seed: any; depth?: number | undefined }") && rl.stdout.split("\n").includes("export type Opts = import(\"./named.js\").Opts"), rl.stdout + rl.stderr);
+fs.writeFileSync(path.join(ws, "named.d.rx"), named);
+fs.writeFileSync(path.join(ws, "named.rx"), "import { inner } from \"./named.js\"\nexport default component N() {\n  <button onClick={() => { inner({ id: \"a\", tags: [] }) }}>x</button>\n}\n");
+const tn = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--noEmit", "-p", "tsconfig.named.json"], { cwd: (fs.writeFileSync(path.join(ws, "tsconfig.named.json"), JSON.stringify({ extends: "./tsconfig.json", include: ["named.rx"] })), ws), encoding: "utf8" });
+check("the draft that names the library's types passes rx-tsc against them (TY-6)", tn.status === 0 && tn.stdout.trim() === "", { status: tn.status, out: tn.stdout + tn.stderr });
+
+// MO-8n: `--source` — what the library's own source shows of the words its types cannot, as comments above the rows
+// (never as rows), each with the file and line that is the reason
+fs.writeFileSync(path.join(ws, "evid.js"), [
+  "import { createMemo, createEffect, onCleanup, createContext, useContext } from \"solid-js\";",
+  "const Theme = createContext(\"light\");",
+  "export function useShade() { return useContext(Theme); }",
+  "export function listen(target, run) { target.addEventListener(\"click\", run); return () => target.removeEventListener(\"click\", run); }",
+  "const wrap = pick => createMemo(() => pick(1));",
+  "export function derive(pick) { return wrap(pick); }",
+  "export function later(opts) { setTimeout(() => opts.onDone(1), 0); }",
+  "export function each(items, visit) { for (const x of items) visit(x); }",
+  "export function hand(run) { elsewhere(run); }",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "evid.d.ts"), [
+  "export declare function useShade(): string;",
+  "export declare function listen(target: EventTarget, run: (e: Event) => void): () => void;",
+  "export declare function derive(pick: (n: number) => number): () => number;",
+  "export declare function later(opts: { onDone: (n: number) => void }): void;",
+  "export declare function each(items: number[], visit: (n: number) => void): void;",
+  "export declare function hand(run: (n: number) => void): void;",
+  "",
+].join("\n"));
+const rs = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./evid.js", "--source"], { cwd: ws, encoding: "utf8" });
+const evid = rs.stdout; if (process.env.VERBOSE) console.log(evid, rs.stderr);
+const note = (name, re) => evid.split("\n").some(l => l.startsWith(`// SOURCE ${name}: `) && re.test(l));
+check("--source: a callback given to addEventListener is suggested `handler`, with the file and line", note("listen", /`run`: called from addEventListener.*`handler`\? \(MO-10g\) \[evid\.js:4\]$/), evid + rs.stderr);
+check("--source: a result that removes what the call added is said to undo it (EF-5a)", note("listen", /its result calls removeEventListener.*\[evid\.js:4\]$/), evid);
+check("--source: a callback called inside createMemo, through the library's own helper, is suggested `tracked`", note("derive", /`pick`: called inside createMemo, a computation — `tracked`\? \(MO-10j\) \[evid\.js:5\]$/), evid);
+check("--source: a field of an options object called from a timer is suggested `handler`", note("later", /`opts\.onDone`: called from setTimeout.*`handler`\?/), evid);
+check("--source: a context the hook reads is suggested as uses(…); state it reaches as `instantiates`", note("useShade", /it reads this context \(useContext\): Theme — uses\(<its name>\)\? \(MO-12b\) \[evid\.js:3\]$/) && note("derive", /it reaches createMemo.*`instantiates`\?/), evid);
+check("--source: a callback called while the call runs needs no word, and one handed to code it cannot read is not guessed", note("each", /`visit`: called while the call runs — no word/) && !evid.split("\n").some(l => l.startsWith("// SOURCE hand: ")), evid);
+const plainRows = t => t.split("\n").filter(l => !l.startsWith("// SOURCE"));
+const re0 = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./evid.js"], { cwd: ws, encoding: "utf8" });
+check("--source changes no row: the evidence is comments, and a word stays a person's to write", JSON.stringify(plainRows(evid)) === JSON.stringify(re0.stdout.split("\n")) && /source: the module itself \(evid\.js\)/.test(rs.stderr) && /source: \d+ suggestions? for 5 of 6 rows/.test(rs.stderr), rs.stderr);
+// where the source is: the `src/` a package publishes, the text its source maps carry, or neither (then the note says what to check out)
+{
+  const { locate } = require("../src/declare-source.js"); const ts = require("typescript");
+  const app = path.join(ws, "srcapp"); const pkg = path.join(app, "node_modules/kit");
+  fs.mkdirSync(path.join(pkg, "dist"), { recursive: true });
+  fs.writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "kit", version: "1.2.3", main: "dist/index.js", types: "dist/index.d.ts", repository: { url: "git+https://example.test/kit.git", directory: "packages/kit" } }));
+  fs.writeFileSync(path.join(pkg, "dist/index.js"), "export const make = () => 1;\n");
+  fs.writeFileSync(path.join(pkg, "dist/index.d.ts"), "export declare function make(): number;\n");
+  const none = locate(ts, "kit", app);
+  check("--source: a package that ships built files only is said so, with its repository and the version to check out", none.kind === "none" && /publishes built files only/.test(none.note) && /https:\/\/example\.test\/kit \(packages\/kit\) at 1\.2\.3/.test(none.note), none);
+  fs.writeFileSync(path.join(pkg, "dist/index.js.map"), JSON.stringify({ version: 3, sources: ["../src/index.ts"], sourcesContent: ["export const make = (): number => 1;\n"], mappings: "" }));
+  const carried = locate(ts, "kit", app);
+  check("--source: sources a source map carries (sourcesContent) are read from it", carried.kind === "sourcemap" && carried.files.size === 1 && [...carried.files.values()][0].includes("(): number => 1"), { kind: carried.kind, note: carried.note });
+  fs.mkdirSync(path.join(pkg, "src")); fs.writeFileSync(path.join(pkg, "src/index.ts"), "export { make } from \"./make\";\n"); fs.writeFileSync(path.join(pkg, "src/make.ts"), "export const make = (): number => 1;\n");
+  const shipped = locate(ts, "kit", app);
+  check("--source: a package that publishes its src/ is read from there, every file of it", shipped.kind === "published" && shipped.files.size === 2, { kind: shipped.kind, note: shipped.note });
+  const co = path.join(ws, "checkout/packages/kit"); fs.mkdirSync(path.join(co, "src"), { recursive: true });
+  fs.writeFileSync(path.join(co, "package.json"), JSON.stringify({ name: "kit", version: "1.3.0" })); fs.writeFileSync(path.join(co, "src/index.ts"), "export const make = (): number => 1;\n");
+  const given = locate(ts, "kit", app, path.join(ws, "checkout"));
+  check("--source <checkout>: the package is found in the checkout by its name, and a version that differs from the installed one is said", given.kind === "checkout" && given.files.size === 1 && /the checkout is 1\.3\.0 and 1\.2\.3 is installed/.test(given.note), { kind: given.kind, note: given.note });
+}
 
 // the run pass (src/declare-run.js): which hook reads which context, which provider provides it
 fs.writeFileSync(path.join(ws, "ctx.mjs"), [

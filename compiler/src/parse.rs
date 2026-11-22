@@ -536,7 +536,8 @@ pub enum JsDecl {
     Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
     /// MO-11a: a Solid component
-    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, outlet: bool },
+    /// `tparams`: MO-8d, a generic component's type parameters (`component Select<Option>(…)`), TypeScript's text
+    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, outlet: bool, tparams: Option<String> },
     /// MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
     Context { name: String, line: usize },
     /// MO-8g: a value the module exports (`export const pageSearch: Schema`)
@@ -1421,6 +1422,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         name.push_str(&c.ident_or("a member component's name: `component Dialog.Root(…)`")?);
     }
     c.ws(true);
+    let tparams = type_params(c); // MO-8d: `component Select<Option, G = never>(…)`, TypeScript's, for TY
+    c.ws(true);
     c.expect("(")?;
     c.ws(true);
     let mut props = vec![];
@@ -1585,7 +1588,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         }
         break;
     }
-    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides, outlet })
+    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides, outlet, tparams })
 }
 /// MO-12: `(router, theme)` — contexts the same declaration file declares.
 fn context_names(c: &mut Cursor) -> R<Vec<String>> {
@@ -3915,6 +3918,24 @@ mod recovering {
         assert_eq!(names(&p), ["a", "b", "App"]);
         assert_eq!(errs.len(), 2);
         assert!(parse_program(src).is_err());
+    }
+
+    /// MO-8d: `component Picker<Option>(…)`, on a member component too; the parameters are the row's text, carried to
+    /// its `.d.ts` and to the boundary check, and the props are read as they were
+    #[test]
+    fn a_component_row_may_have_type_parameters() {
+        let src = "export component Picker<Option, G = never>(props: { value?: Option; options: Option[]; onPick?: handler (v: Option) => void }) uses(kit)\nexport component Kit.Row<T extends { id: string }>(props: { row: T })\nexport component Plain(props: { id: string })\n";
+        let decls = parse_declarations(src).expect("parses");
+        let tps: Vec<Option<&str>> = decls.iter().map(|d| match d { JsDecl::Comp { tparams, .. } => tparams.as_deref(), _ => None }).collect();
+        assert_eq!(tps, [Some("<Option, G = never>"), Some("<T extends { id: string }>"), None]);
+        let JsDecl::Comp { props, uses, .. } = &decls[0] else { panic!("a component") };
+        assert_eq!(props.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["value", "options", "onPick"]);
+        assert_eq!(uses, &["kit".to_string()]);
+        let dts = crate::project::declaration_file(&decls);
+        assert!(dts.contains("export declare function Picker<Option, G = never>(props: {"), "{dts}");
+        assert!(dts.contains("Row: <T extends { id: string }>(props: { row: T; }) => View;"), "{dts}");
+        let (check, _) = crate::project::boundary_file(&decls, "./kit.js");
+        assert!(check.contains("type __decl_Picker = <Option, G = never>(props: {"), "{check}");
     }
 
     #[test]

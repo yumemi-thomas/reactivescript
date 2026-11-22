@@ -3,29 +3,29 @@ task                  good accepted  types kept     runtime ok     bad caught   
 context-provider      3/3 ✓          5/5 ✓          4/4 ✓          7/7 ✓          —                —                         —             
 duplicate-keys        3/3 ✓          3/3 ✓          3/3 ✓          1/2 ✗          —                —                         —             
 effect-derived        3/3 ✓          3/3 ✓          4/4 ✓          5/5 ✓          —                0                         0             
-formisch-field-array  3/3 ✓          6/6 ✓          7/7 ✓          5/5 ✓          —                36                        26            
-formisch-field-path   3/3 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            38                        16            
+formisch-field-array  3/3 ✓          6/6 ✓          7/7 ✓          5/5 ✓          —                12                        0             
+formisch-field-path   3/3 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            12                        0             
 frozen-read           3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                2                         0             
 keyed-edits           3/3 ✓          4/4 ✓          7/7 ✓          6/6 ✓          —                —                         —             
-kobalte-dialog        3/3 ✓          4/4 ✓          5/5 ✓          3/3 ✓          2/2 ✓            18                        28            
-kobalte-select        3/3 ✓          5/5 ✓          6/7 ✗          3/3 ✓          1/1 ✓            1                         60            
-listener-cleanup      3/3 ✓          3/3 ✓          4/4 ✓          4/4 ✓          —                2                         0             
+kobalte-dialog        3/3 ✓          4/4 ✓          5/5 ✓          3/3 ✓          2/2 ✓            18                        0             
+kobalte-select        3/3 ✓          5/5 ✓          6/7 ✗          3/3 ✓          1/1 ✓            1                         15            
+listener-cleanup      3/3 ✓          3/3 ✓          4/4 ✓          4/4 ✓          —                1                         0             
 optimistic-todo       3/3 ✓          4/4 ✓          6/6 ✓          6/6 ✓          —                —                         —             
-primitives-virtual    3/3 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            8                         15            
+primitives-virtual    3/3 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            8                         2             
 projection-selection  3/3 ✓          4/4 ✓          4/4 ✓          4/4 ✓          —                —                         —             
-query-forward         3/3 ✓          6/6 ✓          6/6 ✓          5/5 ✓          —                6                         6             
-query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                4                         13            
-router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                4                         7             
-router-provider       3/3 ✓          5/5 ✓          4/4 ✓          5/5 ✓          1/1 ✓            7                         8             
-sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                         2             
+query-forward         3/3 ✓          6/6 ✓          6/6 ✓          5/5 ✓          —                5                         0             
+query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                4                         0             
+router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                4                         0             
+router-provider       3/3 ✓          5/5 ✓          4/4 ✓          5/5 ✓          1/1 ✓            7                         1             
+sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                         0             
 source-mutation       3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                —                         —             
 ssr-divergence        3/3 ✓          3/3 ✓          3/3 ✓          2/3 ✗          —                3                         0             
 start-route           3/3 ✓          5/5 ✓          8/8 ✓          2/2 ✓          1/1 ✓            20                        0             
-store-helper          3/3 ✓          4/4 ✓          4/4 ✓          5/5 ✓          —                10                        0             
+store-helper          3/3 ✓          4/4 ✓          4/4 ✓          5/5 ✓          —                3                         0             
 store-updater         3/3 ✓          5/5 ✓          5/5 ✓          5/5 ✓          —                0                         0             
-table-pagination      3/3 ✓          8/8 ✓          10/10 ✓        5/5 ✓          —                57                        12            
+table-pagination      3/3 ✓          8/8 ✓          10/10 ✓        5/5 ✓          —                44                        6             
 -------------------------------------------------------------------------------------------------------------------------------------------
-total                 72/72          107/107        120/121        104/106        8/8              216                       193           
+total                 72/72          107/107        120/121        104/106        8/8              144                       24            
 
 Not green (3):
   ✗ duplicate-keys · bad caught · rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY) — ran silently
@@ -37,28 +37,28 @@ Not green (3):
 
 Declarations (words written by hand over rx-declare's draft; `any`s held):
   effect-derived/page.d.rx: 0 words by hand, 0 `any`
-  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 7 words by hand, 18 `any`
-  formisch-field-array/rx-types/valibot.d.rx: 29 words by hand, 8 `any`
-  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 7 words by hand, 9 `any`
-  formisch-field-path/rx-types/valibot.d.rx: 31 words by hand, 7 `any`
+  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 7 words by hand, 0 `any`
+  formisch-field-array/rx-types/valibot.d.rx: 5 words by hand, 0 `any`
+  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 7 words by hand, 0 `any`
+  formisch-field-path/rx-types/valibot.d.rx: 5 words by hand, 0 `any`
   frozen-read/label.d.rx: 2 words by hand, 0 `any`
-  kobalte-dialog/rx-types/@kobalte/core/dialog.d.rx: 18 words by hand, 28 `any`
-  kobalte-select/rx-types/@kobalte/core/select.d.rx: 1 word by hand, 60 `any`
-  listener-cleanup/keys.d.rx: 2 words by hand, 0 `any`
-  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: 4 words by hand, 10 `any`
-  primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: 3 words by hand, 4 `any`
-  primitives-virtual/virtual.d.rx: 1 word by hand, 1 `any`
-  query-forward/api.d.rx: 6 words by hand, 1 `any`
-  query-forward/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 5 `any`
-  query-mutation/api.d.rx: 4 words by hand, 2 `any`
-  query-mutation/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 11 `any`
-  router-data/people.d.rx: 4 words by hand, 1 `any`
-  router-data/rx-types/@solidjs/router.d.rx: 0 words by hand, 6 `any`
+  kobalte-dialog/rx-types/@kobalte/core/dialog.d.rx: 18 words by hand, 0 `any`
+  kobalte-select/rx-types/@kobalte/core/select.d.rx: 1 word by hand, 15 `any`
+  listener-cleanup/keys.d.rx: 1 word by hand, 0 `any`
+  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: 4 words by hand, 2 `any`
+  primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: 3 words by hand, 0 `any`
+  primitives-virtual/virtual.d.rx: 1 word by hand, 0 `any`
+  query-forward/api.d.rx: 5 words by hand, 0 `any`
+  query-forward/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 0 `any`
+  query-mutation/api.d.rx: 4 words by hand, 0 `any`
+  query-mutation/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 0 `any`
+  router-data/people.d.rx: 4 words by hand, 0 `any`
+  router-data/rx-types/@solidjs/router.d.rx: 0 words by hand, 0 `any`
   router-provider/people.d.rx: 7 words by hand, 0 `any`
-  router-provider/rx-types/@tanstack/solid-router.d.rx: 0 words by hand, 8 `any`
-  sequential-awaits/api.d.rx: 0 words by hand, 2 `any`
+  router-provider/rx-types/@tanstack/solid-router.d.rx: 0 words by hand, 1 `any`
+  sequential-awaits/api.d.rx: 0 words by hand, 0 `any`
   ssr-divergence/env.d.rx: 3 words by hand, 0 `any`
   start-route/src/people.d.rx: 20 words by hand (rx-declare drafts nothing for it: the module has no types), 0 `any`
-  store-helper/array.d.rx: 10 words by hand, 0 `any`
+  store-helper/array.d.rx: 3 words by hand, 0 `any`
   store-updater/audit.d.rx: 0 words by hand, 0 `any`
-  table-pagination/table.d.rx: 57 words by hand, 12 `any`
+  table-pagination/table.d.rx: 44 words by hand, 6 `any`

@@ -10,6 +10,13 @@ To start from a draft, run `npx rx-declare <package> --out <name>.d.rx` (the lan
 what the package's TypeScript types show and leaves a `// TODO` line for each row only you can decide. For the routers
 (`@tanstack/solid-router`, `@solidjs/router`) and TanStack Query it also writes the rows types cannot show.
 
+The draft's types are the library's own, by name: `import("@tanstack/solid-query").QueryClient`, a generic row's type
+parameters, a callback's signature. You rarely need to touch them, and never need to restate them: TypeScript checks
+your `.rx` against the package's types either way, and the checker reads only a row's shape and words. For the words,
+`npx rx-declare <package> --source [<checkout>]` reads the library's source and writes what it finds above each row —
+`// SOURCE …: called from addEventListener … — `handler`? [src/eventListener.ts:67]` — as a suggestion with its place.
+It never writes the word for you.
+
 Solid itself needs none of this: `npm i -D @rx-types/solid-js` is its declaration (`createStore`, `snapshot`, `merge`,
 `omit`, `flush`), found as an `@types` package is.
 

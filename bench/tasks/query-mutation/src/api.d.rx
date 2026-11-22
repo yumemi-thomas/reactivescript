@@ -3,5 +3,5 @@
 export type Todo = import("./api.js").Todo
 export pure fn fetchTodo(id: number): Promise<Todo>
 export fn renameTodo(change: { id: number; title: string; }): Promise<void>
-export pure fn makeClient(): any instantiates
-export pure fn dehydrated(client: any, ready: unknown): string
+export pure fn makeClient(): ReturnType<typeof import("./api.js").makeClient> instantiates
+export pure fn dehydrated(client: import("@tanstack/solid-query").QueryClient, ready: unknown): string

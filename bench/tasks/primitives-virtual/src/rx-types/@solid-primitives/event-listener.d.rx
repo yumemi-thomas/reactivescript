@@ -2,5 +2,8 @@
 // As rx-declare drafts them: makeEventListener answers the library's `VoidFunction`, drafted as what it is, `() => void`,
 // so the checker holds a call to keeping it (EF-5a). By hand: the listener is called later (`handler`), and
 // createEventListener is a primitive made once where it is written (`pure … instantiates`).
-export pure fn createEventListener(ref target: any, ref type_: any, handler: handler (...args: any[]) => any, options?: any): void instantiates
-export fn makeEventListener(target: any, type_: any, handler: handler (...args: any[]) => any, options?: any): () => void
+export type TargetWithEventMap = import("@solid-primitives/event-listener").TargetWithEventMap
+export type EventMapOf<Target> = import("@solid-primitives/event-listener").EventMapOf<Target>
+export type EventListenerOptions = import("@solid-primitives/event-listener").EventListenerOptions
+export pure fn createEventListener<Target extends TargetWithEventMap, EventMap extends EventMapOf<Target>, EventType extends keyof EventMap>(ref target: any, ref type_: any, handler: handler (event: EventMap[EventType]) => void, options?: EventListenerOptions): void instantiates
+export fn makeEventListener<Target extends TargetWithEventMap, EventMap extends EventMapOf<Target>, EventType extends keyof EventMap>(target: Target, type_: EventType, handler: handler (event: EventMap[EventType]) => void, options?: EventListenerOptions): () => void

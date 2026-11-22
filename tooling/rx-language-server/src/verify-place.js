@@ -27,7 +27,7 @@ function rowsOf(text) {
       // draft callbacks: in a parameter (`(update: (draft s: T) => …)`) or in a function part of a tuple result
       const draftPart = (() => { const r = /\)\s*:\s*\[(.*)\]\s*(?:$|\b(?:uses|provides|renders|nests|instantiates)\b)/.exec(l); if (!r) return -1; let d = 0, from = 0, idx = 0; const t = r[1]; for (let j = 0; j <= t.length; j++) { const c = t[j]; if (j === t.length || (c === "," && d === 0)) { if (/\(\s*draft\s+[\w$]/.test(t.slice(from, j))) return idx; idx++; from = j + 1; } else if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && t[j - 1] !== "=")) d--; } return -1; })();
       if (mode || nestsIn || nestsUnder || draftPart >= 0) fns.push({ name: m[1], line: i + 1, mode, nestsIn: nestsIn && { kids: nestsIn[1], inside: nestsIn[2] }, nestsUnder: nestsUnder && { inside: nestsUnder[1], parent: nestsUnder[2] }, draftPart });
-    } else if ((m = /^\s*export\s+component\s+([A-Za-z_$][\w$.]*)\s*\(/.exec(l))) {
+    } else if ((m = /^\s*export\s+component\s+([A-Za-z_$][\w$.]*)\s*[(<]/.exec(l))) {
       const carried = [...l.matchAll(/([\w$]+)\??\s*:\s*renders\s/g)].map(x => x[1]);
       comps.push({ name: m[1], line: i + 1, outlet: /\boutlet\b/.test(l.slice(l.lastIndexOf(")"))), carried });
     }

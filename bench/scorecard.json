@@ -121,8 +121,8 @@
       "fails": []
     },
     "decl": {
-      "words": 36,
-      "any": 26
+      "words": 12,
+      "any": 0
     }
   },
   "formisch-field-path": {
@@ -152,8 +152,8 @@
       "fails": []
     },
     "decl": {
-      "words": 38,
-      "any": 16
+      "words": 12,
+      "any": 0
     }
   },
   "frozen-read": {
@@ -246,7 +246,7 @@
     },
     "decl": {
       "words": 18,
-      "any": 28
+      "any": 0
     }
   },
   "kobalte-select": {
@@ -279,7 +279,7 @@
     },
     "decl": {
       "words": 1,
-      "any": 60
+      "any": 15
     }
   },
   "listener-cleanup": {
@@ -309,7 +309,7 @@
       "fails": []
     },
     "decl": {
-      "words": 2,
+      "words": 1,
       "any": 0
     }
   },
@@ -372,7 +372,7 @@
     },
     "decl": {
       "words": 8,
-      "any": 15
+      "any": 2
     }
   },
   "projection-selection": {
@@ -433,8 +433,8 @@
       "fails": []
     },
     "decl": {
-      "words": 6,
-      "any": 6
+      "words": 5,
+      "any": 0
     }
   },
   "query-mutation": {
@@ -465,7 +465,7 @@
     },
     "decl": {
       "words": 4,
-      "any": 13
+      "any": 0
     }
   },
   "router-data": {
@@ -496,7 +496,7 @@
     },
     "decl": {
       "words": 4,
-      "any": 7
+      "any": 0
     }
   },
   "router-provider": {
@@ -527,7 +527,7 @@
     },
     "decl": {
       "words": 7,
-      "any": 8
+      "any": 1
     }
   },
   "sequential-awaits": {
@@ -558,7 +558,7 @@
     },
     "decl": {
       "words": 0,
-      "any": 2
+      "any": 0
     }
   },
   "source-mutation": {
@@ -683,7 +683,7 @@
       "fails": []
     },
     "decl": {
-      "words": 10,
+      "words": 3,
       "any": 0
     }
   },
@@ -745,8 +745,8 @@
       "fails": []
     },
     "decl": {
-      "words": 57,
-      "any": 12
+      "words": 44,
+      "any": 6
     }
   }
 }
