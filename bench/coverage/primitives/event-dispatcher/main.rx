@@ -1,0 +1,12 @@
+// @solid-primitives/event-dispatcher: a component that tells its parent with custom events, by its `on…` props.
+import { createEventDispatcher } from "@solid-primitives/event-dispatcher"
+
+component Rating(props: { onPick?: (event: CustomEvent<number>) => void }) {
+  dispatch = createEventDispatcher(peek props)
+  <button onClick={() => { dispatch("pick", 4) }}>four stars</button>
+}
+export default component App() {
+  source picked := 0
+  <p>picked {picked}</p>
+  <Rating onPick={(event: CustomEvent<number>) => { picked := event.detail }} />
+}

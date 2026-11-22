@@ -1,0 +1,4 @@
+//@ for @solid-primitives/upload ^1.0.0
+export type FilePickerOptions = import("@solid-primitives/upload").FilePickerOptions
+export type FilePicker = import("@solid-primitives/upload").FilePicker
+export pure fn createFilePicker(options?: FilePickerOptions): FilePicker instantiates

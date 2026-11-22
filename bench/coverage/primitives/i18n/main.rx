@@ -1,0 +1,9 @@
+// @solid-primitives/i18n: a dictionary by locale, and a translator the view reads through (i18n.js).
+import { createI18n } from "./i18n.js"
+
+export default component App() {
+  source locale: "en" | "fr" := "en"
+  i18n = createI18n(locale)
+  <p>{i18n.t("hello", { name: "rx" })}</p>
+  <button onClick={() => { locale := "fr" }}>français</button>
+}

@@ -1,0 +1,8 @@
+// @solid-primitives/analytics: events tracked from handlers, through plugins.
+import { createAnalytics } from "@solid-primitives/analytics"
+
+export default component App() {
+  analytics = createAnalytics([])
+  <p>{analytics.pendingCount()} events waiting</p>
+  <button onClick={() => { analytics.track("signup", { plan: "free" }) }}>sign up</button>
+}

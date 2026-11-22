@@ -1,0 +1,7 @@
+// @solid-primitives/page-utilities: whether the page is visible.
+import { createPageVisibility } from "@solid-primitives/page-utilities"
+
+export default component App() {
+  visible = createPageVisibility()
+  <p>{visible ? "visible" : "hidden"}</p>
+}

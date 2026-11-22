@@ -1,0 +1,8 @@
+// @solid-primitives/url: a URL whose parts are read and written.
+import { createURL } from "@solid-primitives/url"
+
+export default component App() {
+  url = createURL("https://example.com/docs?page=1")
+  <p>{url.pathname} {url.search}</p>
+  <button onClick={() => { url.searchParams.set("page", "2") }}>next</button>
+}

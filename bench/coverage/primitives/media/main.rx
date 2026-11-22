@@ -1,0 +1,8 @@
+// @solid-primitives/media: a media query and the system's colour scheme, each a value the view follows.
+import { createMediaQuery, createPrefersDark } from "@solid-primitives/media"
+
+export default component App() {
+  wide = createMediaQuery("(min-width: 600px)")
+  dark = createPrefersDark()
+  <p>{wide ? "wide" : "narrow"}, {dark ? "dark" : "light"}</p>
+}

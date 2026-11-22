@@ -1,0 +1,4 @@
+//@ for @solid-primitives/input-mask ^1.0.0
+export type EventLike = import("@solid-primitives/input-mask").EventLike
+export type InputMask = import("@solid-primitives/input-mask").InputMask
+export pure fn createInputMask<MaskEvent extends EventLike = KeyboardEvent | InputEvent | ClipboardEvent>(mask: InputMask, regexps?: Record<string, RegExp>): ((ev: MaskEvent) => string) instantiates

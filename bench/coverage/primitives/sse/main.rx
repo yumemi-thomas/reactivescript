@@ -1,0 +1,9 @@
+// @solid-primitives/sse: the last message of a server-sent event stream.
+import { createSSE } from "@solid-primitives/sse"
+
+export default component App() {
+  events = createSSE<string>("https://events.test/stream")
+  errored fallback (e) { <p>the stream failed</p> } {
+    loading fallback { <p>waiting for the first message</p> } { <p>last: {events.data}</p> }
+  }
+}

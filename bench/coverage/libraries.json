@@ -1,0 +1,789 @@
+{
+ "@solid-primitives": {
+  "about": "solid-primitives (solidjs-community): every package whose latest release on npm accepts solid-js ^2 (its peerDependencies; verified 2026-11-22 against the registry, bench/coverage/verify-list.mjs). `use`: the modules a program of the suite must import (default: the main entry).",
+  "packages": {
+   "@solid-primitives/a11y": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/a11y"
+    ]
+   },
+   "@solid-primitives/active-element": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/active-element"
+    ]
+   },
+   "@solid-primitives/analytics": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/analytics",
+     "@solid-primitives/analytics/relay",
+     "@solid-primitives/analytics/relay/solidstart",
+     "@solid-primitives/analytics/relay/tanstack"
+    ]
+   },
+   "@solid-primitives/animation": {
+    "version": "1.0.1",
+    "modules": [
+     "@solid-primitives/animation"
+    ]
+   },
+   "@solid-primitives/async": {
+    "version": "0.0.101",
+    "modules": [
+     "@solid-primitives/async"
+    ]
+   },
+   "@solid-primitives/audio": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/audio"
+    ]
+   },
+   "@solid-primitives/bounds": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/bounds"
+    ]
+   },
+   "@solid-primitives/broadcast-channel": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/broadcast-channel"
+    ]
+   },
+   "@solid-primitives/clipboard": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/clipboard"
+    ]
+   },
+   "@solid-primitives/connectivity": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/connectivity"
+    ]
+   },
+   "@solid-primitives/context": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/context"
+    ]
+   },
+   "@solid-primitives/controlled-props": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/controlled-props"
+    ]
+   },
+   "@solid-primitives/controlled-signal": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/controlled-signal"
+    ]
+   },
+   "@solid-primitives/cookies": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/cookies"
+    ]
+   },
+   "@solid-primitives/cursor": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/cursor"
+    ]
+   },
+   "@solid-primitives/date": {
+    "version": "3.0.1",
+    "modules": [
+     "@solid-primitives/date"
+    ]
+   },
+   "@solid-primitives/deep": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/deep"
+    ]
+   },
+   "@solid-primitives/destructure": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/destructure"
+    ]
+   },
+   "@solid-primitives/devices": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/devices"
+    ]
+   },
+   "@solid-primitives/drag-drop": {
+    "version": "0.1.0",
+    "modules": [
+     "@solid-primitives/drag-drop"
+    ]
+   },
+   "@solid-primitives/event-bus": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/event-bus"
+    ]
+   },
+   "@solid-primitives/event-dispatcher": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/event-dispatcher"
+    ]
+   },
+   "@solid-primitives/event-listener": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/event-listener"
+    ]
+   },
+   "@solid-primitives/event-props": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/event-props"
+    ]
+   },
+   "@solid-primitives/favicon": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/favicon"
+    ]
+   },
+   "@solid-primitives/filesystem": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/filesystem"
+    ]
+   },
+   "@solid-primitives/flux-store": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/flux-store"
+    ]
+   },
+   "@solid-primitives/focus": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/focus"
+    ]
+   },
+   "@solid-primitives/form": {
+    "version": "1.0.1",
+    "modules": [
+     "@solid-primitives/form"
+    ]
+   },
+   "@solid-primitives/fullscreen": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/fullscreen"
+    ]
+   },
+   "@solid-primitives/geolocation": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/geolocation"
+    ]
+   },
+   "@solid-primitives/gestures": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/gestures"
+    ]
+   },
+   "@solid-primitives/graphql": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/graphql"
+    ]
+   },
+   "@solid-primitives/history": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/history"
+    ]
+   },
+   "@solid-primitives/i18n": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/i18n"
+    ]
+   },
+   "@solid-primitives/idle": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/idle"
+    ]
+   },
+   "@solid-primitives/input-mask": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/input-mask"
+    ]
+   },
+   "@solid-primitives/interaction": {
+    "version": "1.0.1",
+    "modules": [
+     "@solid-primitives/interaction"
+    ]
+   },
+   "@solid-primitives/intersection-observer": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/intersection-observer"
+    ]
+   },
+   "@solid-primitives/jsx-tokenizer": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/jsx-tokenizer"
+    ]
+   },
+   "@solid-primitives/keyboard": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/keyboard"
+    ]
+   },
+   "@solid-primitives/keyed": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/keyed"
+    ]
+   },
+   "@solid-primitives/lifecycle": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/lifecycle"
+    ]
+   },
+   "@solid-primitives/list": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/list"
+    ]
+   },
+   "@solid-primitives/list-state": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/list-state"
+    ]
+   },
+   "@solid-primitives/map": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/map"
+    ]
+   },
+   "@solid-primitives/marker": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/marker"
+    ]
+   },
+   "@solid-primitives/masonry": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/masonry"
+    ]
+   },
+   "@solid-primitives/match": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/match"
+    ]
+   },
+   "@solid-primitives/media": {
+    "version": "4.0.0",
+    "modules": [
+     "@solid-primitives/media"
+    ]
+   },
+   "@solid-primitives/mediastream": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/mediastream"
+    ]
+   },
+   "@solid-primitives/memo": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/memo"
+    ]
+   },
+   "@solid-primitives/mouse": {
+    "version": "4.0.0",
+    "modules": [
+     "@solid-primitives/mouse"
+    ]
+   },
+   "@solid-primitives/mutable": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/mutable"
+    ]
+   },
+   "@solid-primitives/mutation-observer": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/mutation-observer"
+    ]
+   },
+   "@solid-primitives/notification": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/notification"
+    ]
+   },
+   "@solid-primitives/orientation": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/orientation"
+    ]
+   },
+   "@solid-primitives/page-utilities": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/page-utilities"
+    ]
+   },
+   "@solid-primitives/pagination": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/pagination"
+    ]
+   },
+   "@solid-primitives/permission": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/permission"
+    ]
+   },
+   "@solid-primitives/platform": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/platform"
+    ]
+   },
+   "@solid-primitives/pointer": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/pointer"
+    ]
+   },
+   "@solid-primitives/presence": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/presence"
+    ]
+   },
+   "@solid-primitives/promise": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/promise"
+    ]
+   },
+   "@solid-primitives/props": {
+    "version": "4.0.0",
+    "modules": [
+     "@solid-primitives/props"
+    ]
+   },
+   "@solid-primitives/queue": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/queue"
+    ]
+   },
+   "@solid-primitives/raf": {
+    "version": "4.0.0",
+    "modules": [
+     "@solid-primitives/raf"
+    ]
+   },
+   "@solid-primitives/range": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/range"
+    ]
+   },
+   "@solid-primitives/refs": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/refs"
+    ]
+   },
+   "@solid-primitives/resize-observer": {
+    "version": "4.0.0",
+    "modules": [
+     "@solid-primitives/resize-observer"
+    ]
+   },
+   "@solid-primitives/rootless": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/rootless"
+    ]
+   },
+   "@solid-primitives/scheduled": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/scheduled"
+    ]
+   },
+   "@solid-primitives/script-loader": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/script-loader"
+    ]
+   },
+   "@solid-primitives/scroll": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/scroll"
+    ]
+   },
+   "@solid-primitives/selection": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/selection"
+    ]
+   },
+   "@solid-primitives/sensors": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/sensors"
+    ]
+   },
+   "@solid-primitives/set": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/set"
+    ]
+   },
+   "@solid-primitives/share": {
+    "version": "4.0.0",
+    "modules": [
+     "@solid-primitives/share"
+    ]
+   },
+   "@solid-primitives/signal-builders": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/signal-builders"
+    ]
+   },
+   "@solid-primitives/sortable": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/sortable"
+    ]
+   },
+   "@solid-primitives/spring": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/spring"
+    ]
+   },
+   "@solid-primitives/sse": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/sse",
+     "@solid-primitives/sse/worker",
+     "@solid-primitives/sse/worker-handler"
+    ]
+   },
+   "@solid-primitives/state-machine": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/state-machine"
+    ]
+   },
+   "@solid-primitives/static-store": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/static-store"
+    ]
+   },
+   "@solid-primitives/storage": {
+    "version": "5.0.0",
+    "modules": [
+     "@solid-primitives/storage",
+     "@solid-primitives/storage/tauri"
+    ]
+   },
+   "@solid-primitives/styles": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/styles"
+    ]
+   },
+   "@solid-primitives/timer": {
+    "version": "1.4.5",
+    "modules": [
+     "@solid-primitives/timer"
+    ]
+   },
+   "@solid-primitives/transition-group": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/transition-group"
+    ]
+   },
+   "@solid-primitives/trigger": {
+    "version": "3.0.0",
+    "modules": [
+     "@solid-primitives/trigger"
+    ]
+   },
+   "@solid-primitives/tween": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/tween"
+    ]
+   },
+   "@solid-primitives/upload": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/upload"
+    ]
+   },
+   "@solid-primitives/url": {
+    "version": "0.2.0",
+    "modules": [
+     "@solid-primitives/url"
+    ]
+   },
+   "@solid-primitives/utils": {
+    "version": "7.0.1",
+    "modules": [
+     "@solid-primitives/utils",
+     "@solid-primitives/utils/immutable",
+     "@solid-primitives/utils/colors"
+    ]
+   },
+   "@solid-primitives/vibrate": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/vibrate"
+    ]
+   },
+   "@solid-primitives/video": {
+    "version": "1.0.0",
+    "modules": [
+     "@solid-primitives/video"
+    ]
+   },
+   "@solid-primitives/virtual": {
+    "version": "1.0.1",
+    "modules": [
+     "@solid-primitives/virtual"
+    ]
+   },
+   "@solid-primitives/websocket": {
+    "version": "2.0.0",
+    "modules": [
+     "@solid-primitives/websocket"
+    ]
+   },
+   "@solid-primitives/workers": {
+    "version": "2.0.1",
+    "modules": [
+     "@solid-primitives/workers",
+     "@solid-primitives/workers/worker"
+    ]
+   }
+  },
+  "notOnSolid2": {
+   "@solid-primitives/autofocus": {
+    "version": "0.1.5",
+    "solid": "^1.6.12"
+   },
+   "@solid-primitives/composites": {
+    "version": "1.1.1",
+    "solid": "^1.3.1"
+   },
+   "@solid-primitives/cookies-store": {
+    "version": "1.1.11",
+    "solid": "^1.0.7"
+   },
+   "@solid-primitives/countdown": {
+    "version": "1.0.9",
+    "solid": "^1.2.5"
+   },
+   "@solid-primitives/db-store": {
+    "version": "1.1.4",
+    "solid": "^1.6.12"
+   },
+   "@solid-primitives/fetch": {
+    "version": "2.5.2",
+    "solid": "^1.6.12"
+   },
+   "@solid-primitives/immutable": {
+    "version": "1.1.5",
+    "solid": "^1.6.12"
+   },
+   "@solid-primitives/local-store": {
+    "version": "1.1.4",
+    "solid": "^1.0.7"
+   },
+   "@solid-primitives/page-visibility": {
+    "version": "2.1.6",
+    "solid": "^1.6.12"
+   },
+   "@solid-primitives/reducer": {
+    "version": "0.0.101",
+    "solid": "^1.3.0"
+   },
+   "@solid-primitives/resource": {
+    "version": "0.4.3",
+    "solid": "^1.6.0"
+   },
+   "@solid-primitives/stream": {
+    "version": "0.7.4",
+    "solid": "^1.6.12"
+   }
+  }
+ },
+ "solid-use": {
+  "about": "solid-use (lxsmnsyc): every module.",
+  "packages": {
+   "solid-use": {
+    "version": "1.0.0",
+    "modules": [
+     "solid-use/atom",
+     "solid-use/client-only",
+     "solid-use/fetch",
+     "solid-use/media-query",
+     "solid-use/online-status",
+     "solid-use/page-visibility",
+     "solid-use/props",
+     "solid-use/provider",
+     "solid-use/server-value",
+     "solid-use/string"
+    ],
+    "use": [
+     "solid-use/atom",
+     "solid-use/client-only",
+     "solid-use/fetch",
+     "solid-use/media-query",
+     "solid-use/online-status",
+     "solid-use/page-visibility",
+     "solid-use/props",
+     "solid-use/provider",
+     "solid-use/server-value",
+     "solid-use/string"
+    ]
+   }
+  }
+ },
+ "@wardic/solid": {
+  "about": "Wardic (Motion on Solid 2): every module is drafted; `use` is filled by the families the entries cover.",
+  "packages": {
+   "@wardic/solid": {
+    "version": "2.0.1",
+    "modules": [
+     "@wardic/solid",
+     "@wardic/solid/v1",
+     "@wardic/solid/unstable/v2"
+    ],
+    "use": [
+     "@wardic/solid"
+    ]
+   },
+   "@wardic/dom": {
+    "version": "1.2.0",
+    "modules": [
+     "@wardic/dom"
+    ],
+    "use": []
+   }
+  }
+ },
+ "@ui-sdk/solid": {
+  "about": "UI SDK for Solid (Vercel Labs): every module is drafted; `use` lists the component families a program must import.",
+  "packages": {
+   "@ui-sdk/solid": {
+    "version": "0.1.0-beta.13",
+    "modules": [
+     "@ui-sdk/solid",
+     "@ui-sdk/solid/accordion",
+     "@ui-sdk/solid/alert-dialog",
+     "@ui-sdk/solid/async-options",
+     "@ui-sdk/solid/autocomplete",
+     "@ui-sdk/solid/avatar",
+     "@ui-sdk/solid/button",
+     "@ui-sdk/solid/calendar",
+     "@ui-sdk/solid/carousel",
+     "@ui-sdk/solid/checkbox",
+     "@ui-sdk/solid/collapsible",
+     "@ui-sdk/solid/color",
+     "@ui-sdk/solid/color-picker",
+     "@ui-sdk/solid/combobox",
+     "@ui-sdk/solid/command",
+     "@ui-sdk/solid/date",
+     "@ui-sdk/solid/date-picker",
+     "@ui-sdk/solid/date-input",
+     "@ui-sdk/solid/dialog",
+     "@ui-sdk/solid/drawer",
+     "@ui-sdk/solid/field",
+     "@ui-sdk/solid/file-input",
+     "@ui-sdk/solid/gesture",
+     "@ui-sdk/solid/hover-card",
+     "@ui-sdk/solid/image",
+     "@ui-sdk/solid/image-cropper",
+     "@ui-sdk/solid/input",
+     "@ui-sdk/solid/label",
+     "@ui-sdk/solid/listbox",
+     "@ui-sdk/solid/menu",
+     "@ui-sdk/solid/menubar",
+     "@ui-sdk/solid/meter",
+     "@ui-sdk/solid/navigation-menu",
+     "@ui-sdk/solid/number",
+     "@ui-sdk/solid/number-input",
+     "@ui-sdk/solid/otp-input",
+     "@ui-sdk/solid/overlays",
+     "@ui-sdk/solid/pagination",
+     "@ui-sdk/solid/password-input",
+     "@ui-sdk/solid/popover",
+     "@ui-sdk/solid/primitive",
+     "@ui-sdk/solid/preferences",
+     "@ui-sdk/solid/progress",
+     "@ui-sdk/solid/radio",
+     "@ui-sdk/solid/rating",
+     "@ui-sdk/solid/resizable",
+     "@ui-sdk/solid/scroll-area",
+     "@ui-sdk/solid/segmented-control",
+     "@ui-sdk/solid/select",
+     "@ui-sdk/solid/separator",
+     "@ui-sdk/solid/shortcuts",
+     "@ui-sdk/solid/slider",
+     "@ui-sdk/solid/switch",
+     "@ui-sdk/solid/tabs",
+     "@ui-sdk/solid/text-match",
+     "@ui-sdk/solid/agent",
+     "@ui-sdk/solid/observe",
+     "@ui-sdk/solid/history",
+     "@ui-sdk/solid/textarea",
+     "@ui-sdk/solid/time-input",
+     "@ui-sdk/solid/timeline",
+     "@ui-sdk/solid/toast",
+     "@ui-sdk/solid/toggle",
+     "@ui-sdk/solid/token-input",
+     "@ui-sdk/solid/toolbar",
+     "@ui-sdk/solid/tooltip",
+     "@ui-sdk/solid/tree",
+     "@ui-sdk/solid/trigger-menu",
+     "@ui-sdk/solid/waterfall"
+    ],
+    "use": []
+   }
+  }
+ }
+}

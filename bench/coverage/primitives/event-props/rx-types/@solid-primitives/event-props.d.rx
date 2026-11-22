@@ -1,0 +1,6 @@
+//@ for @solid-primitives/event-props ^1.0.0
+export type EventNames = import("@solid-primitives/event-props").EventNames
+export type EventStore<Names extends HTMLEventName[]> = import("@solid-primitives/event-props").EventStore<Names>
+export type HTMLEventName = import("@solid-primitives/event-props").HTMLEventName
+export type EventProps<Names extends EventNames> = import("@solid-primitives/event-props").EventProps<Names>
+export pure fn createEventProps<Names extends EventNames>(...names: Names): [EventStore<Names>, EventProps<Names>] instantiates

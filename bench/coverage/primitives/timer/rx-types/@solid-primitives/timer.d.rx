@@ -1,0 +1,2 @@
+//@ for @solid-primitives/timer ^1.4.5
+export pure fn createPolled<T extends P, P = T>(fn_: (prev: P | Exclude<undefined, P>) => T, ref timeout: number | false, value?: never, options?: import("solid-js").SignalOptions<T>): ref T

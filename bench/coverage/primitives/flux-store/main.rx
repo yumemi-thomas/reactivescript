@@ -1,0 +1,8 @@
+// @solid-primitives/flux-store: a store with its getters and actions (counter.js writes the actions over Solid's store).
+import { createCounter } from "./counter.js"
+
+export default component App() {
+  counter = createCounter(1)
+  <p>{counter.state.count} doubled is {counter.getters.doubled()}</p>
+  <button onClick={() => { counter.actions.increment() }}>increment</button>
+}

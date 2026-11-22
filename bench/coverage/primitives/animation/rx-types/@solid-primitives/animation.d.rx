@@ -1,0 +1,2 @@
+//@ for @solid-primitives/animation ^1.0.1
+export pure fn createAnimate(ref target: Element | null | undefined, ref keyframes: Keyframe[] | PropertyIndexedKeyframes | null, ref options?: KeyframeAnimationOptions): ref Animation | undefined

@@ -1,0 +1,8 @@
+// @solid-primitives/script-loader: a script added to the page, its load heard.
+import { createScriptLoader } from "@solid-primitives/script-loader"
+
+export default component App() {
+  source loaded := false
+  script = createScriptLoader({ src: "https://widgets.test/widget.js", onLoad: () => { loaded := true } })
+  <p>{loaded ? "widget loaded" : "loading the widget"}</p>
+}

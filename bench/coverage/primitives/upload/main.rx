@@ -1,0 +1,8 @@
+// @solid-primitives/upload: files the user picks.
+import { createFilePicker } from "@solid-primitives/upload"
+
+export default component App() {
+  picker = createFilePicker({ accept: "image/*", multiple: true })
+  <p>{picker.files().length} files{picker.isLoading() ? ", reading" : ""}</p>
+  <button onClick={() => { picker.selectFiles() }}>choose</button>
+}

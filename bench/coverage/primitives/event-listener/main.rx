@@ -1,0 +1,9 @@
+// @solid-primitives/event-listener: a listener on an element ref.
+import { createEventListener } from "@solid-primitives/event-listener"
+
+export default component App() {
+  source box: HTMLButtonElement | undefined := undefined
+  source clicks := 0
+  heard = createEventListener(box, "click", () => { clicks := n => n + 1 })
+  <button ref={(el: HTMLButtonElement) => { box := el }}>clicked {clicks}</button>
+}

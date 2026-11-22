@@ -1,0 +1,5 @@
+//@ for @solid-primitives/analytics ^2.0.0
+export type AnalyticsPlugin = import("@solid-primitives/analytics").AnalyticsPlugin
+export type AnalyticsOptions = import("@solid-primitives/analytics").AnalyticsOptions
+export type ReactiveAnalyticsControls = import("@solid-primitives/analytics").ReactiveAnalyticsControls
+export pure fn createAnalytics(plugins: AnalyticsPlugin[], options?: AnalyticsOptions): ReactiveAnalyticsControls instantiates

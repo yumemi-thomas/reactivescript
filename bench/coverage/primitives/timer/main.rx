@@ -1,0 +1,7 @@
+// @solid-primitives/timer: a value computed again on an interval.
+import { createPolled } from "@solid-primitives/timer"
+
+export default component App() {
+  ticks = createPolled((prev: number | undefined) => (prev ?? 0) + 1, 50)
+  <p>tick {ticks}</p>
+}

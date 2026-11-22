@@ -1,0 +1,8 @@
+// @solid-primitives/date: the current date, updated on an interval or by hand.
+import { createDateNow } from "@solid-primitives/date"
+
+export default component App() {
+  [now, update] = createDateNow(false)
+  <p>{now.getFullYear() > 2000 ? "this century" : "long ago"}</p>
+  <button onClick={() => { update() }}>now</button>
+}

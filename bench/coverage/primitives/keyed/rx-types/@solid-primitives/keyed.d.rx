@@ -1,0 +1,2 @@
+//@ for @solid-primitives/keyed ^3.0.0
+export component Key<T>(props: { each?: false | readonly T[] | null | undefined; by: keyof T | ((v: T) => any); fallback?: View; children: (v: import("solid-js").Accessor<T>, i: import("solid-js").Accessor<number>) => View })

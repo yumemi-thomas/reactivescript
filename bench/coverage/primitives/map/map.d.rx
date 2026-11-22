@@ -1,0 +1,2 @@
+// map.js constructs the library's class. By hand: every word (the module is the app's own).
+export pure fn makeMap<K, V>(initial?: [K, V][]): import("@solid-primitives/map").ReactiveMap<K, V> instantiates

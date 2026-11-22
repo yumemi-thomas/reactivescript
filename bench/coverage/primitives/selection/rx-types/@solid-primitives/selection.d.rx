@@ -1,0 +1,3 @@
+//@ for @solid-primitives/selection ^1.0.0
+export type HTMLSelection = import("@solid-primitives/selection").HTMLSelection
+export pure fn createSelection(): [ref HTMLSelection, (...args: Parameters<import("solid-js").Setter<HTMLSelection>>) => ReturnType<import("solid-js").Setter<HTMLSelection>>]

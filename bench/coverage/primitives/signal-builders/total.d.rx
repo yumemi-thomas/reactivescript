@@ -1,0 +1,2 @@
+// By hand: every word (the module is the app's own).
+export pure fn createTotal(ref price: number, tax: number): ref number

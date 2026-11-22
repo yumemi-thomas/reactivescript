@@ -1,0 +1,8 @@
+// @solid-primitives/cursor: the body's cursor follows a value.
+import { createBodyCursor } from "@solid-primitives/cursor"
+
+export default component App() {
+  source busy := false
+  cursor = createBodyCursor(busy && "wait")
+  <button onClick={() => { busy := b => !b }}>{busy ? "working" : "idle"}</button>
+}

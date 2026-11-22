@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkg: "@solid-primitives/websocket", title: "a websocket and its state: one primitive's result given to another", ssr: false, server: "createWS opens a WebSocket where it is called: on the server it would connect from the server, and the package has no server path", before: async page => { await page.routeWebSocket(/echo\.test/, ws => { ws.onMessage(m => ws.send(m)); }); }, dom: /socket open/ });

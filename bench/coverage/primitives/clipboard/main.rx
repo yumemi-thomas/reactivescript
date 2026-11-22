@@ -1,0 +1,16 @@
+// @solid-primitives/clipboard: text written to the clipboard by an action.
+import { writeClipboard } from "@solid-primitives/clipboard"
+
+export default component App() {
+  source state := "ready"
+  action copy() {
+    try {
+      await writeClipboard("copied by rx")
+      state := "copied"
+    } catch (e) {
+      state := "refused"
+    }
+  }
+  <p>{state}</p>
+  <button onClick={copy}>copy</button>
+}

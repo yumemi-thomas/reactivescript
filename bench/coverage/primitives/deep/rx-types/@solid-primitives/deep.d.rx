@@ -1,0 +1,2 @@
+//@ for @solid-primitives/deep ^1.0.0
+export pure fn trackDeep<T extends import("solid-js").Store<object>>(store: T): T

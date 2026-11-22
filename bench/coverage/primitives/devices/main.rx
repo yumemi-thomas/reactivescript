@@ -1,0 +1,7 @@
+// @solid-primitives/devices: the media devices the browser lists.
+import { createDevices } from "@solid-primitives/devices"
+
+export default component App() {
+  devices = createDevices()
+  <p>{devices.length} devices</p>
+}

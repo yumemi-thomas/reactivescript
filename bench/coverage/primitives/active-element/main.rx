@@ -1,0 +1,8 @@
+// @solid-primitives/active-element: the document's focused element as a value.
+import { createActiveElement } from "@solid-primitives/active-element"
+
+export default component App() {
+  active = createActiveElement()
+  <input class="name" />
+  <p>focus is on {active ? active.tagName.toLowerCase() : "nothing"}</p>
+}

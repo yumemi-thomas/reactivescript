@@ -1,0 +1,8 @@
+// @solid-primitives/mutable: an object changed in place and followed (cart.js holds the changes).
+import { createCart, add } from "./cart.js"
+
+export default component App() {
+  cart = createCart()
+  <p>{cart.count} in the cart</p>
+  <button onClick={() => { add(cart) }}>add</button>
+}

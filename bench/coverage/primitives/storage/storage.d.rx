@@ -1,0 +1,2 @@
+// storage.js makes the signal that makePersisted keeps. By hand: every word (the module is the app's own).
+export pure fn persisted(init: string, options: { name: string }): [ref string, (value: string) => void]

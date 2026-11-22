@@ -1,0 +1,10 @@
+// @solid-primitives/list-state: the active item of a list, moved by the keyboard.
+import { createListState } from "@solid-primitives/list-state"
+
+export default component App() {
+  list = createListState({ items: ["one", "two", "three"], initialActive: "one" })
+  <ul class="list" tabindex="0" onKeyDown={(event: KeyboardEvent) => { list.onKeyDown(event) }}>
+    <li>active: {list.active ?? "none"}</li>
+  </ul>
+  <button onClick={() => { list.setActive("three") }}>last</button>
+}

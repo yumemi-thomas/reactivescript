@@ -1,0 +1,7 @@
+// @solid-primitives/sensors: the battery's reading, where the browser has one.
+import { createBattery } from "@solid-primitives/sensors"
+
+export default component App() {
+  battery = createBattery()
+  <p>battery: {battery ? battery.level : "unknown"}</p>
+}

@@ -1,0 +1,8 @@
+// @solid-primitives/favicon: the page's icon follows a value.
+import { createFavicon } from "@solid-primitives/favicon"
+
+export default component App() {
+  source unread := 0
+  icon = createFavicon(unread > 0 ? "/unread.ico" : "/idle.ico")
+  <button onClick={() => { unread := n => n + 1 }}>{unread} unread</button>
+}

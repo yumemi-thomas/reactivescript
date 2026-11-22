@@ -1,0 +1,7 @@
+// @solid-primitives/pointer: the last pointer's position and state.
+import { createPointerPosition } from "@solid-primitives/pointer"
+
+export default component App() {
+  p = createPointerPosition()
+  <p>{p.x}, {p.y} {p.isActive ? "over the page" : "away"}</p>
+}

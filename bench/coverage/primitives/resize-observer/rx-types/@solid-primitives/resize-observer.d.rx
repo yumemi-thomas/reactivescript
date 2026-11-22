@@ -1,0 +1,3 @@
+//@ for @solid-primitives/resize-observer ^4.0.0
+export type Size = import("@solid-primitives/resize-observer").Size
+export pure fn createWindowSize(): Readonly<Size> instantiates

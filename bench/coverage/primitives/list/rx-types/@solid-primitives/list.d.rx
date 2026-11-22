@@ -1,0 +1,2 @@
+//@ for @solid-primitives/list ^1.0.0
+export component List<T extends readonly any[]>(props: { each: T | undefined | null | false; fallback?: View; keyed: (item: T[number]) => any; recycle?: boolean; children: (item: import("solid-js").Accessor<T[number]>, index: import("solid-js").Accessor<number>) => View })

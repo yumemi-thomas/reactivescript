@@ -1,0 +1,3 @@
+//@ for @solid-primitives/masonry ^2.0.0
+export type MasonryItemData<T> = import("@solid-primitives/masonry").MasonryItemData<T>
+export pure fn createMasonry<TSource, TElement>(options: { source: () => false | readonly TSource[] | null | undefined; columns: import("@solid-primitives/utils").MaybeAccessor<number>; mapHeight: (item: TSource) => import("@solid-primitives/utils").MaybeAccessor<number>; mapElement: (data: MasonryItemData<TSource>, index: import("solid-js").Accessor<number>) => TElement }): import("solid-js").Accessor<TElement[]> & { height: import("solid-js").Accessor<number> } instantiates

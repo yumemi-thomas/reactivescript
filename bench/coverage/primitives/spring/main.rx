@@ -1,0 +1,8 @@
+// @solid-primitives/spring: a value on a spring, set from a handler.
+import { createSpring } from "@solid-primitives/spring"
+
+export default component App() {
+  [x, setX] = createSpring(0)
+  <p>{x == 0 ? "at rest" : x == 10 ? "arrived" : "moving"}</p>
+  <button onClick={() => { setX(10) }}>go</button>
+}

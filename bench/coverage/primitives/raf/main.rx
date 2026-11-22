@@ -1,0 +1,10 @@
+// @solid-primitives/raf: a callback on every animation frame, started and stopped from handlers.
+import { createRAF } from "@solid-primitives/raf"
+
+export default component App() {
+  source frames := 0
+  [running, start, stop] = createRAF((time: number) => { frames := n => n + 1 })
+  <p>{running ? "running" : "stopped"}, {frames > 0 ? "frames drawn" : "no frame yet"}</p>
+  <button class="start" onClick={() => { start() }}>start</button>
+  <button class="stop" onClick={() => { stop() }}>stop</button>
+}

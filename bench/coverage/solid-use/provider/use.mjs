@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkgs: [], title: "provide and inject, declared as a context of a module of the app's own", ssr: /dark/, dom: /dark/, pkg: "solid-use", modules: ["solid-use/provider"], note: "a JS module of the app's own: `provide(context, value)` is a call made for what it does while a component is made, which has no place in an `.rx` component\'s body" });

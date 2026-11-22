@@ -1,0 +1,10 @@
+// @solid-primitives/pagination: the page of a list that is shown.
+import { createSegment } from "@solid-primitives/pagination"
+
+export default component App() {
+  source page := 1
+  source items := ["a", "b", "c", "d", "e"]
+  shown = createSegment(items, 2, page)
+  <p>{shown.join(",")}</p>
+  <button onClick={() => { page := p => p + 1 }}>next</button>
+}

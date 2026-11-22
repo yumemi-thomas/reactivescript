@@ -1,0 +1,9 @@
+// @solid-primitives/set: a Set whose reads are tracked. The library's export is a class, which a module of the
+// app's own constructs (set.js).
+import { makeSet } from "./set.js"
+
+export default component App() {
+  tags = makeSet<string>(["solid"])
+  <p>{tags.size} tags{tags.has("rx") ? ", rx among them" : ""}</p>
+  <button onClick={() => { tags.add("rx") }}>add</button>
+}

@@ -1,0 +1,9 @@
+// solid-use/fetch: a request whose answer the view waits for (fetch.js asks for the JSON).
+import { createJson } from "./fetch.js"
+
+export default component App() {
+  user = createJson("https://api.test/user")
+  errored fallback (e) { <p>the request failed</p> } {
+    loading fallback { <p>loading</p> } { <p>hello {user.name}</p> }
+  }
+}

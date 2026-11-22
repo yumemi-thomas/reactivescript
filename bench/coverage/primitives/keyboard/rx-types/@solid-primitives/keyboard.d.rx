@@ -1,0 +1,4 @@
+//@ for @solid-primitives/keyboard ^2.0.0
+export type KbdKey = import("@solid-primitives/keyboard").KbdKey
+export pure fn useKeyDownList(): ref string[]
+export pure fn createShortcut(keys: KbdKey[], callback: handler (event: KeyboardEvent | null) => void, options?: { preventDefault?: boolean | undefined; requireReset?: boolean | undefined; ignoreWithinInputs?: boolean | undefined; anyOrder?: boolean | undefined; }): void instantiates

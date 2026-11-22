@@ -1,0 +1,4 @@
+//@ for @solid-primitives/video ^1.0.0
+export type VideoSource = import("@solid-primitives/video").VideoSource
+export type VideoOptions = import("@solid-primitives/video").VideoOptions
+export pure fn createVideo(ref src: VideoSource, options?: VideoOptions): { player: HTMLVideoElement; playing: ref boolean; setPlaying: (v: boolean) => void; currentTime: ref number; seek: (time: number) => void; ended: ref boolean; seeking: ref boolean; error: ref MediaError | null; duration: ref number }

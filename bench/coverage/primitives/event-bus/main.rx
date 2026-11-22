@@ -1,0 +1,12 @@
+// @solid-primitives/event-bus: a bus the component listens to and handlers emit on.
+import { createEventBus } from "@solid-primitives/event-bus"
+
+export default component App() {
+  source last := "nothing yet"
+  bus = createEventBus<string>()
+  effect () {
+    return bus.listen((message: string) => { last := message })
+  }
+  <p>heard: {last}</p>
+  <button onClick={() => { bus.emit("hello") }}>say hello</button>
+}

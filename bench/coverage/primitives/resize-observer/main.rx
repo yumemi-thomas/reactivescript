@@ -1,0 +1,7 @@
+// @solid-primitives/resize-observer: the window's size, and an element's.
+import { createWindowSize } from "@solid-primitives/resize-observer"
+
+export default component App() {
+  size = createWindowSize()
+  <p>{size.width} by {size.height}</p>
+}

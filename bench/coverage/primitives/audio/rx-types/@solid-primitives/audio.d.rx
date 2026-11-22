@@ -1,0 +1,3 @@
+//@ for @solid-primitives/audio ^3.0.0
+export type AudioSource = import("@solid-primitives/audio").AudioSource
+export pure fn createAudio(ref src: AudioSource): { player: HTMLAudioElement; playing: ref boolean; setPlaying: (v: boolean) => void; volume: ref number; setVolume: (v: number) => void; currentTime: ref number; duration: ref number; seek: (time: number) => void }

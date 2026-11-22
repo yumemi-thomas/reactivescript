@@ -1,0 +1,7 @@
+// @solid-primitives/orientation: the screen's orientation.
+import { createOrientation } from "@solid-primitives/orientation"
+
+export default component App() {
+  o = createOrientation()
+  <p>{o.type} at {o.angle}</p>
+}

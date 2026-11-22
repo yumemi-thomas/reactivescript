@@ -1,0 +1,2 @@
+//@ for @solid-primitives/gestures ^3.0.0
+export pure fn tap(props: { callback: handler (position: { x: number; y: number; }) => void; minimumTapLength?: number; maximumTapLength?: number }): ((node: HTMLElement) => void)

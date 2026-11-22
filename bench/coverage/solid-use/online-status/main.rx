@@ -1,0 +1,7 @@
+// solid-use/online-status: online, or offline, as a value (status.js names the module's default export).
+import { useOnlineStatus } from "./status.js"
+
+export default component App() {
+  status = useOnlineStatus()
+  <p>{status ? "online" : "offline"}</p>
+}

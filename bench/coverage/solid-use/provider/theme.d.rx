@@ -1,0 +1,4 @@
+// By hand: every word (the module is the app's own).
+export context theme
+export component ThemeScope(props: { value: string; children?: View }) provides(theme)
+export pure fn useTheme(): string uses(theme)

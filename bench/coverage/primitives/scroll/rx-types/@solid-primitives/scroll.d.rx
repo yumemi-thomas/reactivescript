@@ -1,0 +1,3 @@
+//@ for @solid-primitives/scroll ^3.0.0
+export type Position = import("@solid-primitives/scroll").Position
+export pure fn createScrollPosition(ref target?: Element | Window | undefined): Readonly<Position>

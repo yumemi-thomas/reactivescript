@@ -1,0 +1,9 @@
+// @solid-primitives/queue: a queue whose head and size are followed.
+import { createQueue } from "@solid-primitives/queue"
+
+export default component App() {
+  jobs = createQueue<string>(["first"])
+  <p>{jobs.size} waiting, next: {jobs.first ?? "nothing"}</p>
+  <button class="add" onClick={() => { jobs.add("second") }}>add</button>
+  <button class="take" onClick={() => { jobs.remove() }}>take</button>
+}

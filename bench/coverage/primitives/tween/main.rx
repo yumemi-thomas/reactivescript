@@ -1,0 +1,9 @@
+// @solid-primitives/tween: a number that eases towards a target.
+import { createTween } from "@solid-primitives/tween"
+
+export default component App() {
+  source target := 0
+  value = createTween(target, { duration: 120 })
+  <p>at {value}</p>
+  <button onClick={() => { target := 100 }}>go</button>
+}

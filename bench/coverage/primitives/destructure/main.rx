@@ -1,0 +1,10 @@
+// @solid-primitives/destructure: an object's fields as accessors (fields.js). `.rx` reads a prop where it is used, so
+// the program needs none of it; a module of the app's own shows it working.
+import { createName } from "./fields.js"
+
+export default component App() {
+  source person := { first: "Ada", last: "Lovelace" }
+  name = createName(person)
+  <p>{name.first} {name.last}</p>
+  <button onClick={() => { person.first := "Augusta" }}>rename</button>
+}

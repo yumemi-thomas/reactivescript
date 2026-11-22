@@ -1,0 +1,8 @@
+// @solid-primitives/storage: a signal kept in localStorage (storage.js makes the signal the library persists).
+import { persisted } from "./storage.js"
+
+export default component App() {
+  [name, setName] = persisted("anonymous", { name: "rx-name" })
+  <p>hello {name}</p>
+  <button onClick={() => { setName("Ada") }}>sign in</button>
+}

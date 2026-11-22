@@ -1,0 +1,8 @@
+// @solid-primitives/filesystem: a file system whose reads are followed, here over an object in memory.
+import { createFileSystem, makeVirtualFileSystem } from "@solid-primitives/filesystem"
+
+export default component App() {
+  fs = createFileSystem(makeVirtualFileSystem({ "notes.txt": "first draft" }))
+  <p>{fs.readFile("notes.txt")}</p>
+  <button onClick={() => { fs.writeFile("notes.txt", "second draft") }}>edit</button>
+}

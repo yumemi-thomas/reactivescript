@@ -21,7 +21,8 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
-import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, onEdit } from "./harness.mjs";
+import { runCoverage } from "./coverage.mjs";
+import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, draftOf, onEdit } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
  *  it, and the habits it names), or a name resolves to nothing. */
@@ -30,12 +31,14 @@ const UNWRITABLE = new Set(["PARSE", "ASSIGNMENT", "UNBOUND", "UNKNOWN_COMPONENT
 const args = process.argv.slice(2);
 const flag = f => args.includes(f);
 const one = args.includes("--task") ? args[args.indexOf("--task") + 1] : null;
+const cover = args.includes("--cover") ? args[args.indexOf("--cover") + 1] : null;   // one coverage entry, `<group>/<name>` (bench/coverage.mjs)
 
 /** One task, in this process: `{ id, title, good, types, runtime, bad, unrep }`, each `{ pass, total, fails: [text] }`,
  *  and `decl`: `{ words, any, files }` (harness.mjs, declarations). */
-async function runTask(id) {
-  const task = (await import(pathToFileURL(path.join(here, "tasks", id, "task.mjs")).href)).default;
-  const dir = stage(id);
+async function runTask(id, entry) {
+  // a coverage entry (bench/coverage/<group>/<name>: its `use.mjs` beside its program) is judged as a task is
+  const task = (await import(pathToFileURL(entry ? path.join(here, "coverage", entry, "use.mjs") : path.join(here, "tasks", id, "task.mjs")).href)).default;
+  const dir = entry ? stage(id, path.join(here, "coverage", entry)) : stage(id);
   if (task.prepare) await task.prepare(dir);
   const cell = () => ({ pass: 0, total: 0, fails: [], notes: [] });
   const res = { id, title: task.title, good: cell(), types: cell(), runtime: cell(), bad: cell(), unrep: cell(), decl: { words: 0, any: 0, inherited: 0, introduced: 0, places: 0, files: [] }, known: task.known ?? {} };
@@ -57,6 +60,9 @@ async function runTask(id) {
 
   // the declarations, against rx-declare's draft of the same modules (before anything is edited)
   try { res.decl = declarations(dir, task.declare ?? {}); } catch (e) { res.decl = { words: 0, any: 0, inherited: 0, introduced: 0, places: 0, files: [], error: String(e.message ?? e) }; }
+  // a coverage entry: each module of its packages drafted whole (09 MO-8q), whether its program imports it or not
+  if (task.modules) res.modules = task.modules.map(spec => { const w = draftOf(spec, dir, (task.declare ?? {})[spec] ?? []).whole; return { spec, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; });
+  if (entry) Object.assign(res, { entry, pkgs: task.pkgs ?? [], uses: task.uses ?? [], server: task.server, hydrates: task.hydrates, note: task.note });
 
   // (b) TYPES: rx-tsc is clean with the library's own types, the program wrote no `any`, and each probe — a mistake
   // only the library's real type refuses — is refused by TypeScript, on the line the probe wrote
@@ -142,11 +148,18 @@ if (one) {
   process.exit(0);
 }
 
+if (cover) {
+  const id = `cover-${cover.replaceAll("/", "-")}`;
+  const r = await runTask(id, cover).catch(e => ({ id, entry: cover, crash: e.stack ?? String(e) }));
+  writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify(r));
+  process.exit(0);
+}
+
 workspace();
 const filters = args.filter(a => !a.startsWith("--"));
 const ids = readdirSync(path.join(here, "tasks"), { withFileTypes: true }).filter(e => e.isDirectory() && existsSync(path.join(here, "tasks", e.name, "task.mjs"))).map(e => e.name).sort().filter(id => !filters.length || filters.some(f => id.includes(f)));
 const results = [];
-for (const id of ids) {
+for (const id of flag("--coverage-only") ? [] : ids) {
   const out = path.join(ws, "tasks", `${id}.result.json`);
   const r = spawnSync(process.execPath, [path.join(here, "run.mjs"), "--task", id], { stdio: ["ignore", "inherit", "inherit"], timeout: 600000 });
   let res; try { res = JSON.parse(readFileSync(out, "utf8")); } catch { res = { id, crash: `no result (exit ${r.status}${r.signal ? `, ${r.signal}` : ""})` }; }
@@ -202,8 +215,11 @@ const wholeCard = wholeFiles.length ? `\n\nWhole drafts (09 MO-8q: every export 
 const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green.") + (declLines.length ? `\n\nDeclarations (words written by hand over rx-declare's draft; \`any\`s the library's own declaration has, and \`any\`s written where it has a type; parts said by place):\n${declLines.join("\n")}` : "") + `\n\nIntroduced \`any\`s (09 MO-8q: none, or on bench/any-allowlist.json):${allowLines.length ? `\n${allowLines.join("\n")}` : " none"}`;
 console.log("\n" + card + wholeCard);
 
+// the coverage suite (bench/coverage.mjs): every package of the libraries it lists, drafted whole and used once
+const coverage = flag("--tasks-only") ? { problems: [] } : await runCoverage({ filters, check: flag("--check"), strict: flag("--strict"), write: flag("--write") });
+
 const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places, draft: r.decl.draft } }]));
-if (flag("--write")) {
+if (flag("--write") && !flag("--coverage-only")) {
   writeFileSync(path.join(here, "scorecard.json"), JSON.stringify(snapshot, null, 2) + "\n");
   writeFileSync(path.join(here, "scorecard.txt"), (card + wholeCard).replaceAll(ws, "bench/.out/ws") + "\n");
 }
@@ -233,6 +249,7 @@ if (flag("--check")) {
   for (const x of wholeRows) { if (!x.entry) problems.push(`${x.id} · whole draft of ${x.spec} · ${x.name}: ${x.introduced} \`any\` the draft wrote where the library has a type (09 MO-8q; ${x.causes.join(", ")}): fix rx-declare, or add it to bench/any-allowlist.json (\`draft\`: the module) with the reason and what blocks naming it`); else if (x.introduced > x.entry.count) problems.push(`${x.id} · whole draft of ${x.spec} · ${x.name}: ${x.introduced} introduced \`any\`s, ${x.entry.count} allowed in bench/any-allowlist.json`); }
   if (!filters.length) for (const a of allowDrafts) if (!wholeRows.some(x => x.entry === a)) problems.push(`bench/any-allowlist.json: ${a.task} · whole draft of ${a.draft} · ${a.name} holds no introduced \`any\` now (remove the entry)`);
   if (!filters.length) for (const a of allow) if (!introducedRows.some(x => x.entry === a)) problems.push(`bench/any-allowlist.json: ${a.task}/${a.file} · ${a.name} holds no introduced \`any\` now (remove the entry)`);
+  problems.push(...coverage.problems);
   if (problems.length) { console.log(`\n--check: ${problems.length} problem(s)\n${problems.map(p => `  ${p}`).join("\n")}`); exit = 1; } else console.log("\n--check: as bench/scorecard.json, or better; every failure is a documented one");
 }
 process.exit(exit);

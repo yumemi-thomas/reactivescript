@@ -1,0 +1,8 @@
+// @solid-primitives/websocket: a socket's state as a value.
+import { createWS, createWSState } from "@solid-primitives/websocket"
+
+export default component App() {
+  socket = createWS("ws://echo.test/socket")
+  state = createWSState(socket)
+  <p>socket {state == 0 ? "connecting" : state == 1 ? "open" : "closed"}</p>
+}

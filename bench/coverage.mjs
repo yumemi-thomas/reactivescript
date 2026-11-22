@@ -1,0 +1,119 @@
+// The coverage suite (bench/README.md): where a task is one job with its mistakes, an entry here is one package used
+// once — every package of the libraries bench/coverage/libraries.json lists, so that "the ecosystem" is a list that is
+// held and not a sample. For each: every module the package exports is drafted whole by `rx-declare` (09 MO-8q: no
+// `any` of the draft's own), and a program that uses it as its documentation does is accepted by both checkers, typed
+// by the library's own types and run (rendered on the server where the package is server-safe, and in Chromium).
+// bench/run.mjs runs it after the tasks; `--check` holds bench/coverage/coverage.json as it holds the scorecard.
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
+import { here, ws } from "./harness.mjs";
+
+const root = path.join(here, "coverage");
+/** Every entry, `<group>/<name>`: a folder with a `use.mjs`. */
+export function entries() {
+  const out = [];
+  for (const g of readdirSync(root, { withFileTypes: true })) if (g.isDirectory()) for (const n of readdirSync(path.join(root, g.name), { withFileTypes: true })) if (n.isDirectory() && existsSync(path.join(root, g.name, n.name, "use.mjs"))) out.push(`${g.name}/${n.name}`);
+  return out.sort();
+}
+const one = entry => new Promise(res => {
+  const id = `cover-${entry.replaceAll("/", "-")}`;
+  const c = spawn(process.execPath, [path.join(here, "run.mjs"), "--cover", entry], { stdio: ["ignore", "ignore", "pipe"] });
+  let err = ""; c.stderr.on("data", d => { err += d; });
+  const timer = setTimeout(() => c.kill("SIGKILL"), 600000);
+  c.on("close", (code, signal) => { clearTimeout(timer); try { res(JSON.parse(readFileSync(path.join(ws, "tasks", `${id}.result.json`), "utf8"))); } catch { res({ id, entry, crash: `no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}` }); } });
+});
+const cols = [["good", "accepted"], ["types", "types"], ["runtime", "runs"]];
+
+export async function runCoverage({ filters = [], check = false, strict = false, write = false } = {}) {
+  const all = entries();
+  const ids = all.filter(id => !filters.length || filters.some(f => id.includes(f) || `cover-${id.replaceAll("/", "-")}`.includes(f)));
+  if (!ids.length) return { problems: [] };
+  // entries are independent programs in folders of their own: several at once
+  const results = new Array(ids.length); let next = 0;
+  const workers = Math.max(1, Math.min(Number(process.env.BENCH_JOBS) || Math.min(8, os.cpus().length - 1), ids.length));
+  await Promise.all(Array.from({ length: workers }, async () => { while (next < ids.length) { const i = next++; results[i] = await one(ids[i]); if (process.env.VERBOSE) console.error(`  coverage ${ids[i]}: ${results[i].crash ? "CRASHED" : cols.map(([k]) => `${results[i][k].pass}/${results[i][k].total}`).join(" ")}`); } }));
+
+  const libs = JSON.parse(readFileSync(path.join(root, "libraries.json"), "utf8"));
+  const version = pkg => { try { return JSON.parse(readFileSync(path.join(ws, "node_modules", pkg, "package.json"), "utf8")).version; } catch { return "?"; } };
+  const ok = r => !r.crash && cols.every(([k]) => r[k].pass === r[k].total);
+  const cell = c => !c || !c.total ? "—" : `${c.pass}/${c.total}`;
+  // ---- the table: a row a module, with the entry whose program imports it ----
+  const rows = [];
+  for (const r of results) {
+    if (r.crash) { rows.push({ group: r.entry.split("/")[0], spec: `(${r.entry})`, crash: r.crash, entry: r.entry }); continue; }
+    for (const m of r.modules ?? []) rows.push({ group: r.entry.split("/")[0], spec: m.spec, version: version(r.pkgs.find(p => m.spec === p || m.spec.startsWith(p + "/")) ?? m.spec), ...m, used: r.uses.includes(m.spec), entry: r.entry, words: r.decl.words, inherited: r.decl.inherited, kept: r.decl.introduced, keptPlaces: r.decl.places, good: cell(r.good), types: cell(r.types), runtime: cell(r.runtime), green: ok(r), server: r.server === true });
+  }
+  const lines = [];
+  const head = ["module", "version", "rows drafted", "`any` library's", "introduced", "by place", "used by", "hand words", "accepted", "types", "runs", "server"];
+  const table = rs => {
+    const data = rs.map(x => x.crash ? [x.spec, "CRASHED", "", "", "", "", "", "", "", "", "", ""] : [x.spec, x.version, x.drafted ? String(x.rows) : "no draft", String(x.vendor), String(x.introduced), String(x.places), x.used ? x.entry : `— (${x.entry})`, x.used ? String(x.words) : "", x.used ? x.good : "", x.used ? x.types : "", x.used ? x.runtime : "", x.used ? (x.server ? "yes" : "no") : ""]);
+    const w = head.map((h, i) => Math.max(h.length, ...data.map(d => d[i].length)));
+    return [head.map((h, i) => h.padEnd(w[i])).join("  "), w.map(n => "-".repeat(n)).join("  "), ...data.map(d => d.map((c, i) => c.padEnd(w[i])).join("  "))];
+  };
+  const groups = [...new Set(rows.map(x => x.group))];
+  const sum = (rs, k) => rs.reduce((n, x) => n + (Number(x[k]) || 0), 0);
+  for (const g of groups) {
+    const rs = rows.filter(x => x.group === g); const es = results.filter(r => r.entry.split("/")[0] === g);
+    lines.push(`\n${g}: ${rs.length} modules drafted (${sum(rs, "rows")} rows, ${sum(rs, "vendor")} \`any\` the libraries' own, ${sum(rs, "introduced")} introduced, ${sum(rs, "places")} by place); ${es.length} programs, ${es.filter(ok).length} green; ${es.reduce((n, r) => n + (r.crash ? 0 : r.decl.words), 0)} hand-written words`);
+    lines.push(...table(rs).map(l => `  ${l}`));
+  }
+  const failing = [];
+  for (const r of results) {
+    if (r.crash) { failing.push(`${r.entry}: crashed\n    ${r.crash}`); continue; }
+    for (const [k, t] of cols) for (const f of r[k].fails) { const reason = Object.entries(r.known ?? {}).find(([n]) => f.split(" — ")[0].includes(n))?.[1]; failing.push(`${r.entry} · ${t} · ${f}${reason ? `\n    known: ${reason}` : ""}`); }
+    for (const m of r.modules ?? []) { if (!m.drafted) failing.push(`${r.entry} · ${m.spec}: rx-declare drafted nothing${m.error ? ` — ${m.error}` : ""}`); for (const x of m.introducedRows ?? []) failing.push(`${r.entry} · whole draft of ${m.spec} · ${x.name}: ${x.introduced} \`any\` the draft wrote where the library has a type (${x.causes.join(", ")})`); }
+  }
+  const off = Object.entries(libs).flatMap(([lib, l]) => Object.entries(l.notOnSolid2 ?? {}).map(([n, v]) => `${n}@${v.version} (solid-js ${v.solid})`));
+  const total = `Coverage: ${results.length} programs, ${results.filter(ok).length} green; ${rows.filter(x => !x.crash).length} modules drafted whole (${sum(rows, "rows")} rows): ${sum(rows, "vendor")} \`any\` the libraries' own, ${sum(rows, "introduced")} introduced, ${sum(rows, "places")} by place; ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.words), 0)} hand-written words, ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.inherited), 0)} \`any\` inherited and ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.introduced), 0)} introduced in the kept rows, ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.places), 0)} by place`;
+  const card = `${total}\n${lines.join("\n")}${failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green."}${off.length ? `\n\nNot on Solid 2, and not tested (the latest release's peer range): ${off.join(", ")}` : ""}`;
+  console.log("\n" + card);
+
+  const snapshot = Object.fromEntries(results.map(r => [r.entry, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), server: r.server === true, uses: r.uses, decl: { words: r.decl.words, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places }, modules: Object.fromEntries((r.modules ?? []).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places }])) }]));
+  if (write && !filters.length) {
+    writeFileSync(path.join(root, "coverage.json"), JSON.stringify(snapshot, null, 1) + "\n");
+    writeFileSync(path.join(root, "coverage.txt"), card.replaceAll(ws, "bench/.out/ws") + "\n");
+  }
+  const problems = [];
+  if (check) {
+    const was = existsSync(path.join(root, "coverage.json")) ? JSON.parse(readFileSync(path.join(root, "coverage.json"), "utf8")) : {};
+    const allow = JSON.parse(readFileSync(path.join(here, "any-allowlist.json"), "utf8")).allow.filter(a => a.cover);
+    for (const r of results) {
+      const old = was[r.entry];
+      if (r.crash) { problems.push(`coverage ${r.entry}: crashed — ${r.crash}`); continue; }
+      for (const [k, t] of cols) for (const f of r[k].fails) {
+        const name = f.split(" — ")[0];
+        if (old && !old[k]?.fails.includes(name)) problems.push(`coverage ${r.entry} · ${t} · ${name}: was green in bench/coverage/coverage.json`);
+        else if (strict && !Object.keys(r.known ?? {}).some(n => name.includes(n))) problems.push(`coverage ${r.entry} · ${t} · ${name}: fails, and the entry's \`known\` gives no reason for it`);
+      }
+      for (const k of ["words", "any", "inherited", "introduced", "places"]) if (old?.decl && r.decl[k] > old.decl[k]) problems.push(`coverage ${r.entry} · ${k} in its .d.rx: ${r.decl[k]}, was ${old.decl[k]} in bench/coverage/coverage.json`);
+      // 09 MO-8q: no `any` of its own in a kept row, nor in a whole draft, unless bench/any-allowlist.json names it
+      for (const f of r.decl.files) for (const x of f.rows) if (!allow.some(a => a.cover === r.entry && a.file === f.file && a.name === x.name && x.introduced <= a.count)) problems.push(`coverage ${r.entry}/${f.file} · ${x.name}: ${x.introduced} \`any\` written where the library has a type (09 MO-8q)`);
+      for (const m of r.modules ?? []) {
+        if (!m.drafted) problems.push(`coverage ${r.entry} · ${m.spec}: rx-declare drafted nothing${m.error ? ` (${m.error})` : ""}`);
+        for (const x of m.introducedRows ?? []) if (!allow.some(a => a.cover === r.entry && a.draft === m.spec && a.name === x.name && x.introduced <= a.count)) problems.push(`coverage ${r.entry} · whole draft of ${m.spec} · ${x.name}: ${x.introduced} \`any\` the draft wrote where the library has a type (09 MO-8q; ${x.causes.join(", ")}): fix rx-declare, or add it to bench/any-allowlist.json (\`cover\`: the entry, \`draft\`: the module)`);
+        const o = old?.modules?.[m.spec]; if (o && m.places > o.places) problems.push(`coverage ${r.entry} · whole draft of ${m.spec}: ${m.places} parts by place, was ${o.places} in bench/coverage/coverage.json`);
+      }
+    }
+    if (!filters.length) {
+      // the list is held: every module the libraries list is drafted by an entry, and every one that must be used is
+      // imported by an entry's program; a package named "not on Solid 2" still is not (its installed peer range, where
+      // it is installed, would say otherwise); an entry recorded and gone is a problem too
+      const drafted = new Set(results.flatMap(r => (r.modules ?? []).map(m => m.spec))), used = new Set(results.flatMap(r => r.uses ?? []));
+      const pj = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).dependencies;
+      for (const [lib, l] of Object.entries(libs)) {
+        for (const [pkg, v] of Object.entries(l.packages ?? {})) {
+          if (pj[pkg] !== v.version) problems.push(`coverage: ${pkg} is ${pj[pkg] ?? "not"} in bench/package.json, and ${v.version} in bench/coverage/libraries.json`);
+          let peer; try { peer = JSON.parse(readFileSync(path.join(ws, "node_modules", pkg, "package.json"), "utf8")); } catch { problems.push(`coverage: ${pkg} is not installed`); continue; }
+          const range = peer.peerDependencies?.["solid-js"] ?? peer.dependencies?.["solid-js"];
+          if (range && !/(^|[\s|>=^~])2\./.test(range)) problems.push(`coverage: ${pkg}@${peer.version} does not accept solid-js 2 (${range})`);
+          for (const m of v.modules) { if (!drafted.has(m)) problems.push(`coverage: no entry drafts ${m} (${lib})`); }
+          for (const m of v.use ?? v.modules.slice(0, 1)) if (!used.has(m)) problems.push(`coverage: no entry's program imports ${m} (${lib})`);
+        }
+      }
+      for (const id of Object.keys(was)) if (!all.includes(id)) problems.push(`coverage: ${id} is in bench/coverage/coverage.json and has no entry now`);
+    }
+  }
+  return { problems, results, card };
+}

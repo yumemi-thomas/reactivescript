@@ -1,0 +1,4 @@
+//@ for @solid-primitives/vibrate ^1.0.0
+export type VibratePattern = import("@solid-primitives/vibrate").VibratePattern
+export type VibrateOptions = import("@solid-primitives/vibrate").VibrateOptions
+export pure fn createVibrate(ref pattern: VibratePattern, options?: VibrateOptions): { vibrating: ref boolean; start: () => void; stop: () => void; supported: boolean }

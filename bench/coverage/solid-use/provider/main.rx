@@ -1,0 +1,11 @@
+// solid-use/provider: the library's own injection (theme.js provides a value and reads it); the declaration names the
+// context, so a reader with no provider above it is refused.
+import { ThemeScope, useTheme } from "./theme.js"
+
+component Badge() {
+  theme = useTheme()
+  <b class={theme}>{theme}</b>
+}
+export default component App() {
+  <ThemeScope value="dark"><Badge /></ThemeScope>
+}

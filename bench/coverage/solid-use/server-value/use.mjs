@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkgs: [], title: "a value made on the server and taken by the browser", ssr: /ticket \w+/, dom: /ticket \w+/, pkg: "solid-use", modules: ["solid-use/server-value"], note: "a JS module of the app's own: the utility is the module\'s default export, and a `.d.rx` declares named exports; and its callback is called once, while the call is made, and is impure on purpose" });

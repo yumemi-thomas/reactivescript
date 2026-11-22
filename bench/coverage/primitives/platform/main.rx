@@ -1,0 +1,6 @@
+// @solid-primitives/platform: what the user agent is, as constants.
+import { isFirefox, isMobile } from "@solid-primitives/platform"
+
+export default component App() {
+  <p>{isFirefox ? "firefox" : "not firefox"}, {isMobile ? "mobile" : "desktop"}</p>
+}

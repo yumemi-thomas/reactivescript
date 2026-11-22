@@ -1,0 +1,2 @@
+//@ for @solid-primitives/page-utilities ^3.0.0
+export pure fn createPageVisibility(): ref boolean

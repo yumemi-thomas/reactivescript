@@ -1,0 +1,3 @@
+//@ for @solid-primitives/sensors ^1.0.0
+export type BatteryReading = import("@solid-primitives/sensors").BatteryReading
+export pure fn createBattery(): ref BatteryReading | undefined

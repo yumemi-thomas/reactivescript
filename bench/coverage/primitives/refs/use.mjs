@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkg: "@solid-primitives/refs", title: "a component that hands the elements of its children to a callback", ssr: /0 elements/, hydration: "<Refs> hands its children back as they are on the server (`if (isServer) return props.children`) and resolves them in a memo in the browser, so the children's hydration keys differ: the library's, in any app", dom: /2 elements/ });

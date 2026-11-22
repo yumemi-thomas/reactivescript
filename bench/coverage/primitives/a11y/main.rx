@@ -1,0 +1,10 @@
+// @solid-primitives/a11y: the user's reduced-motion preference as a value, and a live region to announce into.
+import { createReducedMotion, createAnnounce } from "@solid-primitives/a11y"
+
+export default component App() {
+  source saved := 0
+  reduced = createReducedMotion()
+  announce = createAnnounce()
+  <p class={reduced ? "still" : "moving"}>{reduced ? "reduced motion" : "full motion"}, saved {saved}</p>
+  <button onClick={() => { saved := n => n + 1; announce("Saved") }}>save</button>
+}

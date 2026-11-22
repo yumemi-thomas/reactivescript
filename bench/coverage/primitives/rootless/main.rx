@@ -1,0 +1,10 @@
+// @solid-primitives/rootless: state made once for the whole app, whoever asks first (clock.js).
+import { useClicks } from "./clicks.js"
+
+component Counter() {
+  [clicks, click] = useClicks()
+  <button onClick={() => { click() }}>{clicks}</button>
+}
+export default component App() {
+  <Counter /><Counter />
+}

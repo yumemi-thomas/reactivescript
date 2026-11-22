@@ -1,0 +1,13 @@
+// @solid-primitives/transition-group: what is shown while one value replaces another, entering and leaving.
+import { createSwitchTransition } from "@solid-primitives/transition-group"
+
+export default component App() {
+  source page := "home"
+  source log := ""
+  shown = createSwitchTransition(page, {
+    onEnter: (el: string, done: () => void) => { log := l => l + " +" + el; done() },
+    onExit: (el: string, done: () => void) => { log := l => l + " -" + el; done() },
+  })
+  <p>showing {shown.join(",")};{log}</p>
+  <button onClick={() => { page := "about" }}>about</button>
+}

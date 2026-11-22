@@ -1,0 +1,7 @@
+// @solid-primitives/permission: a permission's state.
+import { createPermission } from "@solid-primitives/permission"
+
+export default component App() {
+  camera = createPermission("camera")
+  <p>camera: {camera}</p>
+}

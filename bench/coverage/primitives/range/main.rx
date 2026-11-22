@@ -1,0 +1,8 @@
+// @solid-primitives/range: a view repeated a number of times.
+import { Repeat } from "@solid-primitives/range"
+
+export default component App() {
+  source stars := 3
+  <p><Repeat times={stars}>{view (index) { <span>*</span> }}</Repeat></p>
+  <button onClick={() => { stars := 5 }}>five</button>
+}

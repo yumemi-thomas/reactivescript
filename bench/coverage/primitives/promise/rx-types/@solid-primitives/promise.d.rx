@@ -1,0 +1,2 @@
+//@ for @solid-primitives/promise ^2.0.0
+export fn promiseTimeout(ms: number, throwOnTimeout?: boolean, reason?: any): Promise<void>

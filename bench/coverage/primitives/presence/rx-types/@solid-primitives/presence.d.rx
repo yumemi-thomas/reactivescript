@@ -1,0 +1,3 @@
+//@ for @solid-primitives/presence ^1.0.0
+export type Options = import("@solid-primitives/presence").Options
+export pure fn createPresence<TItem>(ref item: TItem | undefined, options: Options): { isMounted: () => boolean; mountedItem: ref TItem | undefined; isVisible: () => boolean; isAnimating: () => boolean; isEntering: () => boolean; isExiting: () => boolean; done: (event?: Event) => void; bindDone: ref ReturnType<ReturnType<typeof import("@solid-primitives/presence").createPresence<TItem>>["bindDone"]> }

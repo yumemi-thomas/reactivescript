@@ -1,0 +1,2 @@
+//@ for @solid-primitives/async ^0.0.101
+export pure fn createAbortable(options?: { autoAbort?: boolean; timeout?: number; chainTo?: () => AbortSignal }): [ref AbortSignal, () => void, (err: any) => void]

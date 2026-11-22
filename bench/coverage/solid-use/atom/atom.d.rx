@@ -1,0 +1,2 @@
+// By hand: every word (the module is the app's own).
+export pure fn createAtom<T>(init: T): [ref T, (value: T) => void]

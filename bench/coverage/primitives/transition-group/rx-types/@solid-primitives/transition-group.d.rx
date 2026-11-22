@@ -1,0 +1,3 @@
+//@ for @solid-primitives/transition-group ^2.0.0
+export type TransitionMode = import("@solid-primitives/transition-group").TransitionMode
+export pure fn createSwitchTransition<T>(ref source: T, options: { onEnter?: handler (...args: Parameters<NonNullable<Parameters<typeof import("@solid-primitives/transition-group").createSwitchTransition<T>>[1]["onEnter"]>>) => void; onExit?: handler (...args: Parameters<NonNullable<Parameters<typeof import("@solid-primitives/transition-group").createSwitchTransition<T>>[1]["onExit"]>>) => void; mode?: TransitionMode; appear?: boolean }): ref NonNullable<T>[]

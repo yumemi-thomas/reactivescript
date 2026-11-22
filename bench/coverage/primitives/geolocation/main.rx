@@ -1,0 +1,10 @@
+// @solid-primitives/geolocation: where the device is, asked once the browser allows it (position.js unwraps the
+// promise the library's accessor answers).
+import { createPosition } from "./position.js"
+
+export default component App() {
+  place = createPosition()
+  errored fallback (e) { <p>no position</p> } {
+    loading fallback { <p>locating</p> } { <p>at {place.latitude}, {place.longitude}</p> }
+  }
+}

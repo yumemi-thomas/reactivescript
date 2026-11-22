@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkg: "@solid-primitives/sse", title: "server-sent events: the last message, read under its boundaries", ssr: false, server: "the stream is opened where the primitive is made, from the browser", dom: /last: hello/, before: async page => { await page.route(/events\.test/, r => r.fulfill({ contentType: "text/event-stream", headers: { "access-control-allow-origin": "*" }, body: "data: hello\n\n" })); } });

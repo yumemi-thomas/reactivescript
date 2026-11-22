@@ -1,0 +1,7 @@
+// solid-use/page-visibility: in view, or hidden, as a value (status.js names the module's default export).
+import { usePageVisibility } from "./status.js"
+
+export default component App() {
+  status = usePageVisibility()
+  <p>{status ? "in view" : "hidden"}</p>
+}

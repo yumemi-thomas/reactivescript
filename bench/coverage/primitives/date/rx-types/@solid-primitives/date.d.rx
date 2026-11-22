@@ -1,0 +1,2 @@
+//@ for @solid-primitives/date ^3.0.1
+export pure fn createDateNow(ref interval?: number | false): [ref Date, () => void]

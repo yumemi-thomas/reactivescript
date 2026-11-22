@@ -1,0 +1,2 @@
+//@ for @solid-primitives/mutation-observer ^3.0.0
+export pure fn createMutationObserver(ref initial: [Node, MutationObserverInit][], callback: handler (mutations: MutationRecord[], observer: MutationObserver) => void): [(target: Node, options?: import("@solid-primitives/utils").MaybeAccessor<MutationObserverInit>) => void, { start: VoidFunction; stop: VoidFunction; instance: MutationObserver; isSupported: boolean }]

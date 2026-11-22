@@ -1,0 +1,4 @@
+//@ for @solid-primitives/idle ^1.0.0
+export type EventTypeName = import("@solid-primitives/idle").EventTypeName
+export type IdleTimer = import("@solid-primitives/idle").IdleTimer
+export pure fn createIdleTimer(__0?: { events?: EventTypeName[]; element?: HTMLElement; idleTimeout?: number; promptTimeout?: number; startManually?: boolean; onIdle?: (lastEvt: Event) => void; onActive?: handler (activyEvt: Event) => void; onPrompt?: (promptEvt: Event) => void }): IdleTimer instantiates

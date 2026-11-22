@@ -57,12 +57,13 @@ function ownInstall(id) {
   return path.join(at, "node_modules");
 }
 
-/** A task's folder in the workspace: its `src/`, copied fresh. */
-export function stage(id) {
+/** A task's folder in the workspace: its `src/`, copied fresh. A coverage entry (bench/coverage/<group>/<name>, `from`)
+ *  is staged the same way, beside the tasks, under a name of its own. */
+export function stage(id, from) {
   const dir = path.join(ws, "tasks", id);
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
-  cpSync(path.join(here, "tasks", id, "src"), dir, { recursive: true });
-  const own = ownInstall(id); if (own) symlinkSync(own, path.join(dir, "node_modules"), "dir");
+  cpSync(from ?? path.join(here, "tasks", id, "src"), dir, { recursive: true });
+  const own = from ? null : ownInstall(id); if (own) symlinkSync(own, path.join(dir, "node_modules"), "dir");
   if (!existsSync(path.join(dir, "tsconfig.json"))) writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2023", "DOM", "DOM.Iterable"], types: [] }, include: ["**/*.rx", "**/*.d.ts"], exclude: ["node_modules", "dist", ".build"] }, null, 2));
   return dir;
 }
@@ -114,6 +115,10 @@ export function compile(entry, target, spa) {
 }
 
 const esbuild = () => createRequire(path.join(ws, "package.json"))("esbuild");
+/** Node's own modules, in a bundle for the browser: empty, as a bundler for the web makes them (Vite externalizes them
+ *  with a warning). A package with one entry for every platform imports its Node adapter beside its browser's
+ *  (@solid-primitives/filesystem: `node:fs/promises`, chokidar). */
+const nodeBuiltins = () => { const stub = path.join(ws, ".node-stub.cjs"); if (!existsSync(stub)) writeFileSync(stub, "module.exports = {};\n"); const names = ["fs", "fs/promises", "path", "os", "events", "stream", "util", "url", "child_process", "crypto", "module", "worker_threads", "http", "https", "net", "tty", "zlib", "buffer"]; return Object.fromEntries(names.flatMap(n => [[n, stub], [`node:${n}`, stub]])); };
 const pw = () => createRequire(path.join(ws, "package.json"))("playwright");
 
 /** What a task's `run` drives the compiled program with. */
@@ -143,7 +148,7 @@ export class Runner {
     if (!built.file) throw new Error(JSON.stringify(built).slice(0, 600));
     const entry = built.file + ".entry.mjs";
     writeFileSync(entry, `import main from ${JSON.stringify("./" + path.basename(built.file))};\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp({ root: document.getElementById("app") });\ntry { app.mount(main(app)${hydrate ? ", true" : ""}); } catch (e) { console.error("mount threw: " + (e && e.message)); }\nwindow.__mounted = true;\n`);
-    const r = esbuild().buildSync({ entryPoints: [entry], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}", absWorkingDir: this.dir, loader: { ".css": "empty" } });
+    const r = esbuild().buildSync({ entryPoints: [entry], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}", absWorkingDir: this.dir, loader: { ".css": "empty" }, alias: nodeBuiltins() });
     return r.outputFiles[0].text;
   }
   /** Serves the program: `ssr` renders each URL on the server and hydrates it; otherwise an empty page the client mounts in. */
@@ -234,7 +239,12 @@ function declares(dir, file) {
 /** What `rx-declare` drafts for a module (its lines, comments dropped), with the flags the task says its draft was made
  *  with (`--run`, `--dom`: 09 MO-12, what running the package shows); [] when the module has no types to draft from.
  *  `draftOf.inherited`: per export, the `any`s of the draft that are the library's own (09 MO-8q). */
+const drafted = new Map();   // a module is drafted once in a run of a task: its declarations' measure and its whole draft are one draft
 export function draftOf(spec, from, flags = []) {
+  const key = JSON.stringify([spec, from, flags]); if (drafted.has(key)) return drafted.get(key);
+  const lines = draftNow(spec, from, flags); drafted.set(key, lines); return lines;
+}
+function draftNow(spec, from, flags) {
   const at = path.join(ws, `.causes-${process.pid}.json`); rmSync(at, { force: true });
   const r = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/declare.js"), spec, "--causes", at, ...flags], { cwd: from, encoding: "utf8", maxBuffer: 1 << 26 });
   const inherited = new Map(), caused = new Map(), why = new Map();
@@ -250,7 +260,7 @@ export function draftOf(spec, from, flags = []) {
   const rows = [];
   for (const [n, k] of anyBy) { const own = k - (inherited.get(n) ?? 0); if (own > 0) rows.push({ name: n, introduced: own, causes: [...new Set([...(why.get(n) ?? []), ...(k > (caused.get(n) ?? 0) ? ["written by hand (known.js)"] : [])])] }); }
   const any = [...anyBy.values()].reduce((a, b) => a + b, 0), introduced = rows.reduce((a, x) => a + x.introduced, 0);
-  lines.whole = { rows: lines.length, any, vendor: any - introduced, introduced, places, introducedRows: rows };
+  lines.whole = { rows: lines.length, any, vendor: any - introduced, introduced, places, introducedRows: rows, drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
   return lines;
 }
 const PLACE = new Set(["Parameters", "ReturnType", "ConstructorParameters", "InstanceType"]);

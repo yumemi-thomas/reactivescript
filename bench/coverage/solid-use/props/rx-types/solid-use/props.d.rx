@@ -1,0 +1,2 @@
+//@ for solid-use ^1.0.0
+export pure fn pickProps<T extends Record<string, any>, K extends keyof T>(value: T, keys: K[]): Pick<T, K>

@@ -1,0 +1,9 @@
+// @solid-primitives/trigger: a signal with no value, to say "read again" (version.js). `.rx` has sources for this;
+// a module of the app's own shows the library's.
+import { createVersion } from "./version.js"
+
+export default component App() {
+  [version, bump] = createVersion()
+  <p>version {version}</p>
+  <button onClick={() => { bump() }}>bump</button>
+}

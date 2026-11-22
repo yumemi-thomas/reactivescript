@@ -1,0 +1,7 @@
+// @solid-primitives/mouse: the pointer's position on the page.
+import { createMousePosition } from "@solid-primitives/mouse"
+
+export default component App() {
+  pos = createMousePosition()
+  <p>{pos.x}, {pos.y}</p>
+}

@@ -1,0 +1,12 @@
+// @solid-primitives/list: a list whose rows follow their items by a key.
+import { List } from "@solid-primitives/list"
+
+export default component App() {
+  source names := ["Ada", "Grace"]
+  <ul>
+    <List each={names} keyed={(name: string) => name}>
+      {view (name, index) { <li>{index() + 1}. {name()}</li> }}
+    </List>
+  </ul>
+  <button onClick={() => { names := ns => [...ns, "Alan"] }}>add</button>
+}

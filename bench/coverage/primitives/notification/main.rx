@@ -1,0 +1,8 @@
+// @solid-primitives/notification: the notification permission, asked for from a handler.
+import { createNotificationPermission } from "@solid-primitives/notification"
+
+export default component App() {
+  n = createNotificationPermission()
+  <p>notifications: {n.permission}{n.pending ? " (asking)" : ""}</p>
+  <button onClick={() => { n.requestPermission() }}>ask</button>
+}

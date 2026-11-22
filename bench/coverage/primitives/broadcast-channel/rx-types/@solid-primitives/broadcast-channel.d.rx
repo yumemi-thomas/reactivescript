@@ -1,0 +1,3 @@
+//@ for @solid-primitives/broadcast-channel ^1.0.0
+export type TBroadcastChannelInstance<T> = import("@solid-primitives/broadcast-channel").TBroadcastChannelInstance<T>
+export pure fn createBroadcastChannel<T>(name: string): Omit<TBroadcastChannelInstance<T>["instance"], "onMessage"> & { message: import("solid-js").Accessor<T | null> } instantiates

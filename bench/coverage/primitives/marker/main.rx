@@ -1,0 +1,9 @@
+// @solid-primitives/marker: the parts of a text that match a search, marked (marker.js makes the highlighter).
+import { createHighlighter } from "./marker.js"
+
+export default component App() {
+  source query := "act"
+  marker = createHighlighter()
+  <p>{marker.parts("reactive script", query).join("|")}</p>
+  <button onClick={() => { query := "script" }}>search script</button>
+}
