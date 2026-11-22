@@ -2,8 +2,10 @@
 // types show is written as rows: an accessor parameter or result is `ref`, a function of props to a JSX element is a
 // component, a `JSX.Element` prop is a `View`, a component-typed prop or result is `Component`, a tuple result keeps
 // its `ref` parts, an `Error` subclass is an `error`. What types cannot show is left for a person, as a `TODO` comment
-// on the line it concerns: whether a hook reads a context (`uses(…)`), whether a result is a store whose fields wait or
-// throw when read (no row says it: a module of the app's own hands each out as an accessor), what a promise rejects with. A fn is `pure` only where Solid's convention says a primitive
+// on the line it concerns: whether a hook reads a context (`uses(…)`), whether an accessor waits or fails where it is
+// read (`pending`, `fails(…)` before its `ref`, MO-10l: known.js says it of a release it was read off, `--run` of a hook
+// it could run; a store whose plain fields wait has no row, and a module of the app's own hands each out as an
+// accessor), what a promise rejects with. A fn is `pure` only where Solid's convention says a primitive
 // is (`create*`, `use*`) or a config helper is (`define*`, `*Options`); everything else stays io, the row that cannot be wrong in the unsafe direction (R-io-4).
 // `rx-tsc` then checks the draft against the same types (spec/13 TY-6).
 const path = require("node:path");
@@ -262,7 +264,7 @@ function wider(ts, sym, pkg) {
   if (!hit && own && pkg && pkg !== own) for (const d of wideIndex(ts, own).deps) { hit = look(d); if (hit) break; }
   return hit;
 }
-const WORDS = /\b(?:handler|pending|renders|ref|draft)\s+[\w({[]|\bfails\s*\(/;
+const WORDS = /\b(?:handler|pending|ref|draft)\s+[\w({[]|\bfails\s*\(/;
 /** MO-8m: a type as text only TypeScript reads — the library's own names (`nameOf`), the platform's, primitives and
  *  literals, arrays, tuples, unions and intersections of those, with their type arguments. `{ text }`, or `{ why }` where
  *  some part cannot be named. A record or a function type is not such a text where the checker would read it as a row
@@ -775,7 +777,7 @@ function resultText(ts, checker, t, todos, generic = false, here, node) {
   if (CTX.refs && /^Promise</.test(checker.typeToString(t)) && !/^Promise</.test(s)) s = s === here ? `Promise<Awaited<${here}>>` : /^any\u00ab[^\u00bb]*\u00bb$/.test(s) ? `Promise<${s}>` : s;
   if (/^Promise</.test(checker.typeToString(t))) todos.push("what does its promise reject with? add rejects(<classes>) (default Error)");
   else {
-    if (ownObject(ts, t, checker)) todos.push("is the result a store with fields that wait or throw when read? a row cannot say so (MO-8r): hand each such field out as a function from a module of the app's own, declared `ref` (MO-10d)");
+    if (ownObject(ts, t, checker)) todos.push("is the result a store with fields that wait or throw when read? a row cannot say so (MO-8r): hand each such field out as a function from a module of the app's own, declared `pending fails(Error) ref` (MO-10l)");
     // what the type does not say as text (it names the library's own types) is said a step at a time
     // MO-8o: a result the library names is written by that name, unless its parts say what the checker reads
     if (unsaid(ts, checker, t)) { const st = structural(ts, checker, t, 0, here); if (st && !(CTX.decl && !introduced(s) && (introduced(st) || (CTX.whole && byPlace(st)) || (!EVIDENCE.test(st) && (!byPlace(s) || byPlace(st)))))) { s = st + nullish(ts, t); if (/\bref /.test(st)) todos.push("its fields drafted `ref` are read as values (`x.items`); one the app calls instead (`x.items()`) is a function, `() => T` (MO-10b)"); } }
@@ -783,6 +785,24 @@ function resultText(ts, checker, t, todos, generic = false, here, node) {
   return s;
 }
 
+/** MO-10l: a drafted fn row with `pending` or `fails(…)` written before the `ref` parts `waits` names — `""` the whole
+ *  result, else a tuple's index or a record's field. A part the row does not draft as `ref` is left as it is. */
+function withWaits(row, waits) {
+  const open = row.indexOf("(", row.search(/\bfn\s+[\w$]+/)); if (open < 0) return row;
+  let d = 0, close = -1;
+  for (let j = open; j < row.length; j++) { const c = row[j]; if ("([{<".includes(c)) d++; else if (")]}>".includes(c) && !(c === ">" && row[j - 1] === "=")) { if (--d === 0) { close = j; break; } } }
+  const m = close < 0 ? null : /^\s*:\s*/.exec(row.slice(close + 1)); if (!m) return row;
+  const at = close + 1 + m[0].length;
+  const tail = /\s(?:uses\(|provides\(|nests\(|instantiates\b|rejects\()/.exec(row.slice(at));
+  const ret = tail ? row.slice(at, at + tail.index) : row.slice(at), rest = tail ? row.slice(at + tail.index) : "";
+  const split = (t, seps) => { const out = []; let k = 0, from = 0; for (let j = 0; j < t.length; j++) { const c = t[j]; if ("([{<".includes(c)) k++; else if (")]}>".includes(c) && !(c === ">" && t[j - 1] === "=")) k--; else if (k === 0 && seps.includes(c)) { out.push(t.slice(from, j)); from = j + 1; } } out.push(t.slice(from)); return out; };
+  const mark = (part, words) => words && /^\s*ref\s/.test(part) ? part.replace(/^(\s*)ref\s/, `$1${words} ref `) : part;
+  let out = ret;
+  if (/^ref\s/.test(ret)) out = mark(ret, waits[""]);
+  else if (ret.startsWith("[") && ret.endsWith("]")) out = `[${split(ret.slice(1, -1), ",").map((x, i) => mark(x, waits[String(i)])).join(",")}]`;
+  else if (ret.startsWith("{") && ret.endsWith("}")) out = `{${split(ret.slice(1, -1), ";").map(f => { const c = f.indexOf(":"); if (c < 0) return f; const key = f.slice(0, c).trim().replace(/^readonly\s+/, "").replace(/\?$/, ""); return `${f.slice(0, c + 1)}${mark(f.slice(c + 1), waits[key])}`; }).join(";")}}`;
+  return row.slice(0, at) + out + rest;
+}
 /** @returns {string} the draft `.d.rx` for `spec`, imported from `from` (a directory). `how.known: false`: from the types
  *  alone, without what known.js says of the library (a generated declaration, MO-8l: nothing a person reviewed). */
 function declare(ts, spec, from, options = {}, how = {}) {
@@ -987,7 +1007,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
       }
       for (const [name, w] of Object.entries(known.words ?? {})) {
         const i = lines.findIndex(l => exportedAs(l) === name); if (i < 0) continue;
-        let l = lines[i]; if (w.drop) l = l.replace(new RegExp(`\\s+${w.drop}$`), ""); if (w.pure) l = l.replace(/^export fn /, "export pure fn "); if (w.after) l = `${l} ${w.after}`;
+        let l = lines[i]; if (w.drop) l = l.replace(new RegExp(`\\s+${w.drop}$`), ""); if (w.pure) l = l.replace(/^export fn /, "export pure fn "); if (w.waits) l = withWaits(l, w.waits); if (w.after) l = `${l} ${w.after}`;
         lines[i] = l; took.push(name);
         for (let j = lines.length - 1; j >= 0; j--) if (lines[j].startsWith(`// TODO ${name}:`)) lines.splice(j, 1);
       }
@@ -1063,4 +1083,4 @@ function declare(ts, spec, from, options = {}, how = {}) {
   return [...out, ...lines].join("\n") + "\n";
 }
 
-module.exports = { declare };
+module.exports = { declare, withWaits };

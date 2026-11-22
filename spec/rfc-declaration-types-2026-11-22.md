@@ -859,7 +859,8 @@ element when its list is empty or before the browser has it:
 (`Repeat`, and `Range`, which had no program), `virtual`. Their
 `fallback` was a string, or left out. What it does not cover is an
 element in a record given to a *fn* (`createPagination({ prevContent })`):
-a string stands there, and one library asks.
+a string stands there, and one library asks. *(Decided so: A seventh
+round, below.)*
 
 ### The three kept on one library's evidence
 
@@ -884,7 +885,9 @@ say it of them: an accessor "promises nothing" (MO-10d, ruled
 2026-11-13), which the checker reads as "asks for nothing". `pending` and
 `fails(E)` before a `ref` part would be the multi-library form of the
 withdrawn words. It is a new reading of a ruled rule, so it is recorded
-as a proposal for an issue, not made here.
+as a proposal for an issue, not made here. *(Taken the same day: MO-10l,
+A seventh round, below. `createStream` does not belong in the list: in its
+1.0.0 it is a plain signal.)*
 
 *What the withdrawals cost, counted.* Eight bad variants of three tasks,
 each listed with its reason in `bench/README.md`; and two shapes of good
@@ -907,7 +910,8 @@ form `@solidjs/router` has natively, which would then have two routers
 behind it — or JavaScript's, a route module that imports the `.rx` pages
 (`bench/tasks/start-route`). What it gives up is the registered route
 types of a tree written in `.rx`. Until that change the four words
-parse; one library's rows write them.
+parse; one library's rows write them. *(Done the same day: A seventh
+round, below.)*
 
 ### A wrapper names the library's context (MO-12e)
 
@@ -959,3 +963,158 @@ each, where the library's row had come from `known.js`.
 `ui-sdk/overlays` is the new program (no word); `primitives/range`
 declares `<Range>` by hand for its fallback (+8) and `wardic/gestures`
 names Wardic's context (+7).
+
+## A seventh round: the bar applied to the end (2026-11-23)
+
+The sixth round left one withdrawal decided and not done, one proposal
+recorded and not taken, and two gaps said plainly and not decided. All
+four are settled here, by the bar of 09 MO-8r and nothing else: a word
+must be necessary, and more than one library must write the form. What it
+costs to remove a word, or to add one, was not weighed.
+
+### The four words of a route tree in values, withdrawn
+
+`renders(later)`, a prop's `renders T`, `nests(component under parent)`
+and `outlet` are refused by name, in both declaration parsers, each with
+what is written instead.
+
+| place | change |
+| --- | --- |
+| both declaration parsers | the four words (and their first drafts, `carries` and `under(…)`) are refused by name; a row's `renders`, `carrier`, `under`, `outlet` and a prop's `carried` are no fields of a parsed declaration |
+| both checkers | the carried-value walk is gone (components followed by mention from a `renders(later)` call to the prop that renders them, the parent links, the outlet, a prop given on by an `.rx` component), and with it everything left of `renders` alone: the sinks a value may leave a region through, the props a component keeps, `RENDERS_ESCAPES`. Of the kinds of value confined by mention (09 MO-10k) one is left, the instance a primitive made |
+| printed signatures | no `renders` on a prop, no `keeps(…)` |
+| `rx-verify` | placement is a factory's (what it is given renders inside the made component) and `nests(children in component)`; the scene's helpers for an outlet and a `renders` prop are gone |
+| `rx-declare` | `known.js` drafts TanStack Router's context, its hooks' `uses(router)` and its provider's `provides(router)`; `createRoute`, `createRootRoute` and `createRouter` are the types' rows, with no word |
+| tree-sitter | `renders_clause`, `renders_type`, `outlet`, bare `renders` and `nests(… under …)` are no rules; a printed signature's `keeps(…)` neither |
+| scenarios | S-module-22 and S-module-23 are the same programs written for a factory, each withdrawn word refused in a variant; S-module-27 was already no word's |
+
+*The replacement, and why this one of the two.* The spec named two: a
+factory of the app's own in `@solidjs/router`'s shape, or a route module
+in JavaScript that imports the `.rx` pages. The factory is taken, for
+`bench/tasks/router-provider` and `examples/tanstack` alike:
+
+```js
+// routes.js: the tree as records, built into the library's routes
+export function createAppRouter(tree) {
+  const route = (record, parent) => {
+    const component = () => createComponent(record.component, { get children() { return createComponent(Outlet, {}) } })
+    const made = parent ? createRoute({ getParentRoute: () => parent, path: record.path, component }) : createRootRoute({ component })
+    return record.children?.length ? made.addChildren(record.children.map(child => route(child, made))) : made
+  }
+  const router = createRouter({ routeTree: route(tree) })
+  return () => createComponent(RouterProvider, { router })
+}
+```
+
+```rx
+export context router from "@tanstack/solid-router"
+export pure fn createAppRouter(tree: RouteRecord): Component provides(router) nests(children in component)
+```
+
+It keeps what the checker is for. A page is checked among its layout's
+children, so the layout's `errored` and `loading` regions hold it, and
+the made component provides the router, so a hook or a `<Link>` outside
+it is refused: of `router-provider`'s variants only the one that needed
+the carried components is lost. And it is written in words two libraries
+write: `nests(children in component)` has two routers behind it now. A
+route module in JavaScript keeps TanStack's registered route types and
+loses every one of those checks (11 CP-4d: nothing above a page a JS host
+applies is credited); `bench/tasks/start-route` is that shape, where the
+framework's file-based tree leaves no choice.
+
+*Given up*, each listed with its reason in `bench/README.md`: three type
+probes — the two that needed the registered router (a link to no route, a
+`from` that is no route) and the type of the router as a prop of the
+app's frame — and the variant *the router built and never rendered*
+(`COMPONENT_AS_VALUE` through the carried components). In their place,
+what the new shape makes: three type probes on what the factory, the
+library and the backend still type (a route record with no component, a
+link's `to`, a field the answer has not), and two variants (a link beside
+the router in the app's frame, `CONTEXT_NOT_FOUND`; the made router used
+as a value, `COMPONENT_AS_VALUE`).
+
+### An accessor that waits or fails: taken (09 MO-10l)
+
+`pending` and `fails(E)` before a `ref` part of a declared result — the
+whole result, an item of its tuple, a field of its record:
+
+```rx
+export pure fn createJson(url: string): pending fails(Error) ref User
+export pure fn createSSE<T>(ref url: string): { data: pending fails(Error) ref T; readyState: ref number; close: () => void }
+```
+
+*By the bar.* Necessary: the mistake is the one `.rx` exists to refuse (a
+value that waits or throws, read with no region above it), an accessor is
+how a Solid library hands such a value out, and none of the three ways
+round gives an accessor a row — left undeclared the function is io, a
+module of the app's own can only hand out another accessor, and the
+library's types call it `Accessor<T>`. More than one library, looked for
+in the installed releases and not taken from the sixth round's list:
+
+| library | what waits or fails | how it is known |
+| --- | --- | --- |
+| solid-use 1.0.0 | `fetch(url, init, true).json()` and its siblings | `createMemo(async () => …)` in `dist/fetch.js` |
+| `@solid-primitives/sse` 1.0.0 | `createSSE(…).data` | throws Solid's `NotReadyError` until the first message, then the stream's error |
+| `@solid-primitives/geolocation` 3.0.0 | `createGeolocationWatcher(…).location`; `createGeolocation()`'s accessor of a promise | `NotReadyError` until the first fix; a memo of the app's own over the promise |
+| `@solid-primitives/graphql` 3.0.0 | what a client's query answers | an async memo; it throws a `GraphQLError` |
+| `@tanstack/solid-query` 6 | `useQuery(…).data`, handed out as a function by the app's own hook (MO-8r's fallback for the withdrawn field words) | the store's field suspends and throws |
+| `@solid-primitives/mediastream` 1.0.0 | — | **not one**: `createStream` is a plain signal that is `undefined` until the stream arrives, and logs a refusal. The sixth round listed it from its documentation; its row says nothing, and its program's regions are not asked for |
+
+*A ruled rule, read again.* MO-10d (2026-11-13) says Solid promises
+nothing about an accessor, and that no declaration can say one never
+holds. Neither changes. A plain `ref` is checked as it was — it may hold,
+and asks for nothing — and the new words say the other thing, that this
+one does wait or fail.
+
+*What was built.*
+
+| place | change |
+| --- | --- |
+| both declaration parsers | `pending` and `fails(…)` before a `ref` part: the whole result (`waits`), a tuple's item or a record's field (`held`, by index or name). Anywhere else in a result they are refused by name, the message now naming this form |
+| both checkers | the reader bound from such a part has the part's rows — read off the call for a whole result, off the field or index for a part — in the three walks a question's rows are read in (rows, failures, first load). A record or a tuple with such a part is read a part at a time, by the rule a prop typed with field rows already has (`RESULT_AS_VALUE`) |
+| projection, emission | nothing: the words are taken out of the type text, and a `ref` part was already read by calling it |
+| `rx-declare` | `known.js` takes `waits` (the words, by part) for a release they were read off: `createSSE`, `createGeolocationWatcher`. `--run` writes `pending` for a hook it could run whose accessor is not ready when first read |
+| `rx-verify` | a `ref` part's rows are read as declared; `fails(C)` is run with the probe's failing arguments; an accessor that waited and does not say so is pointed out, and is no mismatch |
+| tree-sitter | no rule needed: a row before a type already parsed (`row_type` over `ref_type`); the corpus has the three places |
+| the suite | S-module-36; `query-forward` and `query-mutation` declare `data: pending fails(Error) ref T` and take back the five variants given up on 2026-11-23; `solid-use/fetch`, `primitives/sse`, `graphql` and `geolocation` in the coverage suite each have two variants (no `errored` region; no `loading` one in a client-only build) |
+
+A draft cannot know it from the types, so the word is not owed: a row
+that says `ref` and no more is a row that says less (13 TY-6b), never a
+wrong one.
+
+### Two gaps, decided
+
+| the gap | who asks | decision |
+| --- | --- | --- |
+| an element in a record given to a *fn* (`createPagination({ prevContent: <span>‹</span> })`) | `@solid-primitives/pagination`, and `@solid-primitives/i18n`'s `t("key", { clickHere: <a>…</a> })`: two packages of one library; no module of solid-use, Wardic or UI SDK takes an element in a fn's argument | **no form.** One library. A string stands there, or a component of the app's own JavaScript |
+| a table cell that reads the app's context (lost with `renders` alone) | a headless table, through an adapter of the app's own; no module of the four libraries is given components and renders them where its value is bound | **no form.** One library. A cell takes what it needs as its props, which is what the table's cell context carries |
+
+Neither stops a correct program from being written, and neither is a
+mistake left unrefused.
+
+### The numbers
+
+`node bench/run.mjs`, at `36eac32` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `36eac32` (32 tasks) | 96/96 | 155/155 | 207/207 | 158/160 | 11/11 | 249 | 41 | 0 | 27 |
+| now (32 tasks) | 96/96 | 155/155 | 207/207 | 164/166 | 11/11 | 269 | 41 | 0 | 27 |
+
+The two red checks are the two each task's `known` gives a reason for,
+unchanged. Bad variants: 160, less the one given up, plus the five that
+came back and the two new ones of `router-provider`. Types: three probes
+out, three in. Words: `router-provider`'s factory is the app's own module,
+so its row is by hand (7 to 21, where the library's rows had come from
+`known.js`), and the two query tasks write `pending fails(Error)` (22 to
+25 each).
+
+| coverage | programs | green | modules drafted | rows | library's `any` | introduced | by place | hand-written words | bad caught |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `36eac32` | 121 | 121 | 190 | 4877 | 1195 | 0 | 1519 | 268 | — |
+| now | 121 | 121 | 190 | 4877 | 1195 | 0 | 1519 | 277 | 8/8 |
+
+Three entries write the words by hand in a module of the app's own (+3
+each: `solid-use/fetch`, `primitives/graphql`, `primitives/geolocation`);
+`primitives/sse` has them from the draft (`known.js`), at no word. The
+eight variants are the four entries' two each.

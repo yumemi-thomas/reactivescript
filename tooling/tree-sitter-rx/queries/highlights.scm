@@ -273,10 +273,7 @@
   ; a declaration file's rows
   "uses"
   "provides"
-  "renders"
   "nests"
-  "under"
-  "later"
   "shape"
   "handler"
   "pending"
@@ -442,7 +439,6 @@
   "catches"
   "takes"
   "retains"
-  "keeps"
   "io"
   "lane"
   "loading"

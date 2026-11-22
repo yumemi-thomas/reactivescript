@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+**The vocabulary held to its bar, to the end** (spec/09 MO-8r *Settled*, MO-10l, MO-11r; spec/rfc-declaration-types-2026-11-22.md, *A seventh round*)
+
+- **Withdrawn: `renders(later)`, `renders` before a prop's type, `nests(component under parent)` and `outlet`**
+  (MO-11o, MO-11p). One library wrote them, TanStack Router's code-based route tree. Each is refused by name in a
+  `.d.rx`, with what to write. **What you write instead:** the route tree as records, given to a factory of your own
+  — a few lines of JavaScript that build the library's routes from them and hand back the component that renders
+  them, declared `Component provides(router) nests(children in component)`, the words `@solidjs/router`'s factory
+  has (guide/libraries.md has the module; `examples/tanstack`, `bench/tasks/router-provider`). A layout renders its
+  pages as `props.children`. Every check the words gave still holds: a page's failure needs its layout's `errored`
+  region, a router hook outside the made component is `CONTEXT_NOT_FOUND`. **What you lose:** TanStack's registered
+  route types for a tree written in `.rx` (a link to no route is no longer a type error), and
+  `COMPONENT_AS_VALUE` for a route tree that nothing renders. A page given to the library's own `createRoute` is
+  checked under a root of its own (MO-11s), where the router's context is not found.
+- **`RENDERS_ESCAPES` is no diagnostic any more.** The checks that kept a value "rendered where it is bound" (left
+  from `renders` alone) and the walk that followed components carried in values are deleted from both checkers, with
+  a printed signature's `keeps(…)` and its `renders` on a prop. `RESULT_AS_VALUE` stays.
+- **New: an accessor that waits or fails says so** — `pending` and `fails(…)` before a `ref` part of a declared
+  result (spec/09 MO-10l): the whole result (`createJson(url): pending fails(Error) ref User`), an item of its tuple,
+  a field of its record (`{ data: pending fails(Error) ref T; refetch: () => void }`). A reader bound from it is
+  checked as a value from an `await` is: its reads need an `errored` region above them (`UNHANDLED_FAILURE`) and, in
+  a client-only build, a `loading` one (`ASYNC_OUTSIDE_LOADING_BOUNDARY`); a record or a tuple with such a part is
+  read a part at a time (`RESULT_AS_VALUE`). A plain `ref` asks for nothing, as before. It is the multi-library form
+  of the field words withdrawn last round: three libraries' rows write it (solid-use's `fetch().json()`;
+  solid-primitives' `createSSE`, `createGeolocationWatcher`, a GraphQL query; TanStack Query's `data` through a hook
+  of your own), and the five checks the query tasks gave up are back. Before a plain field the words are still
+  refused, now with this form as what to write.
+- **`rx-declare`** drafts the words where it knows them: for a release they were read off (`known.js`:
+  `@solid-primitives/sse`'s `createSSE`, `@solid-primitives/geolocation`'s `createGeolocationWatcher`), and with
+  `--run` for a hook it could run whose accessor's first read is not ready (`pending`; `fails(…)` is yours to add).
+  It no longer drafts a placement word for TanStack Router: its context, hooks and provider only.
+- **`rx-verify`** reads a `pending`/`fails(…)` `ref` part as declared, runs `fails(C)` with the probe's failing
+  arguments, and points out an accessor that waited without saying so (no mismatch: the row says less). Its placement
+  checks are a factory's and `nests(children in component)`.
+- **Decided, and not taken** (MO-8r): an element in a record given to a *fn* (`createPagination({ prevContent })`)
+  and a table cell that reads the app's context. One library asks for each; a string, or the cell's props, stand
+  there.
+- The tree-sitter grammar reads `nests(… in …)` alone and no `renders`, `outlet` or `keeps(…)`; the bench's coverage
+  entries may hold bad variants of their own (`bad` in `use.mjs`, a `bad caught` column in the record).
+
 **What the fifth round left open, settled** (spec/09 MO-8r *Settled*, MO-11t, MO-12e; spec/rfc-declaration-types-2026-11-22.md, *A sixth round*)
 
 - **An element in a prop**: a component of yours given by name to a JS component's prop typed `View` —

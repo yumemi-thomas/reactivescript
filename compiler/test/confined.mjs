@@ -6,8 +6,10 @@
 //    left the callback; reading them after the library took its draft back threw "proxy revoked".
 //  - RFC 14/34: `box = { read: () => n }; peek box.read()` and `createLabel(box.read())` — a closure kept in a record
 //    lost what its body reads, and the value was frozen.
-// Two more were here until 2026-11-23, for values no declaration makes any more (MO-8r): a result with held fields
-// (RFC 06, `pending`/`fails(…)` on a field) and a `renders` value (RFC 17, `renders` alone).
+// Three more were here until 2026-11-23, for values no declaration makes any more (MO-8r): a result with held plain
+// fields (RFC 06, `pending`/`fails(…)` on a field; before a `ref` part they are MO-10l's, and S-module-36's to hold), a
+// `renders` value (RFC 17, `renders` alone), and a router's carried components (RFC 18, `renders(later)`: a route tree
+// is given to a factory now, S-module-22 and S-module-23).
 // The probes of this kind that bench/ once held as "mistakes" live here (2026-11-22): they are not what a Solid user
 // writes by accident, they are what a review writes to find the edge of a rule.
 // Needs what bench/run.mjs needs (the crate, the runtime's build, bench/.out/ws).   node compiler/test/confined.mjs
@@ -152,43 +154,6 @@ export default component App() {
     check("…the branch closed: the primitive's cleanup ran with its region, once", await h.until(async () => /^[^|]*\|gone:a$/.test(await page.title())) && (await page.locator(".w").count()) === 0, await page.title());
     await h.close();
   } }
-
-// ---------------------------------------------------------------- RFC 18: a router rendered at a known outlet
-writeFileSync(path.join(dir, "tsr.d.rx"), [
-  "export context router",
-  "export pure fn createRootRoute(options: { component?: Component }): any renders(later)",
-  "export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) nests(component under getParentRoute)",
-  "export pure fn createRouter(options: { routeTree: any }): any instantiates",
-  "export component RouterProvider(props: { router: renders any }) provides(router)",
-  "export component Outlet(props: {}) uses(router) outlet",
-  "export pure fn useParams(opts: { from: string }): ref any uses(router)",
-  "export error NotFound",
-  "export pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)",
-  "",
-].join("\n"));
-const routes = app => `import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, useParams, fetchPerson, NotFound } from "./tsr.js"
-component Root() {
-  errored fallback(e: NotFound) { <p>{e.message}</p> } {
-    loading fallback { <p>loading…</p> } { <main><Outlet /></main> }
-  }
-}
-component Person() {
-  params = useParams({ from: "/people/$id" })
-  person = await fetchPerson(params.id)
-  <h1>{person.name}</h1>
-}
-rootRoute = createRootRoute({ component: Root })
-personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
-${app}
-`;
-const plain = src => { const f = path.join(dir, `p${++seq}.rx`); writeFileSync(f, src); return both(f); };
-{ const r = plain(routes("export default component App() {\n  <RouterProvider router={router} />\n}"));
-  check("accepted: a router rendered at its provider, its pages at the root's outlet under the root's boundaries", r.agree && !r.crate.diagnostics.length && !r.ref.diagnostics.length, show(r)); }
-{ const r = plain(routes("component Host(props: { r: any }) { <RouterProvider router={props.r} /> }\nexport default component App() {\n  <Host r={router} />\n}"));
-  check("accepted: the same router given to the provider through the app's own component (a prop given on)", r.agree && !r.crate.diagnostics.length && !r.ref.diagnostics.length, show(r)); }
-{ const r = plain(routes("component Host(props: { r: any }) { <RouterProvider router={props.r} /> }\nexport default component App() {\n  <Host r={router} />\n}").replace("errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main><Outlet /></main> }\n  }", "loading fallback { <p>loading…</p> } { <main><Outlet /></main> }"));
-  check("refused (UNHANDLED_FAILURE): …and a page that can fail with no boundary at the outlet is still refused through it", r.agree && r.crate.diagnostics.some(d => d.code === "UNHANDLED_FAILURE") && r.ref.diagnostics.some(d => d.code === "UNHANDLED_FAILURE"), show(r)); }
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);

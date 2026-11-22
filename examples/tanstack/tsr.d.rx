@@ -1,12 +1,9 @@
-// @tanstack/solid-router 2.0 (rc) in rows. Its hooks read the router's context (they warn, not throw, without one).
-// A route carries the components it is given (MO-11o): the router renders them under <RouterProvider>, which renders
-// what its `router` prop carries; a child route renders at its parent's <Outlet /> (MO-11p).
+// tsr.js in rows: the app's own factory over @tanstack/solid-router 2.0 (rc), and the library's hooks. The factory provides
+// the router's context to every component of the tree (MO-12c) and nests each record's `children` in its `component`
+// (MO-11i): a page is checked among its layout's children. The hooks read that context (they warn, not throw, without one).
 export context router
-export pure fn createRootRoute(options: { component?: Component }): any renders(later)
-export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later) nests(component under getParentRoute)
-export pure fn createRouter(options: { routeTree: any }): any instantiates
-export component RouterProvider(props: { router: renders any }) provides(router)
-export component Outlet(props: {}) uses(router) outlet
+export type RouteRecord = import("./tsr.js").RouteRecord
+export pure fn createAppRouter(tree: RouteRecord): Component provides(router) nests(children in component)
 export component Link(props: { to: string; params?: any; children?: View }) uses(router)
 export pure fn useParams(opts: { from: string }): ref any uses(router)
 export pure fn useNavigate(): (opts: { to: string; params?: any }) => void uses(router)

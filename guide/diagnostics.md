@@ -18,8 +18,10 @@ A parse error names the habit it looks like, when it recognises one; otherwise i
 ### PARSE
 
 The text has no `.rx` reading at that point. The message says what the parser expected and quotes what it found.
-`reference.md`'s grammar is the whole syntax. In a `.d.rx`, the first drafts of the placement words are refused with their spelling now: `carries` is
-`renders(later)`, and `under(parent in component)` is `nests(component under parent)` (09 MO-11r). An `.rx` module is
+`reference.md`'s grammar is the whole syntax. In a `.d.rx`, a word the vocabulary no longer has is refused by name, with what is written instead (09 MO-8r):
+`renders` after a fn, `renders(later)`, `renders` before a prop's type, `nests(component under parent)` and `outlet`
+(a tree of components is given to a factory declared `nests(children in component)`, MO-11i), and `pending` or
+`fails(…)` before a part of a result that is not `ref` (MO-10l). An `.rx` module is
 imported for what it exports, never as `import "./x.rx"`, which is for a stylesheet or a polyfill (07 §1a).
 
 ### JS_LOCAL
@@ -1443,50 +1445,6 @@ export default component App() {
 A kit's compound part is a member of an object, `<Dialog.Trigger>`: the `.d.rx` declares each member by its written
 name, `export component Dialog.Trigger(props: { … })` (MO-11q), and a member it does not declare is unknown.
 
-### RENDERS_ESCAPES
-
-A JS fn declared `renders(later)` (a route of a code-based route tree) hands back a value that carries the components
-it was given, and a JS component's prop declared `renders` renders them (MO-11o): the components are checked where
-that component is applied — under its providers, above its boundaries. So the prop must be given a value whose
-components the checker can name: one this module builds from its own `renders(later)` calls, or a prop of this
-component read as it is (`props.router`), which is then one this component renders in turn. A source, a parameter, a
-provision or a value another `.rx` module made may hold anything, and what it carried would render unchecked. The
-same code is reported where such a value is written to a source, provided or given to a parameter: it could then be
-rendered under other boundaries and providers than the ones it was checked under.
-
-A library that says nothing of where it renders the components it is given has each checked under a root of its own
-(MO-11s), and its result travels freely.
-
-```rx before
--- module: ./router.d.rx
-export pure fn createRoute(options: { path: string; component?: Component }): any renders(later)
-export component RouterProvider(props: { router: renders any })
--- main
-import { createRoute, RouterProvider } from "./router.js"
-source current: any := null
-component Home() {
-  <h1>home</h1>
-}
-export default component App() {
-  <RouterProvider router={current} />
-}
-```
-
-```rx after
--- module: ./router.d.rx
-export pure fn createRoute(options: { path: string; component?: Component }): any renders(later)
-export component RouterProvider(props: { router: renders any })
--- main
-import { createRoute, RouterProvider } from "./router.js"
-component Home() {
-  <h1>home</h1>
-}
-export default component App() {
-  home = createRoute({ path: "/", component: Home })
-  <RouterProvider router={home} />
-}
-```
-
 ### RESULT_AS_VALUE
 
 A prop whose type says which of its fields wait or fail (`props: { query: { data: pending fails(Error) T; status:
@@ -1498,6 +1456,10 @@ and pass that: the field carries its rows (a prop, a provision and an export all
 an equation (`q = props.query`); comparing or testing it reads no field. To pass it whole to a component, type that
 component's prop with the same rows on its fields. The same code is reported for a read that is not a field the type
 names: an inherited method (`props.query.valueOf()` answers the record itself).
+
+A JS result is read the same way when its declaration says a `ref` part of it waits or fails (`{ data: pending
+fails(Error) ref T; refetch: () => void }`, MO-10l): the name bound to the result is not passed, stored or returned
+whole, and the part is, with its rows (`<List todos={q.data} />`).
 
 ```rx before
 component Count(props: { of: any }) {
@@ -1589,48 +1551,15 @@ export default component App() {
 }
 ```
 
-Where a library renders the components it is given is said in its `.d.rx`, in one vocabulary (MO-11r): a fn handing
-back a `Component` renders them inside it; `renders` where its result is bound (only for an API that renders them in that region: a table whose cells the same view renders); no word at all under a root of its
-own (a toaster, a modal manager); `renders(later)` in a value its result carries, rendered by a JS component's prop declared `renders T`; and
-`nests(children in component)` or `nests(component under parent)` say the tree. A component carried by `renders(later)`
-that no `renders` prop reaches would be checked nowhere, so it is refused where it is passed:
+Where a library renders the components it is given is said in its `.d.rx` (MO-11r): a fn handing back a `Component`
+renders them inside it (a factory, MO-11f), and `nests(children in component)` on it says the tree — each entry of a
+record's `children` among the children of that record's `component` (MO-11i).
 
-```rx before
--- module: ./tsr.d.rx
-export pure fn createRootRoute(options: { component?: Component }): any renders(later)
-export component Inspector(props: { router: any })
-export component RouterProvider(props: { router: renders any })
--- main
-import { createRootRoute, Inspector } from "./tsr.js"
-component Root() {
-  <main>home</main>
-}
-rootRoute = createRootRoute({ component: Root })
-export default component App() {
-  <Inspector router={rootRoute} />
-}
-```
-
-```rx after
--- module: ./tsr.d.rx
-export pure fn createRootRoute(options: { component?: Component }): any renders(later)
-export component Inspector(props: { router: any })
-export component RouterProvider(props: { router: renders any })
--- main
-import { createRootRoute, RouterProvider } from "./tsr.js"
-component Root() {
-  <main>home</main>
-}
-rootRoute = createRootRoute({ component: Root })
-export default component App() {
-  <RouterProvider router={rootRoute} />
-}
-```
-
-A JS fn that says none of these (or a JS import with no declaration) still takes a component: it is checked the most
+A JS fn that is no factory (or a JS import with no declaration) still takes a component: it is checked the most
 cautious way, under a root of its own (MO-11s). It must then stand on its own: an `errored`, a `loading` or a `provide`
 above the call does not count, so one it needs is refused as `UNHANDLED_FAILURE` or `CONTEXT_NOT_FOUND` there. Give the
-component its own boundary, or say in the declaration where the library renders it.
+component its own boundary, or give the components to a factory: a few lines of the app's own JavaScript that take
+them as records and hand back the component that renders them (a route tree, `guide/libraries.md`).
 
 ### INSTANTIATION_NOT_BOUND
 

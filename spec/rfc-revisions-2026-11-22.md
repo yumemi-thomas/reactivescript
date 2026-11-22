@@ -393,7 +393,27 @@ RFC 06 and RFC 17 below describe rules that held from 2026-11-22 to
 2026-11-23 for declarations; what they say of an `.rx` prop typed with
 field rows (RFC 06) still holds. RFC 18's words (`renders(later)`, a
 prop's `renders`, `nests(… under …)`, `outlet`) are one library's too,
-and are to be withdrawn in a change of their own.
+and are to be withdrawn in a change of their own (done the same day:
+the next section).
+
+## After the sixth round (2026-11-23): the bar applied to the end
+
+Recorded in 09 MO-8r (*Settled*), MO-10l and MO-11r, and in
+`rfc-declaration-types-2026-11-22.md` (*A seventh round*). What each
+changed for a program:
+
+| what a Solid app writes | was | now |
+| --- | --- | --- |
+| a TanStack Router tree in `.rx`: `createRoute({ getParentRoute, component })`, `createRouter({ routeTree })`, `<RouterProvider router={router} />`, a page at its layout's `<Outlet />` (RFC 18) | accepted, by `renders(later)`, a prop's `renders`, `nests(component under parent)` and `outlet` on the library's rows | the four words are refused by name: one library wrote them. A page given to `createRoute` is checked under a root of its own, so a router hook in it is `CONTEXT_NOT_FOUND`. The tree is written as records for a factory of the app's own, declared `Component provides(router) nests(children in component)`, and a layout renders `props.children`: accepted, with the same checks |
+| `<Link to="/peeple/$id">` in such an app | a type error, from TanStack's registered router | accepted: the made router has no value to register. **Given up** |
+| the router given to the app's frame as a prop and passed on (`<Shell router={router} />`) | accepted, the prop given on being one the frame renders; `RENDERS_ESCAPES` for a router from a source, a parameter or another module | the made router is a component, applied among the frame's children (`<Shell><AppRouter /></Shell>`); `RENDERS_ESCAPES` no longer exists |
+| `user = createJson(url)` over solid-use's `fetch().json()`, `{user.name}` under no `errored` region; `events.data` of `createSSE` under none | accepted: an accessor asks for no region | `UNHANDLED_FAILURE` where the row says `pending fails(Error) ref` (MO-10l), and `ASYNC_OUTSIDE_LOADING_BOUNDARY` in a client-only build with no `loading` region. A plain `ref` is accepted as before |
+| `todos = useQuery(…)` through a hook of the app's own, `{todos.data}` under no `errored` region (RFC 06) | accepted since the field words were withdrawn | `UNHANDLED_FAILURE` again: the hook's row says `data: pending fails(Error) ref T`; the result passed whole is `RESULT_AS_VALUE` again |
+| `createPagination({ prevContent: <span>‹</span> })`; a table cell that reads the app's context | no spelling; `CONTEXT_NOT_FOUND` | the same, decided: one library asks for each |
+
+RFC 18 below describes a rule that held from 2026-11-19 to 2026-11-23.
+RFC 17's confinement, kept in the checkers for RFC 18's values after
+`renders` alone was withdrawn, is deleted with them.
 
 ## Limits that remain, and why they are inside the goal
 
@@ -403,12 +423,15 @@ and are to be withdrawn in a change of their own.
   whose draft hands out live instances of its own classes is outside
   what `draft` says.
 - **A JS fn declared `pure` that keeps or hands on its argument** breaks
-  the `renders` guarantee as it breaks every other use of `pure`.
-- **Precision.** A part of a `renders` value that its declaration does
-  not type as a primitive needs `str(…)` or an operator to leave; an
-  element read out of a named array holding an instance is a read
-  through it. These are CN-3a's rejections of fine programs, each with
-  its way round in the language.
+  what `pure` says wherever it is used (the `renders` guarantee it also
+  broke is gone with the word, 2026-11-23).
+- **Precision.** An element read out of a named array holding an
+  instance is a read through it: CN-3a's rejection of a fine program,
+  with its way round in the language. (A part of a `renders` value that
+  needed `str(…)` to leave was another until 2026-11-23.)
+- **An accessor's rows are the declaration's word** (MO-10l): one that
+  waits and whose row says only `ref` asks for no region, as every
+  accessor did before. `rx-verify` points it out; nothing infers it.
 - **`draft` means plain data.** A draft whose objects carry their own
   methods under the names of an Array's, or that hands out instances of
   its own classes, is outside what the word says.

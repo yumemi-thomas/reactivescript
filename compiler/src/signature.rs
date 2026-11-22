@@ -50,8 +50,6 @@ pub struct PropSig {
     pub action: Option<(Catch, String)>,
     /// MO-11c: a JS component's prop that takes a component value
     pub component: bool,
-    /// MO-11o: the component renders what this prop's value carries (`f` and `p` are then what is above that)
-    pub renders: bool,
     /// MO-10f: the fields of this prop its type says hold or fail where they are read (path, holds, classes): a JS
     /// result with such fields may be given whole
     pub takes: Vec<(String, bool, Vec<String>)>,
@@ -73,10 +71,6 @@ pub struct CompSig {
     pub shape: Option<Shape>,
     /// O-3: the props it stores where they outlive it — "module", or a provision's key.
     pub stored: IndexMap<String, Vec<String>>,
-    /// MO-11l (2026-11-22): the props whose value never leaves the component (no prop of a component that does not
-    /// keep it, no provision, source, export, thrown value or call that may keep it): a value `renders` checked where
-    /// it is bound may be given to one, and stays beneath that binding
-    pub keeps: Vec<String>,
 }
 #[derive(Debug, Clone)]
 pub struct SigParam {
@@ -247,9 +241,6 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 .iter()
                 .map(|(f, v)| {
                     let mut parts = vec![];
-                    if v.renders {
-                        parts.push("renders".to_string()); // MO-11o: it renders what the prop's value carries
-                    }
                     if !v.takes.is_empty() {
                         // MO-10f: the fields it reads as ones that hold or fail
                         let ts: Vec<String> = v.takes.iter().map(|(p, holds, fails)| format!("{p}{}{}", if *holds { " pending" } else { "" }, if fails.is_empty() { String::new() } else { format!(" fails({})", fails.join(" | ")) })).collect();
@@ -285,7 +276,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 if s.made { " made" } else { "" },
                 if own.is_empty() { String::new() } else { format!(" fails({})", sorted(own).join(" | ")) },
                 if s.requires.is_empty() { String::new() } else { format!(" uses({})", s.requires.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) },
-                format!("{}{}", retains_text(file, &s.stored), if s.keeps.is_empty() { String::new() } else { format!(" keeps({})", s.keeps.join(", ")) }),
+                retains_text(file, &s.stored),
                 shape_text(&s.shape)
             )
         }
@@ -323,8 +314,6 @@ re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(props:\s*(\{.*?\}|\{\}
 re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
-re!(P_RENDERS, r"(^|[^A-Za-z0-9_])renders([^A-Za-z0-9_]|$)");
-re!(P_PARENS, r"\([^)]*\)");
 re!(P_TAKES, r"(^|[^A-Za-z0-9_])takes\(((?:[^()]|\([^()]*\))*)\)");
 re!(P_PENDING, r"(^|\s)pending(\s|$)");
 re!(P_FAILS, r"fails\(([^)]*)\)");
@@ -334,7 +323,6 @@ re!(C_FAILS, r"(^|[^A-Za-z0-9_])fails\(([^)]*)\)");
 re!(C_USES, r"(^|[^A-Za-z0-9_])uses\(([^)]*)\)");
 re!(C_MADE, r"^\s*made\b");
 re!(C_RETAINS, r"(^|[^A-Za-z0-9_])retains\(([^)]*)\)");
-re!(C_KEEPS, r"(^|[^A-Za-z0-9_])keeps\(([^)]*)\)");
 re!(C_SHAPE, r"(^|[^A-Za-z0-9_])shape\(([^)]*)\)");
 re!(SOURCE_WORD, r"^source([^A-Za-z0-9_]|$)");
 re!(REF_PARAM, r"^ref\s");
@@ -483,7 +471,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_COMP.captures(&s) {
-            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), keeps: vec![] };
+            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new() };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
                 let (fname0, spec) = match f.find(':') {
@@ -491,7 +479,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     None => (crate::parse::js_trim(&f).to_string(), String::new()),
                 };
                 let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
-                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, renders: false, takes: vec![] };
+                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, takes: vec![] };
                 let a = P_ACTION.captures(&spec);
                 let rest = match &a {
                     Some(a) => {
@@ -516,9 +504,6 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     }
                 }
                 let rest = P_TAKES.replace(&rest, "$1").to_string();
-                if P_RENDERS.is_match(&P_PARENS.replace_all(&rest, "")) {
-                    v.renders = true;
-                }
                 if P_UNRENDERED.is_match(&rest) {
                     v.rendered = false;
                     v.f = Catch::All;
@@ -555,9 +540,6 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     let t = crate::parse::js_trim(x.get(i + 1..).unwrap_or("")).to_string();
                     sig.stored.entry(f).or_default().push(if t == "module" { t } else { abs_key(file, &t) });
                 }
-            }
-            if let Some(ks) = C_KEEPS.captures(tail) {
-                sig.keeps = split(&ks[2], ',').iter().map(|k| crate::parse::js_trim(k).to_string()).filter(|k| !k.is_empty()).collect();
             }
             sig.shape = Some(content_shape_of(C_SHAPE.captures(tail).map(|x| x.get(2).unwrap().as_str())).map_err(|e| fail(&e))?);
             exports.insert(m[1].to_string(), ExportSig::Comp { sig });

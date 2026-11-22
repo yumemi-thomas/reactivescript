@@ -115,14 +115,13 @@ module.exports = grammar(tsx, {
         $.fails_row,
         $.signature_uses,
         $.signature_retains,
-        $.signature_keeps,
         $.signature_shape,
       )),
     ),
     signature_prop: $ => seq(
       field('name', choice(alias($.identifier, $.property_identifier), '...props')),
       optional(seq(':', repeat1(choice(
-        alias(choice('renders', 'unrendered'), $.row_word),
+        alias('unrendered', $.row_word),
         $.signature_takes,
         $.signature_catches,
         $.signature_provides,
@@ -136,7 +135,6 @@ module.exports = grammar(tsx, {
     // `uses(./ui.rx#who, loading)`: context keys relative to the signature's module (MO-13b), and SV-7b's `loading`
     signature_uses: $ => seq('uses', '(', commaSep1(choice($.context_key, 'loading')), ')'),
     signature_retains: $ => seq('retains', '(', commaSep1(seq(field('name', choice(alias($.identifier, $.property_identifier), '...props')), ':', choice('module', $.context_key))), ')'),
-    signature_keeps: $ => seq('keeps', '(', commaSep1(field('name', alias($.identifier, $.property_identifier))), ')'),
     // `shape(roots p div; closes-p; children-at div)`: SV-7d's words
     signature_shape: $ => seq('shape', '(', optional($.shape_words), ')'),
     shape_words: _ => token(/[a-z0-9;\- \t]+/),
@@ -296,12 +294,11 @@ module.exports = grammar(tsx, {
       $.row_word,
       $.uses_clause,
       $.provides_clause,
-      $.renders_clause,
       $.nests_clause,
     ),
 
-    // `instantiates`, a component's `outlet` (MO-11p), a fn's bare `renders` (MO-11l)
-    row_word: _ => choice('instantiates', 'outlet', 'renders'),
+    // `instantiates`
+    row_word: _ => 'instantiates',
 
     rejects_clause: $ => seq('rejects', '(', $._error_classes, ')'),
 
@@ -310,20 +307,12 @@ module.exports = grammar(tsx, {
     provides_clause: $ => seq('provides', $._context_names),
     _context_names: $ => seq('(', optional(seq(commaSep1(field('name', $.identifier)), optional(','))), ')'),
 
-    // `renders(later)` (MO-11r)
-    renders_clause: $ => seq(
-      'renders',
-      token.immediate('('),
-      'later',
-      ')',
-    ),
-
-    // `nests(children in component)`, `nests(component under getParentRoute)` (MO-11r)
+    // `nests(children in component)` (MO-11i)
     nests_clause: $ => seq(
       'nests',
       '(',
       field('field', alias($.identifier, $.property_identifier)),
-      choice('in', 'under'),
+      'in',
       field('of', alias($.identifier, $.property_identifier)),
       ')',
     ),
@@ -677,7 +666,6 @@ module.exports = grammar(tsx, {
       $.ref_type,
       $.callback_type,
       $.row_type,
-      $.renders_type,
       $.catches_type,
     ),
 
@@ -719,11 +707,10 @@ module.exports = grammar(tsx, {
     // `onSubmit: handler (e: Event) => void`: called later, outside any computation (MO-10g)
     callback_type: $ => seq(field('kind', 'handler'), $.function_type),
 
-    // a result's field rows: `data: pending fails(Error) any` (MO-10f)
+    // rows before a type: a result's `ref` part, `data: pending fails(Error) ref T` (MO-10l); a field of an `.rx`
+    // component's prop, `query: { data: pending fails(Error) T }` (MO-10f)
     row_type: $ => prec.right(seq(choice('pending', $.fails_row), $.type)),
 
-    // `router: renders any`: a prop that carries components the component renders (MO-11o)
-    renders_type: $ => prec.right(seq('renders', $.type)),
 
     // `fallback: catches(NotFound) (e: Error) => View`, `catches(*)`: a prop called with what the component catches
     catches_type: $ => prec.right(seq('catches', '(', choice('*', optional($._error_classes)), ')', $.type)),

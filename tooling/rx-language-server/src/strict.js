@@ -71,7 +71,7 @@ function unanswered(file, results) {
 }
 /** A claim about one position (`provides:theme`, `callbacks:options.onSuccess`, RFC 28/29), in words. */
 const AT = { provides: c => `provides(${c})`, callbacks: c => `callback ${c} (handler or pure)` };
-const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler or pure)", draft: "draft", placement: "where it renders what it is given (renders, nests, outlet)" };
+const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler or pure)", draft: "draft", placement: "where it renders what it is given (a factory, nests)" };
 /** The meaning of a record: what rx-verify checked when it wrote one. A record from a version whose checks differ (2:
  *  each claim the crate reads must be answered; 3: each context provided and each callback position is a claim of its
  *  own, a component's function-typed props included; 4: provides(c) only through a hook or part that uses c alone and

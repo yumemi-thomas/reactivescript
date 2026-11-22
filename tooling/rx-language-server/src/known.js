@@ -1,7 +1,7 @@
 // What `rx-declare` knows of a library that its types cannot show (09 MO-8k): for a package it has been checked against,
-// the rows a person would otherwise write by hand over the draft — where a router renders the components its routes are
-// given (`renders(later)`, a prop that `renders`, MO-11o), which route nests under which (`nests(…)`, MO-11i), the
-// context its provider provides and its hooks read (MO-12), a callback the library calls later (`handler`, MO-10g), and `pure`
+// the rows a person would otherwise write by hand over the draft — that a factory nests what it is given (`nests(…)`,
+// MO-11i), the context its provider provides and its hooks read (MO-12), a callback the library calls later (`handler`,
+// MO-10g), an accessor that waits or fails where it is read (`pending`, `fails(…)` before its `ref`, MO-10l), and `pure`
 // for a primitive that writes nothing but its own state (MO-8a). Each entry is for a version range: outside it the draft
 // is the types' alone, with its TODOs.
 //
@@ -10,23 +10,19 @@
 // the installed package exports it; the draft says which rows it took from here.
 //
 // `rows`: export name → its row. `contexts`: the contexts the rows name. `words`: export name → words added to the
-// drafted row as it is (`pure` before `fn`, the rest after the row), for an export whose drafted types are right.
+// drafted row as it is (`pure` before `fn`, `after` after the row, `waits` before a `ref` part of its result: `""` the
+// whole result, else a tuple's index or a record's field), for an export whose drafted types are right.
 module.exports = {
   "@tanstack/solid-router": {
     range: ">=2.0.0-rc.0 <3.0.0",
     contexts: ["router"],
+    // its route tree is built from values (`createRoute`, `createRouter`): rows with no word, so a component given to
+    // one is checked under a root of its own (MO-11s). An app gives its tree to a factory of its own (guide/libraries.md)
     rows: {
-      // a route carries the components it is given: the router renders them under <RouterProvider>, a child route at
-      // its parent's <Outlet /> (MO-11o, MO-11p)
-      createRootRoute: "export pure fn createRootRoute(options: { component?: Component }): import(\"@tanstack/solid-router\").AnyRoute renders(later)",
-      createRoute: "export pure fn createRoute(options: { getParentRoute: () => import(\"@tanstack/solid-router\").AnyRoute; path: string; component?: Component }): import(\"@tanstack/solid-router\").AnyRoute renders(later) nests(component under getParentRoute)",
-      createRouter: "export pure fn createRouter(options: { routeTree: import(\"@tanstack/solid-router\").AnyRoute }): import(\"@tanstack/solid-router\").AnyRouter instantiates",
-      RouterProvider: "export component RouterProvider(props: { router: renders import(\"@tanstack/solid-router\").AnyRouter }) provides(router)",
-      Outlet: "export component Outlet(props: {}) uses(router) outlet",
       Link: "export component Link(props: { to: string; params?: Parameters<typeof import(\"@tanstack/solid-router\").Link>[0][\"params\"]; children?: View }) uses(router)",
     },
     // its hooks read the router's context; their types are the library's, as drafted
-    words: { useParams: { pure: true, after: "uses(router)" } },
+    words: { useParams: { pure: true, after: "uses(router)" }, RouterProvider: { after: "provides(router)" }, Outlet: { after: "uses(router)" } },
   },
   "@solidjs/router": {
     range: ">=2.0.0 <3.0.0",
@@ -39,6 +35,10 @@ module.exports = {
       useSubmissions: "export pure fn useSubmissions<T extends unknown[], U, V>(fn_: import(\"@solidjs/router\").FormAction<T, U, V>, filter?: (input: V) => boolean): { input: V; result?: unknown; error: unknown }[] uses(router)",
     },
   },
+  // accessors that wait for a first value, read off the release's own source: `data` throws Solid's NotReadyError until
+  // the first message and the stream's error after one; `location` until the first fix (its errors are `error`'s)
+  "@solid-primitives/sse": { range: ">=1.0.0 <2.0.0", words: { createSSE: { waits: { data: "pending fails(Error)" } } } },
+  "@solid-primitives/geolocation": { range: ">=3.0.0 <4.0.0", words: { createGeolocationWatcher: { waits: { location: "pending" } } } },
   "@tanstack/solid-query": {
     range: ">=6.0.0-rc.0 <7.0.0",
     contexts: ["queryClient"],

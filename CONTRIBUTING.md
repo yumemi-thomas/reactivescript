@@ -11,6 +11,16 @@ see the README's *Rule IDs*) or a scenario under `scenarios/`
 with the rule it adds or amends and at least one scenario that shows it.
 `scenarios/TEMPLATE.md` is the starting point for a new one.
 
+A word or a form of a JS declaration (`.d.rx`) is held to the bar of
+`spec/09-modules.md` MO-8r: without it a correct Solid program that people
+commonly write cannot be written, or a mistake Solid programs really make
+cannot be refused, and more than one library writes it. Expressing one
+package's API is not a reason: that package is left undeclared, wrapped in
+a module of the app's own, or typed by its own `.d.ts`. A word that is
+withdrawn is refused by name in both declaration parsers, with what to
+write instead, and the benchmark lists each check given up with it
+(`bench/README.md`).
+
 Decisions recorded in the spec as *ruled* with a date are settled; please
 open an issue rather than a PR to revisit one. Decisions marked *taken by
 default* are still open to change.
@@ -44,13 +54,14 @@ The crate, the plugin, the runtime and the tooling, from the repository's root:
 
 ```sh
 (cd compiler && cargo test --release)
-for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined lib; do node compiler/test/$t.mjs; done
+for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined lib; do node compiler/test/$t.mjs; done   # SOLID_NEXT=<checkout> for vite.mjs when Solid is not at ../solid-next (a nested worktree)
 # with a Solid plugin that has context.resolve and Frontend.buildStart (compiler/README.md):
 for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar
 (cd runtime && node test.mjs)
 (cd tooling/rx-language-server && npm test)
 node bench/run.mjs --check     # the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
+node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)
 ```
 
 `ref/README.md` describes each runner. Please run the suite before opening a

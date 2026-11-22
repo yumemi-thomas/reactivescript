@@ -4,14 +4,11 @@
 // Placement needs a scene: the probe file (`lib.probe.mjs`) exports `scene(lib, h)`, which builds a small app from `lib`
 // (the module's exports, instrumented) and returns a view to mount (`() => h.s.createComponent(lib.RouterProvider, …)`).
 // `h.component(name, inner?)` makes a component that records where it renders; give those to the library where a program
-// would give its own. Every recording component, and every JS component a row names (a made component, a component whose
-// prop renders what a value carries, an outlet), provides the chain of recording ids above it through one context, so
-// where a component renders is read the way Solid itself finds a context: up its owners. Then each row is checked:
+// would give its own. Every recording component, and every component a declared factory made, provides the chain of
+// recording ids above it through one context, so where a component renders is read the way Solid itself finds a
+// context: up its owners. Then each row is checked:
 //   - a fn handing back a Component: what it was given renders inside the made component;
-//   - `renders`: inside the component that called the fn;
-//   - `renders(later)`: inside a JS component whose prop is declared `renders T`;
-//   - `nests(children in component)`: each entry's component inside its record's component;
-//   - `nests(component under parent)`: each value's component inside its parent value's component, at an `outlet`.
+//   - `nests(children in component)`: each entry's component inside its record's component.
 // A row whose components the scene never renders is not verified, and says so. `draft` rows need no scene: the fn is
 // called (with the probe's `args`, else `{}`), and a draft callback must be handed an object whose writes the library keeps.
 
@@ -22,14 +19,13 @@ function rowsOf(text) {
     const l = l0.replace(/\/\/.*$/, "");
     let m;
     if ((m = /^\s*export\s+(?:server\s+|client\s+)?(?:pure\s+)?fn\s+([A-Za-z_$][\w$]*)/.exec(l))) {
-      const nestsIn = /\bnests\(\s*([\w$]+)\s+in\s+([\w$]+)\s*\)/.exec(l), nestsUnder = /\bnests\(\s*([\w$]+)\s+under\s+([\w$]+)\s*\)/.exec(l);
-      const mode = /\brenders\(\s*later\s*\)/.test(l) ? "later" : /\brenders\b(?!\s*\()/.test(l.replace(/:\s*renders\s/g, "")) ? "here" : /\)\s*:\s*Component\b/.test(l) ? "factory" : null;
+      const nestsIn = /\bnests\(\s*([\w$]+)\s+in\s+([\w$]+)\s*\)/.exec(l);
+      const mode = /\)\s*:\s*Component\b/.test(l) ? "factory" : null;
       // draft callbacks: in a parameter (`(update: (draft s: T) => …)`) or in a function part of a tuple result
-      const draftPart = (() => { const r = /\)\s*:\s*\[(.*)\]\s*(?:$|\b(?:uses|provides|renders|nests|instantiates)\b)/.exec(l); if (!r) return -1; let d = 0, from = 0, idx = 0; const t = r[1]; for (let j = 0; j <= t.length; j++) { const c = t[j]; if (j === t.length || (c === "," && d === 0)) { if (/\(\s*draft\s+[\w$]/.test(t.slice(from, j))) return idx; idx++; from = j + 1; } else if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && t[j - 1] !== "=")) d--; } return -1; })();
-      if (mode || nestsIn || nestsUnder || draftPart >= 0) fns.push({ name: m[1], line: i + 1, mode, nestsIn: nestsIn && { kids: nestsIn[1], inside: nestsIn[2] }, nestsUnder: nestsUnder && { inside: nestsUnder[1], parent: nestsUnder[2] }, draftPart });
+      const draftPart = (() => { const r = /\)\s*:\s*\[(.*)\]\s*(?:$|\b(?:uses|provides|nests|instantiates)\b)/.exec(l); if (!r) return -1; let d = 0, from = 0, idx = 0; const t = r[1]; for (let j = 0; j <= t.length; j++) { const c = t[j]; if (j === t.length || (c === "," && d === 0)) { if (/\(\s*draft\s+[\w$]/.test(t.slice(from, j))) return idx; idx++; from = j + 1; } else if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && t[j - 1] !== "=")) d--; } return -1; })();
+      if (mode || nestsIn || draftPart >= 0) fns.push({ name: m[1], line: i + 1, mode, nestsIn: nestsIn && { kids: nestsIn[1], inside: nestsIn[2] }, draftPart });
     } else if ((m = /^\s*export\s+component\s+([A-Za-z_$][\w$.]*)\s*[(<]/.exec(l))) {
-      const carried = [...l.matchAll(/([\w$]+)\??\s*:\s*renders\s/g)].map(x => x[1]);
-      comps.push({ name: m[1], line: i + 1, outlet: /\boutlet\b/.test(l.slice(l.lastIndexOf(")"))), carried });
+      comps.push({ name: m[1], line: i + 1 });
     }
   });
   return { fns, comps };
@@ -45,9 +41,9 @@ function componentsIn(v, known, out = new Set(), seen = new Set(), depth = 0) {
 }
 
 async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
-  const { fns, comps } = rowsOf(text);
+  const { fns } = rowsOf(text);
   const out = [];
-  if (!fns.length && !comps.some(c => c.outlet || c.carried.length)) return out;
+  if (!fns.length) return out;
   const s = await import(resolve("solid-js"));
   // drafts first: they need no scene
   for (const f of fns.filter(f => f.draftPart >= 0)) {
@@ -70,13 +66,11 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
       : !kept ? { line: f.line, ob: "draft", status: "fail", what: `${f.name}: declared a draft callback, but a write to what it is handed is not kept (MO-10i)` }
       : { line: f.line, ob: "draft", status: "ok", what: `${f.name}: draft holds: its callback is handed an object, and a write to it is kept` });
   }
-  const placing = fns.filter(f => f.mode || f.nestsIn || f.nestsUnder);
-  const siteComps = comps.filter(c => c.outlet || c.carried.length);
-  if (!placing.length && !siteComps.length) return out;
+  const placing = fns.filter(f => f.mode || f.nestsIn);
+  if (!placing.length) return out;
   if (process.env.RXV_DEBUG) require("node:fs").writeSync(2, "[rx-verify] scene\n");
   if (typeof probeMod?.scene !== "function") {
     for (const f of placing) out.push({ line: f.line, status: "unverified", what: `${f.name}: where it renders what it is given is not run: give a scene in the probe (scene(lib, h))` });
-    for (const c of siteComps) out.push({ line: c.line, status: "unverified", what: `${c.name}: ${c.outlet ? "outlet" : "renders"} not run: give a scene in the probe` });
     return out;
   }
   // the instrumentation: one context carries the chain of recording ids above wherever something renders
@@ -87,11 +81,8 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
   const mark = (id, render) => props => { const chain = [...(s.useContext(MARK) ?? []), id]; chains.set(id, chain); return s.createComponent(MARK, { value: chain, get children() { return render(props); } }); };
   const h = { s, component: (name, inner) => { const C = mark(name, props => inner ? inner(props) : null); known.set(C, name); return C; } };
   const calls = [];           // { fn, args, result, caller (the chain where it was called), made (a made component's id) }
-  const sites = new Map();    // JS component name → the recording ids of its renders (outlet, renders-prop components)
   const lib = new Proxy(mod, { get(t, k) {
     const v = t[k]; if (typeof k !== "string" || typeof v !== "function") return v;
-    const site = siteComps.find(c => c.name === k);
-    if (site) return mark(`${k}#site`, props => { sites.set(k, [...new Set([...(sites.get(k) ?? []), `${k}#site`])]); return s.createComponent(v, props); });
     const f = placing.find(x => x.name === k);
     if (!f) return v;
     return (...args) => {
@@ -101,8 +92,6 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
       rec.result = result; calls.push(rec); return result;
     };
   } });
-  // members (`Dialog.Trigger`) of an object a row names
-  for (const c of siteComps.filter(c => c.name.includes("."))) { const [o, p] = c.name.split("."); if (mod[o]?.[p]) { /* reached through lib[o][p]: not instrumented here */ } }
   let dispose = () => {}, renderError = null;
   try {
     const view = await probeMod.scene(lib, h);
@@ -124,27 +113,12 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
   }
   const rendered = name => chains.get(name);
   const under = (name, id) => !!rendered(name)?.slice(0, -1).includes(id);
-  const valueOf = rec => rec.result;
   for (const f of placing) {
     const recs = calls.filter(r => r.fn === f.name);
     if (!recs.length) { out.push({ line: f.line, status: "unverified", what: `${f.name}: the scene does not call it` }); continue; }
     const bad = [], good = [], unseen = new Set();
     for (const r of recs) {
       const given = [...componentsIn(r.args, known)];
-      // nests(component under parent): each value's component inside its parent value's component, at an outlet
-      if (f.nestsUnder) {
-        const a = r.args.find(x => x && typeof x === "object" && f.nestsUnder.inside in x);
-        const child = a && known.get(a[f.nestsUnder.inside]);
-        let pv = a?.[f.nestsUnder.parent]; if (typeof pv === "function") { try { pv = pv(); } catch { pv = undefined; } }
-        const pr = calls.find(x => valueOf(x) === pv);
-        const pa = pr?.args.find(x => x && typeof x === "object" && f.nestsUnder.inside in x);
-        const parent = pa && known.get(pa[f.nestsUnder.inside]);
-        if (child && parent) {
-          if (!rendered(child)) unseen.add(child);
-          else if (!under(child, parent)) bad.push(`${child} renders outside its parent's ${parent}`);
-          else { const outlets = siteComps.filter(c => c.outlet).map(c => `${c.name}#site`); const ch = rendered(child); const pi = ch.indexOf(parent); if (outlets.length && !ch.slice(pi + 1).some(id => outlets.includes(id))) bad.push(`${child} renders inside ${parent}, but not at an outlet`); else good.push(`${child} inside ${parent}${outlets.length ? ", at its outlet" : ""}`); }
-        }
-      }
       // nests(children in component): each entry's component inside its record's component
       if (f.nestsIn) {
         const walk = v => { if (!v || typeof v !== "object") return; if (Array.isArray(v)) return v.forEach(walk); const host = known.get(v[f.nestsIn.inside]); if (host) for (const k of [].concat(v[f.nestsIn.kids] ?? [])) { const kid = k && known.get(k[f.nestsIn.inside]); if (kid) { if (!rendered(kid)) unseen.add(kid); else if (under(kid, host)) good.push(`${kid} inside ${host}`); else bad.push(`${kid} renders outside ${host}`); } } Object.values(v).forEach(x => typeof x === "object" && walk(x)); };
@@ -153,17 +127,11 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
       for (const c of given) {
         if (!rendered(c)) { unseen.add(c); continue; }
         if (f.mode === "factory" && r.made) { if (!under(c, r.made)) bad.push(`${c} renders outside the component ${f.name} made`); else good.push(`${c} inside the made component`); }
-        if (f.mode === "here" && r.caller.length) { if (!under(c, r.caller[r.caller.length - 1])) bad.push(`${c} renders outside where ${f.name} was called`); else good.push(`${c} where it was called`); }
-        if (f.mode === "later") { const ids = siteComps.filter(sc => sc.carried.length).map(sc => `${sc.name}#site`); if (!ids.some(id => under(c, id))) bad.push(`${c} renders outside every component whose prop renders what a value carries`); else good.push(`${c} inside ${rendered(c).find(id => ids.includes(id)).replace("#site", "")}`); }
       }
     }
     if (bad.length) out.push({ line: f.line, status: "fail", what: `${f.name}: ${[...new Set(bad)].join("; ")}` });
     else if (good.length) out.push({ line: f.line, status: "ok", what: `${f.name}: placement holds: ${[...new Set(good)].slice(0, 4).join("; ")}${unseen.size ? ` (not rendered by the scene: ${[...unseen].join(", ")})` : ""}` });
     else out.push({ line: f.line, status: "unverified", what: `${f.name}: the scene renders none of what it gives it${unseen.size ? ` (${[...unseen].join(", ")})` : ""}` });
-  }
-  for (const c of siteComps) {
-    const ids = sites.get(c.name);
-    out.push(ids ? { line: c.line, status: "ok", what: `${c.name}: rendered by the scene, its ${c.outlet ? "outlet" : "renders prop"} checked with the rows above` } : { line: c.line, status: "unverified", what: `${c.name}: the scene does not render it` });
   }
   dispose();
   return out;

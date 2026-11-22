@@ -29,6 +29,10 @@ fs.writeFileSync(path.join(ws, "lib.mjs"), [
   "export const roll = () => Math.random();",
   "export const ThemeProvider = props => createComponent(Theme, { value: \"x\", get children() { return props.children; } });",
   "export const FakeProvider = props => props.children;",
+  "// an accessor that waits for its first answer and throws its error, alone and as a tuple's part",
+  "export const useJson = opts => createMemo(() => opts().load());",
+  "export const useQuiet = opts => createMemo(() => opts().load());",
+  "export const useParts = opts => [createMemo(() => opts().load()), () => {}];",
   "",
 ].join("\n").replace("import { createContext, useContext }", "import { createContext, useContext, createMemo, getOwner, runWithOwner, createSignal, createComponent }"));
 fs.writeFileSync(path.join(ws, "lib.probe.mjs"), [
@@ -41,6 +45,9 @@ fs.writeFileSync(path.join(ws, "lib.probe.mjs"), [
   "  useLater: { args: () => [() => ({ x: \"a\" })], run: r => r.run() },",
   "  useWrongly: { args: () => [() => ({ x: \"a\" })], run: r => r.nope() },",
   "  double: { args: () => [3] },",
+  "  useJson: { args: () => [() => ({ load: async () => [1] })], fail: () => [() => ({ load: async () => { throw new Error(\"down\"); } })] },",
+  "  useQuiet: { args: () => [() => ({ load: async () => [1] })] },",
+  "  useParts: { args: () => [() => ({ load: async () => [1] })], fail: () => [() => ({ load: async () => { throw new Error(\"down\"); } })] },",
   "};",
   "",
 ].join("\n"));
@@ -61,6 +68,9 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), [
   "export pure fn roll(): number",
   "export component ThemeProvider(props: { children?: View }) provides(theme)",
   "export component FakeProvider(props: { children?: View }) provides(theme)",
+  "export pure fn useJson(ref opts: { load: () => Promise<any> }): pending fails(Error) ref any",
+  "export pure fn useQuiet(ref opts: { load: () => Promise<any> }): ref any",
+  "export pure fn useParts(ref opts: { load: () => Promise<any> }): [pending fails(Error) ref any, () => void]",
   "",
 ].join("\n"));
 
@@ -75,7 +85,7 @@ check("a hook that throws with no provider holds its uses(…)", /lib\.d\.rx:2 o
 check("a hook that does not is a mismatch", /lib\.d\.rx:3 MISMATCH\s+useClock: declared uses\(…\), but called with no provider it neither throws nor warns/.test(out), out);
 check("an export the module lacks is a mismatch", /lib\.d\.rx:4 MISMATCH\s+useMissing: lib\.mjs exports nothing by that name/.test(out), out);
 check("an error class is checked to be an Error subclass", /lib\.d\.rx:5 ok\s+NotFound/.test(out) && /lib\.d\.rx:6 MISMATCH\s+Plain: declared an error/.test(out), out);
-check("a plain field that waits where it is read is a mismatch, with what to write instead", /lib\.d\.rx:7 MISMATCH\s+useLoad: data holds \(its first read is not ready\): a plain field that waits where it is read has no row/.test(out), out);
+check("a plain field that waits where it is read is a mismatch, with what to write instead", /lib\.d\.rx:7 MISMATCH\s+useLoad: data holds \(its first read is not ready\): a plain field that waits where it is read has no row — hand it out as a function from a module of the app's own, declared `pending ref`/.test(out), out);
 check("...whichever field it is", /lib\.d\.rx:8 MISMATCH\s+useEager: size holds/.test(out), out);
 check("a hook that reads its context only when used: the probe's run finds it", /lib\.d\.rx:9 ok\s+useLater: uses\(…\) holds/.test(out), out);
 check("a probe whose run throws under its providers too is not evidence", /lib\.d\.rx:10 unverified useWrongly: the probe's run throws under its providers too/.test(out), out);
@@ -85,39 +95,32 @@ check("pure: two calls answering alike is not contradicted, and not verified eit
 check("pure that answers differently is a mismatch", /lib\.d\.rx:14 MISMATCH\s+roll: declared pure, but two calls/.test(out), out);
 check("provides: a hook of the file runs under the component", /lib\.d\.rx:15 ok\s+ThemeProvider: provides\(theme\) holds: useTheme runs under it/.test(out), out);
 check("a component that provides nothing is a mismatch", /lib\.d\.rx:16 MISMATCH\s+FakeProvider: declared provides\(theme\), but useTheme, which uses it, still fails under it/.test(out), out);
+check("an accessor declared `pending fails(Error) ref` holds, then answers, and fails under the failing arguments (MO-10l)", /lib\.d\.rx:17 ok\s+useJson: its fields read as declared \(the result held, then answered\)/.test(out) && /lib\.d\.rx:17 ok\s+useJson: under the failing arguments it fails with Error, as declared/.test(out), out);
+check("...as a part of a tuple", /lib\.d\.rx:19 ok\s+useParts: its fields read as declared \(0 held, then answered\)/.test(out) && /lib\.d\.rx:19 ok\s+useParts: under the failing arguments it fails with Error, as declared/.test(out), out);
+check("an accessor that waits and does not say so is no mismatch: the row says less, and that is pointed out", /lib\.d\.rx:18 ok\s+useQuiet: its fields read as declared; the result waited where it was read: `pending ref` would have the checker ask for a loading region/.test(out), out);
 check("mismatches fail the run", r.status === 1, r.status);
 
-// MO-11r, MO-10i: placement rows against a scene, and drafts. A small router that renders a child route at its parent's
-// outlet; a "flat" one, declared the same, that renders every route side by side; a store whose setter hands its draft,
-// and one that hands a copy.
+// MO-11r, MO-10i: placement rows against a scene, and drafts. A small router that is given its routes as records and
+// renders each page inside its layout; a "flat" one, declared the same, that renders every route side by side; a store
+// whose setter hands its draft, and one that hands a copy.
 const router = (flat) => [
-  "import { createContext, useContext, createComponent } from \"solid-js\";",
-  "const Level = createContext();",
-  "export const createRootRoute = o => ({ comp: o.component, children: [] });",
-  "export const createRoute = o => { const r = { comp: o.component, children: [] }; o.getParentRoute().children.push(r); return r; };",
+  "import { createComponent } from \"solid-js\";",
   flat
-    ? "export const RouterProvider = props => [createComponent(props.router.comp, {}), ...props.router.children.map(c => createComponent(c.comp, {}))];"
-    : "export const RouterProvider = props => createComponent(Level, { value: props.router, get children() { return createComponent(props.router.comp, {}); } });",
-  flat
-    ? "export const Outlet = () => null;"
-    : "export const Outlet = () => { const r = useContext(Level); const c = r.children[0]; return c ? createComponent(Level, { value: c, get children() { return createComponent(c.comp, {}); } }) : null; };",
+    ? "export const createRouter = o => () => o.routes.flatMap(function all(r) { return [createComponent(r.component, {}), ...(r.children ?? []).flatMap(all)]; });"
+    : "export const createRouter = o => () => o.routes.map(function one(r) { return createComponent(r.component, { get children() { return (r.children ?? []).map(one); } }); });",
   "",
 ].join("\n");
 const routerDecl = [
   "export context router",
-  "export pure fn createRootRoute(options: { component?: Component }): any renders(later)",
-  "export pure fn createRoute(options: { getParentRoute: () => any; component?: Component }): any renders(later) nests(component under getParentRoute)",
-  "export component RouterProvider(props: { router: renders any }) provides(router)",
-  "export component Outlet(props: {}) uses(router) outlet",
+  "export pure fn createRouter(config: { routes: { component: Component; children?: any[] }[] }): Component provides(router) nests(children in component)",
   "",
 ].join("\n");
 const scene = [
   "export const scene = (lib, h) => {",
-  "  const Root = h.component(\"Root\", () => h.s.createComponent(lib.Outlet, {}));",
+  "  const Root = h.component(\"Root\", props => props.children);",
   "  const Person = h.component(\"Person\");",
-  "  const root = lib.createRootRoute({ component: Root });",
-  "  lib.createRoute({ getParentRoute: () => root, component: Person });",
-  "  return () => h.s.createComponent(lib.RouterProvider, { router: root });",
+  "  const Router = lib.createRouter({ routes: [{ component: Root, children: [{ component: Person }] }] });",
+  "  return () => h.s.createComponent(Router, {});",
   "};",
   "",
 ].join("\n");
@@ -157,15 +160,14 @@ fs.writeFileSync(path.join(ws, "kit.d.rx"), [
 const r2 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "nested.d.rx", "flat.d.rx", "store.d.rx", "unscened.d.rx", "kit.d.rx"], { cwd: ws, encoding: "utf8" });
 const out2 = r2.stdout + r2.stderr;
 if (process.env.VERBOSE) console.log(out2);
-check("placement: a child route renders inside its parent's component, at its outlet (nests … under, by a scene)", /nested\.d\.rx:3 ok\s+createRoute: placement holds: Person inside Root, at its outlet/.test(out2), out2);
-check("placement: renders(later) — the carried components render inside the component whose prop renders them", /nested\.d\.rx:2 ok\s+createRootRoute: placement holds: Root inside RouterProvider/.test(out2), out2);
-check("placement: a library that renders the child beside its parent is a mismatch", /flat\.d\.rx:3 MISMATCH\s+createRoute: Person renders outside its parent's Root/.test(out2), out2);
+check("placement: a page renders inside its layout, and both inside the component the factory made (nests(children in component), by a scene)", /nested\.d\.rx:2 ok\s+createRouter: placement holds: Person inside Root; Root inside the made component/.test(out2), out2);
+check("placement: a library that renders the page beside its layout is a mismatch", /flat\.d\.rx:2 MISMATCH\s+createRouter: Person renders outside Root/.test(out2), out2);
 check("draft: a setter that hands its draft holds", /store\.d\.rx:1 ok\s+makeStore: draft holds/.test(out2), out2);
 check("draft: one that hands a copy is a mismatch", /store\.d\.rx:2 MISMATCH\s+copyStore: declared a draft callback, but a write to what it is handed is not kept/.test(out2), out2);
 check("a compound part that fails alone and renders inside its root holds its uses(…) (MO-11q)", /kit\.d\.rx:3 ok\s+Dialog\.Trigger: uses\(…\) holds: it fails alone and renders inside Dialog/.test(out2), out2);
 check("a part declared uses(…) that reads nothing is a mismatch", /kit\.d\.rx:4 MISMATCH\s+Dialog\.Title: declared uses\(dialog\), but rendered with no provider it neither fails nor warns/.test(out2), out2);
 check("the root's provides(…) is checked through a part that uses it alone: it fails without it and renders under it", /kit\.d\.rx:2 ok\s+Dialog: provides\(dialog\) holds: Dialog\.Trigger, which uses it alone, fails without it and renders under it/.test(out2), out2);
-check("placement with no scene is not verified, and says so", /unscened\.d\.rx:3 unverified createRoute: where it renders what it is given is not run: give a scene/.test(out2), out2);
+check("placement with no scene is not verified, and says so", /unscened\.d\.rx:2 unverified createRouter: where it renders what it is given is not run: give a scene/.test(out2), out2);
 
 // MO-10g: a callback row checked by running — the library calls it outside tracking (a handler), inside a computation
 // (a mismatch: the parameter would be `ref`), or never under the probe (unverified).

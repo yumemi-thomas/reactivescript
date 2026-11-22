@@ -104,10 +104,33 @@ export component Search(props: { start: boolean, q: string }) {
 ```
 
 What a library hands back that waits or throws where it is read is an accessor to `.rx`: declared `ref`, read as a
-value, and able to hold like a value from an `await`. One library hands back a store whose plain field does that
-instead (a query's `data`), and no row says so of a plain field (until 2026-11-23 `pending` and `fails(…)` before
-the field did: one library wrote them, and they are refused now). Hand the field out as a function, in a few lines of
-your own (`data: () => q.data`), and declare it `ref`: see *When no word says what a library does*, below.
+value, and able to hold like a value from an `await`. A plain `ref` asks nothing of you. Where the accessor is known
+to wait for its first value, or to throw, the row says so before the `ref`, and you are asked for the regions an
+`await` would need:
+
+```rx
+export pure fn createJson(url: string): pending fails(Error) ref User             // the whole result
+export pure fn createSSE<T>(ref url: string): { data: pending fails(Error) ref T; readyState: ref number; close: () => void }
+```
+
+```rx
+user = createJson("/api/user")
+errored fallback(e) { <p>failed: {e.message}</p> } {
+  loading fallback { <p>loading…</p> } { <p>hello {user.name}</p> }
+}
+```
+
+Without the `errored` region the read is `UNHANDLED_FAILURE`; in a client-only app, without the `loading` one it is
+`ASYNC_OUTSIDE_LOADING_BOUNDARY`. The words go before a `ref` part and nowhere else: the whole result, an item of a
+tuple, a field of a record. A record or a tuple with such a part is read a part at a time (`q.data`, never `q` passed
+whole: `RESULT_AS_VALUE`); the part itself goes anywhere. `rx-declare` writes the words where it knows them (a release
+it was checked against, or a hook `--run` could run), and `rx-verify` points out an accessor that waited without
+saying so.
+
+One library hands back a store whose plain field waits instead (a query's `data`), and no row says so of a plain
+field (until 2026-11-23 `pending` and `fails(…)` before the field did: one library wrote them, and they are refused
+now). Hand the field out as a function, in a few lines of your own (`data: () => q.data`), and declare it `pending
+fails(Error) ref`: see *When no word says what a library does*, below.
 
 A primitive runs in an owner of its own, under the place you wrote it. You don't see it, except that a library whose
 server render makes fewer effects than its browser one — many return early under `isServer` — no longer breaks the
@@ -116,7 +139,8 @@ hydration of what you write after it, as it does in a `.tsx` app (`Hydration key
 or later in what it made, goes to the `errored` region you wrote it under.
 
 `isOn`, `query` and `wide` are equations like any other: read them without calling them. They may hold, like a
-value from an `await` (Solid promises nothing about an accessor), so `latest`, `pending?` and `loading` apply.
+value from an `await` (Solid promises nothing about an accessor), so `latest`, `pending?` and `loading` apply; only
+one whose row says `pending` or `fails(…)` asks for a region.
 
 What the compiler catches:
 
@@ -264,8 +288,11 @@ used correctly. What a single package does, you say without one, in one of three
 
   ```rx
   export context queryClient from "@tanstack/solid-query"
-  export pure fn useQuery<T>(ref options: { queryKey: unknown[]; queryFn: () => Promise<T> }): { data: ref T; isFetching: ref boolean; refetch: () => Promise<unknown> } uses(queryClient)
+  export pure fn useQuery<T>(ref options: { queryKey: unknown[]; queryFn: () => Promise<T> }): { data: pending fails(Error) ref T; isFetching: ref boolean; refetch: () => Promise<unknown> } uses(queryClient)
   ```
+
+  `data` says what the library's field does — it waits for the first answer and throws the query's error — so a read
+  of `todos.data` with no `errored` region above it is refused, as a read of an `await` would be.
 
   **Your wrapper still needs the library's provider, and says so.** `export context queryClient from
   "@tanstack/solid-query"` names the context that package's declaration declares, so `uses(queryClient)` on your hook
@@ -331,10 +358,45 @@ export default component App() {
   puts above `props.children` covers it. Without the word, put them above `<Router />`.
 - **A router can live in its own module.** `export Router = createRouter(…)` exports it; whoever applies `<Router />`
   gets its pages' needs through its signature, so the `errored` or `provide` they need goes above `<Router />` there.
-- **A provider can be wrapped.** With a router that travels in a value (TanStack's `<RouterProvider router={…} />`),
-  the app's own frame can take the router as a prop and give it on: `component Shell(props: { router: AnyRouter })
-  { <header>…</header> <RouterProvider router={props.router} /> }`. The pages are checked where `Shell` is applied,
-  under what `Shell` puts around the provider; pass the prop on as it is (`props.router`).
+- **A router whose routes are values is given a factory of your own.** TanStack Router builds its tree from values
+  (`createRoute({ getParentRoute, component })`, `createRouter({ routeTree })`, `<RouterProvider router={…} />`) and
+  renders a page at its parent's `<Outlet />`. No word says where such a value's components render (until 2026-11-23
+  `renders(later)`, a prop's `renders`, `nests(component under parent)` and `outlet` did: one library wrote them, and
+  each is refused by name now), so a page given to the library's own `createRoute` is checked under a root of its own,
+  where the router's context is not found. Write the tree as records and give it to a few lines of JavaScript that
+  build the library's routes from them, in the shape above:
+
+  ```js
+  // routes.js
+  import { createComponent } from "solid-js"
+  import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet } from "@tanstack/solid-router"
+  export function createAppRouter(tree) {
+    const route = (record, parent) => {
+      const component = () => createComponent(record.component, { get children() { return createComponent(Outlet, {}) } })
+      const made = parent ? createRoute({ getParentRoute: () => parent, path: record.path, component }) : createRootRoute({ component })
+      return record.children?.length ? made.addChildren(record.children.map(child => route(child, made))) : made
+    }
+    const router = createRouter({ routeTree: route(tree) })
+    return () => createComponent(RouterProvider, { router })
+  }
+  ```
+
+  ```rx
+  // routes.d.rx
+  export context router from "@tanstack/solid-router"
+  export type RouteRecord = import("./routes.js").RouteRecord
+  export pure fn createAppRouter(tree: RouteRecord): Component provides(router) nests(children in component)
+  ```
+
+  A layout renders its pages as `props.children`, the library's hooks (`useParams`, `<Link>`) are imported from the
+  package as usual, and every check above holds: a page's failure needs the layout's `errored` around its children, a
+  hook outside `<AppRouter />` is `CONTEXT_NOT_FOUND`. What it gives up is TanStack's registered route types (a link
+  to no route is no longer a type error): they need the router's own value to name its type. A route tree kept in
+  TypeScript, in a module that imports your `.rx` pages (`import { Person } from "./pages.rx?rx-lib"`), keeps them,
+  and gives up the checks: nothing above a page a JS host applies is credited (`examples/start`).
+- **A provider can be wrapped.** The made router is a component: your app's frame takes it as its children
+  (`<Shell title="Directory"><AppRouter /></Shell>`), and the pages are checked under what `Shell` puts around
+  `props.children`.
 - **Say which context a hook needs.** `export context router` names the library's context; `uses(router)` on a hook
   makes a call with no router above it `CONTEXT_NOT_FOUND`, instead of a run-time throw, and `provides(router)` on
   `createRouter` (or on a provider component) says where it comes from. A hook that uses a context is called once, where

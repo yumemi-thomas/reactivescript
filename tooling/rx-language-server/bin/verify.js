@@ -14,11 +14,13 @@
 // and the hook is mounted (@solidjs/universal) under `provide`, beneath an errored boundary, and every field of its
 // declared result (a record's fields, a tuple's parts, a `ref` result) is read in a render effect: a plain field that
 // holds (Solid's NotReadyError) or fails where it is read is a mismatch (no row describes it: MO-8r withdrew `pending`
-// and `fails(…)` there, and an accessor's read may hold, MO-10d), as is a `ref` part that is not an accessor. A `pure` fn (one that makes nothing) is
+// and `fails(…)` there; they are written before a `ref` part, MO-10l), as is a `ref` part that is not an accessor. A
+// `ref` part that waits and does not say `pending` is no mismatch (an accessor's read may hold, MO-10d: the row says
+// less), and is pointed out; one declared `fails(…)` is run with the probe's failing arguments. A `pure` fn (one that makes nothing) is
 // called twice with the same arguments and must answer alike. For each `c` a component `provides(c)`, it is mounted
 // (with the probe's `props`) around a hook or a part of the same file that uses `c` alone and fails without it, which
 // must then run cleanly. A component's function-typed props are run with the probe's props, each wrapped in a spy.
-// Placement rows (`renders…`, `nests(…)`, `outlet`, a prop's `renders T`) are checked against a scene the probe gives
+// Placement rows (a fn that hands back a `Component`, `nests(children in component)`) are checked against a scene the probe gives
 // (`scene(lib, h)`), `draft` rows by calling the setter, and a component's `uses(…)` (a kit's compound part) by rendering
 // it alone, where it must fail or warn, and inside a component of the file that provides it (`probes[P].around` when the
 // provider renders something else than its children), where it must not: src/verify-place.js. RXV_DEBUG=1 names each
@@ -38,7 +40,7 @@ function exportsOf(text) {
       const close = matching(l, m.index + m[0].length - 1);
       const params = splitTop(l.slice(m.index + m[0].length, close)).map(p => p.trim()).filter(Boolean);
       const after = l.slice(close + 1).replace(/^\s*:\s*/, "");
-      const ret = after.split(/\s(?=uses\(|provides\(|nests\(|renders\b|instantiates\b|rejects\()/)[0].trim();
+      const ret = after.split(/\s(?=uses\(|provides\(|nests\(|instantiates\b|rejects\()/)[0].trim();
       // MO-10g: its callbacks, a parameter typed as a function or a function-typed field of a record parameter (`ref` too)
       const cbs = [];
       params.forEach((p0, index) => {
@@ -49,8 +51,8 @@ function exportsOf(text) {
         if (fnType(ty)) cbs.push({ index, name, ref: /^ref\s/.test(p0), handler: handlerOf(ty) });
         else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && fnType(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0), handler: handlerOf(m2[2].trim()) }); }
       });
-      const fields = ret.startsWith("{") ? fieldsOf(ret) : ret.startsWith("[") ? partsOf(ret) : /^ref\s/.test(ret) ? [{ path: [], holds: false, fails: [], ref: true }] : null;
-      const inst = /\binstantiates\b|\brenders\b|\bnests\(|\bprovides\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
+      const fields = ret.startsWith("{") ? fieldsOf(ret) : ret.startsWith("[") ? partsOf(ret) : (r => r.ref ? [{ path: [], holds: r.holds, fails: r.fails, ref: true }] : null)(rowsOf(ret));   // MO-10l: the whole result an accessor, with its rows
+      const inst = /\binstantiates\b|\bnests\(|\bprovides\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
       // MO-10i (2026-11-22): `draft list: T[]` — a parameter the fn changes in place, during the call
       const drafts = params.flatMap((p, index) => /^draft\s+[A-Za-z_$]/.test(p) ? [index] : []);
       out.push({ kind: "fn", name: m[2], line: i + 1, pure: !!m[1], inst, drafts, required: params.filter(p => !/^((ref|draft)\s+)?[\w$]+\?/.test(p)).length, uses: /\buses\(/.test(l), usesNames: names(l, "uses"), holds: /\bpending\b|\bfails\(/.test(l), fields, cbs });
@@ -63,10 +65,10 @@ function exportsOf(text) {
 
 /** The contexts a row names: `uses(a, b)` gives [a, b]. */
 function names(l, word) { const m = new RegExp(`\\b${word}\\(([^)]*)\\)`).exec(l); return m ? m[1].split(",").map(x => x.trim()).filter(Boolean) : []; }
-/** A field's or a part's rows, then its type: `ref pending fails(E) T`. */
+/** A field's or a part's rows, then its type: `pending fails(E) ref T` (MO-10l). */
 function rowsOf(ty) {
   let holds = false, fails = [], ref = false;
-  for (;;) { let k; if ((k = /^ref\s+/.exec(ty))) { ref = true; ty = ty.slice(k[0].length); } else if ((k = /^pending\b\s*/.exec(ty))) { holds = true; ty = ty.slice(k[0].length); } else if ((k = /^fails\(([^)]*)\)\s*/.exec(ty))) { fails = k[1].split(",").map(x => x.trim()).filter(Boolean); ty = ty.slice(k[0].length); } else break; }
+  for (;;) { let k; if ((k = /^ref\s+/.exec(ty))) { ref = true; ty = ty.slice(k[0].length); } else if ((k = /^pending\b\s*/.exec(ty))) { holds = true; ty = ty.slice(k[0].length); } else if ((k = /^fails\(([^)]*)\)\s*/.exec(ty))) { fails = k[1].split(/[,|]/).map(x => x.trim()).filter(Boolean); ty = ty.slice(k[0].length); } else break; }
   return { holds, fails, ref, ty };
 }
 /** A declared tuple result's parts (MO-10b): `[ref any, (v: any) => void]`, by index. */
@@ -199,16 +201,19 @@ async function verify(file) {
       const bad = [];
       for (const f of x.fields) {
         const st = ran.seen.get(f.path.join("."));
-        // MO-10d: an accessor's read may hold, and no row says more; a plain field that does is one a row cannot describe (MO-8r)
-        if (st.pending && !f.holds && !f.ref) bad.push(`${f.path.join(".")} holds (its first read is not ready): a plain field that waits where it is read has no row — hand it out as a function from a module of the app's own, declared \`ref\` (MO-10d)`);
+        // MO-10d: an accessor's read may hold, whatever its row says; a plain field that does is one a row cannot describe (MO-8r)
+        if (st.pending && !f.ref) bad.push(`${f.path.join(".")} holds (its first read is not ready): a plain field that waits where it is read has no row — hand it out as a function from a module of the app's own, declared \`pending ref\` (MO-10l)`);
         if (st.notAccessor) bad.push(`${f.path.join(".") || "the result"} is declared ref, but is not an accessor (a function)`);
-        if (st.failed && !f.fails.length && !f.ref) bad.push(`${f.path.join(".")} fails (${String(st.failed?.message ?? st.failed).slice(0, 40)}) where it is read: a plain field that does has no row — hand it out as a function, declared \`ref\` (MO-10d)`);
+        if (st.failed && !f.ref) bad.push(`${f.path.join(".")} fails (${String(st.failed?.message ?? st.failed).slice(0, 40)}) where it is read: a plain field that does has no row — hand it out as a function, declared \`fails(…) ref\` (MO-10l)`);
       }
       if (ran.boundary && !fails.length && !(ran.boundary?.name === "NotReadyError")) bad.push(`it fails into the errored boundary (${String(ran.boundary?.message ?? ran.boundary).slice(0, 40)}), and no field is declared fails(…)`);
-      const held = x.fields.filter(f => f.holds).map(f => f.path.join("."));
-      const heldSeen = held.filter(k => ran.seen.get(k).pending);
+      const label = f => f.path.join(".") || "the result";
+      const heldSeen = x.fields.filter(f => f.holds && ran.seen.get(f.path.join(".")).pending).map(label);
+      // MO-10l: an accessor that waited and whose row does not say so — the row says less (MO-10d), and the checker asks for no region
+      const quiet = x.fields.filter(f => f.ref && !f.holds && ran.seen.get(f.path.join(".")).pending).map(label);
+      const loud = x.fields.filter(f => f.ref && !f.fails.length && ran.seen.get(f.path.join(".")).failed).map(label);
       out.push(bad.length ? { line: x.line, ob: "fields", status: "fail", what: `${x.name}: ${bad.join("; ")}` }
-        : { line: x.line, status: "ok", what: `${x.name}: its fields read as declared${heldSeen.length ? ` (${heldSeen.join(", ")} held, then answered)` : ""}` });
+        : { line: x.line, status: "ok", what: `${x.name}: its fields read as declared${heldSeen.length ? ` (${heldSeen.join(", ")} held, then answered)` : ""}${quiet.length ? `; ${quiet.join(", ")} waited where it was read: \`pending ref\` would have the checker ask for a loading region above its reads (MO-10l)` : ""}${loud.length ? `; ${loud.join(", ")} failed where it was read: \`fails(…) ref\` would have it ask for an errored one (MO-10l)` : ""}` });
       if (fails.length) {
         if (!probe?.fail) out.push({ line: x.line, ob: "fails", status: "unverified", what: `${x.name}: fails(…) not run (give failing arguments as the probe's fail)` });
         else {

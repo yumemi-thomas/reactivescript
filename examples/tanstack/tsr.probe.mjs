@@ -1,22 +1,18 @@
-// rx-verify's probe for tsr.d.rx (`rx-verify --dom tsr.d.rx`): a scene whose root route renders <Outlet />, with a child route at "/"
-// under it, so the placement rows (renders(later), nests(component under getParentRoute), outlet) are checked by running
+// rx-verify's probe for tsr.d.rx (`rx-verify --dom tsr.d.rx`). The scene checks createAppRouter's placement rows by
+// running: a factory (what it is given renders inside the component it makes) with nests(children in component) (a
+// page renders inside its layout).
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/solid-router";
 export const scene = (lib, h) => {
-  const Root = h.component("Root", () => h.s.createComponent(lib.Outlet, {}));
-  const Home = h.component("Home");
-  const root = lib.createRootRoute({ component: Root });
-  const home = lib.createRoute({ getParentRoute: () => root, path: "/", component: Home });
-  const router = lib.createRouter({ routeTree: root.addChildren([home]), history: createMemoryHistory({ initialEntries: ["/"] }) });
-  return () => h.s.createComponent(lib.RouterProvider, { router });
+  const Layout = h.component("Layout", props => props.children);
+  const Page = h.component("Page");
+  const Router = lib.createAppRouter({ component: Layout, children: [{ path: "/", component: Page }] });
+  return () => h.s.createComponent(Router, {});
 };
-// RouterProvider's provides(router) is checked by mounting it around a hook that uses only the router (useNavigate);
-// useParams needs its options
-// (a router with no route at "/" is a not-found, which TanStack handles by rendering again: each has an index route)
+// the hooks are checked under a router whose root route renders them (a router with no route at "/" is a not-found,
+// which TanStack handles by rendering again: each has an index route)
 const routerOf = component => { const root = createRootRoute(component ? { component } : {}); const home = createRoute({ getParentRoute: () => root, path: "/" }); return createRouter({ routeTree: root.addChildren([home]), history: createMemoryHistory({ initialEntries: ["/"] }) }); };
-const probeRouter = () => routerOf();
 export const probes = {
-  RouterProvider: { props: () => ({ router: probeRouter() }), around: (children, s) => s.createComponent(RouterProvider, { router: routerOf(() => children()) }) },
+  createAppRouter: { args: () => [{ component: () => null, children: [{ path: "/", component: () => null }] }] },
   useParams: { args: () => [{ strict: false }] },
 };
-// the providers a hook with arguments needs (useParams' fields are read under them): a router whose root route renders them
 export const provide = (children, s) => s.createComponent(RouterProvider, { router: routerOf(() => children()) });

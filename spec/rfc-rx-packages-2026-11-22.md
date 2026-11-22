@@ -313,3 +313,23 @@ reason it is not worth a mechanism.
 | 7. a hash on the `//@ signature` line, for strict mode | **dropped** | strict declarations ask that a person's assertion about someone else's JavaScript was run. A printed signature is the publisher's artifact, as the compiled module beside it is, and no more forgeable than that module: a hash the publisher writes proves nothing the publisher could not also write. Strict mode exempts a marked file (MO-13b), and that is the whole rule |
 | 8. `rxc lib` | not taken up: no program is wrong without it | — |
 | 9. the language server on a package's `.d.rx` | not taken up: tooling comfort, no check | — |
+
+## After the vocabulary's last withdrawal (2026-11-23)
+
+What 09 MO-8r's settlement changes for a package written in `.rx`:
+
+- **A printed signature says two things fewer.** A component's row no
+  longer writes `renders` before a prop (a prop given on to one that
+  renders what its value carries, MO-11o) nor `keeps(…)` after the props
+  (the props whose value never leaves the component, MO-11l): both
+  described values no declaration makes any more. A signature printed
+  before, holding either, is read as if it did not: the words are not
+  looked for, and nothing they said is checked.
+- **A package may hand out an accessor that waits.** A JS module a
+  package ships beside its `.rx` ones is declared as an app's is: a
+  result's `ref` part takes `pending` and `fails(…)` (MO-10l), and an
+  `.rx` module that binds it exports an equation whose row carries them
+  to the importer (MO-3), as a question's does. A record with such a
+  part is not exported whole (`RESULT_AS_VALUE`): the part is.
+- **A router in a package** is a factory's component (MO-11j), as it
+  was: nothing of a route tree in values was in a signature.

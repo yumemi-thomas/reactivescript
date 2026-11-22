@@ -469,6 +469,7 @@ re!(REF_WORD, r"\bref\s+");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
 re!(ROW_WORD, r"^(pending\b|fails\(([^)]*)\))\s*");
 re!(ANY_ROW_WORD, r"\b(pending|fails\()");
+re!(READONLY_TUPLE, r"^readonly\s+\[");
 // MO-10f: a row word written before a type where no record field took it (a tuple's part, a member of a union, a type argument)
 re!(STRAY_ROW_WORD, r#"\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']"#);
 re!(OLD_HOLDS, r"(^|[:,\[{]\s*)holds\b");
@@ -529,7 +530,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, renders: bool, carrier: bool, under: Option<(String, String)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, draft_args: Vec<usize> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, waits: Option<(bool, Vec<String>)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, draft_args: Vec<usize> },
     /// SV-5a: `fields`, what of an instance is sent to the client (`export error HttpError(status, code)`); none, name and message only
     Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
@@ -537,7 +538,7 @@ pub enum JsDecl {
     /// `tparams`: MO-8d, a generic component's type parameters (`component Select<Option>(…)`), TypeScript's text
     /// `props_type`: MO-8o, the props are a type the library declares (`props: Kit.SelectProps<Option> & { … }`), and
     /// `props` the fields of the record after `&`, the ones that carry words
-    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, outlet: bool, tparams: Option<String>, props_type: Option<String> },
+    Comp { name: String, line: usize, props: Vec<JsProp>, fails: Vec<String>, content: Option<crate::content::Shape>, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, props_type: Option<String> },
     /// MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
     /// `from`: MO-12e, the context is another module's (`export context router from "@tanstack/solid-router"`): this
     /// file's rows name the context that module's declaration declares; `resolved`, that declaration's file (the loader's)
@@ -560,8 +561,6 @@ pub struct JsProp {
     pub callback: bool,
     /// MO-10g: a function type without `handler`: pure, whatever the prop's name
     pub pure: bool,
-    /// MO-11o: it renders the components its value carries (`router: renders any`)
-    pub carried: bool,
     /// MO-11t: it takes a view (its type is `View`, and it is not `children`): a component given to it by name is applied
     /// there, with no arguments
     pub view: bool,
@@ -577,8 +576,8 @@ impl JsDecl {
 /// MO-8j, TY-7: what running must show before a row counts as verified, each a claim the row makes as this parser read
 /// it, however it is laid out: `exists` (the export is there, of its kind), `pure`, `uses`, `provides`, `fields` (a result
 /// part that is `ref`, `pending` or `fails(…)`), `fails` (a field, or a component, that fails with a class), `callbacks`
-/// (a function-typed parameter or record field: handler or pure), `draft`, `placement` (`renders…`, `nests(…)`,
-/// `outlet`, a prop that `renders`, a carrier). rx-verify tags each result with the claim it
+/// (a function-typed parameter or record field: handler or pure), `draft`, `placement` (`nests(…)`, a fn that hands back
+/// a component). rx-verify tags each result with the claim it
 /// ran; a claim no result answers is not verified.
 pub fn obligations(d: &JsDecl) -> Vec<String> {
     let mut out: Vec<String> = vec!["exists".into()];
@@ -589,7 +588,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
         fn_params_text(t).is_some()
     };
     match d {
-        JsDecl::Fn { params, pure, instantiates, uses, provides, held, shape, ptypes, renders, nests, carrier, under, drafts, part_drafts, .. } => {
+        JsDecl::Fn { params, pure, instantiates, uses, provides, held, waits, shape, ptypes, nests, drafts, part_drafts, .. } => {
             if *pure && !*instantiates {
                 out.push("pure".into());
             }
@@ -603,7 +602,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
             if !held.is_empty() || shape.has_ref() {
                 out.push("fields".into());
             }
-            if held.iter().any(|h| !h.2.is_empty()) {
+            if held.iter().any(|h| !h.2.is_empty()) || waits.as_ref().is_some_and(|w| !w.1.is_empty()) {
                 out.push("fails".into());
             }
             // RFC 29: each callback position is a claim of its own (`callbacks:onChange`, `callbacks:options.onSuccess`), as
@@ -627,11 +626,11 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
             if !drafts.is_empty() || !part_drafts.is_empty() {
                 out.push("draft".into());
             }
-            if *renders || nests.is_some() || *carrier || under.is_some() || matches!(shape, Shape::Comp) {
+            if nests.is_some() || matches!(shape, Shape::Comp) {
                 out.push("placement".into());
             }
         }
-        JsDecl::Comp { props, fails, uses, provides, outlet, .. } => {
+        JsDecl::Comp { props, fails, uses, provides, .. } => {
             if !uses.is_empty() {
                 out.push("uses".into());
             }
@@ -645,9 +644,6 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
             }
             if !fails.is_empty() {
                 out.push("fails".into());
-            }
-            if *outlet || props.iter().any(|p| p.carried) {
-                out.push("placement".into());
             }
         }
         JsDecl::Error { .. } | JsDecl::Value { .. } | JsDecl::Type { .. } | JsDecl::Context { .. } => {}
@@ -748,7 +744,10 @@ fn tracked_word(t: &str) -> bool {
     TRACKED_WORD.is_match(&masked_strings(t))
 }
 const RENDERS_GONE: &str = "`renders` alone is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a component given to a fn that says nothing of where it renders it is checked under a root of its own (MO-11s) — leave the word out, and give the component what it needs as its props";
-const FIELD_ROWS_GONE: &str = "`pending` before a result's field is not a word of a declaration, nor is `fails(…)` there (MO-8r, withdrawn 2026-11-23: one library wrote them): what a library hands back that waits or throws where it is read is an accessor, `ref T`, whose every read may hold (MO-10d). A store whose plain fields wait is handed out by a few lines of the app's own JavaScript, a function a field (`data: () => q.data`), declared `{ data: ref T }` (MO-10c)";
+const FIELD_ROWS_GONE: &str = "`pending` before a result's plain field is not a word of a declaration, nor is `fails(…)` there (MO-8r, withdrawn 2026-11-23: one library wrote them): they are written before a `ref` part of a result — the whole result, an item of its tuple or a field of its record — an accessor that waits or fails where it is read, `pending fails(Error) ref T` (MO-10l). A store whose plain fields wait is handed out by a few lines of the app's own JavaScript, a function a field (`data: () => q.data`), declared `{ data: pending fails(Error) ref T }` (MO-10c)";
+const RENDERS_LATER_GONE: &str = "`renders(later)` is not a word of a declaration, nor is `renders` before a prop's type (MO-8r, withdrawn 2026-11-23: one library wrote them): a tree of components a library renders later is given to a factory — a fn of the app's own JavaScript that takes the tree as records and hands back the component that renders it, declared `Component provides(…) nests(children in component)` (MO-11f, MO-11i) — or is built in JavaScript, in a module that imports the `.rx` pages (11 CP-4d). With no word, a component given to a fn is checked under a root of its own (MO-11s)";
+const NESTS_UNDER_GONE: &str = "`nests(component under parent)` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a tree is written as records, each one's children in a field — `nests(children in component)` on the factory that is given them (MO-11i), which a few lines of the app's own JavaScript make of a library that links a child to its parent";
+const OUTLET_GONE: &str = "`outlet` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a layout renders its pages as `props.children`, which a factory declared `nests(children in component)` gives it (MO-11i) — the app's own module passes the library's outlet as the layout's children. Leave the word out: the component is then one that renders nothing of the app's";
 const TRACKED_GONE: &str = "`tracked` is not a word of a declaration: a function type without `handler` is a pure function already, however the library calls it (MO-10g) — leave the word out";
 /// Words a declaration had and has no more (09 MO-8i, the pruning of 2026-11-22): each is refused with what says it now,
 /// so a row written with one is not read as a type that ends in a name.
@@ -1511,14 +1510,9 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
                 let t = js_trim(&c.src[t0..c.i]);
                 ty = (!t.is_empty()).then(|| t.to_string());
             }
-            // MO-11o: `router: renders any`
-            let mut carried = false;
-            if let Some(t) = ty.clone() {
-                if let Some(rest) = t.strip_prefix("renders ") {
-                    carried = true;
-                    let rest = js_trim(rest);
-                    ty = (!rest.is_empty()).then(|| rest.to_string());
-                }
+            // MO-11o, withdrawn (MO-8r, 2026-11-23): `router: renders any`
+            if ty.as_deref().is_some_and(|t| t.strip_prefix("renders").is_some_and(|r| r.starts_with(char::is_whitespace))) {
+                return c.fail(RENDERS_LATER_GONE);
             }
             if ty.as_deref().is_some_and(tracked_word) {
                 return c.fail(TRACKED_GONE);
@@ -1539,8 +1533,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
             let callback = handler && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
             let pure = !callback && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
-            let view = fname != "children" && !carried && ty.as_deref().is_some_and(is_view_type);
-            props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, pure, carried, view });
+            let view = fname != "children" && ty.as_deref().is_some_and(is_view_type);
+            props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, pure, view });
             // a newline separates fields too, as in TypeScript
             c.ws(false);
             if !c.eat(";") && !c.eat(",") && c.peek() != '\n' {
@@ -1555,13 +1549,11 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
     let mut fails = vec![];
     let mut content = None;
     let (mut uses, mut provides) = (vec![], vec![]);
-    let mut outlet = false;
     loop {
         c.ws(false);
         if c.keyword("outlet") {
-            // MO-11p: it renders, where it is written, what nests under its component
-            outlet = true;
-            continue;
+            // MO-11p, withdrawn (MO-8r, 2026-11-23)
+            return c.fail(OUTLET_GONE);
         }
         for (w, why) in GONE_WORDS {
             if c.keyword(w) {
@@ -1605,7 +1597,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         }
         break;
     }
-    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides, outlet, tparams, props_type })
+    Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides, tparams, props_type })
 }
 /// MO-8o: a component's props as a type the library declares, `props: Kit.SelectProps<Option>`, with the fields that carry
 /// words in a record after it, `… & { onChange?: handler (v: Option) => void }`: the type's text, TypeScript's (the checker
@@ -1885,7 +1877,8 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         c.ws(false);
         let mut ret = None;
         let mut shape = None;
-        let held = vec![];
+        let mut held = vec![];
+        let mut waits = None;
         if c.peek() == ':' {
             c.bump();
             c.ws(true);
@@ -1904,12 +1897,11 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 return c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)");
             }
             let head = js_trim(head).to_string();
-            // MO-10f, withdrawn (MO-8r, 2026-11-23): a field's `pending` and `fails(…)` are refused by name, wherever in the
-            // result they are written
-            let (head, h) = field_rows(&head);
-            if !h.is_empty() || STRAY_ROW_WORD.is_match(&masked_strings(&head)) {
-                return c.fail(FIELD_ROWS_GONE);
-            }
+            // MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r
+            // 2026-11-23) they are refused by name, wherever in the result they are written
+            let Some((head, h, w)) = ref_rows(&head) else { return c.fail(FIELD_ROWS_GONE) };
+            held = h;
+            waits = w;
             if !head.is_empty() {
                 shape = Some(shape_of(&head)); // MO-10b: `ref T` is an accessor, read as T
             }
@@ -1928,9 +1920,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             c.ws(true);
             c.expect(")")?;
         }
-        let (mut written, mut uses, mut provides, mut nests, renders) = (false, vec![], vec![], None, false);
-        let mut carrier = false;
-        let mut under: Option<(String, String)> = None;
+        let (mut written, mut uses, mut provides, mut nests) = (false, vec![], vec![], None);
         loop {
             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
             c.ws(false);
@@ -1943,12 +1933,13 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                     return c.fail(why);
                 }
             }
-            // MO-11r: one placement vocabulary — `renders(later)`; `nests(…)` for the tree
+            // MO-11r: the placement vocabulary is `nests(children in component)` on a factory, and no word (MO-11s). The
+            // rest is withdrawn (MO-8r), each refused by name with what is written instead
             if c.keyword("carries") {
-                return c.fail("`carries` is now `renders(later)`: the components travel in the result and a JS component's prop declared `renders` renders them (MO-11r)");
+                return c.fail(RENDERS_LATER_GONE);
             }
             if c.keyword("under") {
-                return c.fail("`under(parent in component)` is now `nests(component under parent)`, beside `renders(later)` (MO-11r)");
+                return c.fail(NESTS_UNDER_GONE);
             }
             if c.keyword("renders") {
                 c.ws(false);
@@ -1958,17 +1949,11 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 }
                 c.i += 1;
                 c.ws(true);
-                if c.keyword("later") {
-                    // MO-11o: the components travel in its result
-                    c.ws(true);
-                    c.expect(")")?;
-                    carrier = true;
-                    continue;
-                }
                 if c.keyword("root") {
                     return c.fail(GONE_ROOT);
                 }
-                return c.fail("renders(later): the components a fn is given travel in its result, and a JS component's prop declared `renders` renders them (MO-11r)");
+                // MO-11o, withdrawn (MO-8r, 2026-11-23): "later, where a prop declared `renders` renders the result"
+                return c.fail(RENDERS_LATER_GONE);
             }
             if c.keyword("uses") {
                 c.ws(false);
@@ -1984,7 +1969,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 c.ws(false);
                 c.expect("(")?;
                 c.ws(true);
-                let first = c.ident_or("nests(children in component) or nests(component under parent): a field of the record (MO-11r)")?;
+                let first = c.ident_or("nests(children in component): a field of the record (MO-11i)")?;
                 c.ws(true);
                 if c.keyword("in") {
                     // MO-11i: a children field
@@ -1996,26 +1981,18 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                     continue;
                 }
                 if c.keyword("under") {
-                    // MO-11p: a parent link
-                    c.ws(true);
-                    let parent = c.ident_or("nests(component under parent): the field that names the parent value")?;
-                    c.ws(true);
-                    c.expect(")")?;
-                    under = Some((parent, first));
-                    continue;
+                    // MO-11p, withdrawn (MO-8r, 2026-11-23): a parent link
+                    return c.fail(NESTS_UNDER_GONE);
                 }
-                return c.fail("nests(children in component) or nests(component under parent) (MO-11r)");
+                return c.fail("nests(children in component) (MO-11i)");
             }
             break;
         }
         // MO-10i (2026-11-22): a result with a function part that hands out drafts is state the call made: a primitive
         let makes_drafts = !draft_parts(ret.as_deref()).is_empty();
-        let instantiates = written || refs.iter().any(|x| *x) || carrier || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || renders || makes_drafts; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || makes_drafts; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
         if nests.is_some() && shape != Some(Shape::Comp) {
             return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
-        }
-        if let (Some((parent, inside)), false) = (&under, carrier) {
-            return c.fail(&format!("nests({} under {}) on fn {}: it places what the result carries, which is rendered later — add renders(later) (MO-11r)", inside, parent, name));
         }
         if !provides.is_empty() && shape != Some(Shape::Comp) {
             return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
@@ -2037,7 +2014,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         let part_drafts = draft_parts(ret.as_deref());
         let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_draft(&t)))).collect();
         let ret = ret.map(|t| strip_handler(&strip_draft(&t)));
-        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, renders, carrier, under, drafts, part_drafts, draft_args };
+        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, waits, drafts, part_drafts, draft_args };
         // one row an export: a fn with several signatures (TypeScript's overloads) is declared by one of them, and the
         // library's own types say the rest (13 TY-4b)
         if out.iter().any(|d| matches!(d, JsDecl::Fn { .. }) && d.name() == row.name()) {
@@ -2162,7 +2139,67 @@ fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
         vec![]
     }
 }
-/// MO-10f: a result's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
+/// MO-10l: the rows of a declared result's `ref` parts, `pending fails(Error) ref T` — the whole result, an item of its
+/// tuple or a field of its record, the places MO-10b reads a part at — taken out of the type text. The parts, by tuple
+/// index or field name, and the result itself. `None` where a row word stands before anything else.
+pub(crate) fn ref_rows(t: &str) -> Option<(String, Vec<(String, bool, Vec<String>)>, Option<(bool, Vec<String>)>)> {
+    if !STRAY_ROW_WORD.is_match(&masked_strings(t)) {
+        return Some((t.to_string(), vec![], None)); // no rows: the type text is kept as written
+    }
+    let mut held = vec![];
+    let mut whole = None;
+    let mut bad = false;
+    let mut part = |x: &str, path: Option<String>| -> String {
+        let mut rest = js_trim(x).to_string();
+        let (mut holds, mut fails, mut any) = (false, vec![], false);
+        while let Some(m) = ROW_WORD.captures(&rest) {
+            any = true;
+            if &m[1] == "pending" {
+                holds = true;
+            } else {
+                fails = m[2].split('|').map(|y| y.trim().to_string()).filter(|y| !y.is_empty()).collect();
+            }
+            rest = rest[m[0].len()..].to_string();
+        }
+        if !any {
+            return js_trim(x).to_string();
+        }
+        if !rest.strip_prefix("ref").is_some_and(|r| r.starts_with(char::is_whitespace)) {
+            bad = true;
+            return rest;
+        }
+        match path {
+            None => whole = Some((holds, fails)),
+            Some(p) => held.push((p, holds, fails)),
+        }
+        rest
+    };
+    let mut text = part(t, None);
+    let rows_on_whole = text != js_trim(t);
+    if !rows_on_whole {
+        let ro = READONLY_TUPLE.find(&text).map(|m| m.end() - 1).unwrap_or(0);
+        let (pre, body) = (text[..ro].to_string(), text[ro..].to_string());
+        if body.starts_with('[') && body.ends_with(']') && body.len() >= 2 {
+            let items: Vec<String> = split_top(&body[1..body.len() - 1], ",").iter().enumerate().map(|(i, it)| part(it, Some(i.to_string()))).collect();
+            text = format!("{}[{}]", pre, items.join(", "));
+        } else if pre.is_empty() && body.starts_with('{') && body.ends_with('}') && body.len() >= 2 {
+            let fs: Vec<String> = split_top(&body[1..body.len() - 1], ",;")
+                .iter()
+                .map(|f| {
+                    let Some(i) = f.find(':') else { return f.clone() };
+                    let key = js_trim(&f[..i]).to_string();
+                    format!("{}: {}", key, part(&f[i + 1..], Some(field_name(&key))))
+                })
+                .collect();
+            text = format!("{{ {} }}", fs.join("; "));
+        }
+    }
+    if bad || STRAY_ROW_WORD.is_match(&masked_strings(&text)) {
+        return None;
+    }
+    Some((text, held, whole))
+}
+/// MO-10f: a prop's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
 /// are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i).
 pub(crate) fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
     // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
@@ -4027,10 +4064,10 @@ mod recovering {
 
     /// MO-11t: a prop that takes a view is one typed `View` (alone, optional, or beside a string), other than `children`:
     /// a component given to it by name is applied there. A function giving a view is a render prop, a `Component` a
-    /// component value, a `renders` prop what its value carries, and none of them is read as a view.
+    /// component value, and neither is read as a view.
     #[test]
     fn a_prop_typed_view_takes_a_component_by_name() {
-        let decls = parse_declarations("export component Rows(props: KitProps & { fallback?: View; icon: View | undefined; label?: string | View; children?: View; item: (n: number) => View; as?: Component; either?: View | (() => View); router: renders View; title?: string })\n").expect("parses");
+        let decls = parse_declarations("export component Rows(props: KitProps & { fallback?: View; icon: View | undefined; label?: string | View; children?: View; item: (n: number) => View; as?: Component; either?: View | (() => View); title?: string })\n").expect("parses");
         let JsDecl::Comp { props, .. } = &decls[0] else { panic!("a component") };
         assert_eq!(props.iter().filter(|p| p.view).map(|p| p.name.as_str()).collect::<Vec<_>>(), ["fallback", "icon", "label"]);
         assert_eq!(props.iter().filter(|p| p.render).map(|p| p.name.as_str()).collect::<Vec<_>>(), ["item"]);
@@ -4041,7 +4078,7 @@ mod recovering {
     /// check (a default, else a bound, else a type of its own; `any` where a bound comes back to itself)
     #[test]
     fn a_props_record_is_held_to_the_props_type() {
-        let src = "export component Picker<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>(props: import(\"./kit.js\").PickerProps<Option, G, T> & { onPick?: handler (v: Option) => void; item?: Component; slot?: renders any })\nexport component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n";
+        let src = "export component Picker<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>(props: import(\"./kit.js\").PickerProps<Option, G, T> & { onPick?: handler (v: Option) => void; item?: Component; slot?: any })\nexport component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n";
         let decls = parse_declarations(src).expect("parses");
         let (check, checks, overlay) = crate::project::boundary_checks(&decls, "./kit.js");
         let held = "interface Option { readonly __rx_type_parameter: \"Option\"; } type G = never; type T = \"div\"; type K = any; type F = (a: Option) => void; type R = any; ";
@@ -4097,12 +4134,24 @@ mod recovering {
             ("export pure fn f(options: { template: Component }): any renders(root, theme)\n", "`renders(root"),
             ("export pure fn f(ref options: { queryFn: tracked () => Promise<any> }): any\n", "`tracked`"),
             ("export component C(props: { onCompare: tracked (v: number) => number })\n", "`tracked`"),
-            // withdrawn 2026-11-23 (MO-8r, Settled): a field's rows, wherever in the result; `renders` alone
+            // withdrawn 2026-11-23 (MO-8r, Settled): a plain field's rows, wherever in the result (before a `ref` part they
+            // are MO-10l's); `renders` alone
             ("export pure fn useQ(): { data: pending fails(Error) any; n: number }\n", "`pending`"),
             ("export pure fn useQ(): { inner: { data: fails(Error) any } }\n", "`pending`"),
+            ("export pure fn useQ(): { inner: { data: pending ref any } }\n", "`pending`"), // a `ref` below the first level is no part (MO-10b)
             ("export pure fn useQ(): [pending string, () => void]\n", "`pending`"),
+            ("export pure fn useQ(): pending fails(Error) string[]\n", "`pending`"),
+            ("export pure fn useQ(): { load: () => pending ref string }\n", "`pending`"),
             ("export pure fn createTable(options: { cell: Component }): any renders\n", "`renders` alone"),
             ("export pure fn createTable(options: { cell: Component }): { rows: any[] } renders uses(kit)\n", "`renders` alone"),
+            // withdrawn 2026-11-23 (MO-8r, Settled, the third): components that travel in values, and the tree they nest in
+            ("export pure fn createRoute(options: { component?: Component }): any renders(later)\n", "`renders(later)`"),
+            ("export pure fn createRoute(options: { getParentRoute: () => any; component?: Component }): any renders(later) nests(component under getParentRoute)\n", "`renders(later)`"),
+            ("export pure fn createRoute(options: any): any carries\n", "`renders(later)`"),
+            ("export component RouterProvider(props: { router: renders any }) provides(router)\nexport context router\n", "`renders(later)`"),
+            ("export pure fn createRoute(options: any): Component nests(component under getParentRoute)\n", "`nests(component under parent)`"),
+            ("export pure fn createRoute(options: any): any under(getParentRoute in component)\n", "`nests(component under parent)`"),
+            ("export component Outlet(props: {}) outlet\n", "`outlet`"),
         ] {
             let e = parse_declarations(bad).expect_err(bad);
             assert!(e.0.contains(word) && e.0.contains("is not a word of a declaration"), "{bad} → {}", e.0);
@@ -4112,7 +4161,26 @@ mod recovering {
         // and a name that is one of them is still a name where a name goes
         let decls = parse_declarations("export pure fn f(signal: string, tracked: boolean, methods?: string[]): { trusted: boolean; forwards: string }\n").expect("parses");
         assert!(matches!(&decls[0], JsDecl::Fn { params, .. } if params == &["signal", "tracked", "methods"]));
-        assert!(parse_declarations("export pure fn f(): { pending: ref boolean; fails: number; renders: string }\nexport pure fn g(options: any): any renders(later)\n").is_ok());
+        assert!(parse_declarations("export pure fn f(): { pending: ref boolean; fails: number; renders: string; outlet: boolean }\nexport pure fn g(outlet: any, nests: any, later: any): any\n").is_ok());
+    }
+    /// MO-10l: `pending` and `fails(…)` before a `ref` part of a declared result — the whole result, an item of its tuple,
+    /// a field of its record — and nowhere else; the words are taken out of the type text.
+    #[test]
+    fn an_accessor_that_waits_or_fails_says_so_before_ref() {
+        let one = |src: &str| match parse_declarations(src).expect(src).remove(0) {
+            JsDecl::Fn { waits, held, ret, shape, instantiates, .. } => (waits, held, ret, shape, instantiates),
+            _ => panic!("a fn"),
+        };
+        let s = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let (waits, held, ret, shape, instantiates) = one("export pure fn createJson(url: string): pending fails(HttpError | Error) ref { name: string } uses(http)\nexport context http\n");
+        assert_eq!((waits, held.len(), ret.as_deref(), shape == Shape::Part(Part::Ref), instantiates), (Some((true, s(&["HttpError", "Error"]))), 0, Some("{ name: string }"), true, true));
+        let (waits, held, ret, ..) = one("export pure fn createStream(want: any): [pending fails(Error) ref MediaStream | undefined, { stop: () => void }]\n");
+        assert_eq!((waits, held, ret.as_deref()), (None, vec![("0".to_string(), true, s(&["Error"]))], Some("[MediaStream | undefined, { stop: () => void }]")));
+        let (waits, held, ret, ..) = one("export pure fn useQuery(): { data: pending fails(Error) ref string[]; error: fails(Error) ref unknown; readonly isFetching?: pending ref boolean; refetch: () => void }\n");
+        assert_eq!((waits, held), (None, vec![("data".to_string(), true, s(&["Error"])), ("error".to_string(), false, s(&["Error"])), ("isFetching".to_string(), true, vec![])]));
+        assert_eq!(ret.as_deref(), Some("{ data: string[]; error: unknown; readonly isFetching?: boolean; refetch: () => void }"));
+        let (waits, held, ret, ..) = one("export pure fn createSignal(): [ref number, (v: number) => void]\n");
+        assert_eq!((waits, held.len(), ret.as_deref()), (None, 0, Some("[number, (v: number) => void]")));
     }
 
     #[test]

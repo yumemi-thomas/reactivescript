@@ -221,14 +221,14 @@ export const units: [string, () => void][] = [
     const comp = decls[0] as Extract<typeof decls[number], { kind: "comp" }>;
     deepStrictEqual(comp.props.map(p => [p.name, p.optional, !!p.callback]), [["children", true, false], ["id", true, false], ["onPick", true, true], ["readonly", true, false], ["readonly", false, false]]);
   }],
-  ["a_prop_typed_view_takes_a_component_by_name", () => {   // MO-11t: a prop that takes a view is one typed `View` (alone, optional, or beside a string), other than `children`; a function giving a view is a render prop, a `Component` a component value, a `renders` prop what its value carries
-    const decls = parseDeclarations("export component Rows(props: KitProps & { fallback?: View; icon: View | undefined; label?: string | View; children?: View; item: (n: number) => View; as?: Component; either?: View | (() => View); router: renders View; title?: string })\n");
+  ["a_prop_typed_view_takes_a_component_by_name", () => {   // MO-11t: a prop that takes a view is one typed `View` (alone, optional, or beside a string), other than `children`; a function giving a view is a render prop, a `Component` a component value
+    const decls = parseDeclarations("export component Rows(props: KitProps & { fallback?: View; icon: View | undefined; label?: string | View; children?: View; item: (n: number) => View; as?: Component; either?: View | (() => View); title?: string })\n");
     const comp = decls[0] as Extract<typeof decls[number], { kind: "comp" }>;
     deepStrictEqual(comp.props.filter(p => p.view).map(p => p.name), ["fallback", "icon", "label"]);
     deepStrictEqual(comp.props.filter(p => p.render).map(p => p.name), ["item"]);
   }],
   ["a_props_record_is_held_to_the_props_type", () => {   // MO-8o, TY-6f: what the boundary check holds a record's field by — its name, the type it is written with (the word taken off), the props' type and the row's type parameters — is read here as the crate reads it (the check itself is the crate's to write, 13 TY-6d: compiler/src/project.rs `boundary_checks`, the unit of this name there)
-    const decls = parseDeclarations("export component Picker<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>(props: import(\"./kit.js\").PickerProps<Option, G, T> & { onPick?: handler (v: Option) => void; item?: Component; slot?: renders any })\nexport component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n");
+    const decls = parseDeclarations("export component Picker<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>(props: import(\"./kit.js\").PickerProps<Option, G, T> & { onPick?: handler (v: Option) => void; item?: Component; slot?: any })\nexport component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n");
     const comps = decls.filter((d): d is Extract<typeof decls[number], { kind: "comp" }> => d.kind === "comp");
     deepStrictEqual(comps.map(d => [d.name, d.line, d.propsType, d.tparams]), [
       ["Picker", 1, "import(\"./kit.js\").PickerProps<Option, G, T>", "<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>"],
@@ -256,18 +256,41 @@ export const units: [string, () => void][] = [
       ["export pure fn f(options: { template: Component }): any renders(root, theme)\n", "renders\\(root"],
       ["export pure fn f(ref options: { queryFn: tracked () => Promise<any> }): any\n", "tracked"],
       ["export component C(props: { onCompare: tracked (v: number) => number })\n", "tracked"],
-      // withdrawn 2026-11-23 (MO-8r, Settled): a field's rows, wherever in the result; `renders` alone
+      // withdrawn 2026-11-23 (MO-8r, Settled): a plain field's rows, wherever in the result (before a `ref` part they are MO-10l's); `renders` alone
       ["export pure fn useQ(): { data: pending fails(Error) any; n: number }\n", "pending"],
       ["export pure fn useQ(): { inner: { data: fails(Error) any } }\n", "pending"],
+      ["export pure fn useQ(): { inner: { data: pending ref any } }\n", "pending"],   // a `ref` below the first level is no part (MO-10b)
       ["export pure fn useQ(): [pending string, () => void]\n", "pending"],
+      ["export pure fn useQ(): pending fails(Error) string[]\n", "pending"],
+      ["export pure fn useQ(): { load: () => pending ref string }\n", "pending"],
       ["export pure fn createTable(options: { cell: Component }): any renders\n", "renders` alone"],
       ["export pure fn createTable(options: { cell: Component }): { rows: any[] } renders uses(kit)\n", "renders` alone"],
+      // withdrawn 2026-11-23 (MO-8r, Settled, the third): components that travel in values, and the tree they nest in
+      ["export pure fn createRoute(options: { component?: Component }): any renders(later)\n", "renders\\(later\\)"],
+      ["export pure fn createRoute(options: { getParentRoute: () => any; component?: Component }): any renders(later) nests(component under getParentRoute)\n", "renders\\(later\\)"],
+      ["export pure fn createRoute(options: any): any carries\n", "renders\\(later\\)"],
+      ["export component RouterProvider(props: { router: renders any }) provides(router)\nexport context router\n", "renders\\(later\\)"],
+      ["export pure fn createRoute(options: any): Component nests(component under getParentRoute)\n", "nests\\(component under parent\\)"],
+      ["export pure fn createRoute(options: any): any under(getParentRoute in component)\n", "nests\\(component under parent\\)"],
+      ["export component Outlet(props: {}) outlet\n", "outlet"],
     ] as const) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual(new RegExp("`" + word + ".*is not a word of a declaration").test(msg), true, `${bad} → ${msg}`); }
     // `signal init: T` is no parameter word: the row does not parse
     { let msg = ""; try { parseDeclarations("export pure fn makePersisted(signal init: string): [ref string, (v: string) => void]\n"); } catch (e) { msg = (e as Error).message; } deepStrictEqual(msg !== "", true); }
     // and a name that is one of them is still a name where a name goes
     deepStrictEqual(parseDeclarations("export pure fn f(signal: string, tracked: boolean, methods?: string[]): { trusted: boolean; forwards: string }\n").map(d => d.kind === "fn" ? d.params : []), [["signal", "tracked", "methods"]]);
-    deepStrictEqual(parseDeclarations("export pure fn f(): { pending: ref boolean; fails: number; renders: string }\nexport pure fn g(options: any): any renders(later)\n").length, 2);
+    deepStrictEqual(parseDeclarations("export pure fn f(): { pending: ref boolean; fails: number; renders: string; outlet: boolean }\nexport pure fn g(outlet: any, nests: any, later: any): any\n").length, 2);
+  }],
+  ["an_accessor_that_waits_or_fails_says_so_before_ref", () => {   // MO-10l: `pending` and `fails(…)` before a `ref` part of a declared result — the whole result, an item of its tuple, a field of its record — and nowhere else; the words are taken out of the type text
+    const fn = (src: string) => parseDeclarations(src)[0] as Extract<ReturnType<typeof parseDeclarations>[number], { kind: "fn" }>;
+    const whole = fn("export pure fn createJson(url: string): pending fails(HttpError | Error) ref { name: string } uses(http)\nexport context http\n");
+    deepStrictEqual([whole.waits, whole.held, whole.ret, whole.shape, whole.instantiates], [[true, ["HttpError", "Error"]], undefined, "{ name: string }", "ref", true]);
+    const tuple = fn("export pure fn createStream(want: any): [pending fails(Error) ref MediaStream | undefined, { stop: () => void }]\n");
+    deepStrictEqual([tuple.waits, tuple.held, tuple.ret], [undefined, [["0", true, ["Error"]]], "[MediaStream | undefined, { stop: () => void }]"]);
+    const rec = fn("export pure fn useQuery(): { data: pending fails(Error) ref string[]; error: fails(Error) ref unknown; readonly isFetching?: pending ref boolean; refetch: () => void }\n");
+    deepStrictEqual([rec.waits, rec.held], [undefined, [["data", true, ["Error"]], ["error", false, ["Error"]], ["isFetching", true, []]]]);
+    deepStrictEqual(rec.ret, "{ data: string[]; error: unknown; readonly isFetching?: boolean; refetch: () => void }");
+    const plain = fn("export pure fn createSignal(): [ref number, (v: number) => void]\n");
+    deepStrictEqual([plain.waits, plain.held, plain.ret], [undefined, undefined, "[number, (v: number) => void]"]);
   }],
   ["a_declaration_names_another_modules_context", () => {   // MO-12e: `export context c from "<module>"` names the context that module's declaration declares, under that declaration's key: found as an import from the declaration's own file would find it, and through a module that takes it from another
     const fs = files({

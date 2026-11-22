@@ -133,9 +133,10 @@ any[]) => Promise<void>`); a larger type stays `any`. An accessor of an options 
 is one word on the row. The module's own exported types are named (`Promise<Todo[]>`), and a generic type
 is declared with its parameters (`export type Table<TData> = import(…).Table<TData>`).
 
-For a few libraries the draft also has what types cannot show (`src/known.js`): the routers' `renders(later)`,
-`nests(…)` and the prop that `renders` (`@tanstack/solid-router`, `@solidjs/router`), TanStack Query's context,
-`handler` on its callbacks, and `pure` on those primitives. Each entry
+For a few libraries the draft also has what types cannot show (`src/known.js`): a router's context and its factory's
+`nests(…)` (`@tanstack/solid-router`, `@solidjs/router`), TanStack Query's context, `handler` on its callbacks, `pure`
+on those primitives, and `pending` or `fails(…)` before a `ref` part that waits or fails where it is read
+(`@solid-primitives/sse`, `@solid-primitives/geolocation`; 09 MO-10l). Each entry
 is for a version range and was checked by running that release; outside the range, and for every other package, the
 draft is the types' alone, with its TODOs. A generated declaration (MO-8l) never takes them: nothing a person reviewed
 makes the checker accept more.
@@ -189,8 +190,9 @@ export const probes = {
 With it, a `uses(…)` hook with parameters is run with no provider (it, or the probe's `run` on its result, must
 throw; `run` is checked under `provide` too, so a broken probe is reported, not counted), and a hook whose result is a
 declared record is mounted under `provide` (with `@solidjs/universal`, beneath an errored boundary) and each field
-read: a field that holds or fails without `pending`/`fails(…)` is a mismatch, and under `fail`'s arguments a
-`fails(C)` field must fail with a `C`. Run it with `node --conditions=browser`, so Solid is its client build. A failure that only says there is no browser
+read: a plain field that holds or fails is a mismatch (no row describes it: it is handed out as a function, declared
+`pending fails(…) ref`, MO-10l), a `ref` part that waited without saying `pending` is pointed out (the row says less,
+which is no mismatch), and under `fail`'s arguments a `fails(C)` part must fail with a `C`. Run it with `node --conditions=browser`, so Solid is its client build. A failure that only says there is no browser
 (a missing `window`) is reported as unverified, never as a mismatch; `--dom` runs with happy-dom's globals. On
 `@tanstack/solid-query` 6 it found that `isFetching` holds on the first load too: the whole result waits.
 A tuple's parts and a `ref` result are read the same way (a `ref` part must be an accessor). A `pure` fn that makes

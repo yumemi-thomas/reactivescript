@@ -333,8 +333,8 @@ export context router
 export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]
 export pure fn defineRoute<const S extends string>(route: { path: S }): RouteDefinition
 export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component)
-export pure fn createRoute(options: { path: string }): any renders(later) nests(component under getParentRoute)
-export pure fn mount(app: Component): void renders
+export pure fn createRoute(options: { path: string }): any
+export pure fn mount(app: Component): void
 export pure fn useParams(): ref any uses(router)
 export pure fn persisted(init: string, signal?: number): [ref string, (v: string) => void]
 export const promoteForm: any
@@ -432,11 +432,7 @@ export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
                 (type_annotation
                   (predefined_type)))))))
       (type_annotation
-        (predefined_type))
-      (renders_clause)
-      (nests_clause
-        (property_identifier)
-        (property_identifier))))
+        (predefined_type))))
   (export_statement
     (fn_signature
       (pure)
@@ -447,8 +443,7 @@ export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
           (type_annotation
             (type_identifier))))
       (type_annotation
-        (predefined_type))
-      (row_word)))
+        (predefined_type))))
   (export_statement
     (fn_signature
       (pure)
@@ -512,7 +507,9 @@ Declaration file rows: callbacks and field rows
 ========================================
 
 export pure fn debounce(callback: handler (...args: any[]) => void, wait?: number): (...args: any[]) => void instantiates
-export pure fn useQuery(ref options: { queryFn: () => Promise<any>; onSettled?: handler () => void }): { data: pending fails(Error) any; isFetching: pending boolean } uses(queryClient)
+export pure fn useQuery(ref options: { queryFn: () => Promise<any>; onSettled?: handler () => void }): { data: pending fails(Error) ref any; isFetching: ref boolean } uses(queryClient)
+export pure fn createJson(url: string): pending fails(HttpError | Error) ref User
+export pure fn createStream(want: boolean): [pending ref MediaStream | undefined, () => void]
 
 ---
 
@@ -585,22 +582,64 @@ export pure fn useQuery(ref options: { queryFn: () => Promise<any>; onSettled?: 
                 (row_type
                   (fails_row
                     (type_identifier))
-                  (predefined_type)))))
+                  (ref_type
+                    (ref_modifier)
+                    (predefined_type))))))
           (property_signature
             (property_identifier)
             (type_annotation
-              (row_type
+              (ref_type
+                (ref_modifier)
                 (predefined_type))))))
       (uses_clause
-        (identifier)))))
+        (identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (row_type
+          (row_type
+            (fails_row
+              (type_identifier)
+              (type_identifier))
+            (ref_type
+              (ref_modifier)
+              (type_identifier)))))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (tuple_type
+          (row_type
+            (ref_type
+              (ref_modifier)
+              (union_type
+                (type_identifier)
+                (literal_type
+                  (undefined)))))
+          (function_type
+            (formal_parameters)
+            (predefined_type)))))))
 
 ========================================
 Declaration file components
 ========================================
 
-export component Outlet(props: {}) uses(router) outlet
+export component Outlet(props: {}) uses(router)
 export component Dialog.Title(props: { id?: string; as?: any }) uses(coreDialog)
-export component RouterProvider(props: { router: renders any }) provides(router)
+export component RouterProvider(props: { router: any }) provides(router)
 export component Boundary(props: { fallback: catches(NotFound) (e: Error) => View; children: View }) fails(Timeout) shape(Item[])
 export component Form(props: { of: any; onSubmit: handler (output: any, event: any) => any })
 
@@ -616,8 +655,7 @@ export component Form(props: { of: any; onSubmit: handler (output: any, event: a
           (type_annotation
             (object_type))))
       (uses_clause
-        (identifier))
-      (row_word)))
+        (identifier))))
   (export_statement
     (component_signature
       (member_component_name
@@ -649,8 +687,7 @@ export component Form(props: { of: any; onSubmit: handler (output: any, event: a
               (property_signature
                 (property_identifier)
                 (type_annotation
-                  (renders_type
-                    (predefined_type))))))))
+                  (predefined_type)))))))
       (provides_clause
         (identifier))))
   (export_statement
@@ -1064,8 +1101,8 @@ export component Panel(props: { title; children: catches(Error) provides(./theme
 export component Card(props: { children: catches(*) }) shape(roots p div; closes-p; children-at div)
 export component Badge(props: {}) uses(./ui.rx#who, loading) shape(roots b)
 export component Save(props: { v: unrendered action go catches(nothing) }) fails(Error | Offline) shape(roots button)
-export component Pick(props: { n; ...props }) made retains(onPick: module, onFocus: ./form.rx#fields) keeps(table, row) shape(roots u)
-export component Q(props: { query: takes(data pending fails(Error), result.more pending); router: renders provides(./tsr.d.rx#router) }) shape()
+export component Pick(props: { n; ...props }) made retains(onPick: module, onFocus: ./form.rx#fields) shape(roots u)
+export component Q(props: { query: takes(data pending fails(Error), result.more pending); router: provides(./tsr.d.rx#router) }) shape()
 
 --------------------------------------------------------------------------------
 
@@ -1205,9 +1242,6 @@ export component Q(props: { query: takes(data pending fails(Error), result.more 
         (property_identifier)
         (property_identifier)
         (context_key))
-      (signature_keeps
-        (property_identifier)
-        (property_identifier))
       (signature_shape
         (shape_words))))
   (signature_export
@@ -1222,7 +1256,6 @@ export component Q(props: { query: takes(data pending fails(Error), result.more 
           (signature_path)))
       (signature_prop
         (property_identifier)
-        (row_word)
         (signature_provides
           (context_key)))
       (signature_shape))))

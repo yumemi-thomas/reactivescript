@@ -34,7 +34,7 @@ type Region = {
   appSites: Region[];                  // component roots: the regions it is applied in
   provides: Set<string>;
   catches?: Catch;                     // an `errored` body: what its boundary discharges (R-f-4)
-  kids?: { comp: Region; site: Region; field?: string };   // children passed to a component: read where it reads props.children (R-f-5); `field`: what a prop carries, rendered where the component renders that prop (MO-11o)
+  kids?: { comp: Region; site: Region };   // children passed to a component: read where it reads props.children (R-f-5)
   js?: boolean;                        // a declared JS component's root (MO-11a)
   sig?: CompSig;                       // an imported component's root: its signature stands in for its body (MO-3)
   key?: string;                        // E-5a: a component root's identity across modules (`file#name`), for what its props are given
@@ -54,7 +54,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; callback?: boolean; pure?: boolean; renders?: boolean; takes?: [string, boolean, string[]][] }>; shape?: Shape; stored?: Record<string, string[]>; keeps?: string[] };   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][] }>; shape?: Shape; stored?: Record<string, string[]>; };   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -83,9 +83,9 @@ export function show(e: Expr): string {
   }
 }
 type SymKind = "source" | "eq" | "props" | "value" | "fn" | "action" | "comp" | "import" | "errclass" | "context" | "server";
-/** MO-10k: the kinds of value the checker confines by mention (`Checker.tainted`): a value `renders` checked where it is
- *  bound (MO-11l); the instance a declared primitive made (E-10, E-5a). */
-type Taint = "renders" | "instance" | "prop";   // prop (MO-11l): what one prop of a component is given (`Checker.probe` says which), asked to know whether the component keeps it
+/** MO-10k: the kind of value the checker confines by mention (`Checker.tainted`): the instance a declared primitive made
+ *  (E-10, E-5a). */
+type Taint = "instance";
 type Sym = {
   kind: SymKind; name: string; region: Region; line: number;
   question?: boolean;                  // source x = e
@@ -107,7 +107,6 @@ type Sym = {
   fnTail?: Expr; fnEnv?: Env;          // a fn: its result, for what an `await` of a call to it rejects with
   rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
   imported?: string;                   // a source imported from an .rx module: read-only here (MO-2)
-  fromModule?: string;                 // MO-11o: an equation or source imported from this .rx module
   ctx?: { key: string; source: boolean; dflt: boolean; contract: { rows: Set<string>; fails: Set<string> } | null; ty?: string };   // ty: its declared type, the row words taken out (MO-10k: read a step at a time, as a declared result's is)
   side?: "server" | "client";          // 12 SF-5: JS that runs on one side only
   ioVia?: string;                      // 12 SF-1: a server fn that is io — the call in its body that makes it so
@@ -117,15 +116,13 @@ type Sym = {
   viaField?: boolean;                  // RFC 14: bound from a field of an instance (`w = size.width`), which tracks (MO-10b)
   reader?: boolean;                    // MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
   cbs?: ([boolean, string[]] | null)[];   // MO-10g: where a declared JS fn takes callbacks
-  held?: [string, boolean, string[]][];   // MO-10f: a JS fn's result fields that may hold or fail (field, holds, classes); on a binding of its result too
+  held?: [string, boolean, string[]][];   // MO-10l: a JS fn's result parts — `ref` items of its tuple, `ref` fields of its record — that wait or fail where they are read (part, holds, classes); on a binding of its result too. MO-10f: the same of a prop's fields, by the component's props type
+  waits?: [boolean, string[]];   // MO-10l: a JS fn whose whole result is an accessor that waits or fails (holds, classes)
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
   generated?: string;                  // MO-8l: a JS fn declared by a generated draft (node_modules/.rx-types): its package's specifier
   undeclared?: string;                 // MO-8k: a JS import with no declaration in any of the four places: its specifier
   pureFn?: boolean;                    // MO-11g: a JS fn declared or imported `pure` that makes nothing: among a factory's arguments it hands the components it is given on
-  carrier?: boolean;                   // MO-11o: a declared fn whose result carries the components in its arguments
-  carried?: { args: Expr[]; env: Env; under?: { parent: string; inside: string } };   // MO-11o: on an equation bound to such a call, those arguments; MO-11p: where it renders
-  under?: { parent: string; inside: string };   // MO-11p: a carrying fn whose result renders at its parent's outlet
   drafts?: [number, number[]][];       // MO-10i: a JS fn's callbacks whose parameters are its drafts (argument index, parameter positions)
   partDrafts?: Record<string, [number, number[]][]>;   // MO-10i: the same, for its result's function parts (tuple index or field)
   jsDraft?: boolean;                   // MO-10i: a callback's parameter the library declares a draft: its paths are written
@@ -136,19 +133,13 @@ type Sym = {
   disposer?: string;                   // EF-5a (2026-11-22): a declared JS fn whose result undoes the call (a subscription's disposer): the declared type that says so, `() => void` or `{ unsubscribe: () => void }` (tyUndoes)
   updater?: number[];                  // MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a draft: the parameter positions that are drafts
   retTy?: string;                      // MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or of a part of it, that part's: the closed set of what the value answers (`tyStep`)
-  localRenders?: boolean;              // MO-11l (revised 2026-11-21): components `renders` checked where this was bound — it may not travel
-  outlet?: boolean;                    // MO-11p: a JS component that renders, where it is written, what nests under its component
-  carriedExpr?: { e: Expr; env: Env };   // MO-11o: every equation's expression, looked through for what it carries
+  eqExpr?: { e: Expr; env: Env };   // every equation's expression (E-10: whether it ever changes)
   val?: { e: Expr; env: Env };          // MO-10k: the expression a name is bound to — an equation's, a local's
   srcs?: { e: Expr; env: Env }[];       // MO-10k: what else a name's value may come from — a closure's parameter: the call's other arguments and its receiver; a loop's variable: what it loops over; an effect's `$n`: its input
-  paramOf?: Sym;                        // MO-10k: a parameter of an `.rx` fn or an action of this module: that name, whose calls' arguments it may be
-  ofFn?: Expr;                          // MO-10k: a closure literal's parameter: that closure (the name it is bound to, if any, is fnOwner's)
-  callArgs?: { e: Expr; env: Env }[];   // MO-10k: on such a name, every argument its calls in this module pass
+  ofFn?: Expr;                          // MO-10k: a closure literal's parameter: that closure 
   retFlows?: { names: Set<string>; env: Env };   // MO-10k: what an `.rx` fn or an action of this module may give back: the names its result mentions, in its scope
-  canFail?: boolean;                    // MO-11l: an `.rx` fn of another module whose signature says it can fail (a failure carries what it was thrown with)
-  renders?: boolean;                   // MO-11l: a declared JS fn that renders the components in its arguments where its result is bound
   nests?: { kids: string; inside: string };   // MO-11i: how a declared factory nests what it is given
-  factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string }; exported?: Sym; here?: boolean };   // here: MO-11l, applied where the result is bound   // MO-11f; exported: MO-11j, the component an importer sees: a component a JS factory made — the call's arguments, and the components in them
+  factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string }; exported?: Sym };   // MO-11f; exported: MO-11j, the component an importer sees: a component a JS factory made — the call's arguments, and the components in them
   exportKey?: string;                  // E-5a: an .rx import's `file#name`, whose changing the whole-program pass knows
   noProps?: string;                    // RG-4b: the props of `component C()`, which declares none — C's name: reading them is UNBOUND
   fnDecl?: Extract<Decl, { k: "fn" }>; declEnv?: Env;   // a fn's declaration and the scope it names from (SF-3: what it reaches)   // a context (RG-7): its identity, whether it carries a source, and its declared rows (null: inferred from its provisions)
@@ -260,9 +251,7 @@ function duplicateKey(e: Expr, key: string): string | undefined {
 }
 /** What `flows` asks of where it is read: whether a name is a builtin there (not bound), and whether an expression is a
  *  primitive by its declaration (`Checker.declPrim`). */
-type Look = { builtin: (n: string) => boolean; prim: (e: Expr) => boolean; field: (e: Expr) => string | undefined };   // field (MO-11l): a read of one field of a component's props (`props.table`) names that field, not the props
-/** The name `flows` gives a read of one prop of a component: no name a program can write. */
-const propName = (comp: Region, field: string) => `\u0001${comp.id}\u0001${field}`;
+type Look = { builtin: (n: string) => boolean; prim: (e: Expr) => boolean };
 /** The name a path is read from: `table` of `table.getState().page`. */
 function pathRoot(e: Expr): string | undefined {
   if (e.k === "id") return e.name;
@@ -363,10 +352,9 @@ function flows(e: Expr, bound: Set<string>, locals: Map<string, Set<string>>, bu
     case "await": go(e.e); if (e.init) go(e.init); return;
     case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") { go(e.l); go(e.r); } return;
     case "if": go(e.t); go(e.f); return;
-    case "member": case "index": {                                                         // a slot of a literal written here is that slot: `[clock, 5][1]` is `5`; a field of a component's props is that prop
+    case "member": case "index": {                                                         // a slot of a literal written here is that slot: `[clock, 5][1]` is `5`
       const lp = literalPart(e); if (lp) { go(lp); return; }
-      const prop = builtin.field(e);
-      if (prop !== undefined && e.o.k === "id" && !bound.has(e.o.name) && !locals.has(e.o.name)) out.add(prop); else go(e.o);
+      go(e.o);
       return;
     }
     case "call": if (e.f.k === "id" && SCALAR_BUILTINS.has(e.f.name) && !bound.has(e.f.name) && !locals.has(e.f.name) && builtin.builtin(e.f.name)) return; go(e.f); e.args.forEach(go); return;
@@ -662,11 +650,6 @@ class Checker {
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     providesIn(p.decls, p.view, this.provided, this.actionNames);
     this.block(p.decls, p.view, root, { scope: "reactive" });
-    this.rendersSinks();                                                                   // MO-11l: every call's arguments are known now
-    // MO-11o: a prop taken (by syntax) for one its component gives on to a prop that renders it, which the walk did not find
-    for (const f of this.forwardedDecl.values()) if (!this.forwards.some(o => o.comp === f.comp && o.field === f.field)) { this.line = f.line; this.err("RENDERS_ESCAPES", "MO-11o", `component ${f.name} was read as rendering what its prop ${f.field} carries (\`props.${f.field}\` given to a prop that renders it), but where it does is not one the checker can see: give it on as \`props.${f.field}\`, at the top of the component's own view`); }
-    // MO-11o: a component a value carries is checked where a prop renders it; one nothing renders is not checked anywhere
-    for (const c of this.carriedPending) if (!this.carriedRendered.has(c.e)) { this.line = c.line; this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${c.name} is carried by ${c.by}(…), but nothing renders it: pass what carries it to a JS component's prop declared \`renders\` (MO-11o)`); }
     this.later.push(() => this.contentCheck(p.view, root, []));
     for (const f of this.later) f();
     this.retained();
@@ -826,7 +809,7 @@ class Checker {
       const go = (x: Expr): boolean => {
         if (x.k === "fn" || x.k === "peek") return false;
         if (x.k === "await") return !x.init;
-        if ((x.k === "member" || x.k === "index") && this.heldField(x, env)?.[1]) return true;   // MO-10f: a field that holds
+        if ((x.k === "member" || x.k === "index" || x.k === "call") && this.heldField(x, env)?.[1]) return true;   // MO-10l, MO-10f: a part that holds
         if (x.k === "id") { const u = env.lookup(x.name); return !!u && u !== t && (u.kind === "eq" || u.kind === "source") && (!!u.reader || absent(u, busy)); }   // MO-10d: a foreign reader may hold
         return subExprs(x).some(go);
       };
@@ -907,17 +890,16 @@ class Checker {
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); sym.compRegion.key = `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${sym.compRegion.id}` : ""}`; }   // E-5a
       if (d.k === "eq") sym.eqDecl = d;
-      if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.carrier) { const by = env.lookup(d.e.f.name)!; sym.carried = { args: d.e.args, env, ...(by.under ? { under: by.under } : {}) }; } sym.carriedExpr = { e: d.e, env }; sym.val = { e: d.e, env }; }   // MO-11o; MO-10k
+      if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); sym.eqExpr = { e: d.e, env }; sym.val = { e: d.e, env }; }   // MO-10k
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
       this.bind(env, d.name, sym);
-      if (d.k === "eq" && d.e.k === "fn") this.fnOwner.set(d.e, sym);                      // MO-10k
     }
     this.serverIo(decls, env);
-    this.forwardedProps(decls, env);
+    this.propInterfaces(decls, env);
     // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)
     for (const d of decls) {
       if (d.k !== "fn" && d.k !== "action") continue;
-      const names = new Set<string>(); const look: Look = { builtin: (n: string) => !env.lookup(n), prim: x => this.declPrim(x, env), field: x => { const pf = this.propField(x, env); return pf && propName(pf.comp, pf.field); } };
+      const names = new Set<string>(); const look: Look = { builtin: (n: string) => !env.lookup(n), prim: x => this.declPrim(x, env) };
       if (d.k === "fn") flowsFn(d.params, d.decls, d.tail, look, names); else flowsReturns(d.body, new Set(d.params), new Map(), look, names);
       env.vars.get(d.name)!.retFlows = { names, env };
     }
@@ -965,13 +947,13 @@ class Checker {
       const failsOf = (f: string[]) => () => ({ cls: new Set(f), props: [] as PropRef[] });
       let sym: Sym;
       switch (x.kind) {
-        case "source": sym = { kind: "source", name: alias, region: env.region, line: d.line, question: x.question, imported: d.from, fromModule: d.from, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
-        case "eq": sym = { kind: "eq", name: alias, region: env.region, line: d.line, io: x.io, fromModule: d.from, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
-        case "fn": sym = { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params, instantiating: x.instantiating, rows: rowsOf(x.rows), failsT: failsOf(x.fails), canFail: [...x.fails].length > 0, rejects: new Set(x.rejects) }; break;
+        case "source": sym = { kind: "source", name: alias, region: env.region, line: d.line, question: x.question, imported: d.from, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
+        case "eq": sym = { kind: "eq", name: alias, region: env.region, line: d.line, io: x.io, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
+        case "fn": sym = { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params, instantiating: x.instantiating, rows: rowsOf(x.rows), failsT: failsOf(x.fails), rejects: new Set(x.rejects) }; break;
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
-        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; { const cp = Object.entries(x.sig.props).filter(([, v]) => v.renders).map(([k]) => k); if (cp.length) this.carriedProps.set(r, new Set(cp)); } { const ph = Object.entries(x.sig.props).flatMap(([k, v]) => (v.takes ?? []).map(([p, h, c]) => [`${k}.${p}`, h, c] as [string, boolean, string[]])); if (ph.length) this.propHeld.set(r, ph); } break; }   // E-5a; MO-11o: the props it renders what they carry
+        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; { const ph = Object.entries(x.sig.props).flatMap(([k, v]) => (v.takes ?? []).map(([p, h, c]) => [`${k}.${p}`, h, c] as [string, boolean, string[]])); if (ph.length) this.propHeld.set(r, ph); } break; }   // E-5a
         case "context": sym = { kind: "context", name: alias, region: env.region, line: d.line, ctx: { key: x.key, source: x.source, dflt: x.dflt, contract: { rows: new Set(x.rows), fails: new Set(x.fails) }, ...(x.type !== undefined ? { ty: fieldRows(x.type).text } : {}) } }; break;
       }
       if (sym.kind === "source" || sym.kind === "eq" || sym.kind === "fn") sym.exportKey = `${d.resolved}#${name}`;   // E-5a
@@ -1012,9 +994,8 @@ class Checker {
         const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
         for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true, ...(p.optional ? { renderOptional: true } : {}) } : {}), ...(p.callback ? { callback: true } : {}), ...(p.pure ? { pure: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig; r.js = true;
-        const cp = x.props.filter(p => p.carried).map(p => p.name); if (cp.length) this.carriedProps.set(r, new Set(cp));   // MO-11o
         { const vp = x.props.filter(p => p.view).map(p => p.name); if (vp.length) this.viewProps.set(r, new Set(vp)); }   // MO-11t: the props that take a view
-        this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(x.outlet ? { outlet: true } : {}) });
+        this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r });
     };
     for (const { name, alias } of d.names) {
       const x = decls.find(y => y.name === name);
@@ -1029,7 +1010,7 @@ class Checker {
       if (x.kind === "comp") { bindComp(x, alias); continue; }   // MO-11a
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.renders ? { renders: true } : {}),  ...(x.carrier ? { carrier: true } : {}), ...(x.under ? { under: x.under } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.ret } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.waits ? { waits: x.waits } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.ret } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.pure ? { pureFn: true } : {}), ...(x.kind === "fn" && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}),  ...(generated ? { generated } : {}) });
     }
   }
@@ -1046,7 +1027,7 @@ class Checker {
         case "if": stack.push(x.c); continue;
         case "bin": if (x.op === "&&" || x.op === "||" || x.op === "??") { stack.push(x.l); continue; } break;
         case "catch": stack.push(x.e); continue;
-        case "member": case "index": if (this.heldField(x, env)?.[1]) return true; break;   // MO-10f: a field that holds
+        case "member": case "index": case "call": if (this.heldField(x, env)?.[1]) return true; break;   // MO-10l, MO-10f: a part that holds
         case "id": { const t = env.lookup(x.name); if (t && t !== own && (t.kind === "eq" || t.kind === "source") && this.symFirstAbsent(t, memo, busy)) return true; continue; }
       }
       stack.push(...subExprs(x));
@@ -1071,11 +1052,13 @@ class Checker {
   }
   /** MO-10f: the declared rows of a field read, `x.data` where `x` was bound from a JS fn's result. */
   private heldField(e: Expr, env: Env): [string, boolean, string[]] | undefined {
+    if (e.k === "call") { const w = e.f.k === "id" ? env.lookup(e.f.name)?.waits : undefined; return w && ["", w[0], w[1]]; }   // MO-10l: the call that makes an accessor that waits or fails — its reader's rows are read off it, as a question's off its `await`
     const fp = fieldPath(e); if (!fp) return undefined;                                // `q.result.data`: the path from the bound name; `q["data"]` is `q.data`, `q[k]` any field there
     return heldMatch(env.lookup(fp.root)?.held ?? [], fp.path);
   }
   /** MO-10f: a field that fails, at any depth, read by `.` or `[…]` */
   private heldFails(e: Expr, env: Env, bound: Map<string, Set<string>>, out: Fails) {
+    if (e.k === "call") { if (e.f.k === "id" && !bound.has(e.f.name)) for (const c of this.heldField(e, env)?.[2] ?? []) out.cls.add(c); return; }   // MO-10l
     const fp = fieldPath(e); if (!fp || bound.has(fp.root)) return;
     const h = this.heldField(e, env); if (h) for (const c of h[2]) out.cls.add(c);
   }
@@ -1132,7 +1115,6 @@ class Checker {
       }
       if (sub.length) sym.held = sub;
     }
-    if (shape !== "comp" && e.k === "call" && e.f.k === "id" && env.lookup(e.f.name)?.renders) { sym.factory = { args: e.args, env, here: true }; sym.localRenders = true; }   // MO-11l: its component values are applied here
     if (shape === "comp" && e.k === "call") {                                              // MO-11f: the bound name is a component
       const gives = e.f.k === "id" ? env.lookup(e.f.name)?.gives ?? [] : [];                 // MO-12c: what it provides to what it renders
       const r = this.region(null, "imported", { component: true, name: sym.name }); r.sig = { own: [], requires: [], props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: { roots: [], closesP: false, a: false, form: false, childrenAt: [[]] } };   // it renders what it was given where it is applied
@@ -1188,7 +1170,7 @@ class Checker {
         switch (x.k) {
           case "await": rows.add("pending"); if (!x.init && this.clientCall(x.e, env)) rows.add("client"); break;   // SV-7b: a client question (no first paint)
           case "latest": case "pending": rows.add("lane"); break;
-          case "member": case "index": if (this.heldField(x, env)?.[1]) rows.add("pending"); break;   // MO-10f: a field that holds
+          case "member": case "index": case "call": if (this.heldField(x, env)?.[1]) rows.add("pending"); break;   // MO-10l, MO-10f: a part that holds
           case "fn": case "serverfn": return;                                               // a closure's body is not this value's
           case "use": {                                                                     // RG-7e
             const c = env.lookup(x.name)?.ctx; if (!c) return;
@@ -1223,8 +1205,6 @@ class Checker {
       case "typedecl": return;
       case "error": if (d.msg) { const inner = new Env(env, env.region); for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line }); this.expr(d.msg, inner, { scope: "reactive", inFn: true }); } return;
       case "source": {
-        this.sink(d.init, env, `written to ${d.name}`);
-        if (d.exported) this.sinks.push({ names: [d.name], env, line: this.line, why: "exported, for importers to render elsewhere" });
         if (d.question) { this.comp("question", env, { name: d.name }, () => this.expr(d.init, env, reactive)); this.rowCheck(d.name, d.type, env); return; }
         const reads = new Set<string>(); readsOutsidePeek(d.init, reads);
         const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind); });
@@ -1235,10 +1215,8 @@ class Checker {
       case "eq": {
         const kind = d.deferred ? "deferred" : d.key ? "keyed" : "memo";
         const made = env.vars.get(d.name);
-        if (made?.carried) this.carriedValues(made.carried.args, made.carried.env, true, [], d.e.k === "call" && d.e.f.k === "id" ? d.e.f.name : "");   // MO-11o: its component values are values, applied where a prop renders them
-        if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (made.factory.here) this.markup(this.factoryTree(made, d.line), env); else if (d.exported) this.exportMade(made, d.name, d.line); }   // MO-11l: applied where it is bound
-        if (d.exported) {                                                                  // MO-11l: an export is a way out — its importers would render it under their own boundaries
-          this.sinks.push({ names: [d.name], env, line: this.line, why: "exported, for importers to render elsewhere" });
+        if (made?.factory) { this.factoryValues(made); this.readers.push({ region: env.region, e: d.e, env, line: this.line });   /* the call runs once, here: its failures and holds are a reader's */ if (d.exported) this.exportMade(made, d.name, d.line); }
+        if (d.exported) {
           // MO-10f: a signature carries an equation's rows, not its fields': an importer's `x.data` would be unseen
           const h = made?.held?.[0];
           if (h) this.err("RESULT_AS_VALUE", "MO-10f", `${d.name} is a JS result whose fields hold or fail where each is read (${d.name}.${h[0]}), and a module's signature says nothing of a value's fields: export the field, \`export ${h[0].split(".").pop()} = ${d.name}.${h[0]}\`, which carries its rows`);
@@ -1246,11 +1224,10 @@ class Checker {
         if (d.e.k === "id" || d.e.k === "member" || d.e.k === "index") this.wholeOk.add(d.e);   // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
         { const ps = this.updaterPositions(d.name, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
           if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
-        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && !f.renders && !f.carrier && f.foreign !== "comp") this.unplaced(call.args, env);   /* MO-11s */ this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
+        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env);   /* MO-11s */ this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
-        this.sink(d.e, env, `provided as ${d.name}, for the components below to render`);
         this.comp("provide", env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env);
         const c = this.ctxOf(d.name, env); if (!c) return;
         env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env });
@@ -1280,8 +1257,7 @@ class Checker {
       }
       case "action": {
         const inner = new Env(env, env.region); const me = env.lookup(d.name);
-        for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line, paramOf: me });   // MO-10k
-        if (d.exported) this.sinks.push({ names: [d.name], env, line: this.line, why: "what an exported action returns, for importers to render elsewhere" });
+        for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line });
         this.comp("action", env, { name: d.name }, () => this.stmts(d.body, inner, { scope: "imperative", inAction: true }));
         this.actions.push({ name: d.name, body: d.body, env: inner, line: d.line });
         this.runChecks(d.body, true, d.params, false, { ptypes: (d.ptypes ?? d.params.map(() => undefined)).map(t => t && this.scalarAliases.has(t.trim()) ? "string" : t), answered: n => { const t = inner.lookup(n); return !!t && t.kind === "source" && !!t.question; }, stateful: n => { const t = inner.lookup(n); return !!t && (t.kind === "source" || t.kind === "eq"); } });
@@ -1299,8 +1275,7 @@ class Checker {
         const r = d.decls.length ? this.region(env.region, "fn", { name: d.name }) : env.region;                     // RG-6: an instantiating fn is a region
         const inner = new Env(env, r);
         const me = env.lookup(d.name);
-        for (const p of d.params) this.bind(inner, p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line, param: true, paramOf: me });   // MO-10k
-        if (d.exported) this.sinks.push({ names: [d.name], env, line: this.line, why: "what an exported fn gives, for importers to render elsewhere" });
+        for (const p of d.params) this.bind(inner, p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line, param: true });
         this.comp("fn", env, { name: d.name }, () => { this.block(d.decls, [], inner, { scope: "reactive", inFn: true }); this.expr(d.tail, inner, { scope: "reactive", inFn: true }); });
         { const sym = env.lookup(d.name)!; sym.fnTail = d.tail; sym.fnEnv = inner; sym.failsT = this.failsThunk(d.tail, inner); sym.rows = this.rowsThunk(d.tail, inner); }
         return;
@@ -1425,10 +1400,10 @@ class Checker {
   /** MO-10i: closures passed where a JS fn's declaration makes their parameters drafts, with those positions. */
   private draftFns = new Map<Expr, number[]>();
   private constantEq(s: Sym): boolean {
-    if (s.kind !== "eq" || !s.carriedExpr) return false;
+    if (s.kind !== "eq" || !s.eqExpr) return false;
     const memo = this.constEqs.get(s); if (memo !== undefined) return memo === true;   // null: being decided (a cycle is not constant)
     this.constEqs.set(s, null);
-    const { e, env } = s.carriedExpr;
+    const { e, env } = s.eqExpr;
     let ok = !/"k":"(await|latest|use|pre)"/.test(JSON.stringify(e));
     // RFC 14: a field read of an instance tracks (MO-10b), so an equation that reads one, or is bound to one, changes
     if (ok && s.viaField) ok = false;
@@ -1707,7 +1682,7 @@ class Checker {
       case "eq": {
         if (s.param || s.reader || this.changed.has(s)) return ch(true);                  // a ref parameter: the caller's, reactive
         if (s.foreign) return ch(!!s.viaField || s.foreign === "ref" || !!s.held?.length || (typeof s.foreign === "object" && ("items" in s.foreign ? s.foreign.items : s.foreign.fields.map(f => f[1])).includes("ref")));   // MO-10b: a value result is made once; a reader, or a field that holds, changes
-        return s.carriedExpr ? this.chOf(s.carriedExpr.e, s.carriedExpr.env, "out") : ch(true);
+        return s.eqExpr ? this.chOf(s.eqExpr.e, s.eqExpr.env, "out") : ch(true);
       }
       case "fn": return s.fnTail && s.fnEnv ? this.chOf(s.fnTail, s.fnEnv, "out") : ch(false);   // a JS fn is pure (R-io)
       default: return ch(false);
@@ -1803,7 +1778,7 @@ class Checker {
   }
   // ---- MO-10k: values the checker confines, by mention ----
   /** The names `e`'s value may come from (`flows`), read in `env`. */
-  private flowNames(e: Expr, env: Env): Set<string> { const out = new Set<string>(); flows(e, new Set(), new Map(), { builtin: n => !env.lookup(n), prim: x => this.declPrim(x, env), field: x => { const pf = this.propField(x, env); return pf && propName(pf.comp, pf.field); } }, out); return out; }
+  private flowNames(e: Expr, env: Env): Set<string> { const out = new Set<string>(); flows(e, new Set(), new Map(), { builtin: n => !env.lookup(n), prim: x => this.declPrim(x, env) }, out); return out; }
   /** MO-10k: the declared type of a path over a declared JS result — the bound name, a field of it, what a method of it
    *  answers, an element (a `for` row, an index) — where the declaration's text says it (`tyStep`). */
   private declTy(e: Expr, env: Env, depth = 0): string | undefined {
@@ -1833,70 +1808,20 @@ class Checker {
    *  that value was made at. */
   private gives(e: Expr, env: Env, k: Taint): { n: string; root: Sym } | undefined {
     for (const n of this.flowNames(e, env)) {
-      // one prop of a component (`props.table`): the value asked about when it is the probe's
-      if (n.startsWith("\u0001")) {
-        if (k === "prop" && this.probe) { const [, r, f] = n.split("\u0001"); if (r === String(this.probe.comp.id) && (f === this.probe.field || this.probe.field === "*")) { const ps = this.propsOf(env); if (ps) return { n: `props.${f}`, root: ps }; } }
-        continue;
-      }
       const s = env.lookup(n); if (!s) continue;
-      if (k === "prop" && s.kind === "props" && this.probe?.comp === s.region) return { n, root: s };   // the props given whole hold every prop
       const root = this.tainted(s, k); if (root) return { n, root };
     }
     return undefined;
   }
-  /** MO-11l: every way out the walk recorded (`rendersSinks` decides them for `renders`; `propKeeps` asks them again for
-   *  one prop of a component), the prop being asked about, and what was decided. */
-  private allSinks: { e?: Expr; names: string[]; env: Env; line: number; why: string; prop?: { comp: Region; field: string } }[] = [];
-  private probe: { comp: Region; field: string } | undefined;
-  private keepsMemo = new Map<Region, Map<string, string | null>>();
-  private keepsBusy = new Set<string>();
-  private keepsCut = 0;
-  private propNamed = new Map<Region, Set<string>>();     // the fields of its props a component names (`props.table`), for its signature's `keeps(…)`
   private propsTy = new Map<Region, string>();            // a component's props type, as written (its row words taken out)
-  /** MO-11l (2026-11-22): whether a component keeps what one of its props is given — undefined — or the first way that
-   *  value leaves it. An `.rx` component of this module keeps a prop when no way out its body writes (`allSinks`: a prop
-   *  of a component, a provision, a source, an export, a thrown value, a call that may keep it) is given a value that may
-   *  hold a part of `props.<field>` (by mention, as MO-10k confines any value), a prop of a component that keeps it in
-   *  turn excepted. One being decided is taken to keep it (components that only hand a value to each other keep it
-   *  between them). A component of another `.rx` module keeps what its signature says (`keeps(…)`); a JS component's
-   *  declaration does not say. */
-  private propKeeps(comp: Region, field: string): string | undefined {
-    const memo = this.keepsMemo.get(comp); if (memo?.has(field)) return memo.get(field) ?? undefined;
-    if (comp.js) return "which is a JS component: its declaration does not say what it does with it";
-    if (comp.sig) return comp.sig.keeps?.includes(field) ? undefined : "whose signature does not say it keeps it (`keeps(…)`: it may store it, provide it or hand it on)";
-    const key = `${comp.id}\u0001${field}`;
-    if (this.keepsBusy.has(key)) { this.keepsCut++; return undefined; }
-    this.keepsBusy.add(key); const cut = this.keepsCut;
-    const saved = this.probe; const mine = { comp, field };
-    this.probe = mine; this.taintMemo.prop.clear();
-    let out: string | undefined;
-    for (const sk of this.allSinks) {
-      const r = sk.env.region; if ((r.isComponentRoot ? r : r.component) !== comp) continue;
-      let hit: { n: string; root: Sym } | undefined;
-      if (sk.e) hit = this.gives(sk.e, sk.env, "prop");
-      else for (const n of sk.names) { const t = sk.env.lookup(n); const root = t && this.tainted(t, "prop"); if (root) { hit = { n, root }; break; } }
-      if (!hit) continue;
-      if (sk.prop) {
-        const inner = this.propKeeps(sk.prop.comp, sk.prop.field);   // given on to a prop that keeps it
-        this.probe = mine; this.taintMemo.prop.clear();
-        if (inner === undefined) continue;
-      }
-      out = `which does not keep it: there (line ${sk.line}) ${hit.n} is ${sk.why}`;
-      break;
-    }
-    this.probe = saved; this.taintMemo.prop.clear();
-    this.keepsBusy.delete(key);
-    if (out !== undefined || this.keepsCut === cut || !this.keepsBusy.size) { if (!this.keepsMemo.has(comp)) this.keepsMemo.set(comp, new Map()); this.keepsMemo.get(comp)!.set(field, out ?? null); }
-    return out;
-  }
-  private taintMemo: Record<Taint, Map<Sym, Sym | null>> = { renders: new Map(), instance: new Map(), prop: new Map() };
-  private taintBusy: Record<Taint, Set<Sym>> = { renders: new Set(), instance: new Set(), prop: new Set() };
+  private taintMemo: Record<Taint, Map<Sym, Sym | null>> = { instance: new Map() };
+  private taintBusy: Record<Taint, Set<Sym>> = { instance: new Set() };
   private taintCut = 0;
   /** MO-10k: a name may be, or hold, a value of kind `k` when it is bound to one (`taintRoot`), or to an expression that
    *  mentions a name that may (`flows`): an equation's or a local's value, the list a row or a loop variable goes through,
    *  the arguments a parameter may be given, what an `.rx` fn or an action of this module returns. A name whose value comes
    *  from where the checker cannot look — a prop, a parameter of a function passed as a value, a source, an import — is not
-   *  one: the checks keep such values from getting there (MO-11l's sinks). A least fixpoint: a name being decided adds
+   *  one. A least fixpoint: a name being decided adds
    *  nothing, and an answer found short of one is not kept. */
   private tainted(s: Sym, k: Taint): Sym | undefined {
     const memo = this.taintMemo[k]; if (memo.has(s)) return memo.get(s) ?? undefined;
@@ -1908,8 +1833,7 @@ class Checker {
     return r;
   }
   private taintRoot(s: Sym, k: Taint): boolean {
-    if (k === "prop") return false;                                                        // its root is a read of the prop (`gives`)
-    return k === "renders" ? !!s.localRenders : s.kind === "eq" && !s.viaField && (s.foreign === "value" || (typeof s.foreign === "object" && "fields" in s.foreign));
+    return s.kind === "eq" && !s.viaField && (s.foreign === "value" || (typeof s.foreign === "object" && "fields" in s.foreign));
   }
   private taintedOf(s: Sym, k: Taint): Sym | undefined {
     if (this.taintRoot(s, k)) return s;
@@ -1917,70 +1841,11 @@ class Checker {
     if (s.val) from.push(s.val);
     if (s.rowOf) from.push(s.rowOf);
     if (s.srcs) from.push(...s.srcs);
-    // a parameter of a named closure, fn or action: every argument its calls pass. Known once the module is walked, which
-    // is when MO-11l asks; E-10 and E-5a ask while walking, and take a call given an instance as a read of it
-    if (k !== "instance") { const owner = s.paramOf ?? (s.ofFn ? this.fnOwner.get(s.ofFn) : undefined); if (owner?.callArgs) from.push(...owner.callArgs); }
     for (const x of from) { const g = this.gives(x.e, x.env, k); if (g) return g.root; }
     if (s.retFlows) for (const n of s.retFlows.names) { const t = s.retFlows.env.lookup(n); if (!t) continue; const r = this.tainted(t, k); if (r) return r; }
     return undefined;
   }
-  /** MO-11l (ruled 2026-11-22): bare `renders` checks the components a call is given where its result is bound, so that
-   *  result, and anything that may hold a part of it, stays in the region it is bound in. It leaves through a component's
-   *  prop, a provision, an export, a source, a thrown value, or an argument of a call that may keep it: each is recorded
-   *  here and decided once the module is walked (`rendersSinks`). */
-  private sinks: { e?: Expr; names: string[]; env: Env; line: number; why: string; prop?: { comp: Region; field: string } }[] = [];   // prop: the way out is a prop of a component (no way out when that component keeps the prop)
-  private sink(e: Expr, env: Env, why: string) { this.sinks.push({ e, names: [], env, line: this.line, why }); }
-  private rendersSinks() {
-    this.allSinks = this.sinks.splice(0);
-    for (const sk of this.allSinks) {
-      let hit: { n: string; root: Sym } | undefined;
-      if (sk.e) hit = this.gives(sk.e, sk.env, "renders");
-      else for (const n of sk.names) { const t = sk.env.lookup(n); const root = t && this.tainted(t, "renders"); if (root) { hit = { n, root }; break; } }
-      if (!hit) continue;
-      // MO-11l (2026-11-22): a prop of a component that keeps what it is given is no way out: the component is beneath
-      // this region, and so is all it does with the value
-      let why = sk.why;
-      if (sk.prop) { const lets = this.propKeeps(sk.prop.comp, sk.prop.field); if (lets === undefined) continue; why = `${why}, ${lets}`; }
-      this.line = sk.line; this.rendersEscapeMsg(hit.n, hit.root.name, why);
-    }
-  }
-  private rendersEscapeMsg(n: string, root: string, why: string) {
-    const what = n === root ? `${n} holds components \`renders\` checked where ${n} is bound` : `${n} may hold a part of ${root}, whose components \`renders\` checked where ${root} is bound`;
-    this.err("RENDERS_ESCAPES", "MO-11l", `${what}, and here it is ${why}: render it in the view where ${root} is bound — what leaves that view is a primitive made of it (\`str(…)\`, a template, arithmetic, a comparison, \`len(…)\`) — or declare the library \`renders(later)\` with a prop that \`renders\` it (MO-11o); a library that mounts them under a root of its own says nothing of where (MO-11s)`);
-  }
-  /** MO-11l: whether a call may keep an argument, or hand it to what the checker cannot see. It does not when what is
-   *  called is known to keep nothing: a builtin; a `pure` JS fn, or a method of a `pure` JS import (the declaration's word,
-   *  CN-5); an `.rx` fn of another module that declares no state and cannot fail (a failure carries what it was thrown
-   *  with to whichever boundary catches it); a method of the value itself. A fn, an action or a named closure of this
-   *  module, and a closure written at the call, are seen into instead: their parameters are what they are given (recorded
-   *  here), and their bodies are checked with that. Anything else may keep it, in either scope: an action or a server fn,
-   *  an `io` JS fn, a method of another value, a function the checker cannot name (a prop, a parameter, a part of a
-   *  record, what a call returns) — which is how a value would be handed up to whatever applied the component. */
-  private callKeeps(f: Expr, args: Expr[], env: Env): boolean {
-    if (f.k === "fn") return false;
-    if (f.k === "id") {
-      const sy = env.lookup(f.name); if (!sy) return false;
-      const localFn = sy.kind === "fn" && !!sy.fnDecl;
-      const localAction = sy.kind === "action" && !!sy.retFlows;
-      const closure = (sy.kind === "eq" || sy.kind === "value") && sy.val?.e.k === "fn";
-      if (localFn || localAction || closure) { (sy.callArgs ??= []).push(...args.map(a => ({ e: a, env }))); return false; }
-      switch (sy.kind) {
-        case "import": return !!sy.io;
-        case "fn": return sy.foreign === undefined && (!!sy.instantiating || !!sy.canFail);
-        case "errclass": return false;                                                     // an error is a value until it is thrown, which is where it leaves
-        default: return true;
-      }
-    }
-    if (f.k === "member" || f.k === "index") {
-      // a method of the value keeps nothing only where it is given nothing of the value (below): a receiver says nothing of
-      // what is called (`({ send: props.onSend, t: table }).send(table)` hands the table to the parent)
-      let root: Expr = f.o; while (root.k === "member" || root.k === "index") root = root.o;
-      const t = root.k === "id" ? env.lookup(root.name) : undefined;
-      return !(t?.kind === "import" && !t.io);
-    }
-    return true;
-  }
-  /** What every call does for the values the checker confines (MO-10i, MO-10k, MO-11l), whether it is written in an
+  /** What every call does for the values the checker confines (MO-10i, MO-10k), whether it is written in an
    *  expression or is the instantiation an equation binds. */
   private callMarks(f: Expr, args: Expr[], env: Env) {
     this.calleeIds.add(f);
@@ -2009,8 +1874,6 @@ class Checker {
     const recv = f.k === "member" || f.k === "index" ? [f.o] : [];
     args.forEach((a, i) => { if (a.k === "fn") this.fnSrcs.set(a, [...recv, ...args.filter((_, j) => j !== i)].map(x => ({ e: x, env }))); });
     if (f.k === "fn") this.fnSrcs.set(f, args.map(x => ({ e: x, env })));
-    // MO-11l: a call may keep what it is given, or hand it to what renders it elsewhere
-    if (this.callKeeps(f, args, env)) for (const a of args) this.sink(a, env, `passed to ${show(f)}(…)`);
   }
   /** MO-10i: the closures being walked (ids, innermost last) — a library's draft is its callback's alone */
   private fnStack: number[] = []; private fnSeq = 0;
@@ -2019,7 +1882,6 @@ class Checker {
   private wholeOk = new Set<Expr>();                                     // MO-10f, MO-10i: expressions written where a result with held fields, or one with draft parts, may stand whole
   private calleeIds = new Set<Expr>();                                   // MO-10i: expressions written as what a call calls
   private fnSrcs = new Map<Expr, { e: Expr; env: Env }[]>();             // MO-10k: a closure literal's other arguments in the call it is given to
-  private fnOwner = new Map<Expr, Sym>();                                // MO-10k: the name a closure literal is bound to
   private chFns = new Set<Expr>();                                       // E-5a: the closures chOf is reading through a call of them
   /** MO-10i (ruled 2026-11-22): a library's draft is a place, not a value. Its name stands only in the callback it is the
    *  parameter of: a closure made inside may run after the library has taken the draft back, so it may not name it —
@@ -2204,7 +2066,7 @@ class Checker {
     const go = (x: Expr) => this.expr(x, env, ctx);
     switch (e.k) {
       case "lit": return;
-      case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.updater && !this.updaterOk.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, \`setStore(${e.name})\` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one`);   /* MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else */ if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory && !s.factory.here)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed \`Component\` or \`View\`, or a JS factory's arguments (MO-11c, MO-11t, MO-11f)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
+      case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.updater && !this.updaterOk.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, \`setStore(${e.name})\` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one`);   /* MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else */ if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed \`Component\` or \`View\`, or a JS factory's arguments (MO-11c, MO-11t, MO-11f)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", true); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
       case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c) this.model.read(c, ctx.scope === "imperative"); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": this.model.snap++; go(e.e); this.model.snap--; return;                  // E-5: a snapshot
@@ -2230,7 +2092,7 @@ class Checker {
         if (sym) sym.serverRejects = () => cache ??= new Set([...this.stmtsFails(e.body, inner, new Map()).cls, "Error"]);
         return;
       }
-      case "throw": this.sink(e.e, env, "thrown, to whichever boundary catches it"); go(e.e); return;
+      case "throw": go(e.e); return;
       case "catch": {
         if (e.e.k !== "await") this.err("CATCH_NOT_ON_AWAIT", "R-f-4", `\`${show(e.e)} catch …\`: a catch follows an \`await\` — its rejection becomes an answer. A failure read from a value belongs to its own section: show it under \`errored fallback(e) { … } { … }\` where it is read`);
         go(e.e); if (e.classes) for (const n of e.classes) this.errClass(n, env);
@@ -2242,7 +2104,7 @@ class Checker {
         go(e.l); go(e.r); return;
       case "if": this.wholeOk.add(e.c); go(e.c); go(e.t); go(e.f); return;
       case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
-      case "member": { const pf = this.propField(e, env); if (pf) { if (!this.propNamed.has(pf.comp)) this.propNamed.set(pf.comp, new Set()); this.propNamed.get(pf.comp)!.add(pf.field); } }   // MO-11l: for its signature's `keeps(…)`
+      case "member":
         this.wholeOk.add(e.o); this.heldMember(e, env); this.wholeUse(e, env); this.partUse(e, env); if (e.o.k === "id") this.expr(e.o, env, ctx, e.p); else go(e.o); return;
       case "index": this.wholeOk.add(e.o); this.heldMember(e, env); this.wholeUse(e, env); this.partUse(e, env); go(e.o); go(e.i); return;
       case "arr": e.items.forEach(go); return;
@@ -2307,7 +2169,7 @@ class Checker {
           this.markCallbacks(e.args, s?.cbs);
           if (s?.kind === "action" && s.arity !== undefined && e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
           this.model.call(s);
-          if (s && (s.kind === "import" || (s.kind === "fn" && s.foreign !== undefined)) && !s.renders && !s.carrier && s.foreign !== "comp") this.unplaced(e.args, env);   // MO-11s
+          if (s && (s.kind === "import" || (s.kind === "fn" && s.foreign !== undefined)) && s.foreign !== "comp") this.unplaced(e.args, env);   // MO-11s
         }
         go(e.f); e.args.forEach(go); return;
       }
@@ -2404,12 +2266,11 @@ class Checker {
           const updater = this.updaterPositions(s.name, s.e, env);                           // MO-10i: a named draft callback
           this.expr(s.e, env, ctx);
           const sym: Sym = { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env), retCaptures: this.stored(s.e, env, new Set(), true), val: { e: s.e, env }, ...(updater ? { updater } : {}) };   // MO-10k
-          if (s.e.k === "fn") this.fnOwner.set(s.e, sym);
           env.vars.set(s.name, sym);
           break;
         }
         case "expr": this.expr(s.e, env, ctx); break;
-        case "throw": this.sink(s.e, env, "thrown, to whichever boundary catches it"); this.expr(s.e, env, ctx); break;
+        case "throw": this.expr(s.e, env, ctx); break;
         case "return": if (s.e) this.expr(s.e, env, ctx); break;
         case "for": {                                                                        // 07 §5: a loop over what `e` holds now; its variable is a constant of each turn
           this.expr(s.e, env, ctx);
@@ -2429,7 +2290,6 @@ class Checker {
             }
           }
           if (s.e.k === "fn" && !s.target.path.length && env.lookup(s.target.name)?.kind === "source") this.writeFns.add(s.e);   // W-1a: a functional write's function is given the slot's value: it answers the next one, and does not change the one it is given
-          this.sink(s.e, env, `written to ${s.target.name}`);
           if (ctx.server) {                                                                  // SF-4: return the value; the action that awaited the call writes it
             this.err("SERVER_WRITE", "SF-4", `a server function writes ${s.target.ctx ? "use " : ""}${s.target.name}: return the value, and write it in the action that awaited the call (\`let r = await f(…); ${s.target.name} := r\`)`);
             s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx)); this.expr(s.e, env, ctx); break;
@@ -2592,18 +2452,6 @@ class Checker {
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? unknownJsComponent(m.tag, s.undeclared) : `<${m.tag}> is not a component declared here`); }
-            for (const a of m.attrs) this.sinks.push({ e: a.e, names: [], env, line: this.line, why: `passed to <${m.tag}> as ${a.name}`, ...(s?.kind === "comp" && s.compRegion ? { prop: { comp: s.compRegion, field: a.name === "..." ? "*" : a.name } } : {}) });
-            // MO-11o (revised 2026-11-21): a value another .rx module made carries what that module checked; its signature
-            // does not say. A prop of this component, given on to a prop that renders what it carries, is one this
-            // component renders in turn (2026-11-22): its components are named and checked where this component is applied
-            const cp = s?.compRegion ? this.carriedProps.get(s.compRegion) : undefined;
-            const forwards: { attr: string; comp: Region; field: string }[] = [];
-            if (cp) for (const a of m.attrs) if (cp.has(a.name)) {
-              const pf = this.propField(a.e, env);
-              if (pf && this.carriedProps.get(pf.comp)?.has(pf.field)) { forwards.push({ attr: a.name, ...pf }); continue; }
-              const opaque: [string, string][] = []; this.carriedNames(a.e, env, new Set(), [], opaque);
-              if (opaque.length) { const [n, why] = opaque[0]; this.err("RENDERS_ESCAPES", "MO-11o", `<${m.tag}> renders what its ${a.name} carries, and ${n} is ${why}: the components it carries cannot be named here, so they would render unchecked — give ${a.name} a value this module builds from its own \`renders(later)\` calls, or a prop of this component read as it is (\`props.x\`), which is then one this component renders`); }
-            }
             // MO-10f (2026-11-22): a result with held fields, or a record of them, is given whole to a prop whose type says
             // those fields hold or fail (at least as the result's do): the component reads them as such, each read checked
             { const ph = s?.compRegion ? this.propHeld.get(s.compRegion) : undefined;
@@ -2632,15 +2480,6 @@ class Checker {
                 for (const x of real) if (x.k === "mview") this.viewFns.add(x);
               }
               this.markup([...m.children, ...values.values()], new Env(env, kids));
-              // MO-11o: where what a prop carries is rendered — for a JS component, among its children; for an .rx one,
-              // where it renders that prop itself
-              const carriedAt = (field: string) => { if (s.compRegion!.js) return kids; const r = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag }); r.kids = { comp: s.compRegion!, site: env.region, field }; return r; };
-              for (const f of forwards) { this.forwards.push({ comp: f.comp, field: f.field, region: carriedAt(f.attr) }); }
-              if (cp && !s.compRegion!.js) for (const a of m.attrs) if (cp.has(a.name) && !forwards.some(f => f.attr === a.name)) {
-                const names: string[] = []; const seen = new Set<Sym>(); this.carriedNames(a.e, env, seen, names);
-                const tree = this.carriedTree(seen, names, m.line); if (tree.length) this.markup(tree, new Env(env, carriedAt(a.name)));
-              }
-              if (s.outlet) { const p = this.propsOf(env); if (p) this.outlets.push({ region: env.region, comp: p.region }); }   // MO-11p: what nests under this component renders here, as if it read props.children
               if (s.factory && !this.expanding.markup.has(s)) { this.expanding.markup.add(s); this.markup(this.factoryTree(s, m.line), new Env(s.factory.env, kids)); this.expanding.markup.delete(s); }   // MO-11f: named where the factory was called
             } else this.markup(m.children, env);
             break;
@@ -2707,87 +2546,18 @@ class Checker {
     const sig = env.lookup(m.tag)?.compRegion?.sig;
     const views = env.lookup(m.tag)?.compRegion ? this.viewProps.get(env.lookup(m.tag)!.compRegion!) : undefined;   // MO-11t: and the components given by name to its props typed `View`, each applied there with no arguments
     for (const a of m.attrs) if ((sig?.props[a.name]?.component || views?.has(a.name)) && a.e.k === "id" && /^[A-Z]/.test(a.e.name) && env.lookup(a.e.name)?.kind === "comp") { out.set(a, this.applied([a.e.name], m.line)[0]); const k = env.lookup(a.e.name)!.compRegion?.key; if (k) this.escapes.add(k); }   // E-5a: a JS component applies it
-    const cp = env.lookup(m.tag)?.compRegion ? this.carriedProps.get(env.lookup(m.tag)!.compRegion!) : undefined;   // MO-11o: what a prop renders
-    if (cp && env.lookup(m.tag)!.compRegion!.js) { const names: string[] = []; const seen = new Set<Sym>(); for (const a of m.attrs) if (cp.has(a.name)) this.carriedNames(a.e, env, seen, names); for (const el of this.carriedTree(seen, names, m.line)) out.set({ carried: el }, el); }
     return out;
   }
-  /** MO-11o, MO-11p: the carried components as applied: each value carried `under(parent in inside)` is its `inside`
-   *  component, applied among the children of its parent's (where that one's `outlet` renders them, `<Outlet />`); the
-   *  rest, and any whose parent is not carried here, side by side. */
-  private carriedTree(seen: Set<Sym>, names: string[], line?: number): Markup[] {
-    const field = (s: Sym, key: string): Expr | undefined => { for (const a of s.carried!.args) if (a.k === "rec") for (const x of a.fields) if (!("spread" in x) && x.key === key) return x.v; return undefined; };
-    const els = new Map<Sym, Extract<Markup, { k: "el" }>>();
-    const host = (s: Sym, inside: string) => {   // a carried value's component, at its `inside` field
-      const v = field(s, inside);
-      if (!els.has(s) && v?.k === "id" && /^[A-Z]/.test(v.name) && s.carried!.env.lookup(v.name)?.kind === "comp") els.set(s, this.applied([v.name], line)[0] as Extract<Markup, { k: "el" }>);
-    };
-    const parentOf = (s: Sym): Sym | undefined => {
-      if (!s.carried?.under) return undefined;
-      let v = field(s, s.carried.under.parent); if (v?.k === "fn" && !v.stmts?.length) v = v.body;   // `getParentRoute: () => rootRoute`
-      const p = v?.k === "id" ? s.carried.env.lookup(v.name) : undefined;
-      return p?.carried && seen.has(p) ? p : undefined;
-    };
-    for (const s of seen) if (s.carried?.under) { host(s, s.carried.under.inside); const p = parentOf(s); if (p) host(p, s.carried.under.inside); }   // a parent with no `under` of its own (the root) is found by its child's field
-    const top: Markup[] = []; const placed = new Set<string>();
-    for (const [s, el] of els) {
-      placed.add(el.tag);
-      const p = parentOf(s); const up = new Set<Sym>();   // a parent chain that comes back to s is a cycle: s stays side by side
-      for (let q = p; q && els.has(q) && !up.has(q); q = parentOf(q)) up.add(q);
-      if (p && els.has(p) && !up.has(s)) els.get(p)!.children.push(el); else top.push(el);
-    }
-    for (const n of [...new Set(names)]) if (!placed.has(n)) top.push(...this.applied([n], line));
-    return top;
-  }
-  /** MO-11o: the props that render what their value carries, by component: a JS component's props declared `renders`,
-   *  and an .rx component's props it gives on to such a prop (`forwardedProps`; an imported one's, from its signature). */
-  private carriedProps = new Map<Region, Set<string>>();
   private viewProps = new Map<Region, Set<string>>();   // MO-11t: a JS component's props that take a view (typed `View`, not `children`)
-  /** MO-11o (2026-11-22): each place a component gives a prop of its own on to a prop that renders what it carries: the
-   *  component and its prop, and the region what the prop carries is rendered in. */
-  private forwards: { comp: Region; field: string; region: Region }[] = [];
-  /** A prop of the component being walked, read as it is: `props.router`. */
-  private propField(e: Expr, env: Env): { comp: Region; field: string } | undefined {
-    if (e.k !== "member" || e.o.k !== "id") return undefined;
-    const p = env.lookup(e.o.name); return p?.kind === "props" && p.region.isComponentRoot ? { comp: p.region, field: e.p } : undefined;
-  }
-  /** MO-11o (2026-11-22): the props each component of a block gives on, as they are (`props.x`), to a prop that renders
-   *  what it carries — a JS component's `renders` prop, or such a prop of another component — to a fixpoint. Found before
-   *  any view is walked, so an application written above the component's declaration sees it. A summary by syntax: the
-   *  walk records each (`forwards`), and one the walk does not confirm is refused (`run`). */
-  private forwardedProps(decls: Decl[], env: Env) {
+  /** MO-10f: each component's prop interfaces, found before any view is walked. */
+  private propInterfaces(decls: Decl[], env: Env) {
     const comps = decls.flatMap(d => d.k === "component" ? [d] : []);
-    // MO-10f: each component's prop interfaces, before any view is walked
     for (const d of comps) {
       const R = env.lookup(d.name)?.compRegion; if (!R || d.propsType === undefined) continue;
       const held = (fieldRows(d.propsType).held ?? []).filter(h => h[0].includes("."));
       if (held.length) this.propHeld.set(R, held);
     }
-    const inView = (ms: Markup[], f: (m: Extract<Markup, { k: "el" }>) => void) => {
-      for (const m of ms) switch (m.k) {
-        case "el": f(m); inView(m.children, f); break;
-        case "mif": inView(m.t, f); inView(m.f, f); break;
-        case "mfor": case "mview": case "portal": inView(m.body, f); break;
-        case "loading": case "errored": inView(m.fallback, f); inView(m.body, f); break;
-        default: break;
-      }
-    };
-    for (;;) {
-      let grew = false;
-      for (const d of comps) {
-        const R = env.lookup(d.name)?.compRegion; if (!R) continue;
-        inView(d.view, m => {
-          if (!/^[A-Z]/.test(m.tag)) return;
-          const t = env.lookup(m.tag); const cp = t?.kind === "comp" && t.compRegion ? this.carriedProps.get(t.compRegion) : undefined; if (!cp) return;
-          for (const a of m.attrs) if (cp.has(a.name) && a.e.k === "member" && a.e.o.k === "id" && a.e.o.name === d.props) {
-            let fs = this.carriedProps.get(R); if (!fs) { fs = new Set(); this.carriedProps.set(R, fs); }
-            if (!fs.has(a.e.p)) { fs.add(a.e.p); this.forwardedDecl.set(`${R.id}:${a.e.p}`, { comp: R, field: a.e.p, name: d.name, line: d.line }); grew = true; }
-          }
-        });
-      }
-      if (!grew) break;
-    }
   }
-  private forwardedDecl = new Map<string, { comp: Region; field: string; name: string; line: number }>();
   /** MO-10f (2026-11-22): per component, the fields of its props that its type says hold or fail where they are read
    *  (`query.data`, holds, classes): the interface a JS result with held fields may be given whole through. */
   private propHeld = new Map<Region, [string, boolean, string[]][]>();
@@ -2799,44 +2569,6 @@ class Checker {
     if (!path.every(p => p !== undefined)) return [];
     const pre = path.map(p => `${p}.`).join("");
     return (env.lookup(root)?.held ?? []).flatMap(h => h[0].startsWith(pre) ? [[h[0].slice(pre.length), h[1], h[2]] as [string, boolean, string[]]] : []);
-  }
-  /** MO-11o: the component values carrying calls were given, and those a `renders` prop reached. */
-  private carriedPending: { e: Expr; name: string; line: number; by: string }[] = [];
-  private carriedRendered = new Set<Expr>();
-  /** MO-11o: the components in a carrying call's arguments, as a factory's are found (MO-11c, MO-11g); `mark` registers
-   *  them as values (no COMPONENT_AS_VALUE where they are written). */
-  private carriedValues(args: Expr[], env: Env, mark: boolean, out: string[] = [], by = ""): string[] {
-    const walk = (e: Expr) => {
-      if (e.k === "id" && /^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp") { if (mark) { this.valueIds.add(e); this.carriedPending.push({ e, name: e.name, line: this.line, by }); } else this.carriedRendered.add(e); out.push(e.name); }
-      else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
-      else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
-      else if (e.k === "call" && e.f.k === "id") { const g = env.lookup(e.f.name); if (g && handsOn(g)) e.args.forEach(walk); }
-    };
-    args.forEach(walk); return out;
-  }
-  /** MO-11o (ruled 2026-11-22): the components an expression's value carries, by mention (`flows`): through every name its
-   *  value may come from — an equation's or a local's value, the list a row goes through, what a closure's parameter may be
-   *  given, what an `.rx` fn of this module returns — to the carrying calls they were bound to
-   *  (`rootRoute.addChildren([…])`, `createRouter({ routeTree })`). `opaque`: the names whose value comes from where the
-   *  checker cannot look (a prop, a parameter, a source, a provision, another `.rx` module): what they carry cannot be
-   *  named here, so a `renders` prop refuses them. */
-  private carriedNames(e: Expr, env: Env, seen: Set<Sym>, out: string[], opaque: [string, string][] = []) {
-    for (const n0 of this.flowNames(e, env)) {
-      if (n0.startsWith("use:")) { opaque.push([`use ${n0.slice(4)}`, "a provision, which whatever is above may give"]); continue; }
-      const s = n0.startsWith("\u0001") ? this.propsOf(env) : env.lookup(n0);   // a read of one prop (`flows` names the prop) is a read of the props
-      const n = n0.startsWith("\u0001") && s ? s.name : n0;
-      if (!s || seen.has(s)) continue; seen.add(s);
-      if (s.carried) this.carriedValues(s.carried.args, s.carried.env, false, out);
-      const from = [...(s.val ? [s.val] : []), ...(s.rowOf ? [s.rowOf] : []), ...(s.srcs ?? [])];
-      if (from.length) { for (const x of from) this.carriedNames(x.e, x.env, seen, out, opaque); continue; }
-      if (s.retFlows) { for (const m of s.retFlows.names) this.carriedNames({ k: "id", name: m }, s.retFlows.env, seen, out, opaque); continue; }
-      const why = s.fromModule ? `imported from ${s.fromModule}`
-        : (s.kind === "fn" && s.exportKey) || s.kind === "action" ? "made by another `.rx` module"
-        : s.kind === "props" ? "a prop, which whatever applies the component may give"
-        : s.kind === "source" ? "a source, which may be written anything"
-        : s.kind === "value" || (s.kind === "eq" && s.param) ? "a parameter, which whatever calls may give" : undefined;
-      if (why) opaque.push([n, why]);
-    }
   }
   /** MO-11c: `<C />` for each component value, as the checks see it. */
   private applied(tags: string[], line?: number): Markup[] { return tags.map(tag => ({ k: "el", tag, attrs: [], children: [], line }) as Markup); }
@@ -2859,8 +2591,8 @@ class Checker {
     return f.values = out;
   }
 
-  /** MO-11s: components given to a JS fn that says nothing of where it renders them (no factory, `renders` or
-   *  `renders(later)` row, or no declaration at all) — as values in its arguments, their record and array literals and the
+  /** MO-11s: components given to a JS fn that says nothing of where it renders them (no factory, or no declaration
+   *  at all) — as values in its arguments, their record and array literals and the
    *  JS calls among them — are checked as the most cautious placement allows: applied under a root of their own, at any
    *  time, so nothing above the call (errored, loading, provide) is credited to them. */
   private unplaced(args: Expr[], env: Env) {
@@ -2921,7 +2653,6 @@ class Checker {
           if (m.tag === "") { walk(m.children, anc, scoped, env); break; }
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag); if (s?.kind !== "comp") break; const S = this.shape(s);
-            if (s.outlet && this.propsOf(env)) sh.childrenAt.push(anc);   // MO-11p: the caller's children, at the outlet
             if (!anc.length) S.roots.forEach(r => roots.add(r));
             if (S.closesP && !scoped) sh.closesP = true; if (S.a) sh.a = true; if (S.form) sh.form = true;
             for (const ch of S.childrenAt) {                                               // the caller's children, where that component puts them
@@ -2943,10 +2674,6 @@ class Checker {
     walk(c.comp.view, [], false, c.compEnv);
     sh.roots = [...roots]; this.shapes.set(c, sh); return sh;
   }
-  /** The props of the component a view belongs to (MO-11p: `<Outlet />` renders its children). */
-  private propsOf(env: Env): Sym | undefined { for (let e: Env | null = env; e; e = e.parent) for (const s of e.vars.values()) if (s.kind === "props") return s; return undefined; }
-  /** MO-11p: each outlet, where it is (its region) and whose children it renders (the component's region). */
-  private outlets: { region: Region; comp: Region }[] = [];
   private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
   /** SV-7d: every element, text and component root of a view against the elements open above it (in this view; a view's
    *  root is an unknown place), and a component's caller's children where that component places them. */
@@ -3028,6 +2755,7 @@ class Checker {
         return addF(out, this.failsOf(e.body, inner, imp, b2));                             // a pure closure may be called during this evaluation (map, filter)
       }
       case "call": {
+        this.heldFails(e, env, bound, out);   // MO-10l: the call that makes an accessor that fails
         if (e.f.k === "id" && !bound.has(e.f.name)) {
           const s = env.lookup(e.f.name);
           if (s?.kind === "fn" && s.failsT) addF(out, s.failsT());
@@ -3135,7 +2863,7 @@ class Checker {
       const local: Step[] = []; let out: Step[][] = [];
       for (let r: Region | null = R; r; r = r.parent) {
         if (r.catches || r.provides.size) local.push({ f: r.catches, p: r.provides.size ? r.provides : undefined });
-        if (r.kids) { for (const p of PF(r.kids.comp, r.kids.field ?? "children")) if (p.term === null) for (const q of routes(r.kids.site)) out.push([...local, ...p.chain, ...q]); break; }
+        if (r.kids) { for (const p of PF(r.kids.comp, "children")) if (p.term === null) for (const q of routes(r.kids.site)) out.push([...local, ...p.chain, ...q]); break; }
         if (r.isComponentRoot || !r.parent) { out = [local]; break; }
       }
       out = dedupe(out); rBusy.delete(R); rMemo.set(R, out); return out;
@@ -3143,8 +2871,6 @@ class Checker {
     // PF: where a component's prop field goes once read — up to its root, or out of an action
     const occ: { comp: Region; field: string; pre: Step[]; via: () => PFEntry[] }[] = [];
     for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => routes(r.region).map(q => ({ chain: q, term: null })) });
-    for (const o of this.outlets) occ.push({ comp: o.comp, field: "children", pre: [], via: () => routes(o.region).map(q => ({ chain: q, term: null })) });   // MO-11p: an outlet places the children
-    for (const o of this.forwards) occ.push({ comp: o.comp, field: o.field, pre: [], via: () => routes(o.region).map(q => ({ chain: q, term: null })) });   // MO-11o: what the prop carries is rendered there
     for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => PF(a.app.comp, a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
     for (const a of actF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => [{ chain: [], term: { line: a.line, name: a.name } }] });
     const pfMemo = new Map<string, PFEntry[]>(); const pfBusy = new Set<string>();
@@ -3196,19 +2922,14 @@ class Checker {
       for (const f of fields) {
         const es = PF(G, f); let df: Catch = "all", dp: Catch = "all", da: Catch | null = null; let an = ""; let rendered = false;
         for (const e of es) { if (e.term) { da = da === null ? along(e.chain, "f") : meet(da, along(e.chain, "f")); an = e.term.name; } else { rendered = true; df = meet(df, along(e.chain, "f")); dp = meet(dp, along(e.chain, "p")); } }
-        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...(this.carriedProps.get(G)?.has(f) ? { renders: true } : {}), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
+        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
       }
-      // MO-11l: the props it keeps, of those it names whose declared type is not a primitive's (which holds nothing)
-      const scalar = (f: string) => { const t = G.sig ? undefined : this.propsTy.get(G); const ft = t === undefined ? undefined : tyStep(t, { field: f }); return ft !== undefined && tyScalar(ft); };
-      const keeps: string[] = [];
-      for (const f of this.propNamed.get(G) ?? []) if (!scalar(f) && this.propKeeps(G, f) === undefined) keeps.push(f);
-      keeps.sort();
       const e = esc(G);
       const file = (this.opts.file ?? "main.rx").split("/").pop();
       const cs = this.compSyms.get(G);
       const st = this.retains.get(G); const stored: Record<string, string[]> = {};
       if (st) for (const [f, ts] of st) stored[f] = [...new Set([...ts].map(t => t.startsWith("d:") ? "module" : t.slice(2)))].sort();   // an exported component's outside is its module
-      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE, ...(st ? { stored } : {}), ...(keeps.length ? { keeps } : {}) };
+      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE, ...(st ? { stored } : {}) };
     };
   }
   compSig: ((G: Region) => CompSig) | null = null;

@@ -6,7 +6,10 @@
 //     a module that exports none gets one context, named after the package, for all of them;
 //   - a `…Provider` component that mounts with no props and lets the hook run provides that context;
 //   - a compound part (`Dialog.Trigger`, MO-11q) that throws rendered alone but renders inside its object's root (the
-//     object itself, or its `Root`) reads a context that root provides.
+//     object itself, or its `Root`) reads a context that root provides;
+//   - an accessor such a hook hands back — its whole result, or a field of its record — whose first read is not ready
+//     (Solid's NotReadyError) waits where it is read: `pending` before its `ref` (MO-10l). That it may fail is not
+//     something a run with no arguments shows: `fails(…)` is a person's to add, and rx-verify's to run.
 // What running cannot settle keeps its TODO.
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -76,7 +79,9 @@ async function runRows(draft, spec, from, opts = {}) {
   const runs = (hook, wrap) => {
     let threw = null, ran = false;
     // the result is read too (its fields, its accessors): a hook may look its context up only then (useMutation's client)
-    const touch = r => { if (typeof r === "function" && r.length === 0) return r(); if (r && typeof r === "object") for (const k of Object.keys(r)) { const v = r[k]; if (typeof v === "function" && v.length === 0 && /^(is|get|use)?[a-z]/.test(k) && !/^(mutate|refetch|reset|navigate|set)/.test(k)) v(); } };
+    // MO-10l: an accessor whose read is not ready yet waits; that is not the hook throwing
+    const read = (k, f) => { try { f(); } catch (e) { if (!(e?.name === "NotReadyError" || e?.constructor?.name === "NotReadyError")) throw e; if (current) { if (!waited.has(current)) waited.set(current, new Set()); waited.get(current).add(k); } } };
+    const touch = r => { if (typeof r === "function" && r.length === 0) return read("", r); if (r && typeof r === "object") for (const k of Object.keys(r)) { const v = r[k]; if (typeof v === "function" && v.length === 0 && /^(is|get|use)?[a-z]/.test(k) && !/^(mutate|refetch|reset|navigate|set)/.test(k)) read(k, v); } };
     // a hook that warns, not throws, with no provider (TanStack Router's `useRouter must be used inside a <RouterProvider>`)
     // is read the same way: what it warned is what it would have thrown
     const Probe = () => { ran = true; const saved = [console.warn, console.error]; console.warn = console.error = (...a) => { threw ??= new Error(a.map(String).join(" ")); }; try { touch(hook()); } catch (e) { threw = e; } finally { [console.warn, console.error] = saved; } return null; };
@@ -89,6 +94,8 @@ async function runRows(draft, spec, from, opts = {}) {
     return ran && !threw;
   };
   let lastThrow = null;
+  let current = null;         // the hook being run
+  const waited = new Map();   // hook → its result's parts that were not ready when read ("" the whole result, else a field)
   // a missing global (`window`, `document`: running here has no DOM) or a property of nothing says nothing about contexts
   // (Solid may wrap what a computation threw: its cause is looked at too)
   const environmental = e => !!e && (e instanceof ReferenceError || e instanceof TypeError || /\bis not defined\b|Cannot read propert|\b(window|document|navigator|localStorage|matchMedia)\b/.test(String(e.message ?? "")) || environmental(e.cause));
@@ -108,7 +115,8 @@ async function runRows(draft, spec, from, opts = {}) {
   const unsettled = new Set();
   const envOnly = new Map();   // hook → what it threw for want of a browser
   for (const h of hooks) {
-    if (runs(mod[h.name])) continue;
+    current = h.name; const ok = runs(mod[h.name]); current = null;
+    if (ok) continue;
     if (environmental(lastThrow)) { envOnly.set(h.name, String(lastThrow?.message ?? lastThrow).slice(0, 60)); continue; }
     const by = contexts.find(([, C]) => runs(mod[h.name], kids => s.createComponent(C, { value: ANY, get children() { return kids(); } })));
     if (by) needs.set(h.name, ident(by[0].replace(/Context$/, "")));
@@ -150,7 +158,7 @@ async function runRows(draft, spec, from, opts = {}) {
   }
   const out = [];
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
+    let l = lines[i];
     const todo = /^\/\/ TODO (\w+): which context does this hook read\?/.exec(l);
     if (todo && needs.has(todo[1])) continue;   // settled below
     if (todo && envOnly.has(todo[1])) { out.push(`// TODO ${todo[1]}: run here it throws for want of a browser (${envOnly.get(todo[1])}): not settled; rx-verify in a browser-like setup, or read its source (MO-12b)`); continue; }
@@ -160,6 +168,7 @@ async function runRows(draft, spec, from, opts = {}) {
     const ptodo = /^\/\/ TODO (\w+): does it provide a context to its children\?/.exec(l);
     if (ptodo && provided.has(ptodo[1])) continue;
     const hook = bare(l);
+    if (hook && waited.has(hook)) l = require("./declare.js").withWaits(l, Object.fromEntries([...waited.get(hook)].map(k => [k, "pending"])));   // MO-10l
     const says = (w, c) => new RegExp(`\\b${w}\\([^)]*\\b${c}\\b[^)]*\\)`).test(l);   // a row that already says it (known.js) is left as it is
     if (hook && needs.has(hook)) { out.push(says("uses", needs.get(hook)) ? l : `${l.replace(/ instantiates$/, "")} uses(${needs.get(hook)})`); continue; }
     const comp = /^export component (\w+)[(<]/.exec(l);   // `(`, or a generic component's `<` (MO-8d)

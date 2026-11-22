@@ -37,7 +37,7 @@ runtime check.
 | an unkeyed `for` over records whose values change | ST-4b | static shape check |
 | exported rows: a component's props and an exported equation carry their rows in their types | RG-4, R-14 | emitted in `.d.rx`; checked at the import (CN-4) |
 | every failure a reader can see is discharged above it; an action catches what its body can fail with | R-f-5, R-f-6 | the `fails` row over the static application tree (CN-6) |
-| a value that must stay where the checker can see what is done with it: a prop typed with held fields, a library's draft, a value that carries components (`renders(later)`), a primitive's instance (a JS result's held fields and a `renders` value were two more until 2026-11-23, 09 MO-8r) | 09 MO-10f, MO-10i, MO-11o, MO-11o; E-10, E-5a | rules on where a name is written, "may hold" by mention, and a closed set of operations for each kind (CN-7); names are followed through what is written, nothing about JS is inferred |
+| a value that must stay where the checker can see what is done with it: a prop typed with held fields, a JS result with a `ref` part that waits or fails, a library's draft, a primitive's instance (a JS result's held plain fields, a `renders` value and a value that carries components, `renders(later)`, were three more until 2026-11-23, 09 MO-8r) | 09 MO-10f, MO-10l, MO-10i; E-10, E-5a | rules on where a name is written, "may hold" by mention, and a closed set of operations for each kind (CN-7); names are followed through what is written, nothing about JS is inferred |
 
 ## CN-3 — Soundness and the static graph
 
@@ -259,7 +259,7 @@ and no `dynamic` marker: the static graph's checks are sound over `.rx`
 | `NOT_AN_ERROR_CLASS` (new) | S | R-f-1 |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY` | R; S in a client-only build | CN-3c: a runtime report, not a constraint; CN-3d: a first load nothing holds in a client-only build |
 | `LOADING_ON_OUTSIDE_HOLD` | S | CN-3e: a reader outside a `loading on(k)` region of what it waits on |
-| `RESULT_AS_VALUE` (new), `DRAFT_ESCAPES`, `RENDERS_ESCAPES` | S | CN-7; 09 MO-10f, MO-10i, MO-11l, MO-11o |
+| `RESULT_AS_VALUE` (new), `DRAFT_ESCAPES` | S | CN-7; 09 MO-10f, MO-10l, MO-10i (`RENDERS_ESCAPES` was a third until 2026-11-23, 09 MO-8r) |
 
 ---
 

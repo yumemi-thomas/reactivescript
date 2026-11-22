@@ -1,6 +1,6 @@
 # S-module-18 — components a JS library renders under a root of its own: no word, and what they bring with them
 
-Rules: MO-11s, MO-11l, DV-24, RG-7b, R-f-5.
+Rules: MO-11s, MO-8r, DV-24, RG-7b, R-f-5.
 
 ## Modules
 
@@ -50,13 +50,12 @@ export component SelfContained(props: { text: string }) {
 
 ```rx
 -- module: ./bad.d.rx
-// renders(…) names only `later` (MO-11o)
+// renders(…) is no word in any form (MO-8r)
 export pure fn bad(options: { template: Component }): any renders(owner)
 ```
 
-`renders` (MO-11l) checks the components a fn is given as applied where its
-result is bound: right for a table whose cells the app renders in its own
-view. A library that mounts them itself, with a `render()` (or
+`renders` (MO-11l, withdrawn 2026-11-23) checked the components a fn is
+given as applied where its result is bound. A library that mounts them itself, with a `render()` (or
 `createRoot`) of its own (a toaster, a modal manager, a widget host), gives
 them a root of their own: no owner above them is the app's, so no
 `provide`, `errored` or `loading` above the binding reaches them (Solid's
@@ -137,8 +136,9 @@ export default component App() {
 }
 ```
 
-`renders(…)` names `later` and nothing else (`renders(root)` is refused by
-name: the row without it says the same).
+`renders(…)` is no word of a declaration in any form (MO-8r): `renders(root)`
+is refused by name, the row without it saying the same, and so is any
+other argument, with what is written instead.
 
 ```rx
 -- reject: CONTEXT_NOT_FOUND

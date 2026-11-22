@@ -1,6 +1,6 @@
 # S-module-27 — a component given to JS that says nothing of where it renders it
 
-Rules: MO-11s, MO-11l, R-f-5, RG-7b.
+Rules: MO-11s, MO-11f, R-f-5, RG-7b.
 
 A JS fn may take a component and render it somewhere the declaration does
 not say: a toast or portal helper, a plugin registry, a library with no
@@ -11,8 +11,8 @@ with nothing from above the call credited to it — no `errored`, no
 `loading`, no `provide`. Whatever the library really does, it cannot do
 worse than that: a component that holds its own failures, waits behind its
 own `loading` and reads only what it provides itself is safe anywhere. A
-row that does say (`renders`, `renders(later)`, a
-factory) gives back what the call's surroundings provide.
+row that does say — a factory, a fn that hands back a `Component`
+(MO-11f) — gives back what the made component's surroundings provide.
 
 ## Modules
 

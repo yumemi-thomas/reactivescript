@@ -544,10 +544,6 @@
         "named": true
       },
       {
-        "type": "renders_type",
-        "named": true
-      },
-      {
         "type": "row_type",
         "named": true
       }
@@ -2865,10 +2861,6 @@
         },
         {
           "type": "rejects_clause",
-          "named": true
-        },
-        {
-          "type": "renders_clause",
           "named": true
         },
         {
@@ -5991,26 +5983,6 @@
     }
   },
   {
-    "type": "renders_clause",
-    "named": true,
-    "fields": {}
-  },
-  {
-    "type": "renders_type",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "type",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "required_parameter",
     "named": true,
     "fields": {
@@ -6398,10 +6370,6 @@
           "named": true
         },
         {
-          "type": "signature_keeps",
-          "named": true
-        },
-        {
           "type": "signature_prop",
           "named": true
         },
@@ -6592,22 +6560,6 @@
           "named": true
         }
       ]
-    }
-  },
-  {
-    "type": "signature_keeps",
-    "named": true,
-    "fields": {
-      "name": {
-        "multiple": true,
-        "required": true,
-        "types": [
-          {
-            "type": "property_identifier",
-            "named": true
-          }
-        ]
-      }
     }
   },
   {
@@ -8425,10 +8377,6 @@
     "named": true
   },
   {
-    "type": "keeps",
-    "named": false
-  },
-  {
     "type": "key",
     "named": false
   },
@@ -8438,10 +8386,6 @@
   },
   {
     "type": "lane",
-    "named": false
-  },
-  {
-    "type": "later",
     "named": false
   },
   {
@@ -8502,10 +8446,6 @@
   },
   {
     "type": "on",
-    "named": false
-  },
-  {
-    "type": "outlet",
     "named": false
   },
   {
@@ -8594,10 +8534,6 @@
   },
   {
     "type": "rejects",
-    "named": false
-  },
-  {
-    "type": "renders",
     "named": false
   },
   {
@@ -8723,10 +8659,6 @@
   {
     "type": "undefined",
     "named": true
-  },
-  {
-    "type": "under",
-    "named": false
   },
   {
     "type": "unique symbol",

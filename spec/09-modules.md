@@ -76,12 +76,6 @@ A component's summary is what the static application tree needs from it
   `children`, the same holds for provisions. A prop an action reads also
   records what the action catches: an argument with another class is
   refused at the application (R-f-6);
-- **what a prop renders (MO-11o):** a prop the component gives on, as it
-  is, to a prop that renders what its value carries (a router handed to
-  the library's provider) is one the component renders in turn: the
-  importer names the components its argument carries and checks them
-  under what the summary discharges above that place. `.d.rx`: `router:
-  renders provides(./tsr.d.rx#router)`;
 - **what a prop takes (MO-10f):** the fields of a prop that its type says
   hold or fail where they are read, so that a JS result with such fields
   may be given whole. `.d.rx`: `query: takes(data pending fails(Error))`;
@@ -90,9 +84,10 @@ A component's summary is what the static application tree needs from it
   provision above it), passed on to a component that does included. A
   closure passed for one is checked at the application against that
   place. `.d.rx`: `retains(onPick: module, onFocus: ./form.rx#fields)`.
-  And the props it **keeps** (MO-11l, 2026-11-22): those whose value
-  never leaves it, so a value `renders` checked where it is bound may be
-  given to one. `.d.rx`: `keeps(table, row)`.
+  (A summary said two things more until 2026-11-23, for values no
+  declaration makes any more, MO-8r: `renders` on a prop given on to one
+  that renders what it carries, MO-11o, and `keeps(…)`, the props whose
+  value never leaves the component, MO-11l.)
 
 The summary is exact for the checks it serves: a class escapes a set of
 paths iff it is missing from the intersection of what the paths discharge.
@@ -252,21 +247,24 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | --- | --- | --- |
   | the kind of fn | before `fn` | `pure`, `server`, `client` |
   | a parameter | before the parameter, as in an `.rx` fn (`fn f(ref n)`) | `ref`, `...` (rest); `draft` on a parameter the fn changes in place, and on a callback's parameter |
-  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor); `renders` and `catches(E)` on a prop; `handler` on a function type (MO-10g) |
-  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `renders(later)`, `nests(…)`, `outlet`, `shape(…)`, a component's `fails(E)` |
+  | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor), with `pending` and `fails(E)` before it where the accessor waits or fails (MO-10l); `catches(E)` on a prop; `handler` on a function type (MO-10g) |
+  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `nests(children in component)`, `shape(…)`, a component's `fails(E)` |
   | a pin | a comment line | `//@ for <package> <range>` |
 
   A row word names the same row as the `.rx` word for it. `rejects(E)` is
   what a returned promise rejects with, `fails(E)` what a render throws:
   the two words keep the two places apart. (`pending` and `fails(E)` before
-  a result's field were words here until 2026-11-23, MO-8r: what waits or
-  throws where it is read is an accessor, `ref`.)
+  a result's plain field were words here until 2026-11-23, MO-8r: what
+  waits or throws where it is read is an accessor, and the words stand
+  before its `ref`, MO-10l.)
   A member component is named as it is written (`Dialog.Trigger`, MO-11q).
   The table is what MO-8r left of it (2026-11-22): `signal`, `tracked`,
   `forwards`, `joins(field)`, `methods(m, …)`, `renders(root, c…)` and
   `trusted` were words here, and a second row of one fn's name was a
   form (MO-8p); on 2026-11-23 `pending` and `fails(E)` before a result's
-  field and `renders` alone after a signature went too. A row written
+  plain field, `renders` alone after a signature, `renders(later)`, a
+  prop's `renders`, `nests(component under parent)` and `outlet` went too.
+  A row written
   with one of them is refused by name, with what says it now, so that it
   is never read as a type that ends in a name.
 
@@ -735,8 +733,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | `catches(E)` on a JS component's prop, `fails(E)` and `shape(…)` after one (MO-11a) | no task | kept | upstream's words in upstream's place, a component's row (MO-3, MO-9b): refusing them in a JS component's row would make that row differ from a printed one and take no word out |
   | a fn that hands back a `Component` (MO-11f) | 1 task (`@solidjs/router`) | kept: no word | the result's type says it |
   | `renders` (MO-11l) | 1 task (a table) | kept, then **withdrawn** 2026-11-23 (*Settled*, below) | kept because three libraries ask where what they are given is rendered, each in the one form its API has; the form is one library's |
-  | `renders(later)`, `renders T` on a prop (MO-11o) | 1 task, 1 library (TanStack Router); its example | kept; **fails the bar** 2026-11-23 (*Settled*, below), its removal a change of its own | the same question for components that travel in values; without it no page of a code-based route tree may read the router's context, or a hook outside the provider is not refused. A module of JavaScript that hid the tree would lose the registered route types |
-  | `nests(kids in inside)`, `nests(inside under parent)`, `outlet` (MO-11i, MO-11p) | 2 tasks, 2 libraries (the two routers, a form each; `outlet` is the second form's other half) | kept | a boundary or a provider in a layout, around its pages, is how every routed app is written, and without `nests` it must be hoisted above the router, where a failure takes the navigation with it |
+  | `renders(later)`, `renders T` on a prop (MO-11o) | 1 task, 1 library (TanStack Router); its example | kept, then **withdrawn** 2026-11-23 (*Settled*, below) | the same question for components that travel in values; kept because without it no page of a code-based route tree may read the router's context. A factory of the app's own gives the tree the words `@solidjs/router`'s has |
+  | `nests(kids in inside)` (MO-11i) | 2 tasks, 2 libraries (`@solidjs/router` natively; TanStack Router through the app's own factory, since 2026-11-23) | kept | a boundary or a provider in a layout, around its pages, is how every routed app is written, and without `nests` it must be hoisted above the router, where a failure takes the navigation with it |
+  | `nests(inside under parent)`, `outlet` (MO-11p) | 1 task, 1 library (TanStack Router: the second form of `nests`, and its other half) | kept, then **withdrawn** 2026-11-23 (*Settled*, below) | they place what `renders(later)` carries, and go with it |
   | `instantiates` inferred from more (a `uses`, a field row, a setter that hands a draft, a `renders`) | — | kept | no word: fewer are written |
   | `export const` (MO-8g) | 3 tasks, 3 libraries | kept | with a declaration, an export it does not name is `NOT_EXPORTED`: a value needs a row |
   | type parameters on a fn, a type, a component (MO-8d) | 12 tasks | kept | TypeScript's text, read by no checker; for a module with no types of its own the row is its `.d.ts`, and a generic helper would be `any` |
@@ -754,14 +753,15 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   `uses`, `provides`, `catches`, `fails`, `shape`, `pending`) and added
   twelve of its own: `const`, `handler`, `tracked`, `draft`, `signal`,
   `renders`, `nests`, `joins`, `forwards`, `outlet`, `methods`,
-  `trusted`. Six of the twelve are left — `const`, `handler`, `draft`,
-  `renders`, `nests`, `outlet` — with `renders` in two forms where it
-  had four (`renders(later)`, on a prop; `renders` alone went on
-  2026-11-23) and one form of grammar fewer (a row a signature). `const`,
-  `handler`, `draft` and `nests(children in component)` are each written
-  in more than one library. `renders(later)`, a prop's `renders`,
-  `nests(component under parent)` and `outlet` are one library's, and are
-  held to be withdrawn (*Settled*, below).
+  `trusted`. Four of the twelve are left — `const`, `handler`, `draft`,
+  `nests` — and one form of grammar fewer (a row a signature): `renders`
+  went in all four of its forms and `outlet` with it (2026-11-23,
+  *Settled*, below), and `nests` keeps the one form two routers write.
+  `const`, `handler`, `draft` and `nests(children in component)` are each
+  written in more than one library. Of upstream's words in a JS row,
+  `pending` and `fails` have one place more than a component's row: before
+  a `ref` part of a result, an accessor that waits or fails (MO-10l,
+  2026-11-23), which three libraries' rows write.
 
   *What no word says, and stays so* (the gaps
   `rfc-declaration-types-2026-11-22.md` lists after three libraries the
@@ -813,26 +813,71 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | --- | --- | --- | --- | --- |
   | `pending`, `fails(E)` before a declared result's field (MO-10f) | none of the 190 modules of the coverage suite nor a library of the tasks hands out a store whose plain fields wait or throw, but TanStack Query; `declarations/solid-js` does not write it (an `.rx` program asks with `await`, not `createStore(fn)`) | **withdrawn**: refused by name | the store behind a module of the app's own that hands each field out as a function, declared `ref` (`data: () => q.data`, MO-10c): to `.rx` what waits where it is read is an accessor, and an accessor asks for no region (MO-10d) — as every other library's waiting value already was | the `loading` and `errored` regions the checker asked for above a query's `data`, and the result read a field at a time: five of the benchmark's bad variants, each listed in `bench/README.md` |
   | `renders` alone after a fn (MO-11l) | no module of the four libraries is given components and renders them where its value is bound; the one writer was a table, through an adapter of the app's own | **withdrawn**: refused by name | no word: each component the fn is given is checked under a root of its own (MO-11s), and takes what it needs as its props (a table's cell is given its context); the result is a plain value | a cell that reads the app's context cannot be written; the table kept in state or handed up is no longer a mistake to refuse: three bad variants |
-  | `renders(later)`, a prop's `renders T` (MO-11o), and with them `nests(component under parent)` and `outlet` (MO-11p) | the second library claimed on 2026-11-23, UI SDK's `toast()`, `confirm()` and `<OverlayHost>`, was declared and used (`bench/coverage/ui-sdk/overlays`): `toast()` is given a message and answers an id, `confirm()` a title and a promise; nothing they are given is a component, nothing they answer is given to the host, and the three rows are the draft's with no word. One library, TanStack Router's code-based route tree | **they fail the bar, and are to be withdrawn**; not in this change | a route tree that carries components is a factory's (MO-11f with `nests(children in component)`, which `@solidjs/router` has natively and a module of the app's own gives TanStack Router), or JavaScript's (a route module that imports the `.rx` pages, as a file-based tree does, `bench/tasks/start-route`) | when it lands: the registered route types of a tree written in `.rx` (a link to no route), and `router-provider`'s three variants as they are written |
+  | `renders(later)`, a prop's `renders T` (MO-11o), and with them `nests(component under parent)` and `outlet` (MO-11p) | the second library claimed on 2026-11-23, UI SDK's `toast()`, `confirm()` and `<OverlayHost>`, was declared and used (`bench/coverage/ui-sdk/overlays`): `toast()` is given a message and answers an id, `confirm()` a title and a promise; nothing they are given is a component, nothing they answer is given to the host, and the three rows are the draft's with no word. One library, TanStack Router's code-based route tree | **withdrawn**: each refused by name | a route tree that carries components is given to a factory (MO-11f): a fn of the app's own JavaScript that takes the tree as records and hands back the component that renders it, declared `Component provides(router) nests(children in component)` — the form `@solidjs/router` has natively, which has two routers behind it now. A layout renders its pages as `props.children` (the module passes the library's `<Outlet />` there). With no word, a component given to the library's own `createRoute` is checked under a root of its own (MO-11s) | the registered route types of a tree written in `.rx` (a link to no route, a `from` that is no route: two type probes of `bench/tasks/router-provider`), and a route tree built and never rendered (it was `COMPONENT_AS_VALUE` through the carried components); `RENDERS_ESCAPES` is no diagnostic any more |
 
-  The third is decided and not done, and that is said plainly: its
-  removal rewrites `bench/tasks/router-provider`, `examples/tanstack`
-  (with the typed-link check `compiler/test/vite.mjs` runs on it), the
-  scenarios that write the words (S-module-22, 23, 27), `rx-verify`'s
-  placement checks and the tree-sitter rules,
-  and takes the carried-value half of MO-10k out of both checkers. Until
-  then the four words parse, are written by one library's rows, and no
-  new row should write them.
+  *Why a factory, and not a route module in JavaScript.* The other way the
+  bar leaves is to build the tree in JavaScript, in a module that imports
+  the `.rx` pages (11 CP-4d; `bench/tasks/start-route` does, with a
+  file-based tree). It keeps the registered route types, and gives up
+  what the checker is for: nothing above a page a JS host applies is
+  credited, so a layout's boundary no longer holds its pages' failures and
+  a hook outside the provider is no longer refused. The factory keeps
+  every check the withdrawn words gave (`router-provider`'s variants are
+  refused as they were, but the one that needed the carried components),
+  with words two libraries write. So the tasks and `examples/tanstack` are
+  written with it. The types it loses are TanStack's own registration,
+  which wants the router's value to name its type (`typeof router`): a
+  tree made inside a module has none to name.
 
-  What the first two leave in the checkers. The rule for a prop whose
+  *What the withdrawal took out* (2026-11-23): both declaration parsers
+  refuse the four words by name; both checkers lose the carried-value
+  walk (`renders(later)` results followed by mention to the prop that
+  renders them, MO-11o; the parent links and the outlet, MO-11p) and
+  `RENDERS_ESCAPES`; a printed signature no longer says `renders` on a
+  prop; `rx-verify` checks a factory's placement and
+  `nests(children in component)` and nothing else; `known.js` drafts
+  TanStack Router's context, hooks and provider and no placement word;
+  the tree-sitter grammar reads `nests(… in …)` alone.
+
+  What the three leave in the checkers. The rule for a prop whose
   type says which of its fields wait or fail (`props: { query: { data:
   pending fails(Error) T } }`, MO-10f's "wherever a type is declared",
   with `RESULT_AS_VALUE` and a printed signature's `takes(…)`) is
   `.rx`'s own row annotation at a prop and stays, with S-module-11's last
-  three programs; nothing a declaration says reaches it now. The
-  "rendered where it is bound" half of MO-10k (a `renders` value kept in
-  its region, `keeps(…)` in a printed signature) is reached by no source
-  and is to go with the third.
+  three programs; a declaration reaches it again through a result's `ref`
+  parts (MO-10l, S-module-36). The "rendered where it is bound" half of
+  MO-10k (a `renders` value kept in its region, the sinks a value may
+  leave through, `keeps(…)` in a printed signature) was reached by no
+  source once `renders` alone was withdrawn, and is deleted with the
+  third: the checkers confine by mention one kind of value now, the
+  instance a primitive made (E-10, E-5a).
+
+  *An accessor that waits or fails (MO-10l, 2026-11-23).* The proposal
+  the sixth round recorded — `pending` and `fails(E)` before a `ref`
+  part — is taken. It meets the bar the withdrawn field words did not:
+  the mistake (a value that waits or throws, read with no region above
+  it) is the one `.rx` exists to refuse, no module of the app's own can
+  give an accessor a row, and the rows of three libraries write it —
+  solid-use's `fetch(…).json()`, solid-primitives' `createSSE`,
+  `createGeolocationWatcher`, `createGeolocation` and
+  `createGraphQLClient`, TanStack Query's `data` through the app's own
+  hook. (`createStream`, named with them on 2026-11-23, is a plain signal
+  in its 1.0.0: it neither waits nor throws, and its row says nothing.)
+  It revises no ruling: MO-10d says no declaration can say an accessor
+  *never* holds, and none can; this one says an accessor *does*.
+
+  *Two gaps decided (2026-11-23), both by the count.* An element in a
+  record given to a *fn* (`createPagination({ prevContent })`, and
+  `@solid-primitives/i18n`'s `t("key", { clickHere: <a>…</a> })`) is one
+  library's — two packages of solid-primitives, no module of the other
+  three — so it gets no form: a string stands there, or a component of
+  the app's own JavaScript. A table cell that reads the app's context,
+  lost with `renders` alone, is one library's too (a headless table,
+  through an adapter of the app's own; no module of the four libraries
+  is given components and renders them where its value is bound): a
+  cell takes what it needs as its props, which is what a table's cell
+  context is for. Neither stops a correct program from being written.
+
 
   *A wrapper names the library's context (MO-12e, 2026-11-23).* The
   second way cost one check: a module of the app's own around a library's
@@ -1048,7 +1093,10 @@ export component Search(props: { start: boolean, q: string }) {
   as a reader of a question (ST-5): `pending?`, `latest` and `loading` apply,
   with whatever hold checks a reader of `await` gets. Its hold is visible
   where it is bound, at the instantiation, as a question's is at its `await`.
-  No declaration can say an accessor never holds.
+  No declaration can say an accessor never holds. One may say that an
+  accessor does wait, or fail, where it is read: `pending` and `fails(…)`
+  before its `ref` (MO-10l), and then the checker asks for the regions a
+  question's reader needs. A plain `ref` asks for none.
 - **MO-10e (What stays the library's).** A call to a foreign setter is not a
   write of a source: O-4 and AC-1 see only `.rx` sources. So a read of `isOn`
   after `setOn(v)` in the same action reads the value before the write, under
@@ -1058,7 +1106,8 @@ export component Search(props: { start: boolean, q: string }) {
   from declarations 2026-11-23 (MO-8r, *Settled*).** A declared result's
   field no longer takes `pending` or `fails(…)`: both parsers refuse them
   by name, with what says it now (a module of the app's own that hands
-  the field out as a function, declared `ref`: MO-10c, MO-10d). What
+  the field out as a function, declared `pending fails(E) ref`: MO-10c,
+  MO-10l). What
   follows is the rule as it was, kept because its second half — a type
   that says which fields hold, read a field at a time — is still how an
   `.rx` component's prop typed that way is read (`props: { query: { data:
@@ -1161,6 +1210,75 @@ export component Search(props: { start: boolean, q: string }) {
   S-module-11; `bench/tasks/query-forward`.
   `each_confined_value_has_a_closed_set_of_operations` (the crate,
   `ref/units.ts`); `compiler/test/confined.mjs`.
+- **MO-10l (Accessors that wait or fail) — accepted 2026-11-23 (MO-8r).**
+  A `ref` part of a declared result may say what a read of it does:
+  `pending` and `fails(…)` before the `ref`, `.rx`'s own row words in the
+  place a row annotation has them (CN-4a).
+
+  ```rx
+  export pure fn createJson(url: string): pending fails(Error) ref User                               // the whole result
+  export pure fn createGeolocation(): [pending fails(Error) ref Coordinates, () => void]             // an item of its tuple
+  export pure fn useQuery(ref o: Options): { data: pending fails(Error) ref T; isFetching: ref boolean; refetch: () => void }   // a field of its record
+  ```
+
+  A reader bound from such a part is checked as a question's reader is
+  (ST-5): it carries `pending` — `pending?`, `latest` and `loading` apply
+  as for any `ref` (MO-10d), and in a client-only build CN-3d asks for a
+  `loading` region above its reads — and it can fail with the named
+  classes, so each read needs a `catch` or an `errored` region above it
+  (R-f-5). The rows travel as a question's do: an equation over the
+  reader has them, a prop given it is read where the child reads it, an
+  export's signature carries them (MO-3). Either word may stand alone
+  (`pending ref T` for an accessor whose failures go elsewhere).
+  - *Where.* Before a `ref` part and nowhere else, and a part is where
+    MO-10b reads one: the whole result, an item of a tuple result, a
+    field of a record result, one level. Before anything else in a result
+    — a plain field (MO-10f, withdrawn), a type below the first level, a
+    function type's own result — the words are refused by name, with what
+    to write. A parameter takes neither.
+  - *The result is read a part at a time.* A record or a tuple with such
+    a part is MO-10f's result with held fields, by the same rule and for
+    the same reason: its name stands only where a part is read from it,
+    where an equation gives it another name, or where it is compared or
+    tested, so that every read of the part is one the checker sees
+    (`RESULT_AS_VALUE` otherwise: passed, stored, returned, spread,
+    exported whole). The part itself is a reader, and goes anywhere a
+    value goes. A result that is itself the accessor has nothing to keep
+    whole.
+  - *What it does not say.* A plain `ref` asks for nothing, as before
+    (MO-10d): the word is for the accessors that are known to wait — an
+    async memo, a resource, a first event — not a claim owed of every
+    one. A declaration may say less than the library does (13 TY-6b); it
+    may not say `pending` of what is no accessor.
+  - *Why a word, when MO-8r withdrew the field's.* The withdrawn form was
+    one library's shape, a store whose plain fields wait. The mistake is
+    not one library's: reading a value that waits or throws with no
+    region above it is what `await`'s rows exist to refuse, an accessor
+    is how every Solid library hands such a value out, and no module of
+    the app's own can give an accessor a row. Counted on 2026-11-23:
+    solid-use's `fetch(…).json()` (an async memo), solid-primitives'
+    `createSSE` (`data` throws Solid's `NotReadyError` until the first
+    message, then the stream's error), `createGeolocationWatcher`
+    (`location`, until the first fix), `createGeolocation` and
+    `createGraphQLClient` (through a memo of the app's own), and TanStack
+    Query's `data` through the app's own hook (MO-10f's fallback). Their
+    programs wrote `loading` and `errored` because their authors knew to.
+  - *Where the rows come from.* The types cannot show it (an accessor
+    that waits is an `Accessor<T>`): `rx-declare` writes the words for a
+    release whose source they were read off (`known.js`, by version
+    range: `createSSE`, `createGeolocationWatcher`), and `--run` writes
+    `pending` for a hook it could run whose accessor's first read is not
+    ready; `fails(…)` a run with no arguments does not show, and a person
+    adds it. `rx-verify` reads each part in an effect: a `ref` part that
+    waited and does not say so is pointed out (no mismatch: the row says
+    less), a plain field that waits or fails is a mismatch, and a part
+    declared `fails(C)` is run with the probe's failing arguments.
+
+  Nothing changes at run time: the read is the same call. Executable:
+  S-module-36; the units `an_accessor_that_waits_or_fails_says_so_before_ref`,
+  `a_word_no_longer_in_the_vocabulary_is_refused`; `bench/tasks/query-forward`
+  and `query-mutation` (five variants), `bench/coverage/` `solid-use/fetch`,
+  `primitives/sse`, `graphql`, `geolocation` (two variants each).
 - **MO-10g (Callbacks) — proposed 2026-11-18, revised 2026-11-21.** A
   declaration marks a function type `handler` where the library calls it
   later, outside any computation, as the DOM calls an event handler
@@ -1424,7 +1542,12 @@ export component Search(props: { start: boolean, q: string }) {
   each round found another carrier. Nothing is followed now, and nothing
   is refused that only reads.)
 - **MO-10k (Confined values: local rules, and a closed set of operations
-  for each) — ruled 2026-11-22, closed the same day.** Four checks keep a value where the checker can see what is
+  for each) — ruled 2026-11-22, closed the same day.** *(2026-11-23, MO-8r: two of the four kinds below are gone with
+  their words — a value `renders` checked where it is bound, and the values `renders(later)` carried — and with
+  them the ways out of a region, `RENDERS_ESCAPES` and a signature's `keeps(…)`. What is written of them here is the
+  record of the rule as it was closed. By mention the checkers confine one kind now, the instance a primitive made;
+  a result with held fields is a prop's (MO-10f) or a JS result's with a `ref` part that waits or fails (MO-10l).)*
+  Four checks keep a value where the checker can see what is
   done with it: a result with held fields (MO-10f), a library's draft
   (MO-10i), a value `renders` checked where it is bound (MO-11l, and the
   values `renders(later)` carries, MO-11o), and the instance a primitive
@@ -1496,9 +1619,9 @@ export component Search(props: { start: boolean, q: string }) {
 
   | kind | its operations | the evidence | anything else |
   | --- | --- | --- | --- |
-  | a result with held fields (MO-10f) | read a declared field (by `.`, `[…]`, a rest that names the held ones); call a declared function field; another name by an equation; compare, test | the field is in the declared result type | `RESULT_AS_VALUE`: an inherited method (`valueOf`, `toJSON`), an undeclared field, a call through a computed key |
+  | a result with held fields (MO-10f: a prop's; MO-10l: a JS result's `ref` parts) | read a declared field (by `.`, `[…]`, a rest that names the held ones); call a declared function field; another name by an equation; compare, test | the field is in the declared result type | `RESULT_AS_VALUE`: an inherited method (`valueOf`, `toJSON`), an undeclared field, a call through a computed key |
   | a library's draft (MO-10i) | read a path (a copy where kept); write a path; loop over a path; call a method of plain data from MO-10i's table | the method's name is an Array's, a Map's, a Set's, a string's or a number's; a function it calls is a closure written in the call | `DRAFT_ESCAPES`; what a known method answers is copied, an iterator run to its end |
-  | a `renders` value (MO-11l) | read and render it in its region; give it to a `pure` JS fn, or to a prop of an `.rx` component that keeps it; call a method of it with no part of it among the arguments; let a part out that its declared type says is a primitive | the declared result type; `pure` | `RENDERS_ESCAPES` where a call that may keep it is given it or a part of it |
+  | a `renders` value (MO-11l; withdrawn 2026-11-23) | read and render it in its region; give it to a `pure` JS fn, or to a prop of an `.rx` component that keeps it; call a method of it with no part of it among the arguments; let a part out that its declared type says is a primitive | the declared result type; `pure` | `RENDERS_ESCAPES` where a call that may keep it is given it or a part of it |
   | a primitive's instance (E-10, E-5a) | name it, pass it whole | — | a read of what may change, a method's answer included: `SNAPSHOT_ARGUMENT`, `SNAPSHOT_KEPT` (`peek` in the argument says the read is once) |
 
   The declared result type is read as text, a step at a time
@@ -1694,7 +1817,13 @@ export default component App() {
   (SV-7d). Sibling records stay siblings. Without the word, DV-24 applies;
   on a fn that hands back no `Component` it is a parse error. The word
   describes the shape of the arguments, not a router: any library that
-  nests a tree of components it is given says it the same way.
+  nests a tree of components it is given says it the same way. Two
+  routers do (2026-11-23): `@solidjs/router` natively, and TanStack Router
+  through a factory of the app's own, which writes a tree of parent links
+  as records (`createAppRouter({ component: Root, children: [{ path,
+  component }] })`) and passes the library's `<Outlet />` to each layout
+  as its `props.children` (S-module-22, S-module-23,
+  `bench/tasks/router-provider`, `examples/tanstack`).
   *`joins(field)`, withdrawn 2026-11-22 (MO-8r); kept as a proposal.*
   Beside `nests(…)`, `joins(path)` said the library joins a nested
   record's `path` with its parents', and the projection (TY-1c), which is
@@ -1746,8 +1875,9 @@ export default component App() {
 - **MO-11l (Fns that render what they are given) — proposed 2026-11-18;
   withdrawn 2026-11-23 (MO-8r, *Settled*): `renders` alone after a
   signature is refused by name, and a fn with no word is MO-11s's. The
-  rule as it was, kept for the record and for the carried values of
-  MO-11o, which borrow its confinement.**
+  rule as it was, kept for the record; its confinement (a value kept in
+  the region it is bound in, `RENDERS_ESCAPES`, a signature's `keeps(…)`)
+  left the checkers with MO-11o on the same day.**
   `renders` on a declared fn that hands back no component (`createTable(ref
   options: { columns: { cell: Component }[] }): any renders`) says it
   renders the components in its argument literals, through something the
@@ -1895,7 +2025,11 @@ export default component App() {
   where it is called and provides them inside its root. No declaration
   outside its scenario wrote either; the first is the default, and the
   second waits for a library that needs it.
-- **MO-11o (Components that travel in values) — proposed 2026-11-19.** Some
+- **MO-11o (Components that travel in values) — proposed 2026-11-19;
+  withdrawn 2026-11-23 (MO-8r, *Settled*): `renders(later)` after a
+  signature and `renders` before a prop's type are refused by name, with
+  what is written instead — the tree given to a factory (MO-11f, MO-11i).
+  The rule as it was, kept as a proposal.** Some
   libraries take components into values and render them later, from
   elsewhere: TanStack Router's `createRoute({ component })` makes a route
   object, `rootRoute.addChildren([…])` a tree, `createRouter({ routeTree })`
@@ -1940,17 +2074,22 @@ export default component App() {
   own view; a prop that reaches one any other way (through a local, a
   record, a call) cannot be named and is `RENDERS_ESCAPES` as before,
   and what the frame is given must still be a value whose components the
-  checker can name. S-module-22; `bench/tasks/router-provider`. *Guarantee:*
+  checker can name. (S-module-22 and `bench/tasks/router-provider` ran it until 2026-11-23.) *Guarantee:*
   every component an `.rx` program hands a `renders(later)` fn is checked
   as applied at each `renders` prop the program gives a value that may
   carry it, or is `COMPONENT_AS_VALUE` if it gives none; no `renders`
   prop is given a value that may carry components the check did not
   name. Without MO-11p, a route's nested components are checked as
   siblings under the provider, which errs strict (a boundary inside the
-  parent's component is not credited to them). S-module-22; `examples/tanstack` runs on `@tanstack/solid-router` 2.0 (rc)
+  parent's component is not credited to them). (S-module-22 held it until 2026-11-23.) `examples/tanstack` ran so on `@tanstack/solid-router` 2.0 (rc)
   in the Vite suite, with TanStack's registered route types checked by the
   build (a link to no route fails it, TS2820).
-- **MO-11p (Carried values that nest) — proposed 2026-11-19.** A route
+- **MO-11p (Carried values that nest) — proposed 2026-11-19; withdrawn
+  2026-11-23 with MO-11o (MO-8r, *Settled*): `nests(component under
+  parent)` and `outlet` are refused by name. A layout renders its pages as
+  `props.children`, and a tree of parent links is written as records for a
+  factory declared `nests(children in component)` (MO-11i). The rule as
+  it was, kept as a proposal.** A route
   tree in values says its nesting through each child's link to its parent
   (`createRoute({ getParentRoute: () => rootRoute, component: Person })`),
   and a parent's component renders its children at an outlet
@@ -1972,7 +2111,7 @@ export default component App() {
   that comes back to a value (a cycle), leaves the value side by side
   under the provider (MO-11o's strict default). For TanStack Router:
   `createRoute(…): any renders(later) nests(component under getParentRoute)` and
-  `component Outlet(props: {}) uses(router) outlet`. S-module-23.
+  `component Outlet(props: {}) uses(router) outlet`. (S-module-23 held it until 2026-11-23.)
 - **MO-11q (Compound components: a JS object's member components) —
   proposed 2026-11-19.** UI kits export a component's parts on one object
   (Ark's `<Dialog.Root>` with `<Dialog.Trigger>`, `<Dialog.Content>`;
@@ -2008,79 +2147,53 @@ export default component App() {
   is a name of the module, or when it has no `-`. S-module-24; `examples/wardic` runs Wardic 2.0 in Chromium
   (`compiler/test/wardic.mjs`; it ran Kobalte 2.0 alpha until Kobalte
   left the benchmark, 2026-11-22).
-- **MO-11r (One placement vocabulary) — proposed 2026-11-19.** Where a
-  library renders the components a program gives it is said in one
-  vocabulary, on the declared fn that takes them; each form replaces DV-24's
-  blanket assumption with a narrower, checked one. A component passed to a
-  call with none of them is checked the most cautious way (MO-11s).
+- **MO-11r (One placement vocabulary) — proposed 2026-11-19; cut to what
+  two libraries write, 2026-11-23 (MO-8r).** Where a library renders the
+  components a program gives it is said on the declared fn that takes
+  them; each form replaces DV-24's blanket assumption with a narrower,
+  checked one. A component passed to a call with none of them is checked
+  the most cautious way (MO-11s).
 
   | written | the components are checked | rule |
   | --- | --- | --- |
   | (a fn handing back a `Component`) | inside the made component, where it is applied | MO-11f |
-  | `renders` | where the call's result is bound | MO-11l |
-  | (no word) | under a root of their own, with nothing above the call credited | MO-11s |
-  | `renders(later)` | where a JS component's prop declared `renders` renders the value carrying them | MO-11o |
   | `nests(children in component)` | each entry of a record's `children` field among its `component`'s children | MO-11i |
-  | `nests(component under parent)` | each value's `component` among its `parent` value's component's children, at that one's `outlet` | MO-11p |
+  | (no word) | under a root of their own, with nothing above the call credited | MO-11s |
 
-  One model covers every row (consolidated 2026-11-21 after review). A
-  component a program gives a library is a *value* from the literal it is
-  written in until the place the library renders it, and it is checked
+  A component a program gives a library is a *value* from the literal it
+  is written in until the place the library renders it, and it is checked
   once, as applied, at that place, under the boundaries, providers and
-  content model there, and nowhere else:
+  content model there, and nowhere else: the made component (a factory),
+  or a fresh root (no word). The tree (`nests(…)`) only rearranges the
+  values inside a factory's place: a nested entry is applied among its
+  parent's children, and a parent the checker cannot find leaves the
+  entry a sibling at the same place, crediting nothing of the parent's.
 
-  1. *Where it is checked* is the row's answer in the table: the made
-     component (a factory), the binding (`renders`), a fresh root (no
-     word, MO-11s), or the consuming render — a JS
-     component's prop that `renders` the value (`renders(later)`).
-  2. *The tree* (`nests(…)`) only rearranges the values inside that place:
-     a nested entry is applied among its parent's children (`… in …`) or
-     at the parent component's `outlet` (`… under …`); a parent the
-     checker cannot find leaves the entry a sibling at the same place,
-     crediting nothing of the parent's.
-  3. *Travel.* A value checked at the binding (`renders`) stays there,
-     and so does everything that may hold a part of it: one that leaves
-     is `RENDERS_ESCAPES` (MO-11l, MO-10k). A carried value
-     (`renders(later)`) may travel freely through equations, records and
-     calls within its module; each `renders` prop it reaches is a
-     consuming render, checked there, as often as it is rendered, and a
-     `renders` prop is given only what the checker can name the
-     components of: not a value from another module, a prop, a
-     parameter, a source or a provision (MO-11o).
-  4. *Consumption.* A carried value no `renders` prop reaches is checked
-     nowhere: `COMPONENT_AS_VALUE` where its component is written. A
-     component given to a call with no row takes the cautious placement
-     (MO-11s), a root of its own with nothing carried.
+  Three forms more were here until 2026-11-23 — `renders` (where the
+  call's result is bound, MO-11l), `renders(later)` with a prop's
+  `renders T` (where a JS component renders the value carrying them,
+  MO-11o), and `nests(component under parent)` with `outlet` (MO-11p) —
+  each one library's, each refused by name now with what to write. So are
+  the words first drafted for two of them, `carries` and `under(parent in
+  component)`.
 
-  On the other side, two words say where a JS component renders what it
-  is given: a prop's type `renders T` (the components its value carries)
-  and `outlet` (the children nested under the component whose view it is
-  in, as `{props.children}` would). The tree forms combine with the
-  placement forms they describe (`nests(… in …)` with a factory,
-  `nests(… under …)` with `renders(later)`); either form refuses a value
-  it cannot place by leaving it where its placement puts it, the strict
-  default. The words first drafted for these, `carries` and `under(parent
-  in component)`, are refused with the spelling that replaced them.
-
-  They are checked by running (proposed 2026-11-20): a probe file beside
-  the `.d.rx` may export `scene(lib, h)`, a small app built from the
-  module's exports, instrumented, with `h.component(name)` standing for
-  the program's components. `rx-verify` mounts it and reads where each
-  of those rendered, through a context every recording component
+  The rows are checked by running (proposed 2026-11-20): a probe file
+  beside the `.d.rx` may export `scene(lib, h)`, a small app built from
+  the module's exports, instrumented, with `h.component(name)` standing
+  for the program's components. `rx-verify` mounts it and reads where
+  each of those rendered, through a context every recording component
   provides (so the evidence is Solid's own owner chain): what a factory
-  was given inside the made component, `renders` inside the caller,
-  `renders(later)` inside a component whose prop
-  renders it, and each `nests(…)` entry inside its parent's component —
-  at an `outlet` for `nests(… under …)`. A library that renders a child
-  route beside its parent is a mismatch; a row the scene does not reach
-  is reported unverified. `examples/tanstack/tsr.probe.mjs` checks
-  TanStack Router's rows this way. A hook that warns rather than throws
-  with no provider (TanStack's `useRouter`) counts as reading its
-  context, for `rx-declare`'s draft and `rx-verify`'s check alike.
+  was given inside the made component, and each `nests(…)` entry inside
+  its parent's component. A library that renders a page beside its
+  layout is a mismatch; a row the scene does not reach is reported
+  unverified. `examples/router/router.probe.mjs` and
+  `examples/tanstack/tsr.probe.mjs` check the two routers' rows this way.
+  A hook that warns rather than throws with no provider (TanStack's
+  `useRouter`) counts as reading its context, for `rx-declare`'s draft
+  and `rx-verify`'s check alike.
 - **MO-11s (The cautious placement) — proposed 2026-11-21.** A component
   given to a JS fn that says nothing of where it renders it (a declared fn
-  with no factory result, `renders` or
-  `renders(later)` row, or a JS import with no declaration at all), as a
+  with no factory result, or a JS import with no declaration at all), as a
   value among its arguments, their record and array literals and the JS
   calls among them, is no longer refused (it was `COMPONENT_AS_VALUE`
   under MO-11r): it is checked as applied under a root of its own, at the
@@ -2095,9 +2208,7 @@ export default component App() {
   (`CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`) until the declaration says
   where it renders, and the content model (SV-7d) is not checked against
   a parent it cannot know. A JS component's prop typed as something other
-  than a `Component` still refuses one (MO-11c); a component carried by
-  `renders(later)` that nothing renders is still `COMPONENT_AS_VALUE`
-  (MO-11o), since the declaration said where and nothing did. S-module-27.
+  than a `Component` still refuses one (MO-11c). S-module-27.
 - **MO-11m (A made component's properties) — proposed 2026-11-18.** A
   factory's component may carry properties (`@solidjs/router`'s `paths`, its
   typed path builder). `Router.paths` is a value read in the module that
@@ -2151,9 +2262,10 @@ export default component App() {
   candidate, and is a second spelling of a component with no props. Two
   libraries of the benchmark need the form: solid-use's `ClientOnly` and
   five components of solid-primitives (`Key`, `List`, `Range`, `Repeat`,
-  `VirtualList`), each used that way now. Not covered: an element in a
-  record a *fn* is given (`createPagination({ prevContent })`), where a
-  string stands. Executable: S-module-34; the units
+  `VirtualList`), each used that way now. Not covered, and decided so
+  (MO-8r, 2026-11-23): an element in a record a *fn* is given
+  (`createPagination({ prevContent })`), which one library asks for; a
+  string stands there. Executable: S-module-34; the units
   `a_prop_typed_view_takes_a_component_by_name`; `bench/coverage/`
   `primitives/keyed`, `list`, `range`, `virtual`, `solid-use/client-only`
   (each shows its fallback's element), `bench/tasks/solid-use-primitives`.
@@ -2597,9 +2709,8 @@ of a Solid shaped otherwise). What is still a proposal is in
 | `UNKNOWN_COMPONENT` for an undeclared JS component, `COMPONENT_AS_VALUE` outside MO-11c's and MO-11t's places | S | MO-11a, MO-11c, MO-11t, MO-11f |
 | `CONTEXT_NOT_FOUND` for a JS hook with no provider above; `NOT_EXPORTED` for an undeclared JS context | S | MO-12b, MO-12a |
 | `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k |
-| `RESULT_AS_VALUE` | S | MO-10f: a prop whose type says which of its fields hold or fail, used as a value (a declared result's field no longer says so, MO-8r) |
+| `RESULT_AS_VALUE` | S | MO-10f: a prop whose type says which of its fields hold or fail, used as a value; MO-10l: a JS result with a `ref` part that waits or fails, used whole (a declared result's plain field no longer says so, MO-8r) |
 | `DRAFT_ESCAPES` | S | MO-10i: a draft named outside its callback's own run, or handed where its parameter is not known |
-| `RENDERS_ESCAPES` | S | MO-11o: a `renders` prop given what cannot be named, a carried value written where it would render unchecked (MO-11l's "where it is bound" is withdrawn, MO-8r) |
 
 ## Implementation
 

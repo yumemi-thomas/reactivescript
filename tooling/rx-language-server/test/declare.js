@@ -292,12 +292,14 @@ check("--source changes no row: the evidence is comments, and a word stays a per
 
 // the run pass (src/declare-run.js): which hook reads which context, which provider provides it
 fs.writeFileSync(path.join(ws, "ctx.mjs"), [
-  "import { createContext, useContext, createComponent } from \"solid-js\";",
+  "import { createContext, useContext, createComponent, createMemo } from \"solid-js\";",
   "export const ThemeContext = createContext();",
   "export const useTheme = () => { const t = useContext(ThemeContext); if (!t) throw new Error(\"no theme\"); return t; };",
   "export const useLazy = () => ({ read: () => { const t = useContext(ThemeContext); if (!t) throw new Error(\"no theme yet\"); return t; } });",
   "export const useBroken = () => { throw new Error(\"always\"); };",
   "export const useFree = () => 1;",
+  "export const useAnswer = () => createMemo(async () => 1);",
+  "export const useBoth = () => ({ answer: createMemo(async () => 1), size: createMemo(() => 2) });",
   "export const ThemeProvider = props => createComponent(ThemeContext, { value: \"dark\", get children() { return props.children; } });",
   "",
 ].join("\n"));
@@ -308,6 +310,8 @@ fs.writeFileSync(path.join(ws, "ctx.d.mts"), [
   "export declare function useTheme(): string;",
   "export declare function useLazy(): { read: () => string };",
   "export declare function useFree(): number;",
+  "export declare function useAnswer(): () => number;",
+  "export declare function useBoth(): { answer: () => number; size: () => number };",
   "export declare function useBroken(): number;",
   "export declare function ThemeProvider(props: { children?: JSX.Element }): JSX.Element;",
   "",
@@ -321,6 +325,7 @@ check("running: a hook that throws with no provider uses it", hasRan("export fn 
 check("running: a provider that lets it run provides it", hasRan("export component ThemeProvider(props: { children?: View }) provides(theme)"), ran);
 check("running: a hook that reads its context only when its result is read uses it too", /export fn useLazy\(\): .* uses\(theme\)/.test(ran), ran);
 check("running: a hook that throws under every context gets no invented one", /TODO useBroken: run with no provider it throws, and under each of this module's contexts too/.test(ran) && !/useBroken\(\).*uses\(/.test(ran), ran);
+check("running: an accessor whose first read is not ready is drafted `pending ref`, the whole result or a field (MO-10l)", /export (pure )?fn useAnswer\(\): pending ref number/.test(ran) && /export (pure )?fn useBoth\(\): \{ answer: pending ref number; size: ref number \}/.test(ran), ran);
 check("running: a hook that never throws keeps a TODO, not a claim", /TODO useFree: run with no provider, and its result read, it does not throw/.test(ran), ran);
 
 // MO-11q: a kit's compound parts on its root (`Dialog.Trigger`), which read the root's context; an `aria-label` prop, and a

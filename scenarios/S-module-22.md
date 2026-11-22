@@ -1,33 +1,39 @@
-# S-module-22 — components that travel in values: a route tree, rendered by the provider it is given to
+# S-module-22 — a route tree given to a factory of the app's own: what `renders(later)` said
 
-Rules: MO-11o, MO-11c, MO-12, E-10, R-f-5, RG-4a.
+Rules: MO-8r, MO-11f, MO-11i, MO-11s, MO-12, E-10, R-f-5, RG-7b.
 
 ## Modules
 
 ```rx
--- module: ./tsr.d.rx
-// as @tanstack/solid-router declares it: routes carry their components, the provider renders what its router carries
+-- module: ./routes.d.rx
+// the app's own module around @tanstack/solid-router (a few lines of JavaScript): it is given the tree as records and
+// hands back the component that renders it, as @solidjs/router's factory does
 export context router
-export pure fn createRootRoute(options: { component?: Component }): any renders(later)
-export pure fn createRoute(options: { getParentRoute: () => any; path: string; component?: Component }): any renders(later)
-export pure fn createRouter(options: { routeTree: any }): any instantiates
-export component RouterProvider(props: { router: renders any }) provides(router)
-export component Outlet(props: {}) uses(router)
-export component Inspector(props: { router: any })
+export pure fn createAppRouter(tree: { component: Component; children: { path: string; component: Component }[] }): Component provides(router) nests(children in component)
+export component Link(props: { to: string; children?: View }) uses(router)
 export pure fn useParams(opts: { from: string }): ref any uses(router)
 ```
 
 ```rx
--- module: ./routes.rx
-import { createRootRoute, createRouter, RouterProvider, Outlet } from "./tsr.js"
-component Root() {
-  <main><Outlet /></main>
-}
-rootRoute = createRootRoute({ component: Root })
-export router = createRouter({ routeTree: peek rootRoute.addChildren([]) })
-export component Here() {
-  <RouterProvider router={router} />
-}
+-- module: ./tsr.d.rx
+// the library's own functions, with no word: a component given to one is checked under a root of its own (MO-11s)
+export context router
+export pure fn createRootRoute(options: { component?: Component }): any instantiates
+export pure fn createRouter(options: { routeTree: any }): any instantiates
+export pure fn useParams(opts: { from: string }): ref any uses(router)
+```
+
+```rx
+-- module: ./old.d.rx
+// as the library was declared until 2026-11-23
+export context router
+export pure fn createRootRoute(options: { component?: Component }): any renders(later)
+```
+
+```rx
+-- module: ./oldprop.d.rx
+export context router
+export component RouterProvider(props: { router: renders any }) provides(router)
 ```
 
 ```rx
@@ -39,303 +45,203 @@ export pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFou
 TanStack Router's routes are values: `createRoute({ component: Person })`
 makes a route object, `rootRoute.addChildren([…])` a tree of them,
 `createRouter({ routeTree })` a router, and `<RouterProvider router={…}>`
-renders the routes' components under its context. `renders(later)` on a fn
-says its result carries the components in its arguments (MO-11r), and so does any value
-computed from it (`rootRoute.addChildren([…])`, `createRouter(…)`);
-`renders` on a JS component's prop says it renders the components its
-value carries. They are checked as applied there, among its children
-(MO-11c), so the provider's `provides(router)` reaches them and its
-boundaries hold their failures. A route's nested components render at
-`<Outlet />`; they are checked as siblings under the provider, which errs
-strict (a boundary inside the parent's component is not credited to them).
+renders the routes' components under its context. `renders(later)` on a
+fn said its result carries the components in its arguments, and `renders`
+on a JS component's prop that it renders what its value carries (MO-11o),
+until 2026-11-23. One library wrote them, and they are withdrawn (MO-8r):
+each is refused by name, with what is written instead.
 
-An instance a primitive made never changes, so reading it in another
-instantiation's arguments (`createRouter({ routeTree: rootRoute })`) needs
-no `peek` (E-10). A method called on it is another matter: a stable
-receiver says nothing of what a method gives back, which may read state
-that changes. `addChildren` makes its tree once, and the program says so
-where it passes it: `routeTree: peek rootRoute.addChildren([…])`. (A
-declaration could name such a method, `methods(addChildren)`; one
-library's rows used the word, and `peek` at the call says the same.)
+What is written instead is a factory (MO-11f): a fn of the app's own
+JavaScript that is given the tree as records — a layout's `component`, and
+its pages in `children` — and hands back the component that renders it. It
+is declared with the words `@solidjs/router`'s factory has:
+`provides(router)` reaches every component of the tree, and
+`nests(children in component)` puts each page among its layout's children
+(MO-11i), so the layout's boundaries around `props.children` hold the
+pages' failures and waits. The module builds the library's routes from the
+records and renders the layout with the library's `<Outlet />` as its
+children.
 
 ## Program
 
 ```rx
-import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, useParams } from "./tsr.js"
+import { createAppRouter, Link, useParams } from "./routes.js"
 import { fetchPerson, NotFound } from "./people.js"
-component Root() {
-  <main><Outlet /></main>
+component Root(props: { children?: View }) {
+  <nav><Link to="/">Home</Link></nav>
+  errored fallback(e: NotFound) { <p>{e.message}</p> } {
+    loading fallback { <p>loading…</p> } { <main>{props.children}</main> }
+  }
+}
+component Home() {
+  <h1>People</h1>
 }
 component Person() {
   params = useParams({ from: "/people/$id" })
   person = await fetchPerson(params.id)
-  errored fallback(e: NotFound) { <p>{e.message}</p> } {
-    loading fallback { <p>loading…</p> } { <h1>{person.name}</h1> }
-  }
+  <h1>{person.name}</h1>
 }
-rootRoute = createRootRoute({ component: Root })
-personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
+AppRouter = createAppRouter({ component: Root, children: [{ path: "/", component: Home }, { path: "/people/$id", component: Person }] })
 export default component App() {
-  <RouterProvider router={router} />
+  <header>Directory</header>
+  <AppRouter />
 }
 ```
 
-Accepted.
+Accepted: `Root`'s `<Link>` and `Person`'s `useParams` are under the
+factory's `provides(router)`, and `Person`'s `NotFound` and its first load
+are held by the layout's regions around `props.children`.
 
 ## Rejected variants
 
 ```rx
--- reject: SNAPSHOT_ARGUMENT
-import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet } from "./tsr.js"
-component Root() {
-  <main><Outlet /></main>
+-- reject: UNHANDLED_FAILURE
+import { createAppRouter, useParams } from "./routes.js"
+import { fetchPerson, NotFound } from "./people.js"
+component Root(props: { children?: View }) {
+  loading fallback { <p>loading…</p> } { <main>{props.children}</main> }
 }
-rootRoute = createRootRoute({ component: Root })
+component Person() {
+  params = useParams({ from: "/people/$id" })
+  person = await fetchPerson(params.id)
+  <h1>{person.name}</h1>
+}
+AppRouter = createAppRouter({ component: Root, children: [{ path: "/people/$id", component: Person }] })
+export default component App() {
+  <AppRouter />
+}
+```
+
+A page's failure reaches the layout's children, and nothing there holds it.
+
+```rx
+-- reject: CONTEXT_NOT_FOUND
+import { createAppRouter, useParams } from "./routes.js"
+component Root(props: { children?: View }) {
+  <main>{props.children}</main>
+}
+component Home() {
+  <h1>People</h1>
+}
+AppRouter = createAppRouter({ component: Root, children: [{ path: "/", component: Home }] })
+export default component App() {
+  where = useParams({ from: "/" })
+  <p>{where.id}</p>
+  <AppRouter />
+}
+```
+
+A hook of the router outside the component the factory made: its context
+is provided to what that component renders, not beside it.
+
+```rx
+-- reject: CONTEXT_NOT_FOUND
+import { createAppRouter, useParams } from "./routes.js"
+component Root(props: { children?: View }) {
+  <main>{props.children}</main>
+}
+component Person() {
+  params = useParams({ from: "/people/$id" })
+  <h1>{params.id}</h1>
+}
+AppRouter = createAppRouter({ component: Root, children: [{ path: "/people/$id", component: Person }] })
+export default component App() {
+  <AppRouter />
+  <Person />
+}
+```
+
+A page applied by hand as well, beside the router.
+
+```rx
+-- reject: CONTEXT_NOT_FOUND
+import { createRootRoute, useParams } from "./tsr.js"
+component Person() {
+  params = useParams({ from: "/people/$id" })
+  <h1>{params.id}</h1>
+}
+rootRoute = createRootRoute({ component: Person })
+export default component App() {
+  <p>{rootRoute ? "routes" : ""}</p>
+}
+```
+
+The library's own `createRootRoute`, with no word: the component it is
+given is checked under a root of its own, where nothing is provided
+(MO-11s). That is the reading a route tree written in `.rx` has now, and
+why the tree is given to a factory.
+
+```rx
+-- reject: PARSE
+import { createRootRoute } from "./old.js"
+export default component App() {
+  <p>{createRootRoute ? "routes" : ""}</p>
+}
+```
+
+`renders(later)` is refused by name, with what to write.
+
+```rx
+-- reject: PARSE
+import { RouterProvider } from "./oldprop.js"
+export default component App() {
+  <RouterProvider />
+}
+```
+
+So is `renders` before a prop's type.
+
+```rx
+-- reject: ASYNC_OUTSIDE_LOADING_BOUNDARY
+-- spa
+import { createAppRouter, useParams } from "./routes.js"
+import { fetchPerson, NotFound } from "./people.js"
+component Root(props: { children?: View }) {
+  errored fallback(e: NotFound) { <p>{e.message}</p> } { <main>{props.children}</main> }
+}
+component Person() {
+  params = useParams({ from: "/people/$id" })
+  person = await fetchPerson(params.id)
+  <h1>{person.name}</h1>
+}
+AppRouter = createAppRouter({ component: Root, children: [{ path: "/people/$id", component: Person }] })
+export default component App() {
+  <AppRouter />
+}
+```
+
+In a client-only build a page that waits needs a `loading` region above
+it (CN-3d): the layout's, around its children.
+
+```rx
+-- accept
+import { createRootRoute, createRouter } from "./tsr.js"
+rootRoute = createRootRoute({})
+router = createRouter({ routeTree: rootRoute })
+tree = createRouter({ routeTree: peek rootRoute.addChildren([]) })
+export default component App() {
+  <p>{router ? "made" : ""}{tree ? "" : "none"}</p>
+}
+```
+
+The library's values, with no component in them, are values like any
+other. An instance a primitive made never changes, so reading it in
+another instantiation's arguments (`createRouter({ routeTree: rootRoute
+})`) needs no `peek` (E-10). A method called on it is another matter: a
+stable receiver says nothing of what a method gives back, which may read
+state that changes. `addChildren` makes its tree once, and the program
+says so where it passes it.
+
+```rx
+-- reject: SNAPSHOT_ARGUMENT
+import { createRootRoute, createRouter } from "./tsr.js"
+rootRoute = createRootRoute({})
 router = createRouter({ routeTree: rootRoute.currentTree() })
 export default component App() {
-  <RouterProvider router={router} />
+  <p>{router ? "made" : ""}</p>
 }
 ```
 
 What a method of the instance returns may change after the router is
 made, so the argument is a snapshot: `peek rootRoute.currentTree()` if
 that is meant.
-
-```rx
--- reject: UNHANDLED_FAILURE
-import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, useParams } from "./tsr.js"
-import { fetchPerson } from "./people.js"
-component Root() {
-  <main><Outlet /></main>
-}
-component Person() {
-  params = useParams({ from: "/people/$id" })
-  person = await fetchPerson(params.id)
-  loading fallback { <p>loading…</p> } { <h1>{person.name}</h1> }
-}
-rootRoute = createRootRoute({ component: Root })
-personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
-export default component App() {
-  <RouterProvider router={router} />
-}
-```
-
-The route's component is checked where the provider renders it: its
-`NotFound` reaches no boundary.
-
-```rx
--- reject: COMPONENT_AS_VALUE
-import { createRootRoute, createRoute, createRouter, Inspector, Outlet } from "./tsr.js"
-component Root() {
-  <main><Outlet /></main>
-}
-rootRoute = createRootRoute({ component: Root })
-router = createRouter({ routeTree: peek rootRoute.addChildren([]) })
-export default component App() {
-  <Inspector router={router} />
-}
-```
-
-Nothing renders what the route carries (`Inspector`'s prop is no
-`renders`), so `Root` would be checked nowhere: it is refused where it is
-passed.
-
-```rx
--- reject: CONTEXT_NOT_FOUND
-import { useParams } from "./tsr.js"
-component Person() {
-  params = useParams({ from: "/people/$id" })
-  <h1>{params.id}</h1>
-}
-export default component App() {
-  <Person />
-}
-```
-
-The hooks still need the router above them.
-
-```rx
--- reject: RENDERS_ESCAPES
-import { RouterProvider } from "./tsr.js"
-import { router } from "./routes.rx"
-export default component App() {
-  <RouterProvider router={router} />
-}
-```
-
-`routes.rx` checks the components its router carries where it renders it
-(`Here`); exported (as `examples/tanstack` exports its router, for its
-type), the router may be imported, but rendering it in another module is
-refused: that module's signature does not say what the carried components
-need, so nothing would check them under this provider (MO-11o, revised
-2026-11-21).
-
-```rx
--- reject: RENDERS_ESCAPES
-import { RouterProvider } from "./tsr.js"
-import { router } from "./routes.rx"
-export default component App() {
-  alias = router
-  <RouterProvider router={alias} />
-}
-```
-
-An alias of the imported router, or a record field holding it, is the
-imported router.
-
-```rx
--- reject: RENDERS_ESCAPES
-import { RouterProvider } from "./tsr.js"
-import { router } from "./routes.rx"
-export default component App() {
-  box = { r: router }
-  <RouterProvider router={box.r} />
-}
-```
-
-What a `renders` prop is given is named by mention (ruled 2026-11-22,
-MO-10k): every name its expression's value may come from is followed to
-the carrying calls it was bound to, whatever is in between — a branch, a
-call, a closure's result. Nothing is followed into a value: the names are.
-
-```rx
--- reject: UNHANDLED_FAILURE
-import pure { fetchPerson } from "./people.js"
-import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, useParams } from "./tsr.js"
-component Root() { <main><Outlet /></main> }
-component Person() {
-  params = useParams({ from: "/people/$id" })
-  person = await fetchPerson(params.id)
-  <h1>{person.name}</h1>
-}
-rootRoute = createRootRoute({ component: Root })
-personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
-pick = (r) => r
-export default component App() {
-  source dev := false
-  <RouterProvider router={dev ? pick(router) : (() => router)()} />
-}
-```
-
-`Person` can fail, and no `errored` is above the provider: the router is
-reached through `?:`, a call and a closure, and its components are checked
-there all the same.
-
-A value that comes from where the checker cannot look — a parameter, a
-source, a provision — may carry components nothing names here, so they
-would render unchecked: a `renders` prop refuses it.
-
-A prop is the exception, when the component gives it on as it is
-(2026-11-22): `Shell` renders what its `router` prop carries, so the prop
-is itself one that renders, in `Shell`'s summary and its signature
-(`router: renders provides(./tsr.d.rx#router)`), and the components are
-named, and checked, where `Shell` is applied — under `Shell`'s own
-boundaries around the provider, then the application's. A router wrapped
-in the app's own frame, in this module or another, is the ordinary case.
-
-```rx
--- accept
-import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, useParams } from "./tsr.js"
-component Root() { <main><Outlet /></main> }
-component Person() {
-  params = useParams({ from: "/people/$id" })
-  <h1>{params.id}</h1>
-}
-rootRoute = createRootRoute({ component: Root })
-personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
-component Shell(props: { router: any; title: string }) {
-  <header>{props.title}</header>
-  <RouterProvider router={props.router} />
-}
-export default component App() {
-  <Shell router={router} title="People" />
-}
-```
-
-The components are checked there as they are under the provider itself: a
-page that can fail needs its boundary above where `Shell` renders it.
-
-```rx
--- reject: UNHANDLED_FAILURE
-import pure { fetchPerson } from "./people.js"
-import { createRootRoute, createRoute, createRouter, RouterProvider, Outlet, useParams } from "./tsr.js"
-component Root() { <main><Outlet /></main> }
-component Person() {
-  params = useParams({ from: "/people/$id" })
-  person = await fetchPerson(params.id)
-  <h1>{person.name}</h1>
-}
-rootRoute = createRootRoute({ component: Root })
-personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
-router = createRouter({ routeTree: peek rootRoute.addChildren([personRoute]) })
-component Shell(props: { router: any }) {
-  <RouterProvider router={props.router} />
-}
-export default component App() {
-  <Shell router={router} />
-}
-```
-
-And what `Shell` is given must be a value whose components can be named
-where it is applied: a source cannot.
-
-```rx
--- reject: RENDERS_ESCAPES
-import { createRootRoute, createRouter, RouterProvider, Outlet } from "./tsr.js"
-component Root() { <main><Outlet /></main> }
-rootRoute = createRootRoute({ component: Root })
-source current: any := createRouter({ routeTree: rootRoute })
-component Shell(props: { router: any }) {
-  <RouterProvider router={props.router} />
-}
-export default component App() {
-  <Shell router={current} />
-}
-```
-
-A prop that reaches the provider any other way than as it is read
-(`props.router`) — through a local name, a record — is still one the
-checker cannot name:
-
-```rx
--- reject: RENDERS_ESCAPES
-import { RouterProvider } from "./tsr.js"
-component Shell(props: { router: any }) {
-  r = props.router
-  <RouterProvider router={r} />
-}
-export default component App() {
-  <Shell router={null} />
-}
-```
-
-```rx
--- reject: RENDERS_ESCAPES
-import { createRootRoute, createRouter, RouterProvider, Outlet } from "./tsr.js"
-component Root() { <main><Outlet /></main> }
-rootRoute = createRootRoute({ component: Root })
-source current: any := createRouter({ routeTree: rootRoute })
-export default component App() {
-  <RouterProvider router={current} />
-}
-```
-
-```rx
--- reject: RENDERS_ESCAPES
-import { createRootRoute, createRouter, RouterProvider, Outlet } from "./tsr.js"
-component Root() { <main><Outlet /></main> }
-context routerCtx: any
-rootRoute = createRootRoute({ component: Root })
-router = createRouter({ routeTree: rootRoute })
-component Shell() {
-  <RouterProvider router={use routerCtx} />
-}
-export default component App() {
-  provide routerCtx = router
-  <Shell />
-}
-```

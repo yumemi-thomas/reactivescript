@@ -182,7 +182,7 @@ const primitives = async page => {
   await page.click("#theme"); await until("a persisted signal", async () => (await t("#theme")) === "theme: dark");
   if ((await page.evaluate(() => localStorage.getItem("theme"))) !== JSON.stringify("dark")) throw new Error(`persisted: ${await page.evaluate(() => localStorage.getItem("theme"))}`);
 };
-// @tanstack/solid-router from .rx: code-based routes, links, a param, navigate, a failing route's typed boundary
+// @tanstack/solid-router from .rx: a route tree given to the app's own factory (tsr.js), links, a param, navigate, a failing page's typed boundary in its layout
 const tanstack = async page => {
   const h1 = async () => (await page.textContent("h1"))?.trim();
   const app = async () => (await page.textContent("#app")).replace(/\s+/g, " ");
@@ -220,11 +220,11 @@ for (const [name, entry] of Object.entries(apps)) {
     catch (e) { if (/TS2\d+/.test(e.message) && /routes\.rx/.test(e.message)) { pass++; console.log(`✓ router (typed build): refused, ${e.message.split("\n").find(l => /routes\.rx/.test(l)).trim().slice(0, 90)}`); } else { fail++; console.log(`✗ router (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
     cpSync(path.join(repo, "examples/router/routes.rx"), routes);
   }
-  if (name === "tanstack") {   // TY-1d with TanStack's registered router: a link to a route that does not exist fails the build
+  if (name === "tanstack") {   // TY-1d through the app's own factory (tsr.d.ts types the route tree): a route record without its component fails the build
     const main = path.join(dir, "src/tanstack/main.rx");
-    writeFileSync(main, readFileSync(main, "utf8").replace('<Link to="/people/$id" params={{ id: "1" }}>', '<Link to="/peeple/$id" params={{ id: "1" }}>'));
-    try { await vite.build(config(dir, entry)); fail++; console.log("✗ tanstack (typed build): a link to no route built"); }
-    catch (e) { if (/TS2820/.test(e.message) && /main\.rx/.test(e.message)) { pass++; console.log(`✓ tanstack (typed build): refused, ${e.message.split("\n").find(l => /TS2820/.test(l)).trim().slice(0, 100)}`); } else { fail++; console.log(`✗ tanstack (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
+    writeFileSync(main, readFileSync(main, "utf8").replace('{ path: "/", component: Home },', '{ path: "/" },'));
+    try { await vite.build(config(dir, entry)); fail++; console.log("✗ tanstack (typed build): a route record with no component built"); }
+    catch (e) { if (/TS2\d+/.test(e.message) && /main\.rx/.test(e.message)) { pass++; console.log(`✓ tanstack (typed build): refused, ${e.message.split("\n").find(l => /TS2\d+/.test(l)).trim().slice(0, 100)}`); } else { fail++; console.log(`✗ tanstack (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
     cpSync(path.join(repo, "examples/tanstack/main.rx"), main);
   }
   if (name === "router") await drive("router (build, a page's URL)", `http://127.0.0.1:${http.address().port}/people/2`, async page => { await page.waitForTimeout(300); const t = await page.textContent("h1"); if (t?.trim() !== "Bo") throw new Error(`/people/2 loaded: ${await page.textContent("#app")}`); });

@@ -12,8 +12,7 @@
 //   export context theme: source pending Theme = …          rows, then the written type; `= …` a default
 //   export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) fails(Error) uses(./theme.rx#theme, loading) shape(roots section; children-at section)
 //
-// A prop field: bare (rendered, discharges nothing), `renders` (the component renders what the prop's value carries, MO-11o:
-// `catches` and `provides` are then what is above that), `catches(A | B)` / `catches(*)`, `provides(…)` (children), `unrendered`
+// A prop field: bare (rendered, discharges nothing), `catches(A | B)` / `catches(*)`, `provides(…)` (children), `unrendered`
 // (only an action reads it), `action save catches(…)` (an action reads it). `uses(loading)` is SV-7b's need for a `loading`
 // above a reader of a client question. `retains(onPick: module, onFocus: ./form.rx#fields)` names the props the component
 // stores where they outlive it (O-3) — in its module's sources, or through a provision above it — so a closure passed for one
@@ -69,7 +68,6 @@ function line(file: string, name: string, x: ExportSig): string {
       const s = x.sig;
       const props = Object.entries(s.props).map(([f, v]) => {
         const parts: string[] = [];
-        if (v.renders) parts.push("renders");                                                // MO-11o: it renders what the prop's value carries
         if (v.takes?.length) parts.push(`takes(${v.takes.map(([p, holds, fails]) => `${p}${holds ? " pending" : ""}${fails.length ? ` fails(${fails.join(" | ")})` : ""}`).join(", ")})`);   // MO-10f: the fields it reads as ones that hold or fail
         if (!v.rendered) parts.push("unrendered");
         else {
@@ -80,7 +78,7 @@ function line(file: string, name: string, x: ExportSig): string {
         return `${f === "*" ? "...props" : f}${parts.length ? `: ${parts.join(" ")}` : ""}`;
       });
       const own = [...new Set(s.own.map(o => o.cls))];
-      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${s.made ? " made" : ""}${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${retainsText(file, s.stored)}${s.keeps?.length ? ` keeps(${s.keeps.join(", ")})` : ""}${shapeText(s.shape)}`;
+      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${s.made ? " made" : ""}${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${retainsText(file, s.stored)}${shapeText(s.shape)}`;
     }
   }
 }
@@ -159,7 +157,6 @@ export function parseSignature(src: string, file: string): ModSig {
           rest = rest.replace(tk[0], tk[1]);
         }
         if (/\bunrendered\b/.test(rest)) { v.rendered = false; v.f = "all"; v.p = "all"; }
-        if (/\brenders\b/.test(rest.replace(/\([^)]*\)/g, ""))) v.renders = true;
         const c = /\bcatches\(([^)]*)\)/.exec(rest); if (c) v.f = catchOf(c[1]);
         const p = /\bprovides\(([^)]*)\)/.exec(rest); if (p) v.p = p[1].trim() === "*" ? "all" : new Set(p[1].split(",").map(k => absKey(file, k.trim())).filter(Boolean));
         sig.props[fname] = v;
@@ -169,7 +166,6 @@ export function parseSignature(src: string, file: string): ModSig {
       const fl = /\bfails\(([^)]*)\)/.exec(tail); if (fl) sig.own = classesOf(fl[1]).map(c => ({ cls: c, what: `${m![1]}'s root`, at: file.split("/").pop() }));
       const us = /\buses\(([^)]*)\)/.exec(tail); if (us) sig.requires = us[1].split(",").map(k => absKey(file, k.trim()));
       const so = /\bretains\(([^)]*)\)/.exec(tail); if (so) { sig.stored = {}; for (const x of split(so[1], ",")) { const i = x.indexOf(":"); const f0 = x.slice(0, i).trim(); const f = f0 === "...props" ? "*" : f0; const t = x.slice(i + 1).trim(); (sig.stored[f] ??= []).push(t === "module" ? t : absKey(file, t)); } }   // O-3
-      const ks = /\bkeeps\(([^)]*)\)/.exec(tail); if (ks) { const fs = split(ks[1], ",").map(k => k.trim()).filter(Boolean); if (fs.length) sig.keeps = fs; }   // MO-11l
       sig.shape = contentShapeOf(/\bshape\(([^)]*)\)/.exec(tail)?.[1]);
       exports.set(m[1], { kind: "comp", sig }); return;
     }

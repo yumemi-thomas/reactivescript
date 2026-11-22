@@ -22,7 +22,7 @@ specifier. Without the line a `.d.rx` means what it meant (MO-8a).
 //@ signature theme.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).
 export type Theme
 export context theme: Theme
-export component ThemeProvider(props: { children: provides(./theme.rx#theme) }) keeps(children) shape(roots section; closes-p; children-at section)
+export component ThemeProvider(props: { children: provides(./theme.rx#theme) }) shape(roots section; closes-p; children-at section)
 ```
 
 ```rx
