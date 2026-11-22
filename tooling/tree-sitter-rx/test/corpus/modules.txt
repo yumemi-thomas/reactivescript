@@ -1254,3 +1254,31 @@ export pure fn load(id: string): Promise<number>
           (type_arguments
             (predefined_type))))))
   (comment))
+
+================================================================================
+Declaration: keyof an import type
+================================================================================
+
+export type Tag<T extends keyof import("pkg").JSX.Elements> = T
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    declaration: (type_alias_declaration
+      name: (type_identifier)
+      type_parameters: (type_parameters
+        (type_parameter
+          name: (type_identifier)
+          constraint: (constraint
+            (index_type_query
+              (member_expression
+                object: (member_expression
+                  object: (call_expression
+                    function: (import)
+                    arguments: (arguments
+                      (string
+                        (string_fragment))))
+                  property: (property_identifier))
+                property: (property_identifier))))))
+      value: (type_identifier))))

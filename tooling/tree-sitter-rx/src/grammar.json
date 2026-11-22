@@ -10089,15 +10089,51 @@
       }
     },
     "index_type_query": {
-      "type": "SEQ",
+      "type": "CHOICE",
       "members": [
         {
-          "type": "STRING",
-          "value": "keyof"
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "keyof"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "primary_type"
+            }
+          ]
         },
         {
-          "type": "SYMBOL",
-          "name": "primary_type"
+          "type": "PREC",
+          "value": 1,
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "keyof"
+              },
+              {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_type_query_member_expression_in_type_annotation"
+                    },
+                    "named": true,
+                    "value": "member_expression"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "import_type"
+                  }
+                ]
+              }
+            ]
+          }
         }
       ]
     },
@@ -15716,6 +15752,11 @@
     [
       "object",
       "_property_name"
+    ],
+    [
+      "index_type_query",
+      "import_lookup_type",
+      "import_array_type"
     ],
     [
       "primary_expression",

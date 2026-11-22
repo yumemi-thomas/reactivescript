@@ -34,6 +34,8 @@ module.exports = grammar(tsx, {
     ...['throw_expression', 'pending_expression', 'latest_expression', 'peek_expression', 'pre_expression']
       .map((name) => [$.call_expression, $.instantiation_expression, $.binary_expression, $[name]]),
     [$.object, $._property_name],
+    // `keyof import("pkg").T[]`: as TSX's `keyof` takes the whole primary type, `keyof (T[])`
+    [$.index_type_query, $.import_lookup_type, $.import_array_type],
     [$.primary_expression, $._equation_object_pattern],
     [$.side, $.server_fn_expression],
     [$.primary_expression, $.draft_expression],
@@ -703,6 +705,12 @@ module.exports = grammar(tsx, {
     ),
     // `error: import("pkg").Types["error"]`: a member of an import type (what `rx-declare` writes for a type a library
     // declares as a field of another); a further `["x"]` is TSX's own lookup of this one
+    // `keyof import("@solidjs/web").JSX.IntrinsicElements`: `keyof` of an import type (a bound `rx-declare` writes as
+    // the library declares it)
+    index_type_query: ($, previous) => choice(
+      previous,
+      prec(1, seq('keyof', choice(alias($._type_query_member_expression_in_type_annotation, $.member_expression), $.import_type))),
+    ),
     import_lookup_type: $ => prec(1, seq(
       choice(alias($._type_query_member_expression_in_type_annotation, $.member_expression), $.import_type),
       '[',
