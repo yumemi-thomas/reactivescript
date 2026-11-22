@@ -30,7 +30,7 @@ function wrapped(of: string): string[] {
   return out;
 }
 function codesOf(main: string): string[] {
-  const src = `import { createTable, flexRender, stashJs, createClock, createLabel, useQ, createStore, later } from "./lib.js"\nfn keep(x) { x }\nfn mk(x) { () => x }\nsource held: any := null\ncontext ctx: any\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any }) { <p>ok</p> }\n${main}`;
+  const src = `import { createTable, flexRender, stashJs, createClock, createLabel, useQ, createStore, later } from "./lib.js"\nfn keep(x) { x }\nfn mk(x) { () => x }\nsource held: any := null\ncontext ctx: any\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any }) { <button onClick={() => { held := props.t }}>ok</button> }\n${main}`;
   const set = loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB : undefined);
   return checkModules(set).diags.map(d => d.code);
 }
@@ -82,7 +82,7 @@ export const units: [string, () => void][] = [
   ["each_confined_value_has_a_closed_set_of_operations", () => {   // MO-10k (closed 2026-11-22); mirrors the crate's test
     const LIB2 = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders methods(setPage)\nexport pure fn createClock(): any instantiates methods(format)\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
     const run = (main: string): string[] => {
-      const src = `import { useQ, createStore, createTable, createClock, createLabel, later, stashJs } from "./lib.js"\nsource held: any := null\nsource n := 0\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any; onF: (x: any) => void }) { <p>ok</p> }\n${main}`;
+      const src = `import { useQ, createStore, createTable, createClock, createLabel, later, stashJs } from "./lib.js"\nsource held: any := null\nsource n := 0\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any; onF: (x: any) => void }) { <button onClick={() => { held := props.t }}>ok</button> }\n${main}`;
       return checkModules(loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB2 : undefined)).diags.map(d => d.code);
     };
     // MO-10f: what is read from a result with held fields is a field its declaration names
@@ -187,6 +187,38 @@ export const units: [string, () => void][] = [
     deepStrictEqual(["./v.jsx", "./old.cjs"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/v.jsx.d.rx", "/w/old.d.rx"]);
     read = files({ "/w/x.d.rx": "", "/w/y.tsx.d.rx": "", "/w/y.d.rx": "", "/w/z.d.rx": "" });   // TypeScript's are JavaScript's (RFC 23)
     deepStrictEqual(["./x.tsx", "./y.tsx", "./z.mts", "./z.cts"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/x.d.rx", "/w/y.tsx.d.rx", "/w/z.d.rx", "/w/z.d.rx"]);
+  }],
+  ["a_prop_that_keeps_what_it_is_given_is_no_way_out", () => {   // MO-11l (2026-11-22): mirrors the crate's test
+    const run = (comps: string, app: string) => {
+      const src = `import { createTable, flexRender, stashJs, later } from "./lib.js"\nfn keep(x) { x }\nfn mk(x) { () => x }\nsource held: any := null\ncontext ctx: any\ncomponent Cell() { <b>c</b> }\n${comps}\nexport default component App() {\n  table = createTable({ columns: [{ cell: Cell }] })\n${LOCALS}${app}\n}\n`;
+      const set = loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB : undefined);
+      return checkModules(set).diags.map(d => d.code);
+    };
+    const keeps = [
+      "component Kid(props: { t: any }) { <p>{flexRender(props.t.cell, {})} {len(props.t.rows)}</p> }",
+      "component Kid(props: { t: any }) { <button onClick={() => { props.t.nextPage() }}>next</button> }",
+      "component Kid(props: { t: any }) {\n  u = props.t\n  <p>{len(u.rows)}</p>\n  <Leaf t={u} />\n}\ncomponent Leaf(props: { t: any }) { <p>{len(props.t.rows)}</p> }",
+      "component Kid(props: { t: any; n: number }) { <Kid t={props.t} n={props.n + 1} /> }",
+      "component Kid(props: { t: any }) { <p>kid</p> }",
+    ];
+    // however the value is handed to the prop, by the ways that are not themselves a way out
+    const handed = ["table", "[table][0]", "({ a: table }).a", "keep(table)", "(true ? table : null)", "(table ?? null)", "table.part", "(() => table)()", "[...[table]]"];
+    for (const k of keeps) for (const e of handed) deepStrictEqual(run(k, `  <Kid t={${e}} n={0} />`), [], `refused:\n${k}\n${e}`);
+    const lets = [
+      "<button onClick={() => { held := props.t }}>x</button>",
+      "<button onClick={() => { stashJs(props.t) }}>x</button>",
+      "<button onClick={() => { props.up(props.t.rows) }}>x</button>",
+      "<button onClick={() => { later(() => { held := [props.t] }) }}>x</button>",
+      "<button onClick={() => { let u = props.t; held := u }}>x</button>",
+    ];
+    for (const l of lets) {
+      const direct = `component Kid(props: { t: any; up: (x: any) => void }) { ${l} }`;
+      const through = `component Kid(props: { t: any }) { <Leaf t={props.t} up={(x) => { }} /> }\ncomponent Leaf(props: { t: any; up: (x: any) => void }) { ${l} }`;
+      for (const k of [direct, through]) must(run(k, "  <Kid t={table} up={(x) => { }} />").includes("RENDERS_ESCAPES"), "accepted", k);
+    }
+    for (const k of ["component Kid(props: { t: any }) {\n  provide ctx = props.t\n  <p>x</p>\n}", "component Kid(props: { t: any }) { <Kid {...props} /> }\ncomponent Other(props: { t: any }) { <p>x</p> }"]) {
+      deepStrictEqual(run(k, "  <Kid t={table} />").includes("RENDERS_ESCAPES"), k.includes("provide"), k);
+    }
   }],
   ["a_waterfall_is_advised_once_for_each_question", () => {   // 99, the advisory rows (2026-11-22): mirrors the crate's test
     const API = "export pure fn ask(k: string): Promise<string>\nexport fn load(k: string): Promise<string>\nexport fn save(k: string): Promise<void>\n";

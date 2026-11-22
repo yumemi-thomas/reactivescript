@@ -54,7 +54,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; callback?: boolean; pure?: boolean; renders?: boolean; takes?: [string, boolean, string[]][] }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; callback?: boolean; pure?: boolean; renders?: boolean; takes?: [string, boolean, string[]][] }>; shape?: Shape; stored?: Record<string, string[]>; keeps?: string[] };   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -85,7 +85,7 @@ function show(e: Expr): string {
 type SymKind = "source" | "eq" | "props" | "value" | "fn" | "action" | "comp" | "import" | "errclass" | "context" | "server";
 /** MO-10k: the kinds of value the checker confines by mention (`Checker.tainted`): a value `renders` checked where it is
  *  bound (MO-11l); the instance a declared primitive made (E-10, E-5a). */
-type Taint = "renders" | "instance";
+type Taint = "renders" | "instance" | "prop";   // prop (MO-11l): what one prop of a component is given (`Checker.probe` says which), asked to know whether the component keeps it
 type Sym = {
   kind: SymKind; name: string; region: Region; line: number;
   question?: boolean;                  // source x = e
@@ -262,7 +262,9 @@ function duplicateKey(e: Expr, key: string): string | undefined {
 }
 /** What `flows` asks of where it is read: whether a name is a builtin there (not bound), and whether an expression is a
  *  primitive by its declaration (`Checker.declPrim`). */
-type Look = { builtin: (n: string) => boolean; prim: (e: Expr) => boolean };
+type Look = { builtin: (n: string) => boolean; prim: (e: Expr) => boolean; field: (e: Expr) => string | undefined };   // field (MO-11l): a read of one field of a component's props (`props.table`) names that field, not the props
+/** The name `flows` gives a read of one prop of a component: no name a program can write. */
+const propName = (comp: Region, field: string) => `\u0001${comp.id}\u0001${field}`;
 /** The name a path is read from: `table` of `table.getState().page`. */
 function pathRoot(e: Expr): string | undefined {
   if (e.k === "id") return e.name;
@@ -348,7 +350,12 @@ function flows(e: Expr, bound: Set<string>, locals: Map<string, Set<string>>, bu
     case "await": go(e.e); if (e.init) go(e.init); return;
     case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") { go(e.l); go(e.r); } return;
     case "if": go(e.t); go(e.f); return;
-    case "member": case "index": go(literalPart(e) ?? e.o); return;                       // a slot of a literal written here is that slot: `[clock, 5][1]` is `5`
+    case "member": case "index": {                                                         // a slot of a literal written here is that slot: `[clock, 5][1]` is `5`; a field of a component's props is that prop
+      const lp = literalPart(e); if (lp) { go(lp); return; }
+      const prop = builtin.field(e);
+      if (prop !== undefined && e.o.k === "id" && !bound.has(e.o.name) && !locals.has(e.o.name)) out.add(prop); else go(e.o);
+      return;
+    }
     case "call": if (e.f.k === "id" && SCALAR_BUILTINS.has(e.f.name) && !bound.has(e.f.name) && !locals.has(e.f.name) && builtin.builtin(e.f.name)) return; go(e.f); e.args.forEach(go); return;
     case "arr": e.items.forEach(go); return;
     case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
@@ -885,7 +892,7 @@ class Checker {
     // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)
     for (const d of decls) {
       if (d.k !== "fn" && d.k !== "action") continue;
-      const names = new Set<string>(); const look: Look = { builtin: (n: string) => !env.lookup(n), prim: x => this.declPrim(x, env) };
+      const names = new Set<string>(); const look: Look = { builtin: (n: string) => !env.lookup(n), prim: x => this.declPrim(x, env), field: x => { const pf = this.propField(x, env); return pf && propName(pf.comp, pf.field); } };
       if (d.k === "fn") flowsFn(d.params, d.decls, d.tail, look, names); else flowsReturns(d.body, new Set(d.params), new Map(), look, names);
       env.vars.get(d.name)!.retFlows = { names, env };
     }
@@ -1274,6 +1281,7 @@ class Checker {
         // MO-10f (2026-11-22): a prop whose type is a record with field rows (`query: { data: pending fails(Error) T }`) is
         // read as a JS result with those fields is: a field at a time, each held field's read checked
         const ph = this.propHeld.get(r);
+        if (d.propsType !== undefined) this.propsTy.set(r, fieldRows(d.propsType).text);
         this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line, ...(d.noProps ? { noProps: d.name } : {}), ...(ph ? { held: ph, ...(d.propsType !== undefined ? { retTy: fieldRows(d.propsType).text } : {}) } : {}) });
         sym.compEnv = inner;
         this.block(d.decls, d.view, inner, { scope: "reactive" });
@@ -1769,7 +1777,7 @@ class Checker {
   }
   // ---- MO-10k: values the checker confines, by mention ----
   /** The names `e`'s value may come from (`flows`), read in `env`. */
-  private flowNames(e: Expr, env: Env): Set<string> { const out = new Set<string>(); flows(e, new Set(), new Map(), { builtin: n => !env.lookup(n), prim: x => this.declPrim(x, env) }, out); return out; }
+  private flowNames(e: Expr, env: Env): Set<string> { const out = new Set<string>(); flows(e, new Set(), new Map(), { builtin: n => !env.lookup(n), prim: x => this.declPrim(x, env), field: x => { const pf = this.propField(x, env); return pf && propName(pf.comp, pf.field); } }, out); return out; }
   /** MO-10k: the declared type of a path over a declared JS result — the bound name, a field of it, what a method of it
    *  answers, an element (a `for` row, an index) — where the declaration's text says it (`tyStep`). */
   private declTy(e: Expr, env: Env, depth = 0): string | undefined {
@@ -1795,11 +1803,65 @@ class Checker {
   /** MO-10k: whether `e`'s value may be, or hold, a value of kind `k`: the first name it mentions that may, and the binding
    *  that value was made at. */
   private gives(e: Expr, env: Env, k: Taint): { n: string; root: Sym } | undefined {
-    for (const n of this.flowNames(e, env)) { const s = env.lookup(n); if (!s) continue; const root = this.tainted(s, k); if (root) return { n, root }; }
+    for (const n of this.flowNames(e, env)) {
+      // one prop of a component (`props.table`): the value asked about when it is the probe's
+      if (n.startsWith("\u0001")) {
+        if (k === "prop" && this.probe) { const [, r, f] = n.split("\u0001"); if (r === String(this.probe.comp.id) && (f === this.probe.field || this.probe.field === "*")) { const ps = this.propsOf(env); if (ps) return { n: `props.${f}`, root: ps }; } }
+        continue;
+      }
+      const s = env.lookup(n); if (!s) continue;
+      if (k === "prop" && s.kind === "props" && this.probe?.comp === s.region) return { n, root: s };   // the props given whole hold every prop
+      const root = this.tainted(s, k); if (root) return { n, root };
+    }
     return undefined;
   }
-  private taintMemo: Record<Taint, Map<Sym, Sym | null>> = { renders: new Map(), instance: new Map() };
-  private taintBusy: Record<Taint, Set<Sym>> = { renders: new Set(), instance: new Set() };
+  /** MO-11l: every way out the walk recorded (`rendersSinks` decides them for `renders`; `propKeeps` asks them again for
+   *  one prop of a component), the prop being asked about, and what was decided. */
+  private allSinks: { e?: Expr; names: string[]; env: Env; line: number; why: string; prop?: { comp: Region; field: string } }[] = [];
+  private probe: { comp: Region; field: string } | undefined;
+  private keepsMemo = new Map<Region, Map<string, string | null>>();
+  private keepsBusy = new Set<string>();
+  private keepsCut = 0;
+  private propNamed = new Map<Region, Set<string>>();     // the fields of its props a component names (`props.table`), for its signature's `keeps(…)`
+  private propsTy = new Map<Region, string>();            // a component's props type, as written (its row words taken out)
+  /** MO-11l (2026-11-22): whether a component keeps what one of its props is given — undefined — or the first way that
+   *  value leaves it. An `.rx` component of this module keeps a prop when no way out its body writes (`allSinks`: a prop
+   *  of a component, a provision, a source, an export, a thrown value, a call that may keep it) is given a value that may
+   *  hold a part of `props.<field>` (by mention, as MO-10k confines any value), a prop of a component that keeps it in
+   *  turn excepted. One being decided is taken to keep it (components that only hand a value to each other keep it
+   *  between them). A component of another `.rx` module keeps what its signature says (`keeps(…)`); a JS component's
+   *  declaration does not say. */
+  private propKeeps(comp: Region, field: string): string | undefined {
+    const memo = this.keepsMemo.get(comp); if (memo?.has(field)) return memo.get(field) ?? undefined;
+    if (comp.js) return "which is a JS component: its declaration does not say what it does with it";
+    if (comp.sig) return comp.sig.keeps?.includes(field) ? undefined : "whose signature does not say it keeps it (`keeps(…)`: it may store it, provide it or hand it on)";
+    const key = `${comp.id}\u0001${field}`;
+    if (this.keepsBusy.has(key)) { this.keepsCut++; return undefined; }
+    this.keepsBusy.add(key); const cut = this.keepsCut;
+    const saved = this.probe; const mine = { comp, field };
+    this.probe = mine; this.taintMemo.prop.clear();
+    let out: string | undefined;
+    for (const sk of this.allSinks) {
+      const r = sk.env.region; if ((r.isComponentRoot ? r : r.component) !== comp) continue;
+      let hit: { n: string; root: Sym } | undefined;
+      if (sk.e) hit = this.gives(sk.e, sk.env, "prop");
+      else for (const n of sk.names) { const t = sk.env.lookup(n); const root = t && this.tainted(t, "prop"); if (root) { hit = { n, root }; break; } }
+      if (!hit) continue;
+      if (sk.prop) {
+        const inner = this.propKeeps(sk.prop.comp, sk.prop.field);   // given on to a prop that keeps it
+        this.probe = mine; this.taintMemo.prop.clear();
+        if (inner === undefined) continue;
+      }
+      out = `which does not keep it: there (line ${sk.line}) ${hit.n} is ${sk.why}`;
+      break;
+    }
+    this.probe = saved; this.taintMemo.prop.clear();
+    this.keepsBusy.delete(key);
+    if (out !== undefined || this.keepsCut === cut || !this.keepsBusy.size) { if (!this.keepsMemo.has(comp)) this.keepsMemo.set(comp, new Map()); this.keepsMemo.get(comp)!.set(field, out ?? null); }
+    return out;
+  }
+  private taintMemo: Record<Taint, Map<Sym, Sym | null>> = { renders: new Map(), instance: new Map(), prop: new Map() };
+  private taintBusy: Record<Taint, Set<Sym>> = { renders: new Set(), instance: new Set(), prop: new Set() };
   private taintCut = 0;
   /** MO-10k: a name may be, or hold, a value of kind `k` when it is bound to one (`taintRoot`), or to an expression that
    *  mentions a name that may (`flows`): an equation's or a local's value, the list a row or a loop variable goes through,
@@ -1817,6 +1879,7 @@ class Checker {
     return r;
   }
   private taintRoot(s: Sym, k: Taint): boolean {
+    if (k === "prop") return false;                                                        // its root is a read of the prop (`gives`)
     return k === "renders" ? !!s.localRenders : s.kind === "eq" && !s.viaField && (s.foreign === "value" || (typeof s.foreign === "object" && "fields" in s.foreign));
   }
   private taintedOf(s: Sym, k: Taint): Sym | undefined {
@@ -1827,7 +1890,7 @@ class Checker {
     if (s.srcs) from.push(...s.srcs);
     // a parameter of a named closure, fn or action: every argument its calls pass. Known once the module is walked, which
     // is when MO-11l asks; E-10 and E-5a ask while walking, and take a call given an instance as a read of it
-    if (k === "renders") { const owner = s.paramOf ?? (s.ofFn ? this.fnOwner.get(s.ofFn) : undefined); if (owner?.callArgs) from.push(...owner.callArgs); }
+    if (k !== "instance") { const owner = s.paramOf ?? (s.ofFn ? this.fnOwner.get(s.ofFn) : undefined); if (owner?.callArgs) from.push(...owner.callArgs); }
     for (const x of from) { const g = this.gives(x.e, x.env, k); if (g) return g.root; }
     if (s.retFlows) for (const n of s.retFlows.names) { const t = s.retFlows.env.lookup(n); if (!t) continue; const r = this.tainted(t, k); if (r) return r; }
     return undefined;
@@ -1836,14 +1899,20 @@ class Checker {
    *  result, and anything that may hold a part of it, stays in the region it is bound in. It leaves through a component's
    *  prop, a provision, an export, a source, a thrown value, or an argument of a call that may keep it: each is recorded
    *  here and decided once the module is walked (`rendersSinks`). */
-  private sinks: { e?: Expr; names: string[]; env: Env; line: number; why: string }[] = [];
+  private sinks: { e?: Expr; names: string[]; env: Env; line: number; why: string; prop?: { comp: Region; field: string } }[] = [];   // prop: the way out is a prop of a component (no way out when that component keeps the prop)
   private sink(e: Expr, env: Env, why: string) { this.sinks.push({ e, names: [], env, line: this.line, why }); }
   private rendersSinks() {
-    for (const sk of this.sinks.splice(0)) {
+    this.allSinks = this.sinks.splice(0);
+    for (const sk of this.allSinks) {
       let hit: { n: string; root: Sym } | undefined;
       if (sk.e) hit = this.gives(sk.e, sk.env, "renders");
       else for (const n of sk.names) { const t = sk.env.lookup(n); const root = t && this.tainted(t, "renders"); if (root) { hit = { n, root }; break; } }
-      if (hit) { this.line = sk.line; this.rendersEscapeMsg(hit.n, hit.root.name, sk.why); }
+      if (!hit) continue;
+      // MO-11l (2026-11-22): a prop of a component that keeps what it is given is no way out: the component is beneath
+      // this region, and so is all it does with the value
+      let why = sk.why;
+      if (sk.prop) { const lets = this.propKeeps(sk.prop.comp, sk.prop.field); if (lets === undefined) continue; why = `${why}, ${lets}`; }
+      this.line = sk.line; this.rendersEscapeMsg(hit.n, hit.root.name, why);
     }
   }
   private rendersEscapeMsg(n: string, root: string, why: string) {
@@ -2120,7 +2189,8 @@ class Checker {
         go(e.l); go(e.r); return;
       case "if": this.wholeOk.add(e.c); go(e.c); go(e.t); go(e.f); return;
       case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
-      case "member": this.wholeOk.add(e.o); this.heldMember(e, env); this.wholeUse(e, env); this.partUse(e, env); if (e.o.k === "id") this.expr(e.o, env, ctx, e.p); else go(e.o); return;
+      case "member": { const pf = this.propField(e, env); if (pf) { if (!this.propNamed.has(pf.comp)) this.propNamed.set(pf.comp, new Set()); this.propNamed.get(pf.comp)!.add(pf.field); } }   // MO-11l: for its signature's `keeps(…)`
+        this.wholeOk.add(e.o); this.heldMember(e, env); this.wholeUse(e, env); this.partUse(e, env); if (e.o.k === "id") this.expr(e.o, env, ctx, e.p); else go(e.o); return;
       case "index": this.wholeOk.add(e.o); this.heldMember(e, env); this.wholeUse(e, env); this.partUse(e, env); go(e.o); go(e.i); return;
       case "arr": e.items.forEach(go); return;
       case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
@@ -2456,7 +2526,7 @@ class Checker {
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? unknownJsComponent(m.tag, s.undeclared) : `<${m.tag}> is not a component declared here`); }
-            for (const a of m.attrs) this.sink(a.e, env, `passed to <${m.tag}> as ${a.name}`);
+            for (const a of m.attrs) this.sinks.push({ e: a.e, names: [], env, line: this.line, why: `passed to <${m.tag}> as ${a.name}`, ...(s?.kind === "comp" && s.compRegion ? { prop: { comp: s.compRegion, field: a.name === "..." ? "*" : a.name } } : {}) });
             // MO-11o (revised 2026-11-21): a value another .rx module made carries what that module checked; its signature
             // does not say. A prop of this component, given on to a prop that renders what it carries, is one this
             // component renders in turn (2026-11-22): its components are named and checked where this component is applied
@@ -2681,9 +2751,11 @@ class Checker {
    *  checker cannot look (a prop, a parameter, a source, a provision, another `.rx` module): what they carry cannot be
    *  named here, so a `renders` prop refuses them. */
   private carriedNames(e: Expr, env: Env, seen: Set<Sym>, out: string[], opaque: [string, string][] = []) {
-    for (const n of this.flowNames(e, env)) {
-      if (n.startsWith("use:")) { opaque.push([`use ${n.slice(4)}`, "a provision, which whatever is above may give"]); continue; }
-      const s = env.lookup(n); if (!s || seen.has(s)) continue; seen.add(s);
+    for (const n0 of this.flowNames(e, env)) {
+      if (n0.startsWith("use:")) { opaque.push([`use ${n0.slice(4)}`, "a provision, which whatever is above may give"]); continue; }
+      const s = n0.startsWith("\u0001") ? this.propsOf(env) : env.lookup(n0);   // a read of one prop (`flows` names the prop) is a read of the props
+      const n = n0.startsWith("\u0001") && s ? s.name : n0;
+      if (!s || seen.has(s)) continue; seen.add(s);
       if (s.carried) this.carriedValues(s.carried.args, s.carried.env, false, out);
       const from = [...(s.val ? [s.val] : []), ...(s.rowOf ? [s.rowOf] : []), ...(s.srcs ?? [])];
       if (from.length) { for (const x of from) this.carriedNames(x.e, x.env, seen, out, opaque); continue; }
@@ -3056,12 +3128,17 @@ class Checker {
         for (const e of es) { if (e.term) { da = da === null ? along(e.chain, "f") : meet(da, along(e.chain, "f")); an = e.term.name; } else { rendered = true; df = meet(df, along(e.chain, "f")); dp = meet(dp, along(e.chain, "p")); } }
         props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...(this.carriedProps.get(G)?.has(f) ? { renders: true } : {}), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
       }
+      // MO-11l: the props it keeps, of those it names whose declared type is not a primitive's (which holds nothing)
+      const scalar = (f: string) => { const t = G.sig ? undefined : this.propsTy.get(G); const ft = t === undefined ? undefined : tyStep(t, { field: f }); return ft !== undefined && tyScalar(ft); };
+      const keeps: string[] = [];
+      for (const f of this.propNamed.get(G) ?? []) if (!scalar(f) && this.propKeeps(G, f) === undefined) keeps.push(f);
+      keeps.sort();
       const e = esc(G);
       const file = (this.opts.file ?? "main.rx").split("/").pop();
       const cs = this.compSyms.get(G);
       const st = this.retains.get(G); const stored: Record<string, string[]> = {};
       if (st) for (const [f, ts] of st) stored[f] = [...new Set([...ts].map(t => t.startsWith("d:") ? "module" : t.slice(2)))].sort();   // an exported component's outside is its module
-      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE, ...(st ? { stored } : {}) };
+      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE, ...(st ? { stored } : {}), ...(keeps.length ? { keeps } : {}) };
     };
   }
   compSig: ((G: Region) => CompSig) | null = null;

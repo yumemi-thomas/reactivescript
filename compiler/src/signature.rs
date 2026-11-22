@@ -73,6 +73,10 @@ pub struct CompSig {
     pub shape: Option<Shape>,
     /// O-3: the props it stores where they outlive it — "module", or a provision's key.
     pub stored: IndexMap<String, Vec<String>>,
+    /// MO-11l (2026-11-22): the props whose value never leaves the component (no prop of a component that does not
+    /// keep it, no provision, source, export, thrown value or call that may keep it): a value `renders` checked where
+    /// it is bound may be given to one, and stays beneath that binding
+    pub keeps: Vec<String>,
 }
 #[derive(Debug, Clone)]
 pub struct SigParam {
@@ -281,7 +285,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 if s.made { " made" } else { "" },
                 if own.is_empty() { String::new() } else { format!(" fails({})", sorted(own).join(" | ")) },
                 if s.requires.is_empty() { String::new() } else { format!(" uses({})", s.requires.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) },
-                retains_text(file, &s.stored),
+                format!("{}{}", retains_text(file, &s.stored), if s.keeps.is_empty() { String::new() } else { format!(" keeps({})", s.keeps.join(", ")) }),
                 shape_text(&s.shape)
             )
         }
@@ -330,6 +334,7 @@ re!(C_FAILS, r"(^|[^A-Za-z0-9_])fails\(([^)]*)\)");
 re!(C_USES, r"(^|[^A-Za-z0-9_])uses\(([^)]*)\)");
 re!(C_MADE, r"^\s*made\b");
 re!(C_RETAINS, r"(^|[^A-Za-z0-9_])retains\(([^)]*)\)");
+re!(C_KEEPS, r"(^|[^A-Za-z0-9_])keeps\(([^)]*)\)");
 re!(C_SHAPE, r"(^|[^A-Za-z0-9_])shape\(([^)]*)\)");
 re!(SOURCE_WORD, r"^source([^A-Za-z0-9_]|$)");
 re!(REF_PARAM, r"^ref\s");
@@ -478,7 +483,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_COMP.captures(&s) {
-            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new() };
+            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), keeps: vec![] };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
                 let (fname0, spec) = match f.find(':') {
@@ -550,6 +555,9 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     let t = crate::parse::js_trim(x.get(i + 1..).unwrap_or("")).to_string();
                     sig.stored.entry(f).or_default().push(if t == "module" { t } else { abs_key(file, &t) });
                 }
+            }
+            if let Some(ks) = C_KEEPS.captures(tail) {
+                sig.keeps = split(&ks[2], ',').iter().map(|k| crate::parse::js_trim(k).to_string()).filter(|k| !k.is_empty()).collect();
             }
             sig.shape = Some(content_shape_of(C_SHAPE.captures(tail).map(|x| x.get(2).unwrap().as_str())).map_err(|e| fail(&e))?);
             exports.insert(m[1].to_string(), ExportSig::Comp { sig });

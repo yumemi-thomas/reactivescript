@@ -139,6 +139,21 @@ called while the view computes (`table.nextPage()` in a view, 09
 MO-10b), and a page a JS host renders with a failure nothing in it
 handles (11 CP-4d, implemented).
 
+## After the fifth review, and the benchmark made fair
+
+The fifth review (an independent model, at `2f9baf7`) and the suite's own
+rework (`bench/README.md`: probes moved out, the unwritable counted
+apart, declarations measured, eleven tasks added) found the rules below
+too narrow or too wide. Each change is a rule's own reading, not a case:
+
+| what was found | decision | rule |
+| --- | --- | --- |
+| `pick = (o) => o.total(); createStamp(pick(fmt))` froze a value: a closure given a closure was read as its own body alone | **refused**: a call of a closure the checker can see calls what its body calls through each parameter, of what the argument holds | 02 E-10 (a closure given to a closure) |
+| `(g: () => string) => g()` was a `PARSE` error | **accepted**: a closure's parameter may have a function type | 07 §3 |
+| shadcn/ui's `<DataTablePagination table={table} />` was `RENDERS_ESCAPES` | **accepted** when the component keeps the prop; its signature says `keeps(table)` | 09 MO-11l (a component that keeps what it is given) |
+| a disposer behind the library's own type name, a subscription object, a branch that drops it, another name that is dropped | **refused**: `DISPOSER_DROPPED` reads the type as declared and every path | 02 EF-5a |
+| `ASYNC_WATERFALL` was given twice for one cause, and never for a loader as `rx-declare` drafts it (io) | **advice once** per question; an io fn awaited for its answer is a question, and the advice says what only `pure` rules out | 99, the advisory rows |
+
 ## RFC 06 — fields of a JS result that wait or fail
 
 **Revised.** A result with field rows is read a field at a time. Its

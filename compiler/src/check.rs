@@ -232,6 +232,9 @@ enum Taint {
     Renders,
     /// E-10, E-5a: the instance a declared primitive made
     Instance,
+    /// MO-11l: what one prop of a component is given (`Checker::probe` says which): asked to know whether the
+    /// component keeps it (`prop_keeps`)
+    Prop,
 }
 /// MO-11l: a place a value may leave its binding's region through, looked at once every call's arguments are known
 struct Sink<'a> {
@@ -241,6 +244,9 @@ struct Sink<'a> {
     env: EId,
     line: i64,
     why: String,
+    /// the way out is a prop of a component: its root, the prop, its name as written (it is no way out when that
+    /// component keeps the prop)
+    prop: Option<(RId, String, String)>,
 }
 
 struct Sym<'a> {
@@ -1033,6 +1039,13 @@ fn duplicate_key(e: &Expr, key: &str) -> Option<String> {
 struct Look<'x> {
     builtin: &'x dyn Fn(&str) -> bool,
     prim: &'x dyn Fn(&Expr) -> bool,
+    /// MO-11l: a read of one field of a component's props (`props.table`) names that field, not the props: the name
+    /// `prop_name` gives it (`Checker::prop_field`)
+    field: &'x dyn Fn(&Expr) -> Option<String>,
+}
+/// The name `flows` gives a read of one prop of a component: no name a program can write.
+fn prop_name(comp: RId, field: &str) -> String {
+    format!("\u{1}{comp}\u{1}{field}")
 }
 /// The name a path is read from: `table` of `table.getState().page`.
 fn path_root(e: &Expr) -> Option<&str> {
@@ -1119,10 +1132,16 @@ fn flows(e: &Expr, bound: &HashSet<String>, locals: &HashMap<String, IndexSet<St
             go(t, out);
             go(f, out);
         }
-        // a slot of a literal written here is that slot: `[clock, 5][1]` is `5`
+        // a slot of a literal written here is that slot: `[clock, 5][1]` is `5`; a field of a component's props is
+        // that prop
         ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => match literal_part(e) {
             Some(x) => go(x, out),
-            None => go(o, out),
+            None => match (&o.k, (builtin.field)(e)) {
+                (ExprKind::Id(n), Some(prop)) if !bound.contains(n) && !locals.contains_key(n) => {
+                    out.insert(prop);
+                }
+                _ => go(o, out),
+            },
         },
         ExprKind::Call { f, args, .. } => {
             if let ExprKind::Id(n) = &f.k {
@@ -1779,6 +1798,17 @@ pub struct Checker<'a> {
     /// E-5a: the closures `ch_of` is reading through a call of them
     ch_fns: HashSet<*const Expr>,
     /// MO-10k: memo of `tainted` (absent while a name is being decided)
+    /// MO-11l: every way out the walk recorded (`renders_sinks` decides them for `renders`; `prop_keeps` asks them
+    /// again for one prop of a component), the prop being asked about, and what was decided
+    all_sinks: Vec<Sink<'a>>,
+    probe: Option<(RId, String)>,
+    keeps_memo: HashMap<(RId, String), Option<String>>,
+    keeps_busy: HashSet<(RId, String)>,
+    keeps_cut: usize,
+    /// the fields of its props a component names (`props.table`), for its signature's `keeps(…)`
+    prop_named: HashMap<RId, IndexSet<String>>,
+    /// a component's props type, as written (its row words taken out)
+    props_ty: HashMap<RId, String>,
     taint_memo: HashMap<(Taint, SId), Option<SId>>,
     taint_busy: HashSet<(Taint, SId)>,
     taint_cut: usize,
@@ -1978,6 +2008,13 @@ impl<'a> Checker<'a> {
             updaters: HashSet::new(),
             draft_cbs: vec![],
             ch_fns: HashSet::new(),
+            all_sinks: vec![],
+            probe: None,
+            keeps_memo: HashMap::new(),
+            keeps_busy: HashSet::new(),
+            keeps_cut: 0,
+            prop_named: HashMap::new(),
+            props_ty: HashMap::new(),
             taint_memo: HashMap::new(),
             taint_busy: HashSet::new(),
             taint_cut: 0,
@@ -2354,7 +2391,7 @@ impl<'a> Checker<'a> {
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
                             props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, renders: false, takes: vec![] });
-                            self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new() });
+                            self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new(), keeps: vec![] });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
                             sym.factory = Some((args.as_slice(), env));
@@ -2404,11 +2441,11 @@ impl<'a> Checker<'a> {
             let mut names = IndexSet::new();
             let name = match d {
                 Decl::Fn { name, params, decls: fdecls, tail, .. } => {
-                    flows_fn(params, fdecls, tail, &Look { builtin: &|n| self.lookup(env, n).is_none(), prim: &|x| self.decl_prim(x, env) }, &mut names);
+                    flows_fn(params, fdecls, tail, &Look { builtin: &|n| self.lookup(env, n).is_none(), prim: &|x| self.decl_prim(x, env), field: &|x| self.prop_field(x, env).map(|(r, f)| prop_name(r, &f)) }, &mut names);
                     name
                 }
                 Decl::Action { name, params, body, .. } => {
-                    flows_returns(body, &mut params.iter().cloned().collect(), &mut HashMap::new(), &Look { builtin: &|n| self.lookup(env, n).is_none(), prim: &|x| self.decl_prim(x, env) }, &mut names);
+                    flows_returns(body, &mut params.iter().cloned().collect(), &mut HashMap::new(), &Look { builtin: &|n| self.lookup(env, n).is_none(), prim: &|x| self.decl_prim(x, env), field: &|x| self.prop_field(x, env).map(|(r, f)| prop_name(r, &f)) }, &mut names);
                     name
                 }
                 _ => continue,
@@ -2647,7 +2684,7 @@ impl<'a> Checker<'a> {
                 }
                 let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                 let r = c.region(None, "imported", true, Some(alias.to_string()));
-                c.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new() });
+                c.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new(), keeps: vec![] });
                 let renders: HashSet<String> = xprops.iter().filter(|p| p.render).map(|p| p.name.clone()).collect();
                 if !renders.is_empty() {
                     c.render_props.insert(r, renders);
@@ -3229,7 +3266,7 @@ impl<'a> Checker<'a> {
             Decl::Source { name, init, question, ty, .. } => {
                 self.sink(init, env, format!("written to {name}"));
                 if d.exported() {
-                    self.sinks.push(Sink { e: None, names: vec![name.clone()], env, line: self.line, why: "exported, for importers to render elsewhere".into() });
+                    self.sinks.push(Sink { e: None, names: vec![name.clone()], env, line: self.line, why: "exported, for importers to render elsewhere".into(), prop: None });
                 }
                 if *question {
                     self.comp("question", env, Some(name.clone()), None, |c| c.expr(init, env, reactive, None));
@@ -3292,7 +3329,7 @@ impl<'a> Checker<'a> {
                 }
                 // MO-11l: an export is a way out — its importers would render it under their own boundaries
                 if d.exported() {
-                    self.sinks.push(Sink { e: None, names: vec![name.clone()], env, line: self.line, why: "exported, for importers to render elsewhere".into() });
+                    self.sinks.push(Sink { e: None, names: vec![name.clone()], env, line: self.line, why: "exported, for importers to render elsewhere".into(), prop: None });
                     // MO-10f: a signature carries an equation's rows, not its fields': an importer's `x.data` would be unseen
                     if let Some(h) = self.envs[env].vars.get(name.as_str()).and_then(|&t| self.syms[t].held.first().cloned()) {
                         self.err("RESULT_AS_VALUE", "MO-10f", format!("{name} is a JS result whose fields hold or fail where each is read ({name}.{}), and a module's signature says nothing of a value's fields: export the field, `export {} = {name}.{}`, which carries its rows", h.0, h.0.rsplit('.').next().unwrap_or(""), h.0));
@@ -3417,7 +3454,7 @@ impl<'a> Checker<'a> {
                     self.syms[ps].param_of = me; // MO-10k
                 }
                 if d.exported() {
-                    self.sinks.push(Sink { e: None, names: vec![name.clone()], env, line: self.line, why: "what an exported action returns, for importers to render elsewhere".into() });
+                    self.sinks.push(Sink { e: None, names: vec![name.clone()], env, line: self.line, why: "what an exported action returns, for importers to render elsewhere".into(), prop: None });
                 }
                 self.comp("action", env, Some(name.clone()), None, |c| c.stmts(body, inner, Ctx { in_action: true, ..Ctx::imperative() }));
                 self.actions.push(ActionRec { name: name.clone(), body, env: inner, line: *line as i64 });
@@ -3454,7 +3491,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 if d.exported() {
-                    self.sinks.push(Sink { e: None, names: vec![name.clone()], env, line: self.line, why: "what an exported fn gives, for importers to render elsewhere".into() });
+                    self.sinks.push(Sink { e: None, names: vec![name.clone()], env, line: self.line, why: "what an exported fn gives, for importers to render elsewhere".into(), prop: None });
                 }
                 self.comp("fn", env, Some(name.clone()), None, |c| {
                     c.block(decls, &[], inner, Ctx { in_fn: true, ..Ctx::reactive() });
@@ -3471,6 +3508,9 @@ impl<'a> Checker<'a> {
                 let r = self.syms[s].comp_region.unwrap();
                 let inner = self.env(Some(env), r);
                 let mut ps = Sym::new(SymKind::Props, props, r, *line as i64);
+                if let Some(t) = props_type {
+                    self.props_ty.insert(r, field_rows(t).0);
+                }
                 // MO-10f (2026-11-22): a prop whose type is a record with field rows (`query: { data: pending fails(Error)
                 // T }`) is read as a JS result with those fields is: a field at a time, each held field's read checked
                 if let Some(held) = self.prop_held.get(&r).cloned() {
@@ -4662,20 +4702,100 @@ impl<'a> Checker<'a> {
     /// The names `e`'s value may come from (`flows`), read in `env`.
     fn flow_names(&self, e: &Expr, env: EId) -> IndexSet<String> {
         let mut out = IndexSet::new();
-        flows(e, &HashSet::new(), &HashMap::new(), &Look { builtin: &|n| self.lookup(env, n).is_none(), prim: &|x| self.decl_prim(x, env) }, &mut out);
+        flows(e, &HashSet::new(), &HashMap::new(), &Look { builtin: &|n| self.lookup(env, n).is_none(), prim: &|x| self.decl_prim(x, env), field: &|x| self.prop_field(x, env).map(|(r, f)| prop_name(r, &f)) }, &mut out);
         out
     }
     /// MO-10k: whether `e`'s value may be, or hold, a value of kind `k`: the first name it mentions that may, and the
     /// binding that value was made at.
     fn gives(&mut self, e: &Expr, env: EId, k: Taint) -> Option<(String, SId)> {
         for n in self.flow_names(e, env) {
+            // one prop of a component (`props.table`): the value asked about when it is the probe's
+            if let Some(rest) = n.strip_prefix('\u{1}') {
+                if k == Taint::Prop {
+                    if let (Some((r, f)), Some((pr, pf))) = (rest.split_once('\u{1}'), &self.probe) {
+                        if r == pr.to_string() && (f == pf || pf == "*") {
+                            if let Some(ps) = self.props_of(env) {
+                                return Some((format!("props.{f}"), ps));
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
             if let Some(s) = self.lookup(env, &n) {
+                // the props given whole hold every prop
+                if k == Taint::Prop && self.syms[s].kind == SymKind::Props && self.probe.as_ref().is_some_and(|(pr, _)| *pr == self.syms[s].region) {
+                    return Some((n, s));
+                }
                 if let Some(root) = self.tainted(s, k) {
                     return Some((n, root));
                 }
             }
         }
         None
+    }
+    /// The component a scope is written in: its root.
+    fn comp_root(&self, env: EId) -> Option<RId> {
+        let r = self.reg(env);
+        if self.regions[r].is_component_root { Some(r) } else { self.regions[r].component }
+    }
+    /// MO-11l (2026-11-22): whether a component keeps what one of its props is given — `None` — or the first way that
+    /// value leaves it. An `.rx` component of this module keeps a prop when no way out its body writes (`all_sinks`:
+    /// a prop of a component, a provision, a source, an export, a thrown value, a call that may keep it) is given a
+    /// value that may hold a part of `props.<field>` (by mention, as MO-10k confines any value), a prop of a component
+    /// that keeps it in turn excepted. One being decided is taken to keep it (components that only hand a value to
+    /// each other keep it between them). A component of another `.rx` module keeps what its signature says
+    /// (`keeps(…)`); a JS component's declaration does not say.
+    fn prop_keeps(&mut self, comp: RId, field: &str) -> Option<String> {
+        let key = (comp, field.to_string());
+        if let Some(m) = self.keeps_memo.get(&key) {
+            return m.clone();
+        }
+        if self.regions[comp].js {
+            return Some("which is a JS component: its declaration does not say what it does with it".into());
+        }
+        if let Some(sig) = &self.regions[comp].sig {
+            return if sig.keeps.iter().any(|k| k == field) { None } else { Some("whose signature does not say it keeps it (`keeps(…)`: it may store it, provide it or hand it on)".into()) };
+        }
+        if !self.keeps_busy.insert(key.clone()) {
+            self.keeps_cut += 1;
+            return None;
+        }
+        let cut = self.keeps_cut;
+        let saved = self.probe.replace(key.clone());
+        self.taint_memo.retain(|(k, _), _| *k != Taint::Prop);
+        let mut out = None;
+        for i in 0..self.all_sinks.len() {
+            let (e, names, env, line, why, prop) = {
+                let sk = &self.all_sinks[i];
+                (sk.e, sk.names.clone(), sk.env, sk.line, sk.why.clone(), sk.prop.clone())
+            };
+            if self.comp_root(env) != Some(comp) {
+                continue;
+            }
+            let hit = match e {
+                Some(e) => self.gives(e, env, Taint::Prop),
+                None => names.iter().find_map(|n| self.lookup(env, n).and_then(|t| self.tainted(t, Taint::Prop)).map(|r| (n.clone(), r))),
+            };
+            let Some((n, _)) = hit else { continue };
+            if let Some((c2, f2, _)) = &prop {
+                let inner = self.prop_keeps(*c2, f2); // given on to a prop that keeps it
+                self.probe = Some(key.clone());
+                self.taint_memo.retain(|(k, _), _| *k != Taint::Prop);
+                if inner.is_none() {
+                    continue;
+                }
+            }
+            out = Some(format!("which does not keep it: there (line {line}) {n} is {why}"));
+            break;
+        }
+        self.probe = saved;
+        self.taint_memo.retain(|(k, _), _| *k != Taint::Prop);
+        self.keeps_busy.remove(&key);
+        if out.is_some() || self.keeps_cut == cut || self.keeps_busy.is_empty() {
+            self.keeps_memo.insert(key, out.clone());
+        }
+        out
     }
     /// MO-10k: a name may be, or hold, a value of kind `k` when it is bound to one (`taint_root`), or to an expression
     /// that mentions a name that may (`flows`): an equation's or a local's value, the list a row or a loop variable goes
@@ -4702,6 +4822,7 @@ impl<'a> Checker<'a> {
     fn taint_root(&self, s: SId, k: Taint) -> bool {
         let sy = &self.syms[s];
         match k {
+            Taint::Prop => false, // its root is a read of the prop (`gives`)
             Taint::Renders => sy.local_renders,
             Taint::Instance => sy.kind == SymKind::Eq && !sy.via_field && matches!(sy.foreign, Some(FShape::Part(Part::Value)) | Some(FShape::Fields(_))),
         }
@@ -4716,7 +4837,7 @@ impl<'a> Checker<'a> {
         from.extend(self.syms[s].srcs.iter().copied());
         // a parameter of a named closure, fn or action: every argument its calls pass. Known once the module is walked,
         // which is when MO-11l asks; E-10 and E-5a ask while walking, and take a call given an instance as a read of it
-        if k == Taint::Renders {
+        if k != Taint::Instance {
             let owner = self.syms[s].param_of.or_else(|| self.syms[s].of_fn.and_then(|p| self.fn_owner.get(&p).copied()));
             if let Some(f) = owner {
                 from.extend(self.syms[f].call_args.iter().copied());
@@ -4743,18 +4864,32 @@ impl<'a> Checker<'a> {
     /// component's prop, a provision, an export, a source, a thrown value, or an argument of a call that may keep it:
     /// each is recorded here and decided once the module is walked (`renders_sinks`).
     fn sink(&mut self, e: &'a Expr, env: EId, why: String) {
-        self.sinks.push(Sink { e: Some(e), names: vec![], env, line: self.line, why });
+        self.sinks.push(Sink { e: Some(e), names: vec![], env, line: self.line, why, prop: None });
     }
     fn renders_sinks(&mut self) {
-        for sk in std::mem::take(&mut self.sinks) {
-            let hit = match sk.e {
-                Some(e) => self.gives(e, sk.env, Taint::Renders),
-                None => sk.names.iter().find_map(|n| self.lookup(sk.env, n).and_then(|t| self.tainted(t, Taint::Renders)).map(|r| (n.clone(), r))),
+        self.all_sinks = std::mem::take(&mut self.sinks);
+        for i in 0..self.all_sinks.len() {
+            let (e, names, env, line, why, prop) = {
+                let sk = &self.all_sinks[i];
+                (sk.e, sk.names.clone(), sk.env, sk.line, sk.why.clone(), sk.prop.clone())
+            };
+            let hit = match e {
+                Some(e) => self.gives(e, env, Taint::Renders),
+                None => names.iter().find_map(|n| self.lookup(env, n).and_then(|t| self.tainted(t, Taint::Renders)).map(|r| (n.clone(), r))),
             };
             if let Some((n, root)) = hit {
-                self.line = sk.line;
+                // MO-11l (2026-11-22): a prop of a component that keeps what it is given is no way out: the component
+                // is beneath this region, and so is all it does with the value
+                let why = match &prop {
+                    Some((comp, field, _)) => match self.prop_keeps(*comp, field) {
+                        None => continue,
+                        Some(lets) => format!("{why}, {lets}"),
+                    },
+                    None => why,
+                };
+                self.line = line;
                 let root = self.syms[root].name.clone();
-                self.renders_escape_msg(&n, &root, &sk.why);
+                self.renders_escape_msg(&n, &root, &why);
             }
         }
     }
@@ -5310,6 +5445,10 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Member { o, p, .. } => {
+                if let Some((comp, field)) = self.prop_field(e, env) {
+                    self.prop_named.entry(comp).or_default().insert(field); // MO-11l: for its signature's `keeps(…)`
+                }
+                let _ = p;
                 self.whole_ok.insert(&**o as *const Expr);
                 self.held_member(e, env);
                 self.whole_use(e, env);
@@ -6174,7 +6313,8 @@ impl<'a> Checker<'a> {
                             }
                         }
                         for a in attrs.iter() {
-                            self.sink(&a.e, env, format!("passed to <{tag}> as {}", a.name));
+                            let prop = s.filter(|_| is_comp).and_then(|s| self.syms[s].comp_region).map(|cr| (cr, field_of(&a.name), a.name.clone()));
+                            self.sinks.push(Sink { e: Some(&a.e), names: vec![], env, line: self.line, why: format!("passed to <{tag}> as {}", a.name), prop });
                         }
                         // MO-11o (revised 2026-11-21): a value another .rx module made carries what that module's own
                         // render checked; its signature says nothing of it, so rendering it here would be unchecked. A prop
@@ -6816,7 +6956,16 @@ impl<'a> Checker<'a> {
                 opaque.push((format!("use {c}"), "a provision, which whatever is above may give".into()));
                 continue;
             }
-            let Some(s) = self.lookup(env, &n) else { continue };
+            // a read of one prop (`flows` names the prop) is a read of the props
+            let (n, s) = if n.starts_with('\u{1}') {
+                match self.props_of(env) {
+                    Some(ps) => (self.syms[ps].name.clone(), ps),
+                    None => continue,
+                }
+            } else {
+                let Some(s) = self.lookup(env, &n) else { continue };
+                (n, s)
+            };
             if !seen.insert(s) {
                 continue;
             }
@@ -8461,6 +8610,16 @@ impl<'a> Checker<'a> {
             let takes = self.prop_held.get(&g).map(|hs| hs.iter().filter_map(|(p, h, c)| p.strip_prefix(&format!("{f}.")).map(|r| (r.to_string(), *h, c.clone()))).collect()).unwrap_or_default();
             props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, renders, takes });
         }
+        // MO-11l: the props it keeps, of those it names whose declared type is not a primitive's (which holds nothing)
+        let named: Vec<String> = self.prop_named.get(&g).map(|fs| fs.iter().cloned().collect()).unwrap_or_default();
+        let scalar = |c: &Self, f: &str| c.regions[g].sig.is_none() && c.props_ty.get(&g).and_then(|t| ty_step(t, &TStep::Field(f.to_string()))).is_some_and(|t| ty_scalar(&t));
+        let mut keeps: Vec<String> = vec![];
+        for f in named {
+            if !scalar(self, &f) && self.prop_keeps(g, &f).is_none() {
+                keeps.push(f);
+            }
+        }
+        keeps.sort();
         let e = self.esc(Some(g));
         let file = self.opts.file.clone().unwrap_or_else(|| "main.rx".into()).split('/').last().unwrap_or("").to_string();
         let shape = match self.comp_syms.get(&g).copied() {
@@ -8477,7 +8636,7 @@ impl<'a> Checker<'a> {
                 stored.insert(f.clone(), v);
             }
         }
-        CompSig { made: false, own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored }
+        CompSig { made: false, own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored, keeps }
     }
 }
 
@@ -8543,7 +8702,7 @@ mod tests {
         out
     }
     fn codes_of(main: &str) -> Vec<String> {
-        let main = format!("import {{ createTable, flexRender, stashJs, createClock, createLabel, useQ, createStore, later }} from \"./lib.js\"\nfn keep(x) {{ x }}\nfn mk(x) {{ () => x }}\nsource held: any := null\ncontext ctx: any\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any }}) {{ <p>ok</p> }}\n{main}");
+        let main = format!("import {{ createTable, flexRender, stashJs, createClock, createLabel, useQ, createStore, later }} from \"./lib.js\"\nfn keep(x) {{ x }}\nfn mk(x) {{ () => x }}\nsource held: any := null\ncontext ctx: any\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any }}) {{ <button onClick={{() => {{ held := props.t }}}}>ok</button> }}\n{main}");
         let read = |p: &str| match p {
             "/app.rx" => Some(main.clone()),
             "/lib.d.rx" => Some(LIB.to_string()),
@@ -8553,6 +8712,57 @@ mod tests {
         check_modules(&set, false).diags.iter().map(|d| d.code.clone()).collect()
     }
     const LOCALS: &str = "  o = { f: (x) => x }\n  id = (x) => x\n  k = \"part\"\n";
+
+    /// MO-11l (2026-11-22): a prop of a component that keeps what it is given is no way out — the component is beneath
+    /// the binding's region — and one that lets it out is, by any of the ways out, through any way of handing it on, and
+    /// through a component it gives it to. `ref/units.ts` holds the same cases.
+    #[test]
+    fn a_prop_that_keeps_what_it_is_given_is_no_way_out() {
+        let run = |comps: &str, app: &str| -> Vec<String> {
+            let main = format!("import {{ createTable, flexRender, stashJs, later }} from \"./lib.js\"\nfn keep(x) {{ x }}\nfn mk(x) {{ () => x }}\nsource held: any := null\ncontext ctx: any\ncomponent Cell() {{ <b>c</b> }}\n{comps}\nexport default component App() {{\n  table = createTable({{ columns: [{{ cell: Cell }}] }})\n{LOCALS}{app}\n}}\n");
+            let read = |p: &str| match p {
+                "/app.rx" => Some(main.clone()),
+                "/lib.d.rx" => Some(LIB.to_string()),
+                _ => None,
+            };
+            let set = load_modules("/app.rx", &read).unwrap_or_else(|e| panic!("{}\n{main}", e.0));
+            check_modules(&set, false).diags.iter().map(|d| d.code.clone()).collect()
+        };
+        // kept: rendered, read, its methods called from handlers, another name for it, given on to a component that keeps it
+        let keeps = [
+            "component Kid(props: { t: any }) { <p>{flexRender(props.t.cell, {})} {len(props.t.rows)}</p> }",
+            "component Kid(props: { t: any }) { <button onClick={() => { props.t.nextPage() }}>next</button> }",
+            "component Kid(props: { t: any }) {\n  u = props.t\n  <p>{len(u.rows)}</p>\n  <Leaf t={u} />\n}\ncomponent Leaf(props: { t: any }) { <p>{len(props.t.rows)}</p> }",
+            "component Kid(props: { t: any; n: number }) { <Kid t={props.t} n={props.n + 1} /> }",
+            "component Kid(props: { t: any }) { <p>kid</p> }",
+        ];
+        // however the value is handed to the prop, by the ways that are not themselves a way out
+        let handed = ["table", "[table][0]", "({ a: table }).a", "keep(table)", "(true ? table : null)", "(table ?? null)", "table.part", "(() => table)()", "[...[table]]"];
+        for k in keeps {
+            for e in handed {
+                assert_eq!(run(k, &format!("  <Kid t={{{e}}} n={{0}} />")), Vec::<String>::new(), "refused:\n{k}\n{e}");
+            }
+        }
+        // let out: each way out, in the component and in one it gives it to
+        let lets = [
+            "<button onClick={() => { held := props.t }}>x</button>",
+            "<button onClick={() => { stashJs(props.t) }}>x</button>",
+            "<button onClick={() => { props.up(props.t.rows) }}>x</button>",
+            "<button onClick={() => { later(() => { held := [props.t] }) }}>x</button>",
+            "<button onClick={() => { let u = props.t; held := u }}>x</button>",
+        ];
+        for l in lets {
+            let direct = format!("component Kid(props: {{ t: any; up: (x: any) => void }}) {{ {l} }}");
+            let through = format!("component Kid(props: {{ t: any }}) {{ <Leaf t={{props.t}} up={{(x) => {{ }}}} /> }}\ncomponent Leaf(props: {{ t: any; up: (x: any) => void }}) {{ {l} }}");
+            for k in [direct, through] {
+                assert!(run(&k, "  <Kid t={table} up={(x) => { }} />").iter().any(|c| c == "RENDERS_ESCAPES"), "accepted:\n{k}");
+            }
+        }
+        for k in ["component Kid(props: { t: any }) {\n  provide ctx = props.t\n  <p>x</p>\n}", "component Kid(props: { t: any }) { <Kid {...props} /> }\ncomponent Other(props: { t: any }) { <p>x</p> }"] {
+            let got = run(k, "  <Kid t={table} />");
+            assert_eq!(got.iter().any(|c| c == "RENDERS_ESCAPES"), k.contains("provide"), "{k}: {got:?}");
+        }
+    }
 
     /// 99, the advisory rows (2026-11-22): a waterfall is advised once for each question, on its own statement; an io
     /// fn awaited for its answer is a question, an io call awaited for nothing a point of order. `ref/units.ts` holds
@@ -8590,7 +8800,7 @@ mod tests {
     fn each_confined_value_has_a_closed_set_of_operations() {
         const LIB2: &str = "export pure fn useQ(): { data: pending fails(Error) any; isFetching: boolean; refetch: () => void; inner: { more: pending any; n: number } }\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createTable(ref options: { columns: { cell: Component }[] }): { label: string; count: () => number; rows: { id: string; cells: any[] }[]; setPage: (n: any) => void; meta: any } renders methods(setPage)\nexport pure fn createClock(): any instantiates methods(format)\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
         let run = |main: &str| -> Vec<String> {
-            let main = format!("import {{ useQ, createStore, createTable, createClock, createLabel, later, stashJs }} from \"./lib.js\"\nsource held: any := null\nsource n := 0\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any; onF: (x: any) => void }}) {{ <p>ok</p> }}\n{main}");
+            let main = format!("import {{ useQ, createStore, createTable, createClock, createLabel, later, stashJs }} from \"./lib.js\"\nsource held: any := null\nsource n := 0\ncomponent Cell() {{ <b>c</b> }}\ncomponent Grid(props: {{ t: any; onF: (x: any) => void }}) {{ <button onClick={{() => {{ held := props.t }}}}>ok</button> }}\n{main}");
             let read = |p: &str| match p {
                 "/app.rx" => Some(main.clone()),
                 "/lib.d.rx" => Some(LIB2.to_string()),

@@ -131,8 +131,9 @@ not reach.
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -141,8 +142,13 @@ export default component App() {
 }
 ```
 
-`Grid` renders the cells, not `App`'s view: whatever `Grid` is under (a
-boundary of its own, or none, a provider or none) is where they run.
+`Grid` does not keep the table: it writes it to a source of its module,
+which any component may read and render, under whatever it is under (a
+boundary of its own, or none, a provider or none). A prop is a way out
+when the component it is given to lets the value out in turn; one that
+keeps it — renders it, reads it, calls its methods from handlers — is
+beneath the region the table is bound in, and is no way out (2026-11-22,
+below).
 
 ```rx
 -- reject: RENDERS_ESCAPES
@@ -164,8 +170,9 @@ An alias travels as the value does.
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -182,8 +189,9 @@ So does a record that holds it, and a field read back out of that record:
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { box: any }) {
-  <table><tbody>{for row in props.box.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.box }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -198,8 +206,9 @@ Every value the prop may be is one it may pass on: a branch of `?:`,
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -215,8 +224,9 @@ of `??`,
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -231,8 +241,9 @@ what a closure returns,
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -246,8 +257,9 @@ export default component App() {
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -262,8 +274,9 @@ a field read by a key the checker cannot know (any field),
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -280,8 +293,9 @@ and a closure that captures it, which the component may call (revised 2026-11-21
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -295,8 +309,9 @@ export default component App() {
 -- reject: RENDERS_ESCAPES
 import { box } from "./boxed.rx"
 import { accent } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <p>{len(props.table.rows)}</p>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -316,8 +331,9 @@ and the checker reads no types, so every part is kept where the whole is.
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Rows(props: { rows: any }) {
-  <table><tbody>{for row in props.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.rows }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -330,8 +346,9 @@ export default component App() {
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -344,8 +361,9 @@ export default component App() {
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Rows(props: { rows: any }) {
-  <p>{len(props.rows)}</p>
+  <button onClick={() => { kept := props.rows }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -376,8 +394,9 @@ table),
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -394,8 +413,9 @@ and so is a row of a `for` over it,
 -- reject: RENDERS_ESCAPES
 import { createTable, flexRender } from "./table.js"
 import { accent, NameCell } from "./cells.rx"
+source kept: any := null
 component Grid(props: { table: any }) {
-  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+  <button onClick={() => { kept := props.table }}>keep</button>
 }
 export default component App() {
   provide accent = "hot"
@@ -544,3 +564,81 @@ export default component App() {
 `label(row)` is a fn of this module given a row: its parameter is a part
 of the table there, and its body only makes a string of it. `select` is
 given `str(row.id)`, a primitive, which it may store.
+
+**A component that keeps what it is given (2026-11-22).** shadcn/ui's
+data table has a pagination component of its own, given the table:
+`<DataTablePagination table={table} />`. A component applied in the
+view the table is bound in is beneath that binding, and so is all it
+does with the table, as long as the table does not leave it: no way out
+written in its body — a prop of a component that does not keep it in
+turn, a provision, a source, an export, a thrown value, a call that may
+keep it — is given a value that may hold a part of `props.table`. That
+is the rule of the binding's own region, asked of the component's prop;
+the component's signature says it (`keeps(table)`), so it holds across
+modules.
+
+```rx
+-- accept
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Pagination(props: { table: any }) {
+  t = props.table
+  <span>{t.page + 1} of {len(t.rows)}</span>
+  <button onClick={() => { props.table.nextPage() }}>next</button>
+  <Jump table={t} />
+}
+component Jump(props: { table: any }) {
+  <button onClick={() => { props.table.setPage(0) }}>first</button>
+}
+component Grid(props: { table: any }) {
+  <table><tbody>{for row in props.table.rows { <tr>{for cell in row.cells { <td>{flexRender(cell.column.cell, { value: cell.value })}</td> }}</tr> }}</tbody></table>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  <Grid table={table} />
+  <Pagination table={table} />
+}
+```
+
+`Pagination` gives the table on to `Jump`, which keeps it too; `Grid`
+renders the cells under `App`'s provision, where `renders` checked them.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+component Pagination(props: { table: any; onReady: (t: any) => void }) {
+  <button onClick={() => { props.onReady(props.table) }}>ready</button>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  <Pagination table={table} onReady={(t) => { }} />
+}
+```
+
+Handed to a callback, the table is whoever applied the component's: the
+diagnostic is at the application, and names the line in `Pagination`
+where it leaves.
+
+```rx
+-- reject: RENDERS_ESCAPES
+import { createTable, flexRender } from "./table.js"
+import { accent, NameCell } from "./cells.rx"
+context shared: any
+component Outer(props: { table: any }) {
+  <Inner table={props.table} />
+}
+component Inner(props: { table: any }) {
+  provide shared = props.table
+  <p>inner</p>
+}
+export default component App() {
+  provide accent = "hot"
+  table = createTable({ data: [{ name: "Ann" }], columns: [{ key: "name", cell: NameCell }] })
+  <Outer table={table} />
+}
+```
+
+A component keeps a prop it gives on only as far as the next one does.

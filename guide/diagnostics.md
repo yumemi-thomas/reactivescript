@@ -1412,18 +1412,44 @@ name, `export component Dialog.Trigger(props: { … })` (MO-11q), and a member i
 A JS fn declared `renders` (a headless table) has the components it is given checked where its result is bound, so
 that is where the result must be rendered (MO-11l). The result, and anything that may hold a part of it — an alias, a
 record or an array holding it, a field read out of it (`table.rows`), a row of a `for` over it, what a call given it
-returns — stays in the region it is bound in: passed to a component, provided, exported, written to a source, thrown, or
-handed to a call that may keep it, it could be rendered under other boundaries and providers than the ones it was
-checked under. Render it in the view where it is bound. What leaves that view is a primitive made of it: `str(row.id)`,
-a template, arithmetic, a comparison, `len(table.rows)`; a part its declaration types as a primitive
-(`getPageCount: () => number`, `rows: { id: string }[]`); and a handler that only calls it,
-`onPress={() => { table.nextPage() }}`, gives nothing away. A method is taken to keep nothing of what it is given only
-when the declaration names it (`methods(setSorting)`) and it is called on the value's own name. A library whose result is rendered elsewhere declares
-where: `renders(later)` with a component prop that `renders` it, or `renders(root, …)` for a root of its own. The same
-code is reported where a prop that `renders` (MO-11o) is given a value the checker cannot name the components of: a
-prop, a parameter, a source, a provision, or a value another `.rx` module made.
+returns — stays beneath the region it is bound in: provided, exported, written to a source, thrown, or handed to a call
+that may keep it, it could be rendered under other boundaries and providers than the ones it was checked under.
+
+A component is beneath the view that applies it, so the table may be a component's prop — shadcn/ui's
+`<DataTablePagination table={table} />` — when the component keeps it: it renders it, reads it, calls its methods from
+handlers, gives it on to a component that keeps it in turn, and lets it out by none of the ways above. A component
+that does not is where the value leaves, and the diagnostic at the application names the line in it. A JS component
+does not say what it does with a prop, so it is never one that keeps it.
+
+What else leaves that view is a primitive made of it: `str(row.id)`, a template, arithmetic, a comparison,
+`len(table.rows)`; a part its declaration types as a primitive (`getPageCount: () => number`,
+`rows: { id: string }[]`); and a handler that only calls it, `onPress={() => { table.nextPage() }}`, gives nothing away.
+A method is taken to keep nothing of what it is given only when the declaration names it (`methods(setSorting)`) and it
+is called on the value's own name. A library whose result is rendered elsewhere declares where: `renders(later)` with a
+component prop that `renders` it, or `renders(root, …)` for a root of its own. The same code is reported where a prop
+that `renders` (MO-11o) is given a value the checker cannot name the components of: a prop, a parameter, a source, a
+provision, or a value another `.rx` module made.
 
 ```rx before
+-- module: ./table.d.rx
+export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders
+export pure fn flexRender(comp: any, props: any): any
+-- main
+import { createTable, flexRender } from "./table.js"
+source shown: any := null
+component Cell() {
+  <b>cell</b>
+}
+component Pick(props: { table: any }) {
+  <button onClick={() => { shown := props.table }}>show it elsewhere</button>
+}
+export default component App() {
+  table = createTable({ columns: [{ cell: Cell }] })
+  <Pick table={table} />
+}
+```
+
+```rx after
 -- module: ./table.d.rx
 export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders
 export pure fn flexRender(comp: any, props: any): any
@@ -1438,21 +1464,6 @@ component Grid(props: { table: any }) {
 export default component App() {
   table = createTable({ columns: [{ cell: Cell }] })
   <Grid table={table} />
-}
-```
-
-```rx after
--- module: ./table.d.rx
-export pure fn createTable(ref options: { columns: { cell: Component }[] }): any renders
-export pure fn flexRender(comp: any, props: any): any
--- main
-import { createTable, flexRender } from "./table.js"
-component Cell() {
-  <b>cell</b>
-}
-export default component App() {
-  table = createTable({ columns: [{ cell: Cell }] })
-  <p>{for c in table.cells { <span>{flexRender(c, {})}</span> }}</p>
 }
 ```
 

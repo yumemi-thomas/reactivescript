@@ -80,7 +80,7 @@ function line(file: string, name: string, x: ExportSig): string {
         return `${f === "*" ? "...props" : f}${parts.length ? `: ${parts.join(" ")}` : ""}`;
       });
       const own = [...new Set(s.own.map(o => o.cls))];
-      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${s.made ? " made" : ""}${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${retainsText(file, s.stored)}${shapeText(s.shape)}`;
+      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${s.made ? " made" : ""}${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${retainsText(file, s.stored)}${s.keeps?.length ? ` keeps(${s.keeps.join(", ")})` : ""}${shapeText(s.shape)}`;
     }
   }
 }
@@ -169,6 +169,7 @@ export function parseSignature(src: string, file: string): ModSig {
       const fl = /\bfails\(([^)]*)\)/.exec(tail); if (fl) sig.own = classesOf(fl[1]).map(c => ({ cls: c, what: `${m![1]}'s root`, at: file.split("/").pop() }));
       const us = /\buses\(([^)]*)\)/.exec(tail); if (us) sig.requires = us[1].split(",").map(k => absKey(file, k.trim()));
       const so = /\bretains\(([^)]*)\)/.exec(tail); if (so) { sig.stored = {}; for (const x of split(so[1], ",")) { const i = x.indexOf(":"); const f0 = x.slice(0, i).trim(); const f = f0 === "...props" ? "*" : f0; const t = x.slice(i + 1).trim(); (sig.stored[f] ??= []).push(t === "module" ? t : absKey(file, t)); } }   // O-3
+      const ks = /\bkeeps\(([^)]*)\)/.exec(tail); if (ks) { const fs = split(ks[1], ",").map(k => k.trim()).filter(Boolean); if (fs.length) sig.keeps = fs; }   // MO-11l
       sig.shape = contentShapeOf(/\bshape\(([^)]*)\)/.exec(tail)?.[1]);
       exports.set(m[1], { kind: "comp", sig }); return;
     }

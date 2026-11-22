@@ -90,6 +90,9 @@ A component's summary is what the static application tree needs from it
   provision above it), passed on to a component that does included. A
   closure passed for one is checked at the application against that
   place. `.d.rx`: `retains(onPick: module, onFocus: ./form.rx#fields)`.
+  And the props it **keeps** (MO-11l, 2026-11-22): those whose value
+  never leaves it, so a value `renders` checked where it is bound may be
+  given to one. `.d.rx`: `keeps(table, row)`.
 
 The summary is exact for the checks it serves: a class escapes a set of
 paths iff it is missing from the intersection of what the paths discharge.
@@ -901,7 +904,7 @@ export component Search(props: { start: boolean, q: string }) {
   | --- | --- | --- | --- |
   | a result with held fields (MO-10f) | read a declared field (by `.`, `[…]`, a rest that names the held ones); call a declared function field; another name by an equation; compare, test | the field is in the declared result type | `RESULT_AS_VALUE`: an inherited method (`valueOf`, `toJSON`), an undeclared field, a call through a computed key |
   | a library's draft (MO-10i) | read a path (a copy where kept); write a path; loop over a path; call a method of plain data from MO-10i's table | the method's name is an Array's, a Map's, a Set's, a string's or a number's; a function it calls is a closure written in the call | `DRAFT_ESCAPES`; what a known method answers is copied, an iterator run to its end |
-  | a `renders` value (MO-11l) | read and render it in its region; give it to a `pure` JS fn; call a method `methods(…)` names on its own name; let a part out that its declared type says is a primitive | `methods(…)` and the declared result type; `pure` | `RENDERS_ESCAPES` where a call that may keep it is given it or a part of it |
+  | a `renders` value (MO-11l) | read and render it in its region; give it to a `pure` JS fn, or to a prop of an `.rx` component that keeps it; call a method `methods(…)` names on its own name; let a part out that its declared type says is a primitive | `methods(…)` and the declared result type; `pure` | `RENDERS_ESCAPES` where a call that may keep it is given it or a part of it |
   | a primitive's instance (E-10, E-5a) | name it, pass it whole; call a method `methods(…)` names on its own name or an alias's | `methods(…)` | a read of what may change: `SNAPSHOT_ARGUMENT`, `SNAPSHOT_KEPT` |
 
   The declared result type is read as text, a step at a time
@@ -1170,7 +1173,7 @@ export default component App() {
 
   | way out | refused where |
   | --- | --- |
-  | a component's prop — an `.rx` component's or a JS one's, a spread, a closure that returns it | the attribute |
+  | a component's prop — a JS component's, or an `.rx` component's that does not keep it (below) — as it is, in a spread, in a closure that returns it | the attribute |
   | a provision | the `provide` |
   | an export — the name, a fn or an action that gives it, a source seeded with it | the declaration |
   | a source: its seed, a write, a guess | the write |
@@ -1215,9 +1218,57 @@ export default component App() {
   declaration (`renders` is the library's claim that it renders through
   what the app calls there) and on `pure` at the JS boundary. It is
   stricter than the earlier revisions on purpose: they let a path read
-  through (`<Rows rows={table.rows} />`, `held := table.rows`, a row of
-  `for t in [table]`), which carries the components as well as the table
-  does. S-module-16.
+  through (`held := table.rows`, a row of `for t in [table]` given to
+  whatever would take it), which carries the components as well as the
+  table does. S-module-16.
+
+  **A component that keeps what it is given (2026-11-22, after the
+  review).** The table above refused every component's prop, and with
+  it shadcn/ui's data table as it is written: `<DataTablePagination
+  table={table} />`, a component of the app's own given the table to
+  read its page count and call `nextPage()`. The guarantee does not need
+  that. A component applied in the region the value is bound in is
+  *beneath* that region, and so is everything it renders: boundaries
+  and provisions only add on the way down, so what was checked at the
+  binding holds wherever beneath it the components run. What the
+  guarantee needs is that the value does not leave *that component*.
+  So an `.rx` component's prop is a way out only when the component
+  does not **keep** it: a component keeps a prop when no way out
+  written in its body — the table's rows above: a prop of a component
+  that does not keep it in turn, a provision, a source, an export, a
+  thrown value, a call that may keep it — is given a value that may
+  hold a part of `props.<field>`, by mention (MO-10k: an alias, a row
+  of a loop over it, a parameter handed it, what a call given it
+  returns), or the props whole (a spread, a rest). It is the binding
+  region's own rule asked of the prop, by the same analysis; a
+  component being decided is taken to keep it, so two components that
+  only hand the value to each other keep it between them. Rendering it
+  (`flexRender(props.table…)`), reading it, calling its methods from a
+  handler, and giving it on to a component that keeps it are all it
+  can do.
+
+  The summary is in the component's signature, as MO-11o's `renders`
+  and MO-10f's `takes(…)` are: `export component DataTablePagination(
+  props: { table }) keeps(table)` lists the props the component names
+  and keeps, a prop whose declared type is a primitive's left out (it
+  holds nothing). An importer reads it there; a signature that does
+  not say `keeps(…)` of a prop is one that may let it out, which is the
+  reading of a hand-written `.d.rx` too. A JS component's declaration
+  has no such word — what it does with a prop is its own — so a
+  `renders` value is still not given to one (a library that renders a
+  value it is handed says `renders(later)` and a prop that `renders`
+  it, MO-11o). The diagnostic stays at the application, where the value
+  is bound and the choice is, and says where in the component it
+  leaves: "passed to <Pick> as table, which does not keep it: there
+  (line 6) props.table is written to shown". *Guarantee, restated:* in
+  a program the checker accepts, a bare `renders` result, and any
+  value read out of it, is held only by code of the region it is bound
+  in and of the components applied beneath that region which it was
+  given to and which keep it. S-module-16 (the kept table, a callback
+  that hands it up, a component that gives it on to one that provides
+  it), the unit `a_prop_that_keeps_what_it_is_given_is_no_way_out`
+  (every way out, in the component and in one it gives it to),
+  `bench/tasks/table-pagination`.
 - **MO-11n (Components a library renders under its own root) — proposed
   2026-11-19.** `renders(root)` is `renders` (MO-11l) for a library that
   mounts the components it is given with a root of its own (`render()`,
