@@ -700,6 +700,47 @@
       }
     }
   },
+  "rx-package": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 8,
+      "total": 8,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 23,
+      "total": 23,
+      "fails": []
+    },
+    "bad": {
+      "pass": 9,
+      "total": 9,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 0,
+      "total": 0,
+      "fails": []
+    },
+    "decl": {
+      "words": 0,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0,
+      "draft": {
+        "rows": 0,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
+    }
+  },
   "sequential-awaits": {
     "good": {
       "pass": 3,

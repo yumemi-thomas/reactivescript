@@ -144,7 +144,17 @@ does for `.tsrx`. Nothing here is a second type system.
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such
-  `.d.ts`, so there its exports are `any`.
+  `.d.ts`, so there its exports are `any`. The file is `x.rx.d.ts`, what
+  TypeScript looks for when a module imports `./x.rx` and there is no
+  `x.rx` (rx-tsc writes it with `--declaration`). A package written in
+  `.rx` ships it for each module beside the module's printed signature (09
+  MO-13d), and an import whose declaration is such a signature is
+  projected as an import of that module, by its path from the importer,
+  so the same file types it; the package's `x.d.ts` is another file, the
+  types of the JavaScript a `.tsx` app imports (09 MO-13f), written from
+  the first by kind: `typeof` the projection's export for a component, a
+  fn and an action, an accessor of it for a source or an equation, and for
+  a fn that instantiates its `ref` parameters and its result as accessors.
 
 ## TY-5 — Rules the projection states as types
 

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+**New**
+
+- A library written in `.rx` can be published and used from `.rx` apps and from `.tsx` Solid 2 apps (spec/09 MO-13).
+  `rx-lib` (`@reactivescript/compiler`) builds a package: each module compiled for the browser and the server, the
+  module an import resolves to on each side, the printed signature as its `.d.rx`, the projection's types
+  (`x.rx.d.ts`) and the types of the JavaScript (`x.d.ts`), and it holds the package.json's `exports` to that layout
+  (`--write` writes them). An `.rx` app is checked against the shipped `.d.rx` as against the package's source; a
+  `.tsx` app gets TypeScript's checks only. The runtime has `library(factory)` for the JavaScript side.
+- A `.d.rx` that begins `//@ signature <module>.rx` is the printed signature of a compiled `.rx` module, and is read
+  as one wherever a JS import finds it (beside a relative module, or a package's): absent `rejects(…)` is nothing,
+  sources, equations, actions, contexts with relative keys, `catches`, `shape(…)` are the signature's. The compiler
+  writes the line on every signature it prints (the header comment it wrote before is gone). A `.d.rx` without it is
+  a JS module's declaration, as before. The tree-sitter grammar reads such a file.
+
 **Changed**
 
 - The record after a component's props' type is held to that type (spec/13 TY-6f, 09 MO-8o). `props: P & { onChange?:

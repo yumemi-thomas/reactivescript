@@ -221,6 +221,8 @@ fn signature_stub(sig: &ModSig) -> String {
         .map(|(n, x)| match x {
             ExportSig::Type => format!("export type {n} = any;"),
             ExportSig::Comp { .. } => format!("export declare function {n}(props: any): any;"),
+            // a class is a value and the type of its instances (`errored fallback(e: NotFound)`)
+            ExportSig::ErrClass { .. } => format!("export declare const {n}: any;\nexport type {n} = any;"),
             _ => format!("export declare const {n}: any;"),
         })
         .collect::<Vec<_>>()
@@ -660,6 +662,13 @@ impl Proj<'_> {
         }
         if has_parts {
             c = c.t("{ ").c(Code::join(parts, ", ")).t(" }");
+        }
+        // MO-13d: an import whose declaration is a printed signature is typed as the .rx module the signature stands for
+        // (TY-4c: `x.rx.d.ts`, beside it), so its specifier is that module's, and maps nowhere
+        if let (Some(r), false) = (resolved, crate::modules::is_rx(from)) {
+            c = c.t(" from ").t(&js_str(&crate::modules::relative_module(&self.path, r))).t(";");
+            self.w.emit(c, *line);
+            return;
         }
         let q = js_str(from);
         let fa = self.find(&q[1..q.len() - 1], sp, at).map(|a| a - 1).filter(|a| self.src[*a..].starts_with(&q));

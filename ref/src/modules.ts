@@ -6,9 +6,24 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
 
-export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; declarationIds?: Map<string, string> };   // declarationIds: SV-5a, `packageRelative`   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
+export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; declarationIds?: Map<string, string>; printed?: Set<string> };   // printed: MO-13a, the signatures a JS import's marked `.d.rx` gave, by `.rx` path   // declarationIds: SV-5a, `packageRelative`   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
 
 export const isRx = (from: string) => /\.rx$/.test(from);
+
+/** MO-13a: whether a `.d.rx` is the printed signature of a compiled `.rx` module — a line `//@ signature …` before its
+ *  first row. Such a file is read as MO-9b reads it wherever it is found (beside a JS module, MO-8a; a package's, MO-8k),
+ *  not as a JS module's declaration. */
+export function isPrintedSignature(src: string): boolean {
+  for (const raw of src.split("\n")) { const t = raw.trim(); if (!t) continue; if (/^\/\/@\s*signature(\s|$)/.test(t)) return true; if (!t.startsWith("//")) return false; }
+  return false;
+}
+/** `to` as an import from the module `from` writes it: a relative path where both are absolute or both are not. */
+export function relativeModule(from: string, to: string): string {
+  if (from.startsWith("/") !== to.startsWith("/")) return to;
+  const a = from.split("/").slice(0, -1).filter(x => x && x !== "."), b = to.split("/").filter(x => x && x !== "."); let i = 0;
+  while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
+  return (a.length - i ? "../".repeat(a.length - i) : "./") + b.slice(i).join("/");
+}
 
 /** POSIX-style join and normalisation, for module keys (no file system involved). */
 export function joinPath(fromFile: string, rel: string): string {
@@ -109,7 +124,7 @@ export function besideDeclaration(importer: string, from: string, read: (path: s
 
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
-  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>(); const wireIds = new Map<string, string>();   /* SV-5a: each declared error class's wire id (`id#Name`), and the declaration it is */ const declarationIds = new Map<string, string>();
+  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>(); const printed = new Set<string>(); const wireIds = new Map<string, string>();   /* SV-5a: each declared error class's wire id (`id#Name`), and the declaration it is */ const declarationIds = new Map<string, string>();
   const state = new Map<string, "busy" | "done">();
   const visit = (path: string, stack: string[]) => {
     if (state.get(path) === "done") return;
@@ -122,6 +137,10 @@ export function loadModules(entry: string, read: (path: string) => string | unde
       const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? declarationFor(path, d.from, read) : undefined;   // MO-8k, MO-10c
       if (d.k === "import" && !isRx(d.from) && (d.from.startsWith(".") || pkgDts)) {             // MO-8: a JS module with a declaration file beside it
         const dts = pkgDts ?? besideDeclaration(path, d.from, read);
+        // MO-13a: a declaration that says it is a compiled .rx module's printed signature is that module's signature (MO-9b)
+        const rx = dts.replace(/\.d\.rx$/, ".rx");
+        if (!printed.has(rx) && !declarations.has(dts)) { const src = read(dts); if (src !== undefined && isPrintedSignature(src)) { try { signatures.set(rx, parseSignature(src, rx)); printed.add(rx); } catch (e) { if (e instanceof SignatureError) throw new ParseError(e.message); throw e; } } }
+        if (printed.has(rx)) { d.resolved = rx; continue; }
         if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try {
           const ds = parseDeclarations(src);
           // SV-5a: the declaration's identity; two that would name an error class alike are not told apart
@@ -152,7 +171,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
-  return { entry, programs, order, diags, declarations, signatures, declarationIds };
+  return { entry, programs, order, diags, declarations, signatures, declarationIds, printed };
 }
 
 /** One program with no `.rx` imports — the common case, and every scenario before 09. */

@@ -101,6 +101,8 @@ jobs:
         run: |
           node compiler/test/drafts.mjs
           node compiler/test/ssr-held.mjs
+      - name: "the library build: a package written in .rx (MO-13e)"
+        run: node compiler/test/lib.mjs
       - name: The libraries confined.mjs runs against (bench/package.json)
         run: |
           mkdir -p bench/.out/ws && cp bench/package.json bench/.out/ws/package.json

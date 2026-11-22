@@ -227,14 +227,26 @@ pub fn compile_linked_as(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, 
         let css0 = g.css.len();
         g.begin_module(path, &p.decls);
         let mut deps: Vec<&str> = vec![];
+        // MO-13c: a module a JS import's printed signature stands for is the compiled JavaScript that import names,
+        // whose `__rx` is the module's factory
+        let mut compiled: HashMap<&str, &str> = HashMap::new();
         for d in &p.decls {
-            if let Decl::Import { resolved: Some(r), .. } = d {
+            if let Decl::Import { resolved: Some(r), from, .. } = d {
                 if !deps.contains(&r.as_str()) {
                     deps.push(r);
                 }
+                if !crate::modules::is_rx(from) {
+                    compiled.insert(r, from);
+                }
             }
         }
-        let mut body: Vec<S> = deps.iter().map(|d| S::ImportDefault(g.dep_var(d), if by_source { relative(path, d) } else { format!("./{}", g.out(d)) })).collect();
+        let mut body: Vec<S> = deps
+            .iter()
+            .map(|d| match compiled.get(d) {
+                Some(from) => S::ImportNamed(vec![("__rx".to_string(), g.dep_var(d))], from.to_string()),
+                None => S::ImportDefault(g.dep_var(d), if by_source { relative(path, d) } else { format!("./{}", g.out(d)) }),
+            })
+            .collect();
         if *path == set.entry && !library {
             let root = g.new_env(None);
             let inner = g.block(&p.decls, &p.view, root, None, true)?;
@@ -656,13 +668,14 @@ impl<'p> Gen<'p> {
         // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
         let mut instantiated: HashSet<String> = HashSet::new();
         for d in decls {
-            let Decl::Import { resolved: Some(r), names, .. } = d else { continue };
+            let Decl::Import { resolved: Some(r), names, from, .. } = d else { continue };
             let n0 = out.len();
             let iv = format!("__i{}", self.mod_index(r));
             if instantiated.insert(iv.clone()) {
                 // MO-1b: once per app. A bundler's module is one factory function wherever it is imported from, so by source the
-                // factory is its own key: a module shared by two programs gets the same key in both (11 CP-7).
-                let key = if self.by_source { id(self.dep_var(r)) } else { str(self.out(r)) };
+                // factory is its own key: a module shared by two programs gets the same key in both (11 CP-7). MO-13c: so is
+                // the compiled module a printed signature stands for, in every build.
+                let key = if self.by_source || !crate::modules::is_rx(from) { id(self.dep_var(r)) } else { str(self.out(r)) };
                 out.push(konst(iv.clone(), rtc("module", vec![key, id(self.dep_var(r))])));
             }
             for n in names {

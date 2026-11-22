@@ -438,3 +438,34 @@
     ">"
     "</"
   ] @punctuation.bracket)
+
+; A printed signature (.d.rx of a compiled .rx module, MO-13a)
+
+(signature_pragma) @keyword.directive
+
+(signature_export
+  "export" @keyword)
+
+[
+  "catches"
+  "takes"
+  "retains"
+  "keeps"
+  "io"
+  "lane"
+  "loading"
+  "module"
+] @keyword
+
+(context_key) @string.special
+(shape_words) @string.special
+(signature_path) @property
+
+(signature_type name: (type_identifier) @type)
+(signature_error name: (type_identifier) @type)
+(signature_fn name: (identifier) @function)
+(signature_action name: (identifier) @function)
+(signature_component name: (identifier) @constructor)
+(signature_source name: (identifier) @variable)
+(signature_equation name: (identifier) @variable)
+(signature_context name: (identifier) @variable)

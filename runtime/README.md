@@ -94,6 +94,11 @@ inside the framework's request, or pass the app, `components(pages,
 createApp({ request }))`. TanStack
 Start's file routes use this (`examples/start`).
 
+A package written in `.rx` and built by `rx-lib` (spec/09 MO-13e) is a Solid library to JavaScript through
+`library(factory)`: each export of the compiled module as a function bound the same way — to the page's one app, on
+the server to the request's — with the module instantiated in a root of its own at its first use. A package's
+`index.js` calls it; an app does not.
+
 Solid is a peer: `solid-js`, `@solidjs/web` and `@solidjs/signals` (the
 runtime reads owner context from `@solidjs/signals`, which `solid-js` runs on;
 with pnpm, add it to the app).

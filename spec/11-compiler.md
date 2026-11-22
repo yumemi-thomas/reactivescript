@@ -199,6 +199,22 @@ record argued each way; this is the decision.
   runtime's `@reactivescript/runtime/rx-lib` pattern. It is how a framework that owns routing and the document —
   TanStack Start's file routes, which its generator reads as TypeScript —
   renders `.rx` components (`examples/start`, `compiler/test/start.mjs`).
+- **CP-4e (A package's `.rx` modules) — proposed 2026-11-22.** A library
+  written in `.rx` is built once for every app (09 MO-13e): `rx-lib`
+  (`compiler/lib.mjs`, the bin of `@reactivescript/compiler`) compiles each
+  module as CP-4d's library module is compiled (`rxc app --lib`, for `dom`
+  and for `ssr`), and writes beside each pair the module that an import of
+  the package resolves to. That module exports the factory as `__rx`,
+  which a compiled `.rx` importer instantiates in its own app
+  (`__rt.module(__rx, __rx)`, 09 MO-13c), and every other export through
+  the runtime's `library(factory)`: a function per export that finds the
+  app as `components` does (the page's; on the server the request's) and
+  calls the instance's export — so one helper serves a component, an
+  accessor, a fn, an action and an error class (`Symbol.hasInstance` tests
+  the instance's class). `library` instantiates the module in a root of
+  its own (`createRoot`), so the state of a module first read inside a
+  `<Show>` is not disposed with it. It is the one name the runtime adds
+  for packages, and it is Solid's `createRoot` and a `Proxy`.
 
 ## CP-5 — `ref/` is the conformance suite
 

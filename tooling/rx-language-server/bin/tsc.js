@@ -89,7 +89,9 @@ process.on("exit", code => {
   // own). A .d.rx that only sits beside a module, imported by nothing, is not the program's.
   const uses = [];
   for (const a of analyses()) for (const u of a.result.declarations ?? []) if (!uses.some(x => x.file === u.file && x.importer === u.importer && x.spec === u.spec)) uses.push(u);
-  const namedDecls = [...new Set((parsed?.fileNames ?? []).filter(f => f.endsWith(".d.rx")).map(f => path.resolve(f)))];
+  // (MO-13a: a printed signature — `//@ signature` before its first row — declares no JS module: the compiler wrote its rows)
+  const printed = f => { try { for (const l of require("node:fs").readFileSync(f, "utf8").split("\n")) { const t = l.trim(); if (!t) continue; if (/^\/\/@\s*signature(\s|$)/.test(t)) return true; if (!t.startsWith("//")) return false; } } catch { /* unreadable: not one */ } return false; };
+  const namedDecls = [...new Set((parsed?.fileNames ?? []).filter(f => f.endsWith(".d.rx")).map(f => path.resolve(f)))].filter(f => !printed(f));
   const importers = new Map();
   for (const u of uses) importers.set(path.resolve(u.file), [...(importers.get(path.resolve(u.file)) ?? []), u.importer]);
   for (const f of namedDecls) if (!importers.has(f)) importers.set(f, []);

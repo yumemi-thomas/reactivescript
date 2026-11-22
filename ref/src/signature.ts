@@ -86,7 +86,7 @@ function line(file: string, name: string, x: ExportSig): string {
 }
 
 export function printSignature(sig: ModSig): string {
-  const out = [`// ${sig.file.split("/").pop()} — signature (09-modules MO-3). Sources are read-only to importers (MO-2).`];
+  const out = [`//@ signature ${sig.file.split("/").pop()} (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).`];
   for (const [n, x] of sig.exports) out.push(line(sig.file, n, x));
   return out.join("\n") + "\n";
 }

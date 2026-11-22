@@ -49,10 +49,97 @@ module.exports = grammar(tsx, {
   rules: {
     // ---------------------------------------------------------------- modules
 
-    program: $ => seq(
-      optional($.hash_bang_line),
-      repeat($._module_item),
+    // A `.d.rx` whose first line is `//@ signature …` is a compiled .rx module's printed signature (09 MO-13a): its
+    // rows are MO-9b's notation (signature.rs prints and reads it), not a JS module's declaration
+    program: $ => choice(
+      seq(
+        optional($.hash_bang_line),
+        repeat($._module_item),
+      ),
+      seq($.signature_pragma, repeat($.signature_export)),
     ),
+
+    // ---------------------------------------------------------------- a printed signature (MO-9b, MO-13a)
+
+    signature_pragma: _ => token(prec(2, /\/\/@[ \t]*signature([ \t][^\r\n]*)?/)),
+
+    signature_export: $ => seq('export', field('declaration', choice(
+      $.signature_type,
+      $.signature_error,
+      $.signature_action,
+      $.signature_source,
+      $.signature_context,
+      $.signature_fn,
+      $.signature_component,
+      $.signature_equation,
+    ))),
+
+    // `export type Product`: a name, its type is the projection's (13 TY-4c)
+    signature_type: $ => seq('type', field('name', alias($.identifier, $.type_identifier))),
+    // `export error NotFound(id)`
+    signature_error: $ => seq('error', field('name', alias($.identifier, $.type_identifier)), optional(seq('(', commaSep(field('parameter', $.identifier)), ')'))),
+    signature_action: $ => seq('action', field('name', $.identifier)),
+    // `export source products: pending fails(Error) = …` (a question, ST-5); `:= …` a plain source
+    signature_source: $ => seq('source', field('name', $.identifier), optional(seq(':', $.signature_rows)), field('operator', choice(':=', '=')), '…'),
+    // `export discount: pending fails(Error)`: an equation
+    signature_equation: $ => seq(field('name', $.identifier), optional(seq(':', $.signature_rows))),
+    // `export context theme: source pending Theme = …`
+    signature_context: $ => prec.right(seq(
+      'context',
+      field('name', $.identifier),
+      optional(seq(':', optional('source'), field('type', $.type))),   // its rows are the type's own (`pending fails(E) T`, row_type)
+      optional(seq('=', '…')),
+    )),
+    // `export pure fn qtyOf(ref id: number, n): pending rejects(Offline) instantiates`, `export server fn add(id)`
+    signature_fn: $ => seq(
+      optional(field('side', alias('server', $.side))),
+      optional($.pure),
+      'fn',
+      field('name', $.identifier),
+      '(', commaSep($.signature_parameter), ')',
+      optional(seq(':', $.signature_rows)),
+      optional($.rejects_clause),
+      optional(alias('instantiates', $.row_word)),
+    ),
+    signature_parameter: $ => seq(optional($.ref_modifier), field('name', $.identifier), optional(seq(':', field('type', $.type)))),
+    signature_rows: $ => repeat1(choice('io', 'pending', 'lane', $.fails_row)),
+
+    // `export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) uses(./ui.rx#who) shape(roots section)`
+    signature_component: $ => seq(
+      'component',
+      field('name', $.identifier),
+      '(', 'props', ':', '{', optional(seq($.signature_prop, repeat(seq(';', $.signature_prop)))), '}', ')',
+      repeat(choice(
+        alias('made', $.row_word),
+        $.fails_row,
+        $.signature_uses,
+        $.signature_retains,
+        $.signature_keeps,
+        $.signature_shape,
+      )),
+    ),
+    signature_prop: $ => seq(
+      field('name', choice(alias($.identifier, $.property_identifier), '...props')),
+      optional(seq(':', repeat1(choice(
+        alias(choice('renders', 'unrendered'), $.row_word),
+        $.signature_takes,
+        $.signature_catches,
+        $.signature_provides,
+        seq('action', field('action', $.identifier), $.signature_catches),
+      )))),
+    ),
+    signature_catches: $ => seq('catches', '(', choice('*', $._error_classes), ')'),
+    signature_provides: $ => seq('provides', '(', choice('*', commaSep1($.context_key)), ')'),
+    signature_takes: $ => seq('takes', '(', commaSep1(seq(field('path', $.signature_path), optional('pending'), optional($.fails_row))), ')'),
+    signature_path: _ => token(/[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*/),
+    // `uses(./ui.rx#who, loading)`: context keys relative to the signature's module (MO-13b), and SV-7b's `loading`
+    signature_uses: $ => seq('uses', '(', commaSep1(choice($.context_key, 'loading')), ')'),
+    signature_retains: $ => seq('retains', '(', commaSep1(seq(field('name', choice(alias($.identifier, $.property_identifier), '...props')), ':', choice('module', $.context_key))), ')'),
+    signature_keeps: $ => seq('keeps', '(', commaSep1(field('name', alias($.identifier, $.property_identifier))), ')'),
+    // `shape(roots p div; closes-p; children-at div)`: SV-7d's words
+    signature_shape: $ => seq('shape', '(', optional($.shape_words), ')'),
+    shape_words: _ => token(/[a-z0-9;\- \t]+/),
+    context_key: _ => token(/[.\/@A-Za-z0-9_$-]+#[A-Za-z_$][\w$]*/),
 
     _module_item: $ => choice(
       $.import_statement,

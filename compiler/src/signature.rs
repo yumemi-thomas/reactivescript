@@ -293,7 +293,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
 }
 
 pub fn print_signature(sig: &ModSig) -> String {
-    let mut out = vec![format!("// {} — signature (09-modules MO-3). Sources are read-only to importers (MO-2).", sig.file.split('/').last().unwrap_or(""))];
+    let mut out = vec![format!("//@ signature {} (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).", sig.file.split('/').last().unwrap_or(""))];
     for (n, x) in &sig.exports {
         out.push(line(&sig.file, n, x));
     }

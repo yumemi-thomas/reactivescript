@@ -1,0 +1,23 @@
+// A currency's rate: the state is the package's (one per app), read by its components and by the app that imports it.
+import { theme } from "./theme.rx"
+import pure { fetchRate } from "./rates.js"
+
+export error Offline(code: string) => `no rate for ${code}: offline`
+
+export source code: string := "EUR"
+// a question: asked again whenever `code` changes; it may wait, and fails with Offline or with the request's Error
+export source rate: number = code == "???" ? throw Offline(code) : await fetchRate(code)
+
+export action pick(next: string) { code := next }
+
+// a primitive: `amount` is a reference, so the label follows it
+export fn useLabel(ref amount: number): string => `${amount} ${code}`
+
+export component Badge(props: { label: string }) {
+  t = use theme
+  <b class="badge" style={`color: ${t.accent}`}>{props.label}</b>
+}
+
+export component Rate() {
+  <span class="rate">{code} at {rate}</span>
+}

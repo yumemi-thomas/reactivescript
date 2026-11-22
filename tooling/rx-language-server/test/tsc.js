@@ -295,5 +295,20 @@ const decl = run(
 );
 check("a .d.rx in include passes", decl.status === 0 && decl.out.trim() === "", decl);
 
+// MO-13a, MO-13d: a printed signature (`//@ signature`) beside a compiled .rx module is no JS module's declaration —
+// nothing is held against the JavaScript's types (TY-6) — and its import is typed by the module's projection, `kit.rx.d.ts`
+const kit = (use) => [
+  { include: ["."] },
+  { file: "kit.d.rx", text: () => "//@ signature kit.rx (09-modules MO-3, MO-13a).\nexport source hits := …\nexport action hit\nexport pure fn double(n)\n" },
+  { file: "kit.rx.d.ts", text: () => "export declare const hits: number;\nexport declare function hit(by: number): Promise<void>;\nexport declare function double(n: number): number;\n" },
+  { file: "kit.js", text: () => "export const __rx = () => ({});\nexport const hits = () => 0;\n" },
+  { file: "kit.d.ts", text: () => "export declare const __rx: (rt: unknown) => Record<string, unknown>;\nexport declare const hits: () => number;\n" },
+  { file: "main.rx", text: t => t.replace('import { Row, Panel } from "./ui.rx"', 'import { Row, Panel } from "./ui.rx"\nimport { hits, double } from "./kit.js"').replace('title="The shop"', `title={\`The shop \${${use}}\`}`) },
+];
+const printedOk = run(...kit("double(hits)"));
+check("a printed signature in include: read as the .rx module's, typed by its projection's .d.ts", printedOk.status === 0 && printedOk.out.trim() === "", printedOk);
+const printedBad = run(...kit('double("x")'));
+check("...whose types hold: a wrong argument is TypeScript's error on the .rx", printedBad.status !== 0 && /main\.rx\(\d+,\d+\): error TS2345/.test(printedBad.out) && !/DECLARATION_MISMATCH|PARSE/.test(printedBad.out), printedBad);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

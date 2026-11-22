@@ -317,4 +317,51 @@ export paths = pathsOf([people])                                        // route
 Router = createRouter({ routes: [{ ...(peek people), component: People }] })
 ```
 
-Rules: `spec/09-modules.md` MO-10, MO-11 and MO-12 (and MO-8 for declaration files).
+## Publishing a library written in .rx
+
+A package written in `.rx` is built once and used by `.rx` apps and by JavaScript or TypeScript Solid 2 apps. Nothing
+is declared by hand: the package's `.d.rx` is the signature the compiler prints.
+
+```jsonc
+// package.json
+{
+  "name": "@demo/rates",
+  "type": "module",
+  "files": ["dist"],
+  "scripts": { "build": "rx-lib" },
+  "reactivescript": { "entries": ["src/index.rx", "src/theme.rx"] },   // each becomes an export: ".", "./theme"
+  "peerDependencies": { "solid-js": "^2.0.0", "@solidjs/web": "^2.0.0", "@reactivescript/runtime": "*" }
+}
+```
+
+`npx rx-lib --write` (from `@reactivescript/compiler`; types need `@reactivescript/language-server`) checks the
+package, writes `dist/`, and writes the `exports` map; after that `rx-lib` alone fails if the map and the build
+disagree. For each module it writes the browser build and the server build (`index.js`, `index.server.js`, picked by
+the `browser` / `node` conditions as Solid's own packages are), `index.d.rx` (first line `//@ signature index.rx`),
+`index.rx.d.ts` (types for `.rx` apps) and `index.d.ts` (types for TypeScript).
+
+**From .rx**, import it by name. The app is checked against the shipped `.d.rx` exactly as against a local module:
+
+```rx
+import { rate, pick, Badge, Offline } from "@demo/rates"
+import { ThemeProvider } from "@demo/rates/theme"
+```
+
+`<Badge />` outside `<ThemeProvider>` is `CONTEXT_NOT_FOUND`, `rate` under no `errored` is `UNHANDLED_FAILURE`,
+`rate := 2` is `WRITE_TO_NON_SOURCE`, and `pick("USD")` in the view is `ACTION_CALLED_IN_OWNED_SCOPE`. Don't write an
+`rx-types/` file for such a package and don't run `rx-declare` on it.
+
+**From .tsx**, it is a Solid library. A source or an equation is an accessor, a `ref` parameter takes an accessor:
+
+```tsx
+import { rate, pick, useLabel, Badge } from "@demo/rates";
+const label = useLabel(amount);              // amount: Accessor<number>; label: Accessor<string>
+<Loading fallback="…"><i>{rate()}</i></Loading>
+```
+
+TypeScript checks the types and nothing else: a component outside its provider, a read with no boundary or an action
+called during render compile, and fail at run time as with any Solid library. On the server, render inside the
+framework's request (Solid's request event), so the package's state is per request. A package cannot export a server
+fn or a context to JavaScript: export a provider component and the components or fns that read it. It needs Solid 2.
+
+Rules: `spec/09-modules.md` MO-10, MO-11 and MO-12 (and MO-8 for declaration files); MO-13 for packages written in `.rx`.

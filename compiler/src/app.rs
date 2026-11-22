@@ -83,6 +83,13 @@ pub fn app_whole(entry: &str, target: Target, module_name: &str, spa: bool, libr
                 })
                 .collect();
             result["components"] = json!(names);
+            // MO-13e: every module's signature as the compiler prints it (`//@ signature …`): what a package ships as its
+            // `.d.rx`, beside the module's compiled JavaScript
+            let mut sigs = Map::new();
+            for p in &set.order {
+                sigs.insert(p.clone(), json!(crate::signature::print_signature(&checked.sigs[p])));
+            }
+            result["signatures"] = Value::Object(sigs);
         }
         Ok(result)
     })()

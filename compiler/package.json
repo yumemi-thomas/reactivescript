@@ -18,13 +18,18 @@
     "./vite": {
       "types": "./vite.d.mts",
       "default": "./vite.mjs"
-    }
+    },
+    "./lib": "./lib.mjs"
+  },
+  "bin": {
+    "rx-lib": "./lib.mjs"
   },
   "files": [
     "index.js",
     "index.d.ts",
     "vite.mjs",
     "vite.d.mts",
+    "lib.mjs",
     "guide/",
     "README.md"
   ],

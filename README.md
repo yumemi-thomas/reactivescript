@@ -39,6 +39,13 @@ the contracts a declaration states in words any library can write — and
 never one package's own rules, which stay that package's tooling's
 ([spec/08](spec/08-constraints.md) CN-8).
 
+The other way works too: a library written in `.rx` is built once
+(`rx-lib`) and published as a package that an `.rx` app is checked against —
+by the signature the compiler printed for it, never a declaration written by
+hand — and that a Solid 2 app in TypeScript imports as an ordinary Solid
+library, with TypeScript's checks and no others ([spec/09](spec/09-modules.md)
+MO-13, [guide/libraries.md](guide/libraries.md)).
+
 It is also meant to be easy for an AI to write correctly. The rules are
 small and explicit, and each checker error names the rule it enforces and usually the fix. We
 test that directly: fresh agents given only the spec wrote the apps in

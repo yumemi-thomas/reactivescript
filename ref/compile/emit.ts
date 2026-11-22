@@ -4,7 +4,7 @@
 // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { singleModule, type ModuleSet } from "../src/modules.ts";
+import { singleModule, isRx, type ModuleSet } from "../src/modules.ts";
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
@@ -78,7 +78,9 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
   for (const path of set.order) {
     const p = set.programs.get(path)!; g.beginModule(path, p.decls);
     const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
-    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
+    // MO-13c: a module a JS import's printed signature stands for is the compiled JavaScript that import names, whose `__rx` is the module's factory
+    const compiled = new Map(p.decls.flatMap(d => d.k === "import" && d.resolved && !isRx(d.from) ? [[d.resolved, d.from] as [string, string]] : []));
+    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => compiled.has(d) ? `import { __rx as ${g.depVar(d)} } from ${J(compiled.get(d)!)};` : `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
@@ -231,7 +233,7 @@ class Gen {
     // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
     for (const d of decls) if (d.k === "import" && d.resolved) {
       const iv = `__i${this.modIndex(d.resolved)}`;
-      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${J(this.mods!.out(d.resolved))}, ${this.depVar(d.resolved)});`);
+      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${isRx(d.from) ? J(this.mods!.out(d.resolved)) : this.depVar(d.resolved) /* MO-13c: keyed by its factory, as a bundler's build keys a module */}, ${this.depVar(d.resolved)});`);
       for (const { name, alias } of d.names) {
         if (this.mods!.set.programs.get(d.resolved)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(d.resolved)?.exports.get(name)?.kind === "type") continue;   // a type binds nothing
         const ib = this.importBind(d.resolved, name, alias); env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];`);

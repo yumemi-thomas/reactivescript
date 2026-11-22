@@ -1,0 +1,8 @@
+// The package's context and the component that provides it.
+export type Theme = { accent: string }
+export context theme: Theme
+
+export component ThemeProvider(props: { accent: string, children: View }) {
+  provide theme = { accent: props.accent }
+  <section class="themed">{props.children}</section>
+}

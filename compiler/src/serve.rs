@@ -134,6 +134,10 @@ pub fn boundary(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value 
     let file = params["file"].as_str().unwrap_or_default();
     let module = params["module"].as_str().unwrap_or_default();
     let Some(text) = params["text"].as_str().map(str::to_string).or_else(|| disk(file)) else { return json!({ "error": format!("cannot read {}", file) }) };
+    // MO-13a: a printed signature declares no JS module: its rows are the compiler's, and nothing is held against types here
+    if crate::modules::is_printed_signature(&text) {
+        return json!({ "signature": true, "code": "export {};\n", "checks": [] });
+    }
     match crate::parse::parse_declarations(&text) {
         Ok(decls) => {
             let (code, checks, overlay) = crate::project::boundary_checks(&decls, module);
@@ -155,6 +159,10 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     use crate::parse::JsDecl;
     let file = params["file"].as_str().unwrap_or_default();
     let Some(text) = params["text"].as_str().map(str::to_string).or_else(|| disk(file)) else { return json!({ "error": format!("cannot read {}", file) }) };
+    // MO-13a: a printed signature's rows are what the compiler inferred, not assertions: none to verify (MO-8j)
+    if crate::modules::is_printed_signature(&text) {
+        return json!({ "signature": true, "rows": [] });
+    }
     match crate::parse::parse_declaration_rows(&text) {
         Ok((decls, starts, trusted)) => {
             let last = text.lines().count().max(1);
@@ -184,6 +192,10 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
 pub fn declaration(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     let file = params["file"].as_str().unwrap_or_default();
     let Some(text) = params["text"].as_str().map(str::to_string).or_else(|| disk(file)) else { return json!({ "error": format!("cannot read {}", file) }) };
+    // MO-13a: a printed signature carries rows, not types: its module's types are the `.d.ts` shipped beside it (TY-4c)
+    if crate::modules::is_printed_signature(&text) {
+        return json!({ "signature": true });
+    }
     match crate::parse::parse_declarations(&text) {
         Ok(decls) => json!({ "code": crate::project::declaration_file(&decls) }),
         Err(e) => json!({ "error": e.0 }),

@@ -17,6 +17,7 @@ query-forward         3/3 ✓          6/6 ✓          6/6 ✓          5/5 ✓
 query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                5                   0                0                 0            
 router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                4                   0                0                 0            
 router-provider       3/3 ✓          5/5 ✓          4/4 ✓          5/5 ✓          1/1 ✓            7                   0                0                 1            
+rx-package            3/3 ✓          8/8 ✓          23/23 ✓        9/9 ✓          —                —                   —                —                 —            
 sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                   0                0                 0            
 source-mutation       3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                —                   —                —                 —            
 ssr-divergence        3/3 ✓          3/3 ✓          3/3 ✓          2/3 ✗          —                3                   0                0                 0            
@@ -25,7 +26,7 @@ store-helper          3/3 ✓          4/4 ✓          4/4 ✓          5/5 ✓
 store-updater         3/3 ✓          5/5 ✓          5/5 ✓          5/5 ✓          —                0                   0                0                 0            
 table-pagination      3/3 ✓          8/8 ✓          10/10 ✓        5/5 ✓          —                43                  0                0                 1            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-total                 72/72          107/107        120/121        104/106        8/8              135                 23               0                 4            
+total                 75/75          115/115        143/144        113/115        8/8              135                 23               0                 4            
 
 Not green (3):
   ✗ duplicate-keys · bad caught · rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY) — ran silently

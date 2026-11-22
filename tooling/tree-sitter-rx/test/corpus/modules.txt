@@ -1041,3 +1041,216 @@ export fn fail(error: import("kit").Types["error"], at: import("kit").Box<string
                   (string_fragment)))))))
       (type_annotation
         (predefined_type)))))
+
+================================================================================
+A printed signature: the .d.rx of a compiled .rx module (MO-13a)
+================================================================================
+
+//@ signature ui.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).
+export error NotFound(id)
+export error Plain()
+export type Theme
+export source products: pending fails(Error) = …
+export source selected := …
+export discount: pending fails(Error | NotFound)
+export total
+export limit: io
+export pure fn qtyOf(id)
+export pure fn useLabel(ref amount: number, unit): pending fails(Error) rejects(Offline | Timeout) instantiates
+export server fn add(id) rejects(Error)
+export server pure fn count()
+export action setCoupon
+export context who: string
+export context theme: source pending Theme = …
+export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) shape(roots section; children-at section)
+export component Card(props: { children: catches(*) }) shape(roots p div; closes-p; children-at div)
+export component Badge(props: {}) uses(./ui.rx#who, loading) shape(roots b)
+export component Save(props: { v: unrendered action go catches(nothing) }) fails(Error | Offline) shape(roots button)
+export component Pick(props: { n; ...props }) made retains(onPick: module, onFocus: ./form.rx#fields) keeps(table, row) shape(roots u)
+export component Q(props: { query: takes(data pending fails(Error), result.more pending); router: renders provides(./tsr.d.rx#router) }) shape()
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_error
+      (type_identifier)
+      (identifier)))
+  (signature_export
+    (signature_error
+      (type_identifier)))
+  (signature_export
+    (signature_type
+      (type_identifier)))
+  (signature_export
+    (signature_source
+      (identifier)
+      (signature_rows
+        (fails_row
+          (type_identifier)))))
+  (signature_export
+    (signature_source
+      (identifier)))
+  (signature_export
+    (signature_equation
+      (identifier)
+      (signature_rows
+        (fails_row
+          (type_identifier)
+          (type_identifier)))))
+  (signature_export
+    (signature_equation
+      (identifier)))
+  (signature_export
+    (signature_equation
+      (identifier)
+      (signature_rows)))
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (signature_parameter
+        (identifier))))
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (signature_parameter
+        (ref_modifier)
+        (identifier)
+        (predefined_type))
+      (signature_parameter
+        (identifier))
+      (signature_rows
+        (fails_row
+          (type_identifier)))
+      (rejects_clause
+        (type_identifier)
+        (type_identifier))
+      (row_word)))
+  (signature_export
+    (signature_fn
+      (side)
+      (identifier)
+      (signature_parameter
+        (identifier))
+      (rejects_clause
+        (type_identifier))))
+  (signature_export
+    (signature_fn
+      (side)
+      (pure)
+      (identifier)))
+  (signature_export
+    (signature_action
+      (identifier)))
+  (signature_export
+    (signature_context
+      (identifier)
+      (predefined_type)))
+  (signature_export
+    (signature_context
+      (identifier)
+      (row_type
+        (type_identifier))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier))
+      (signature_prop
+        (property_identifier)
+        (signature_catches
+          (type_identifier))
+        (signature_provides
+          (context_key)))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (signature_catches))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_uses
+        (context_key))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (row_word)
+        (identifier)
+        (signature_catches
+          (type_identifier)))
+      (fails_row
+        (type_identifier)
+        (type_identifier))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier))
+      (signature_prop)
+      (row_word)
+      (signature_retains
+        (property_identifier)
+        (property_identifier)
+        (context_key))
+      (signature_keeps
+        (property_identifier)
+        (property_identifier))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (signature_takes
+          (signature_path)
+          (fails_row
+            (type_identifier))
+          (signature_path)))
+      (signature_prop
+        (property_identifier)
+        (row_word)
+        (signature_provides
+          (context_key)))
+      (signature_shape))))
+
+================================================================================
+The marker is a comment where it is not the first line: a JS declaration
+================================================================================
+
+export pure fn load(id: string): Promise<number>
+//@ signature
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (generic_type
+          (type_identifier)
+          (type_arguments
+            (predefined_type))))))
+  (comment))

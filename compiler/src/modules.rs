@@ -39,6 +39,44 @@ pub struct DeclarationUse {
     pub spec: String,
 }
 
+/// MO-13a: whether a `.d.rx` is the printed signature of a compiled `.rx` module — a line `//@ signature …` before its
+/// first row. Such a file is read as MO-9b reads it wherever it is found (beside a JS module, MO-8a; a package's,
+/// MO-8k), not as a JS module's declaration.
+pub fn is_printed_signature(src: &str) -> bool {
+    for raw in src.split('\n') {
+        let t = raw.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("//@") {
+            if let Some(after) = rest.trim_start().strip_prefix("signature") {
+                if after.is_empty() || after.starts_with(char::is_whitespace) {
+                    return true;
+                }
+            }
+        }
+        if !t.starts_with("//") {
+            return false;
+        }
+    }
+    false
+}
+/// `to` as an import from the module `from` writes it: a relative path where both are absolute or both are not.
+pub fn relative_module(from: &str, to: &str) -> String {
+    if from.starts_with('/') != to.starts_with('/') {
+        return to.to_string();
+    }
+    let mut a: Vec<&str> = from.split('/').collect();
+    a.pop();
+    let a: Vec<&str> = a.into_iter().filter(|x| !x.is_empty() && *x != ".").collect();
+    let b: Vec<&str> = to.split('/').filter(|x| !x.is_empty() && *x != ".").collect();
+    let mut i = 0;
+    while i < a.len() && i + 1 < b.len() && a[i] == b[i] {
+        i += 1;
+    }
+    let up = a.len() - i;
+    format!("{}{}", if up > 0 { "../".repeat(up) } else { "./".to_string() }, b[i..].join("/"))
+}
 pub fn is_rx(from: &str) -> bool {
     from.ends_with(".rx")
 }
@@ -82,6 +120,8 @@ struct Loader<'r> {
     /// SV-5a: each declared error class's wire id (`id#Name`), and the declaration it is
     wire_ids: HashMap<String, String>,
     signatures: IndexMap<String, ModSig>,
+    /// MO-13a: the signatures a JS import's marked `.d.rx` gave, by `.rx` path
+    printed: std::collections::HashSet<String>,
     sources: HashMap<String, String>,
     state: HashMap<String, State>,
     recover: bool,
@@ -287,6 +327,21 @@ impl Loader<'_> {
             if !is_rx(from) && (from.starts_with('.') || pkg_dts.is_some()) {
                 // MO-8: a JS module with a declaration file beside it
                 let dts = pkg_dts.unwrap_or_else(|| beside_declaration(path, from, &*self.read));
+                // MO-13a: a declaration that says it is a compiled .rx module's printed signature is that module's signature (MO-9b)
+                let rx = dts.strip_suffix(".d.rx").map(|s| format!("{s}.rx")).unwrap_or_else(|| dts.clone());
+                if !self.printed.contains(&rx) && !self.declarations.contains_key(&dts) {
+                    if let Some(src) = (self.read)(&dts) {
+                        if is_printed_signature(&src) {
+                            let s = parse_signature(&src, &rx).map_err(|e| ParseError(e.0, None, Some(dts.clone()), "PARSE"))?;
+                            self.signatures.insert(rx.clone(), s);
+                            self.printed.insert(rx.clone());
+                        }
+                    }
+                }
+                if self.printed.contains(&rx) {
+                    *resolved = Some(rx);
+                    continue;
+                }
                 if !self.declarations.contains_key(&dts) {
                     if let Some(src) = (self.read)(&dts) {
                         let ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", dts, e.0), e.1, Some(dts.clone()), e.3))?;
@@ -380,7 +435,7 @@ pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String
     load(entry, read, true)
 }
 fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
-    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), wire_ids: HashMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
+    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), wire_ids: HashMap::new(), signatures: IndexMap::new(), printed: Default::default(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
     Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
 }
@@ -496,5 +551,54 @@ mod tests {
         assert_eq!(beside_declaration("/w/main.rx", "./z.mts", &read), "/w/z.d.rx");
         assert_eq!(beside_declaration("/w/main.rx", "./z.cts", &read), "/w/z.d.rx");
         assert_eq!(declaration_names("./x.tsx"), vec!["./x.tsx.d.rx", "./x.d.rx"]);
+    }
+    /// MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)
+    #[test]
+    fn a_marked_declaration_is_read_as_a_signature() {
+        let marks: Vec<bool> = ["//@ signature x.rx\nexport a", "\n// built\n//@signature\nexport a", "//@ signatures\nexport a", "export a\n//@ signature", "// signature\nexport a", ""].iter().map(|s| is_printed_signature(s)).collect();
+        assert_eq!(marks, [true, true, false, false, false, false]);
+        assert_eq!(relative_module("/app/src/main.rx", "/app/node_modules/kit/dist/index.rx"), "../node_modules/kit/dist/index.rx");
+        assert_eq!(relative_module("main.rx", "node_modules/kit/dist/index.rx"), "./node_modules/kit/dist/index.rx");
+        assert_eq!(relative_module("/app/main.rx", "/app/vendor/x.rx"), "./vendor/x.rx");
+        assert_eq!(relative_module("a/b/main.rx", "a/x.rx"), "../x.rx");
+        let rows = "export pure fn load(id)\nexport source n := …\nexport component Badge(props: {}) uses(./theme.rx#theme) shape(roots b)\n";
+        let pkg = |marked: bool| -> Vec<(String, String)> {
+            [
+                ("/app/node_modules/kit/package.json", r#"{"name":"kit","exports":{".":{"browser":"./dist/index.js","default":"./dist/index.js"},"./theme":"./dist/theme.js"}}"#.to_string()),
+                ("/app/node_modules/kit/dist/index.d.rx", if marked { format!("//@ signature index.rx\n{rows}") } else { "export pure fn load(id: string): Promise<number>\n".to_string() }),
+                ("/app/node_modules/kit/dist/theme.d.rx", "//@ signature theme.rx\nexport context theme: string\nexport component Themed(props: { children: provides(./theme.rx#theme) }) shape(roots div; children-at div)\n".to_string()),
+                ("/app/vendor/kit.d.rx", format!("//@ signature kit.rx\n{rows}")),
+                ("/app/main.rx", "import { load } from \"kit\"\nexport default component App() {\n  v = await load(\"a\")\n  <p>{v}</p>\n}\n".to_string()),
+                ("/app/write.rx", "import { n } from \"kit\"\nexport default component App() {\n  <button onClick={() => { n := 1 }}>{n}</button>\n}\n".to_string()),
+                ("/app/bare.rx", "import { Badge } from \"kit\"\nexport default component App() {\n  <Badge />\n}\n".to_string()),
+                ("/app/themed.rx", "import { Badge } from \"kit\"\nimport { Themed, theme } from \"kit/theme\"\ncomponent Own() {\n  provide theme = \"x\"\n  <Badge />\n}\nexport default component App() {\n  <Themed><Badge /></Themed>\n  <Own />\n}\n".to_string()),
+                ("/app/local.rx", "import { n, Badge } from \"./vendor/kit.js\"\nexport default component App() {\n  <p>{n}</p>\n}\n".to_string()),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect()
+        };
+        let codes = |entry: &str, marked: bool| -> Vec<String> {
+            let fs = pkg(marked);
+            let read = |p: &str| fs.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+            let set = load_modules(entry, &read).unwrap();
+            crate::check::check_modules(&set, false).diags.iter().map(|d| d.code.clone()).collect()
+        };
+        // the marker: an .rx import in everything but its specifier — resolved to the module the signature stands for
+        let fs = pkg(true);
+        let read = |p: &str| fs.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+        let set = load_modules("/app/main.rx", &read).unwrap();
+        let Decl::Import { resolved, .. } = &set.programs["/app/main.rx"].decls[0] else { panic!("an import") };
+        assert_eq!(resolved.as_deref(), Some("/app/node_modules/kit/dist/index.rx"));
+        assert_eq!(set.signatures.keys().collect::<Vec<_>>(), ["/app/node_modules/kit/dist/index.rx"]);
+        assert!(set.declarations.is_empty());
+        assert_eq!(codes("/app/main.rx", true), Vec::<String>::new()); // MO-9b: `rejects(…)` absent — nothing that rejects
+        assert_eq!(codes("/app/main.rx", false), ["UNHANDLED_FAILURE"]); // MO-8a: unmarked, the same row is a JS fn's, and absent is Error
+        assert_eq!(codes("/app/write.rx", true), ["WRITE_TO_NON_SOURCE"]); // MO-2a across the package boundary
+        assert_eq!(codes("/app/bare.rx", true), ["CONTEXT_NOT_FOUND"]); // MO-13b: `./theme.rx#theme` is the package's own module
+        assert_eq!(codes("/app/themed.rx", true), Vec::<String>::new()); // … provided by its component, and by the app with the context it exports
+        let local = load_modules("/app/local.rx", &read).unwrap(); // beside a relative JS module (MO-8a), the same
+        assert_eq!(local.signatures.keys().collect::<Vec<_>>(), ["/app/vendor/kit.rx"]);
+        assert!(crate::check::check_modules(&local, false).diags.is_empty());
     }
 }

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readDisk } from "./disk.ts";
-import { packageRelative, besideDeclaration } from "./src/modules.ts";
+import { packageRelative, besideDeclaration, isPrintedSignature, relativeModule } from "./src/modules.ts";
 import { looksLikeTypes, parseProgram, parseDeclarations } from "./src/parse.ts";
 import { loadModules } from "./src/modules.ts";
 import { checkModules, tyStep, tyScalar } from "./src/check.ts";
@@ -313,5 +313,32 @@ export const units: [string, () => void][] = [
       "export fn on(a: number): void\nexport fn on(a: string): ref number\n",
       "export fn on(f: handler (e: Event) => void): void\nexport fn on(f: (e: Event) => void): void\n",
     ]) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual(/MO-8p/.test(msg), true, bad); }
+  }],
+  ["a_marked_declaration_is_read_as_a_signature", () => {   // MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)
+    deepStrictEqual(["//@ signature x.rx\nexport a", "\n// built\n//@signature\nexport a", "//@ signatures\nexport a", "export a\n//@ signature", "// signature\nexport a", ""].map(isPrintedSignature), [true, true, false, false, false, false]);
+    deepStrictEqual([relativeModule("/app/src/main.rx", "/app/node_modules/kit/dist/index.rx"), relativeModule("main.rx", "node_modules/kit/dist/index.rx"), relativeModule("/app/main.rx", "/app/vendor/x.rx"), relativeModule("a/b/main.rx", "a/x.rx")], ["../node_modules/kit/dist/index.rx", "./node_modules/kit/dist/index.rx", "./vendor/x.rx", "../x.rx"]);
+    const rows = "export pure fn load(id)\nexport source n := …\nexport component Badge(props: {}) uses(./theme.rx#theme) shape(roots b)\n";
+    const pkg = (marked: boolean) => files({
+      "/app/node_modules/kit/package.json": `{"name":"kit","exports":{".":{"browser":"./dist/index.js","default":"./dist/index.js"},"./theme":"./dist/theme.js"}}`,
+      "/app/node_modules/kit/dist/index.d.rx": marked ? `//@ signature index.rx\n${rows}` : "export pure fn load(id: string): Promise<number>\n",
+      "/app/node_modules/kit/dist/theme.d.rx": "//@ signature theme.rx\nexport context theme: string\nexport component Themed(props: { children: provides(./theme.rx#theme) }) shape(roots div; children-at div)\n",
+      "/app/vendor/kit.d.rx": `//@ signature kit.rx\n${rows}`,
+      "/app/main.rx": `import { load } from "kit"\nexport default component App() {\n  v = await load("a")\n  <p>{v}</p>\n}\n`,
+      "/app/write.rx": `import { n } from "kit"\nexport default component App() {\n  <button onClick={() => { n := 1 }}>{n}</button>\n}\n`,
+      "/app/bare.rx": `import { Badge } from "kit"\nexport default component App() {\n  <Badge />\n}\n`,
+      "/app/themed.rx": `import { Badge } from "kit"\nimport { Themed, theme } from "kit/theme"\ncomponent Own() {\n  provide theme = "x"\n  <Badge />\n}\nexport default component App() {\n  <Themed><Badge /></Themed>\n  <Own />\n}\n`,
+      "/app/local.rx": `import { n, Badge } from "./vendor/kit.js"\nexport default component App() {\n  <p>{n}</p>\n}\n`,
+    });
+    const codes = (entry: string, marked = true) => { const set = loadModules(entry, pkg(marked)); return checkModules(set).diags.map(d => d.code); };
+    // the marker: an .rx import in everything but its specifier — resolved to the module the signature stands for
+    const set = loadModules("/app/main.rx", pkg(true));
+    deepStrictEqual([set.programs.get("/app/main.rx")!.decls[0].k === "import" && (set.programs.get("/app/main.rx")!.decls[0] as { resolved?: string }).resolved, [...set.signatures!.keys()], [...set.declarations!.keys()]], ["/app/node_modules/kit/dist/index.rx", ["/app/node_modules/kit/dist/index.rx"], []]);
+    deepStrictEqual(codes("/app/main.rx"), []);                               // MO-9b: `rejects(…)` absent — nothing that rejects
+    deepStrictEqual(codes("/app/main.rx", false), ["UNHANDLED_FAILURE"]);     // MO-8a: unmarked, the same row is a JS fn's, and absent is Error
+    deepStrictEqual(codes("/app/write.rx"), ["WRITE_TO_NON_SOURCE"]);         // MO-2a across the package boundary
+    deepStrictEqual(codes("/app/bare.rx"), ["CONTEXT_NOT_FOUND"]);            // MO-13b: `./theme.rx#theme` is the package's own module
+    deepStrictEqual(codes("/app/themed.rx"), []);                             // … provided by its component, and by the app with the context it exports
+    const local = loadModules("/app/local.rx", pkg(true));                    // beside a relative JS module (MO-8a), the same
+    deepStrictEqual([[...local.signatures!.keys()], checkModules(local).diags.map(d => d.code)], [["/app/vendor/kit.rx"], []]);
   }],
 ];

@@ -8,7 +8,7 @@ import { getObserver, DEV } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, reconcile,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, reconcile, createRoot,
 } from "solid-js";
 import { getContext, setContext, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
@@ -435,4 +435,15 @@ export function components<T extends Record<string, unknown>>(factory: (rt: unkn
     const a = app ?? (hostApp ??= createApp({ root: null }));
     return ((a.module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props);
   }), made.get(k)) });
+}
+
+/** MO-13e: a compiled `.rx` module as a Solid library for JavaScript (a `.tsx` app): each export as a function of the
+ *  page's one app — a component, a source's or an equation's accessor, a fn, an action, an error class (called, it makes
+ *  one; `e instanceof C` holds). The module is instantiated at its first use, in a root of its own, so its state is the
+ *  app's (09 MO-1b) and not the first reader's; an `.rx` app instantiates the same factory itself (`__rx`, MO-13c). */
+export function library<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ReturnType<typeof createApp>): T {
+  const made = new Map<string, unknown>();
+  const rooted = (rt: unknown) => createRoot(() => factory(rt));
+  const inst = () => (app ?? (hostApp ??= createApp({ root: null }))).module(factory, rooted as never) as Record<string, any>;
+  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, Object.defineProperty((...a: unknown[]) => inst()[k](...a), Symbol.hasInstance, { value: (e: unknown) => { const c = inst()[k]?.cls; return typeof c === "function" && e instanceof c; } })), made.get(k)) });
 }

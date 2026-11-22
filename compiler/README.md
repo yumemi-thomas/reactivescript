@@ -113,6 +113,25 @@ The app mounts a program with `createApp` from `@reactivescript/runtime`
 Not yet: hot updates of `.rx` modules are untested; server rendering in Vite
 needs a request-scoped app for server functions to run in.
 
+### A library: `rx-lib`
+
+`rx-lib` (`lib.mjs`, the package's bin; spec/09 MO-13e) builds a package written in `.rx` for every app that may use
+it, `.rx` or `.tsx`:
+
+```sh
+npx rx-lib --write           # entries from package.json's "reactivescript": { "entries": [...] }, or src/index.rx
+npx rx-lib src/index.rx src/theme.rx --root src --out dist   # the same, said on the command line
+```
+
+For each module the entries reach it writes `x.dom.js` and `x.ssr.js` (the module compiled for the browser and for
+the server, `rxc app --lib`), `x.js` and `x.server.js` (what an import resolves to on each side: the factory as
+`__rx`, and each export through the runtime's `library`), `x.d.rx` (the printed signature, `//@ signature x.rx`),
+`x.rx.d.ts` (the projection's types, emitted by the project's `rx-tsc`: `@reactivescript/language-server` must be
+installed, or pass `--no-types`) and `x.d.ts` (the types of `x.js`). It fails when the package.json's `exports` do
+not name those files under Solid's conditions, printing the map; `--write` writes it, and the peers. `RXC=<rxc>`
+compiles with a binary in place of the Node-API build. `test/lib.mjs` covers the build; `bench/tasks/rx-package`
+builds a package, installs it and runs an `.rx` app and a `.tsx` app against it.
+
 ### Releasing
 
 A release is a version bump merged to `main`: `npm version <patch|minor>

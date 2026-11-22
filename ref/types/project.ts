@@ -7,7 +7,7 @@
 // The projection is for checking only: it is never run, and its order is the dependency order (E-7).
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
-import type { ModuleSet } from "../src/modules.ts";
+import { isRx, relativeModule, type ModuleSet } from "../src/modules.ts";
 import { splitTop, shapeHasRef, type JsDecl, type Shape } from "../src/parse.ts";
 import type { ModSig } from "../src/check.ts";
 
@@ -120,7 +120,7 @@ export function typesPathOf(dts: string): string | undefined {
 /** TY-4c: an `.rx` module read by its signature (MO-9) is typed by the \`.d.ts\` TypeScript emits from its projection (TY-1c);
  *  ref/ ships none, so its exports are \`any\` here. */
 function signatureStub(sig: ModSig): string {
-  return [...sig.exports].map(([n, x]) => x.kind === "type" ? `export type ${n} = any;` : x.kind === "comp" ? `export declare function ${n}(props: any): any;` : `export declare const ${n}: any;`).join("\n");
+  return [...sig.exports].map(([n, x]) => x.kind === "type" ? `export type ${n} = any;` : x.kind === "comp" ? `export declare function ${n}(props: any): any;` : x.kind === "errclass" ? `export declare const ${n}: any;\nexport type ${n} = any;` /* a class is a value and the type of its instances (`errored fallback(e: NotFound)`) */ : `export declare const ${n}: any;`).join("\n");
 }
 /** MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module. */
 /** MO-10b: a declared result's type as JS has it: a `ref` result, or a `ref` part of a tuple or record, is an accessor. */
@@ -235,6 +235,7 @@ class Proj {
     const rest = d.names.filter(n => !BUILTINS.has(n.name)); if (!rest.length) return;
     if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || x.sigs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); if (x?.kind === "fn" && x.nests && x.joins) this.nestFns.set(n.alias, { ...x.nests, joins: x.joins }); }   /* MO-11i (revised 2026-11-21): paths are joined only under a factory that says which field holds them */
     let from = d.from;
+    if (d.resolved && !isRx(d.from)) from = relativeModule(this.path, d.resolved);   // MO-13d: typed as the .rx module its printed signature stands for (TY-4c: `x.rx.d.ts`, beside it)
     if (!d.resolved && !d.declared) {                                                        // a JS module with no declaration: `any`
       const key = this.modPath(d.from) + ".ts"; let s = this.jsStubs.get(key); if (!s) this.jsStubs.set(key, (s = new Set())); for (const n of rest) s.add(n.name); from = d.from;
     }

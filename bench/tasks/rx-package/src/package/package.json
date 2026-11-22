@@ -1,0 +1,33 @@
+{
+  "name": "@bench/rates",
+  "version": "1.0.0",
+  "description": "A small Solid 2 library written in .rx: a themed badge, an exchange rate that is asked for and can fail, the action that picks the currency, and a primitive over a reference.",
+  "type": "module",
+  "sideEffects": false,
+  "files": ["dist"],
+  "scripts": { "build": "rx-lib" },
+  "reactivescript": { "entries": ["src/index.rx", "src/theme.rx"] },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "worker": "./dist/index.server.js",
+      "browser": "./dist/index.js",
+      "deno": "./dist/index.server.js",
+      "node": "./dist/index.server.js",
+      "default": "./dist/index.js"
+    },
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "worker": "./dist/theme.server.js",
+      "browser": "./dist/theme.js",
+      "deno": "./dist/theme.server.js",
+      "node": "./dist/theme.server.js",
+      "default": "./dist/theme.js"
+    }
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.0",
+    "@solidjs/web": "^2.0.0",
+    "@reactivescript/runtime": "*"
+  }
+}

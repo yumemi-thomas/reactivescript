@@ -9,7 +9,7 @@ import { primsSolid } from "./prims-solid.ts";
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver, DEV } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
-import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit } from "solid-js";
+import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit, createRoot } from "solid-js";
 import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
 let warnedCopies = false;   // once per process
 const warnedFields = new Set<string>();   // SV-5a: a declared field an instance came without, once per class and field
@@ -388,6 +388,22 @@ export function components<T extends Record<string, unknown>>(factory: (rt: unkn
   };
   return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, (props: unknown) =>
     ((appNow().module(factory, factory as never) as Record<string, (p: unknown) => unknown>)[k])(props)), made.get(k)) });
+}
+
+/** MO-13e: a compiled `.rx` module as a Solid library for JavaScript (a `.tsx` app): each export as a function of the
+ *  request's app (SV-4: module state is per request), found as `components` finds it — a component, a source's or an
+ *  equation's accessor, a fn, an action, an error class. The module is instantiated at its first use in the request, in
+ *  a root of its own. */
+export function library<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: ReturnType<typeof createApp>): T {
+  const made = new Map<string, unknown>();
+  const rooted = (rt: unknown) => createRoot(() => factory(rt));
+  const inst = () => {
+    if (app) return app.module(factory, rooted as never) as Record<string, any>;
+    const ev = getRequestEvent() as { request: Request; locals: Record<PropertyKey, unknown> } | undefined;
+    if (!ev) throw new Error("an export of a compiled .rx package was used on the server outside a request: its module state would be shared by every render in the process. Render inside the framework's request (Solid's request event) (MO-13e)");
+    return ((ev.locals[HOST_APP] ??= createApp({ request: ev.request })) as ReturnType<typeof createApp>).module(factory, rooted as never) as Record<string, any>;
+  };
+  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, Object.defineProperty((...a: unknown[]) => inst()[k](...a), Symbol.hasInstance, { value: (e: unknown) => { const c = inst()[k]?.cls; return typeof c === "function" && e instanceof c; } })), made.get(k)) });
 }
 const HOST_APP = Symbol.for("reactivescript.app");
 const REQUEST_APP = Symbol.for("reactivescript.request-app");   // the app whose stream this request event is

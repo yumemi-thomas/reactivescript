@@ -1,0 +1,27 @@
+// An .rx app that uses the package: checked against the `.d.rx` the package ships (09 MO-13), never its source.
+import { code, rate, pick, useLabel, Badge, Rate, Offline } from "@bench/rates"
+import { ThemeProvider, theme } from "@bench/rates/theme"
+
+component Own() {
+  provide theme = { accent: "navy" }
+  <Badge label="own" />
+}
+
+export default component App() {
+  source amount: number := 2
+  label = useLabel(amount)
+  <ThemeProvider accent="teal">
+    <header><Badge label={label} /></header>
+    <button class="more" onClick={() => { amount := a => a + 1 }}>more</button>
+    <button class="usd" onClick={() => { pick("USD") }}>USD</button>
+    <button class="none" onClick={() => { pick("XXX") }}>XXX</button>
+    <button class="off" onClick={() => { pick("???") }}>offline</button>
+    <button class="again" onClick={() => { refresh rate }}>again</button>
+    {errored fallback(e) { <p class="err">failed: {e.message}</p> } {
+      {errored fallback(e: Offline) { <p class="offline">offline: {e.code}</p> } {
+        {loading fallback { <p class="wait">asking…</p> } { <Rate /> <i class="raw">{code}={rate}</i> }}
+      }}
+    }}
+  </ThemeProvider>
+  <footer><Own /></footer>
+}

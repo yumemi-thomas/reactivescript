@@ -7,7 +7,7 @@ makes 08 CN-4b executable. `ref/src/modules.ts` loads a program,
 `ref/src/check.ts` checks it module by module, and every runner executes
 it: the interpreter, the Solid oracle, and the compiler, which emits one ES
 module per `.rx` module (the compiled, server and types runners). `S-module-1` and `S-app-shop` cover it; `S-module-3`
-covers a module read by its `.d.rx` (MO-9).
+covers a module read by its `.d.rx` (MO-9); `S-module-33` a package written in `.rx` (MO-13).
 
 Rulings: file = module (07, 2026-10-22); a module boundary is a value
 boundary (07 §1, 2026-10-22). The rest was taken by default and ruled 2026-10-26 —
@@ -182,7 +182,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   `pure` is still the only row word that lowers taint and points one way;
   `rejects(…)` defaults to `Error`. In every `.d.rx` — written for a JS
   module or printed for an `.rx` one — `pure fn` is pure, `fn` is io, and
-  `action` is an action.
+  `action` is an action. A declaration found here that begins `//@
+  signature` is not a JS module's: it is the printed signature of the
+  `.rx` module the JavaScript was compiled from, and is read as one
+  (MO-13a).
 - **MO-8b.** With a declaration file, the file is the row, as a signature is
   for an `.rx` import (MO-4a): an import that names an undeclared export is
   `NOT_EXPORTED`; `pure` on the import must agree (`IMPORT_ROW_MISMATCH`
@@ -299,7 +302,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or
      one above it (`rx-types/@tanstack/solid-query.d.rx`; a subpath is a
      folder, `rx-types/@kobalte/core/dialog.d.rx`);
-  2. the package's own, beside the file the import resolves to (MO-10c);
+  2. the package's own, beside the file the import resolves to (MO-10c) —
+     for a package written in `.rx`, the printed signature of the module,
+     marked as one and read as one (MO-13);
   3. a shared one, `node_modules/@rx-types/<scope>__<name>/index.d.rx` (a
      subpath: `<subpath>.d.rx`), named as `@types` packages are;
   4. a generated one, `node_modules/.rx-types/<spec>.d.rx`, drafted by the
@@ -649,7 +654,8 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   With both files, the `.rx` is the module and the `.d.rx` is not read.
   With neither, `MODULE_NOT_FOUND`.
 - **MO-9b.** The text is the signature, all of it (`ref/src/signature.ts`
-  prints and reads it). An importer checked against a printed `.d.rx` gets
+  prints and reads it; its first line, `//@ signature x.rx …`, says that
+  it is one, which matters where a JS import finds it, MO-13a). An importer checked against a printed `.d.rx` gets
   the verdicts it gets against the body: `ref/run.ts` checks this for every
   scenario program with modules, each module against its imports' printed
   text (S-module-3 is S-module-1 with only the text). Beyond decision 5's
@@ -1904,6 +1910,194 @@ export component RouterProvider(props: { children?: View }) provides(router)
 
 Executable: S-module-7.
 
+## MO-13 — Packages written in `.rx` (proposed 2026-11-22; veto here)
+
+A library written in `.rx` is published as a package and used by two kinds
+of app: an `.rx` app, which is checked against the package as it is against
+a local module, and a JavaScript or TypeScript Solid 2 app, to which it is
+an ordinary Solid library. One build serves both. Nothing is drafted
+(`rx-declare` has no part in it) and no declaration is written by hand: the
+package's `.d.rx` is the signature the compiler printed (MO-3).
+
+```text
+@demo/rates/
+  package.json            exports: Solid's conditions (MO-13e)
+  dist/
+    index.dom.js          the module, compiled for the browser (hydratable): a factory over the app
+    index.ssr.js          the module, compiled for the server
+    index.js              what `browser` and `default` resolve to: `__rx`, and each export for JavaScript
+    index.server.js       what `node`, `deno` and `worker` resolve to: the same over index.ssr.js
+    index.d.rx            the printed signature, `//@ signature index.rx …`   ← what an .rx app is checked against
+    index.rx.d.ts         the types of the module's projection (13 TY-4c)      ← what an .rx app is typed by
+    index.d.ts            the types of index.js                                ← what a .tsx app is typed by
+    rx-prelude.d.ts       the types the projections are written with
+```
+
+- **MO-13a (The marker).** A `.d.rx` with a line `//@ signature
+  <module>.rx …` before its first row (blank lines and comments alone may
+  come before it) — a pragma line, as `//@ for` (MO-8f) and `//@
+  generated` (MO-8l) are — is the printed signature of a compiled `.rx`
+  module. Wherever
+  a JS import finds it as its declaration — beside a relative module
+  (MO-8a), or by any step of MO-8k for a package — it is read as MO-9b
+  reads a signature, not as MO-8a reads a JS module's declaration, and the
+  import is an `.rx` import in everything but its specifier: it resolves to
+  the module the signature stands for (the declaration's path with `.rx`
+  for `.d.rx`: `node_modules/@demo/rates/dist/index.rx`), which is known by
+  its signature only (MO-9a). The compiler writes the marker on every
+  signature it prints (`ref/check.ts --signature`, `rxc app --lib`), after
+  it the module's name and free text; a `.d.rx` without it means what it
+  meant. For an `.rx` import that finds an `x.d.rx` in place of `x.rx`
+  (MO-9a) the line is a comment: that file was always a signature.
+  The grammar: a comment to both parsers of rows; `ref/src/modules.ts`
+  `isPrintedSignature` and the crate's `is_printed_signature` test it
+  before a declaration is parsed; tree-sitter reads a file that begins
+  with it as a printed signature (`signature_pragma`, then
+  `signature_export` rows), and a JS declaration otherwise.
+- **MO-13b (What the marker switches).** Every way the two notations
+  differ, each decided by the marker and by nothing else (S-module-33; the
+  unit `a_marked_declaration_is_read_as_a_signature` in both checkers):
+
+  | | a printed signature (marked; MO-9b) | a JS module's declaration (MO-8) |
+  | --- | --- | --- |
+  | `rejects(…)` absent on a fn | the fn returns nothing that rejects | `rejects(Error)` |
+  | a fn's purity | `pure fn`, with `io` among its rows (`: io pending`) | `pure fn` is pure, `fn` is io |
+  | `export source x … = …` / `:= …`, `export x: pending fails(E)` | a reactive name, read-only to the importer (MO-2a), with its rows; `=` a question (`refresh x`, `guess x :=`), `:=` not | no such row: a JS value is `export const x: T`, never reactive |
+  | `export action f` | an action: io, it never fails (R-f-6), `ACTION_CALLED_IN_OWNED_SCOPE` where called in reactive scope | no such row |
+  | `export server fn f(a)` | a server function (12 SF-1), `server pure fn` when it is not io | `server` is a side: a JS function that exists on the server only (12 SF-5) |
+  | `export error C(a, b)` | an `.rx` error class with its constructor's parameters | a JS class, with the fields sent to the client (SV-5a) |
+  | `export context c: T = …` | an `.rx` context: importable, `use`d and `provide`d by the importer (MO-7), with `source`, rows and whether it has a default | a context the JavaScript owns: not importable, named only by that file's `uses(…)` and `provides(…)` (MO-12a) |
+  | `uses(…)`, `provides(…)`, `retains(…)` | context *keys*, relative to the signature's own module (`./theme.rx#theme`), of any module; `uses(loading)` is SV-7b's need | names of contexts the same file declares |
+  | a component's props | the summary of MO-3, a row per prop: bare (rendered, discharging nothing), `catches(E)` / `catches(*)`, `provides(…)` for children, `unrendered`, `action go catches(…)`, `takes(…)`, `renders`; no types | TypeScript's fields, with the words of MO-8i on them (`handler`, `renders`, `catches`) |
+  | after a component | `made`, `fails(E)`, `uses`, `retains(…)`, `keeps(…)`, `shape(roots …; closes-p; a; form; children-at …)` (SV-7d's words) | `fails(E)`, `uses`, `provides`, `outlet`, `shape(T)`, `trusted` |
+  | types | none: a row's types are the projection's, in the `.d.ts` shipped beside it (MO-13d); `export type T` is a name | the row's text is the module's `.d.ts` (13 TY-4b) |
+  | type parameters, several rows of one fn, optional and rest parameters, `handler`, `tracked`, `draft`, `signal`, `renders(later)`, `nests`, `joins`, `forwards`, `methods`, `const` | not written: an `.rx` module has none of them to say | MO-8d to MO-8p, MO-10, MO-11 |
+  | what it is held to | nothing: the compiler inferred each row from the module (MO-3), so there is no assertion to check — no boundary check (13 TY-6), no pin (MO-8f), no strict record (MO-8j) and no `trusted` | TY-6 against the module's types; MO-8f; MO-8j |
+  | the import's own rows | `import pure` cannot lower an io row and `fails` is refused, with MO-4a's messages | MO-8b |
+  | what the name is bound to | the app's instance of the module (MO-1b): a source and an equation are accessors, an instantiating fn is called once where it is bound, an action is launched, a component is applied (MO-9c) | the JS module's export, as it is |
+  | lines | one export per line | a row may span lines |
+
+  A context key crosses the package boundary because it is relative: the
+  signature of `dist/index.rx` says `uses(./theme.rx#theme)`, which is
+  `node_modules/@demo/rates/dist/theme.rx#theme` wherever the package is
+  installed — the key of the context `@demo/rates/theme` exports, whose own
+  signature is `dist/theme.d.rx`. So the app provides a package's context
+  with the name it imported, the package's provider component provides it
+  to the app's children, and a reader with neither above it is
+  `CONTEXT_NOT_FOUND` at the application, as for a local module. A package
+  ships the signature of every module its entries reach, at the place the
+  module has under the package's source root, so every relative key names
+  a file that is there.
+- **MO-13c (The compiled module).** The import stays an ES import of the
+  specifier the program wrote (MO-8c), and what it imports is the module's
+  factory, exported as `__rx`: `import { __rx as __m0 } from
+  "@demo/rates"`, then `__rt.module(__m0, __m0)` where an `.rx` dependency
+  is instantiated (MO-1b), keyed by the factory itself — a bundler gives
+  one function to every importer, so the package's module is one module of
+  the app however many of the app's modules import it, with its state
+  owned by the app (on the server, by the request, SV-4). The bundler picks
+  the browser or the server build by the package's export conditions, as it
+  picks `@solidjs/web`'s.
+- **MO-13d (Types).** The import is typed as an import of the `.rx` module
+  the signature stands for: the projection (13 TY-1c) writes `from
+  "./node_modules/@demo/rates/dist/index.rx"`, the path from the importer,
+  and TypeScript finds `index.rx.d.ts` beside the signature — the
+  declarations it emitted from that module's own projection when the
+  package was built (13 TY-4c), so a prop, a parameter, a context's type
+  and a declared error's fields are the package author's types, with their
+  type parameters, and no `any` is introduced. The projection's own
+  vocabulary (`View`, a context's type) is `rx-prelude.d.ts`, shipped with
+  the package. `ref/` has no such file and stubs the module as `any`, as
+  for MO-9.
+- **MO-13e (The library build).** `rx-lib` (`@reactivescript/compiler`,
+  `compiler/lib.mjs`; the crate's `rxc app --lib`, which also prints each
+  module's signature) builds a package from its entries (`"reactivescript":
+  { "entries": ["src/index.rx", "src/theme.rx"] }` in its package.json, or
+  arguments): every module they reach is checked and compiled once for the
+  browser (Solid's `dom`, hydratable) and once for the server (`ssr`), and
+  written with its signature and its types in the layout above, at its
+  place under the source root; the JavaScript modules the package's `.rx`
+  imports by relative paths are copied beside them with their `.d.ts` and
+  `.d.rx`. `rx-tsc` emits the projections' declarations, which is the
+  package's type-check too. The package.json's `exports` are held to the
+  layout: for an entry,
+
+  ```json
+  ".": {
+    "types": "./dist/index.d.ts",
+    "worker": "./dist/index.server.js",
+    "browser": "./dist/index.js",
+    "deno": "./dist/index.server.js",
+    "node": "./dist/index.server.js",
+    "default": "./dist/index.js"
+  }
+  ```
+
+  the conditions by which `solid-js`, `@solidjs/web` and
+  `@reactivescript/runtime` pick a build, in their order; `rx-lib` fails
+  and prints the map when the package.json says anything else for an
+  entry, or does not name Solid and the runtime among its peers, and
+  `rx-lib --write` writes both. There is no `solid` condition: that
+  condition means source for the app's own Solid compiler, and an `.rx`
+  package cannot count on an app that compiles `.rx`. The `.d.rx` needs no
+  condition: it is beside the file `browser` resolves to (MO-10c).
+  *Why the sources are not shipped for `.rx` apps to compile.* An app that
+  compiled a package's `.rx` would check it as part of its own program —
+  whole, with one compiler — and could not then run beside a `.tsx` host
+  that imports the same package's compiled module without two instances of
+  its state. The signature is exact for every check an importer makes
+  (MO-9b), so compiling again buys no check; one compiled module for both
+  kinds of app is one instance. The `.rx` text is in the source maps
+  (`sourcesContent`), for a debugger.
+  *Hydration.* A hydration key is not in the compiled text: Solid's
+  runtime numbers owners as they are made, on the server and again in the
+  browser, and both builds of a module make the same owners in the same
+  order (10, Implementation). So a package compiled apart from the app
+  hydrates with it, provided both builds come from one compile and the app
+  has one copy of Solid and of the runtime — which is why they are peers.
+  `bench/tasks/rx-package` serves and hydrates both kinds of app.
+- **MO-13f (The JavaScript boundary).** To JavaScript the package's module
+  is a Solid 2 library (`index.js`, typed by `index.d.ts`): a component is
+  a component; a source or an equation is an accessor (`rate()`); a fn is a
+  function, and one that instantiates (E-9) takes each `ref` parameter as
+  an accessor and hands back an accessor (`useLabel(amount)()`), as a
+  Solid primitive does; an action is a function that returns a promise; an
+  error class is called to make an instance, and `e instanceof C` holds. A
+  context, a type and a server fn are not values of that module: a context
+  is provided by the package's provider component and read by its
+  components and primitives (Solid's context, through the owner), a type
+  is in the `.d.ts`, and a server fn cannot be exported by a package at all
+  (`rx-lib` refuses it: Solid's `"use server"` pass extracts a server fn
+  from the app's own modules, 12 SF-7a, and a compiled package is not
+  one). The exports are bound by the runtime's `library(factory)` to the
+  page's one app, made at first use — on the server to the request's, found
+  through Solid's request event as CP-4d's components are, so a render
+  outside any request throws — and the module is instantiated in a root of
+  its own, so its state is not the first reader's.
+  **What stops at that boundary.** A `.tsx` caller gets TypeScript's
+  checks and no others: nothing refuses a package's component rendered
+  outside its provider, a read of `rate()` under no `<Loading>` or
+  `<Errored>`, an action called while a component renders, a primitive
+  called in a handler, an accessor read once where it should be followed.
+  They fail, or misbehave, at run time as they do with any Solid library.
+  The checks an `.rx` app has across the boundary are the signature's, and
+  the signature is not read by TypeScript. An app with both — `.rx`
+  modules and a `.tsx` host that each import the package — has two
+  instances of the package's state unless the host renders the `.rx`
+  program's app (CP-4d).
+  **Solid 2.** The compiled modules call Solid 2.0's primitives
+  (`@solidjs/web`'s compiled-template API and `@solidjs/signals`, through
+  the runtime): the package's peers are `solid-js` and `@solidjs/web`
+  `^2.0.0` and `@reactivescript/runtime`. It does not run on Solid 1.
+
+Executable: S-module-33 (the marker, both checkers);
+`compiler/test/lib.mjs` (the build); `bench/tasks/rx-package` (a package
+built and installed, an `.rx` app checked against its shipped `.d.rx` with
+the verdicts it gets against the package's source, a `.tsx` app
+type-checked by `tsc` against its `.d.ts`, both run in Chromium and served
+and hydrated). What is still a proposal is in
+`spec/rfc-rx-packages-2026-11-22.md`.
+
 ---
 
 ## Diagnostics this document adds
@@ -1947,6 +2141,14 @@ Executable: S-module-7.
 - A `.d.rx` found in place of an `.rx` import (MO-9) is parsed by
   `parseSignature` into `ModuleSet.signatures`, which `checkModules` starts
   from; such a module has no program and is not in `order`.
+- MO-13: a JS import's declaration that `isPrintedSignature` (the crate's
+  `is_printed_signature`) is parsed by `parseSignature` under the module's
+  key and the import's `resolved` is set, so `checkModules` binds it as an
+  `.rx` import (`importRx`). The lowering imports `__rx` from the import's
+  own specifier and keys the module by that factory; the projection writes
+  the module's path (`relativeModule`, `relative_module`). The runtime's
+  `library` is `ref/compile/rt-web.ts` and `rt-server.ts`'s; the build is
+  `compiler/lib.mjs`.
 - The interpreter instantiates each dependency in a region of its own; the
   oracle declares it in a scope of its own inside the mounted root. The
   compiler emits `mN.mjs` per dependency — a factory over the app that
