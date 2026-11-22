@@ -171,7 +171,9 @@ does for `.tsrx`. Nothing here is a second type system.
   A component whose props are written as a type and a record of the
   fields that carry words (09 MO-8o) is a function of their intersection,
   its type parameters found from the type alone (`props: P &
-  NoInfer<{ … }>`); a fn with several rows (09 MO-8p) is held to each.
+  NoInfer<{ … }>`), and each field of the record is held against the
+  type's prop of that name (TY-6f); a fn with several rows (09 MO-8p) is
+  held to each.
 - **TY-6b.** The direction is the boundary's: the real export must fit the
   declared one, so `.rx` code checked against the declaration is right
   about the module. A declaration may say less than the types (`any`, an
@@ -200,6 +202,50 @@ does for `.tsrx`. Nothing here is a second type system.
   the `.d.rx` with the project's compiler options
   (`tooling/rx-language-server/src/boundary.js`). Nothing is emitted and
   nothing runs.
+- **TY-6f (The record after a props' type, added 2026-11-22).** A
+  component whose props are a type and a record (09 MO-8o) is held to
+  `P & NoInfer<{ … }>` (TY-6a), and that says nothing of the record: an
+  intersection only narrows, so the library's component takes `P & R`
+  whatever `R` is. Each field of the record is therefore held on its own:
+  - *the prop exists*: the field's name is a prop of `P` — of one member
+    at least where `P` is a union of records; any name where `P` has an
+    index signature, or is `any`;
+  - *the field's type fits the prop's*: the type the field is written with
+    (its word taken off: `handler (v: Option) => void` is `(v: Option) =>
+    void`) is assignable to the library's type for that prop (the union of
+    what the members of a union give it).
+
+  The direction is TY-6b's. The record may say *less* than the library
+  accepts (`size?: "s" | "m"` of a `"s" | "m" | "l"`), and then `P[k] &
+  R[k]` is `R[k]`: the record's type is the prop's type to the program,
+  and every value it admits is one the library takes. For a function that
+  reads: the callback as the record types it takes everything the library
+  calls it with (`(v: Option) => void` does not fit `(v: Option | null) =>
+  void`: a handler written against the record would be called with a
+  `null` it was told it never gets). The other direction would let the
+  record claim more than the library takes, which the intersection never
+  delivers; and an unrelated type makes the prop `never`, so a correct
+  program is refused for the declaration's mistake (S-module-32).
+  A failure is `DECLARATION_MISMATCH` on the row, naming the prop, the
+  type the record gives it, the props' type, and TypeScript's reason with
+  the library's type for the prop.
+
+  The row's type parameters are, in these checks, types of their own —
+  each its default, else its bound, else a type nothing else is, and `any`
+  where a bound comes back to the parameter itself — because TypeScript
+  reads no prop of a conditional or mapped type over a type parameter
+  (`PolymorphicProps<T, …>`), so a field cannot be held for every `T` at
+  once. It is held at the instance a program gets when it chooses nothing,
+  which finds a retyped field and a misspelt one; a field that fits there
+  and not at another `T` is not found. A row the module itself does not
+  fit (TY-6a) reports that, and its record's findings only where they are
+  a field's own. The crate writes the checks with the row's
+  (`project.rs` `boundary_checks`: a line each, and for each what it asks
+  and of which prop); `ref/` has no boundary check to keep in step (TY-6d:
+  it is the crate's to write) and reads the same row, record and type
+  parameters (the unit `a_props_record_is_held_to_the_props_type` in
+  both; `tooling/rx-language-server/test/tsc.js` runs it against a typed
+  module).
 
 ## TY-7 — Strict declarations (proposed 2026-11-20)
 

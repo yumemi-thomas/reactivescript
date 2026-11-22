@@ -59,7 +59,7 @@ TypeScript's errors are reported.
 
 ## Drafting a declaration
 
-`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--explain] [--causes file.json] [--any] [--source [checkout]]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
+`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
 types, resolved from the current directory as an import there would be. A package's declaration goes in the project's
 `rx-types/` folder, named by the import (spec/09 MO-8k); the import in `.rx` stays as written:
 
@@ -99,6 +99,12 @@ props are its props type and, after `&`, the fields the checker reads (`props: S
 words (MO-8p); a result the library names keeps that name unless its parts say something the checker reads. An `any`
 is written only where the library's own type has one (MO-8q): `--explain` counts the library's (`vendor-any`) and the
 draft's apart, with the parts said by place, and `--causes <file>` writes them by row as JSON (what `bench/` counts).
+A draft writes none of its own, for any export: where a type has no name it is said by its place — at the row's type
+parameters (`Parameters<typeof import("kit").f<T>>[1]`) where the row has them — and the last reading of a row, tried
+only before an `any`, has no type parameters and says every part without a name by its place as it stands.
+`--readings <export>[,<export>]` prints each reading of that row and what TypeScript said of it, which is how to find out
+why a row was drafted the way it was. A component's props record is held to the props' type as `rx-tsc` holds it (13
+TY-6f) before the row is written.
 
 `--source [<checkout>]` adds what the library's own TypeScript source shows of the words types cannot
 (`src/declare-source.js`, spec/09 MO-8n). The source is the folder you name (a checkout of the package's repository:

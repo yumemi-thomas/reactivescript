@@ -4090,6 +4090,34 @@ mod recovering {
         assert_eq!(got, [(Some("{ id: string } & Extra"), 1), (Some("{ id: string } & Extra"), 0)]);
     }
 
+    /// MO-8o, TY-6f: each field of the record after a props' type is held against the library's type for that prop —
+    /// the prop exists, and the field's type is one the library's takes — with the row's type parameters as types of the
+    /// check (a default, else a bound, else a type of its own; `any` where a bound comes back to itself)
+    #[test]
+    fn a_props_record_is_held_to_the_props_type() {
+        let src = "export component Picker<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>(props: import(\"./kit.js\").PickerProps<Option, G, T> & { onPick?: handler (v: Option) => void; item?: Component; slot?: renders any })\nexport component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n";
+        let decls = parse_declarations(src).expect("parses");
+        let (check, checks, overlay) = crate::project::boundary_checks(&decls, "./kit.js");
+        let held = "interface Option { readonly __rx_type_parameter: \"Option\"; } type G = never; type T = \"div\"; type K = any; type F = (a: Option) => void; type R = any; ";
+        let p = "import(\"./kit.js\").PickerProps<Option, G, T>";
+        let lines: Vec<&str> = check.lines().collect();
+        assert!(lines.contains(&format!("{{ {held}const __has: __rx_has<{p}, \"onPick\"> = true; }}").as_str()), "{check}");
+        assert!(lines.contains(&format!("{{ {held}const __is: __rx_prop<{p}, \"onPick\"> | undefined = undefined as unknown as ((v: Option) => void); }}").as_str()), "{check}");
+        assert!(lines.contains(&format!("{{ {held}const __is: __rx_prop<{p}, \"item\"> | undefined = undefined as unknown as (Component); }}").as_str()), "{check}");
+        assert!(check.contains("type __rx_prop<P, K extends PropertyKey> = ") && check.contains("type __rx_has<P, K extends PropertyKey> = "), "{check}");
+        // a check for each field's name, and for each field's type that is written; every one is the row's
+        assert_eq!(overlay.iter().map(|o| (o.prop.as_str(), o.has, o.line, o.name.as_str())).collect::<Vec<_>>(), [("onPick", true, 1, "Picker"), ("onPick", false, 1, "Picker"), ("item", true, 1, "Picker"), ("item", false, 1, "Picker"), ("slot", true, 1, "Picker"), ("slot", false, 1, "Picker")]);
+        for o in &overlay {
+            assert!(lines[o.at - 1].starts_with("{ interface Option") && lines[o.at - 1].contains(&format!("\"{}\"", o.prop)), "{}", lines[o.at - 1]);
+            assert!(o.says.contains(&format!("`{}`", o.prop)) && o.says.contains("MO-8o"), "{}", o.says);
+        }
+        assert!(overlay[1].says.contains("`(v: Option) => void`"), "{}", overlay[1].says);
+        // the rows' own checks are as they were: props that are a type alone, or a record alone, have no such line
+        assert_eq!(checks.iter().map(|c| (c.1, c.2.as_str())).collect::<Vec<_>>(), [(1, "Picker"), (2, "Plain"), (3, "Rec")]);
+        let (plain, _, none) = crate::project::boundary_checks(&parse_declarations("export component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n").expect("parses"), "./kit.js");
+        assert!(none.is_empty() && !plain.contains("__rx_prop"), "{plain}");
+    }
+
     /// MO-8p: several rows of one name are one fn's signatures; the words are the same on each, and TypeScript holds
     /// each against the module
     #[test]

@@ -61,6 +61,17 @@ and five columns score it, with two numbers beside them:
 either kind, or together), nor say more parts by place, than `scorecard.json` records; an introduced `any` that is not
 on `any-allowlist.json`, or more of them than its entry allows, fails; so does an entry that no longer holds one.
 
+**Whole drafts.** A task's `.d.rx` keeps the rows its app uses, which is a small part of a library. So the suite also
+counts the same three numbers over what `rx-declare` drafts for *every* export of each module a task declares (the draft
+it already makes to measure the hand-written words): the `any`s that are the library's own, the ones the draft wrote
+where the library has a type, and the parts said by place. They are in `scorecard.txt` under *Whole drafts*, draft by
+draft, and in `scorecard.json` as each task's `decl.draft`. `--check` holds two of them (09 MO-8q): an `any` of the
+draft's fails unless `any-allowlist.json` has an entry for it — `task`, `draft` (the module), `name` (the export),
+`count`, a one-line `reason` and what is `blocked` — and a task's whole drafts may not say more parts by place than the
+scorecard records. The library's own `any`s are the library's: they are counted and not held (naming more of a
+library's types reproduces more of them). The allowlist is empty: no draft of the benchmark's libraries writes an `any`
+of its own.
+
 What is not in the suite: probes written to find the edge of a rule rather than a mistake a user makes (an
 inherited `valueOf()`, a draft's iterator kept, a callback kept in a record, `[f][0]()`). They were here once and
 are now `compiler/test/confined.mjs`'s, which runs each with its controls.

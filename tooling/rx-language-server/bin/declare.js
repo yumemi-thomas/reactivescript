@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `rx-declare <module> [--out file.d.rx] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--any] [--source [checkout]]`: a draft `.d.rx` for a JS module, from its TypeScript types
+// `rx-declare <module> [--out file.d.rx] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]`: a draft `.d.rx` for a JS module, from its TypeScript types
 // (src/declare.js) and, for a library it knows (src/known.js), the rows types cannot show (--types-only leaves those out),
 // then from running it (src/declare-run.js: which hooks read a context, which provider provides it),
 // only with --run (it executes the package's code). The module is resolved from the current directory, as an import there would be
@@ -8,12 +8,12 @@ const fs = require("node:fs");
 const { declare } = require("../src/declare.js");
 const { runRows } = require("../src/declare-run.js");
 const args = process.argv.slice(2);
-const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--context" && args[args.indexOf(a) - 1] !== "--source" && args[args.indexOf(a) - 1] !== "--causes");
+const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--context" && args[args.indexOf(a) - 1] !== "--source" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings");
 const srcAt = args.indexOf("--source");     // MO-8n: evidence from the library's original source (a checkout, its published src/, its source maps)
 const ctxAt = args.indexOf("--context");   // the name for a context the module reads but does not export (MO-12a)
 const outAt = args.indexOf("--out");
 const causesAt = args.indexOf("--causes");   // MO-8q: each row's `any`s by cause and its parts said by place, as JSON, to a file
-if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--any] [--source [checkout]]\n"); process.exit(2); }
+if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]\n"); process.exit(2); }
 (async () => {
   if (args.includes("--dom")) {   // a browser's globals (happy-dom, from the project), so hooks that need a page run here
     let reg;
@@ -24,7 +24,11 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   // --explain: why each `any` the draft holds is one (its cause, by export), and each row TypeScript did not hold with
   // the library's types named (MO-8m), on stderr; --any: the draft as it was before MO-8m, every unnamed type `any`
   const causes = [], unheld = {}, places = {};
-  let text = declare(require("typescript"), spec, process.cwd(), {}, { known: !args.includes("--types-only"), refs: !args.includes("--any"), causes, unheld, places });
+  // --readings <export>[,<export>]: each reading of a row the draft tried (MO-8m, MO-8o) and TypeScript's answer to it, on stderr
+  const readAt = args.indexOf("--readings");
+  const readings = readAt >= 0 ? { names: (args[readAt + 1] ?? "").split(","), out: [] } : undefined;
+  let text = declare(require("typescript"), spec, process.cwd(), {}, { known: !args.includes("--types-only"), refs: !args.includes("--any"), causes, unheld, places, readings });
+  if (readings) for (const r of readings.out) process.stderr.write(`rx-declare: ${r.name} read ${r.reading}: ${r.bad === null ? "held" : `not held — ${r.bad}`}\n${r.rows.map(l => `    ${l}`).join("\n")}\n`);
   if (causesAt >= 0) fs.writeFileSync(args[causesAt + 1], JSON.stringify({ causes, places, unheld }, null, 1) + "\n");
   if (args.includes("--explain")) {
     const by = {}; for (const c of causes) by[c.cause] = (by[c.cause] ?? 0) + 1;

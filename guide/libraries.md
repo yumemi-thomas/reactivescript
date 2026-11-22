@@ -20,7 +20,8 @@ It never writes the word for you.
 A component's props can be the library's own type, with only the fields that carry a word written after it —
 `export component Select<Option>(props: import("@kobalte/core/select").SelectRootProps<Option> & { onChange?: handler
 (value: Option | Option[]) => void }) provides(select)` — and a function with several signatures has a row for each
-(the same words on every row). Don't write `any` where the library has a type: name the type (`rx-declare --explain`
+(the same words on every row). A field in that record is the library's prop written again: `rx-tsc` refuses one the
+props' type has no prop for, or one given another type than the library's (it may be narrower). Don't write `any` where the library has a type: name the type (`rx-declare --explain`
 says which `any`s are the library's own and which are the draft's).
 
 Solid itself needs none of this: `npm i -D @rx-types/solid-js` is its declaration (`createStore`, `snapshot`, `merge`,

@@ -30,7 +30,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 0,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "duplicate-keys": {
@@ -66,7 +73,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 0,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "effect-derived": {
@@ -100,7 +114,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 1,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "formisch-field-array": {
@@ -134,7 +155,14 @@
       "any": 11,
       "inherited": 11,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 1088,
+        "any": 66,
+        "vendor": 66,
+        "introduced": 0,
+        "places": 20
+      }
     }
   },
   "formisch-field-path": {
@@ -168,7 +196,14 @@
       "any": 11,
       "inherited": 11,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 1088,
+        "any": 66,
+        "vendor": 66,
+        "introduced": 0,
+        "places": 20
+      }
     }
   },
   "frozen-read": {
@@ -202,7 +237,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 2,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "keyed-edits": {
@@ -236,7 +278,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 0,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "kobalte-dialog": {
@@ -270,7 +319,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 46,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "kobalte-select": {
@@ -306,7 +362,14 @@
       "any": 1,
       "inherited": 1,
       "introduced": 0,
-      "places": 2
+      "places": 2,
+      "draft": {
+        "rows": 100,
+        "any": 2,
+        "vendor": 2,
+        "introduced": 0,
+        "places": 12
+      }
     }
   },
   "listener-cleanup": {
@@ -340,7 +403,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 2,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "optimistic-todo": {
@@ -374,7 +444,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 0,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "primitives-virtual": {
@@ -408,7 +485,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 37,
+        "any": 5,
+        "vendor": 5,
+        "introduced": 0,
+        "places": 5
+      }
     }
   },
   "projection-selection": {
@@ -442,7 +526,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 0,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "query-forward": {
@@ -476,7 +567,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 181,
+        "any": 37,
+        "vendor": 37,
+        "introduced": 0,
+        "places": 16
+      }
     }
   },
   "query-mutation": {
@@ -510,7 +608,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 183,
+        "any": 56,
+        "vendor": 56,
+        "introduced": 0,
+        "places": 16
+      }
     }
   },
   "router-data": {
@@ -544,7 +649,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 96,
+        "any": 22,
+        "vendor": 22,
+        "introduced": 0,
+        "places": 18
+      }
     }
   },
   "router-provider": {
@@ -578,7 +690,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 1
+      "places": 1,
+      "draft": {
+        "rows": 299,
+        "any": 52,
+        "vendor": 52,
+        "introduced": 0,
+        "places": 28
+      }
     }
   },
   "sequential-awaits": {
@@ -612,7 +731,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 4,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "source-mutation": {
@@ -646,7 +772,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 0,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "ssr-divergence": {
@@ -682,7 +815,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 2,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "start-route": {
@@ -716,7 +856,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 0,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "store-helper": {
@@ -750,7 +897,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 3,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "store-updater": {
@@ -784,7 +938,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0
+      "places": 0,
+      "draft": {
+        "rows": 3,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
     }
   },
   "table-pagination": {
@@ -818,7 +979,14 @@
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 1
+      "places": 1,
+      "draft": {
+        "rows": 7,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 1
+      }
     }
   }
 }

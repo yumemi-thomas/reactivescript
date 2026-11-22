@@ -126,9 +126,65 @@ check("a generic type is declared with its parameters' bounds and defaults, as t
 check("a generic fn keeps its type parameters, and names the module's own types by the draft's aliases — its result too, where its fields say nothing the checker reads (MO-8d, MO-8m, MO-8o)", hasNamed("export fn make<const T extends object>(opts: Opts<T>, shapes: Shape[]): Opts<T>"), named);
 check("a type no module exports is named by its place in the library's declaration", hasNamed("export fn inner(x: Parameters<typeof import(\"./named.js\").inner>[0], n?: number): { id: string; tags: string[] }"), named);
 check("another package's type is named by an import of that package; a callback is written with its own signature", hasNamed("export fn watchAll(ref source: number, done: (shape: Shape, from: import(\"solid-js\").Accessor<number>) => void): Map<string, import(\"solid-js\").Accessor<Shape>>"), named);
-check("an overloaded fn has a row for each signature (MO-8p) and no one place: what cannot be named there stays `any`, and --explain says why and whose", hasNamed("export fn over(a: any): number") && hasNamed("export fn over(a: any, b: number): number") && /2 `any` drafted \(0 the library's own, 2 the draft's\) — 2 overload/.test(rn.stderr), named + rn.stderr);
+check("an overloaded fn whose signatures' rows would hold an `any` of the draft's is its last signature, the part with no name by its place (MO-8q): no `any` is drafted, and --explain says so", hasNamed("export fn over(a: Parameters<typeof import(\"./named.js\").over>[0], b: number): number") && !/^export fn over\(a: any/m.test(named) && /0 `any` drafted \(0 the library's own, 0 the draft's\)/.test(rn.stderr), named + rn.stderr);
 check("an interface of fields that no module exports is written as the record of them (MO-8o)", hasNamed("export fn open(x: { id: string; tags: string[] }): number"), named);
-check("beside a type parameter, a part with no name is said by its place, where TypeScript holds the row", hasNamed("export fn pick<T>(rows: readonly T[], by: Parameters<typeof import(\"./named.js\").pick>[1]): T | undefined"), named);
+check("beside a type parameter, a part with no name is said by its place at the row's type parameters (`typeof import(…).pick<T>`), where TypeScript holds the row (MO-8q)", hasNamed("export fn pick<T>(rows: readonly T[], by: Parameters<typeof import(\"./named.js\").pick<T>>[1]): T | undefined"), named);
+
+// MO-8q: no `any` in a draft is the draft's. Each way a draft wrote one, and what it writes now: the library's own `any`
+// reproduced (and not counted against the reading that names the type), a bound that is a long helper alias written
+// out, a predicate as the library writes it, a parameter that is a type parameter by its name, an accessor of a type no
+// module exports by its place at the row's type parameters, options with a field a row cannot write by their name, a
+// result the app's project cannot resolve but the library calls `JSX.Element`, a function of nothing that gives an
+// element, and — where a bound has no name at all — the last reading: the last signature, each part by its place
+fs.writeFileSync(path.join(ws, "whole.js"), "export const tag = x => x, guard = x => x, keep = f => f, watch = () => {}, walk = p => p, Lost = () => null, Catch = () => null, adapt = o => o, fwd = a => a, Block = () => null, wide = s => s;\n");
+const WIDE = Array.from({ length: 70 }, (_, k) => `Box<"${k < 26 ? "" : String.fromCharCode(96 + Math.floor(k / 26))}${String.fromCharCode(97 + k % 26)}">`).join(" | ");   // longer than a row was once allowed to be
+fs.writeFileSync(path.join(ws, "whole.d.ts"), [
+  "import type { Accessor } from \"solid-js\";",
+  "import type { JSX } from \"@solidjs/web\";",
+  "export interface Box<T> { value: T }",
+  "interface Hidden<T> { secret: T; more: Hidden<T> | null }",
+  "type Walk<P> = P extends readonly [infer H, ...infer R] ? [H, ...Walk<R>] : [];",
+  `type Wide = ${WIDE};`,
+  "export interface Adapter<T> { key: string; test: (v: unknown) => v is T }",
+  "export interface Std { \"~run\": () => void; kind: string }",
+  "export declare function tag<T extends Box<any>>(x: T, y: Box<any>): T;",
+  "export declare function guard<T>(test: (x: unknown) => x is T): T;",
+  "export declare function keep<const F extends (...args: any[]) => unknown>(f: F): void;",
+  "export declare function watch<T>(opts: Accessor<Hidden<T>>): void;",
+  "export declare function walk<const P extends readonly unknown[], S extends Walk<P>>(paths: P, pick: (s: S) => boolean): S;",
+  "export declare function walk<const P extends readonly unknown[], S extends Walk<P>>(paths: P, pick: (s: S) => boolean, label: string): S;",
+  "export declare function wide<const S extends Wide>(s: S): S[\"value\"];",
+  "export declare function Lost(props: { id: string }): import(\"no-such-package\").JSX.Element;",
+  "export declare function Catch(props: { render?: () => JSX.Element; children?: JSX.Element }): JSX.Element;",
+  "export declare function adapt<T>(opts: Adapter<T>): Adapter<T>;",
+  "export declare function fwd(a: Std): Std;",
+  "interface BlockComponent { <T extends string = string>(props: { when: (x: Hidden<T>) => boolean; children?: JSX.Element }): JSX.Element; (props: { old: (x: Hidden<string>) => boolean }): JSX.Element }",
+  "export declare const Block: BlockComponent;",
+  "export {};",
+  "",
+].join("\n"));
+const rw = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./whole.js", "--explain", "--readings", "walk"], { cwd: ws, encoding: "utf8" });
+const wholeDraft = rw.stdout; if (process.env.VERBOSE) console.log(wholeDraft, rw.stderr);
+const hasWhole = line => wholeDraft.split("\n").includes(line);
+const W = 'typeof import("./whole.js")';
+check("MO-8q: a draft of such a module holds no `any` of its own, and --explain counts the library's", /3 `any` drafted \(3 the library's own, 0 the draft's\) — 3 vendor-any/.test(rw.stderr) && !/the draft's, not the library's/.test(wholeDraft), wholeDraft + rw.stderr);
+check("...the library's `any` is reproduced beside the type it is in (a reading that names the type is not the worse for it)", hasWhole("export fn tag<T extends Box<any>>(x: T, y: Box<any>): T"), wholeDraft);
+check("...a predicate is written as the library writes it", hasWhole("export fn guard<T>(test: (x: unknown) => x is T): T"), wholeDraft);
+check("...a parameter that is one of the row's type parameters is that parameter, not its bound's signature", hasWhole("export fn keep<const F extends (...args: any[]) => unknown>(f: F): void"), wholeDraft);
+check("...an accessor of a type no module exports is what the parameter answers, at the row's type parameters", hasWhole(`export fn watch<T>(ref opts: ReturnType<Parameters<${W}.watch<T>>[0]>): void`), wholeDraft);
+check("...a bound that is a helper alias is written out, however long", hasWhole(`export fn wide<const S extends (${WIDE})>(s: S): S["value"]`), wholeDraft);
+check("...a bound with no name leaves the last reading: the last signature, a part with no name by its place", hasWhole(`export fn walk(paths: Parameters<${W}.walk>[0], pick: (...args: Parameters<Parameters<${W}.walk>[1]>) => ReturnType<Parameters<${W}.walk>[1]>, label: string): ReturnType<${W}.walk>`), wholeDraft);
+check("...and --readings says what each reading of a row was, and TypeScript's answer to it", /rx-declare: walk read \{"generics":true,"paths":true,"decl":true\}: held\n {4}export fn walk\(/.test(rw.stderr) && /rx-declare: walk read \{"generics":false,"paths":true,"decl":true,"whole":true\}: held/.test(rw.stderr), rw.stderr);
+check("...a result the app's project cannot resolve, written `JSX.Element` by the library, is a component's", hasWhole("export component Lost(props: { id: string })"), wholeDraft);
+check("...a function of nothing that gives an element is a render prop, `() => View` (a `Component` takes props, and TypeScript does not hold it there)", hasWhole("export component Catch(props: { render?: () => View; children?: View })"), wholeDraft);
+check("...options with a predicate field, or a field a row cannot name, are the type the library declares", hasWhole("export fn adapt<T>(opts: Adapter<T>): Adapter<T>") && hasWhole("export fn fwd(a: Std): Std"), wholeDraft);
+check("...a component with several signatures whose first has a prop with no text is its last, by its place", hasWhole(`export component Block(props: { old: (...args: Parameters<Parameters<${W}.Block>[0]["old"]>) => ReturnType<Parameters<${W}.Block>[0]["old"]> })`), wholeDraft);
+fs.writeFileSync(path.join(ws, "whole.d.rx"), wholeDraft);
+fs.writeFileSync(path.join(ws, "whole.rx"), 'import { fwd } from "./whole.js"\nexport action go(a: import("./whole.js").Std) { fwd(a) }\n');
+fs.writeFileSync(path.join(ws, "tsconfig.whole.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] }, include: ["whole.rx", "whole.d.rx"] }));
+const twh = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "-p", "tsconfig.whole.json"], { cwd: ws, encoding: "utf8" });
+check("...and rx-tsc holds every row of it against the module (TY-6)", twh.status === 0 && !/DECLARATION_MISMATCH/.test(twh.stdout), { status: twh.status, out: twh.stdout + twh.stderr });
+fs.rmSync(path.join(ws, "tsconfig.whole.json"), { force: true }); fs.rmSync(path.join(ws, "whole.rx")); fs.rmSync(path.join(ws, "whole.d.rx"));
 check("a nested object keeps what it may also be (`| null`)", hasNamed("export fn lossy(): { at: { id: string; tags: string[] } | null; n: number }"), named);
 check("a computed type is written as the library computes it: a mapped tuple, a template of a literal, a conditional (MO-8m)", hasNamed("export fn all<T extends readonly unknown[] | []>(ps: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]> }>") && hasNamed("export fn atLeast<const N extends number>(n: N): { expects: `>=${N}`; kind: N extends 0 ? \"none\" : \"some\" }"), named);
 check("a generic component keeps the type parameters its props name (MO-8d): the others are not the row's", hasNamed("export component Picker<Option>(props: { value?: Option | undefined; options: Option[]; onPick?: (v: Option) => void })"), named);

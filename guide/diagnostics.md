@@ -2230,6 +2230,9 @@ plain data.
 module doesn't do. Fix the declaration so the real export fits it: drop a `ref` the function doesn't take, correct a
 prop or parameter type, or remove an export the module doesn't have. A module with no types needs a `.d.ts` beside it
 (a re-export of the package's is enough) for its declaration to be checked; without one, the `.d.rx` is its types.
+Where a component's props are the library's type and a record after it (`props: KitProps<T> & { onPick?: handler … }`),
+each field of the record is checked too (TY-6f): it must name a prop the type has, with a type the library's takes — the
+same, or narrower. The message names the prop and both types; correct the field's name or its type.
 
 ```d.rx before
 // lib.d.rx, beside lib.js whose lib.d.ts says: export declare function twice(n: number): number

@@ -1285,6 +1285,97 @@ fn props_text(props: &[crate::parse::JsProp], props_type: &Option<String>, held:
 /// class a constructor of an `Error`. Rows TypeScript cannot see (`pure`, `uses`, `pending`, `fails`) are not checked here.
 /// Returns the code and, per check, (its line in the code, the declaration's line, the export's name).
 pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usize, String)>) {
+    let (code, checks, _) = boundary_checks(decls, module);
+    (code, checks)
+}
+/// MO-8o, TY-6f: a field of the record after a props' type, held against the library's type for that prop. `at`: the
+/// check's line in the code; `line`, `name`: the row; `has`: the line asks that the prop exists (else that the field's
+/// type fits it); `says`: the finding, to which TypeScript's reason is added for a type.
+pub struct OverlayCheck {
+    pub at: usize,
+    pub line: usize,
+    pub name: String,
+    pub prop: String,
+    pub has: bool,
+    pub says: String,
+}
+/// A row's type parameters as types of the block an overlay check is written in, so that the library's props are a type
+/// TypeScript can read a prop of (a conditional over a type parameter is not): a parameter is its default, else its
+/// bound, else a type of its own that nothing else is; one whose bound comes back to itself is `any`.
+fn tparams_held(tparams: Option<&str>) -> String {
+    let Some(t) = tparams.map(str::trim).filter(|t| t.starts_with('<') && t.ends_with('>')) else { return String::new() };
+    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    let mentions = |text: &str, name: &str| text.match_indices(name).any(|(i, _)| !text[..i].chars().next_back().is_some_and(|c| is_word(c) || c == '.') && !text[i + name.len()..].chars().next().is_some_and(is_word));
+    // (name, the type it is held at, or None: a type of its own)
+    let mut ps: Vec<(String, Option<String>)> = vec![];
+    for part in crate::parse::split_top(&t[1..t.len() - 1], ",") {
+        let mut rest = part.as_str();
+        while let Some(r) = ["const ", "in ", "out "].iter().find_map(|m| rest.strip_prefix(m)) {
+            rest = r.trim_start();
+        }
+        let n = rest.find(|c: char| !is_word(c)).unwrap_or(rest.len());
+        let (name, rest) = (rest[..n].to_string(), rest[n..].trim());
+        if name.is_empty() {
+            continue;
+        }
+        // the default: after the first `=` outside brackets that is not an arrow's
+        let cs: Vec<char> = rest.chars().collect();
+        let mut depth = 0i64;
+        let mut eq = None;
+        for i in 0..cs.len() {
+            let ch = cs[i];
+            if "([{<".contains(ch) {
+                depth += 1;
+            } else if ")]}>".contains(ch) && !(ch == '>' && i > 0 && cs[i - 1] == '=') {
+                depth -= 1;
+            } else if ch == '=' && depth == 0 && cs.get(i + 1) != Some(&'>') {
+                eq = Some(i);
+                break;
+            }
+        }
+        let (bound, default) = match eq {
+            Some(i) => (cs[..i].iter().collect::<String>(), Some(cs[i + 1..].iter().collect::<String>().trim().to_string())),
+            None => (rest.to_string(), None),
+        };
+        let bound = bound.trim().strip_prefix("extends").map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
+        ps.push((name, default.filter(|d| !d.is_empty()).or(bound)));
+    }
+    // a parameter held at a type that comes back to it would be a circular alias
+    let names: Vec<String> = ps.iter().map(|p| p.0.clone()).collect();
+    let reaches = |from: usize, ps: &[(String, Option<String>)]| -> bool {
+        let mut seen = vec![false; ps.len()];
+        let mut todo = vec![from];
+        while let Some(i) = todo.pop() {
+            let Some(text) = &ps[i].1 else { continue };
+            for (j, n) in names.iter().enumerate() {
+                if mentions(text, n) {
+                    if j == from {
+                        return true;
+                    }
+                    if !seen[j] {
+                        seen[j] = true;
+                        todo.push(j);
+                    }
+                }
+            }
+        }
+        false
+    };
+    for i in 0..ps.len() {
+        if reaches(i, &ps) {
+            ps[i].1 = Some("any".into());
+        }
+    }
+    ps.iter()
+        .map(|(n, held)| match held {
+            Some(t) => format!("type {} = {}; ", n, t),
+            None => format!("interface {} {{ readonly __rx_type_parameter: {}; }} ", n, js_str(n)),
+        })
+        .collect()
+}
+/// TY-6 with, per check of a record's field against the library's props (MO-8o), what it asks.
+pub fn boundary_checks(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usize, String)>, Vec<OverlayCheck>) {
+    let mut overlay: Vec<OverlayCheck> = vec![];
     let own: IndexSet<&str> = decls.iter().filter(|d| matches!(d, JsDecl::Type { .. })).map(|d| d.name()).collect();
     let mut out: Vec<String> = vec![format!("import * as __real from {};", serde_json::to_string(module).unwrap_or_default())];
     if !own.contains("View") {
@@ -1330,8 +1421,29 @@ pub fn boundary_file(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, usi
         out.push(format!("type __decl_{} = {};", key, ty));
         out.push(format!("const __check_{}: __decl_{} = __real.{};", key, key, name));
         checks.push((out.len(), line, name.clone()));
+        // MO-8o, TY-6f: `P & NoInfer<{ … }>` holds the component to the type and says nothing of the record, which an
+        // intersection can only narrow. Each field of the record is held on its own: the library's props have a prop of
+        // that name (in one member of a union at least; an index signature has every name), and what the field says
+        // the prop is is something the library's type for it takes (the record narrows a prop, it does not retype it).
+        if let JsDecl::Comp { props, tparams, props_type: Some(pt), .. } = d {
+            let held = tparams_held(tparams.as_deref());
+            for p in props {
+                let k = js_str(&p.name);
+                out.push(format!("{{ {}const __has: __rx_has<{}, {}> = true; }}", held, pt, k));
+                overlay.push(OverlayCheck { at: out.len(), line, name: name.clone(), prop: p.name.clone(), has: true, says: format!("`{}` is written in the record after the props' type, and {} has no prop of that name: a field of the record is a prop of the library's, written again for its words (MO-8o)", p.name, pt) });
+                if let Some(t) = &p.ty {
+                    out.push(format!("{{ {}const __is: __rx_prop<{}, {}> | undefined = undefined as unknown as ({}); }}", held, pt, k, t));
+                    overlay.push(OverlayCheck { at: out.len(), line, name: name.clone(), prop: p.name.clone(), has: false, says: format!("`{}` is written `{}` in the record after the props' type, and the library's type for that prop does not take it: the record may narrow a prop of {}, not give it another type (MO-8o)", p.name, t, pt) });
+                }
+            }
+        }
     }
-    (out.join("\n") + "\n", checks)
+    if !overlay.is_empty() {
+        // a prop of the props' type, over each member of a union; whether any member has it
+        out.push("type __rx_prop<P, K extends PropertyKey> = P extends unknown ? K extends keyof P ? P[K] : never : never;".into());
+        out.push("type __rx_has<P, K extends PropertyKey> = [P extends unknown ? K extends keyof P ? true : never : never] extends [never] ? false : true;".into());
+    }
+    (out.join("\n") + "\n", checks, overlay)
 }
 
 /// MO-11i: a route path under its parent's: `/org/:org` and `/:id` give `/org/:org/:id`; `/` under anything is the parent.

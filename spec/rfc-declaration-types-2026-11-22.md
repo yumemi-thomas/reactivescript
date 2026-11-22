@@ -1,7 +1,8 @@
 # Declaration types: what a `.d.rx` says of a library's types, and where it comes from (2026-11-22)
 
-A design note for 09 MO-8d (revised), MO-8m, MO-8n, and (second round, the
-same day) MO-8o, MO-8p and MO-8q. The benchmark's
+A design note for 09 MO-8d (revised), MO-8m, MO-8n, (second round, the
+same day) MO-8o, MO-8p and MO-8q, and (third round, at the end) MO-8q over
+whole drafts and 13 TY-6f. The benchmark's
 declarations held 193 `any`s (`bench/scorecard.txt` at `1de2e6e`), nearly
 all drafted by `rx-declare`. This is why, what was done about each cause,
 and what a declaration should carry.
@@ -236,3 +237,103 @@ themselves), `@tanstack/solid-query` (3) and `@solidjs/router` (2). Each
 is written with a `// TODO <export>: … the draft's, not the library's
 (<cause>)` line above its row, and `--explain` counts them. They are the
 next thing to remove; no benchmark app reaches one.
+
+## Third round: the whole draft, and the record held
+
+**The record after a props' type is held to it (13 TY-6f).** `props: P &
+{ … }` was held as `P & NoInfer<{ … }>`, and an intersection can only
+narrow: the library's component takes `P & R` whatever `R` says, so a
+field written with the wrong type (`onChange?: handler (v: number) =>
+void`) or under a name the library has not (`onChanged`) passed. Each
+field is now held on its own: it names a prop of `P`, and its type is
+assignable to `P`'s type for that prop. The direction — the record's type
+fits the library's, not the other way — is TY-6b's (a declaration says
+less, never something else) and is the sound one for a callback: the
+callback as the record types it must take everything the library calls it
+with. The row's type parameters are types of their own in these checks
+(default, else bound, else a type nothing else is): TypeScript reads no
+prop of `PolymorphicProps<T, …>` while `T` is a parameter. No word was
+added and no parser changed; the check is two lines a field in the crate's
+boundary file, each with what it asks, and `rx-tsc` says it with the prop
+and both types. Kobalte's `Select` row holds as drafted; changing its
+`onChange` to `(value: number) => void`, or its name to `onChanged`, is
+refused.
+
+**No `any` in a whole draft is the draft's (MO-8q, extended).** Drafting
+every export of the modules the benchmark declares (25 drafts; the
+workspace's install) gave 290 `any`s — 175 the libraries' own and 115 the
+draft's — and 252 parts by place. The 115, by what caused each and what
+removed it:
+
+| cause | `any`s | where | what it took |
+| --- | --- | --- | --- |
+| a type parameter's bound, a helper alias written out, was longer than a row was let be (640 characters): the row lost its type parameters, and everything over them was `any` | 24 | valibot: `argsAsync`, `entriesFromObjects`, `getDefaults(Async)`, `getFallbacks(Async)`, `omit`, `pick`, `unwrap` (two drafts) | a row is not cut to a length |
+| the library's own `any`, reproduced inside a named type, was counted as the draft's: the reading that named the type lost to one that dropped it | 5 | valibot `getExamples`, `getMetadata` (two drafts); TanStack Router `useRouterState` | the readings are ranked by the `any`s the draft adds (the marker of a library `any` contained the word) |
+| beside type parameters, a part with no name was said by its place *at the bounds*, which is another type: the row did not hold, and fell back | 13 | valibot `forwardAsync`, `keyof` (two drafts); `useBlocker`, `linkOptions`; solid-query `useQueries` | the place at the row's type parameters, `typeof import("kit").f<T, U>`; a position that is a parameter the row does not declare is its bound's place |
+| a predicate had no text (`(input) => input is T`, which `=> boolean` is not) | 2 | valibot `guard` (two drafts) | written as the library writes it; a parameter that is a type parameter is that parameter |
+| a record of an options parameter left out a field the library requires and a row cannot write (`"~run"`): TypeScript held no reading, and the row every draft had did not parse | 16 | valibot `forward` (two drafts) | such options are the type the library declares |
+| a function field of a result had `any` parameters where its place was known | 4 | `@solidjs/router` `createBeforeLeave`; TanStack Router `composeRewrites` | the place before an `any` |
+| a bound with no name at all (a recursive helper type): no type parameters, and of two signatures no place | 20 | valibot `partialCheck`, `partialCheckAsync` (two drafts) | the last reading: the last signature, every part by its place as it stands |
+| an accessor parameter of a type no module exports had no place | 4 | solid-query `useMutationState`, `useQueries` (two drafts) | what the parameter answers, `ReturnType<Parameters<…>[0]>` |
+| a result the app's project cannot resolve (`import("solid-js/web").JSX.Element`, from a package built against another Solid): not seen as a component, its result `any` | 5 | TanStack Router `Await`, `Match`, `ScriptOnce`, `HeadContent`, `Scripts` | `JSX.Element` is an element by the name the library wrote |
+| options with a predicate field and fields generic in themselves, written a field at a time | 12 | TanStack Router `createSerializationAdapter` | the options by the name the library declares |
+| a prop that is a function of nothing giving an element was `Component`, which takes props: TypeScript held no reading | 5 | TanStack Router `CatchBoundary` | a render prop, `() => View` |
+| a component with several signatures has no one place | 5 | TanStack Router `Block` | its last signature, by its place |
+| | **115** | | |
+
+(The note above counted 110 and 260. Measured again at the same commit in
+the benchmark's workspace, with the count `bench` now makes, the numbers
+are 115 and 252; why the two counts differ was not traced. The second is
+the one `bench --check` holds.)
+
+Now: **0** of the draft's, 306 the libraries' own, 136 by place. The
+libraries' own rose from 175 because rows that were `any` altogether now
+name the library's types, `any`s and all (`BaseValidation<any, unknown,
+BaseIssue<unknown>>` in a bound). `bench/any-allowlist.json` stays empty.
+
+**By place (136).** What is left, by kind:
+
+- the library's own text (`options: ReturnType<DefinedInitialDataOptions<…>>`,
+  `params: Parameters<T>`): not a place at all, counted because the count
+  is of the two words;
+- a callback by the name of the function type the library declares for it
+  (`(...args: Parameters<Navigator>) => ReturnType<Navigator>`): the name
+  is there, taken apart so that the checker reads a function type;
+- a part of a type no module exports — Kobalte's collection types,
+  valibot's `ValidPath`, TanStack Query's `MutationStateOptions`, a
+  router's internal blocker and rewrite types — at the row's type
+  parameters where it has them;
+- the last reading's rows (`keyof` is not one: its two signatures are told
+  apart by how many type arguments they take; `partialCheck`,
+  `useQueries` and a few of the routers' are).
+
+The first two could be counted apart (a count of `typeof import(` would
+leave them out); the number is kept as it was so that it compares with the
+scorecards before it.
+
+**What stayed a proposal.**
+
+- *A name for a library's unexported helper types.* The last reading and
+  most by-place parts exist because a type the library declares is not
+  exported (`DeepPickN`, `ValidPath`, `Collection`). A draft could copy
+  such an alias into the declaration (`type DeepPickN<…> = …`), and the
+  rows would read better; it would also restate the library's internals,
+  go stale with them, and export a name the module has not. Not done: the
+  place refers, a copy restates (the note's first conclusion). The remedy
+  is the library's — export the type — and `--explain` could say which
+  types those are.
+- *A predicate as a fn's own result* (`export fn is(x: unknown): x is
+  T`). Both parsers take it (a result's type is text), the tree-sitter
+  grammar does not, and nothing reads it: TypeScript types the `.rx` call
+  against the library's own declaration (TY-4b). The draft keeps
+  `boolean` and `void`, which TY-6b allows. A grammar change for a text
+  nothing consumes is not worth its four places.
+- *A callback's shape kept in the last reading.* There a callback with no
+  name is its place whole, so the row has no function type to mark
+  `handler`; a person who needs the word writes the signature. A notation
+  for "a function, typed by its place" (`handler Parameters<…>[1]`) would
+  keep it; it is a new reading of `handler`, so it is only noted.
+- *Holding a record's field for every type argument.* TY-6f holds it at
+  one instance. A sound "for all `T`" needs TypeScript to read a prop of a
+  deferred conditional type, which it does not.
+

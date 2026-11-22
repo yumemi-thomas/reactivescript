@@ -99,6 +99,39 @@ fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: string): 
 const onlyBad = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: only, encoding: "utf8" });
 check("a .d.rx the tsconfig names, with no .rx module beside it, is checked too (TY-6)", onlyBad.status !== 0 && /lib\.d\.rx:1:1 - error DECLARATION_MISMATCH: twice: /.test(onlyBad.stdout), { status: onlyBad.status, out: onlyBad.stdout + onlyBad.stderr });
 
+// MO-8o, TY-6f: a field of the record after a props' type is held against the library's type for that prop
+const over = path.join(ws, "over"); fs.mkdirSync(over, { recursive: true });
+fs.symlinkSync(path.join(ws, "node_modules"), path.join(over, "node_modules"), "dir");
+fs.writeFileSync(path.join(over, "tsconfig.json"), JSON.stringify({ compilerOptions: JSON.parse(fs.readFileSync(path.join(ws, "tsconfig.json"), "utf8")).compilerOptions, include: ["*.d.rx"] }));
+fs.writeFileSync(path.join(over, "picker.js"), "export const Picker = () => null, Chooser = () => null, Open = () => null;\n");
+fs.writeFileSync(path.join(over, "picker.d.ts"), [
+  "export type PickerProps<O> = { value?: O; options: O[]; onPick?: (v: O) => void; label?: string };",
+  "export type OneOrMany<O> = { multiple?: false; onChange?: (v: O | null) => void } | { multiple: true; onChange?: (v: O[]) => void; max?: number };",
+  "export type OpenProps = { id: string; [name: string]: unknown };",
+  "export declare function Picker<Option>(props: PickerProps<Option>): any;",
+  "export declare function Chooser<Option, T extends string = \"div\">(props: T extends \"div\" ? OneOrMany<Option> : never): any;",
+  "export declare function Open(props: OpenProps): any;",
+  "",
+].join("\n"));
+const overRows = {
+  Picker: 'export component Picker<Option>(props: import("./picker.js").PickerProps<Option> & { onPick?: handler (v: Option) => void })',
+  Chooser: 'export component Chooser<Option, T extends string = "div">(props: (T extends "div" ? import("./picker.js").OneOrMany<Option> : never) & { onChange?: handler (v: Option | Option[]) => void; max?: number })',
+  Open: 'export component Open(props: import("./picker.js").OpenProps & { onAnything?: handler () => void })',
+};
+const overRun = rows => { fs.writeFileSync(path.join(over, "picker.d.rx"), Object.values({ ...overRows, ...rows }).join("\n") + "\n"); const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: over, encoding: "utf8" }); return { status: r.status, out: r.stdout + r.stderr }; };
+const overGood = overRun({});
+check("a props' record whose fields are the library's props, narrowed or the same, passes: a generic prop, a prop of one member of a union under a conditional, any name where the props are open (MO-8o)", overGood.status === 0 && overGood.out.trim() === "", overGood);
+const overType = overRun({ Picker: overRows.Picker.replace("{ onPick?: handler (v: Option) => void }", "{ onPick?: handler (v: Option) => void; label?: number }") });
+check("a field given another type than the library's fails, naming the prop and both types (DECLARATION_MISMATCH)",
+  overType.status !== 0 && /picker\.d\.rx:1:1 - error DECLARATION_MISMATCH: Picker: `label` is written `number` in the record after the props' type, and the library's type for that prop does not take it[^]*Type 'number' is not assignable to type 'string/.test(overType.out) && !/onPick/.test(overType.out), overType);
+const overFn = overRun({ Chooser: overRows.Chooser.replace("(v: Option | Option[]) => void", "(v: string) => void") });
+check("...a callback that does not take what the library calls it with, too (the row's type parameters are held as types of their own)",
+  overFn.status !== 0 && /picker\.d\.rx:2:1 - error DECLARATION_MISMATCH: Chooser: `onChange` is written `\(v: string\) => void`[^]*is not assignable to type '\(\(v: Option \| null\) => void\) \| \(\(v: Option\[\]\) => void\) \| undefined'/.test(overFn.out), overFn);
+const overName = overRun({ Picker: overRows.Picker.replace("onPick?", "onPicked?") });
+check("a field that names no prop of the library's fails, naming it (DECLARATION_MISMATCH)",
+  overName.status !== 0 && /picker\.d\.rx:1:1 - error DECLARATION_MISMATCH: Picker: `onPicked` is written in the record after the props' type, and import\("\.\/picker\.js"\)\.PickerProps<Option> has no prop of that name/.test(overName.out) && (overName.out.match(/onPicked/g) ?? []).length === 1, overName);
+fs.rmSync(over, { recursive: true });
+
 // MO-8j: strict declarations — `--rx-strict` refuses a row rx-verify has not recorded as verified, unless it says `trusted`
 const strictRun = () => spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--rx-strict"], { cwd: only, encoding: "utf8" });
 fs.writeFileSync(path.join(only, "lib.d.rx"), "export pure fn twice(n: number): number\n");

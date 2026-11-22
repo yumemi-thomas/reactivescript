@@ -100,11 +100,24 @@ function checkBoundaries(ts, rxFiles, options, scope) {
     const typesOf = program.getSourceFile(u.at) && ts.resolveModuleName(u.module, u.at, options, host).resolvedModule;
     // a module with no TypeScript types of its own is typed by its .d.rx (TY-4b): there is nothing to check it against
     if (!typesOf || /\.(m?js|jsx)$/.test(typesOf.resolvedFileName) || require("./declarations.js").isVirtual(typesOf.resolvedFileName)) continue;
-    for (const dg of [...program.getSyntacticDiagnostics(sf), ...program.getSemanticDiagnostics(sf)]) {
+    const dgs = [...program.getSyntacticDiagnostics(sf), ...program.getSemanticDiagnostics(sf)].map(dg => {
       const line = dg.start === undefined ? 0 : sf.getLineAndCharacterOfPosition(dg.start).line + 1;
-      const c = u.checks.find(x => x.at === line);
-      const text = ts.flattenDiagnosticMessageText(dg.messageText, "\n  ");
-      const via = u.why && units.filter(x => x.file === u.file).length > 1 ? ` (as ${path.basename(u.why.importer)} imports ${u.why.spec})` : "";
+      return { c: u.checks.find(x => x.at === line), code: dg.code, text: ts.flattenDiagnosticMessageText(dg.messageText, "\n  ") };
+    });
+    const via = u.why && units.filter(x => x.file === u.file).length > 1 ? ` (as ${path.basename(u.why.importer)} imports ${u.why.spec})` : "";
+    // MO-8o, TY-6f: a field of the record after a props' type is held on its own lines: what such a line finds is the
+    // field's (TS2322, said once a prop, the name before the type), and anything else on it is the props' type, which
+    // the row's own check says where it fails.
+    const rowBad = new Set(dgs.filter(d => d.c && !d.c.overlay).map(d => d.c.line));
+    const said = new Set();
+    for (const { c, code, text } of dgs) {
+      if (c?.overlay) {
+        const k = `${c.line}\0${c.prop}`;
+        if (said.has(k) || (code !== 2322 && rowBad.has(c.line))) continue;
+        said.add(k);
+        found.push({ file: u.file, line: c.line, name: c.name, message: (code !== 2322 ? text : c.overlay === "has" ? c.says : `${c.says}\n  ${text}`) + via });
+        continue;
+      }
       found.push(c ? { file: u.file, line: c.line, name: c.name, message: text + via } : { file: u.file, line: 1, name: "", message: `in a type the declaration states: ${text}${via}` });
     }
   }

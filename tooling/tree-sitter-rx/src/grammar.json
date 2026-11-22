@@ -9477,6 +9477,15 @@
           },
           "named": true,
           "value": "array_type"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "import_lookup_type"
+          },
+          "named": true,
+          "value": "lookup_type"
         }
       ]
     },
@@ -13952,6 +13961,45 @@
           }
         }
       ]
+    },
+    "import_lookup_type": {
+      "type": "PREC",
+      "value": 1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_type_query_member_expression_in_type_annotation"
+                },
+                "named": true,
+                "value": "member_expression"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "import_type"
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": "["
+          },
+          {
+            "type": "SYMBOL",
+            "name": "type"
+          },
+          {
+            "type": "STRING",
+            "value": "]"
+          }
+        ]
+      }
     },
     "import_array_type": {
       "type": "PREC",

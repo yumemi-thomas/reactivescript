@@ -292,6 +292,17 @@ export const units: [string, () => void][] = [
     const more = parseDeclarations("export component B(props: { id: string } & Extra & { onPick?: handler () => void })\nexport component C(props: { id: string } & Extra)\n") as typeof comps;
     deepStrictEqual(more.map(d => [d.propsType, d.props.length]), [["{ id: string } & Extra", 1], ["{ id: string } & Extra", 0]]);
   }],
+  ["a_props_record_is_held_to_the_props_type", () => {   // MO-8o, TY-6f: what the boundary check holds a record's field by — its name, the type it is written with (the word taken off), the props' type and the row's type parameters — is read here as the crate reads it (the check itself is the crate's to write, 13 TY-6d: compiler/src/project.rs `boundary_checks`, the unit of this name there)
+    const decls = parseDeclarations("export component Picker<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>(props: import(\"./kit.js\").PickerProps<Option, G, T> & { onPick?: handler (v: Option) => void; item?: Component; slot?: renders any })\nexport component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n");
+    const comps = decls.filter((d): d is Extract<typeof decls[number], { kind: "comp" }> => d.kind === "comp");
+    deepStrictEqual(comps.map(d => [d.name, d.line, d.propsType, d.tparams]), [
+      ["Picker", 1, "import(\"./kit.js\").PickerProps<Option, G, T>", "<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>"],
+      ["Plain", 2, "PlainProps", undefined],
+      ["Rec", 3, undefined, undefined],
+    ]);
+    deepStrictEqual(comps[0].props.map(p => [p.name, p.optional, p.type]), [["onPick", true, "(v: Option) => void"], ["item", true, "Component"], ["slot", true, "any"]]);
+    deepStrictEqual(comps[1].props, []);   // props that are a type alone: nothing written again, nothing to hold
+  }],
   ["a_fn_may_have_several_rows", () => {   // MO-8p: several rows of one name are one fn's signatures, with the same words on each
     const decls = parseDeclarations("export pure fn on(ref target: Window, type_: string, handler: handler (e: Event) => void): () => void\nexport pure fn on(ref target: Document, type_: string, handler: handler (e: Event) => void, options?: boolean): () => void\nexport fn other(): void\n");
     deepStrictEqual(decls.map(d => d.name), ["on", "on", "other"]);

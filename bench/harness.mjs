@@ -230,14 +230,25 @@ function declares(dir, file) {
 export function draftOf(spec, from, flags = []) {
   const at = path.join(ws, `.causes-${process.pid}.json`); rmSync(at, { force: true });
   const r = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/declare.js"), spec, "--causes", at, ...flags], { cwd: from, encoding: "utf8", maxBuffer: 1 << 26 });
-  const inherited = new Map();
-  try { for (const c of JSON.parse(readFileSync(at, "utf8")).causes) if (c.cause === "vendor-any" && c.name) inherited.set(c.name, (inherited.get(c.name) ?? 0) + 1); } catch { /* no draft */ }
+  const inherited = new Map(), caused = new Map(), why = new Map();
+  try { for (const c of JSON.parse(readFileSync(at, "utf8")).causes) { if (!c.name) continue; caused.set(c.name, (caused.get(c.name) ?? 0) + 1); if (c.cause === "vendor-any") inherited.set(c.name, (inherited.get(c.name) ?? 0) + 1); else why.set(c.name, [...(why.get(c.name) ?? []), c.cause]); } } catch { /* no draft */ }
   rmSync(at, { force: true });
   const lines = r.status === 0 ? code(r.stdout).map(l => l.trim()).filter(Boolean) : [];
   lines.inherited = inherited;
+  // 09 MO-8q, over the whole draft — every export of the module, not only the rows an app keeps: the `any`s that are the
+  // library's own, the ones that are not (each with the draft's cause for it; an `any` no cause answers for is a row of
+  // known.js, written by hand), and the parts said by place
+  const anyBy = new Map(); let places = 0;
+  for (const l of lines) { const n = exported(l); const k = anysIn(l); if (k) anyBy.set(n ?? l, (anyBy.get(n ?? l) ?? 0) + k); places += tokens(l).filter(t => PLACE.has(t)).length; }
+  const rows = [];
+  for (const [n, k] of anyBy) { const own = k - (inherited.get(n) ?? 0); if (own > 0) rows.push({ name: n, introduced: own, causes: [...new Set([...(why.get(n) ?? []), ...(k > (caused.get(n) ?? 0) ? ["written by hand (known.js)"] : [])])] }); }
+  const any = [...anyBy.values()].reduce((a, b) => a + b, 0), introduced = rows.reduce((a, x) => a + x.introduced, 0);
+  lines.whole = { rows: lines.length, any, vendor: any - introduced, introduced, places, introducedRows: rows };
   return lines;
 }
 const PLACE = new Set(["Parameters", "ReturnType", "ConstructorParameters", "InstanceType"]);
+/** The `any`s a row writes: the word in a type, not the name of what it exports (valibot exports a schema called `any`). */
+const anysIn = line => { const ts = tokens(line); const at = ts.findIndex((t, i) => i > 0 && /^(fn|component|const|type|context|error)$/.test(ts[i - 1]) && ts.slice(0, i).includes("export")); return ts.filter((t, i) => t === "any" && i !== at).length; };
 /** A task's declarations, measured against the tool that drafts them: for each `.d.rx` of the task, the words a person
  *  wrote on top of `rx-declare`'s draft of the same module (a row the draft has, word for word, costs nothing; a row it
  *  has otherwise costs the words that differ; a row it has not costs every word; a row left out costs nothing), and the
@@ -256,7 +267,7 @@ export function declarations(dir, flagsFor = {}) {
     const allByName = new Map(); for (const l of draft) { const n = exported(l); if (n) allByName.set(n, [...(allByName.get(n) ?? []), l]); }
     let words = 0, places = 0; const anyBy = new Map();
     for (const line of code(readFileSync(p, "utf8")).map(l => l.trim()).filter(Boolean)) {
-      const k = tokens(line).filter(t => t === "any").length;
+      const k = anysIn(line);
       if (k) anyBy.set(exported(line) ?? line, (anyBy.get(exported(line) ?? line) ?? 0) + k);
       places += tokens(line).filter(t => PLACE.has(t)).length;
       if (whole.has(line)) continue;
@@ -266,10 +277,12 @@ export function declarations(dir, flagsFor = {}) {
     let any = 0, inherited = 0; const rows = [];
     for (const [n, k] of anyBy) { any += k; const h = Math.min(k, draft.inherited.get(n) ?? 0); inherited += h; if (k > h) rows.push({ name: n, introduced: k - h }); }
     void byName;
-    files.push({ file: path.relative(dir, p), words, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows });
+    files.push({ file: path.relative(dir, p), spec, words, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows, whole: draft.whole });
   }
   const sum = k => files.reduce((n, f) => n + f[k], 0);
-  return { words: sum("words"), any: sum("any"), inherited: sum("inherited"), introduced: sum("introduced"), places: sum("places"), files };
+  const wsum = k => files.reduce((n, f) => n + f.whole[k], 0);
+  // `draft`: the same modules drafted whole (every export), 09 MO-8q's numbers over what no app of the benchmark keeps
+  return { words: sum("words"), any: sum("any"), inherited: sum("inherited"), introduced: sum("introduced"), places: sum("places"), draft: { rows: wsum("rows"), any: wsum("any"), vendor: wsum("vendor"), introduced: wsum("introduced"), places: wsum("places") }, files };
 }
 
 /** rx-tsc's errors that are on the lines an edit wrote: `file(line,col): error …` rows whose file is the edited one and

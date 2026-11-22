@@ -64,3 +64,30 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   table-pagination/table.d.rx: 43 words by hand, 0 `any` inherited, 0 introduced, 1 by place
 
 Introduced `any`s (09 MO-8q: none, or on bench/any-allowlist.json): none
+
+Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 25 drafts, 3142 rows): 306 `any` the libraries' own, 0 introduced, 136 by place
+  effect-derived · ./page.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  formisch-field-array · @formisch/solid/v2: 107 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  formisch-field-array · valibot: 981 rows, 66 `any` the library's own, 0 introduced, 20 by place
+  formisch-field-path · @formisch/solid/v2: 107 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  formisch-field-path · valibot: 981 rows, 66 `any` the library's own, 0 introduced, 20 by place
+  frozen-read · ./label.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  kobalte-dialog · @kobalte/core/dialog: 46 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  kobalte-select · @kobalte/core/select: 100 rows, 2 `any` the library's own, 0 introduced, 12 by place
+  listener-cleanup · ./keys.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  primitives-virtual · @solid-primitives/event-listener: 24 rows, 5 `any` the library's own, 0 introduced, 4 by place
+  primitives-virtual · @solid-primitives/resize-observer: 12 rows, 0 `any` the library's own, 0 introduced, 1 by place
+  primitives-virtual · ./virtual.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  query-forward · ./api.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  query-forward · @tanstack/solid-query: 178 rows, 37 `any` the library's own, 0 introduced, 16 by place
+  query-mutation · ./api.js: 5 rows, 19 `any` the library's own, 0 introduced, 0 by place
+  query-mutation · @tanstack/solid-query: 178 rows, 37 `any` the library's own, 0 introduced, 16 by place
+  router-data · ./people.js: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  router-data · @solidjs/router: 92 rows, 22 `any` the library's own, 0 introduced, 18 by place
+  router-provider · ./people.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  router-provider · @tanstack/solid-router: 296 rows, 52 `any` the library's own, 0 introduced, 28 by place
+  sequential-awaits · ./api.js: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  ssr-divergence · ./env.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  store-helper · ./array.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  store-updater · ./audit.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  table-pagination · ./table.js: 7 rows, 0 `any` the library's own, 0 introduced, 1 by place

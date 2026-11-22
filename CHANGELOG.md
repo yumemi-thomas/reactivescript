@@ -4,6 +4,23 @@
 
 **Changed**
 
+- The record after a component's props' type is held to that type (spec/13 TY-6f, 09 MO-8o). `props: P & { onChange?:
+  handler (v: Option) => void }` was checked as `P & NoInfer<{ … }>`, which an intersection satisfies whatever the record
+  says. `rx-tsc` now checks each field of the record on its own: it names a prop the type has, and the type it is written
+  with is one the library's type for that prop takes (the same, or narrower). Otherwise `DECLARATION_MISMATCH` on the
+  row, naming the prop and both types. A declaration with a retyped or misspelt field in such a record, accepted before,
+  is refused.
+- `rx-declare` writes no `any` of its own for a module with types, for any export (spec/09 MO-8q, extended): a type
+  parameter's bound is written out however long, a part with no name is its place at the row's type parameters
+  (`Parameters<typeof import("kit").f<T>>[1]`), a predicate is written as the library writes it, options a row cannot
+  write field by field are the type the library declares, a result the library calls `JSX.Element` is a component's
+  though the app's project cannot resolve it, a function of nothing that gives an element is `() => View`, and a row
+  with a bound that has no name is its last signature with each such part by its place. `--readings <export>` prints
+  each reading of a row and TypeScript's answer. The library's own `any`s inside a type it names are reproduced (they
+  were counted against the row, which then dropped the type). `bench --check` drafts every export of each module its
+  tasks declare and fails on an `any` of the draft's, or on more parts said by place than the scorecard records.
+  Generated declarations are redrafted (draft 6).
+- The tree-sitter grammar reads a member of an import type, `import("pkg").Types["error"]`.
 - A declared component's props may be a type, with the fields that carry words in a record after it (spec/09 MO-8o):
   `export component Select<Option>(props: import("@kobalte/core/select").SelectRootProps<Option> & { onChange?: handler
   (value: Option | Option[]) => void }) provides(select)`. The checker reads the record as it read a record of props; a

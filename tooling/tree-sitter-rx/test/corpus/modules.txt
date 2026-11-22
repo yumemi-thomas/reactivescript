@@ -892,3 +892,152 @@ export pure fn pick(from: number[], at: number, fallback?: number): number
             (predefined_type))))
       (type_annotation
         (predefined_type)))))
+
+================================================================================
+Declaration file rows: what a draft writes for a type with no name (MO-8q)
+================================================================================
+
+export fn pick<T>(rows: readonly T[], by: Parameters<typeof import("kit").pick<T>>[1]): T | undefined
+export fn watch<T>(ref opts: ReturnType<NonNullable<Parameters<typeof import("kit").watch<T>>[0]>>): void
+export fn guard<T>(test: (x: unknown) => x is T): T
+export fn fail(error: import("kit").Types["error"], at: import("kit").Box<string>["value"]["line"]): void
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (fn_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (readonly_type
+              (array_type
+                (type_identifier)))))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (lookup_type
+              (generic_type
+                (type_identifier)
+                (type_arguments
+                  (type_query
+                    (instantiation_expression
+                      (member_expression
+                        (call_expression
+                          (import)
+                          (arguments
+                            (string
+                              (string_fragment))))
+                        (property_identifier))
+                      (type_arguments
+                        (type_identifier))))))
+              (literal_type
+                (number))))))
+      (type_annotation
+        (union_type
+          (type_identifier)
+          (literal_type
+            (undefined))))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (ref_modifier)
+          (identifier)
+          (type_annotation
+            (generic_type
+              (type_identifier)
+              (type_arguments
+                (generic_type
+                  (type_identifier)
+                  (type_arguments
+                    (lookup_type
+                      (generic_type
+                        (type_identifier)
+                        (type_arguments
+                          (type_query
+                            (instantiation_expression
+                              (member_expression
+                                (call_expression
+                                  (import)
+                                  (arguments
+                                    (string
+                                      (string_fragment))))
+                                (property_identifier))
+                              (type_arguments
+                                (type_identifier))))))
+                      (literal_type
+                        (number))))))))))
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (function_type
+              (formal_parameters
+                (required_parameter
+                  (identifier)
+                  (type_annotation
+                    (predefined_type))))
+              (type_predicate
+                (identifier)
+                (type_identifier))))))
+      (type_annotation
+        (type_identifier))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (lookup_type
+              (member_expression
+                (call_expression
+                  (import)
+                  (arguments
+                    (string
+                      (string_fragment))))
+                (property_identifier))
+              (literal_type
+                (string
+                  (string_fragment))))))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (lookup_type
+              (lookup_type
+                (import_type
+                  (member_expression
+                    (call_expression
+                      (import)
+                      (arguments
+                        (string
+                          (string_fragment))))
+                    (property_identifier))
+                  (type_arguments
+                    (predefined_type)))
+                (literal_type
+                  (string
+                    (string_fragment))))
+              (literal_type
+                (string
+                  (string_fragment)))))))
+      (type_annotation
+        (predefined_type)))))

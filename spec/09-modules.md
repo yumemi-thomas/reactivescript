@@ -407,8 +407,8 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   holds none. A draft therefore never brings a `DECLARATION_MISMATCH` of
   its own making. What stays `any` has a cause `rx-declare --explain`
   names (MO-8q says whose it is). `--any` drafts as before this rule.
-  A generated declaration (MO-8l) is drafted the same way (draft 5: with
-  MO-8o and MO-8p).
+  A generated declaration (MO-8l) is drafted the same way (draft 6: with
+  MO-8o, MO-8p and MO-8q over the whole draft).
 - **MO-8o (A row's types are the library's declaration's; a component's
   props may be a type) — proposed 2026-11-22.** MO-8m read a library's
   types as TypeScript resolves them, and named what it found. A resolved
@@ -468,6 +468,33 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     as before (S-module-30, the unit
     `a_component_row_may_name_its_props_type` in both checkers; the
     tree-sitter grammar reads both forms).
+  - *The record is held to the type* (added 2026-11-22, 13 TY-6f). With
+    `NoInfer` around it the record takes no part in holding the component
+    to the row, and an intersection would hide a wrong field in any case
+    (`P & { onChange?: handler (v: number) => void }` is still something
+    the library takes). So each field is checked on its own: it names a
+    prop the type has (one member of a union at least; any name where the
+    props are open), and the type it is written with is one the library's
+    type for that prop takes — the same or narrower, never another. A
+    record narrows a prop for the program; it does not retype it. The
+    direction is the boundary's (TY-6b): what the declaration admits, the
+    library accepts; and for a callback, what the library calls it with,
+    the callback as written takes. `DECLARATION_MISMATCH` otherwise, on
+    the row, with the prop and both types:
+
+    ```
+    select.d.rx:15:1 - error DECLARATION_MISMATCH: Select: `onChange` is written `(value: number) => void` in the
+    record after the props' type, and the library's type for that prop does not take it: the record may narrow a prop
+    of import("@kobalte/core/polymorphic").PolymorphicProps<T, SelectRootProps<Option, OptGroup, T>>, not give it
+    another type (MO-8o)
+      Type '(value: number) => void' is not assignable to type '((value: Option | null) => void) | ((value: Option[]) => void) | undefined'.
+    ```
+
+    A field the type has no prop for (`onChanged?: handler …`) is refused
+    the same way: it would give its word to a prop nobody reads and leave
+    the real one without. A draft's rows are held this way before they are
+    written, as they are held to the module (MO-8m). S-module-32, the unit
+    `a_props_record_is_held_to_the_props_type` in both checkers.
 
   Every row is still held against the module before the draft is written
   (MO-8m): a row TypeScript does not hold this way is written as MO-8m
@@ -521,6 +548,64 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   recorded scorecard. A module with no types has no library type to
   inherit from: its declaration is all there is (13 TY-6c), and an `any`
   there is the author's.
+
+  *A whole draft holds it too (extended 2026-11-22).* The rule is the
+  draft's for every export of a module, not only for the rows an app
+  keeps: `rx-declare` writes no `any` of its own for a module with types.
+  What it does where it wrote one:
+  - *The library's `any` is not the draft's.* A reading of a row that
+    names the library's type and reproduces an `any` inside it
+    (`PipeItem<any, unknown, BaseIssue<unknown>>`) is not the worse for
+    it: the readings of a row are ranked by the `any`s the draft adds,
+    then by the parts said by place.
+  - *A bound is written out, however long.* A type parameter's bound that
+    is a helper alias no module exports (`TSchema extends Schema$9`) is
+    what the alias stands for; a row is not cut to a length.
+  - *A place is taken at the row's type parameters.* Beside type
+    parameters, a part with no name is its place in the signature *at*
+    them, `Parameters<typeof import("kit").f<T, U>>[1]` (TypeScript's
+    instantiation expression): exactly the library's type for that part,
+    where the place at the bounds was another type and the row did not
+    hold. Of an overloaded fn, where one signature alone takes that many
+    type arguments. An accessor parameter's part with no name is what the
+    parameter answers (`ref opts: ReturnType<Parameters<…>[0]>`).
+  - *A callback is what the library declares.* A predicate is written as
+    one (`test: (x: unknown) => x is T`: a function that answers a
+    `boolean` is not it); a parameter that is one of the row's type
+    parameters is that parameter (`requirement: TGuard`), not its bound's
+    signature. What a fn itself answers stays `boolean` or `void`.
+  - *Options the row cannot write field by field are their type.* A
+    record of a parameter's fields is written for its callbacks (MO-10g);
+    where a field the library requires has no name a row can write
+    (`"~run"`), or a field has no text, the options are the type the
+    library declares, or their place.
+  - *What the library calls `JSX.Element` is an element.* A result the
+    app's project cannot resolve (the library's declaration imports a
+    module the app has another version of) is read by the name it was
+    written with: a function of props to `….JSX.Element` is a component.
+    Any other part that does not resolve is said by its place: it is
+    whatever the library's declaration is to that project.
+  - *A function of nothing that gives an element is a render prop*,
+    `render?: () => View`: `Component` takes props, and TypeScript does
+    not hold a function of one argument where the library calls with none.
+  - *The last reading.* Where a row would still hold an `any` — a bound
+    with no name at all (a recursive helper type), so nothing for the
+    row's types to range over — the row has no type parameters and every
+    part without a name is its place as it stands, a callback whole
+    (`requirement: Parameters<typeof import("kit").f>[1]`); of several
+    signatures, the last, which is the one `Parameters<typeof f>` reads;
+    a component's props their place, with the fields that have a text
+    after it (MO-8o). TypeScript holds such a row wherever the fn has a
+    signature, so it is where a draft stops, and it is ranked last: it
+    says least.
+
+  `rx-declare --readings <export>` prints each reading of a row and
+  TypeScript's answer to it. `bench/` drafts every export of each module
+  its tasks declare and counts the same three numbers over the whole
+  drafts; `bench --check` fails on an `any` of the draft's that is not on
+  `bench/any-allowlist.json` (an entry with `draft`: the module, the
+  export, how many, the reason, what blocks naming the type) and on a
+  task whose whole drafts say more by place than the recorded scorecard.
 - **MO-8n (Evidence from the library's source) — proposed 2026-11-22.**
   The words of MO-8i that say what a library *does* — `handler`,
   `tracked`, `uses`, `provides`, `instantiates`, a result that undoes the

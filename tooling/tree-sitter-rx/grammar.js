@@ -612,7 +612,16 @@ module.exports = grammar(tsx, {
     primary_type: ($, previous) => choice(
       previous,
       alias($.import_array_type, $.array_type),
+      alias($.import_lookup_type, $.lookup_type),
     ),
+    // `error: import("pkg").Types["error"]`: a member of an import type (what `rx-declare` writes for a type a library
+    // declares as a field of another); a further `["x"]` is TSX's own lookup of this one
+    import_lookup_type: $ => prec(1, seq(
+      choice(alias($._type_query_member_expression_in_type_annotation, $.member_expression), $.import_type),
+      '[',
+      $.type,
+      ']',
+    )),
     import_array_type: $ => prec(1, seq(
       choice(alias($._type_query_member_expression_in_type_annotation, $.member_expression), $.import_type),
       '[',

@@ -136,8 +136,11 @@ pub fn boundary(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value 
     let Some(text) = params["text"].as_str().map(str::to_string).or_else(|| disk(file)) else { return json!({ "error": format!("cannot read {}", file) }) };
     match crate::parse::parse_declarations(&text) {
         Ok(decls) => {
-            let (code, checks) = crate::project::boundary_file(&decls, module);
-            json!({ "code": code, "checks": checks.iter().map(|(at, line, name)| json!({ "at": at, "line": line, "name": name })).collect::<Vec<_>>() })
+            let (code, checks, overlay) = crate::project::boundary_checks(&decls, module);
+            let mut all: Vec<Value> = checks.iter().map(|(at, line, name)| json!({ "at": at, "line": line, "name": name })).collect();
+            // MO-8o: a field of a props' record against the library's type for that prop; `says` is the finding
+            all.extend(overlay.iter().map(|o| json!({ "at": o.at, "line": o.line, "name": o.name, "prop": o.prop, "overlay": if o.has { "has" } else { "type" }, "says": o.says })));
+            json!({ "code": code, "checks": all })
         }
         Err(e) => json!({ "error": e.0 }),
     }
