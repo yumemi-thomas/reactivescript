@@ -221,7 +221,8 @@ export default component App() {
 
 ### MUTATION_IN_PLACE
 
-The value of a source, an equation or a prop is changed by a write, never in place (W-1a). `rows.push(x)`, `rows.sort()`
+The value of a source, an equation or a prop — and what a JS component hands its view (`view (list) { … }`) — is
+changed by a write or by the library's own methods, never in place (W-1a). `rows.push(x)`, `rows.sort()`
 and the like change the array itself: nothing is told that it changed, so the view does not follow, and every other
 reader of that array — an equation over it, the parent that passed it as a prop — now holds a changed value it did not
 ask for. Solid has the same trap (a signal's array pushed to, a memo's array sorted). Write the new value; for a sorted
@@ -615,6 +616,33 @@ effect (total) { setTitle(`cart: ${$0}`) }
 effect (saves) { report(peek(draft)) }       // what the draft held when `saves` changed
 ```
 
+### GUESS_AFTER_AWAIT
+
+Advice, not an error: the program is accepted and the build goes on. An action's first guess is written after an
+`await`, so it is ahead of nothing: what it shows appears once that `await` has answered.
+
+```rx
+action add(id: string, title: string) {
+  try {
+    await addTodo(id, title)
+    guess todos := ts => [...ts, { id: id, title: title }]     // advice: after `await addTodo(…)`
+    refresh todos
+  } catch (e) { failed := e.message }
+}
+```
+
+Write the guess before the `await` it is a guess about:
+
+```rx
+action add(id: string, title: string) {
+  guess todos := ts => [...ts, { id: id, title: title }]
+  try {
+    await addTodo(id, title)
+    refresh todos
+  } catch (e) { failed := e.message }
+}
+```
+
 ## Actions, guesses and holds
 
 ### HELD_WRITE
@@ -709,6 +737,12 @@ loaders `pure` once you have checked that they only ask. Each question is advise
 
 A guess lives in an action's hold until the server answers it (AC-3). An effect's apply block is never an action, so
 declare one and call it from the block.
+
+The same code is reported for a guess in a run that starts nothing to wait for: a handler that only guesses
+(`onClick={() => { guess todos := ts => [...ts, row] }}`) is an action with no hold, so the guess is taken back in the
+instant it is made and nothing shows. A guess goes before the `await` it is a guess about (`guess todos := …; await
+addTodo(row)`); if the value is the source's new value, write it (`todos := …`). A run that awaits, re-asks
+(`refresh`), declares `affects`, writes, or calls anything of its own is left alone.
 
 ```rx before
 export default component App() {
@@ -929,7 +963,9 @@ export default component App() {
 ### ACTION_CALLED_IN_OWNED_SCOPE
 
 An action is called from a handler or another action, never from an equation or the markup (R-io-3). Solid throws the
-same code at run time.
+same code at run time. An action a context provides is one too: with `context cart: { add: (id: string) => void }` and
+`provide cart = { add: add }`, `{c.add(id)}` in a view and `onClick={c.add(id)}` are this code (a function a prop is
+given, declared to answer nothing, is `IO_IN_REACTIVE`: the type does not say it is an action).
 
 ```rx before
 export default component App() {
@@ -2207,7 +2243,8 @@ export pure fn twice(n: number): number
 ### VIEW_FN_EXPECTED
 
 The component's declaration types `children` as a function giving a `View` (a render prop): it calls its children for
-each thing it renders, so they are written as a view lambda, its only child (MO-11k).
+each thing it renders, so they are written as a view lambda, its only child (MO-11k). A render prop declared optional
+(`children?: …`) may be left out: `<Select.Listbox />` renders its items by itself.
 
 ```rx before
 -- module: ./list.d.rx

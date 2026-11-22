@@ -4,7 +4,7 @@
 // as read before it (STALE_WRITE_BACK, AC-1e), and a write into an answer after an `await` of anything but the server's (STALE_CAPTURE, AC-1g). Solid sees none of them: a TypeScript body's promises and reads are not
 // visible to it, which is why it asks for `action(function* …)` and lets a stale read or a lost update through.
 import type { Expr, Stmt } from "./ast.ts";
-import { freeNames } from "./check.ts";
+import { freeNames, show, subExprs } from "./check.ts";
 
 export type Trigger = "optimistic" | "affects" | "write+await";
 type Fn = Extract<Expr, { k: "fn" }>;
@@ -42,6 +42,46 @@ export function inferredAction(stmts: Stmt[]): Trigger | null {
   };
   go(stmts, new Map());
   return guess ?? (write && wait ? "write+await" : null);
+}
+/** AC-3 (2026-11-22): what an action's own statements say of its guesses. `holdless`: it guesses (the first one's target and
+ *  line) and can start nothing a guess would live over — no statement-level `await`, no `refresh` or `affects`, no plain
+ *  write (which a question may be asked again for), no inline action, and no call of anything but the language's hooks (a
+ *  call may launch what holds) — so the hold ends with the run and the guess is taken back in the instant it is made.
+ *  `late`: its first guess is written after a statement-level `await` (that await, as written): until it answers, nothing
+ *  shows. Own statements, as `inferredAction` reads them: through the local closures the body calls by name, not into
+ *  other closures. */
+export type GuessFacts = { holdless?: { name: string; line?: number }; late?: { name: string; line?: number; awaited: string } };
+export function guessFacts(stmts: Stmt[]): GuessFacts {
+  let first: { name: string; line?: number } | undefined, late: GuessFacts["late"], awaited: string | undefined, starts = false;
+  const seen = new Set<Fn>();
+  // a call written in an expression, outside the closures it makes, of anything but a hook of the language
+  const calls = (n: Expr | Stmt): boolean => {
+    if (n.k === "fn" || n.k === "serverfn") return false;
+    if (n.k === "call" && !(n.f.k === "id" && (n.f.name === "onFlush" || n.f.name === "onSettled" || n.f.name === "log"))) return true;
+    if ((n.k === "write" || n.k === "optimistic") && n.target.path.some(seg => typeof seg !== "string" && calls(seg))) return true;
+    return subExprs(n as Expr).some(calls);
+  };
+  const go = (ss: Stmt[], cl: Closures): void => {
+    const local = new Map(cl);
+    for (const s of ss) {
+      const c = closureOf(s); if (c) { local.set((s as { name: string }).name, c); continue; } else if (s.k === "let") local.delete(s.name);
+      const called = (s.k === "expr" || s.k === "let") ? calledClosure(s.e, local) : null;
+      if (called) { if (!seen.has(called)) { seen.add(called); go(called.stmts!, local); } continue; }
+      switch (s.k) {
+        case "optimistic": if (!first) { first = { name: s.target.name, line: s.line }; if (awaited !== undefined) late = { name: s.target.name, line: s.line, awaited }; } break;
+        case "affects": case "refresh": case "write": case "action": starts = true; break;
+        case "let": case "expr":
+          if (stmtAwait(s)) { starts = true; if (awaited === undefined) { const q = s.e.k === "catch" ? s.e.e : s.e; awaited = show(q.k === "await" ? q.e : q); } }
+          break;
+        case "sif": if (calls(s.c)) starts = true; go(s.t, local); go(s.f, local); break;
+        case "for": if (calls(s.e)) starts = true; go(s.body, local); break;
+        case "try": go(s.body, local); if (s.handler) go(s.handler, local); if (s.fin) go(s.fin, local); break;
+      }
+      if (s.k !== "sif" && s.k !== "for" && s.k !== "try" && s.k !== "action" && calls(s)) starts = true;
+    }
+  };
+  go(stmts, new Map());
+  return { ...(!starts && first ? { holdless: first } : {}), ...(late ? { late } : {}) };
 }
 export const triggerText = (t: Trigger): string => t === "write+await" ? "it writes and awaits" : `it has \`${t === "optimistic" ? "guess" : t}\``;
 

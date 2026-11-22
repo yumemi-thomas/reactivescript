@@ -8,7 +8,7 @@ import type { ModuleSet } from "./modules.ts";
 import { splitTop, fieldRows, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
-import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
+import { guessFacts, inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 /** MO-10i (closed 2026-11-22): what is called on a draft is a method of plain data, by name — an Array's, a Map's, a Set's,
  *  a string's or a number's. `DRAFT_CALLBACKS` are the ones that call a function they are given, now, with parts of the data. */
@@ -54,7 +54,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; callback?: boolean; pure?: boolean; renders?: boolean; takes?: [string, boolean, string[]][] }>; shape?: Shape; stored?: Record<string, string[]>; keeps?: string[] };   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; callback?: boolean; pure?: boolean; renders?: boolean; takes?: [string, boolean, string[]][] }>; shape?: Shape; stored?: Record<string, string[]>; keeps?: string[] };   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -73,7 +73,7 @@ function containsFn(f: Extract<Expr, { k: "fn" }>): boolean {
   return any(f.body) || any(f.stmts ?? []);
 }
 /** A short rendering of an expression, for messages. */
-function show(e: Expr): string {
+export function show(e: Expr): string {
   switch (e.k) {
     case "lit": return JSON.stringify(e.v); case "id": return e.name; case "member": return `${show(e.o)}.${e.p}`;
     case "call": return `${show(e.f)}(…)`; case "await": return `await ${show(e.e)}`; case "latest": return `latest ${show(e.e)}`;
@@ -108,7 +108,7 @@ type Sym = {
   rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
   imported?: string;                   // a source imported from an .rx module: read-only here (MO-2)
   fromModule?: string;                 // MO-11o: an equation or source imported from this .rx module
-  ctx?: { key: string; source: boolean; dflt: boolean; contract: { rows: Set<string>; fails: Set<string> } | null };
+  ctx?: { key: string; source: boolean; dflt: boolean; contract: { rows: Set<string>; fails: Set<string> } | null; ty?: string };   // ty: its declared type, the row words taken out (MO-10k: read a step at a time, as a declared result's is)
   side?: "server" | "client";          // 12 SF-5: JS that runs on one side only
   ioVia?: string;                      // 12 SF-1: a server fn that is io — the call in its body that makes it so
   serverRejects?: () => Set<string>;   // SF-6b: what a call's promise rejects with — its body's failures, and Error (transit)
@@ -129,6 +129,7 @@ type Sym = {
   drafts?: [number, number[]][];       // MO-10i: a JS fn's callbacks whose parameters are its drafts (argument index, parameter positions)
   partDrafts?: Record<string, [number, number[]][]>;   // MO-10i: the same, for its result's function parts (tuple index or field)
   jsDraft?: boolean;                   // MO-10i: a callback's parameter the library declares a draft: its paths are written
+  handed?: boolean;                    // MO-11k, W-1a: a view lambda's parameter: what the component hands its render prop, the component's own value
   draftFn?: number;                    // MO-10i: the closure whose parameter the draft is (its fnStack id)
   methods?: string[];
   rowKey?: string;                     // ST-4: `xs key id`, the field its rows are keyed by
@@ -320,6 +321,21 @@ function paramUses(n: Expr | Stmt, p: string, tail: boolean, prim: boolean, u: P
     default: rest(e);
   }
 }
+/** Every provision a program writes, by its context's name, and every name it declares by `action`: read from the text. */
+function providesIn(decls: Decl[], view: Markup[], provided: Map<string, Expr[]>, actions: Set<string>): void {
+  for (const d of decls) {
+    if (d.k === "provide") { if (!provided.has(d.name)) provided.set(d.name, []); provided.get(d.name)!.push(d.e); }
+    else if (d.k === "action") actions.add(d.name);
+    else if (d.k === "component") providesIn(d.decls, d.view, provided, actions);
+    else if (d.k === "fn") providesIn(d.decls, [], provided, actions);
+  }
+  for (const m of view) switch (m.k) {
+    case "el": providesIn([], m.children, provided, actions); break;
+    case "mif": providesIn(m.tDecls, m.t, provided, actions); providesIn(m.fDecls, m.f, provided, actions); break;
+    case "mfor": case "mview": case "portal": providesIn(m.decls, m.body, provided, actions); break;
+    case "loading": case "errored": providesIn([], m.fallback, provided, actions); providesIn(m.decls, m.body, provided, actions); break;
+  }
+}
 type RecFields = Extract<Expr, { k: "rec" }>["fields"];
 function recField(fields: RecFields, key: string): Expr | undefined {
   if (fields.some(f => "spread" in f)) return undefined;
@@ -466,7 +482,7 @@ function readsOutsidePeek(e: Expr, out: Set<string>): void {
   }
 }
 /** The expressions directly under `e` (a record's field values and spreads included). */
-function subExprs(e: Expr): Expr[] {
+export function subExprs(e: Expr): Expr[] {
   const out: Expr[] = [];
   for (const v of Object.values(e as object)) {
     if (Array.isArray(v)) { for (const x of v) if (x && typeof x === "object") { if ("k" in x) out.push(x as Expr); else if ("v" in x) out.push((x as { v: Expr }).v); else if ("spread" in x) out.push((x as { spread: Expr }).spread); } }
@@ -636,6 +652,7 @@ class Checker {
     argCalls(p, this.argCalls);
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
+    providesIn(p.decls, p.view, this.provided, this.actionNames);
     this.block(p.decls, p.view, root, { scope: "reactive" });
     this.rendersSinks();                                                                   // MO-11l: every call's arguments are known now
     // MO-11o: a prop taken (by syntax) for one its component gives on to a prop that renders it, which the walk did not find
@@ -867,7 +884,7 @@ class Checker {
         if (env.vars.has(d.name)) this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
         const contract = (d.type && ROW_WORDS.test(d.type)) || d.exported ? this.contractOf(d.type) : null;   // RG-7e: written rows, or exported (its type is then the contract: no row words, no rows)
         if (d.source) this.err("SOURCE_CONTEXT", "O-4", `context ${d.name}: source … is withdrawn (RG-7c, 2026-10-31): what is provided is read beneath it — provide the writes you allow, as actions (\`context ${d.name}: { current: T; set: (v: T) => void }\`)`);
-        this.bind(env, d.name, { kind: "context", name: d.name, region: env.region, line: d.line, ctx: { key: `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${this.seq++}` : ""}`, source: d.source, dflt: !!d.dflt, contract } });
+        this.bind(env, d.name, { kind: "context", name: d.name, region: env.region, line: d.line, ctx: { key: `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${this.seq++}` : ""}`, source: d.source, dflt: !!d.dflt, contract, ...(d.type !== undefined ? { ty: fieldRows(d.type.replace(ROW_WORDS, "")).text } : {}) } });
         if (d.dflt) this.provisions.push({ key: env.vars.get(d.name)!.ctx!.key, e: d.dflt, env });
         continue;
       }
@@ -947,7 +964,7 @@ class Checker {
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
         case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; { const cp = Object.entries(x.sig.props).filter(([, v]) => v.renders).map(([k]) => k); if (cp.length) this.carriedProps.set(r, new Set(cp)); } { const ph = Object.entries(x.sig.props).flatMap(([k, v]) => (v.takes ?? []).map(([p, h, c]) => [`${k}.${p}`, h, c] as [string, boolean, string[]])); if (ph.length) this.propHeld.set(r, ph); } break; }   // E-5a; MO-11o: the props it renders what they carry
-        case "context": sym = { kind: "context", name: alias, region: env.region, line: d.line, ctx: { key: x.key, source: x.source, dflt: x.dflt, contract: { rows: new Set(x.rows), fails: new Set(x.fails) } } }; break;
+        case "context": sym = { kind: "context", name: alias, region: env.region, line: d.line, ctx: { key: x.key, source: x.source, dflt: x.dflt, contract: { rows: new Set(x.rows), fails: new Set(x.fails) }, ...(x.type !== undefined ? { ty: fieldRows(x.type).text } : {}) } }; break;
       }
       if (sym.kind === "source" || sym.kind === "eq" || sym.kind === "fn") sym.exportKey = `${d.resolved}#${name}`;   // E-5a
       if (d.pure && sym.io) this.err("IMPORT_ROW_MISMATCH", "MO-4", `${name} is io in ${d.from}'s signature; \`pure\` cannot lower an .rx row`);
@@ -981,7 +998,7 @@ class Checker {
     const bindComp = (x: Extract<JsDecl, { kind: "comp" }>, alias: string) => {   // MO-11a: a Solid component — its declaration is its summary
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders
         const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
-        for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true } : {}), ...(p.callback ? { callback: true } : {}), ...(p.pure ? { pure: true } : {}) };
+        for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true, ...(p.optional ? { renderOptional: true } : {}) } : {}), ...(p.callback ? { callback: true } : {}), ...(p.pure ? { pure: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig; r.js = true;
         const cp = x.props.filter(p => p.carried).map(p => p.name); if (cp.length) this.carriedProps.set(r, new Set(cp));   // MO-11o
         this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(x.outlet ? { outlet: true } : {}) });
@@ -1785,12 +1802,15 @@ class Checker {
     const step = (t: string | undefined, s: TStep) => t === undefined ? undefined : tyStep(t, s);
     switch (e.k) {
       case "id": {
-        const sy = env.lookup(e.name); if (!sy || (sy.kind !== "eq" && sy.kind !== "value")) return undefined;
+        const sy = env.lookup(e.name);
+        if (sy?.kind === "props") return this.propsTy.get(sy.region);                          // a component's props are what its props type says (2026-11-22)
+        if (!sy || (sy.kind !== "eq" && sy.kind !== "value")) return undefined;
         if (sy.retTy !== undefined) return sy.retTy;
         if (sy.rowOf) return step(this.declTy(sy.rowOf.e, sy.rowOf.env, depth + 1), "elem");
         const v = sy.val; if (!v) return undefined;
-        return v.e.k === "id" || v.e.k === "member" || v.e.k === "index" || v.e.k === "call" ? this.declTy(v.e, v.env, depth + 1) : undefined;
+        return v.e.k === "id" || v.e.k === "member" || v.e.k === "index" || v.e.k === "call" || v.e.k === "use" ? this.declTy(v.e, v.env, depth + 1) : undefined;
       }
+      case "use": return env.lookup(e.name)?.ctx?.ty;                                          // what a context provides is what its declaration types it (2026-11-22)
       case "member": return step(this.declTy(e.o, env, depth + 1), { field: e.p });
       case "index": { const t = this.declTy(e.o, env, depth + 1); const k = litKey(e.i); return (e.i.k === "lit" && typeof e.i.v === "number") || k === undefined ? step(t, "elem") : step(t, { field: k }); }
       case "call": return e.f.k === "member" || e.f.k === "index" ? step(this.declTy(e.f, env, depth + 1), "call") : undefined;
@@ -2101,16 +2121,32 @@ class Checker {
     if (sy.kind !== "eq" && sy.kind !== "value") return undefined;
     if (sy.rowOf) { const w = this.reactivePlace(sy.rowOf.e, sy.rowOf.env, depth + 1); return w === undefined ? undefined : `a row of ${w.replace(/^(a row of )+/, "")}`; }
     if (sy.ofFn && this.writeFns.has(sy.ofFn)) return `the value the write is given (${e.name})`;
+    if (sy.handed) return `what the component hands its view (${e.name})`;
     const v = sy.val; if (!v) return undefined;
     if (v.e.k === "fn") return undefined;
     if (sy.kind === "value") return v.e.k === "id" || v.e.k === "member" || v.e.k === "index" || v.e.k === "use" ? this.reactivePlace(v.e, v.env, depth + 1) : undefined;   // a local that names a path of reactive state is that state
     return `the equation ${e.name}`;
   }
-  /** MO-10b: a method of a declared JS result whose declared type answers nothing, `() => void`. */
+  /** MO-10b: a function field whose declared type answers nothing — `() => void`, or a promise of nothing — read off a
+   *  declared JS result, a component's props or what a context provides: it is called for what it does. */
   private voidMethod(f: Expr, env: Env): boolean {
     if (f.k !== "member" && f.k !== "index") return false;
     const t = this.declTy(f, env); const r = t === undefined ? undefined : tyStep(t, "call");
-    return r !== undefined && tyClean(r) === "void";
+    return r !== undefined && (tyClean(r) === "void" || tyClean(r) === "Promise<void>");
+  }
+  /** R-io-3, CN-1b: whether what a void function field names is an action, as far as this module says: the field of a
+   *  context every provision of which, in this module, gives it a name declared by `action`. Solid's runtime names that
+   *  call `ACTION_CALLED_IN_OWNED_SCOPE`; any other io is `IO_IN_REACTIVE`. */
+  private provided = new Map<string, Expr[]>();
+  private actionNames = new Set<string>();
+  private providedAction(f: Expr, env: Env): boolean {
+    if (f.k !== "member" && f.k !== "index") return false;
+    const field = f.k === "member" ? f.p : litKey(f.i); if (field === undefined) return false;
+    let x: { e: Expr; env: Env } = { e: f.o, env };                                          // a name's expression, through the equations and locals that name it (`c = use cart`)
+    for (let i = 0; i < 32 && x.e.k === "id"; i++) { const sy = x.env.lookup(x.e.name); const v = sy && (sy.kind === "eq" || sy.kind === "value") ? sy.val : undefined; if (!v) break; x = v; }
+    if (x.e.k !== "use") return false;
+    const ps = this.provided.get(x.e.name);
+    return !!ps?.length && ps.every(e => { const v = e.k === "rec" ? recField(e.fields, field) : undefined; return v?.k === "id" && this.actionNames.has(v.name); });
   }
   /** SC-4 (2026-11-22): a handler is a function, called when its event happens. An attribute that takes one, given a call
    *  of something that is io — an action, an io import, a setter, a method declared to answer nothing — would make that
@@ -2120,7 +2156,7 @@ class Checker {
     if (e.k === "call") {
       let code: string | undefined;
       if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io ? "IO_IN_REACTIVE" : !s && e.f.name === "log" ? "IO_IN_REACTIVE" : undefined; }
-      else if (this.voidMethod(e.f, env)) code = "IO_IN_REACTIVE";
+      else if (this.voidMethod(e.f, env)) code = this.providedAction(e.f, env) ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE";
       if (code) this.err(code, "SC-4", `${attr}={${show(e)}} calls ${show(e.f)}(…) while the view computes, and gives the handler what it answers: a handler is a function, called when its event happens — \`${attr}={() => { ${show(e)} }}\``);
     } else if (e.k === "if") { this.handlerCalled(e.t, env, attr); this.handlerCalled(e.f, env, attr); }
     else if (e.k === "bin" && (e.op === "&&" || e.op === "||" || e.op === "??")) { if (e.op !== "&&") this.handlerCalled(e.l, env, attr); this.handlerCalled(e.r, env, attr); }
@@ -2218,6 +2254,7 @@ class Checker {
         // for what it does: it is io, called from imperative scope
         if (ctx.scope !== "imperative" && this.voidMethod(e.f, env)) {
           if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (its declaration says it answers nothing: it is called for what it does); a fn is pure by definition`);
+          else if (this.providedAction(e.f, env)) this.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${show(e.f)}(…) is an action (what the context provides there), called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action`);
           else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (\`() => void\`), so it is called for what it does — from a handler or an action`);
         }
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
@@ -2286,6 +2323,13 @@ class Checker {
       if (f.code === "HELD_WRITE") this.err("HELD_WRITE", "AC-1c", `${f.name} := … comes before an \`await\` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, \`guess ${f.name} := …\` (a source with a question, ST-5c); for a reset that lands now, \`onFlush(() => { ${f.name} := … })\` (EF-8); to hold it on purpose, declare the action (\`action name() { … }\`); or write it after the \`await\``);
       else if (f.code === "STALE_WRITE_BACK") this.err("STALE_WRITE_BACK", "AC-1e", `${f.name} := … after an \`await\` is computed from ${f.name} as it was read before that \`await\`: whatever changed ${f.name} in between (another action, a reload) is overwritten — write functionally (\`${f.name} := v => …\`, W-6), which applies to ${f.name} as it stands at the write, or guess it (\`guess\`, AC-3) and let the answer replace the guess`);
       else this.err("STALE_OWN_READ", "AC-1d", `${f.name} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (\`let v = …; ${f.name} := v\`) and read that, or write functionally (\`${f.name} := v => …\`, W-6)`);
+    }
+    // AC-3 (2026-11-22): a guess lives over the hold of what its action waits for
+    if (action) {
+      const g = guessFacts(stmts); const line0 = this.line;
+      if (g.holdless) { const n = g.holdless.name; this.line = g.holdless.line ?? line0; this.err("GUESS_OUTSIDE_HOLD", "AC-3", `guess ${n} := … in a run that starts nothing to wait for (no \`await\`, no \`refresh\` or \`affects\`, no write, no call that could): the hold it would live over ends with the run, so the guess is taken back in the instant it is made and nothing shows — a guess is for what the run is about to await (\`guess ${n} := …; await save(…)\`); if this is ${n}'s new value, write it (\`${n} := …\`)`); }
+      if (g.late) this.advice.push({ code: "GUESS_AFTER_AWAIT", rule: "AC-3", line: g.late.line ?? line0, msg: `guess ${g.late.name} := … is written after \`await ${g.late.awaited}\`: nothing shows until that answers — a guess is what the run shows while it waits, so write it before the \`await\` it is a guess about`, ...(this.opts.file ? { file: this.opts.file } : {}) });
+      this.line = line0;
     }
   }
 
@@ -2384,7 +2428,7 @@ class Checker {
             const guessable = s.k === "optimistic" && target?.kind === "eq" && !!target.eqDecl && !target.param && !target.imported;   // AC-3: a guess may sit over an equation (Solid's createOptimistic(fn)); it is not a write of the truth
             if (guessable && target!.eqDecl!.deferred) this.err("GUESS_ON_DEFERRED", "AC-3", `${s.target.name} is deferred: its value is a lagging copy (V-16), so nothing would confirm a guess on it — guess the equation it lags`);
             else if (guessable) {}
-            else if (target && target.kind !== "source") this.err("WRITE_TO_NON_SOURCE", "W-1", `${s.target.name} is ${target.kind === "eq" ? "an equation" : target.kind === "props" ? "props" : `a ${target.kind}`}: only sources are written${target.jsDraft ? " — a library's draft is written along its paths (`" + s.target.name + ".field := …`), or the callback returns the new value (MO-10i)" : target.kind === "value" && s.target.path.length ? " — a field of a callback's parameter is written only when the library declares it a draft, `(draft state: T) => void` (MO-10i)" : target.kind === "props" || target.kind === "value" || target.param ? " — a source is written only in the region that declares it: have its owner pass an action that writes it (O-4)" : ""}`);
+            else if (target && target.kind !== "source") this.err("WRITE_TO_NON_SOURCE", "W-1", `${s.target.name} is ${target.kind === "eq" ? "an equation" : target.kind === "props" ? "props" : `a ${target.kind}`}: only sources are written${target.jsDraft ? " — a library's draft is written along its paths (`" + s.target.name + ".field := …`), or the callback returns the new value (MO-10i)" : target.kind === "value" && target.val && this.draftChain(target.val.e, target.val.env) ? ` — ${s.target.name} is a copy of what \`${show(target.val.e)}\` read from the draft (a read of a draft that is kept is a copy, MO-10i), so a write to it would change nothing: write the place — \`let i = ….findIndex(…); ….[i].field := …\` — or the row in a loop, \`for (const row of …) { if (…) { row.field := … } }\`` : target.kind === "value" && s.target.path.length ? " — a field of a callback's parameter is written only when the library declares it a draft, `(draft state: T) => void` (MO-10i)" : target.kind === "props" || target.kind === "value" || target.param ? " — a source is written only in the region that declares it: have its owner pass an action that writes it (O-4)" : ""}`);
             else if (target?.imported) this.err("WRITE_TO_NON_SOURCE", "MO-2", `${s.target.name} is a source of ${target.imported}: a module boundary is a value boundary — write it through an action ${target.imported} exports`);
           }
           if (s.k === "optimistic") {
@@ -2561,7 +2605,8 @@ class Checker {
               }
               if (sigProps?.children?.render) {                                               // MO-11k: children are one view lambda
                 const real = m.children.filter(x => !(x.k === "text" && !x.s.trim()) && !(x.k === "mview" && x.prop));
-                if (real.length !== 1 || real[0].k !== "mview") this.err("VIEW_FN_EXPECTED", "MO-11k", `<${m.tag}>'s children are a function of what it renders: write them as \`{view (item) { … }}\``);
+                const leftOut = !real.length && !!sigProps.children.renderOptional;             // an optional render prop left out is the component's own rendering (`<Select.Listbox />`)
+                if (!leftOut && (real.length !== 1 || real[0].k !== "mview")) this.err("VIEW_FN_EXPECTED", "MO-11k", `<${m.tag}>'s children are a function of what it renders: write them as \`{view (item) { … }}\``);
                 for (const x of real) if (x.k === "mview") this.viewFns.add(x);
               }
               this.markup([...m.children, ...values.values()], new Env(env, kids));
@@ -2592,7 +2637,7 @@ class Checker {
         case "mview": {                                                                     // MO-11k: a render prop's body, owned where the component calls it
           if (!this.viewFns.has(m)) { this.err("VIEW_FN_MISPLACED", "MO-11k", "a `view (…) { … }` is a JS component's render prop: it is the only child of a component whose declaration types `children` as a function giving a View"); break; }
           const r = this.region(env.region, "for"); const inner = new Env(env, r);
-          for (const p of m.params) inner.vars.set(p, { kind: "value", name: p, region: r, line: this.line });   // what the component passes: a value per call
+          for (const p of m.params) inner.vars.set(p, { kind: "value", name: p, region: r, line: this.line, handed: true });   // what the component passes: a value per call
           this.block(m.decls, m.body, inner, { scope: "reactive" });
           break;
         }

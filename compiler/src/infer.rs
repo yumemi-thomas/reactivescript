@@ -133,6 +133,114 @@ pub fn inferred_action(stmts: &[Stmt]) -> Option<Trigger> {
     st.guess.or(if st.write && st.wait { Some(Trigger::WriteAwait) } else { None })
 }
 
+/// AC-3 (2026-11-22): what an action's own statements say of its guesses. `holdless`: it guesses (the first one's
+/// target and line) and can start nothing a guess would live over — no statement-level `await`, no `refresh` or
+/// `affects`, no plain write (which a question may be asked again for), no inline action, and no call of anything but
+/// the language's hooks (a call may launch what holds) — so the hold ends with the run and the guess is taken back in
+/// the instant it is made. `late`: its first guess is written after a statement-level `await` (that await, as
+/// written): until it answers, nothing shows. Own statements, as `inferred_action` reads them: through the local
+/// closures the body calls by name, not into other closures.
+pub struct GuessFacts {
+    pub holdless: Option<(String, u32)>,
+    pub late: Option<(String, u32, String)>,
+}
+pub fn guess_facts(stmts: &[Stmt]) -> GuessFacts {
+    struct S {
+        first: Option<(String, u32)>,
+        late: Option<(String, u32, String)>,
+        awaited: Option<String>,
+        starts: bool,
+        seen: HashSet<*const Expr>,
+    }
+    /// a call written in an expression, outside the closures it makes, of anything but a hook of the language
+    fn calls(n: crate::check::Node) -> bool {
+        if let crate::check::Node::E(e) = n {
+            match &e.k {
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return false,
+                ExprKind::Call { f, .. } if !matches!(&f.k, ExprKind::Id(n) if matches!(n.as_str(), "onFlush" | "onSettled" | "log")) => return true,
+                _ => {}
+            }
+        }
+        crate::check::children(n, true).into_iter().any(calls)
+    }
+    fn go<'a>(ss: &'a [Stmt], cl: &Closures<'a>, st: &mut S) {
+        let mut local = cl.clone();
+        for s in ss {
+            if let Some(c) = closure_of(s) {
+                if let StmtKind::Let { name, .. } = &s.k {
+                    local.insert(name.clone(), c);
+                }
+                continue;
+            } else if let StmtKind::Let { name, .. } = &s.k {
+                local.shift_remove(name);
+            }
+            let called = match &s.k {
+                StmtKind::Expr(e) | StmtKind::Let { e, .. } => called_closure(e, &local),
+                _ => None,
+            };
+            if let Some(c) = called {
+                if st.seen.insert(c as *const Expr) {
+                    go(fn_parts(c).1, &local, st);
+                }
+                continue;
+            }
+            match &s.k {
+                StmtKind::Optimistic { target, .. } => {
+                    if st.first.is_none() {
+                        st.first = Some((target.name.clone(), s.line));
+                        if let Some(q) = &st.awaited {
+                            st.late = Some((target.name.clone(), s.line, q.clone()));
+                        }
+                    }
+                }
+                StmtKind::Affects(_) | StmtKind::Refresh(_) | StmtKind::Write { .. } | StmtKind::Action(_) => st.starts = true,
+                StmtKind::Let { e, .. } | StmtKind::Expr(e) if stmt_await(s) => {
+                    st.starts = true;
+                    if st.awaited.is_none() {
+                        let q = match &e.k {
+                            ExprKind::Catch { e, .. } => &**e,
+                            _ => e,
+                        };
+                        st.awaited = Some(match &q.k {
+                            ExprKind::Await { e, .. } => crate::check::show(e),
+                            _ => crate::check::show(q),
+                        });
+                    }
+                }
+                StmtKind::Sif { c, t, f } => {
+                    if calls(crate::check::Node::E(c)) {
+                        st.starts = true;
+                    }
+                    go(t, &local, st);
+                    go(f, &local, st);
+                }
+                StmtKind::For { e, body, .. } => {
+                    if calls(crate::check::Node::E(e)) {
+                        st.starts = true;
+                    }
+                    go(body, &local, st);
+                }
+                StmtKind::Try { body, handler, fin, .. } => {
+                    go(body, &local, st);
+                    if let Some(h) = handler {
+                        go(h, &local, st);
+                    }
+                    if let Some(f) = fin {
+                        go(f, &local, st);
+                    }
+                }
+                _ => {}
+            }
+            if !matches!(&s.k, StmtKind::Sif { .. } | StmtKind::For { .. } | StmtKind::Try { .. } | StmtKind::Action(_)) && calls(crate::check::Node::S(s)) {
+                st.starts = true;
+            }
+        }
+    }
+    let mut st = S { first: None, late: None, awaited: None, starts: false, seen: HashSet::new() };
+    go(stmts, &IndexMap::new(), &mut st);
+    GuessFacts { holdless: if st.starts { None } else { st.first.clone() }, late: st.late }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Code {
     HeldWrite,

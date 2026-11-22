@@ -18,6 +18,8 @@ export fn onResize(run: handler () => void): Unsubscribe
 export fn subscribe(run: handler () => void): { unsubscribe: () => void }
 // a paging primitive: what it answers is declared, so a method that answers nothing is known to be called for its effect
 export pure fn createPager(): { page: number; next: () => void; count: () => number } instantiates
+// a list that hands its view the rows it holds
+export component Rows(props: { children: (rows: number[]) => View })
 ```
 
 ## Program
@@ -97,6 +99,18 @@ export default component App() {
 }
 ```
 
+What a component hands its view is the component's (2026-11-22): the
+list a render prop is given is the library's state, changed by the
+library's own methods.
+
+```rx
+-- reject: MUTATION_IN_PLACE
+import { Rows } from "./keys.js"
+export default component App() {
+  <Rows>{view (rows) { <button onClick={() => { rows.splice(0, 1) }}>{len(rows)}</button> }}</Rows>
+}
+```
+
 What the code made itself is its own to change.
 
 ```rx
@@ -126,6 +140,83 @@ component Btn(props: { onPress: () => void }) { <button onClick={() => { props.o
 export default component App() {
   pager = createPager()
   <Btn onPress={true ? pager.next() : pager.next()} />
+}
+```
+
+A function a context provides, or a prop is given, is read the same way
+(2026-11-22): its declared type says it answers nothing, so it is called
+for what it does. Where every provision the module writes gives the
+field an action, the code is the one Solid's runtime has for that call.
+
+```rx
+-- reject: ACTION_CALLED_IN_OWNED_SCOPE
+context cart: { n: number; add: (by: number) => void }
+component Provider(props: { children: View }) {
+  source n := 0
+  action add(by: number) { n := v => v + by }
+  provide cart = { n: n, add: add }
+  {props.children}
+}
+component Badge() {
+  c = use cart
+  <b>{c.add(1)} {c.n}</b>
+}
+export default component App() {
+  <Provider><Badge /></Provider>
+}
+```
+
+```rx
+-- reject: ACTION_CALLED_IN_OWNED_SCOPE
+context cart: { n: number; add: (by: number) => void }
+component Provider(props: { children: View }) {
+  source n := 0
+  action add(by: number) { n := v => v + by }
+  provide cart = { n: n, add: add }
+  {props.children}
+}
+component Badge() {
+  c = use cart
+  <button onClick={c.add(1)}>{c.n}</button>
+}
+export default component App() {
+  <Provider><Badge /></Provider>
+}
+```
+
+```rx
+-- reject: IO_IN_REACTIVE
+component Pager(props: { page: number; onNext: () => void }) {
+  <p>{props.onNext()} page {props.page}</p>
+}
+export default component App() {
+  source page := 1
+  <Pager page={page} onNext={() => { page := p => p + 1 }} />
+}
+```
+
+Called from a handler, each is what it was provided for.
+
+```rx
+-- accept
+context cart: { n: number; add: (by: number) => void }
+component Provider(props: { children: View }) {
+  source n := 0
+  action add(by: number) { n := v => v + by }
+  provide cart = { n: n, add: add }
+  {props.children}
+}
+component Badge() {
+  c = use cart
+  <button onClick={() => { c.add(1) }}>{c.n}</button>
+}
+component Pager(props: { page: number; onNext: () => void }) {
+  <button onClick={() => { props.onNext() }}>page {props.page}</button>
+}
+export default component App() {
+  source page := 1
+  <Provider><Badge /></Provider>
+  <Pager page={page} onNext={() => { page := p => p + 1 }} />
 }
 ```
 

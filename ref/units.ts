@@ -220,6 +220,25 @@ export const units: [string, () => void][] = [
       deepStrictEqual(run(k, "  <Kid t={table} />").includes("RENDERS_ESCAPES"), k.includes("provide"), k);
     }
   }],
+  ["a_guess_needs_something_to_wait_for", () => {   // 06 AC-3 (2026-11-22): mirrors the crate's test
+    const API = "export fn save(k: string): Promise<void>\nexport fn track(k: string): void\n";
+    const run = (body: string) => {
+      const src = `import { save, track } from "./api.js"\nexport default component App() {\n  source n := ""\n  source shown = n\n  action other() { n := "x" }\n  <button onClick={() => {\n${body.split("; ").map(l => `    ${l}`).join("\n")}\n  }}>{shown}</button>\n}\n`;
+      const set = loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/api.d.rx" ? API : undefined);
+      const c = checkModules(set) as { diags: { code: string; line: number }[]; advice: { code: string; line: number }[] };
+      return [...c.diags.map(d => `${d.code}@${d.line - 6}`), ...c.advice.map(a => `advice ${a.code}@${a.line - 6}`)];   // the body's first statement is line 1
+    };
+    // nothing to wait for: the guess alone, beside a local, a hook, a closure that is only made
+    deepStrictEqual(run("guess shown := \"a\""), ["GUESS_OUTSIDE_HOLD@1"]);
+    deepStrictEqual(run("let v = \"a\"; onFlush(() => { n := \"\" }); guess shown := v"), ["GUESS_OUTSIDE_HOLD@3"]);
+    deepStrictEqual(run("let f = () => { track(\"k\") }; if (n == \"\") { guess shown := \"a\" }"), ["GUESS_OUTSIDE_HOLD@2"]);
+    // something it could wait for: an await, a refresh, affects, a write, a call
+    for (const more of ["try { await save(\"a\") } catch (e) { n := \"\" }", "refresh shown", "affects shown", "n := \"b\"", "other()", "track(\"k\")", "let g = () => { track(\"k\") }; g()"])
+      deepStrictEqual(run(`guess shown := "a"; ${more}`), [], more);
+    // advice: the first guess after an await; not a later guess, not a guess before it
+    deepStrictEqual(run("try { await save(\"a\"); guess shown := \"a\" } catch (e) { n := \"\" }"), ["advice GUESS_AFTER_AWAIT@2"]);
+    deepStrictEqual(run("guess shown := \"a\"; try { await save(\"a\"); guess shown := \"b\"; await save(\"b\") } catch (e) { n := \"\" }"), []);
+  }],
   ["a_waterfall_is_advised_once_for_each_question", () => {   // 99, the advisory rows (2026-11-22): mirrors the crate's test
     const API = "export pure fn ask(k: string): Promise<string>\nexport fn load(k: string): Promise<string>\nexport fn save(k: string): Promise<void>\n";
     const advice = (body: string) => {

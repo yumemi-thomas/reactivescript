@@ -223,6 +223,8 @@ struct CtxInfo {
     source: bool,
     dflt: bool,
     contract: Option<(IndexSet<String>, IndexSet<String>)>,
+    /// its declared type, the row words taken out (MO-10k: read a step at a time, as a declared result's is)
+    ty: Option<String>,
 }
 
 /// MO-10k: the three kinds of value the checker confines by mention (`Checker::tainted`)
@@ -348,6 +350,8 @@ struct Sym<'a> {
     part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>,
     /// MO-10i: a callback's parameter the library declares a draft: its paths are written
     js_draft: bool,
+    /// MO-11k, W-1a: a view lambda's parameter: what the component hands its render prop, the component's own value
+    handed: bool,
     /// MO-10i: the closure whose parameter the draft is (its `fn_stack` id)
     draft_fn: Option<usize>,
     /// MO-11o: every equation's expression, looked through for what it carries
@@ -445,6 +449,7 @@ impl<'a> Sym<'a> {
             row_key: None,
             part_drafts: vec![],
             js_draft: false,
+            handed: false,
             draft_fn: None,
             carried_expr: None,
             val: None,
@@ -975,6 +980,35 @@ fn param_uses<'e>(n: Node<'e>, p: &str, tail: bool, prim: bool, u: &mut ParamUse
             }
             _ => children(n, true).into_iter().for_each(|k| param_uses(k, p, false, false, u)),
         },
+    }
+}
+/// Every provision a program writes, by its context's name, and every name it declares by `action`: read from the text.
+fn provides_in<'a>(decls: &'a [Decl], view: &'a [Markup], provided: &mut HashMap<String, Vec<&'a Expr>>, actions: &mut HashSet<String>) {
+    for d in decls {
+        match d {
+            Decl::Provide { name, e, .. } => provided.entry(name.clone()).or_default().push(e),
+            Decl::Action { name, .. } => {
+                actions.insert(name.clone());
+            }
+            Decl::Component { decls, view, .. } => provides_in(decls, view, provided, actions),
+            Decl::Fn { decls, .. } => provides_in(decls, &[], provided, actions),
+            _ => {}
+        }
+    }
+    for m in view {
+        match &m.kind {
+            MarkupKind::El { children, .. } => provides_in(&[], children, provided, actions),
+            MarkupKind::Mif { t, t_decls, f, f_decls, .. } => {
+                provides_in(t_decls, t, provided, actions);
+                provides_in(f_decls, f, provided, actions);
+            }
+            MarkupKind::Mfor { decls, body, .. } | MarkupKind::Mview { decls, body, .. } | MarkupKind::Portal { decls, body, .. } => provides_in(decls, body, provided, actions),
+            MarkupKind::Loading { fallback, decls, body, .. } | MarkupKind::Errored { fallback, decls, body, .. } => {
+                provides_in(&[], fallback, provided, actions);
+                provides_in(decls, body, provided, actions);
+            }
+            _ => {}
+        }
     }
 }
 fn names_of(e: &Expr) -> IndexSet<String> {
@@ -1807,6 +1841,10 @@ pub struct Checker<'a> {
     keeps_cut: usize,
     /// the fields of its props a component names (`props.table`), for its signature's `keeps(…)`
     prop_named: HashMap<RId, IndexSet<String>>,
+    /// R-io-3, CN-1b: what this module provides for each context, by its name, and the names it declares by `action`
+    /// (`provided_action`: read from the text before the walk, so a reader above its provider sees it)
+    provided: HashMap<String, Vec<&'a Expr>>,
+    action_names: HashSet<String>,
     /// a component's props type, as written (its row words taken out)
     props_ty: HashMap<RId, String>,
     taint_memo: HashMap<(Taint, SId), Option<SId>>,
@@ -1825,6 +1863,8 @@ pub struct Checker<'a> {
     fn_owner: HashMap<*const Expr, SId>,
     /// MO-11k: declared JS components' render props (fields typed as a function giving a View), by region
     render_props: HashMap<RId, HashSet<String>>,
+    /// MO-11k: those of them the declaration marks optional (`children?: (item: T) => View`)
+    render_optional: HashMap<RId, HashSet<String>>,
     /// MO-11o: the JS components' props that render what their value carries
     carried_props: HashMap<RId, HashSet<String>>,
     /// MO-11o: the component values carrying calls were given (the value, its name, the line, the call), and those a
@@ -2014,6 +2054,8 @@ impl<'a> Checker<'a> {
             keeps_busy: HashSet::new(),
             keeps_cut: 0,
             prop_named: HashMap::new(),
+            provided: HashMap::new(),
+            action_names: HashSet::new(),
             props_ty: HashMap::new(),
             taint_memo: HashMap::new(),
             taint_busy: HashSet::new(),
@@ -2025,6 +2067,7 @@ impl<'a> Checker<'a> {
             fn_owner: HashMap::new(),
             fn_seq: 0,
             render_props: HashMap::new(),
+            render_optional: HashMap::new(),
             carried_props: HashMap::new(),
             carried_pending: vec![],
             outlets: vec![],
@@ -2165,6 +2208,7 @@ impl<'a> Checker<'a> {
             self.line = p.view.first().and_then(|m| m.line).unwrap_or(1) as i64;
             self.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`".into());
         }
+        provides_in(&p.decls, &p.view, &mut self.provided, &mut self.action_names);
         self.block(&p.decls, &p.view, root, Ctx::reactive());
         self.renders_sinks(); // MO-11l: every call's arguments are known now
         // MO-11o: a prop taken (by syntax) for one its component gives on to a prop that renders it, which the walk did not find
@@ -2298,7 +2342,7 @@ impl<'a> Checker<'a> {
                     };
                     let key = format!("{}#{}{}", self.opts.file.as_deref().unwrap_or("main.rx"), name, suffix);
                     let mut s = Sym::new(SymKind::Context, name, region, *line as i64);
-                    s.ctx = Some(CtxInfo { key: key.clone(), source: *source, dflt: dflt.is_some(), contract });
+                    s.ctx = Some(CtxInfo { key: key.clone(), source: *source, dflt: dflt.is_some(), contract, ty: ty.as_ref().map(|t| field_rows(&ROW_WORDS.replace(t, "")).0) });
                     self.bind(env, name, s);
                     if let Some(e) = dflt {
                         self.provisions.push(Provision { key, e, env });
@@ -2608,9 +2652,9 @@ impl<'a> Checker<'a> {
                     s.comp_region = Some(r);
                     s
                 }
-                ExportSig::Context { key, source, dflt, rows, fails, .. } => {
+                ExportSig::Context { key, source, dflt, rows, fails, ty } => {
                     let mut s = Sym::new(SymKind::Context, alias, region, line);
-                    s.ctx = Some(CtxInfo { key: key.clone(), source: *source, dflt: *dflt, contract: Some((set(rows), set(fails))) });
+                    s.ctx = Some(CtxInfo { key: key.clone(), source: *source, dflt: *dflt, contract: Some((set(rows), set(fails))), ty: ty.as_ref().map(|t| field_rows(t).0) });
                     s
                 }
             };
@@ -2688,6 +2732,7 @@ impl<'a> Checker<'a> {
                 let renders: HashSet<String> = xprops.iter().filter(|p| p.render).map(|p| p.name.clone()).collect();
                 if !renders.is_empty() {
                     c.render_props.insert(r, renders);
+                    c.render_optional.insert(r, xprops.iter().filter(|p| p.render && p.optional).map(|p| p.name.clone()).collect());
                 }
                 let callbacks: HashSet<String> = xprops.iter().filter(|p| p.callback).map(|p| p.name.clone()).collect();
                 if !callbacks.is_empty() {
@@ -4667,6 +4712,10 @@ impl<'a> Checker<'a> {
             ExprKind::Id(n) => {
                 let s = self.lookup(env, n)?;
                 let sy = &self.syms[s];
+                // a component's props are what its props type says (2026-11-22)
+                if sy.kind == SymKind::Props {
+                    return self.props_ty.get(&sy.region).cloned();
+                }
                 if !matches!(sy.kind, SymKind::Eq | SymKind::Value) {
                     return None;
                 }
@@ -4678,10 +4727,12 @@ impl<'a> Checker<'a> {
                 }
                 let (v, venv) = sy.val?;
                 match v.k {
-                    ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => self.decl_ty(v, venv, depth + 1),
+                    ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } | ExprKind::Use(_) => self.decl_ty(v, venv, depth + 1),
                     _ => None,
                 }
             }
+            // what a context provides is what its declaration types it (2026-11-22)
+            ExprKind::Use(n) => self.lookup(env, n).and_then(|s| self.syms[s].ctx.as_ref()).and_then(|c| c.ty.clone()),
             ExprKind::Member { o, p, .. } => ty_step(&self.decl_ty(o, env, depth + 1)?, &TStep::Field(p.clone())),
             ExprKind::Index { o, i, .. } => {
                 let t = self.decl_ty(o, env, depth + 1)?;
@@ -5212,6 +5263,9 @@ impl<'a> Checker<'a> {
                         if sy.of_fn.is_some_and(|f| self.write_fns.contains(&f)) {
                             return Some(format!("the value the write is given ({n})"));
                         }
+                        if sy.handed {
+                            return Some(format!("what the component hands its view ({n})"));
+                        }
                         let (v, venv) = sy.val?;
                         match (&v.k, sy.kind) {
                             (ExprKind::Fn { .. }, _) => None,
@@ -5229,9 +5283,41 @@ impl<'a> Checker<'a> {
             _ => None,
         }
     }
-    /// MO-10b: a method of a declared JS result whose declared type answers nothing, `() => void`.
+    /// MO-10b: a function field whose declared type answers nothing — `() => void`, or a promise of nothing — read off
+    /// a declared JS result, a component's props or what a context provides: it is called for what it does.
     fn void_method(&self, f: &Expr, env: EId) -> bool {
-        matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| ty_clean(&r) == "void")
+        matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| matches!(ty_clean(&r), "void" | "Promise<void>"))
+    }
+    /// R-io-3, CN-1b: whether what a void function field names is an action, as far as this module says: the field of a
+    /// context every provision of which, in this module, gives it a name declared by `action`. Solid's runtime names
+    /// that call `ACTION_CALLED_IN_OWNED_SCOPE`; any other io is `IO_IN_REACTIVE`.
+    fn provided_action(&self, f: &Expr, env: EId) -> bool {
+        let (ExprKind::Member { o, .. } | ExprKind::Index { o, .. }) = &f.k else { return false };
+        let Some(field) = (match &f.k {
+            ExprKind::Member { p, .. } => Some(p.clone()),
+            ExprKind::Index { i, .. } => lit_key(i),
+            _ => None,
+        }) else {
+            return false;
+        };
+        let (x, _) = self.static_part_of(o, env);
+        let ExprKind::Use(ctx) = &x.k else { return false };
+        match self.provided.get(ctx) {
+            Some(ps) if !ps.is_empty() => ps.iter().all(|e| matches!(&e.k, ExprKind::Rec(fields) if rec_field(fields, &field).is_some_and(|v| matches!(&v.k, ExprKind::Id(n) if self.action_names.contains(n))))),
+            _ => false,
+        }
+    }
+    /// A name's expression, through the equations and locals that name it (`c = use cart`).
+    fn static_part_of<'e>(&'e self, e: &'e Expr, env: EId) -> (&'e Expr, EId) {
+        let mut cur = (e, env);
+        for _ in 0..32 {
+            let ExprKind::Id(n) = &cur.0.k else { break };
+            match self.lookup(cur.1, n).filter(|&s| matches!(self.syms[s].kind, SymKind::Eq | SymKind::Value)).and_then(|s| self.syms[s].val) {
+                Some((v, venv)) => cur = (v, venv),
+                None => break,
+            }
+        }
+        cur
     }
     /// SC-4 (2026-11-22): a handler is a function, called when its event happens. An attribute that takes one, given a
     /// call of something that is io — an action, an io import, a setter, a method declared to answer nothing — would make
@@ -5247,7 +5333,7 @@ impl<'a> Checker<'a> {
                         None if n == "log" => Some("IO_IN_REACTIVE"),
                         _ => None,
                     },
-                    _ if self.void_method(f, env) => Some("IO_IN_REACTIVE"),
+                    _ if self.void_method(f, env) => Some(if self.provided_action(f, env) { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" }),
                     _ => None,
                 };
                 if let Some(code) = code {
@@ -5517,6 +5603,8 @@ impl<'a> Checker<'a> {
                 if !ctx.imperative && self.void_method(f, env) {
                     if ctx.in_fn {
                         self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io (its declaration says it answers nothing: it is called for what it does); a fn is pure by definition", show(f)));
+                    } else if self.provided_action(f, env) {
+                        self.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", format!("{}(…) is an action (what the context provides there), called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action", show(f)));
                     } else {
                         self.err("IO_IN_REACTIVE", "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (`() => void`), so it is called for what it does — from a handler or an action", show(f)));
                     }
@@ -5696,6 +5784,20 @@ impl<'a> Checker<'a> {
                 Code::StaleOwnRead => self.err("STALE_OWN_READ", "AC-1d", format!("{n} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; {n} := v`) and read that, or write functionally (`{n} := v => …`, W-6)")),
                 Code::StaleWriteBack => self.err("STALE_WRITE_BACK", "AC-1e", format!("{n} := … after an `await` is computed from {n} as it was read before that `await`: whatever changed {n} in between (another action, a reload) is overwritten — write functionally (`{n} := v => …`, W-6), which applies to {n} as it stands at the write, or guess it (`guess`, AC-3) and let the answer replace the guess")),
             }
+        }
+        // AC-3 (2026-11-22): a guess lives over the hold of what its action waits for
+        if action {
+            let g = crate::infer::guess_facts(stmts);
+            let line0 = self.line;
+            if let Some((n, line)) = g.holdless {
+                self.line = line as i64;
+                self.err("GUESS_OUTSIDE_HOLD", "AC-3", format!("guess {n} := … in a run that starts nothing to wait for (no `await`, no `refresh` or `affects`, no write, no call that could): the hold it would live over ends with the run, so the guess is taken back in the instant it is made and nothing shows — a guess is for what the run is about to await (`guess {n} := …; await save(…)`); if this is {n}'s new value, write it (`{n} := …`)"));
+            }
+            if let Some((n, line, q)) = g.late {
+                let msg = format!("guess {n} := … is written after `await {q}`: nothing shows until that answers — a guess is what the run shows while it waits, so write it before the `await` it is a guess about");
+                self.advice.push(Diagnostic { code: "GUESS_AFTER_AWAIT".into(), rule: "AC-3".into(), line: line as i64, msg, file: self.opts.file.clone() });
+            }
+            self.line = line0;
         }
     }
 
@@ -5913,6 +6015,9 @@ impl<'a> Checker<'a> {
                                 };
                                 let hint = if self.syms[t].js_draft {
                                     format!(" — a library's draft is written along its paths (`{}.field := …`), or the callback returns the new value (MO-10i)", target.name)
+                                } else if let Some((v, _)) = self.syms[t].val.filter(|&(v, venv)| k == SymKind::Value && self.draft_chain(v, venv)) {
+                                    // MO-10i: a draft's read that has a name of its own is a copy (a row found in it)
+                                    format!(" — {} is a copy of what `{}` read from the draft (a read of a draft that is kept is a copy, MO-10i), so a write to it would change nothing: write the place — `let i = ….findIndex(…); ….[i].field := …` — or the row in a loop, `for (const row of …) {{ if (…) {{ row.field := … }} }}`", target.name, show(v))
                                 } else if k == SymKind::Value && !target.path.is_empty() {
                                     " — a field of a callback's parameter is written only when the library declares it a draft, `(draft state: T) => void` (MO-10i)".to_string()
                                 } else if k == SymKind::Props || k == SymKind::Value || self.syms[t].param {
@@ -6400,7 +6505,9 @@ impl<'a> Checker<'a> {
                             if renders.contains("children") {
                                 // MO-11k: children are one view lambda
                                 let real: Vec<&Markup> = children.iter().filter(|x| !matches!(&x.kind, MarkupKind::Text(t) if js_trim(t).is_empty()) && !matches!(&x.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
-                                if real.len() != 1 || !matches!(real[0].kind, MarkupKind::Mview { .. }) {
+                                // an optional render prop left out is the component's own rendering (`<Select.Listbox />`)
+                                let left_out = real.is_empty() && self.render_optional.get(&cr).is_some_and(|o| o.contains("children"));
+                                if !left_out && (real.len() != 1 || !matches!(real[0].kind, MarkupKind::Mview { .. })) {
                                     self.err("VIEW_FN_EXPECTED", "MO-11k", format!("<{}>'s children are a function of what it renders: write them as `{{view (item) {{ … }}}}`", tag));
                                 }
                                 for x in real {
@@ -6498,7 +6605,9 @@ impl<'a> Checker<'a> {
                     let inner = self.env(Some(env), r);
                     for p in params {
                         // what the component passes: a value per call
-                        let s = self.new_sym(Sym::new(SymKind::Value, p, r, self.line));
+                        let mut vp = Sym::new(SymKind::Value, p, r, self.line);
+                        vp.handed = true;
+                        let s = self.new_sym(vp);
                         self.envs[inner].vars.insert(p.clone(), s);
                     }
                     self.block(decls, body, inner, Ctx::reactive());
@@ -8762,6 +8871,33 @@ mod tests {
             let got = run(k, "  <Kid t={table} />");
             assert_eq!(got.iter().any(|c| c == "RENDERS_ESCAPES"), k.contains("provide"), "{k}: {got:?}");
         }
+    }
+
+    /// 06 AC-3 (2026-11-22): a guess in a run that starts nothing to wait for has no hold, and the first guess written
+    /// after an `await` is advised. `ref/units.ts` holds the same cases.
+    #[test]
+    fn a_guess_needs_something_to_wait_for() {
+        const API: &str = "export fn save(k: string): Promise<void>\nexport fn track(k: string): void\n";
+        let run = |body: &str| -> Vec<String> {
+            let lines: Vec<String> = body.split("; ").map(|l| format!("    {l}")).collect();
+            let src = format!("import {{ save, track }} from \"./api.js\"\nexport default component App() {{\n  source n := \"\"\n  source shown = n\n  action other() {{ n := \"x\" }}\n  <button onClick={{() => {{\n{}\n  }}}}>{{shown}}</button>\n}}\n", lines.join("\n"));
+            let read = |p: &str| match p {
+                "/app.rx" => Some(src.clone()),
+                "/api.d.rx" => Some(API.to_string()),
+                _ => None,
+            };
+            let set = load_modules("/app.rx", &read).unwrap_or_else(|e| panic!("{}\n{src}", e.0));
+            let c = check_modules(&set, false);
+            c.diags.iter().map(|d| format!("{}@{}", d.code, d.line - 6)).chain(c.advice.iter().map(|a| format!("advice {}@{}", a.code, a.line - 6))).collect()
+        };
+        assert_eq!(run("guess shown := \"a\""), ["GUESS_OUTSIDE_HOLD@1"]);
+        assert_eq!(run("let v = \"a\"; onFlush(() => { n := \"\" }); guess shown := v"), ["GUESS_OUTSIDE_HOLD@3"]);
+        assert_eq!(run("let f = () => { track(\"k\") }; if (n == \"\") { guess shown := \"a\" }"), ["GUESS_OUTSIDE_HOLD@2"]);
+        for more in ["try { await save(\"a\") } catch (e) { n := \"\" }", "refresh shown", "affects shown", "n := \"b\"", "other()", "track(\"k\")", "let g = () => { track(\"k\") }; g()"] {
+            assert_eq!(run(&format!("guess shown := \"a\"; {more}")), Vec::<String>::new(), "{more}");
+        }
+        assert_eq!(run("try { await save(\"a\"); guess shown := \"a\" } catch (e) { n := \"\" }"), ["advice GUESS_AFTER_AWAIT@2"]);
+        assert_eq!(run("guess shown := \"a\"; try { await save(\"a\"); guess shown := \"b\"; await save(\"b\") } catch (e) { n := \"\" }"), Vec::<String>::new());
     }
 
     /// 99, the advisory rows (2026-11-22): a waterfall is advised once for each question, on its own statement; an io

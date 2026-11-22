@@ -11,6 +11,18 @@
   as an iterator over copies, and any other method is `DRAFT_ESCAPES`. A method keeps nothing of a `renders` value only
   when `methods(…)` names it and it is called on the value's own name. A call through a record, an array or a call
   (`box.read()`, `fs[0]()`, `mk()()`) reads what the closures it may call read (`SNAPSHOT_KEPT`, `SNAPSHOT_ARGUMENT`).
+- A function a context provides or a prop is given is read by its declared type, as a method of a JS result is (09
+  MO-10b): one that answers nothing (`add: (id: string) => void`), or a promise of nothing, is called for what it
+  does, so `{c.add(id)}` in a view and `onClick={c.add(id)}` are refused — `ACTION_CALLED_IN_OWNED_SCOPE` where every
+  provision the module writes gives the field an action, else `IO_IN_REACTIVE`. A prop declared a primitive
+  (`title: string`) holds no part of a confined value.
+- `GUESS_OUTSIDE_HOLD` also refuses a guess in a run that starts nothing to wait for (06 AC-3): no `await`, `refresh`,
+  `affects`, write or call of its own, so the guess would be taken back in the instant it is made. New advice,
+  `GUESS_AFTER_AWAIT`: an action's first guess written after an `await`.
+- `MUTATION_IN_PLACE` covers what a JS component hands its view (`view (list) { … }`): the library's own state.
+- A render prop declared optional (`children?: (items: T) => View`) may be left out: `<Select.Listbox />`.
+- Writing through a row found in a store's draft (`let t = d.items.find(…); t.done := true`) is still refused — the
+  local is a copy — and the message now says so and gives the two ways to write the row.
 - A value `renders` checked where it is bound may be given to a component that keeps it (09 MO-11l): shadcn/ui's
   `<DataTablePagination table={table} />` is accepted. A component keeps a prop when its body lets no value that may
   hold a part of `props.<field>` out (a prop of a component that does not keep it, a provision, a source, an export, a

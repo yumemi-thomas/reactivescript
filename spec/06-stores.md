@@ -325,6 +325,31 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   and guesses to the layer. A guess is verdict-inert: an
   action that wants `pending? x` true while its guess stands declares
   `affects x` (AC-5; the idiom is in 07 §5).
+
+  *A guess needs something to wait for (2026-11-22).* The hold a guess
+  lives over is the action's: what it awaits, what it re-asks
+  (`refresh`), what it says is in flight (`affects`), a write a question
+  is asked again for. A handler that only guesses is an action by AC-1b
+  — and one with no hold: it ends in the instant it starts, the guess is
+  taken back there, and nothing shows. Solid has no word for it (a
+  `setOptimistic` outside a transition is reverted at the next flush,
+  silently). So an action — declared, inferred or inline — whose own
+  statements guess and can start nothing a guess would live over is
+  `GUESS_OUTSIDE_HOLD`, at its first guess: no statement-level `await`,
+  no `refresh` or `affects`, no plain write, no inline action, and no
+  call of anything but the language's hooks (`onFlush`, `onSettled`,
+  `log`) — a call may launch what holds, so any other call leaves the
+  run alone. It is the text's own statement, read as AC-1b reads it
+  (through the local closures the body calls by name), and it refuses
+  no run that could hold. S-check-1.
+
+  *Advice: a guess written after the `await` (2026-11-22).* `await
+  addTodo(id, title); guess todos := …` is a correct program whose guess
+  is not ahead of anything: the row shows once the server has answered.
+  That is advice (99, the advisory rows), `GUESS_AFTER_AWAIT`: an
+  action's first guess written after a statement-level `await`, once,
+  on the guess. A guess after an earlier one (`guess a …; await f();
+  guess b …; await g()`) is the next step's, and is not advised.
 - **AC-3a (A guess while its value loads a new question).** [taken by default
   2026-11-12; follows Solid's ruling on solidjs/solid#4795] While an equation
   or source `x` that awaits is loading a new question (its inputs changed), a

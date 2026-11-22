@@ -444,7 +444,22 @@ export component Search(props: { start: boolean, q: string }) {
     type answers (2026-11-22): one that answers nothing, `nextPage: ()
     => void`, is called for what it does, so `table.nextPage()` in
     reactive scope is `IO_IN_REACTIVE`; one that answers a value
-    (`getRowModel: () => { … }`) is a read, called anywhere.
+    (`getRowModel: () => { … }`) is a read, called anywhere. A promise
+    of nothing (`invalidateQueries: (…) => Promise<void>`) is nothing
+    to read either. *The same evidence, wherever a type is declared
+    (2026-11-22).* A component's props type and a context's declared
+    type are read a step at a time as a declared result's is (MO-10k):
+    `props.onNext()` with `props: { onNext: () => void }`, and
+    `c.add(id)` with `c = use cart` and `context cart: { add: (id:
+    string) => void }`, are calls of what answers nothing, refused in
+    reactive scope and as a handler attribute's value (02 SC-4). The
+    code is the io one, `IO_IN_REACTIVE` — the type says a function,
+    not which — except where the module itself says it is an action:
+    the field of a context that every provision this module writes
+    gives a name declared by `action` is `ACTION_CALLED_IN_OWNED_SCOPE`,
+    the code Solid's runtime raises for that call (08 CN-1b). The types
+    also say what is a primitive: a prop declared `title: string` holds
+    no part of a confined value (MO-10k). S-check-3.
   - Anything else, a store or a plain value, is a value. A store's fields
     track at run time as Solid's do. A store passed *in* is likewise passed as
     itself; an `.rx` structured source is a store behind a signal slot (11), so
@@ -1136,7 +1151,11 @@ export default component App() {
   (`children: (row, i) => …`) and projects to the same arrow, so TypeScript
   types the parameters from the component's own types (TY-1c). Other
   children of such a component are `VIEW_FN_EXPECTED`; a view lambda
-  anywhere else is `VIEW_FN_MISPLACED`. A render prop under another name is
+  anywhere else is `VIEW_FN_MISPLACED`. A render prop the declaration
+  marks optional (`children?: (items: T) => View`, Kobalte's
+  `Select.Listbox`) may be left out — the component then renders by
+  itself — and no children at all is not `VIEW_FN_EXPECTED`
+  (2026-11-22; S-module-14). A render prop under another name is
   a named view lambda among the children, `{view header (n) { … }}`: it is
   that prop (`header={(n) => …}`), checked as the children are; a name the
   declaration does not type as a function giving a `View` is

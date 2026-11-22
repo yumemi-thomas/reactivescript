@@ -8,7 +8,7 @@ export default {
     { name: "the server's function keeps its parameters' types", edit: ["await addTodo(id, title)", "await addTodo(id, len(title))"], expect: /TS2345/ },
   ],
   bad: [
-    { name: "an optimistic write outside an action: a guess in a handler that awaits nothing", edit: ["add(newId(), t) }}", "guess todos := ts => [...ts, { id: newId(), title: t, saving: true }] }}"], expect: "GUESS_OUTSIDE_ACTION" },
+    { name: "an optimistic write with nothing to wait for: a guess in a handler that awaits nothing", edit: ["add(newId(), t) }}", "guess todos := ts => [...ts, { id: newId(), title: t, saving: true }] }}"], expect: "GUESS_OUTSIDE_HOLD" },
     { name: "an await before the optimistic write: the row shows only once the server has answered", edit: ["    guess todos := ts => [...ts, { id: id, title: title, saving: true }]\n    onFlush(() => { failed := \"\" })\n    try {\n      await addTodo(id, title)", "    onFlush(() => { failed := \"\" })\n    try {\n      await addTodo(id, title)\n      guess todos := ts => [...ts, { id: id, title: title, saving: true }]"], advise: "GUESS_AFTER_AWAIT" },
     { name: "the server's answer written to, not guessed on", edit: ["guess todos := ts =>", "todos := ts =>"], expect: "WRITE_TO_NON_SOURCE" },
     { name: "the server's refusal let out of the action", edit: ["    try {\n      await addTodo(id, title)\n      refresh todos\n    } catch (e) {\n      failed := e.message\n    }", "    await addTodo(id, title)\n    refresh todos"], expect: "UNCAUGHT_ACTION_FAILURE" },

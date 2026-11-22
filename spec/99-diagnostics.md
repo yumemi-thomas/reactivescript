@@ -107,7 +107,7 @@ named.
 | `RESULT_AS_VALUE` (new)           | S   | 09 MO-10f: a JS result whose fields hold or fail is read a field at a time, never used as a value | S-module-11 |
 | `RENDERS_ESCAPES` (new)           | S   | 09 MO-11l: a value `renders` checked where it is bound, or anything that may hold a part of it, leaving its region; MO-11o: a `renders` prop given a value whose components the checker cannot name | S-module-16, S-module-22 |
 | `ASYNC_STORE_SETTER`              | S   | ST-3b | S-check-1 |
-| `GUESS_OUTSIDE_HOLD`         | S   | AC-3 (an `effect`'s apply block: never an action, AC-1b) | S-check-1, S-infer-1 |
+| `GUESS_OUTSIDE_HOLD`         | S   | AC-3 (an `effect`'s apply block: never an action, AC-1b; an action that starts nothing its guess would wait for, 2026-11-22) | S-check-1, S-infer-1 |
 | `HELD_WRITE`                      | S   | AC-1c | S-infer-2 |
 | `STALE_OWN_READ`                  | S   | AC-1d | S-infer-5 |
 | `STALE_WRITE_BACK`                | S   | AC-1e | S-infer-6 |
@@ -180,7 +180,11 @@ other did, which only a `pure` declaration rules out. S-await-1,
 `a_waterfall_is_advised_once_for_each_question`.
 The second row, `SNAPSHOT_IN_EFFECT` (02 EF-1): an apply block's own
 statement reads a changing value its effect does not take as an input —
-once per effect, on the statement. S-check-2, `bench/tasks/effect-derived`.)
+once per effect, on the statement. S-check-2, `bench/tasks/effect-derived`.
+The third row, `GUESS_AFTER_AWAIT` (06 AC-3): an action's first guess
+written after a statement-level `await` — the guess is ahead of nothing,
+and shows once that has answered — once per action, on the guess.
+`bench/tasks/optimistic-todo`.)
 
 Under CN-1a there is no warning tier, so an S row is a compile error or it
 is not a diagnostic. `ASYNC_WATERFALL`, `HUGE_FAN_IN`, `HUGE_FAN_OUT`,

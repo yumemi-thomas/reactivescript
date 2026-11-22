@@ -9,6 +9,8 @@ Rules: MO-11k, MO-11a, RG-4c, R-f-5, RG-7b, SV-7d.
 // a list that renders only the rows in view, calling its children for each one
 export component VirtualList(props: { items: any[]; height?: number; children: (item: any, index: number) => View; header?: (count: number) => View })
 export component Panel(props: { title: string; children?: View })
+// a list that renders its items by itself unless it is given a view for them
+export component Listbox(props: { children?: (items: any) => View })
 ```
 
 ```rx
@@ -98,7 +100,25 @@ export default component App() {
 ```
 
 A component that takes a render prop is given one: its children are called,
-not placed.
+not placed. One whose render prop is optional may be given none
+(2026-11-22): it renders by itself.
+
+```rx
+-- accept
+import { Listbox } from "./virtual.js"
+export default component App() {
+  <Listbox />
+  <Listbox>{view (items) { <p>{len(items)}</p> }}</Listbox>
+}
+```
+
+```rx
+-- reject: VIEW_FN_EXPECTED
+import { Listbox } from "./virtual.js"
+export default component App() {
+  <Listbox><p>static</p></Listbox>
+}
+```
 
 ```rx
 -- reject: VIEW_FN_MISPLACED

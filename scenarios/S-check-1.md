@@ -233,6 +233,30 @@ export default component App() {
 }
 ```
 
+A guess in a run that starts nothing to wait for has no hold either
+(AC-3, 2026-11-22): it would be taken back in the instant it is made.
+
+```rx
+-- reject: GUESS_OUTSIDE_HOLD
+export default component App() {
+  source name := "Ann"
+  source shown = name
+
+  <button onClick={() => { guess shown := "Zed" }}>{shown}</button>
+}
+```
+
+```rx
+-- reject: GUESS_OUTSIDE_HOLD
+export default component App() {
+  source name := "Ann"
+  source shown = name
+  action rename(to) { let next = to; guess shown := next; onFlush(() => { log(to) }) }
+
+  <button onClick={() => { rename("Zed") }}>{shown}</button>
+}
+```
+
 ```rx
 -- reject: INVALID_REFRESH_TARGET
 export default component App() {

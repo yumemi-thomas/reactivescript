@@ -88,7 +88,10 @@ Function application `f(e…)` covers both language functions and FFI imports;
   declaration says answers nothing — the call is refused there
   (`ACTION_CALLED_IN_OWNED_SCOPE`, `IO_IN_REACTIVE`), on an element and on
   a component's handler prop, in the arms of a condition too, with the
-  closure it meant: `onClick={() => { save() }}`. A call of a pure fn that
+  closure it meant: `onClick={() => { save() }}`. A function a context
+  provides or a prop is given is read by its declared type, as a
+  method of a JS result is (09 MO-10b, 2026-11-22): `onClick={c.add(id)}`
+  with `context cart: { add: (id: string) => void }`. A call of a pure fn that
   answers a handler (`onClick={pick(id)}`) is an expression like any
   other.
 
@@ -346,7 +349,9 @@ Function application `f(e…)` covers both language functions and FFI imports;
   `unshift`, `splice`, `sort`, `reverse`, `fill`, `copyWithin` — called on
   the value of a source, an equation, a prop, a provision, a row of one
   (a `for`'s, a loop's), the value a functional write is given (`rows :=
-  rs => rs.reverse()`), or a local that names a path of one (`let first =
+  rs => rs.reverse()`), what a JS component hands its view (`view (list)
+  { … }`: the library's own state, as Formisch's list of row ids is —
+  2026-11-22), or a local that names a path of one (`let first =
   rows[0]`) is `MUTATION_IN_PLACE` (bin S), in either scope: `rows.push(x)`
   in a handler changes the array and no reader hears of it;
   `props.items.sort()` in an equation reorders the parent's source under
