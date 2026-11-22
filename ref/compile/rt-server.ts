@@ -10,10 +10,11 @@ import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver, DEV } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit, createRoot, onCleanup } from "solid-js";
-import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent, RequestContext } from "@solidjs/web";
+import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
 let warnedCopies = false;   // once per process
 const warnedFields = new Set<string>();   // SV-5a: a declared field an instance came without, once per class and field
 import { $TARGET } from "@solidjs/signals";
+import { scopeEvent, currentRender, type Own, type Ev, type Render } from "./solid-internals.ts";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
 // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
@@ -357,46 +358,90 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request
 }
 export type ServerApp = ReturnType<typeof makeApp>;
 type AppOpts = NonNullable<Parameters<typeof makeApp>[0]>;
-type Ev = { request: Request; locals: Record<PropertyKey, unknown> };
-type Own = { id?: string; _parent?: Own } | null;
 const HOST_APP = Symbol.for("reactivescript.app");            // the request's app, in its event's locals
 const REQUEST_APP = Symbol.for("reactivescript.request-app");   // the app whose stream this request event is
 /** The apps the runtime made for JavaScript (`pageApp`), with the options each was made with: the first `createApp` of
  *  the same request is that app (MO-13g). */
 const madeForJs = new WeakMap<ServerApp, AppOpts>();
-/** The apps of renders outside a request, by the owner the render started under. */
+/** The apps of renders outside a request, each by its render's identity (Solid's hydration writer: one object for
+ *  each call of renderToString or renderToStream, never reused), so an app goes with its render. */
 const renderApps = new WeakMap<object, ServerApp>();
-/** The request's event where there is one, without Solid's warning where there is none (a render outside a request is
- *  an ordinary thing): the request scope's, else the one an integration put on the caller's own render. */
-function requestEvent(): Ev | undefined {
-  const ev = (globalThis as any)[RequestContext as never]?.getStore?.() ?? (globalThis as any)[RENDER_ROOTS]?.get(renderRoot(getOwner() as Own) as object)?.event;
-  return ev as Ev | undefined;
+/** The render the caller is in, and the request's event where there is one: the request scope's, else the one an
+ *  integration put on the caller's own render (where the scope does not follow an await). */
+function whereAmI(): { render: Render | undefined; ev: Ev | undefined } { const render = currentRender(); return { render, ev: scopeEvent() ?? render?.event }; }
+
+/** MO-13g: what a request's app keeps for the request. The modules JavaScript instantiates in it are under `owner`, a
+ *  root of the runtime's own that no render owns — two renders of one request read the same live state, and the first
+ *  to end takes nothing with it. Each render of the request that uses the app holds it open (`renders`), as does a
+ *  host that asked (`holdRequest`); when the last hold goes, the state is released at the end of that turn of the event
+ *  loop (a render that follows at once takes it over), and a use after that is refused. Solid's request event has no
+ *  end to listen for; a request nothing held is released with its event, by the garbage collector. */
+type RequestState = { owner: Own | null; dispose: (() => void) | null; holds: number; renders: Set<object>; timer: ReturnType<typeof setTimeout> | null; released: boolean };
+const requestStates = new WeakMap<ServerApp, RequestState>();
+function stateOf(app: ServerApp): RequestState {
+  let s = requestStates.get(app);
+  if (!s) requestStates.set(app, s = { owner: null, dispose: null, holds: 0, renders: new Set(), timer: null, released: false });
+  return s;
 }
-const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");   // Solid's own: each render's root owner → its context
-/** The owner a render started under: the one Solid keeps for it (renderToString's, renderToStream's), else the topmost
- *  owner above `o`. Every owner a render makes, at any await, is under it. */
-function renderRoot(o: Own): Own {
-  const roots = (globalThis as any)[RENDER_ROOTS] as WeakMap<object, unknown> | undefined;
-  let top = o;
-  for (let p = o; p; p = p._parent ?? null) { if (roots?.has(p)) return p; top = p; }
-  return top;
+const RELEASED = (what: string) => `${what} was used in a request whose state has been released: every render of the request that used it had ended, and a turn of the event loop passed with none open. What it would read now is disposed, so it is refused. Start the later render before the earlier one ends, or in the same turn; or hold the request's state across the gap: const release = holdRequest() where the request begins (inside provideRequestEvent), release() when it is answered (MO-13g)`;
+function hold(s: RequestState): () => void {
+  s.holds++; if (s.timer !== null) { clearTimeout(s.timer); s.timer = null; }
+  let done = false;
+  return () => {
+    if (done) return; done = true;
+    if (--s.holds > 0 || s.released || s.timer !== null) return;
+    s.timer = setTimeout(() => { s.timer = null; if (s.holds === 0) release(s); }, 0);
+  };
+}
+function release(s: RequestState) {
+  if (s.released) return;
+  s.released = true; const d = s.dispose; s.dispose = null; s.owner = null; s.renders.clear();
+  d?.();
+}
+/** The request's app is used under `render`: that render holds the request's state until it ends. */
+function heldBy(s: RequestState, render: Render | undefined) {
+  if (!render || s.renders.has(render.key)) return;
+  s.renders.add(render.key);
+  const let_go = hold(s);
+  runWithOwner(render.root as never, () => onCleanup(() => { s.renders.delete(render.key); let_go(); }));
+}
+/** The owner a request's modules are rooted under, made at the first of them. */
+function requestOwner(s: RequestState): Own {
+  if (!s.owner) runWithOwner(null, () => createRoot(dispose => { s.owner = getOwner() as Own; s.dispose = dispose; }));
+  return s.owner!;
+}
+/** MO-13g: keeps the state of the request being answered (the request event's) until the function it returns is
+ *  called, whatever renders start and end meanwhile: for a host that renders twice in one request with an await
+ *  between (a head, then the page). Outside a request event there is nothing to hold, and it throws. */
+export function holdRequest(): () => void {
+  const ev = scopeEvent();
+  if (!ev) throw new Error(`holdRequest() was called outside a request: it holds the state of Solid's request event, so call it inside provideRequestEvent({ request, locals: {} }, () => …) from "@solidjs/web/storage" (MO-13g)`);
+  const s = stateOf(pageApp("holdRequest()"));
+  if (s.released) throw new Error(RELEASED("holdRequest()"));
+  return hold(s);
 }
 /** MO-13g: the app a JS importer's use of an `.rx` module belongs to — the request's (the app that streams it, the first
  *  `createApp` made inside it, else one made here and kept in the event's locals); outside a request, the render's: one
- *  per call of renderToString or renderToStream, found through the owner, gone with it. Never the process's. */
+ *  per call of renderToString or renderToStream, gone with it. Never the process's. */
 function pageApp(what: string): ServerApp {
-  const ev = requestEvent();
-  if (ev) { const l = (ev.locals ??= {}); let a = l[HOST_APP] as ServerApp | undefined; if (!a) { const o: AppOpts = { request: ev.request }; a = makeApp(o); madeForJs.set(a, o); l[HOST_APP] = a; } return a; }
-  const root = renderRoot(getOwner() as Own);
-  if (!root) throw new Error(`${what} was used on the server outside a render and outside a request, so there is no page its module's state could belong to (it is never the process's: every request would share it). Use it while a Solid render runs (renderToString, renderToStream: the state is that render's), or inside Solid's request event (provideRequestEvent({ request, locals: {} }, () => …) from "@solidjs/web/storage": the state is that request's)${what.startsWith("an .rx component") ? ", or pass the app: components(pages, createApp({ request })) (CP-4d)" : " (MO-13e)"}`);
-  let a = renderApps.get(root);
-  if (!a) { a = makeApp(); const made = a; renderApps.set(root, made); runWithOwner(root as never, () => onCleanup(() => { if (renderApps.get(root) === made) renderApps.delete(root); })); }   // owners are reused: a later render's is not this one
+  const { render, ev } = whereAmI();
+  if (ev) {
+    const l = (ev.locals ??= {}); let a = l[HOST_APP] as ServerApp | undefined;
+    if (!a) { const o: AppOpts = { request: ev.request }; a = makeApp(o); madeForJs.set(a, o); l[HOST_APP] = a; }
+    const s = stateOf(a);
+    if (s.released) throw new Error(RELEASED(what));
+    heldBy(s, render);
+    return a;
+  }
+  if (!render) throw new Error(`${what} was used on the server outside a render and outside a request, so there is no page its module's state could belong to (it is never the process's: every request would share it). Use it while a Solid render runs (renderToString, renderToStream: the state is that render's), or inside Solid's request event (provideRequestEvent({ request, locals: {} }, () => …) from "@solidjs/web/storage": the state is that request's)${what.startsWith("an .rx component") ? ", or pass the app: components(pages, createApp({ request })) (CP-4d)" : " (MO-13e)"}`);
+  let a = renderApps.get(render.key);
+  if (!a) renderApps.set(render.key, a = makeApp());
   return a;
 }
 /** An app: a request (SV-4). Made inside a request's event it is that request's app, the one every JS importer of an
  *  `.rx` module finds (MO-13g); where the runtime had already made one for such an importer, it is that app. */
 export function createApp(opts: AppOpts = {}): ServerApp {
-  const ev = (globalThis as any)[RequestContext as never]?.getStore?.() as Ev | undefined;
+  const ev = scopeEvent();
   const had = ev?.locals?.[HOST_APP] as ServerApp | undefined;
   if (had && madeForJs.has(had)) { Object.assign(madeForJs.get(had)!, opts); madeForJs.delete(had); return had; }
   const app = makeApp(opts);
@@ -404,14 +449,21 @@ export function createApp(opts: AppOpts = {}): ServerApp {
   return app;
 }
 const moduleSeq = new WeakMap<object, number>();
-/** MO-13h: a module a JS importer instantiates is a root of its own, under the render's root owner (so what it asks is
- *  sent with that render) and not under the owner that first used it; its nodes' ids start from the module's name, the
- *  same on both sides wherever the first use is. */
+/** MO-13h: a module a JS importer instantiates is a root of its own, not under the owner that first used it: in a
+ *  request's app, under the request's own owner (`requestOwner`: it lasts as the request does, not as its first render
+ *  does); in a render's app, under that render's root owner. Its nodes' ids start from the render's id and the module's
+ *  name, the same on both sides wherever the first use is. */
 function rooted(factory: (rt: unknown) => Record<string, unknown>, name: string | undefined) {
   return (rt: unknown) => {
-    const root = renderRoot(getOwner() as Own);
+    const { render, ev } = whereAmI();
+    let parent: Own | null = render?.root ?? null;
+    if (ev && ev.locals?.[HOST_APP] === rt) {
+      const s = stateOf(rt as ServerApp);
+      if (s.released) throw new Error(RELEASED(`the compiled .rx module ${name ?? "of a package"}`));
+      parent = requestOwner(s);
+    }
     const n = moduleSeq.get(rt as object) ?? 0; moduleSeq.set(rt as object, n + 1);
-    return runWithOwner(root as never, () => createRoot(() => factory(rt), { id: (root?.id ?? "") + moduleRootId(name, n) }));
+    return runWithOwner(parent as never, () => createRoot(() => factory(rt), { id: (render?.root.id ?? "") + moduleRootId(name, n) }));
   };
 }
 /** The id of a module's root: its name, in the letters a hydration key is written with. */

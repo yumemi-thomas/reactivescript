@@ -18,6 +18,16 @@
   `renderToString` or `renderToStream`: outside Solid's request event the state is the render's, found through the
   owner, never shared by two renders. It threw before. Used where nothing renders and no request is answered, it still
   throws, and the message says what to do.
+- In a request event, a package's state lives as the request does (spec/09 MO-13g). It was under the first render's
+  root: a second render of the same request (a head rendered apart, a `renderToString` inside a stream) read nodes
+  the first had disposed. Now each render of the request holds the state, it is disposed when a turn of the event
+  loop passes with none open, and a render that begins after that throws, saying why. `holdRequest()` (new, server)
+  holds it across an `await` between two renders.
+- What the server runtime reads of Solid's internals to find a render's root owner is in one file
+  (`ref/compile/solid-internals.ts`), checked against Solid's public `getHydrationWriter()`: a Solid shaped otherwise
+  is refused with an error naming its version, where it would have been one app for whatever owner was topmost.
+  `runtime/test.mjs` asserts those internals (CI runs it). A package export used under a root made outside any render
+  and any request now throws as any use outside a render does (it took the topmost owner for a render).
 
 - A package's module that JavaScript uses first is instantiated in a root no owner holds, whose id is the module's
   name (spec/09 MO-13h): it is not disposed with the component that first read it, and its nodes have the server's

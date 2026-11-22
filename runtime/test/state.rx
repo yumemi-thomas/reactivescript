@@ -1,0 +1,7 @@
+import { mark } from "./probe.js"
+export source n: number := 1
+export stamp = mark()
+export doubled = n * 2
+export component Show() {
+  <b>{stamp}:{doubled}</b>
+}

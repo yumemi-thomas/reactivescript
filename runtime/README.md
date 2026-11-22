@@ -92,7 +92,12 @@ program's `createApp`, or one the runtime makes at first use, which a program
 that starts later takes over). On the server it is the request's, found through
 Solid's request event, and outside a request the render's: one per
 `renderToString` or `renderToStream`, found through the owner, so a plain
-render works and no two renders share module state (spec/09 MO-13g). A use
+render works and no two renders share module state (spec/09 MO-13g). A
+request's state lasts as the request does: its renders hold it, it is released
+when a turn of the event loop passes with none of them open, and a use after
+that throws rather than read disposed state. A host that renders twice in one
+request with an `await` between holds it: `const release = holdRequest()` inside
+the request event, `release()` when the request is answered. A use
 outside any render and any request throws instead of sharing one app across the
 process: use it in a render, inside `provideRequestEvent`, or pass the app,
 `components(pages, createApp({ request }))`. TanStack
@@ -104,6 +109,12 @@ the server to the request's, else the render's — with the module instantiated 
 whose id is the module's name (spec/09 MO-13h): it is not disposed with whatever read it first, and its nodes have the
 same ids on both sides. An `.rx` program in the same page has the same instance. A package's `index.js` calls it; an
 app does not.
+
+Finding the render's root owner is not something Solid 2 publishes. The runtime reads it from Solid's internals, in
+one file (`ref/compile/solid-internals.ts`, which lists the four things read), holds what it finds against Solid's public
+`getHydrationWriter()`, and throws — naming the installed Solid's version and what is missing — where they disagree;
+it never falls back to one app for the process. `node test.mjs` asserts those internals against the installed Solid
+and, where it is built, the pinned one (`SOLID_NEXT`, or `../../solid-next`).
 
 Solid is a peer: `solid-js`, `@solidjs/web` and `@solidjs/signals` (the
 runtime reads owner context from `@solidjs/signals`, which `solid-js` runs on;

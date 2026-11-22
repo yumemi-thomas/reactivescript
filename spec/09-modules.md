@@ -2102,15 +2102,42 @@ package's `.d.rx` is the signature the compiler printed (MO-3).
     first `createApp` called inside the event, or one the runtime makes at
     the first use — which that first `createApp` then returns. Outside a
     request it is the *render's*: one app for each call of
-    `renderToString` or `renderToStream`, found through the owner (every
-    owner a render makes is under the root owner Solid keeps for that
-    render) and released when that root is disposed. So a plain
+    `renderToString` or `renderToStream`, kept by that render's identity
+    (Solid's `getHydrationWriter()`, one object for each render, found
+    through the caller's owner) and gone with it. So a plain
     `renderToString(() => <App />)` works, as it does for any Solid
     library, and two renders running at once never share an instance. It
     is never the process's: an export used where nothing renders and no
     request is being answered throws, saying to use it in a render or
     inside `provideRequestEvent`. (An async function's code after an
     `await` has no owner; outside a request event that is such a place.)
+  - *A request's state lives as the request does* (2026-11-22; before,
+    as its first render did: a second render of the same request read
+    nodes the first had disposed, in silence). A request event may see
+    more than one render — a head rendered apart from the page, a
+    `renderToString` inside a streamed render — and they share the
+    request's app, so they read one live instance: the modules
+    JavaScript instantiates in a request are under an owner the runtime
+    makes for that request and no render owns (MO-13h; a `?rx-lib`
+    module, CP-4d, is not yet rooted so, and is still made where it is
+    first rendered). Solid's request
+    event has no end to listen for, so the lifetime is counted: each
+    render of the request that uses the app *holds* it until that render
+    ends, and when the last hold is gone the state is released — the
+    owner disposed, its modules' cleanups run — at the end of that turn
+    of the event loop, so a render that follows at once takes it over. A
+    use after the release is refused with an error that says so (what it
+    would read is disposed); it is never given a fresh instance, which
+    would be a second state for one request. A host that renders twice
+    with an `await` between and nothing open meanwhile holds the request
+    itself: `const release = holdRequest()` inside the event, `release()`
+    when the request is answered. A request no render held (a server
+    function's) is released with its event: the app is reached from the
+    event's `locals` and from nowhere else, so nothing of a request is
+    kept after it. Two requests never share: each event has its app.
+    *Not decided here:* what a module asks is sent to the browser by the
+    render in which it was first asked; a second render of the request
+    reads the answer and does not send it again.
   - *A page with two apps.* A second `createApp` in one page (two programs
     mounted side by side) is a second app, with instances of its own, as
     two apps always were (MO-1b). JavaScript stays bound to the page's
@@ -2123,14 +2150,31 @@ package's `.d.rx` is the signature the compiler printed (MO-3).
   (Solid's `createRoot`) that is not owned by the place of that use: in
   the browser by no owner, so its state lasts as long as the page — a
   root made under an owner is disposed with it, and the module's
-  questions with it; on the server under the render's root owner, so what
-  the module asks is sent with that render. The root's id is the module's
+  questions with it; on the server, in a request, under the owner the
+  runtime keeps for that request (MO-13g: it lasts as the request does,
+  whichever of its renders ends first), and outside a request under the
+  render's root owner, so it ends with that render. The root's id is the module's
   name (`rx-lib` writes it into the call, `<package>/<module>`, in the
-  letters a hydration key has, after the render's own id), and its nodes'
+  letters a hydration key has, after the id of the render it is first
+  used in), and its nodes'
   ids follow from it: the same on the server and in the browser wherever
   the first use is on each side, and no id is taken from the owner that
   happened to use it first. A module an `.rx` program instantiates first
   is made where the program's imports are, as before (MO-1b).
+  *What this reads of Solid.* Solid 2 publishes which render the caller
+  is in (`getHydrationWriter()`), and not the root owner of that render,
+  nor when it ends, nor the request scope's event without a warning
+  where there is none. Those three are read from Solid's own internals
+  (an owner's `_parent`, `@solidjs/web`'s table of render roots and the
+  `event` on a render's context, the store at `RequestContext`), in one
+  module, `ref/compile/solid-internals.ts`, and nowhere else. Each read
+  is checked, and what the walk finds is held against the public answer:
+  a Solid shaped otherwise is refused with an error naming its version
+  and what is missing. There is no fallback — a guess would give one
+  render another's state. `runtime/test.mjs` asserts each of those facts
+  against the installed Solid and the pinned one, so a Solid that moves
+  one fails there. The public API that would replace them is proposed in
+  `spec/rfc-rx-packages-2026-11-22.md`.
 
 Executable: S-module-33 (the marker, both checkers);
 `compiler/test/lib.mjs` (the build); `bench/tasks/rx-package` (a package
@@ -2142,7 +2186,11 @@ request event; two renders at once, each with its own instance; an `.rx`
 program and JavaScript sharing one, in the browser and in a stream);
 `runtime/test.mjs` (MO-13g and MO-13h on the built runtime: a plain
 `renderToString`, the message outside a render, a module outliving its
-first reader). What is still a proposal is in
+first reader; in one request event, two renders one after the other and
+two open at once reading one live instance, its disposal when the last
+has ended, the refusal after it, `holdRequest`, two requests at once,
+and no event kept after its request; Solid's contract, and the refusal
+of a Solid shaped otherwise). What is still a proposal is in
 `spec/rfc-rx-packages-2026-11-22.md`.
 
 ---

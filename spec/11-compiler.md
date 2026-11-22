@@ -182,7 +182,9 @@ record argued each way; this is the decision.
   the server, the request's, kept on Solid's request event
   (`locals`), so module state is per request (SV-4) as
   in a program's own server, and outside a request the render's (one per
-  `renderToString` or `renderToStream`, found through the owner). A host
+  `renderToString` or `renderToStream`, found through the owner). A
+  request's state lasts as the request does, across its renders, and a
+  host may hold it (`holdRequest()`, 09 MO-13g). A host
   may pass the app itself
   (`components(pages, app)`); on the server, a use outside any render and
   any request with
@@ -220,15 +222,18 @@ record argued each way; this is the decision.
   accessor, a fn, an action and an error class (`Symbol.hasInstance` tests
   the instance's class). `library` instantiates the module in a root of
   its own, named by `name` (`createRoot(…, { id })`, 09 MO-13h): made
-  under no owner in the browser and under the render's root owner on the
-  server, so the state of a module first read inside a
+  under no owner in the browser, and on the server under the owner the
+  runtime keeps for the request, or outside a request under the render's
+  root owner, so the state of a module first read inside a
   `<Show>` is not disposed with it, and its nodes' ids do not depend on
-  where that was. It is the one name the runtime adds
-  for packages, and it is Solid's `createRoot` and a `Proxy`. The render's
-  root owner is found by walking `_parent` to the owner Solid's own
-  `getRequestEvent` finds a render by (`Symbol.for("@solidjs/web/render-roots")`),
-  else to the topmost: Solid's internals, as the server build's owner
-  context already is.
+  where that was. It is the name the runtime adds
+  for packages, and it is Solid's `createRoot` and a `Proxy`;
+  `holdRequest()` is the other, a count (09 MO-13g). Which render the
+  caller is in is Solid's public `getHydrationWriter()`. That render's
+  root owner, and the request scope's event read in silence, are Solid's
+  internals: read in `ref/compile/solid-internals.ts` alone, each
+  checked against the public answer, refused by name where Solid is
+  shaped otherwise, and asserted by `runtime/test.mjs` (09 MO-13h).
 
 ## CP-5 — `ref/` is the conformance suite
 

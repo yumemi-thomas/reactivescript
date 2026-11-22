@@ -63,11 +63,12 @@ why; the second lists what was not done, each as a proposal.
 - **A plain render on the server** (MO-13g). `library` needed Solid's
   request event for one thing: somewhere to keep the app that is not the
   process, so two requests never share module state. A render has such a
-  place without an event — its root owner, which Solid itself keeps a
-  table of (`getRequestEvent`'s fallback finds a render's context by
-  walking the owner's parents to it). The app outside a request is kept by
-  that owner and dropped when it is disposed (owners are reused, so the
-  entry must not outlive its render). The request event still wins where
+  place without an event: itself. The app outside a request is kept by
+  the render's identity — `getHydrationWriter()`, Solid's public
+  one-object-per-render, found through the caller's owner and never
+  reused (it was first kept by the render's root owner, which Solid
+  reuses for later renders, so the entry had to be deleted by hand at
+  the render's end). The request event still wins where
   there is one, so a framework's server functions and its render share an
   app. What still throws is a use with neither: the message names both
   ways out.
@@ -78,11 +79,130 @@ why; the second lists what was not done, each as a proposal.
   disposal: Solid disposes a root made under an owner with that owner, so
   a module first read inside a component died with it (its question
   stopped answering; `runtime/test.mjs` holds the case). What landed: the
-  root is owned by nothing in the browser and by the render's root owner
-  on the server, and its id is given, not taken — the module's name, which
+  root is owned by nothing in the browser, on the server by the owner
+  the runtime keeps for the request or, outside a request, by the
+  render's root owner, and its id is given, not taken — the module's name, which
   `rx-lib` writes into the call. The `.tsx` app's hydration in the
   benchmark depends on it: with another id on one side Solid reports the
   `<Loading>` fallback it cannot find in the server's page.
+
+- **A request's state lives as the request does** (MO-13g; item 5a of
+  this list as it stood). *What was true:* the request's app was shared
+  by every render of the request, and the modules JavaScript
+  instantiated in it were under the *first* render's root, so they were
+  disposed with it. A second render of the same request then read
+  disposed nodes — in silence: a memo that had answered went on giving
+  its last value, and the module's cleanups had already run
+  (`runtime/test/request.mjs` against the runtime as it was: instance 1
+  disposed before the second render read it). *What Solid offers for a
+  request's end:* nothing. A request event is `{ request, locals }` and
+  whatever the framework adds; `provideRequestEvent(init, cb)` is
+  `AsyncLocalStorage.run`, which has no exit to listen for and whose
+  scope outlives `cb`'s return in every continuation; `renderToStream`
+  tells its caller when the stream completes (`onCompleteAll`, the
+  sink's `end`), which is the host's to hear, and Solid's own table of a
+  request's open renders is private. The only ends the runtime can see
+  from inside are a render's (its root owner's disposal) and the
+  event's collection. *What landed:* the request's modules are under an
+  owner the runtime makes for the request, under no render. Each render
+  of the request that uses the app holds that owner until the render
+  ends; when no hold is left it is disposed at the end of that turn of
+  the event loop (a `setTimeout(0)`, cancelled by a new hold), so two
+  renders in a row and two that overlap read one live instance, and the
+  state is released, by disposal, after the last. A use after that
+  throws: the alternative was a fresh instance, a second state for one
+  request, as silent as what it replaces. Two renders with an `await`
+  between and nothing open meanwhile cannot be told from a finished
+  request, so that host says it: `holdRequest()` returns the release.
+  A request no render held is not disposed, only collected with its
+  event; nothing else reaches its app. *Considered and not done:* a
+  `FinalizationRegistry` on the event, to dispose a request nothing
+  held — what it would call has to reach the state, the state can reach
+  the event (a module may keep it, a render's context keeps it), and a
+  registry keeps what it calls: one such request would then never be
+  collected. And a table of renders by root owner in the runtime, which
+  kept each render's context alive for as long as Solid pooled the
+  owner; the test that asks that no event outlives its request found it.
+- **Solid's internals, in one place** (MO-13h; item 4c as it stood).
+  *What was searched* (Solid at `ref/SOLID_NEXT`, `packages/signals`,
+  `packages/solid/src/server`, `packages/web/src/server.ts` and
+  `storage/`): `getOwner`/`runWithOwner` (no way up from an owner);
+  `createContext`/`useContext` (a render provides none of its own, and a
+  host's render is not the runtime's to wrap); `sharedConfig.context`
+  (the module global: whichever render started or finished last, which
+  Solid's own comments warn can be another request's);
+  `getRequestEvent()` (finds the caller's render through the owner, and
+  warns where there is no event); `getTraceContext()` (the render's own
+  object outside a request and the request's inside one: an identity
+  for neither alone); `getHydrationWriter()`; owner ids (the root's id is
+  the `renderId`, `""` by default: not an identity). *What was found:*
+  one public route, for one of the three needs. `getHydrationWriter()`
+  answers "which render is this" — one object per call of
+  `renderToString`/`renderToStream`, found through the caller's owner —
+  and the runtime now keys a render's app by it. Nothing public gives
+  the render's root owner (to root a module under, and to hear the
+  render end through `onCleanup`), and nothing public reads the request
+  scope's event without warning that there is none. *What remains
+  internal,* all of it in `ref/compile/solid-internals.ts`: (1)
+  `owner._parent`; (2) `globalThis[Symbol.for("@solidjs/web/render-roots")]`,
+  the WeakMap from a render's root owner to its context; (3) that
+  context's `event`; (4) `globalThis[RequestContext].getStore()`. Each
+  is checked where read; the root the walk finds is held against the
+  public answer (`runWithOwner(root, getHydrationWriter)` is the
+  caller's writer), and a mismatch throws with Solid's version and what
+  is missing. The old fallback — "else the topmost owner" — is gone: it
+  was the silent failure, an app for whatever was on top.
+  `runtime/test.mjs` asserts the four facts against Solid itself (the
+  installed release and the pin), and CI runs it. The browser's one use
+  (`_parent` to the top, for the render's id) reads through the same
+  file.
+
+## Proposed to Solid (not sent)
+
+What would let `ref/compile/solid-internals.ts` be deleted. Three
+functions, each already implemented inside `@solidjs/web` under a private
+name; the proposal is to export them.
+
+1. **`getRenderOwner(): Owner | undefined`** (`@solidjs/web`, server and
+   client). The root owner of the render the caller belongs to: on the
+   server the owner `renderToString`/`renderToStream` claims
+   (`claimRenderRoot`), found as `getHydrationWriter()` finds its render
+   (through the caller's owner; with none, through the request scope
+   when exactly one render is open for it); in the browser the root
+   owner of the `render`/`hydrate` call. `undefined` outside any render.
+   *Why:* a library that keeps state for a render needs an owner with
+   the render's lifetime — to create under
+   (`runWithOwner(getRenderOwner(), () => createRoot(…))`: state that
+   must not be disposed with the component that first read it), to hear
+   the render end (`onCleanup` under it), and for its `id`, the
+   `renderId` its own ids must begin with to hydrate. Today that is
+   `_parent` and the `render-roots` table; `@solidjs/web`'s
+   `renderContextOf` and `solid-js`'s `callerRenderContext` are the same
+   walk.
+2. **`getRequestEvent({ optional: true }): RequestEvent | undefined`**
+   (or `peekRequestEvent()`, which `@solidjs/web` has privately, extended
+   by the owner's fallback). `getRequestEvent()` as it is, without the
+   console warning where there is no event. *Why:* "is this a request?"
+   is a question with two ordinary answers for a library that scopes
+   state to the request when there is one and to the render otherwise;
+   a render outside a request is, in Solid's own words, a normal thing.
+   Today that is `globalThis[RequestContext].getStore()` and the render
+   context's `event`.
+3. **`onRequestEnd(fn: () => void): void`** (`@solidjs/web/storage`), or
+   an owner for the request (`getRequestOwner()`), disposed when the
+   request is answered: when `provideRequestEvent`'s `cb` returns, or,
+   where it returns a promise or a stream result, when that settles or
+   completes. *Why:* per-request state has no end to be released at.
+   `AsyncLocalStorage.run` has no exit hook, the event has no lifecycle,
+   and `eventRenders` (a request's open renders) is private. With it,
+   the hold count, the turn of grace, the refusal after release and
+   `holdRequest()` all go: the request's owner is the request's.
+
+And one sentence of documentation: that `getHydrationWriter()` returns
+the same object for every call within a render and another for each
+render. The runtime relies on it as an identity; the code makes it true
+(`context.writer` is made once per render) and the documentation does
+not say so.
 
 ## Still proposals
 
@@ -119,21 +239,30 @@ why; the second lists what was not done, each as a proposal.
    is still instantiated where it is first rendered: `components(pages)`
    is given no name to make a root's id from. *Proposed:* the plugin
    passes the module's path relative to the project, and `components`
-   roots it as `library` does. (b) A dependency two packages share is
+   roots it as `library` does. Until then such a module is not under
+   the request's owner either: in a request with two renders its state
+   is still the first render's, and MO-13g's lifetime is `library`'s
+   alone. (b) A dependency two packages share is
    instantiated inside the root of whichever module needed it first; its
    ids follow that module's, so two packages first used in another order
    on each side would number it differently. *Proposed:* `__rt.module`
    itself makes a named root for a module of a package, which changes the
    ids of every program and wants its own change. (c) The render's root
-   owner is reached through `_parent` and Solid's table of render roots,
-   both internal. Solid has no public "the root of this render"; asking
-   for one is the right end of this.
-5. **What MO-13g leaves.** (a) Two renders inside *one* request event
-   share the request's app, and a module's nodes are under the first
-   render's root: the second render reads nodes the first disposed. One
-   render per request is what frameworks do; a per-render app inside a
-   request would instead split a render from the server functions of its
-   request. (b) Outside a request, an export used after an `await` in an
+   owner is still reached through Solid's internals, now in one file,
+   checked and tested (above); the end of it is Solid's to give
+   (*Proposed to Solid*).
+5. **What MO-13g leaves.** (a) What a request's module asks is sent to
+   the browser by the render in which it was first asked (a node keeps
+   the render context it was made in): a second render of the request
+   reads the answer and does not serialize it again, so a page hydrated
+   from the second render alone would ask again. *Proposed:* nothing
+   yet; one render per request is what frameworks do, and the second
+   render in the cases met (a head) is not hydrated. (a′) A request no
+   render held is collected, not disposed: its modules' cleanups do not
+   run. A module instantiated by a server function's call alone is such
+   a one. (a″) An export first used in a request *before* any render
+   (in the handler) is made while Solid's module-global render context
+   is whatever render ran last; as before this change. (b) Outside a request, an export used after an `await` in an
    async function has no owner, so it throws as a use outside any render:
    Solid's own owner-bound APIs have the same limit, and the request
    event (AsyncLocalStorage) is what carries across an `await`. (c) A

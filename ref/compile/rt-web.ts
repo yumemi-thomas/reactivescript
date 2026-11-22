@@ -12,6 +12,7 @@ import {
 } from "solid-js";
 import { getContext, setContext, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
+import { topOwner } from "./solid-internals.ts";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
 // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
@@ -443,6 +444,8 @@ function assignDraft(draft: any, v: unknown) {
 /** SV-5a, a library-cache adapter (`sendErrors(fetchPerson)`): on the server it marks a declared JS error class's
  *  instances safe to send; on the client there is nothing to send, so it is `fn`. */
 export function sendErrors<F extends (...a: any[]) => unknown>(fn: F): F { return fn; }
+/** MO-13g: on the server, keeps a request's state across its renders; in the browser there is no request. */
+export function holdRequest(): () => void { throw new Error("holdRequest() holds the state of a request on the server (MO-13g); in the browser the page's state lasts as the page does, and there is nothing to hold"); }
 /** CP-4d: an `.rx` module's components for a JS host (`import pages from "./pages.rx?rx-lib"`; `const { Home } =
  *  components(pages)`): Solid components bound to the page's app (`pageApp`), made on first use, or to the app passed. */
 export function components<T extends Record<string, unknown>>(factory: (rt: unknown) => T, app?: App): T {
@@ -465,7 +468,7 @@ export function library<T extends Record<string, unknown>>(factory: (rt: unknown
   if (typeof name === "object") { app = name; name = undefined; }
   const made = new Map<string, unknown>();
   const rooted = (rt: unknown) => {
-    let top = getOwner() as { id?: string; _parent?: unknown } | null; while (top?._parent) top = top._parent as typeof top;   // the render's root: its id is the render's (`renderId`)
+    const top = topOwner();   // the render's root: its id is the render's (`renderId`)
     const n = moduleSeq.get(rt as object) ?? 0; moduleSeq.set(rt as object, n + 1);
     return runWithOwner(null, () => createRoot(() => factory(rt), { id: (top?.id ?? "") + moduleRootId(name as string | undefined, n) }));
   };

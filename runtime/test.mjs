@@ -3,7 +3,7 @@
 // for ssr by the crate renders on the server build over the Solid release this package names.
 // Usage: node test.mjs
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -76,6 +76,53 @@ console.log(JSON.stringify({ seen, program: app.module(mod, mod).n(), second: se
   let pg = {}; try { pg = JSON.parse(pageOut.stdout.trim().split("\n").pop()); } catch { pg = { error: pageOut.stdout + pageOut.stderr }; }
   check("a module JavaScript uses outlives the owner that first read it (MO-13h)", JSON.stringify(pg.seen) === "[2,4]", JSON.stringify(pg));
   check("the .rx program that starts in the page has the instance JavaScript used; a second app has its own (MO-13g)", pg.program === 2 && pg.second === 1, JSON.stringify(pg));
+  // Solid's contract: what the runtime reads of Solid that Solid does not publish (ref/compile/solid-internals.ts), held
+  // against the installed Solid alone. A Solid bump that moves one of them fails here, by name, before anything is
+  // scoped wrongly
+  const fx = path.join(tmp, "request"); cpSync(path.join(here, "test"), fx, { recursive: true });
+  const contractRun = spawnSync(process.execPath, ["contract.mjs"], { cwd: fx, encoding: "utf8" });
+  let contract = {}; try { contract = JSON.parse(contractRun.stdout.trim().split("\n").pop()); } catch { contract = { "contract.mjs ran": false }; }
+  const solidIs = createRequire(import.meta.url)("solid-js/package.json").version;
+  for (const [fact, holds] of Object.entries(contract)) check(`Solid's contract, solid-js ${solidIs}: ${fact}`, holds === true, holds === true ? "" : (contractRun.stderr || "").slice(0, 300));
+  check("Solid's contract was read", Object.keys(contract).length >= 16, contractRun.stdout.slice(0, 200) + contractRun.stderr.slice(0, 300));
+  // the same against the Solid ref/ runs on (ref/SOLID_NEXT, built beside the repository or at $SOLID_NEXT), where there is one:
+  // the pin moves before a release does
+  const pinAt = process.env.SOLID_NEXT ?? path.resolve(here, "../../solid-next");
+  if (existsSync(path.join(pinAt, "packages/web/dist/server.js"))) {
+    const pin = path.join(tmp, "pin"); mkdirSync(path.join(pin, "node_modules/@solidjs"), { recursive: true });
+    for (const [name, dir] of [["solid-js", "solid"], ["@solidjs/web", "web"], ["@solidjs/signals", "signals"]]) symlinkSync(path.join(pinAt, "packages", dir), path.join(pin, "node_modules", name));
+    cpSync(path.join(here, "test/contract.mjs"), path.join(pin, "contract.mjs"));
+    const pinRun = spawnSync(process.execPath, ["contract.mjs"], { cwd: pin, encoding: "utf8" });
+    let pinned = {}; try { pinned = JSON.parse(pinRun.stdout.trim().split("\n").pop()); } catch { /* reported below */ }
+    const broken = Object.entries(pinned).filter(([, holds]) => holds !== true).map(([fact]) => fact);
+    check(`Solid's contract holds on the pinned Solid too (solid-js ${JSON.parse(readFileSync(path.join(pinAt, "packages/solid/package.json"), "utf8")).version}, ${pinAt})`, Object.keys(pinned).length === Object.keys(contract).length && broken.length === 0, broken.join("; ") + pinRun.stderr.slice(0, 300));
+  } else console.log(`- Solid's contract on the pinned Solid: no build at ${pinAt} (set SOLID_NEXT)`);
+  // ...and a Solid shaped otherwise is refused where it is read, naming the version and what is missing; no fallback
+  const rq = JSON.parse(compile(path.join(fx, "state.rx"), "ssr", "@solidjs/web", false, true));
+  writeFileSync(path.join(fx, "state.mjs"), rq.modules[Object.keys(rq.modules).find(k => k.endsWith("state.rx"))].code);
+  const refuseRun = spawnSync(process.execPath, ["refuse.mjs"], { cwd: fx, encoding: "utf8" });
+  let refused = {}; try { refused = JSON.parse(refuseRun.stdout.trim().split("\n").pop()); } catch { refused = { error: refuseRun.stdout + refuseRun.stderr }; }
+  const says = (r, what) => typeof r === "string" && r.includes(`solid-js ${solidIs} is not shaped as @reactivescript/runtime reads it: ${what}`) && /does not guess/.test(r);
+  check("a table of render roots under another shape is refused, naming Solid's version", says(refused.table, "globalThis[Symbol.for(\"@solidjs/web/render-roots\")] is not a WeakMap"), String(refused.table ?? refused.error).slice(0, 200));
+  check("a table that names an owner which is not the render's root is refused", says(refused.wrongRoot, "the table of render roots names a render that getHydrationWriter() does not find"), String(refused.wrongRoot).slice(0, 200));
+  check("an owner with no `_parent` is refused", says(refused.parent, "an owner has no `_parent` field"), String(refused.parent).slice(0, 200));
+  check("...and the same render with Solid as it is reads its instance", /^\d+$/.test(refused.sound ?? ""), String(refused.sound));
+  // MO-13g: in a request event a package's state lives as the request does. Its renders hold it; it is released (its
+  // module's root disposed) when a turn of the event loop passes with none open; a later render is refused
+  const reqRun = spawnSync(process.execPath, ["--expose-gc", "request.mjs"], { cwd: fx, encoding: "utf8" });
+  let rs = {}; try { rs = JSON.parse(reqRun.stdout.trim().split("\n").pop()); } catch { rs = { error: reqRun.stdout + reqRun.stderr }; }
+  const j = v => JSON.stringify(v) ?? String(rs.error).slice(0, 400);
+  const sq = rs.sequential ?? {}, ov = rs.overlapping ?? {}, gap = rs.gap ?? {}, held = rs.held ?? {};
+  check("two renders one after the other in one request event read one live instance (MO-13g)", sq.a === 1 && sq.b === 1 && j(sq.between) === "[]" && j(sq.before) === "[]", j(sq));
+  check("...released after the request: its module's root is disposed once a turn passes with no render open", j(sq.after) === "[1]", j(sq));
+  check("...and a render that begins after that is refused, saying why and what to do; so is a hold", /^threw: Show, an export of the compiled \.rx module t\/state, was used in a request whose state has been released/.test(sq.late) && /holdRequest\(\)/.test(sq.late) && /^threw: holdRequest\(\) was used in a request whose state has been released/.test(sq.lateHold), j([sq.late, sq.lateHold]));
+  check("two renders open at once: the render that instantiated the module ends first, and the other still reads it live, to its end", ov.first === ov.second && ov.during === ov.first && ov.lateRead === true && ov.whileOpen === 0 && ov.atEnd === 0, j(ov));
+  check("...released when the last of them has ended", ov.after === 1 && ov.last === ov.first, j(ov));
+  check("a render after an await, with nothing open meanwhile, is refused rather than read disposed state", /^threw: .*state has been released/.test(gap.b) && gap.disposed === gap.a, j(gap));
+  check("holdRequest() keeps the request's state across the gap, until its release (called twice: once)", held.a === held.b && held.whileHeld === true && held.after === held.a, j(held));
+  check("two requests at once have an instance each, and each one's renders read its own", j(rs.concurrent) === "[[5,5],[6,6]]", j(rs.concurrent));
+  check("a request that renders nothing has one instance too; holdRequest() outside a request says so", rs.noRender?.stamp === 7 && rs.noRender?.again === 7 && /outside a request/.test(rs.outside ?? ""), j([rs.noRender, rs.outside]));
+  check("every instance a render held was disposed, and no request's event is kept after it (gc)", rs.made === 7 && rs.allDisposed === 6 && rs.kept === 0, j([rs.made, rs.allDisposed, rs.kept]));
   // SV-5a: a declared JS error class's instance is stamped with the nearest declared class up its prototype chain, whatever
   // order the program registered them in; it arrives through Solid's serializer, and a client boundary typed with the
   // class, or a base class, gives it back its own class
