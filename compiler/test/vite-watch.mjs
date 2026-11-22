@@ -33,10 +33,9 @@ if (!existsSync(path.join(nm, "@solidjs/signals"))) symlinkSync(realpathSync(pat
 symlinkSync(pkg, path.join(nm, "@reactivescript/compiler"));
 symlinkSync(path.join(repo, "tooling/rx-language-server"), path.join(nm, "@reactivescript/language-server"));
 for (const f of ["package.json", "dist"]) cpSync(path.join(repo, "runtime", f), path.join(nm, "@reactivescript/runtime", f), { recursive: true });
-const src = (f, text) => {
-  const p = path.join(dir, "src", f); writeFileSync(p, text);
-  const t = new Date(Date.now() + 1500); utimesSync(p, t, t);   // an edit, also on a file system whose times are coarse
-};
+let edited = [];   // the files of the edit a rebuild is awaited for
+const touch = (p, text) => { writeFileSync(p, text); const t = new Date(Date.now() + 1500); utimesSync(p, t, t); };   // an edit, also on a file system whose times are coarse
+const src = (f, text) => { const p = path.join(dir, "src", f); touch(p, text); edited.push([p, text]); };
 writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "fixture", type: "module" }));
 writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] }, include: ["src/**/*.rx", "src/util.ts"] }));
 writeFileSync(path.join(dir, "src/main.rx"), "export default component App() {\n  source n := 1\n  <p>{n}</p>\n}\n");
@@ -49,41 +48,53 @@ Object.assign(process.env, { RX_TYPECHECK: "1", RX_GENERATE: "0" });
 const watcher = await vite.build({
   root: dir, configFile: false, logLevel: "silent", clearScreen: false,
   plugins: [solid({ frontends: { ".rx": rx() } })],
-  build: { outDir: "dist", emptyOutDir: true, watch: {} },
+  // the watcher polls: what is tested is a rebuild reading what changed, not the platform's file events. On macOS they
+  // report a project written just before the watcher started late, as one burst, and an edit made meanwhile is merged
+  // into it or never reported (compiler/test/vite.mjs met the same under the dev server): no rebuild started, and each
+  // check here waited its minute out
+  build: { outDir: "dist", emptyOutDir: true, watch: { watcher: { usePolling: true, pollInterval: 50, compareContentsForPolling: true } } },
 });
 // each build's outcome, in order: "ok", or its error's text
-const rounds = []; let error = null; let waiting = null;
+const rounds = []; let error = null; let starts = 0; let building = false;
 watcher.on("event", e => {
+  if (e.code === "START") { starts++; building = true; }
   if (e.code === "ERROR") error = String(e.error?.message ?? e.error);
   if (e.code === "BUNDLE_END") e.result?.close?.();
-  if (e.code === "END") { rounds.push(error ?? "ok"); error = null; waiting?.(); }
+  if (e.code === "END") { rounds.push(error ?? "ok"); error = null; building = false; }
 });
-const next = async (n, ms = 60000) => {
-  const until = Date.now() + ms;
-  while (rounds.length < n && Date.now() < until) await new Promise(r => { waiting = r; setTimeout(r, 250); });
-  return rounds[n - 1];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+/** The outcome of the rebuild the edits made since the last call start. The watcher takes a file's state when it begins
+ *  to watch it, which is some time after the build that named it has ended, and an edit made before that is one it
+ *  never sees (on macOS, most runs: every check then waited its minute out and failed). So an edit no rebuild has
+ *  started for is made again, each second, until one starts; the outcome is that of the last rebuild once the watcher
+ *  is quiet (an edit made twice may be built twice, to the same end). */
+const next = async (ms = 90000) => {
+  const until = Date.now() + ms, from = starts, files = edited; edited = [];
+  for (let at = Date.now(); files.length && starts === from && Date.now() < until; await sleep(100)) if (Date.now() - at > 1000) { for (const [p, text] of files) touch(p, text); at = Date.now(); }
+  for (let quiet = 0; quiet < 8 && Date.now() < until; await sleep(100)) quiet = building || !rounds.length || (files.length && starts === from) ? 0 : quiet + 1;
+  return rounds.at(-1);
 };
 
 let fail = 0;
 const check = (name, ok, detail) => { if (!ok) fail++; console.log(`${ok ? "✓" : "✗"} ${name}${ok ? "" : `\n  ${JSON.stringify(detail ?? null).slice(0, 1500)}`}`); };
 try {
-  check("the first build is checked and passes", await next(1) === "ok", rounds);
+  check("the first build is checked and passes", await next() === "ok", rounds);
   // TY-1d: a .ts module alone changes, with a type error: no .rx entry is compiled again
   src("util.ts", "export const label: string = 1;\n");
-  const broken = await next(2);
+  const broken = await next();
   check("a type error in a .ts module alone fails the rebuild (TY-1d, by buildStart)", /type errors \(rx-tsc\)/.test(broken ?? "") && /util\.ts/.test(broken ?? ""), rounds);
   src("util.ts", "export const label: string = \"b\";\n");
-  check("fixing it builds again", await next(3) === "ok", rounds);
+  check("fixing it builds again", await next() === "ok", rounds);
   // MO-8k: the program starts to import a JS module nothing declares: its call is io, in reactive scope
   src("lib.js", "export const twice = n => n * 2;\n");
   src("main.rx", "import { twice } from \"./lib.js\"\nexport default component App() {\n  source n := 1\n  <p>{twice(n)}</p>\n}\n");
-  const undeclared = await next(4);
+  const undeclared = await next();
   check("an undeclared JS module's call in reactive scope fails the rebuild", /IO_IN_REACTIVE/.test(undeclared ?? ""), rounds);
   // its declaration is created. Rolldown's watcher watches no path that has no file, so nothing rebuilds yet; the next
   // rebuild, here one a .ts edit starts, reads it: the check passes at buildStart and the program compiles
   src("lib.d.rx", "export pure fn twice(n: number): number\n");
   src("util.ts", "export const label: string = \"c\";\n");
-  check("a .d.rx created since is read by the next rebuild, whatever starts it (MO-8k)", await next(5) === "ok", rounds);
+  check("a .d.rx created since is read by the next rebuild, whatever starts it (MO-8k)", await next() === "ok", rounds);
 } finally {
   await watcher.close();
   for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
