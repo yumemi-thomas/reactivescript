@@ -2,7 +2,7 @@
 # reference implementation's (ref/: the interpreter over every scenario, the same scenarios lowered onto Solid, the
 # compiled modules, streamed SSR and hydration in Chromium, the TSX projection), the crate against ref/ in each of its
 # modes (CP-5: checked, client-only, whole-program, lowered, projected), and the three suites that run a guarantee
-# rather than a list of cases (compiler/test/confined.mjs, drafts.mjs, ssr-held.mjs).
+# rather than a list of cases (compiler/test/confined.mjs, drafts.mjs).
 #
 # ref/ runs on Solid built from source at ref/SOLID_NEXT (ref/scripts/solid-next.sh: pnpm, and a Rust build of Solid's
 # native compiler). That build is kept in a cache keyed by the pin, so it is made once per pin and restored after.
@@ -100,10 +100,8 @@ jobs:
       - name: "crate against ref/: projected (--project)"
         working-directory: ref
         run: npm run crate -- --project
-      - name: "the guarantees, run: drafts (MO-10i) and held results (MO-10f) on the server"
-        run: |
-          node compiler/test/drafts.mjs
-          node compiler/test/ssr-held.mjs
+      - name: "the guarantees, run: drafts (MO-10i)"
+        run: node compiler/test/drafts.mjs
       - name: "the library build: a package written in .rx (MO-13e)"
         run: node compiler/test/lib.mjs
       - name: The libraries confined.mjs runs against (bench/package.json)

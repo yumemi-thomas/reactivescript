@@ -1,7 +1,12 @@
 # The representative-task benchmark (bench/README.md): each task is a job a Solid user does with a library of the
 # ecosystem — its good program accepted by both checkers, typed by the library's own types and run in Chromium, its
 # one-line mistakes refused. The run is compared with bench/scorecard.json: a check that is green there may not turn
-# red, and a check that is red is one its task's `known` gives the reason for.
+# red, and a check that is red is one its task's `known` gives the reason for. And the coverage suite: every package of
+# the libraries bench/coverage/libraries.json lists, drafted whole and used once, compared with bench/coverage/coverage.json.
+#
+# Two jobs, the second over three machines: in one job the run took 31 minutes (7 for the tasks, the rest the 120
+# programs and 190 drafts of the coverage suite; measured at b9fe0d4). `--shard i/3` is every third entry and every
+# third module no entry drafts; each shard holds the whole list (bench/coverage.mjs).
 name: bench
 
 on:
@@ -14,7 +19,16 @@ on:
 
 jobs:
   bench:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: tasks, run: "--tasks-only" }
+          - { name: coverage 1/3, run: "--coverage-only --shard 1/3" }
+          - { name: coverage 2/3, run: "--coverage-only --shard 2/3" }
+          - { name: coverage 3/3, run: "--coverage-only --shard 3/3" }
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -39,5 +53,5 @@ jobs:
           # from the lockfile, as bench/harness.mjs installs them: every machine resolves the same tree
           mkdir -p bench/.out/ws && cp bench/package.json bench/package-lock.json bench/.out/ws/
           (cd bench/.out/ws && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock && npx playwright install --with-deps chromium)
-      - name: The benchmark, against bench/scorecard.json
-        run: node bench/run.mjs --check --strict
+      - name: The benchmark, against bench/scorecard.json and bench/coverage/coverage.json
+        run: node bench/run.mjs ${{ matrix.run }} --check --strict
