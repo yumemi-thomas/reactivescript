@@ -4,7 +4,7 @@
 //! `const`. Names are mangled (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The
 //! module is a tree (`js.rs`), never text (CP-3).
 
-use crate::ast::{Decl, Expr, ExprKind, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind};
+use crate::ast::{Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
@@ -1398,6 +1398,13 @@ impl<'p> Gen<'p> {
                             continue;
                         }
                     }
+                    // RG-6b, MO-10a (2026-11-23): what is written out as a constant has nothing to follow, and is the plain
+                    // accessor `() => "a.mp3"`: no node, no owner's id, and nothing reactive for a library to read where
+                    // nothing tracks (Solid's STRICT_READ_UNTRACKED, of a parameter it reads once while it is made)
+                    if constant(a) {
+                        out.push(thunk(self.expr(a, env, &reactive())?));
+                        continue;
+                    }
                     out.push(rtc("memo", vec![E::Null, thunk(self.expr(a, env, &reactive())?)]));
                 }
                 // MO-11f: the component the factory hands back
@@ -1424,7 +1431,8 @@ impl<'p> Gen<'p> {
                         vec![id(r.clone()), E::Arr(fields.iter().map(|(k, _)| str(k.clone())).collect()), E::Arr(fields.iter().filter(|(_, p)| *p == Part::Ref).map(|(k, _)| str(k.clone())).collect())],
                     ),
                 };
-                Ok(Some(vec![konst(r.clone(), call(id(fb.js.clone()), out)), konst(b.js.clone(), whole)]))
+                // MO-10a: called in an owner of its own (`__rt.inst`), its arguments' nodes with it
+                Ok(Some(vec![konst(r.clone(), rtc("inst", vec![thunk(call(id(fb.js.clone()), out))])), konst(b.js.clone(), whole)]))
             }
             ExprKind::Index { o, .. } | ExprKind::Member { o, .. } => {
                 let ExprKind::Id(on) = &o.k else { return Ok(None) };
@@ -2343,4 +2351,19 @@ fn made_component(p: &Program, name: &str, declarations: &indexmap::IndexMap<Str
         }
     }
     false
+}
+
+/// An expression written out as a constant: a literal, or an array, a record, a template or a sign over them.
+fn constant(e: &Expr) -> bool {
+    match &e.k {
+        ExprKind::Lit(_) => true,
+        ExprKind::Un { e, .. } => constant(e),
+        ExprKind::Tpl(parts) => parts.iter().all(|p| match p {
+            TplPart::Str(_) => true,
+            TplPart::Expr(e) => constant(e),
+        }),
+        ExprKind::Arr(items) => items.iter().all(constant),
+        ExprKind::Rec(fields) => fields.iter().all(|f| matches!(f, Field::Kv { v, .. } if constant(v))),
+        _ => false,
+    }
 }

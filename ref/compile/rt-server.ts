@@ -9,7 +9,7 @@ import { primsSolid } from "./prims-solid.ts";
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver, DEV } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
-import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit, createRoot, onCleanup } from "solid-js";
+import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, createOwner, getNextChildId, runInServerComponentScope, omit, createRoot, onCleanup } from "solid-js";
 import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
 let warnedCopies = false;   // once per process
 const warnedFields = new Set<string>();   // SV-5a: a declared field an instance came without, once per class and field
@@ -330,6 +330,15 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request
     },
     useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
+    /** MO-10a, RG-6a (2026-11-23): a declared JS primitive is called in an owner of its own, under the place it is
+     *  written. To that place it is one child, on the server and in the browser, whatever it makes inside — so a
+     *  library whose server path makes fewer effects than its browser path (`if (isServer) return …`, before the
+     *  `onSettled` the browser runs) no longer moves the hydration keys of everything written after it. Its cleanups
+     *  are that owner's, disposed with the region. And it is called outside tracking, as a call that is made once is
+     *  (E-9): what the library reads of a `ref` argument while it is being made is a read it means to make once, which
+     *  Solid's development build otherwise reports against the component (STRICT_READ_UNTRACKED) — in `.rx` an
+     *  element ref is a source, so `createFullscreen(el)` passes a signal where a `.tsx` author passes `() => el`. */
+    inst<T>(f: () => T): T { return runWithOwner(createOwner(), () => untrack(f)) as T; },
 
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)

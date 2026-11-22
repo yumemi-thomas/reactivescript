@@ -10,7 +10,7 @@ import { Show, For, Loading, Errored, DEV } from "solid-js";
 import {
   reconcile,
   createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary, omit,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, createOwner, $TARGET, createErrorBoundary, omit,
 } from "@solidjs/signals";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -362,6 +362,15 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
+    /** MO-10a, RG-6a (2026-11-23): a declared JS primitive is called in an owner of its own, under the place it is
+     *  written. To that place it is one child, on the server and in the browser, whatever it makes inside — so a
+     *  library whose server path makes fewer effects than its browser path (`if (isServer) return …`, before the
+     *  `onSettled` the browser runs) no longer moves the hydration keys of everything written after it. Its cleanups
+     *  are that owner's, disposed with the region. And it is called outside tracking, as a call that is made once is
+     *  (E-9): what the library reads of a `ref` argument while it is being made is a read it means to make once, which
+     *  Solid's development build otherwise reports against the component (STRICT_READ_UNTRACKED) — in `.rx` an
+     *  element ref is a source, so `createFullscreen(el)` passes a signal where a `.tsx` author passes `() => el`. */
+    inst<T>(f: () => T): T { return runWithOwner(createOwner(), () => untrack(f)) as T; },
 
     // ---- reads ----
     /** An imperative read sees σ (H-10): a pending value is a value; a snapshot of an error throws it (R-f-7). */

@@ -419,6 +419,10 @@ class Gen {
       const args = e.args.map((a, i) => {
         if (!f.refs![i]) return `__rt.untrack(() => ${this.expr(a, env, { imp: false })})`;
         if (a.k === "id") { const ab = env.lookup(a.name); if (ab && (ab.kind === "acc" || ab.kind === "src")) return ab.js; }
+        // RG-6b, MO-10a (2026-11-23): what is written out as a constant has nothing to follow, and is the plain accessor
+        // `() => "a.mp3"`. A node for it took an owner's id for no reader, and a library that reads the parameter once
+        // while it is made (`access(src)`) read a reactive value where nothing tracks: Solid's STRICT_READ_UNTRACKED
+        if (constant(a)) return `() => ${this.expr(a, env, { imp: false })}`;
         return `__rt.memo(null, () => ${this.expr(a, env, { imp: false })})`;
       });
       const r = b.inst!; const sh = f.shape!;
@@ -428,7 +432,8 @@ class Gen {
       // read is that field's read on it, its methods are called on it, and a field its declaration leaves out is still there
       const noRef = typeof sh !== "string" && !("items" in sh ? sh.items : sh.fields.map(f => f[1])).includes("ref");
       const whole = typeof sh === "string" ? part(r, sh) : noRef ? part(r, "value") : "items" in sh ? `__rt.lazy(${r}, [${sh.items.map((_, i) => i).join(", ")}], [${sh.items.flatMap((p, i) => p === "ref" ? [i] : []).join(", ")}])` : `__rt.lazy(${r}, [${sh.fields.map(([k]) => J(k)).join(", ")}], [${sh.fields.flatMap(([k, p]) => p === "ref" ? [J(k)] : []).join(", ")}])`;
-      return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${whole};`;
+      // MO-10a: called in an owner of its own (`__rt.inst`), its arguments' nodes with it
+      return `${pad}const ${r} = __rt.inst(() => ${f.js}(${args.join(", ")}));\n${pad}const ${b.js} = ${whole};`;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {
       const ob = e.o.k === "id" ? env.lookup(e.o.name) : undefined; const sh = ob?.shape; if (!ob?.inst || !sh || typeof sh !== "object") return null;
@@ -735,4 +740,16 @@ export function madeComponent(p: Program, name: string, declarations?: Map<strin
   const g = d.e.f.name;
   for (const i of p.decls) if (i.k === "import" && i.declared) { const n = i.names.find(x => x.alias === g); if (n) return declarations?.get(i.declared)?.some(x => x.kind === "fn" && x.name === n.name && x.shape === "comp") ?? false; }
   return false;
+}
+
+/** An expression written out as a constant: a literal, or an array, a record, a template or a sign over them. */
+function constant(e: Expr): boolean {
+  switch (e.k) {
+    case "lit": return true;
+    case "un": return constant(e.e);
+    case "tpl": return e.parts.every(p => typeof p === "string" || constant(p));
+    case "arr": return e.items.every(constant);
+    case "rec": return e.fields.every(f => "key" in f && constant(f.v));
+    default: return false;
+  }
 }
