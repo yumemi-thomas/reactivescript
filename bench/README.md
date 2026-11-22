@@ -136,9 +136,9 @@ page) => { … } })` is all an entry's `use.mjs` is.
 | --- | --- | --- |
 | `formisch-field-path` | a Formisch form whose fields are named by typed paths into a valibot schema | a schema that reads state, a form made in the view; *(unrepresentable)* a write while the view computes, state assigned with `=` |
 | `formisch-field-array` | a Formisch array field: rows inserted, removed and moved by the library's methods | a method called while the view computes or given to a button called, the form made in the view, the row ids changed in place |
-| `query-forward` | a TanStack Query result passed down: its data to a list, a flag to a badge, the data and the status to a panel; a refetch; a failing query. The query's hook is a module of the app's own over the library's, its `data` an accessor (09 MO-8r, MO-12e) | the query made in the view, its hook beside the provider, a refetch while the view computes or called where the handler is given, the data written |
-| `query-mutation` | a TanStack Query mutation that invalidates its query; the cache sent from the server and taken up in the browser (dehydrate / hydrate) | a query key that lacks what the query's function reads, the mutation run or the cache invalidated while the view computes, a hook outside the provider |
-| `router-provider` | TanStack Router's provider inside the app's own `Shell` component, in a module of its own | a page that fails with no boundary at the outlet, a hook outside the provider, a router never rendered |
+| `query-forward` | a TanStack Query result passed down: its data to a list, a flag to a badge, the data and the status to a panel; a refetch; a failing query. The query's hook is a module of the app's own over the library's, its `data` an accessor that waits and fails (09 MO-10l, MO-8r, MO-12e) | the data read with no `errored` region, or no `loading` one in a client-only build, the result stored in a record or given whole to a child, the query made in the view, its hook beside the provider, a refetch while the view computes or called where the handler is given, the data written |
+| `query-mutation` | a TanStack Query mutation that invalidates its query; the cache sent from the server and taken up in the browser (dehydrate / hydrate) | the query read with no `errored` region, the mutation run or the cache invalidated while the view computes, the mutation made in a handler, a hook outside the provider, a callback that writes where the library may call it in a computation |
+| `router-provider` | a TanStack Router app whose route tree is given, as records, to a factory of the app's own (`routes.js`, 09 MO-11f, MO-11i), the made router inside the app's own `Shell` component, in a module of its own | a page that fails with no boundary around its layout's children, a hook or a link outside the router, a page applied by hand beside it, the made router used as a value |
 | `router-data` | `@solidjs/router` 2.0's data layer: a `query()` a page reads, a form action, `useSubmissions`, `revalidate` (2.0 has no `createAsync` nor `useSubmission`: a query is read by an equation that awaits it) | an async read with no boundary, `revalidate` called while the view computes, a submission's input or a query's answer kept in state |
 | `start-route` | a TanStack Start file route rendering `.rx` components, served and hydrated at `/people/2?tab=role` | the page's data with no boundary, a param copied into state; *(unrepresentable)* state written while a page renders |
 | `store-updater` | a Solid store updater written once and used by two handlers; a snapshot read out of the draft | the store written outside its setter, the updater called by hand, an `await` in the updater, a closure that writes the draft later |
@@ -245,3 +245,47 @@ wrapper is a module of the app's own, so its row is by hand: 17 words each, wher
 1519 by place, as before; hand-written words 253 and 268 (`primitives/range` declares `<Range>` by hand for its
 fallback, +8; `wardic/gestures` names Wardic's context, +7); four programs run one or two checks more (each shows its
 fallback's element).
+
+On 2026-11-23, later the same day, the bar was applied to the end (09 MO-8r *Settled*, MO-10l): `renders(later)`, a
+prop's `renders`, `nests(component under parent)` and `outlet` are withdrawn, and an accessor that waits or fails
+says so before its `ref`. `router-provider` is rewritten onto a factory of the app's own, `query-forward` and
+`query-mutation` declare their hook's `data` `pending fails(Error) ref`, and four entries of the coverage suite do the
+same of the accessor they read. **Given up with the four words, and not caught another way:**
+
+| task | the check | was | why it is given up |
+| --- | --- | --- | --- |
+| `router-provider` | type probe: a link to no route (`<Link to="/home">`) | `TS2322` / `TS2820`, from TanStack's registered router | the route tree is made inside the app's factory (`routes.js`), which hands back a component: there is no router value in `.rx` whose type `Register` could name. `renders(later)` and the words beside it (MO-11o, MO-11p), which let the tree be written in `.rx` with the library's own functions, were one library's |
+| `router-provider` | type probe: `useParams({ from })` names a route of the tree | `TS2322` / `TS2345`, the same way | the same |
+| `router-provider` | type probe: the `Shell`'s `router` prop is the library's router type | `TS2322` | the frame takes the made router as its children now, not a router value as a prop: there is no such prop to type |
+| `router-provider` | bad variant: the router built, and never rendered | `COMPONENT_AS_VALUE` | it was reported through the carried components (a component a value carries that no `renders` prop reaches). A made component that is never applied renders nothing, and nothing is unchecked |
+
+Three type probes and one bad variant, in one task. In their place: a route record with no component (`TS2741`,
+through the factory's own types), a link's `to` given a number, and the page's backend type (three probes); a link
+beside the router in the app's frame (`CONTEXT_NOT_FOUND`) and the made router used as a value
+(`COMPONENT_AS_VALUE`) (two variants). The other four variants are the old ones, written for the new shape, and
+are refused as they were.
+
+**Back, of the eight given up earlier that day:** the five that a query's `data` read with no region made
+(`query-forward`: no `errored` region, no `loading` one in a client-only build, the result stored in a record, the
+whole result given to a child; `query-mutation`: no `errored` region). They are refused through the hook's own row,
+`data: pending fails(Error) ref T` (MO-10l), which costs three hand-written words in each task. The three of
+`table-pagination` stay given up: `renders` alone was one library's, and a table cell that reads the app's context
+was decided to get no form.
+
+**New, in the coverage suite:** an entry may hold bad variants of its own (`bad` in its `use.mjs`, judged as a
+task's are; the record has a `bad caught` column). Four do, two each — the accessor read with no `errored` region,
+and with no `loading` one in a client-only build: `solid-use/fetch`, `primitives/sse`, `primitives/graphql`,
+`primitives/geolocation`. `primitives/mediastream` has none: `createStream` neither waits nor throws in its 1.0.0.
+
+The totals, before (at `36eac32`) and now, both from a fresh `npm ci`. Tasks (32): good 96/96 and 96/96, types
+155/155 and 155/155 (three probes out, three in), runtime 207/207 and 207/207, bad 158/160 and 164/166 (the same two
+red, with their reasons; one variant given up, five back, two new), unrepresentable 11/11 and 11/11, hand-written
+words 249 and 269 (`router-provider` 7 to 21: its factory is a module of the app's own, so its row is by hand where the
+library's rows had been `known.js`'s; the two query tasks 22 to 25 each), `any` inherited 41 and 41, introduced 0 and
+0, by place 27 and 27. Coverage: 121 programs and 121, all green; 190 modules drafted whole (4877 rows), 1195 `any`s
+the libraries' own, none introduced, 1519 by place, as before; hand-written words 268 and 277 (the three entries that
+declare their accessor in a module of the app's own, +3 each; `primitives/sse` has the words from the draft); bad
+caught, a column the record did not have, 8/8. The whole draft of `@tanstack/solid-router` reproduces eleven more of
+the library's own `any`s (52 to 63, counted and not held): `createRoute`, `createRootRoute` and `createRouter` are the
+types' rows now, where `known.js` had written three short ones.
+

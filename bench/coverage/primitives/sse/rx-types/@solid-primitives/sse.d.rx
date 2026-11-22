@@ -2,4 +2,4 @@
 export type CreateSSEOptions<T> = import("@solid-primitives/sse").CreateSSEOptions<T>
 export type SSESourceHandle = import("@solid-primitives/sse").SSESourceHandle
 export type SSEReadyStateValue = import("@solid-primitives/sse").SSEReadyStateValue
-export pure fn createSSE<T = string>(ref url: string, options?: CreateSSEOptions<T>): { source: ref SSESourceHandle | undefined; data: ref T; readyState: ref SSEReadyStateValue; close: () => void; reconnect: () => void }
+export pure fn createSSE<T = string>(ref url: string, options?: CreateSSEOptions<T>): { source: ref SSESourceHandle | undefined; data: pending fails(Error) ref T; readyState: ref SSEReadyStateValue; close: () => void; reconnect: () => void }

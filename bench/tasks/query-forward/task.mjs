@@ -1,8 +1,8 @@
-// A TanStack Query result forwarded through a child component (RFC 06; 09 MO-10d, MO-8r, MO-12e). Until 2026-11-23 the
-// library's row said its `data` field waits and fails (MO-10f, withdrawn: one library wrote it), and four variants here were
-// refused by it: `data` read under no `errored` region, under no `loading` one in a client-only build, the result put in a
-// record, and given whole to a child that took it for plain data. To `.rx` the query's `data` is now an accessor, as every
-// library's waiting value is, and an accessor asks for no region (MO-10d): those four are given up, not caught another way.
+// A TanStack Query result forwarded through a child component (RFC 06; 09 MO-10l, MO-10d, MO-8r, MO-12e). The query's hook
+// is the app's own module over the library's (query.js): its `data` is an accessor there, declared `pending fails(Error)
+// ref` — it waits for the first answer and throws the query's error where it is read (MO-10l). Until 2026-11-23 the
+// library's own row said so of a plain field (MO-10f, withdrawn: one library wrote it); for a while after, no row could,
+// and four variants here were given up. They are back, refused through the accessor's rows.
 export default {
   title: "TanStack Query: a result forwarded through child components",
   types: [
@@ -12,6 +12,10 @@ export default {
     { name: "the options are the library's: a queryKey must be an array", edit: ['queryKey: ["todos"]', 'queryKey: "todos"'], expect: /TS2322|TS2769|TS2345/ },
   ],
   bad: [
+    { name: "data read with no errored boundary above it", edit: ["{errored fallback(e) { <p class=\"err\">failed: {e.message}</p> } {\n      {loading fallback { <p class=\"wait\">loading…</p> } { <Todos /> }}\n    }}", "{loading fallback { <p class=\"wait\">loading…</p> } { <Todos /> }}"], expect: "UNHANDLED_FAILURE" },
+    { name: "a client-only build with no loading above the data", spa: true, edit: ["{loading fallback { <p class=\"wait\">loading…</p> } { <Todos /> }}", "<Todos />"], expect: "ASYNC_OUTSIDE_LOADING_BOUNDARY" },
+    { name: "the result stored in a record", edit: ["<Panel data={todos.data} status={todos.status} />", "<Panel data={({ q: todos }).q.data} status={todos.status} />"], expect: "RESULT_AS_VALUE" },
+    { name: "the whole result given to a child, where its data's rows would be lost", edit: ["<Badge busy={todos.isFetching} />", "<Badge busy={todos.isFetching} /><Whole query={todos} />"], edit2: ["component Todos() {", "component Whole(props: { query: unknown }) { <i>whole</i> }\ncomponent Todos() {"], expect: "RESULT_AS_VALUE" },
     { name: "the query made in the view, not bound", edit: ["<Badge busy={todos.isFetching} />", "<Badge busy={useQuery({ queryKey: [\"x\"], queryFn: fetchTodos }).isFetching} />"], expect: "INSTANTIATION_NOT_BOUND" },
     { name: "the query's hook beside the client's provider", edit: ["  </QueryClientProvider>", "  </QueryClientProvider>\n  <Todos />"], expect: "CONTEXT_NOT_FOUND" },
     { name: "a refetch while the view computes", edit: ["<Badge busy={todos.isFetching} />", "<Badge busy={todos.isFetching} /><i>{todos.refetch()}</i>"], expect: "IO_IN_REACTIVE" },

@@ -33,7 +33,7 @@ const draft = spec => new Promise(res => {
   const timer = setTimeout(() => c.kill("SIGKILL"), 900000);
   c.on("close", (code, signal) => { clearTimeout(timer); try { res(JSON.parse(readFileSync(path.join(ws, "tasks", `${id}.result.json`), "utf8"))); } catch { res({ spec, crash: `no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-2).join(" | ").slice(0, 300)}` }); } });
 });
-const cols = [["good", "accepted"], ["types", "types"], ["runtime", "runs"]];
+const cols = [["good", "accepted"], ["types", "types"], ["runtime", "runs"], ["bad", "bad caught"]];   // bad: an entry's own one-line mistakes (`bad` in its use.mjs), judged as a task's are
 
 export async function runCoverage({ filters = [], check = false, strict = false, write = false, shard = null } = {}) {
   const all = entries();
@@ -65,14 +65,14 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   const rows = [];
   for (const r of results) {
     if (r.crash) { rows.push({ group: r.entry.split("/")[0], spec: `(${r.entry})`, crash: r.crash, entry: r.entry }); continue; }
-    for (const m of r.modules ?? []) rows.push({ group: r.entry.split("/")[0], spec: m.spec, version: version(r.pkgs.find(p => m.spec === p || m.spec.startsWith(p + "/")) ?? m.spec), ...m, used: r.uses.includes(m.spec), entry: r.entry, words: r.decl.words, inherited: r.decl.inherited, kept: r.decl.introduced, keptPlaces: r.decl.places, good: cell(r.good), types: cell(r.types), runtime: cell(r.runtime), green: ok(r), server: r.server === true, hydrates: r.hydrates === true });
+    for (const m of r.modules ?? []) rows.push({ group: r.entry.split("/")[0], spec: m.spec, version: version(r.pkgs.find(p => m.spec === p || m.spec.startsWith(p + "/")) ?? m.spec), ...m, used: r.uses.includes(m.spec), entry: r.entry, words: r.decl.words, inherited: r.decl.inherited, kept: r.decl.introduced, keptPlaces: r.decl.places, good: cell(r.good), types: cell(r.types), runtime: cell(r.runtime), bad: cell(r.bad), green: ok(r), server: r.server === true, hydrates: r.hydrates === true });
   }
   for (const m of extra) rows.push(m.crash ? { group: groupOf(m.lib), spec: m.spec, crash: m.crash, entry: "—" } : { group: groupOf(m.lib), spec: m.spec, version: version(Object.keys(libs[m.lib].packages).find(p => m.spec === p || m.spec.startsWith(p + "/")) ?? m.spec), ...m, used: false, entry: "no program" });
   rows.sort((a, b) => a.group.localeCompare(b.group) || a.spec.localeCompare(b.spec));
   const lines = [];
-  const head = ["module", "version", "rows drafted", "`any` library's", "introduced", "by place", "used by", "hand words", "accepted", "types", "runs", "server", "hydrated"];
+  const head = ["module", "version", "rows drafted", "`any` library's", "introduced", "by place", "used by", "hand words", "accepted", "types", "runs", "bad caught", "server", "hydrated"];
   const table = rs => {
-    const data = rs.map(x => x.crash ? [x.spec, "CRASHED", "", "", "", "", "", "", "", "", "", "", ""] : [x.spec, x.version, x.drafted ? String(x.rows) : "no draft", String(x.vendor), String(x.introduced), String(x.places), x.used ? x.entry : x.entry === "no program" ? "—" : `— (${x.entry})`, x.used ? String(x.words) : "", x.used ? x.good : "", x.used ? x.types : "", x.used ? x.runtime : "", x.used ? (x.server ? "yes" : "no") : "", x.used ? (x.hydrates ? "yes" : "no") : ""]);
+    const data = rs.map(x => x.crash ? [x.spec, "CRASHED", "", "", "", "", "", "", "", "", "", "", "", ""] : [x.spec, x.version, x.drafted ? String(x.rows) : "no draft", String(x.vendor), String(x.introduced), String(x.places), x.used ? x.entry : x.entry === "no program" ? "—" : `— (${x.entry})`, x.used ? String(x.words) : "", x.used ? x.good : "", x.used ? x.types : "", x.used ? x.runtime : "", x.used ? x.bad : "", x.used ? (x.server ? "yes" : "no") : "", x.used ? (x.hydrates ? "yes" : "no") : ""]);
     const w = head.map((h, i) => Math.max(h.length, ...data.map(d => d[i].length)));
     return [head.map((h, i) => h.padEnd(w[i])).join("  "), w.map(n => "-".repeat(n)).join("  "), ...data.map(d => d.map((c, i) => c.padEnd(w[i])).join("  "))];
   };

@@ -16,6 +16,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -53,6 +58,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -88,6 +98,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -145,6 +160,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -180,6 +200,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -219,6 +244,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -254,6 +284,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -293,6 +328,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -328,6 +368,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -367,6 +412,11 @@
     "total": 4,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -402,6 +452,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -441,6 +496,11 @@
     "total": 2,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -476,6 +536,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -515,6 +580,11 @@
     "total": 4,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -550,6 +620,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -589,6 +664,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -624,6 +704,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -663,6 +748,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -698,6 +788,11 @@
    "runtime": {
     "pass": 2,
     "total": 2,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,
@@ -737,6 +832,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -772,6 +872,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -811,6 +916,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -846,6 +956,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -885,6 +1000,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -920,6 +1040,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,
@@ -959,6 +1084,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -994,6 +1124,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1033,6 +1168,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1068,6 +1208,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1107,6 +1252,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1144,13 +1294,18 @@
     "total": 2,
     "fails": []
    },
+   "bad": {
+    "pass": 2,
+    "total": 2,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
     "@solid-primitives/geolocation"
    ],
    "decl": {
-    "words": 1,
+    "words": 4,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1179,6 +1334,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1218,13 +1378,18 @@
     "total": 2,
     "fails": []
    },
+   "bad": {
+    "pass": 2,
+    "total": 2,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
     "@solid-primitives/graphql"
    ],
    "decl": {
-    "words": 1,
+    "words": 4,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1253,6 +1418,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1292,6 +1462,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1327,6 +1502,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1366,6 +1546,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1401,6 +1586,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1440,6 +1630,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": false,
    "uses": [
@@ -1475,6 +1670,11 @@
    "runtime": {
     "pass": 2,
     "total": 2,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,
@@ -1514,6 +1714,11 @@
     "total": 4,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1549,6 +1754,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1588,6 +1798,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1623,6 +1838,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1662,6 +1882,11 @@
     "total": 4,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1697,6 +1922,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1736,6 +1966,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1771,6 +2006,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1810,6 +2050,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1845,6 +2090,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1884,6 +2134,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1919,6 +2174,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -1958,6 +2218,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -1993,6 +2258,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2032,6 +2302,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2067,6 +2342,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2106,6 +2386,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2141,6 +2426,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2180,6 +2470,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2215,6 +2510,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2254,6 +2554,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2289,6 +2594,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2328,6 +2638,11 @@
     "total": 4,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2363,6 +2678,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2402,6 +2722,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -2437,6 +2762,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2476,6 +2806,11 @@
     "total": 4,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2511,6 +2846,11 @@
    "runtime": {
     "pass": 5,
     "total": 5,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2550,6 +2890,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": false,
    "uses": [
@@ -2585,6 +2930,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2624,6 +2974,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2659,6 +3014,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2698,6 +3058,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2733,6 +3098,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2772,6 +3142,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2807,6 +3182,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2846,6 +3226,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2881,6 +3266,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2920,6 +3310,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -2955,6 +3350,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -2994,6 +3394,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3027,6 +3432,11 @@
     "fails": []
    },
    "runtime": {
+    "pass": 2,
+    "total": 2,
+    "fails": []
+   },
+   "bad": {
     "pass": 2,
     "total": 2,
     "fails": []
@@ -3080,6 +3490,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3117,6 +3532,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3152,6 +3572,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3197,6 +3622,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3232,6 +3662,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3271,6 +3706,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3306,6 +3746,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3345,6 +3790,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3380,6 +3830,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3419,6 +3874,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3454,6 +3914,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3505,6 +3970,11 @@
     "total": 4,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3540,6 +4010,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3579,6 +4054,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -3616,6 +4096,11 @@
     "total": 2,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -3651,6 +4136,11 @@
    "runtime": {
     "pass": 2,
     "total": 2,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,
@@ -3696,6 +4186,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3731,6 +4226,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3770,13 +4270,18 @@
     "total": 2,
     "fails": []
    },
+   "bad": {
+    "pass": 2,
+    "total": 2,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
     "solid-use/fetch"
    ],
    "decl": {
-    "words": 1,
+    "words": 4,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3805,6 +4310,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3844,6 +4354,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3879,6 +4394,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3918,6 +4438,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -3953,6 +4478,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -3992,6 +4522,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": true,
    "hydrates": true,
    "uses": [
@@ -4027,6 +4562,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": true,
@@ -4066,6 +4606,11 @@
     "total": 4,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -4096,6 +4641,11 @@
    "runtime": {
     "pass": 5,
     "total": 5,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,
@@ -4135,6 +4685,11 @@
     "total": 4,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -4165,6 +4720,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,
@@ -4199,6 +4759,11 @@
     "total": 2,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -4228,6 +4793,11 @@
    "runtime": {
     "pass": 4,
     "total": 4,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,
@@ -4263,6 +4833,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -4292,6 +4867,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,
@@ -4325,6 +4905,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -4354,6 +4939,11 @@
    "runtime": {
     "pass": 2,
     "total": 2,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,
@@ -4387,6 +4977,11 @@
     "total": 2,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -4418,6 +5013,11 @@
     "total": 3,
     "fails": []
    },
+   "bad": {
+    "pass": 0,
+    "total": 0,
+    "fails": []
+   },
    "server": false,
    "hydrates": false,
    "uses": [
@@ -4447,6 +5047,11 @@
    "runtime": {
     "pass": 3,
     "total": 3,
+    "fails": []
+   },
+   "bad": {
+    "pass": 0,
+    "total": 0,
     "fails": []
    },
    "server": false,

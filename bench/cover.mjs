@@ -39,7 +39,7 @@ export function use(meta, spec) {
   const uses = imported(dir).filter(of).sort();
   if (spec.ssr === false && !spec.server) throw new Error(`${dir}: an entry that is not rendered on the server says why (\`server\`)`);
   return {
-    title: spec.title, pkgs, modules, uses, declare: spec.declare, known: spec.known, spa: spec.spa, types: spec.types ?? [],
+    title: spec.title, pkgs, modules, uses, declare: spec.declare, known: spec.known, spa: spec.spa, types: spec.types ?? [], bad: spec.bad ?? [],
     server: spec.ssr === false ? spec.server : true, hydrates: spec.ssr === false ? false : spec.hydration ?? true, note: spec.note,
     async run(h) {
       if (spec.ssr) { const r = await h.ssr("/"); h.check(`server: rendered (${spec.ssr.source})`, !r.error && spec.ssr.test(r.text), r.error?.message ?? r.text); }

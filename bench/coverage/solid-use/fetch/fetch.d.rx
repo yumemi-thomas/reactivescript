@@ -1,2 +1,3 @@
 // By hand: every word (the module is the app's own).
-export pure fn createJson(url: string): ref { name: string }
+// what the library's `.json()` hands back waits for the answer and throws the request's error where it is read (MO-10l)
+export pure fn createJson(url: string): pending fails(Error) ref { name: string }

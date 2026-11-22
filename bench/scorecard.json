@@ -592,8 +592,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 5,
-      "total": 5,
+      "pass": 9,
+      "total": 9,
       "fails": []
     },
     "unrep": {
@@ -602,7 +602,7 @@
       "fails": []
     },
     "decl": {
-      "words": 22,
+      "words": 25,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
@@ -633,8 +633,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 5,
-      "total": 5,
+      "pass": 6,
+      "total": 6,
       "fails": []
     },
     "unrep": {
@@ -643,7 +643,7 @@
       "fails": []
     },
     "decl": {
-      "words": 22,
+      "words": 25,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
@@ -715,8 +715,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 5,
-      "total": 5,
+      "pass": 6,
+      "total": 6,
       "fails": []
     },
     "unrep": {
@@ -725,15 +725,15 @@
       "fails": []
     },
     "decl": {
-      "words": 7,
+      "words": 21,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 1,
       "draft": {
-        "rows": 299,
-        "any": 52,
-        "vendor": 52,
+        "rows": 301,
+        "any": 63,
+        "vendor": 63,
         "introduced": 0,
         "places": 26
       }

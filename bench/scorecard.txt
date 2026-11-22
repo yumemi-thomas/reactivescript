@@ -14,10 +14,10 @@ primitives-sensors    3/3 ✓          6/6 ✓          8/8 ✓          6/6 ✓
 primitives-state      3/3 ✓          5/5 ✓          8/8 ✓          7/7 ✓          —                6                   0                0                 4            
 primitives-virtual    3/3 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            8                   0                0                 0            
 projection-selection  3/3 ✓          4/4 ✓          4/4 ✓          4/4 ✓          —                —                   —                —                 —            
-query-forward         3/3 ✓          6/6 ✓          6/6 ✓          5/5 ✓          —                22                  0                0                 0            
-query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          5/5 ✓          —                22                  0                0                 0            
+query-forward         3/3 ✓          6/6 ✓          6/6 ✓          9/9 ✓          —                25                  0                0                 0            
+query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                25                  0                0                 0            
 router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                4                   0                0                 0            
-router-provider       3/3 ✓          5/5 ✓          4/4 ✓          5/5 ✓          1/1 ✓            7                   0                0                 1            
+router-provider       3/3 ✓          5/5 ✓          4/4 ✓          6/6 ✓          1/1 ✓            21                  0                0                 1            
 rx-package            3/3 ✓          8/8 ✓          34/34 ✓        9/9 ✓          —                —                   —                —                 —            
 sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                   0                0                 0            
 solid-use-primitives  3/3 ✓          6/6 ✓          10/10 ✓        7/7 ✓          1/1 ✓            6                   0                0                 0            
@@ -33,7 +33,7 @@ ui-sdk-forms          3/3 ✓          5/5 ✓          5/5 ✓          4/4 ✓
 wardic-motion         3/3 ✓          6/6 ✓          10/10 ✓        6/6 ✓          1/1 ✓            14                  0                0                 0            
 wardic-values         3/3 ✓          5/5 ✓          4/4 ✓          6/6 ✓          —                16                  0                0                 0            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-total                 96/96          155/155        207/207        158/160        11/11            249                 41               0                 27           
+total                 96/96          155/155        207/207        164/166        11/11            269                 41               0                 27           
 
 Not green (2):
   ✗ duplicate-keys · bad caught · rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY) — ran silently
@@ -66,14 +66,15 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-virtual/virtual.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
   query-forward/api.d.rx: 5 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  query-forward/query.d.rx: 17 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  query-forward/query.d.rx: 20 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   query-forward/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   query-mutation/api.d.rx: 5 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  query-mutation/query.d.rx: 17 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  query-mutation/query.d.rx: 20 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   query-mutation/rx-types/@tanstack/solid-query.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-data/people.d.rx: 4 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-data/rx-types/@solidjs/router.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-provider/people.d.rx: 7 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-provider/routes.d.rx: 14 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-provider/rx-types/@tanstack/solid-router.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 1 by place
   sequential-awaits/api.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   solid-use-primitives/rx-types/solid-use/client-only.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
@@ -98,7 +99,7 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
 
 Introduced `any`s (09 MO-8q: none, or on bench/any-allowlist.json): none
 
-Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 52 drafts, 3385 rows): 351 `any` the libraries' own, 0 introduced, 259 by place
+Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 53 drafts, 3387 rows): 362 `any` the libraries' own, 0 introduced, 259 by place
   effect-derived · ./page.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
   formisch-field-array · @formisch/solid/v2: 93 rows, 0 `any` the library's own, 0 introduced, 0 by place
   formisch-field-array · valibot: 785 rows, 64 `any` the library's own, 0 introduced, 16 by place
@@ -131,7 +132,8 @@ Whole drafts (09 MO-8q: every export of each module a task declares, drafted by 
   router-data · ./people.js: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
   router-data · @solidjs/router: 89 rows, 20 `any` the library's own, 0 introduced, 18 by place
   router-provider · ./people.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  router-provider · @tanstack/solid-router: 296 rows, 52 `any` the library's own, 0 introduced, 26 by place
+  router-provider · ./routes.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  router-provider · @tanstack/solid-router: 296 rows, 63 `any` the library's own, 0 introduced, 26 by place
   sequential-awaits · ./api.js: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
   solid-use-primitives · solid-use/client-only: 5 rows, 2 `any` the library's own, 0 introduced, 0 by place
   solid-use-primitives · solid-use/media-query: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
