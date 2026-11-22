@@ -16,12 +16,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 5,
+      "pass": 7,
       "total": 7,
-      "fails": [
-        "the provided action called while the view computes (ACTION_CALLED_IN_OWNED_SCOPE)",
-        "the same through a prop: a row's handler called, not passed on (ACTION_CALLED_IN_OWNED_SCOPE)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 0,
@@ -83,14 +80,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 1,
+      "pass": 5,
       "total": 5,
-      "fails": [
-        "the total kept in a source, written by a mount effect that reads the others: computed once, stale after (EFFECT_RELAY_TEAR)",
-        "the same with the inputs named: a frame late, an equation written the long way (EFFECT_RELAY_TEAR)",
-        "the history appended by an effect on the quantity, not by the click that changed it (EFFECT_RELAY_TEAR)",
-        "the title set by a mount effect that reads the total by name: sent once, never again (advice: SNAPSHOT_IN_EFFECT)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 0,
@@ -119,11 +111,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 4,
+      "pass": 5,
       "total": 5,
-      "fails": [
-        "the list of row ids changed in place (MUTATION_IN_PLACE)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 0,
@@ -131,7 +121,7 @@
       "fails": []
     },
     "decl": {
-      "words": 35,
+      "words": 36,
       "any": 26
     }
   },
@@ -162,7 +152,7 @@
       "fails": []
     },
     "decl": {
-      "words": 37,
+      "words": 38,
       "any": 16
     }
   },
@@ -209,22 +199,14 @@
       "fails": []
     },
     "runtime": {
-      "pass": 3,
+      "pass": 7,
       "total": 7,
-      "fails": [
-        "rename in place: the row keeps its state",
-        "remove: the others stay as they are",
-        "reset to rows written out: the kept keys keep their rows' state",
-        "no console errors or warnings"
-      ]
+      "fails": []
     },
     "bad": {
-      "pass": 4,
+      "pass": 6,
       "total": 6,
-      "fails": [
-        "the list reset from a handler with two rows of one key (DUPLICATE_KEY)",
-        "rows added in a handler's functional write, two written with one key (DUPLICATE_KEY)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 0,
@@ -269,33 +251,26 @@
   },
   "kobalte-select": {
     "good": {
-      "pass": 1,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "main.rx: accepted by the crate",
-        "main.rx: accepted by ref/"
-      ]
+      "fails": []
     },
     "types": {
-      "pass": 4,
+      "pass": 5,
       "total": 5,
-      "fails": [
-        "rx-tsc: clean with the library's types"
-      ]
+      "fails": []
     },
     "runtime": {
-      "pass": 0,
-      "total": 1,
+      "pass": 6,
+      "total": 7,
       "fails": [
-        "the good program runs"
+        "no console errors or warnings"
       ]
     },
     "bad": {
-      "pass": 2,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "an item rendered outside the select (its context is the listbox's, which only running it shows) (dev: context|Context|within|undefined|null)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 1,
@@ -303,7 +278,7 @@
       "fails": []
     },
     "decl": {
-      "words": 11,
+      "words": 1,
       "any": 60
     }
   },
@@ -334,7 +309,7 @@
       "fails": []
     },
     "decl": {
-      "words": 3,
+      "words": 2,
       "any": 0
     }
   },
@@ -355,12 +330,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 4,
+      "pass": 6,
       "total": 6,
-      "fails": [
-        "an optimistic write outside an action: a guess in a handler that awaits nothing (GUESS_OUTSIDE_ACTION)",
-        "an await before the optimistic write: the row shows only once the server has answered (advice: GUESS_AFTER_AWAIT)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 0,
@@ -389,12 +361,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 3,
+      "pass": 5,
       "total": 5,
-      "fails": [
-        "a listener's disposer dropped (its type is the library's alias for `() => void`) (DISPOSER_DROPPED)",
-        "a listener added by hand in a click handler, its disposer dropped: one more on every click (DISPOSER_DROPPED)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 1,
@@ -402,8 +371,8 @@
       "fails": []
     },
     "decl": {
-      "words": 24,
-      "any": 17
+      "words": 8,
+      "any": 15
     }
   },
   "projection-selection": {
@@ -413,11 +382,9 @@
       "fails": []
     },
     "types": {
-      "pass": 3,
+      "pass": 4,
       "total": 4,
-      "fails": [
-        "rx-tsc: clean with the library's types"
-      ]
+      "fails": []
     },
     "runtime": {
       "pass": 4,
@@ -425,12 +392,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 2,
+      "pass": 4,
       "total": 4,
-      "fails": [
-        "the selection kept in a store, written by an effect on the picked id (EFFECT_RELAY_TEAR)",
-        "…by a mount effect that reads the picked id: the first row stays selected for ever (EFFECT_RELAY_TEAR)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 0,
@@ -469,8 +433,8 @@
       "fails": []
     },
     "decl": {
-      "words": 30,
-      "any": 5
+      "words": 6,
+      "any": 6
     }
   },
   "query-mutation": {
@@ -490,12 +454,10 @@
       "fails": []
     },
     "bad": {
-      "pass": 4,
+      "pass": 6,
       "total": 7,
       "fails": [
-        "the query's function reads the id, its key does not: the cache answers the first todo for every id (KEY_MISSES_INPUT, or harmless)",
-        "the mutation run while the view computes (IO_IN_REACTIVE)",
-        "the cache invalidated while the view computes (IO_IN_REACTIVE)"
+        "the query's function reads the id, its key does not: the cache answers the first todo for every id (KEY_MISSES_INPUT, or harmless)"
       ]
     },
     "unrep": {
@@ -504,8 +466,8 @@
       "fails": []
     },
     "decl": {
-      "words": 39,
-      "any": 11
+      "words": 4,
+      "any": 13
     }
   },
   "router-data": {
@@ -535,7 +497,7 @@
       "fails": []
     },
     "decl": {
-      "words": 61,
+      "words": 4,
       "any": 7
     }
   },
@@ -566,7 +528,7 @@
       "fails": []
     },
     "decl": {
-      "words": 51,
+      "words": 7,
       "any": 8
     }
   },
@@ -587,11 +549,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 2,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "two independent loads awaited one after the other (advice: ASYNC_WATERFALL)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 0,
@@ -705,24 +665,18 @@
       "fails": []
     },
     "types": {
-      "pass": 3,
-      "total": 4,
-      "fails": [
-        "rx-tsc: clean with the library's types"
-      ]
-    },
-    "runtime": {
-      "pass": 1,
-      "total": 4,
-      "fails": [
-        "the helper moved the draft's own list: the store follows",
-        "a helper that sorts in place",
-        "and again, composed"
-      ]
-    },
-    "bad": {
       "pass": 4,
       "total": 4,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 4,
+      "total": 4,
+      "fails": []
+    },
+    "bad": {
+      "pass": 5,
+      "total": 5,
       "fails": []
     },
     "unrep": {
@@ -731,8 +685,8 @@
       "fails": []
     },
     "decl": {
-      "words": 12,
-      "any": 3
+      "words": 10,
+      "any": 0
     }
   },
   "store-updater": {
@@ -762,32 +716,25 @@
       "fails": []
     },
     "decl": {
-      "words": 12,
+      "words": 0,
       "any": 0
     }
   },
   "table-pagination": {
     "good": {
-      "pass": 1,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "main.rx: accepted by the crate",
-        "main.rx: accepted by ref/"
-      ]
+      "fails": []
     },
     "types": {
-      "pass": 7,
+      "pass": 8,
       "total": 8,
-      "fails": [
-        "rx-tsc: clean with the library's types"
-      ]
+      "fails": []
     },
     "runtime": {
-      "pass": 0,
-      "total": 1,
-      "fails": [
-        "the good program runs"
-      ]
+      "pass": 10,
+      "total": 10,
+      "fails": []
     },
     "bad": {
       "pass": 5,
@@ -800,7 +747,7 @@
       "fails": []
     },
     "decl": {
-      "words": 79,
+      "words": 57,
       "any": 12
     }
   }

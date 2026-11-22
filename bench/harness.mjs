@@ -25,12 +25,16 @@ export function workspace() {
   linkOwn(path.join(ws, "node_modules"));
 }
 /** This repository's packages in a node_modules, as an app installs them: the compiler and the language server linked,
- *  the runtime copied (its peers are then that install's Solid, one copy). */
+ *  the runtime copied (its peers are then that install's Solid, one copy), the shipped declaration of solid-js copied. */
 function linkOwn(nm) {
   const rx = path.join(nm, "@reactivescript"); rmSync(rx, { recursive: true, force: true }); mkdirSync(path.join(rx, "runtime"), { recursive: true });
   symlinkSync(path.join(repo, "compiler"), path.join(rx, "compiler"));
   symlinkSync(path.join(repo, "tooling/rx-language-server"), path.join(rx, "language-server"));
   for (const f of ["package.json", "dist", "rx-lib.d.ts"]) cpSync(path.join(repo, "runtime", f), path.join(rx, "runtime", f), { recursive: true });
+  // and the declaration of Solid itself the repository ships (09 MO-8k, a shared declaration): @rx-types/solid-js, copied
+  // (a link's real path would be this repository's, where a folder named `rx-types` is a project's own declarations)
+  const shared = path.join(nm, "@rx-types"); rmSync(path.join(shared, "solid-js"), { recursive: true, force: true }); mkdirSync(shared, { recursive: true });
+  cpSync(path.join(repo, "declarations/solid-js"), path.join(shared, "solid-js"), { recursive: true });
 }
 /** A task with a package.json of its own (beside its task.mjs) has an install of its own, for a library that pins
  *  another version of what the workspace holds: installed once into bench/.out/ws/deps/<id> (again when it changes). */

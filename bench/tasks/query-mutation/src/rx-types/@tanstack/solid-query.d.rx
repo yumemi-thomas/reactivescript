@@ -1,8 +1,10 @@
 //@ for @tanstack/solid-query ^6.0.0-rc.6
-// @tanstack/solid-query 6 (Solid 2.0) in rows, from rx-declare's draft: the client's context and its provider, a query
-// whose `data` waits and throws where it is read (MO-10f), a mutation whose callbacks are called later (MO-10g).
+// @tanstack/solid-query 6 (Solid 2.0) in rows, as rx-declare drafts it — what its types cannot show, it knows of this
+// release: the client's context and its provider, a query whose `data` waits and throws where it is read (MO-10f), a
+// mutation whose callbacks are called later (MO-10g) and whose `mutate` answers a promise, and the client by the method
+// the app calls (the draft lists every method that answers nothing or a promise, MO-10b): each is called from a handler.
 export context queryClient
 export component QueryClientProvider(props: { client: any; children?: View }) provides(queryClient)
-export pure fn useQueryClient(queryClient?: any): any uses(queryClient)
-export pure fn useQuery(ref options: { queryKey: any[]; queryFn: tracked () => Promise<any> }): { data: pending fails(Error) any; isFetching: boolean; status: string } uses(queryClient)
-export pure fn useMutation(ref options: { mutationFn: (v: any) => Promise<any>; onSuccess?: handler () => void }): any uses(queryClient)
+export pure fn useQueryClient(queryClient?: any): { invalidateQueries: (...args: any[]) => Promise<void> } uses(queryClient)
+export pure fn useQuery(ref options: { queryKey: any[]; queryFn: tracked () => Promise<any> }): { data: pending fails(Error) any; isFetching: boolean; status: string; refetch: () => Promise<any> } uses(queryClient)
+export pure fn useMutation(ref options: { mutationFn: (v: any) => Promise<any>; onSuccess?: handler () => void }): { mutate: (...args: any[]) => Promise<any>; isPending: boolean; status: string; reset: () => void } uses(queryClient)

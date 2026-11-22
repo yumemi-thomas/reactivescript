@@ -1,7 +1,7 @@
 // The table adapter in rows. A table renders the components its columns are given, in the view that calls flexRender
 // on them: where the table is bound (MO-11l).
-export type CellContext<T, V> = import("@tanstack/table-core").CellContext<T, V>
-export type Table<T> = import("@tanstack/table-core").Table<T>
+export type CellContext<TData, TValue> = import("./table.js").CellContext<TData, TValue>
+export type Table<TData> = import("./table.js").Table<TData>
 export pure fn getCoreRowModel(): any
 export pure fn getPaginationRowModel(): any
 // The result's type is what the app reads of the table (MO-10k): what is a primitive there — a page count, a row's id —

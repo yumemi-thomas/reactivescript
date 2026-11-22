@@ -1,4 +1,0 @@
-//@ for solid-js ^2.0.0
-// Solid 2's store in rows: the store is a proxy read field by field (a value, not `ref`), and its setter's callback gets
-// the store's draft (MO-10i). The types are Solid's own.
-export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]

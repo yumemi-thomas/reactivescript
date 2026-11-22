@@ -12,7 +12,7 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = path.resolve(here, "..");
 const repo = path.resolve(pkg, "..");
-const store = path.resolve(repo, "../solid-next/node_modules/.pnpm");
+const store = path.resolve(process.env.SOLID_NEXT ?? path.resolve(repo, "../solid-next"), "node_modules/.pnpm")   // the checkout beside the repository, or $SOLID_NEXT (as ref/scripts/solid-next.sh);
 const installed = path.join(store, readdirSync(store).filter(d => d.startsWith("@solidjs+vite-plugin@")).sort().pop(), "node_modules/@solidjs/vite-plugin");
 const deps = path.resolve(installed, "../..");
 const pluginDir = process.env.SOLID_VITE_PLUGIN ? path.resolve(process.env.SOLID_VITE_PLUGIN) : undefined;

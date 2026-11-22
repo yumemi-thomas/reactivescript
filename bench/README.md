@@ -32,7 +32,9 @@ A folder under `tasks/`: `src/` is the app, `task.mjs` says how it is judged.
   ones npm has (Solid 2.0, Formisch, TanStack Query, Router, Start and Table,
   Kobalte), imported by their own names, declared in `rx-types/` as a project
   declares a package that ships no `.d.rx` (09 MO-8k), and typed by the
-  library's own TypeScript types.
+  library's own TypeScript types. Solid itself is declared by the shared
+  declaration this repository ships (`declarations/solid-js`, copied into the
+  workspace as `@rx-types/solid-js`, the way an app installs it).
 - **The bad variants** are that program with one line changed into a mistake
   a Solid user makes: a read with no boundary, a value frozen where it should
   follow, a write while the view computes, a value that escapes where the
@@ -114,3 +116,9 @@ Three earlier runs are kept beside it:
   held probes and unwritable programs);
 - `baseline-rebased.txt`: the suite as it is now — the probes moved out, the unwritable variants counted apart, the
   declarations measured, eleven tasks added — run on the checker of `2f9baf7`, before any change to it.
+
+Three checks are red in `scorecard.txt`, each with its reason in its task's `known`: a duplicate key computed at run
+time (`duplicate-keys`), a `pure` JS call that answers differently on the server (`ssr-divergence`), and a TanStack
+query key that misses an input of its function (`query-mutation`: the library's cache contract, for which a
+declaration word is proposed). One run check is red with its reason too: Kobalte's own read of a store row in an
+effect's callback, which Solid's development build warns of (`kobalte-select`).

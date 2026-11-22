@@ -10,6 +10,9 @@ const other = async h => {
 };
 export default {
   title: "TanStack Query: a mutation that invalidates its query, and the cache sent from the server",
+  known: {
+    "the query's function reads the id, its key does not": "08 CN-3b, CN-5; 09 MO-10g: what a library does with a callback is its declaration's to say, and the checker reads no library's semantics. The closure is not frozen — it reads `props.id` when TanStack calls it, so E-10 holds — but TanStack asks again only when the key's hash changes: the staleness is the cache's contract (its ESLint plugin's `exhaustive-deps`), and `.d.rx` has no word for \"this callback is asked again only when that sibling key changes\". `tracked` says when the callback is called, not what re-runs it. A word for it (`queryFn: keyed(queryKey) () => Promise<T>`: every changing value the closure reads is named in the key) would make this a static check; it is proposed in spec/rfc-revisions-2026-11-22.md and not ruled, so the variant stays as the measure of the gap.",
+  },
   types: [
     { name: "the query's data is the fetcher's Todo", edit: ["<h1>{todo.data.title}</h1>", "<h1>{todo.data.titel}</h1>"], expect: /TS2339|TS2551/ },
     { name: "the mutation's variables are its function's parameter", edit: ["rename.mutate({ id: props.id, title: `${todo.data.title}!` })", "rename.mutate({ id: props.id, name: `${todo.data.title}!` })"], expect: /TS2353|TS2345|TS2322/ },

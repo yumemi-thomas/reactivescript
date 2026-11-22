@@ -16,7 +16,7 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = path.resolve(here, "..");
 const repo = path.resolve(pkg, "..");
-const store = path.resolve(repo, "../solid-next/node_modules/.pnpm");
+const store = path.resolve(process.env.SOLID_NEXT ?? path.resolve(repo, "../solid-next"), "node_modules/.pnpm")   // the checkout beside the repository, or $SOLID_NEXT (as ref/scripts/solid-next.sh);
 const installed = path.join(store, readdirSync(store).filter(d => d.startsWith("@solidjs+vite-plugin@")).sort().pop(), "node_modules/@solidjs/vite-plugin");
 // a plugin that loads `.rx` (it finds @reactivescript/compiler/vite): SOLID_VITE_PLUGIN, else the checkout's if it can,
 // else npm's 3.0.1, installed once into .out
@@ -100,7 +100,7 @@ const TYPED = new Set(["router", "primitives", "tanstack"]);
 const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
   plugins: [solid()],
-  server: { fs: { allow: [repo, path.dirname(deps), path.resolve(repo, "../solid-next"), pluginDir] } },
+  server: { fs: { allow: [repo, path.dirname(deps), (process.env.SOLID_NEXT ?? path.resolve(repo, "../solid-next")), pluginDir] } },
   optimizeDeps: { force: true },   // the dev server's prebundled deps are rebuilt every run: a Solid repin never meets a stale cache
   build: { outDir: "dist", sourcemap: true, emptyOutDir: true },
 });
