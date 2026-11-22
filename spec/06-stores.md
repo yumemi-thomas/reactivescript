@@ -58,7 +58,11 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 
 - **ST-4a.** `x: T[] key k = e` (abstract syntax `x key k = e`; also on a
   source, `source x key k = e`) declares
-  that elements of `x` have identity `k`. A new result is **reconciled** by
+  that elements of `x` have identity `k`. A new result — an equation's
+  next value, and a value written to a keyed source (`rows := [fresh
+  records]`: lowered as Solid's `reconcile(v, k)` since 2026-11-22; it
+  replaced the store's rows by position before, so a row kept its
+  region only where it kept its index) — is **reconciled** by
   `k`: rows with the same key keep their object identity and receive
   per-key path updates (their readers run only for changed keys); new keys
   create, missing keys remove; a reorder moves rows (S-store-3). `pending?`
@@ -75,8 +79,15 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 - **ST-4d (One row per key) — 2026-11-22.** Rows with one key are one row
   to Solid: the second takes the first's region and its state, or is
   dropped. Where a keyed list's rows are written out — the seed of a
-  keyed source, a keyed equation whose expression is a list of records —
-  two with the same literal key are `DUPLICATE_KEY` (bin S). Rows that
+  keyed source, a keyed equation whose expression is a list of records,
+  and (widened 2026-11-22) the value a write or a guess gives a keyed
+  list, whether it is the list itself (`rows := [{ id: 2, … }, { id: 2,
+  … }]`) or what an expression-bodied updater answers (`rows := rs =>
+  [{ id: 9, … }, { id: 9, … }, ...rs]`) —
+  two with the same literal key are `DUPLICATE_KEY` (bin S). The rows
+  compared are the ones in that one list literal: a written row against
+  what a spread beside it holds (`[...rs, { id: 1 }]`) is the run's to
+  know, like any key that is computed. Rows that
   come from data (an answer, a write computed at run time) are the
   data's to keep distinct: the key's value is not known before the
   program runs, so that half is bin R, and neither Solid nor this

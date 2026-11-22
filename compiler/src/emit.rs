@@ -1143,11 +1143,16 @@ impl<'p> Gen<'p> {
         };
         let pair = || Pat::Arr(vec![b.js.clone(), b.w.clone().unwrap()]);
         match d {
-            Decl::Source { name, init, question: false, .. } => {
+            Decl::Source { name, init, question: false, key, .. } => {
                 let x = self.expr(init, env, &reactive())?;
                 let mut args = vec![str(name.clone()), rtc("untrack", vec![thunk(x)])];
                 if self.u.optimistic.contains(name) {
                     args.push(E::Bool(true)); // AC-3: a guess over a writable — an optimistic layer derived from it
+                } else if key.is_some() {
+                    args.push(E::Bool(false));
+                }
+                if let Some(k) = key {
+                    args.push(str(k.clone())); // ST-4a: a new value written to it is reconciled by its key
                 }
                 let mut out = vec![S::Const(pair(), rtc("source", args)), self.reg(name, b, true)];
                 prev(&mut out);

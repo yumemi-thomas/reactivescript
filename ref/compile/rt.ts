@@ -8,6 +8,7 @@ import { primsSolid } from "./prims-solid.ts";
 import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored, DEV } from "solid-js";
 import {
+  reconcile,
   createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
   flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary, omit,
 } from "@solidjs/signals";
@@ -208,12 +209,14 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** `source x := e`: atomic → a signal; structured → a store behind a signal slot, so the root can be replaced (ST-1, ST-2a). */
     /** With a guess written to it (AC-3), the writable is the truth and an optimistic layer derives from it: plain writes
      *  go to the truth, guesses to the layer, and each guess ends when its action's hold commits, showing the truth then. */
-    source(name: string, init: unknown, guessed = false): [Acc, Writer] {
+    /** ST-4a: `source xs key id := …` — a new value written to it is reconciled by its key: a row whose key is kept
+     *  keeps its identity (and what is declared in its row's region), wherever the new list puts it. */
+    source(name: string, init: unknown, guessed = false, key?: string): [Acc, Writer] {
       void name;
       if (typeof init === "object" && init !== null) {
         const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
         const w: Writer = {
-          set: v => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v as any); set(store); } else set(v); },
+          set: v => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(key !== undefined ? reconcile(v as any, key) as any : () => v as any); set(store); } else set(v); },
           path: pathWrite(setStore),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
@@ -264,7 +267,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       if (mode.structured) {
         const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});
         const get = () => store; storeAccs.add(get);
-        return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
+        return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
       }
       const [get, set] = createSignal(fn as any, opts as any);
       return [get, { set: set as any, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("GUESS_NO_QUESTION"); } }];
@@ -394,7 +397,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 export type App = ReturnType<typeof createApp>;
 
 /** A path write `x.a.b := v` as a store setter's mutation. */
-const pathWrite = (setStore: (f: (d: any) => unknown) => void) => (keys: (string | number)[], v: unknown) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; });
+// W-6: a path target applies an updater to the path's value (`xs[i].title := t => `${t}!``), as a root write and a guess do
+const pathWrite = (setStore: (f: (d: any) => unknown) => void) => (keys: (string | number)[], v: unknown) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; });
 /** A guess through an optimistic store's setter: per key, or whole — a whole guess is the setter's return, which Solid
  *  diffs shallowly against the view as guesses. */
 const guessInto = (setStore: (f: (d: any) => unknown) => void) => (v: unknown, keys: (string | number)[] = []) => setStore((d: any) => { if (keys.length === 0) return typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v; let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; });

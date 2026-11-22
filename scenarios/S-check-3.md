@@ -176,3 +176,26 @@ export default component App() {
   <ul>{for l in labels { <li>{l.text}</li> }}</ul>
 }
 ```
+
+```rx
+-- reject: DUPLICATE_KEY
+export default component App() {
+  source labels key id := [{ id: 1, text: "a" }]
+  <button onClick={() => { labels := [{ id: 2, text: "a" }, { id: 2, text: "b" }] }}>reset</button>
+  <ul>{for l in labels { <li>{l.text}</li> }}</ul>
+}
+```
+
+Where the list is written, too (2026-11-22): the rows of a write, and
+
+```rx
+-- reject: DUPLICATE_KEY
+export default component App() {
+  source labels key id := [{ id: 1, text: "a" }]
+  <button onClick={() => { labels := ls => [{ id: 9, text: "new" }, { id: 9, text: "newer" }, ...ls] }}>add</button>
+  <ul>{for l in labels { <li>{l.text}</li> }}</ul>
+}
+```
+
+the rows an updater answers. A written row whose key the list may already
+hold (`[...ls, { id: 1 }]`) is not refused: what `ls` holds is the run's.

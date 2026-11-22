@@ -335,6 +335,8 @@ struct Sym<'a> {
     drafts: Vec<(usize, Vec<usize>)>,
     /// MO-10i (2026-11-22): a declared JS fn's parameters marked `draft`: changed in place by the call
     draft_args: Vec<usize>,
+    /// ST-4: `xs key id`, the field its rows are keyed by
+    row_key: Option<String>,
     /// MO-10i: the same, for its result's function parts (tuple index or field)
     part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>,
     /// MO-10i: a callback's parameter the library declares a draft: its paths are written
@@ -433,6 +435,7 @@ impl<'a> Sym<'a> {
             outlet: false,
             drafts: vec![],
             draft_args: vec![],
+            row_key: None,
             part_drafts: vec![],
             js_draft: false,
             draft_fn: None,
@@ -2196,7 +2199,10 @@ impl<'a> Checker<'a> {
             let mut server_expr = None;
             match d {
                 Decl::Server { params, .. } => sym.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None }).collect()),
-                Decl::Source { question, .. } => sym.question = *question,
+                Decl::Source { question, key, .. } => {
+                    sym.question = *question;
+                    sym.row_key = key.clone(); // ST-4d: what its rows are keyed by
+                }
                 Decl::Action { params, .. } => {
                     sym.io = true; // R-io-2: an action is io
                     sym.arity = Some(params.len()); // AC-1f: its parameters
@@ -2217,6 +2223,7 @@ impl<'a> Checker<'a> {
                     self.regions[r].key = Some(format!("{}#{}{}", file, name, nested));
                 }
                 Decl::Eq { e, key, deferred, .. } => {
+                    sym.row_key = key.clone();
                     sym.eq_decl = Some(*deferred);
                     sym.maps_records = key.is_none() && maps_into_records(e);
                     if let ExprKind::Id(n) = &e.k {
@@ -5473,6 +5480,22 @@ impl<'a> Checker<'a> {
                     self.stmts(body, lenv, ctx);
                 }
                 StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                    // ST-4d (2026-11-22): rows written out with two alike keys, where a keyed list is written or guessed —
+                    // the new value, or what an updater answers (`rows := rs => [{ id: 9 }, { id: 9 }, ...rs]`)
+                    if target.path.is_empty() && !target.is_ctx() {
+                        if let Some(t) = self.lookup(env, &target.name) {
+                            if let Some(k) = self.syms[t].row_key.clone() {
+                                let val = match &e.k {
+                                    ExprKind::Fn { body, stmts: None, .. } => &**body,
+                                    _ => e,
+                                };
+                                if let Some(v) = duplicate_key(val, &k) {
+                                    let name = self.syms[t].name.clone();
+                                    self.err("DUPLICATE_KEY", "ST-4d", format!("{name} is keyed by {k}, and two of the rows written here have {k}: {v} — a key names one row: rows with one key share one identity, so one's state shows for both, or one is dropped. Give each row its own {k}"));
+                                }
+                            }
+                        }
+                    }
                     // W-1a: a functional write's function is given the slot's value: it answers the next one, and does
                     // not change the one it is given
                     if matches!(e.k, ExprKind::Fn { .. }) && target.path.is_empty() && self.lookup(env, &target.name).is_some_and(|t| self.syms[t].kind == SymKind::Source) {

@@ -131,6 +131,7 @@ type Sym = {
   jsDraft?: boolean;                   // MO-10i: a callback's parameter the library declares a draft: its paths are written
   draftFn?: number;                    // MO-10i: the closure whose parameter the draft is (its fnStack id)
   methods?: string[];
+  rowKey?: string;                     // ST-4: `xs key id`, the field its rows are keyed by
   draftArgs?: number[];                // MO-10i (2026-11-22): a declared JS fn's parameters marked `draft`: changed in place by the call
   disposer?: boolean;                  // EF-5a (2026-11-22): a declared JS fn whose result is `() => void`: what undoes the call (a subscription's disposer)
   updater?: number[];                  // MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a draft: the parameter positions that are drafts
@@ -821,6 +822,7 @@ class Checker {
       const sym: Sym = { kind: d.k === "fn" ? "fn" : d.k === "component" ? "comp" : d.k === "action" ? "action" : d.k === "server" ? "server" : d.k === "source" ? "source" : d.k === "error" ? "errclass" : "eq", name: d.name, region: env.region, line: d.line };
       if (d.k === "server") sym.params = d.params.map(name => ({ name, ref: false }));
       if (d.k === "source") sym.question = !!d.question;
+      if ((d.k === "source" || d.k === "eq") && d.key !== undefined) sym.rowKey = d.key;   // ST-4d: what its rows are keyed by
       if (d.k === "action") { sym.io = true; sym.arity = d.params.length; }                 // R-io-2: an action is io; AC-1f: its parameters
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); sym.compRegion.key = `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${sym.compRegion.id}` : ""}`; }   // E-5a
@@ -2171,6 +2173,15 @@ class Checker {
           break;
         }
         case "write": case "optimistic": {
+          // ST-4d (2026-11-22): rows written out with two alike keys, where a keyed list is written or guessed — the new
+          // value, or what an updater answers (`rows := rs => [{ id: 9 }, { id: 9 }, ...rs]`)
+          if (!s.target.path.length && !s.target.ctx) {
+            const t = env.lookup(s.target.name);
+            if (t?.rowKey !== undefined) {
+              const v = duplicateKey(s.e.k === "fn" && !s.e.stmts ? s.e.body : s.e, t.rowKey);
+              if (v !== undefined) this.err("DUPLICATE_KEY", "ST-4d", `${t.name} is keyed by ${t.rowKey}, and two of the rows written here have ${t.rowKey}: ${v} — a key names one row: rows with one key share one identity, so one's state shows for both, or one is dropped. Give each row its own ${t.rowKey}`);
+            }
+          }
           if (s.e.k === "fn" && !s.target.path.length && env.lookup(s.target.name)?.kind === "source") this.writeFns.add(s.e);   // W-1a: a functional write's function is given the slot's value: it answers the next one, and does not change the one it is given
           this.sink(s.e, env, `written to ${s.target.name}`);
           if (ctx.server) {                                                                  // SF-4: return the value; the action that awaited the call writes it
