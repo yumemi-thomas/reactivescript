@@ -1,0 +1,109 @@
+# The suites CONTRIBUTING.md lists ("Running the suite"), on every change to what they read: the crate's own tests, the
+# reference implementation's (ref/: the interpreter over every scenario, the same scenarios lowered onto Solid, the
+# compiled modules, streamed SSR and hydration in Chromium, the TSX projection), the crate against ref/ in each of its
+# modes (CP-5: checked, client-only, whole-program, lowered, projected), and the three suites that run a guarantee
+# rather than a list of cases (compiler/test/confined.mjs, drafts.mjs, ssr-held.mjs).
+#
+# ref/ runs on Solid built from source at ref/SOLID_NEXT (ref/scripts/solid-next.sh: pnpm, and a Rust build of Solid's
+# native compiler). That build is kept in a cache keyed by the pin, so it is made once per pin and restored after.
+name: suites
+
+on:
+  push:
+    branches: [main]
+    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", ".github/workflows/suites.yml"]
+  pull_request:
+    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", ".github/workflows/suites.yml"]
+  workflow_dispatch:
+
+jobs:
+  # the crate's own tests (compiler/src's units, compiler/tests/)
+  cargo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+          key: test
+      - name: cargo test
+        working-directory: compiler
+        run: cargo test --release
+
+  # ref/'s runners, and the crate against ref/
+  ref:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1   # solid-next's packageManager
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Solid next, from the cache
+        id: solid
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../solid-next
+          key: solid-next-${{ runner.os }}-${{ hashFiles('ref/SOLID_NEXT', 'ref/scripts/solid-next.sh') }}
+      - name: Solid next, built at the pin
+        if: steps.solid.outputs.cache-hit != 'true'
+        run: sh ref/scripts/solid-next.sh
+      - name: ref/ (links ../solid-next), and Chromium
+        run: |
+          npm --prefix ref install
+          (cd ref && npx playwright install --with-deps chromium)
+      - name: The crate (rxc, and the Node-API build)
+        working-directory: compiler
+        run: |
+          npm ci
+          cargo build --release
+          npx napi build --platform --release --features node --manifest-path ./Cargo.toml -- --lib
+      - name: The runtime
+        run: npm --prefix runtime ci && npm --prefix runtime run build
+      - name: "ref: the interpreter over every scenario"
+        working-directory: ref
+        run: npm test
+      - name: "ref: the scenarios lowered onto Solid (the oracle)"
+        working-directory: ref
+        run: npm run oracle
+      - name: "ref: compiled modules"
+        working-directory: ref
+        run: npm run compiled
+      - name: "ref: streamed SSR and hydration in Chromium"
+        working-directory: ref
+        run: npm run ssr
+      - name: "ref: the TSX projection, checked by TypeScript"
+        working-directory: ref
+        run: npm run types
+      - name: "crate against ref/: checked"
+        working-directory: ref
+        run: npm run crate
+      - name: "crate against ref/: client-only (--spa)"
+        working-directory: ref
+        run: npm run crate -- --spa
+      - name: "crate against ref/: the whole program (--whole-program)"
+        working-directory: ref
+        run: npm run crate -- --whole-program
+      - name: "crate against ref/: lowered (--lower)"
+        working-directory: ref
+        run: npm run crate -- --lower
+      - name: "crate against ref/: projected (--project)"
+        working-directory: ref
+        run: npm run crate -- --project
+      - name: "the guarantees, run: drafts (MO-10i) and held results (MO-10f) on the server"
+        run: |
+          node compiler/test/drafts.mjs
+          node compiler/test/ssr-held.mjs
+      - name: The libraries confined.mjs runs against (bench/package.json)
+        run: |
+          mkdir -p bench/.out/ws && cp bench/package.json bench/.out/ws/package.json
+          (cd bench/.out/ws && npm install --no-audit --no-fund --legacy-peer-deps)
+      - name: "the guarantees, run: the counterexamples and their controls, in Chromium (CN-7)"
+        run: node compiler/test/confined.mjs
