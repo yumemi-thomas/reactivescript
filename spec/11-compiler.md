@@ -220,7 +220,13 @@ record argued each way; this is the decision.
   instances. What the host does with the components it renders — which
   contexts it provides, which layout a page is rendered in — is said by a
   host declaration (09 MO-14), and a component its view names is then
-  checked there, not under a root of its own.
+  checked there, not under a root of its own. A component of the host's
+  own that an `.rx` component applies — the router's component in the
+  app's entry, a layout's `<Outlet />` — is imported by that declaration
+  from its JS module, and the host's records are then checked where it is
+  applied (09 MO-14f). TanStack's generator has no option that admits an
+  `.rx` route file (09 MO-14, *What it does not say*): its route files
+  stay the few lines of TSX above.
 - **CP-4e (A package's `.rx` modules) — proposed 2026-11-22.** A library
   written in `.rx` is built once for every app (09 MO-13e): `rx-lib`
   (`compiler/lib.mjs`, the bin of `@reactivescript/compiler`) compiles each

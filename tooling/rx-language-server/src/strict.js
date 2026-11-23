@@ -8,7 +8,7 @@ const crypto = require("node:crypto");
 
 const { rows: parsed } = require("./rxc");
 /** The kinds of row running can check: fns, components, error classes and values. */
-const CHECKED = new Set(["fn", "component", "error", "const", "host"]);   // host: 09 MO-14, a host declaration's view
+const CHECKED = new Set(["fn", "component", "error", "const", "host", "import"]);   // host: 09 MO-14, a host declaration's view; import: MO-14f, one that claims something (a component the host renders through)
 /** A line without its `// comment`; a `//` inside a string literal is not one. */
 function codeOf(line) {
   let q = "";
@@ -41,7 +41,7 @@ function rowsOf(file) {
   const r = parsed(file);
   if (!r || r.error) throw new Error(`${path.basename(file)}: ${r?.error ?? "cannot read it"}`);
   const lines = fs.readFileSync(file, "utf8").split("\n");
-  return r.rows.filter(x => CHECKED.has(x.kind)).map(x => ({ ...x, text: collapse(lines.slice(x.line - 1, x.end).map(codeOf).join(" ")).trim() }));
+  return r.rows.filter(x => CHECKED.has(x.kind) && (x.kind !== "import" || x.obligations?.length)).map(x => ({ ...x, text: collapse(lines.slice(x.line - 1, x.end).map(codeOf).join(" ")).trim() }));
 }
 /** The file's text with each row on one line, at the line the row starts on (its other lines blank), comments dropped:
  *  what rx-verify reads, so a claim is found wherever the row's layout puts it. */
@@ -70,7 +70,7 @@ function unanswered(file, results) {
   return out;
 }
 /** A claim about one position (`provides:theme`, `callbacks:options.onSuccess`, RFC 28/29), in words. */
-const AT = { provides: c => `provides(${c})`, callbacks: c => `callback ${c} (handler or pure)` };
+const AT = { through: c => `the host rendering through ${c}`, provides: c => `provides(${c})`, callbacks: c => `callback ${c} (handler or pure)` };
 const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler or pure)", draft: "draft", placement: "where it renders what it is given (a factory, nests)" };
 /** The meaning of a record: what rx-verify checked when it wrote one. A record from a version whose checks differ (2:
  *  each claim the crate reads must be answered; 3: each context provided and each callback position is a claim of its

@@ -330,6 +330,9 @@ struct Sym<'a> {
     exported_as: Option<SId>,
     /// MO-11j: on that wrapper, the made component its view applies (`<Router />`)
     wraps: Option<SId>,
+    /// MO-14f: a JS component the host renders through — applied in a component's view, it renders that component's
+    /// children there
+    through: bool,
     /// MO-11f: a component a JS factory made — the call's arguments and the scope they name from
     factory: Option<(&'a [Expr], EId)>,
     /// MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
@@ -402,6 +405,7 @@ impl<'a> Sym<'a> {
             ret_flows: None,
             exported_as: None,
             wraps: None,
+            through: false,
             factory: None,
             reader: false,
             export_key: None,
@@ -1743,6 +1747,10 @@ pub struct Opts<'a> {
     pub whole: bool,
     /// MO-14d: a JS host renders the module's components: its default component is no mounted view
     pub hosted: bool,
+    /// MO-1c: the module is not the program's entry: its default component is a component like any other, mounted by no one
+    pub dependency: bool,
+    /// MO-14f: in a host's view — the JS components the host renders through (`declaration#Name`)
+    pub through: &'a HashSet<String>,
 }
 
 pub struct Checker<'a> {
@@ -1796,6 +1804,12 @@ pub struct Checker<'a> {
     render_props: HashMap<RId, HashSet<String>>,
     /// MO-11k: those of them the declaration marks optional (`children?: (item: T) => View`)
     render_optional: HashMap<RId, HashSet<String>>,
+    /// MO-14f: each application of a component the host renders through — its children's region, and the component whose
+    /// view applies it (whose children it renders there, as `{props.children}` among its own would)
+    through_reads: Vec<(RId, RId)>,
+    /// MO-11i: the components a factory's records nest others in — by name and line: its region, and the record's field
+    nested: IndexMap<(String, i64), (RId, String)>,
+    nesting_word: Option<String>,
     /// MO-11t: a JS component's props that take a view (typed `View`, not `children`)
     view_props: HashMap<RId, HashSet<String>>,
     /// MO-10f (2026-11-22): per component, the fields of its props that its type says hold or fail where they are
@@ -1906,7 +1920,7 @@ pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[Str
     let mut facts = vec![];
     let mut advice = vec![];
     for path in &set.order {
-        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path) });
+        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path), dependency: *path != set.entry, through: &set.through });
         diags.extend(r.diags);
         advice.extend(r.advice);
         sigs.insert(path.clone(), r.sig);
@@ -2011,6 +2025,9 @@ impl<'a> Checker<'a> {
             fn_seq: 0,
             render_props: HashMap::new(),
             render_optional: HashMap::new(),
+            through_reads: vec![],
+            nested: IndexMap::new(),
+            nesting_word: None,
             view_props: HashMap::new(),
             arg_calls: HashMap::new(),
             updater_ok: HashSet::new(),
@@ -2147,7 +2164,8 @@ impl<'a> Checker<'a> {
             self.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`".into());
         }
         // MO-14d: a hosted module's default component is rendered by the host, where its declaration says
-        let view: &'a [Markup] = if self.opts.hosted { &[] } else { &p.view };
+        // MO-1c: the runtime mounts the entry's default component, and no other module's
+        let view: &'a [Markup] = if self.opts.hosted || self.opts.dependency { &[] } else { &p.view };
         provides_in(&p.decls, view, &mut self.provided, &mut self.action_names);
         self.block(&p.decls, view, root, Ctx::reactive());
         self.later.push(Later::Content { ms: view, env: root, anc: vec![] });
@@ -2609,7 +2627,7 @@ impl<'a> Checker<'a> {
         }
         // MO-11a: a Solid component — its declaration is its summary (MO-11q: a member too, bound by its written name)
         let bind_comp = |c: &mut Self, x: &JsDecl, alias: &str| {
-            let JsDecl::Comp { props: xprops, fails: xfails, content, uses: xuses, provides: xprovides, .. } = x else { return };
+            let JsDecl::Comp { name: xname, props: xprops, fails: xfails, content, uses: xuses, provides: xprovides, .. } = x else { return };
                 // MO-11a: a Solid component — its declaration is its summary; MO-11b: an undeclared prop is read too
                 let gives = js_keys(c, xprovides); // MO-12c: provided to everything it renders
                 let requires = js_keys(c, xuses); // MO-12b: what it uses itself
@@ -2648,6 +2666,7 @@ impl<'a> Checker<'a> {
                 c.regions[r].js = true;
                 let mut s = Sym::new(SymKind::Comp, alias, region, line);
                 s.comp_region = Some(r);
+                s.through = c.opts.through.contains(&format!("{declared}#{xname}"));
                 c.bind(env, alias, s);
         };
         for ImportName { name, alias } in names {
@@ -6148,6 +6167,12 @@ impl<'a> Checker<'a> {
                                 }
                             }
                             self.markup(children, kenv, false);
+                            // MO-14f: the host renders this component's children through the one applied here
+                            if self.syms[s.unwrap()].through {
+                                if let Some(c) = self.regions[region].component {
+                                    self.through_reads.push((kids, c));
+                                }
+                            }
                             for (_, v) in &values {
                                 self.apply_tree(v, m.line, kenv);
                             }
@@ -6525,9 +6550,11 @@ impl<'a> Checker<'a> {
         }
         let trees = self.factory_tree(s);
         let fe = self.env(Some(fenv), kids);
+        let word = std::mem::replace(&mut self.nesting_word, self.syms[s].nests.as_ref().map(|n| n.0.clone()));
         for t in &trees {
             self.apply_tree(t, line, fe);
         }
+        self.nesting_word = word;
         self.expanding[0].remove(&s);
     }
     /// MO-11j: an exported factory's component, summarised as a component whose view applies it — what its values let out
@@ -6561,6 +6588,9 @@ impl<'a> Checker<'a> {
         let kids = self.region(Some(region), "children", false, Some(t.tag.clone()));
         self.regions[kids].kids = Some((cr, region));
         let kenv = self.env(Some(env), kids);
+        if let Some(w) = self.nesting_word.clone() {
+            self.nested.entry((t.tag.clone(), self.line)).or_insert((cr, w));
+        }
         for k in &t.kids {
             self.apply_tree(k, line, kenv);
         }
@@ -6666,6 +6696,10 @@ impl<'a> Checker<'a> {
             return;
         }
         let ss = self.shape(s);
+        // MO-14f: the component's children, rendered where it applies the host's own
+        if self.syms[s].through && self.regions[self.reg(env)].component.is_some() {
+            sh.children_at.push(anc.to_vec());
+        }
         if anc.is_empty() {
             for r in &ss.roots {
                 roots.insert(r.clone());
@@ -7666,6 +7700,10 @@ impl<'a> Checker<'a> {
                 occ.push(Occ { comp: pr.comp, field: pr.field.clone(), pre: pre(&pr.pre), via: Via::Reader(*region) });
             }
         }
+        // MO-14f: a component's children, read where it applies a component the host renders through
+        for (kids, comp) in &self.through_reads {
+            occ.push(Occ { comp: *comp, field: "children".into(), pre: vec![], via: Via::Reader(*kids) });
+        }
         for (i, field, f) in &arg_f {
             for pr in &f.props {
                 let a = &self.apps[*i];
@@ -7683,6 +7721,16 @@ impl<'a> Checker<'a> {
         self.arg_f = arg_f;
 
         let top = self.esc(None);
+        // MO-11i: a record's children are nested in its component — which renders them among its own children, or nowhere
+        let hosted_view = self.opts.file.as_deref().is_some_and(|f| f.ends_with(".host.rx"));
+        for ((name, line), (c, word)) in self.nested.clone() {
+            if self.pf(c, "children").iter().any(|p| p.term.is_none()) {
+                continue;
+            }
+            self.line = line;
+            let hint = if hosted_view { " (or, where the layout applies a component of the host's own that renders them — a router's outlet — import that component in the host's declaration, MO-14f)" } else { "" };
+            self.err("NESTED_NOT_RENDERED", "MO-11i", format!("{name} is given the components under its record's `{word}`, to render among its own children, and renders none: they would never show, and nothing above them is checked — render them where they go, `{{props.children}}` in {name}'s view{hint}"));
+        }
         for it in top.fails {
             self.line = it.line;
             let suffix = if it.cls == "Error" { String::new() } else { format!(": {}", it.cls) };

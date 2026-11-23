@@ -1118,9 +1118,10 @@ it is read. To make a rejection an answer instead, catch it at the `await`: `awa
 
 Reported on `host.d.rx`, at its view: a component a JS host renders (a file-based router's page) reads it, and
 nothing above it in the view the declaration states handles the failure. The message names the read
-(`person.name at pages.rx:23`). Put the region in the page's layout, around `{props.children}`, or in the page; if
-the page is in a layout that has one, the declaration places it wrong (spec/09 MO-14, guide/libraries.md, *File-based
-routers*).
+(`person.name at pages.rx:23`). Put the region in the page's layout, around `{props.children}` (or around the
+router's `<Outlet />`, where the layout renders its pages with it), in your app's component around the router's, or
+in the page; if the page is in a layout that has one, the declaration places it wrong (spec/09 MO-14, MO-14f,
+guide/libraries.md, *File-based routers*).
 
 ```rx before
 export default component App() {
@@ -1658,7 +1659,11 @@ Provide it above the component (`provide x = …`), or give the context a defaul
 For a JS library's hook (`uses(router)`), the provision is the library's provider. A page a file-based router renders
 has it from the host: `host.d.rx` says so (`provides(router)` on its view, spec/09 MO-14). Reported on `host.d.rx`,
 the view provides no such context; reported on a component of a route module the view does not name, JavaScript may
-render that component anywhere — name it in the view, or take what it needs as a prop.
+render that component anywhere — name it in the view, or take what it needs as a prop. A context your `.rx` entry
+provides above the router reaches a page once the view names the entry's component and the declaration imports the
+router's (MO-14f); and where the view names your entry, the router's own context is provided by the router's
+component, by its row (`export component AppRouter(props: {}) provides(router)`), to what is rendered through it —
+not to the entry itself.
 
 ```rx before
 context room: number
@@ -2211,6 +2216,53 @@ export default component App() {
 }
 ```
 
+### NESTED_NOT_RENDERED
+
+A record gives a component other components to render among its own children — a route's `children` under its
+`component`, to a router declared `nests(children in component)` (MO-11i), or in a host declaration's view (MO-14) —
+and that component renders none: its pages would never show, and nothing above them could be checked. A layout renders
+its pages where it writes `{props.children}`.
+
+Under a host declaration there is a second way: a layout may render its pages through a component of the host's own —
+TanStack Router's `<Outlet />`, or the router's component in the app's `.rx` entry. The declaration imports that
+component from its JS module (`import { Outlet } from "@tanstack/solid-router"`), and the pages are then checked where
+the layout applies it (MO-14f).
+
+```rx before
+-- module: ./router.d.rx
+export pure fn createRouter(routes: unknown): Component nests(children in component)
+-- main
+import { createRouter } from "./router.js"
+component Layout() {
+  <nav>menu</nav>
+}
+component Home() {
+  <h1>Home</h1>
+}
+Router = createRouter({ component: Layout, children: [{ component: Home }] })
+export default component App() {
+  <Router />
+}
+```
+
+```rx after
+-- module: ./router.d.rx
+export pure fn createRouter(routes: unknown): Component nests(children in component)
+-- main
+import { createRouter } from "./router.js"
+component Layout(props: { children?: View }) {
+  <nav>menu</nav>
+  <main>{props.children}</main>
+}
+component Home() {
+  <h1>Home</h1>
+}
+Router = createRouter({ component: Layout, children: [{ component: Home }] })
+export default component App() {
+  <Router />
+}
+```
+
 ### DECLARATION_VERSION
 
 The `.d.rx` is pinned (`//@ for <package> <range>`) to versions of its package that are not the one installed (MO-8f).
@@ -2235,4 +2287,7 @@ was not recorded as holding by `rx-verify --record`: nothing recorded it, it was
 found a mismatch, or it could not check it (no probe arguments, no scene). Run `rx-verify --record lib.d.rx` with a
 probe beside it (`lib.probe.mjs`) and fix what it reports. No word of a row opts it out: strict mode is the project's
 choice, and a declaration the project cannot yet show by running is a reason to leave it off.
+
+A host declaration (`host.d.rx`, MO-14) is asked for too, though no module imports it: its view and each component
+it imports from JavaScript are rows `rx-verify --record host.d.rx` records, against the scene its probe gives.
 

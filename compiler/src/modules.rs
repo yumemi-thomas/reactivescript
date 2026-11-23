@@ -29,6 +29,8 @@ pub struct ModuleSet {
     pub parse_errors: Vec<ParseError>,
     /// MO-14: the JS host's view above this program — its declaration, and the program that stands for it
     pub host: Option<Box<HostView>>,
+    /// MO-14f: in the host's own set — the JS components the host renders through, `declaration#Name`
+    pub through: HashSet<String>,
     /// MO-14: the modules the host's declaration imports
     pub hosted: HashSet<String>,
     /// MO-14: the components it places, `path#Name`
@@ -509,8 +511,23 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Re
     // placed: the imported components the tree names (one it imports and leaves out is still rendered where no one says)
     let tree = ds.iter().find_map(|d| if let JsDecl::Host { span, .. } = d { Some(&src[span.1..span.2]) } else { None }).unwrap_or("");
     let named: HashSet<&str> = tree.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '$')).collect();
+    // MO-14f: a component the declaration imports from a JS module is the host's own — one an `.rx` component applies, and
+    // the host renders through: `through`, each by its declaration and its name there
+    let mut through = HashSet::new();
     for d in &ds {
-        if let JsDecl::Import { names, from, .. } = d {
+        if let JsDecl::Import { names, from, line, .. } = d {
+            if !from.ends_with(".rx") {
+                let dts = hs.programs.get(&host_entry).and_then(|p| p.decls.iter().find_map(|x| match x { Decl::Import { from: f, line: l, declared, .. } if f == from && l == line => declared.clone(), _ => None }));
+                for (n, _) in names {
+                    let found = dts.as_ref().is_some_and(|dts| hs.declarations.get(dts).is_some_and(|ds| ds.iter().any(|x| matches!(x, JsDecl::Comp { name, .. } if name == n))));
+                    if !found {
+                        let why = match &dts { Some(dts) => format!("{dts} declares no component {n}"), None => format!("{from} has no declaration") };
+                        return Err(ParseError(format!("{file}: line {line}: import {{ {n} }} from {}: a host declaration imports from a JS module a component the host renders through, and {why} — `export component {n}(props: {{}})` in its `.d.rx` (MO-14f)", serde_json::to_string(from).unwrap_or_default()), None, Some(file.clone()), "NOT_EXPORTED"));
+                    }
+                    through.insert(format!("{}#{n}", dts.clone().unwrap_or_default()));
+                }
+                continue;
+            }
             let to = join_path(&file, from);
             for (n, alias) in names {
                 if named.contains(alias.as_str()) {
@@ -522,6 +539,7 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Re
     }
     hs.hosted = hosted.clone();
     hs.placed = placed.clone();
+    hs.through = through;
     set.host = Some(Box::new(HostView { file, entry: host_entry, set: hs }));
     set.hosted = hosted;
     set.placed = placed;
@@ -530,7 +548,7 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Re
 fn load_program(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
     let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), wire_ids: HashMap::new(), signatures: IndexMap::new(), printed: Default::default(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors, host: None, hosted: HashSet::new(), placed: HashSet::new() })
+    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors, host: None, through: HashSet::new(), hosted: HashSet::new(), placed: HashSet::new() })
 }
 
 /// E-5a: the module keys that name the hosts (`?rx-lib` imports, CP-4d). A key is the path the program reached the module
@@ -725,7 +743,7 @@ mod tests {
         assert_eq!(diags(&app(Some(&HOST.replace("{ component: Person }] }", "{ component: Person }, { component: Banner }] }")), LAYOUT), PERSON, false, true), none);
         // the tree names what the declaration imports
         assert_eq!(diags(&app(Some(&HOST.replace("component: Home", "component: Nope")), LAYOUT), PERSON, false, false), ["UNBOUND@host.d.rx:6"]);
-        for text in ["import Layout from \"./layout.rx\"\n", "import { Layout } from \"@demo/pages\"\n", "import { Layout } from \"./layout.js\"\n", "export default component provides(router)\n", "export default component = 3\n", "export default fn f()\n", "export default component = []\nexport default component = []\n", "export default component uses(router) = []\n"] {
+        for text in ["import Layout from \"./layout.rx\"\n", "import { Layout } from \"@demo/pages.rx\"\n", "import { Layout } from \"/abs/layout.rx\"\n", "export default component provides(router)\n", "export default component = 3\n", "export default fn f()\n", "export default component = []\nexport default component = []\n", "export default component uses(router) = []\n"] {
             assert!(parse_declarations(text).is_err(), "{text}");
         }
         assert!(parse_declarations("import { Layout as L } from \"../pages/layout.rx\"\nexport context router\nexport default component provides(router) nests(children in component) = { component: L }\n").is_ok());
@@ -741,6 +759,79 @@ mod tests {
         assert_eq!(diags(&app(Some(&spread), LAYOUT), PERSON, false, false), none);
         // the view's words are on its own line, as a row's are
         assert!(parse_declarations("export default component\n  provides(router) = []\n").is_err());
+        // MO-11i: a layout the view nests pages in renders them among its own children — one that renders none is refused
+        // (it was accepted, and its pages checked under nothing)
+        let outlet_layout = LAYOUT.replace("(props: { children?: View })", "()").replace("{props.children}", "<Outlet />").replacen("import {", "import { Outlet } from \"../router.js\"\nimport {", 1);
+        let outlet = |host: &str, layout: &str| -> Vec<(String, String)> {
+            let mut fs = app(Some(host), layout);
+            for (k, v) in fs.iter_mut() {
+                if k == "/app/src/router.d.rx" {
+                    v.push_str("export component Outlet(props: {}) uses(router)\nexport component AppRouter(props: {}) provides(router)\n");
+                }
+            }
+            fs
+        };
+        assert_eq!(diags(&outlet(HOST, &outlet_layout), PERSON, false, false), ["NESTED_NOT_RENDERED@host.d.rx:6"]);
+        // MO-14f: a component of the host's own that the declaration imports from JavaScript is one the host renders
+        // through — a layout that applies it renders its pages there, under what the layout has around it
+        let through = HOST.replacen("export context", "import { Outlet } from \"./router.js\"\nexport context", 1);
+        assert_eq!(diags(&outlet(&through, &outlet_layout), PERSON, false, false), none);
+        assert_eq!(diags(&outlet(&through, &outlet_layout), "/app/src/routes/layout.rx", true, false), none);
+        let beside = outlet_layout.replace("  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main><Outlet /></main> }\n  }\n", "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  <main><Outlet /></main>\n");
+        assert_eq!(diags(&outlet(&through, &beside), PERSON, false, false), ["UNHANDLED_FAILURE@host.d.rx:7"]);
+        let unheld = outlet_layout.replace("loading fallback { <p>loading…</p> } { <main><Outlet /></main> }", "<main><Outlet /></main>");
+        assert_eq!(diags(&outlet(&through, &unheld), PERSON, true, false), ["ASYNC_OUTSIDE_LOADING_BOUNDARY@host.d.rx:7"]);
+        // …and the app's own component, when it is `.rx` and applies the router: the view names it, the host's records its
+        // children, and what it has around the router's component holds every page. The router is provided by that
+        // component's own row, so a hook above it in the app is still outside the router
+        const HELD: &str = "  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <AppRouter /> }\n  }\n";
+        let main = |above: &str, body: &str| format!("import {{ AppRouter }} from \"../router.js\"\nimport {{ useParams }} from \"../router.js\"\nimport {{ NotFound }} from \"../people.js\"\nexport default component App() {{\n{above}{body}}}\n");
+        const BARE: &str = "export default component Layout(props: { children?: View }) {\n  <main>{props.children}</main>\n}\n";
+        const UNDER: &str = "import { App } from \"./routes/app.rx\"\nimport { Layout } from \"./routes/layout.rx\"\nimport { Home } from \"./routes/index.rx\"\nimport { Person } from \"./routes/person.rx\"\nimport { AppRouter } from \"./router.js\"\nexport default component nests(children in component) = [\n  { component: App, children: [{ component: Layout, children: [{ component: Home }, { component: Person }] }] }\n]\n";
+        let entry = |host: &str, main: &str| -> Vec<(String, String)> {
+            let mut fs = outlet(host, BARE);
+            fs.push(("/app/src/routes/app.rx".into(), main.into()));
+            fs
+        };
+        assert_eq!(diags(&entry(UNDER, &main("", HELD)), PERSON, false, false), none);
+        assert_eq!(diags(&entry(UNDER, &main("", HELD)), "/app/src/routes/app.rx", true, false), none);
+        assert_eq!(diags(&entry(UNDER, &main("  at = useParams()\n", HELD)), PERSON, false, false), ["CONTEXT_NOT_FOUND@host.d.rx:6"]);
+        assert_eq!(diags(&entry(UNDER, &main("", "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>…</p> } { <AppRouter /> }\n")), PERSON, false, false), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+        assert_eq!(diags(&entry(&UNDER.replace("import { AppRouter } from \"./router.js\"\n", ""), &main("", HELD)), PERSON, false, false), ["NESTED_NOT_RENDERED@host.d.rx:5"]);
+        // what is imported from JavaScript is a component its module's declaration declares
+        let fails = |host: &str| -> &'static str {
+            let fs = outlet(host, &outlet_layout);
+            let read = |p: &str| fs.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+            match load_modules(PERSON, &read) { Ok(_) => "", Err(e) => e.3 }
+        };
+        assert_eq!([fails(&through.replace("{ Outlet }", "{ Inlet }")), fails(&through.replacen("\"./router.js\"\nexport", "\"./nowhere.js\"\nexport", 1)), fails(&through)], ["NOT_EXPORTED", "NOT_EXPORTED", ""]);
+    }
+
+    /// MO-1c: the runtime mounts the entry's default component; another module's is a component like any other, checked
+    /// where it is applied.
+    #[test]
+    fn a_dependencys_default_component_is_mounted_by_no_one() {
+        let app = |main: &str| -> Vec<(String, String)> {
+            [
+                ("/app/people.d.rx", "export error NotFound\nexport pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)\n"),
+                ("/app/page.rx", "import { fetchPerson } from \"./people.js\"\nexport fn label(n: number) { `#${n}` }\nexport default component Page() {\n  person = await fetchPerson(\"1\")\n  <h1>{person.name}</h1>\n}\n"),
+                ("/app/main.rx", main),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+        };
+        let diags = |fs: &[(String, String)], entry: &str| -> Vec<String> {
+            let read = |p: &str| fs.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+            crate::check::check_modules_hosts(&load_modules(entry, &read).unwrap(), false, false, &[]).diags.iter().map(|d| format!("{}@{}:{}", d.code, d.file.as_deref().unwrap_or(entry).rsplit('/').next().unwrap(), d.line)).collect()
+        };
+        let none = Vec::<String>::new();
+        // a module imported for a fn: its default component is applied by no one, and is nobody's failure (it was walked as a mounted view)
+        assert_eq!(diags(&app("import { label } from \"./page.rx\"\nexport default component App() { <p>{label(1)}</p> }\n"), "/app/main.rx"), none);
+        // applied, it is checked where it is applied; as the entry, it is the mounted view
+        assert_eq!(diags(&app("import { Page } from \"./page.rx\"\nexport default component App() { <Page /> }\n"), "/app/main.rx"), ["UNHANDLED_FAILURE@main.rx:2"]);
+        assert_eq!(diags(&app("import { Page } from \"./page.rx\"\nimport { NotFound } from \"./people.js\"\nexport default component App() { errored fallback(e: NotFound) { <p>no</p> } { <Page /> } }\n"), "/app/main.rx"), none);
+        assert_eq!(diags(&app(""), "/app/page.rx"), ["UNHANDLED_FAILURE@page.rx:5"]);
     }
 
     /// MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)

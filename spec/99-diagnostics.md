@@ -93,6 +93,7 @@ named.
 | `ARGUMENT_COUNT` (new)            | S   | AC-1f: a call of a declared action with another number of arguments than its parameters | S-check-1 |
 | `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories; MO-11q, a tag that begins with a small letter and has a `.` (`<wardic.div>`: no element's name has one, and a member component is applied through a name with a capital) is `UNKNOWN_COMPONENT`; MO-11s, a component given to JS that says nothing of where it renders it, is checked under a root of its own | S-check-1, S-region-5, S-module-5, S-module-6, S-module-24, S-module-27 |
 | `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k (render props) | S-module-14 |
+| `NESTED_NOT_RENDERED` (new, 2026-11-23) | S | 09 MO-11i, MO-14f: a component a record nests others in (a factory's tree, a host declaration's view) renders none of its children — no `{props.children}`, no component the host renders through | S-module-38 |
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
 | `SNAPSHOT_INITIALIZER`            | S   | E-4 / DV-6 | S-surface-1 |

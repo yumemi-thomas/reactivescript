@@ -143,7 +143,7 @@ export type JsDecl =
   | { kind: "type"; name: string; line: number; text?: string }
   | { kind: "comp"; name: string; line: number; props: JsProp[]; fails: string[]; content?: ContentShape; uses?: string[]; provides?: string[]; tparams?: string; propsType?: string }   // propsType: MO-8o, the props are a type the library declares, and the record after `&` its fields that carry words   // tparams: MO-8d, a generic component's (`component Select<Option>(…)`)   // MO-11a: a Solid component
   | { kind: "context"; name: string; line: number; from?: string; resolved?: string }   // from: MO-12e, the context is another module's (`export context router from "@tanstack/solid-router"`); resolved: that module's declaration file (the loader's)
-  | { kind: "import"; names: { name: string; alias: string }[]; from: string; line: number; span: [number, number] }   // MO-14a: a host declaration's import of the `.rx` components the host renders; span: the row's text
+  | { kind: "import"; names: { name: string; alias: string }[]; from: string; line: number; span: [number, number] }   // MO-14a: a host declaration's import of the `.rx` components the host renders — or, from a JS module, of the host's own components an `.rx` component applies (MO-14f); span: the row's text
   | { kind: "host"; line: number; provides?: string[]; nests?: { kids: string; inside: string }; span: [number, number, number] }   // MO-14b: the view a JS host makes — `export default component provides(c) nests(children in component) = <tree>`; span: the row's start, its tree's start and end
   | { kind: "value"; name: string; line: number; type?: string };   // MO-8g: a value the module exports (`export const pageSearch: Schema`)   // MO-12a: a JS context (Solid's createContext), named by uses(…) and provides(…)
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
@@ -162,7 +162,8 @@ export function parseDeclarations(src: string): JsDecl[] {
       c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); if (!c.eat(",")) break; c.ws(); } c.expect("}");
       c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
       const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
-      if (!/\.rx$/.test((from as { v: string }).v) || !/^\.{1,2}\//.test((from as { v: string }).v)) c.fail(`import … from ${JSON.stringify((from as { v: string }).v)}: a host declaration imports the \`.rx\` modules whose components the host renders, by a relative path (MO-14a)`);
+      // MO-14f: any other module is JavaScript — a component of the host's own, which an `.rx` component applies and the host renders through
+      if (/\.rx$/.test((from as { v: string }).v) && !/^\.{1,2}\//.test((from as { v: string }).v)) c.fail(`import … from ${JSON.stringify((from as { v: string }).v)}: a host declaration imports the \`.rx\` modules whose components the host renders by a relative path (MO-14a)`);
       out.push({ kind: "import", names, from: (from as { v: string }).v, line, span: [start, c.i] }); continue;
     }
     const rowStart = c.i;
@@ -1193,7 +1194,7 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     if (c.peek() === "\n" || c.eof()) s = s.replace(/[ \t\r]+$/, "");
     if (!inElement) {
       // outside an element, bare text is not markup: a block is declarations, then markup
-      if (s.trim() === "") { if (c.peek() === "\n") c.i++; continue; }
+      if (s.trim() === "") { if (c.peek() === "}") c.fail("expected a declaration or markup");   /* a `}` that closes nothing (it was read again and again, with no end) */ if (c.peek() === "\n") c.i++; continue; }
       if (s.includes(":=")) c.fail("W-2: write in reactive scope (no statement position)");
       c.fail("expected a declaration or markup");
     }

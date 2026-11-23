@@ -171,7 +171,11 @@ components it renders) declares no module's exports, and its view is run against
 (`host.probe.mjs`) exports `scene(rx, h)`, the host's view built of `rx.Layout`, `rx.Person`, … — a recording
 component for each one the declaration imports — and `uses`, by context, a hook that throws or warns with no
 provider (`act(rx, h)` may then navigate). Each component the view names must render inside the component of the
-record it is a child of, and each hook must work where each renders. `rx-declare --host <module.rx>...` drafts the
+record it is a child of, and each hook must work where each renders. A component the declaration imports from
+JavaScript (MO-14f: one the host renders through — a layout's `<Outlet />`, the router's component in an `.rx`
+entry) is given by the probe as `through.Outlet`; the scene applies `rx.Outlet` where the app's component applies the
+real one, and a component of the view must render inside it (the claim is the import's own row). `rx-tsc --rx-strict`
+asks for a host declaration's record as for any declaration's. `rx-declare --host <module.rx>...` drafts the
 declaration: the imports, the contexts those modules' imports are declared to use, and a view with every component
 at the top — which page is in which layout is the router's knowledge, and is left to write.
 

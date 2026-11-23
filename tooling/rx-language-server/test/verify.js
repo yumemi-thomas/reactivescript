@@ -418,6 +418,27 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   check("a component the scene never renders is not verified, and named", /host\.d\.rx:5 unverified the host's view: the scene does not render Page/.test(partly.out) && partly.status === 0, partly.out);
   const none = run("none", null);
   check("with no scene, nothing of the view is verified", (none.out.match(/host\.d\.rx:5 unverified the host's view is not run: give a scene/g) ?? []).length === 2, none.out);
+  // MO-14f: a component the declaration imports from JavaScript is one the host renders through. The scene applies
+  // `rx.Slot` where the app's layout applies the real one; the probe gives the real one as `through.Slot`
+  const SLOT = "export const Pages = createContext(() => null);\nexport const Slot = () => useContext(Pages)();\n";
+  const HOST2 = "import { Layout, Home } from \"./pages.rx\"\nimport { Slot } from \"./nav.mjs\"\nexport context nav from \"./nav.mjs\"\nexport default component provides(nav) nests(children in component) = [{ component: Layout, children: [{ component: Home }] }]\n";
+  const probe2 = (view, extra = "export const through = { Slot };\n") => `import { createComponent } from "solid-js";\nimport { Nav, useNav, Pages, Slot } from "./nav.mjs";\nexport const scene = (rx, h) => () => ${view};\nexport const uses = { nav: () => useNav() };\n${extra}`;
+  const routed = slot => under(`createComponent(Pages, { value: () => createComponent(rx.Home, {}), get children() { return createComponent(rx.Layout, { get children() { return ${slot}; } }); } })`);
+  const run2 = (name, text, flags = []) => {
+    const dir = path.join(ws, `host-${name}`); fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "nav.mjs"), NAV + SLOT); fs.writeFileSync(path.join(dir, "nav.d.rx"), "export context nav\nexport pure fn useNav(): { } instantiates uses(nav)\nexport component Slot(props: {})\n"); fs.writeFileSync(path.join(dir, "host.d.rx"), HOST2); fs.writeFileSync(path.join(dir, "host.probe.mjs"), text);
+    const r = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), ...flags, "host.d.rx"], { cwd: dir, encoding: "utf8" });
+    return { out: r.stdout + r.stderr, status: r.status, dir };
+  };
+  const through = run2("through", probe2(routed("createComponent(rx.Slot, {})")), ["--record"]);
+  check("a component the host renders through: the page renders inside it, where the layout applies it", /host\.d\.rx:2 ok\s+the host's view: rendered through Slot: Home/.test(through.out) && /host\.d\.rx:4 ok\s+the host's view holds: Home inside Layout/.test(through.out) && through.status === 0, through.out);
+  check("...its record holds the import's row beside the view's, and strict mode accepts both", checkStrict(path.join(through.dir, "host.d.rx")).length === 0 && Object.keys(JSON.parse(fs.readFileSync(path.join(through.dir, "host.verified.json"), "utf8")).rows).length === 2, JSON.stringify(checkStrict(path.join(through.dir, "host.d.rx"))));
+  const direct = run2("direct", probe2(routed("createComponent(rx.Home, {})")), ["--record"]);
+  check("a scene that never applies it leaves the import unverified, and strict mode refuses that row", /host\.d\.rx:2 unverified the host's view: the scene does not apply rx\.Slot/.test(direct.out) && checkStrict(path.join(direct.dir, "host.d.rx")).map(u => u.line).join() === "2", direct.out + JSON.stringify(checkStrict(path.join(direct.dir, "host.d.rx"))));
+  const empty = run2("empty", probe2(under("[createComponent(rx.Layout, { get children() { return createComponent(rx.Slot, {}); } }), createComponent(rx.Home, {})]")));
+  check("applied, with nothing of the view rendered inside it: a mismatch", /host\.d\.rx:2 MISMATCH\s+the host's view: declared rendered through Slot, and nothing the view names renders inside it/.test(empty.out) && empty.status === 1, empty.out);
+  const ungiven = run2("ungiven", probe2(routed("createComponent(rx.Slot, {})"), ""));
+  check("with no component given for it, it is not verified", /host\.d\.rx:2 unverified the host's view: Slot is not run: give the component as the probe's through\.Slot/.test(ungiven.out), ungiven.out);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

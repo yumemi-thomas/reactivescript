@@ -587,9 +587,11 @@ impl JsDecl {
 /// a component). rx-verify tags each result with the claim it
 /// ran; a claim no result answers is not verified.
 pub fn obligations(d: &JsDecl) -> Vec<String> {
-    // MO-14: a host declaration's rows — an import is no claim of its own; the view claims where each component renders
+    // MO-14: a host declaration's rows — an import of `.rx` components is no claim of its own; the view claims where each
+    // component renders
     match d {
-        JsDecl::Import { .. } => return vec![],
+        // MO-14f: an import from JavaScript claims the host renders through each component it names
+        JsDecl::Import { from, names, .. } => return if from.ends_with(".rx") { vec![] } else { names.iter().map(|(n, _)| format!("through:{n}")).collect() },
         JsDecl::Host { provides, .. } => return std::iter::once("placement".to_string()).chain(provides.iter().map(|c| format!("provides:{c}"))).collect(),
         _ => {}
     }
@@ -1761,8 +1763,10 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 ExprKind::Lit(Lit::Str(m)) => m,
                 _ => return c.fail("module path"),
             };
-            if !from.ends_with(".rx") || !(from.starts_with("./") || from.starts_with("../")) {
-                return c.fail(&format!("import … from {}: a host declaration imports the `.rx` modules whose components the host renders, by a relative path (MO-14a)", serde_json::to_string(&from).unwrap_or_default()));
+            // MO-14f: any other module is JavaScript — a component of the host's own, which an `.rx` component applies and
+            // the host renders through
+            if from.ends_with(".rx") && !(from.starts_with("./") || from.starts_with("../")) {
+                return c.fail(&format!("import … from {}: a host declaration imports the `.rx` modules whose components the host renders by a relative path (MO-14a)", serde_json::to_string(&from).unwrap_or_default()));
             }
             out.push(JsDecl::Import { names, from, line, span: (start, c.i) });
             continue;

@@ -329,5 +329,22 @@ check("...whose types hold: a wrong argument is TypeScript's error on the .rx", 
   check("...by that component's props: a number for its string is TypeScript's error in the host", bad.status !== 0 && /host\.tsx\(2,\d+\): error TS2322/.test(bad.out), bad.out);
 }
 
+// MO-14e: a host declaration is a declaration the program is checked by — strict mode asks for its record, though no
+// module imports it (it is found by its place)
+{
+  const hosted = path.join(ws, "hosted"); fs.mkdirSync(hosted, { recursive: true });
+  fs.writeFileSync(path.join(hosted, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] }, include: ["*.rx"] }));
+  fs.writeFileSync(path.join(hosted, "page.rx"), "export default component Page() {\n  <h1>page</h1>\n}\n");
+  fs.writeFileSync(path.join(hosted, "host.d.rx"), "import { Page } from \"./page.rx\"\nexport default component = [{ component: Page }]\n");
+  const tsc = (...flags) => { const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), ...flags], { cwd: hosted, encoding: "utf8" }); return { status: r.status, out: r.stdout + r.stderr }; };
+  const plain = tsc(), unrecorded = tsc("--rx-strict");
+  check("a host declaration with no record passes outside strict mode", plain.status === 0, plain);
+  check("strict: the host declaration a program is under is asked for its record (UNVERIFIED_ROW)", unrecorded.status !== 0 && /host\.d\.rx:2:1 - error UNVERIFIED_ROW: default: nothing verified it/.test(unrecorded.out), unrecorded);
+  require("../src/strict.js").writeRecord(path.join(hosted, "host.d.rx"), [{ line: 2, ob: "placement", status: "ok", what: "the host's view holds" }]);
+  const recorded = tsc("--rx-strict");
+  check("...and accepted once rx-verify recorded its view", recorded.status === 0, recorded);
+  fs.rmSync(hosted, { recursive: true });
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

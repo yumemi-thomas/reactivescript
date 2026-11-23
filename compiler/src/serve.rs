@@ -122,7 +122,20 @@ pub fn analyze(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     out["diagnostics"] = json!(own);
     out["modules"] = json!(set.order);
     // MO-8f, MO-8j, TY-6: the declarations this load consumed, each with its importer and the import's text
-    out["declarations"] = json!(set.declaration_uses.iter().map(|u| json!({ "file": u.declaration, "importer": u.importer, "spec": u.spec })).collect::<Vec<_>>());
+    let mut uses: Vec<Value> = set.declaration_uses.iter().map(|u| json!({ "file": u.declaration, "importer": u.importer, "spec": u.spec })).collect();
+    // MO-14e: the host declaration this program is under is a declaration it is checked by — and what that declaration
+    // imports from JavaScript (MO-14f) is consumed through it, by the declaration's own place
+    if let Some(h) = &set.host {
+        out["host"] = json!(h.file);
+        let own = format!("{}.host.d.rx", h.file);
+        for u in h.set.declaration_uses.iter().filter(|u| u.importer == h.entry && u.declaration != own) {
+            let v = json!({ "file": u.declaration, "importer": h.file, "spec": u.spec });
+            if !uses.contains(&v) {
+                uses.push(v);
+            }
+        }
+    }
+    out["declarations"] = json!(uses);
     out
 }
 

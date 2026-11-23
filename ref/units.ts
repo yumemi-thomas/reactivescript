@@ -338,7 +338,7 @@ export const units: [string, () => void][] = [
     // the tree names what the declaration imports
     deepStrictEqual(diags(app(HOST.replace("component: Home", "component: Nope"))), ["UNBOUND@host.d.rx:6"]);
     const refused = (text: string) => { try { parseDeclarations(text); return false; } catch { return true; } };
-    deepStrictEqual(["import Layout from \"./layout.rx\"\n", "import { Layout } from \"@demo/pages\"\n", "import { Layout } from \"./layout.js\"\n", "export default component provides(router)\n", "export default component = 3\n", "export default fn f()\n", "export default component = []\nexport default component = []\n", "export default component uses(router) = []\n"].map(refused), [true, true, true, true, true, true, true, true]);
+    deepStrictEqual(["import Layout from \"./layout.rx\"\n", "import { Layout } from \"@demo/pages.rx\"\n", "import { Layout } from \"/abs/layout.rx\"\n", "export default component provides(router)\n", "export default component = 3\n", "export default fn f()\n", "export default component = []\nexport default component = []\n", "export default component uses(router) = []\n"].map(refused), [true, true, true, true, true, true, true, true]);
     deepStrictEqual(refused("import { Layout as L } from \"../pages/layout.rx\"\nexport context router\nexport default component provides(router) nests(children in component) = { component: L }\n"), false);
     // lowered text for text, each piece on its line: the declaration's imports, and its tree given to a factory with the row's words
     const low = hostProgram(HOST, parseDeclarations(HOST), "host.d.rx")!;
@@ -349,6 +349,51 @@ export const units: [string, () => void][] = [
     deepStrictEqual([hostProgram(SPREAD, parseDeclarations(SPREAD), "host.d.rx")!.rx.split("\n").length, SPREAD.split("\n").length, diags(app(SPREAD.replace(" provides(router)", ""))), diags(app(SPREAD))], [11, 11, ["CONTEXT_NOT_FOUND@host.d.rx:6"], []]);
     // the view's words are on its own line, as a row's are
     deepStrictEqual(refused("export default component\n  provides(router) = []\n"), true);
+ 
+    // MO-11i: a layout the view nests pages in renders them among its own children — one that renders none is refused
+    // (it was accepted, and its pages checked under nothing)
+    const OUTLET = LAYOUT.replace("(props: { children?: View })", "()").replace("{props.children}", "<Outlet />").replace("import {", "import { Outlet } from \"../router.js\"\nimport {");
+    const outlet = (host = HOST, layout = OUTLET) => { const fs = app(host, layout); return (p: string) => p === "/app/src/router.d.rx" ? fs(p)! + "export component Outlet(props: {}) uses(router)\nexport component AppRouter(props: {}) provides(router)\n" : fs(p); };
+    deepStrictEqual(diags(outlet()), ["NESTED_NOT_RENDERED@host.d.rx:6"]);
+    // MO-14f: a component of the host's own that the declaration imports from JavaScript is one the host renders through —
+    // a layout that applies it renders its pages there, under what the layout has around it
+    const THROUGH = HOST.replace("export context", "import { Outlet } from \"./router.js\"\nexport context");
+    deepStrictEqual([diags(outlet(THROUGH)), diags(outlet(THROUGH), "/app/src/routes/layout.rx", true)], [[], []]);
+    deepStrictEqual(diags(outlet(THROUGH, OUTLET.replace(/  errored[^\n]*\n    loading[^\n]*\n  \}\n/, "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  <main><Outlet /></main>\n"))), ["UNHANDLED_FAILURE@host.d.rx:7"]);
+    deepStrictEqual(diags(outlet(THROUGH, OUTLET.replace(/loading fallback \{ <p>loading…<\/p> \} \{ (<main><Outlet \/><\/main>) \}/, "$1")), "/app/src/routes/person.rx", true), ["ASYNC_OUTSIDE_LOADING_BOUNDARY@host.d.rx:7"]);
+    // …and the app's own component, when it is `.rx` and applies the router: the view names it, the host's records its
+    // children, and what it has around the router's component holds every page. The router is provided by that
+    // component's own row, so a hook above it in the app is still outside the router
+    const HELD = "  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <AppRouter /> }\n  }\n";
+    const ENTRY = (above = "", body = HELD) => "import { AppRouter } from \"../router.js\"\nimport { useParams } from \"../router.js\"\nimport { NotFound } from \"../people.js\"\nexport default component App() {\n" + above + body + "}\n";
+    const BARE = "export default component Layout(props: { children?: View }) {\n  <main>{props.children}</main>\n}\n";
+    const UNDER = "import { App } from \"./routes/app.rx\"\nimport { Layout } from \"./routes/layout.rx\"\nimport { Home } from \"./routes/index.rx\"\nimport { Person } from \"./routes/person.rx\"\nimport { AppRouter } from \"./router.js\"\nexport default component nests(children in component) = [\n  { component: App, children: [{ component: Layout, children: [{ component: Home }, { component: Person }] }] }\n]\n";
+    const entry = (host = UNDER, main = ENTRY()) => { const fs = outlet(host, BARE); return (p: string) => p === "/app/src/routes/app.rx" ? main : fs(p); };
+    deepStrictEqual([diags(entry()), diags(entry(), "/app/src/routes/app.rx", true)], [[], []]);
+    deepStrictEqual(diags(entry(UNDER, ENTRY("  at = useParams()\n"))), ["CONTEXT_NOT_FOUND@host.d.rx:6"]);
+    deepStrictEqual(diags(entry(UNDER, ENTRY("", "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>…</p> } { <AppRouter /> }\n"))), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+    deepStrictEqual(diags(entry(UNDER.replace("import { AppRouter } from \"./router.js\"\n", ""))), ["NESTED_NOT_RENDERED@host.d.rx:5"]);
+    // what is imported from JavaScript is a component its module's declaration declares
+    const fails = (host: string) => { try { loadModules("/app/src/routes/person.rx", outlet(host)); return ""; } catch (e) { return (e as { code?: string }).code ?? "?"; } };
+    deepStrictEqual([fails(THROUGH.replace("{ Outlet }", "{ Inlet }")), fails(THROUGH.replace("\"./router.js\"\nexport", "\"./nowhere.js\"\nexport")), fails(THROUGH)], ["NOT_EXPORTED", "NOT_EXPORTED", ""]);
+  }],
+  ["a_brace_that_closes_nothing_is_refused", () => {   // found 2026-11-23: at a module's top level the parser read it again and again, with no end; the crate refused it
+    let code = ""; try { parseProgram("export default component App() {\n  <p>a</p>\n  }\n}\n"); } catch (e) { code = (e as { code?: string }).code ?? "?"; }
+    deepStrictEqual(code, "PARSE");
+  }],
+  ["a_dependencys_default_component_is_mounted_by_no_one", () => {   // MO-1c: the runtime mounts the entry's default component; another module's is a component like any other, checked where it is applied
+    const app = (main: string) => files({
+      "/app/people.d.rx": "export error NotFound\nexport pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)\n",
+      "/app/page.rx": "import { fetchPerson } from \"./people.js\"\nexport fn label(n: number) { `#${n}` }\nexport default component Page() {\n  person = await fetchPerson(\"1\")\n  <h1>{person.name}</h1>\n}\n",
+      "/app/main.rx": main,
+    });
+    const diags = (fs: (p: string) => string | undefined, entry = "/app/main.rx") => checkModules(loadModules(entry, fs)).diags.map(d => `${d.code}@${(d.file ?? entry).split("/").pop()}:${d.line}`);
+    // a module imported for a fn: its default component is applied by no one, and is nobody's failure (it was walked as a mounted view)
+    deepStrictEqual(diags(app("import { label } from \"./page.rx\"\nexport default component App() { <p>{label(1)}</p> }\n")), []);
+    // applied, it is checked where it is applied; as the entry, it is the mounted view
+    deepStrictEqual(diags(app("import { Page } from \"./page.rx\"\nexport default component App() { <Page /> }\n")), ["UNHANDLED_FAILURE@main.rx:2"]);
+    deepStrictEqual(diags(app("import { Page } from \"./page.rx\"\nimport { NotFound } from \"./people.js\"\nexport default component App() { errored fallback(e: NotFound) { <p>no</p> } { <Page /> } }\n")), []);
+    deepStrictEqual(diags(app(""), "/app/page.rx"), ["UNHANDLED_FAILURE@page.rx:5"]);
   }],
   ["a_marked_declaration_is_read_as_a_signature", () => {   // MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)
     deepStrictEqual(["//@ signature x.rx\nexport a", "\n// built\n//@signature\nexport a", "//@ signatures\nexport a", "export a\n//@ signature", "// signature\nexport a", ""].map(isPrintedSignature), [true, true, false, false, false, false]);

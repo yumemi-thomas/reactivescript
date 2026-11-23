@@ -119,7 +119,10 @@ process.on("exit", code => {
     return undefined;
   };
   const strict = strictFlag || !!strictOf(cfg);
-  if (strict) for (const f of pinned) for (const u of require("../src/strict.js").checkStrict(f)) {
+  // MO-14e: the host declarations the program's modules are under (`host.d.rx`, found from each one's folder upward) are
+  // declarations the program is checked by: their pages are credited what they say, so strict mode asks for their record too
+  const hostDecls = new Set(analyses().flatMap(a => a.result.host ? [path.resolve(a.result.host)] : []));
+  if (strict) for (const f of new Set([...pinned, ...hostDecls])) for (const u of require("../src/strict.js").checkStrict(f)) {
     errors++;
     codes.add("UNVERIFIED_ROW");
     process.stdout.write(`${path.relative(process.cwd(), u.file)}:${u.line}:1 - error UNVERIFIED_ROW: ${u.message} (TY-7)\n`);

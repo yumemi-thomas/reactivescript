@@ -1491,3 +1491,73 @@ export default component provides(router) nests(children in component) = {
               (pair
                 (property_identifier)
                 (identifier)))))))))
+
+================================================================================
+A host declaration: the components the host renders through, imported from JavaScript (09 MO-14f)
+================================================================================
+
+import { App } from "./main.rx"
+import { Root, Home } from "./pages.rx"
+import { AppRouter } from "./router.tsx"
+import { Outlet } from "@demo/router"
+export default component nests(children in component) = [
+  { component: App, children: [{ component: Root, children: [{ component: Home }] }] }
+]
+
+--------------------------------------------------------------------------------
+
+(program
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (export_statement
+    (host_view
+      (nests_clause
+        (property_identifier)
+        (property_identifier))
+      (array
+        (object
+          (pair
+            (property_identifier)
+            (identifier))
+          (pair
+            (property_identifier)
+            (array
+              (object
+                (pair
+                  (property_identifier)
+                  (identifier))
+                (pair
+                  (property_identifier)
+                  (array
+                    (object
+                      (pair
+                        (property_identifier)
+                        (identifier)))))))))))))

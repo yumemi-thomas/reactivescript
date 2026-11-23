@@ -396,7 +396,8 @@ export default component App() {
   your pages: *File-based routers*, below.
 - **A provider can be wrapped.** The made router is a component: your app's frame takes it as its children
   (`<Shell title="Directory"><AppRouter /></Shell>`), and the pages are checked under what `Shell` puts around
-  `props.children`.
+  `props.children`. (With a router built in JavaScript, name your app's component in `host.d.rx`: *File-based
+  routers*, below.)
 - **Say which context a hook needs.** `export context router` names the library's context; `uses(router)` on a hook
   makes a call with no router above it `CONTEXT_NOT_FOUND`, instead of a run-time throw, and `provides(router)` on
   `createRouter` (or on a provider component) says where it comes from. A hook that uses a context is called once, where
@@ -431,13 +432,15 @@ around `{props.children}` is then `UNHANDLED_FAILURE` — reported on `host.d.rx
 whole-program build, since JavaScript may render that one anywhere.
 
 - **TanStack Router and TanStack Start.** The generator takes `.ts`, `.tsx`, `.js`, `.jsx` and `.vue` files and reads
-  a route file as JavaScript, so a route file is a few lines of TSX that hand the route a component of yours:
+  a route file as JavaScript, so a route file is a few lines of TSX that hand the route a component of yours. (No
+  option of the generator changes that: a virtual route config may name any file, and the generator then parses it
+  as JavaScript.)
 
   ```tsx
   // src/routes/__root.tsx
-  import { Outlet, createRootRoute } from "@tanstack/solid-router";
+  import { createRootRoute } from "@tanstack/solid-router";
   import { Layout } from "../pages.rx?rx-lib";
-  export const Route = createRootRoute({ component: () => <Layout><Outlet /></Layout> });
+  export const Route = createRootRoute({ component: Layout });
   ```
 
   ```tsx
@@ -447,10 +450,13 @@ whole-program build, since JavaScript may render that one anywhere.
   export const Route = createFileRoute("/people/$id")({ component: Person });
   ```
 
-  The layout renders its pages as `props.children`: the root route passes the library's `<Outlet />` there. The
-  generated `routeTree.gen.ts` registers the router as usual, so `<Link to="/peeple/$id">` and `useParams({ from:
-  "/person/$id" })` in `pages.rx` are type errors (`bench/tasks/router-provider`, an app whose entry is `.rx` and
-  whose router is a TSX module's component; `bench/tasks/start-route`, served and hydrated by Start).
+  The layout renders its pages with the router's `<Outlet />`, as TanStack's documentation writes one — see *What
+  the router renders through*, below, for the line `host.d.rx` needs for it. (A route file may also pass the outlet
+  as the layout's children, `component: () => <Layout><Outlet /></Layout>`, to a layout written with
+  `props.children`: `bench/tasks/start-route` does.) The generated `routeTree.gen.ts` registers the router as usual,
+  so `<Link to="/peeple/$id">` and `useParams({ from: "/person/$id" })` in `pages.rx` are type errors
+  (`examples/tanstack` and `bench/tasks/router-provider`, apps whose entry is `.rx` and whose router is a TSX
+  module's component; `bench/tasks/start-route`, served and hydrated by Start).
 - **File-system routes on `@solidjs/router`** (`filesystem-routing`: SolidStart's conventions as a package, for
   Solid 2). The route files themselves are `.rx`: the scanner takes the extension, and each file is imported as its
   page, its default component (`?rx-page`):
@@ -483,9 +489,63 @@ the router's knowledge, and yours to write. Run it with `rx-verify --dom src/hos
 (`host.probe.mjs`) builds the routes the route files make out of recording components (`scene(rx, h)`), and each
 page must render inside its declared layout, with the router's hook working in each (`uses`).
 
-What it does not credit: a region or a provision your `.rx` entry puts *around* a JS router's component — the view
-is the host's own, so what must hold a page goes in its layout — and a layout that renders the library's outlet
-component itself instead of `props.children`.
+**What the router renders through** (spec/09 MO-14f). A component renders the records nested in it *among its
+children*, and an `.rx` component has two ways to say where those are. One is `{props.children}`. The other is a
+component of the router's own that it applies: a TanStack layout's `<Outlet />`, or — when your app's entry is `.rx`
+— the router's component itself (`<AppRouter />`, `<Router />`). Those are JavaScript, so `host.d.rx` says which
+they are by importing them, and names your entry's component around the rest:
+
+```rx
+// src/main.rx — the app's own component: what every page shares, around the router's
+import { AppRouter } from "./router.tsx"
+import { team } from "./team.rx"
+export default component App() {
+  provide team = { name: "Directory" }
+  <header>Directory</header>
+  <AppRouter />
+}
+```
+
+```rx
+// src/pages.rx
+export component Root() {
+  <nav>…</nav>
+  errored fallback(e: NotFound) { <p>{e.message}</p> } { <main><Outlet /></main> }
+}
+```
+
+```rx
+// src/router.d.rx, beside router.tsx: the library's <RouterProvider> with your router
+export context router from "@tanstack/solid-router"
+export component AppRouter(props: {}) provides(router)
+```
+
+```rx
+// src/host.d.rx
+import { App } from "./main.rx"
+import { Root, Home, Person } from "./pages.rx"
+import { AppRouter } from "./router.tsx"
+import { Outlet } from "@tanstack/solid-router"
+export default component nests(children in component) = [
+  { component: App, children: [{ component: Root, children: [{ component: Home }, { component: Person }] }] }
+]
+```
+
+The root layout is checked where `App` applies `<AppRouter />`, the pages where `Root` applies `<Outlet />`: a page
+may read the context `App` provides, and its failure needs a region around the outlet (or around the router's
+component, in `App`). The router's own context is `AppRouter`'s to provide, by its row — the view has no
+`provides(router)` — so a hook in `App` above the router is still `CONTEXT_NOT_FOUND`. With `@solidjs/router`, a
+layout takes `props.children` and only the entry needs the import (`import { Router } from "./router.ts"`:
+`bench/tasks/file-routes`).
+
+A component the view gives children that renders none — a layout that forgot `{props.children}`, an outlet the
+declaration does not import — is `NESTED_NOT_RENDERED`. A component of the router's that another component applies
+for the layout (`<Frame />` around the outlet, inside `Root`) is that component's: write `<Frame><Outlet /></Frame>`.
+In the probe, give each such component as `through.Outlet` and apply `rx.Outlet` in the scene where your component
+applies the real one; `rx-verify` holds that a page renders inside it. And strict mode (`rx-tsc --rx-strict`) asks
+for `host.d.rx`'s record as it does for any declaration's.
+
+An `.rx` entry the view does not name credits nothing to a page: its regions and provisions are its own.
 
 ### An element in a prop
 

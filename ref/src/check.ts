@@ -141,6 +141,7 @@ type Sym = {
   nests?: { kids: string; inside: string };   // MO-11i: how a declared factory nests what it is given
   factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string }; exported?: Sym };   // MO-11f; exported: MO-11j, the component an importer sees: a component a JS factory made — the call's arguments, and the components in them
   exportKey?: string;                  // E-5a: an .rx import's `file#name`, whose changing the whole-program pass knows
+  through?: boolean;                   // MO-14f: a JS component the host renders through — applied in a component's view, it renders that component's children there
   noProps?: string;                    // RG-4b: the props of `component C()`, which declares none — C's name: reading them is UNBOUND
   fnDecl?: Extract<Decl, { k: "fn" }>; declEnv?: Env;   // a fn's declaration and the scope it names from (SF-3: what it reaches)   // a context (RG-7): its identity, whether it carries a source, and its declared rows (null: inferred from its provisions)
 };
@@ -575,7 +576,7 @@ export type ExportSig =
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig> };
-type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean };   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string> };   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; advice: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, advice: c.advice, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
@@ -584,7 +585,7 @@ export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: 
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
   const facts: [string, PeekFacts][] = []; const advice: Diagnostic[] = [];   // advice: 99, the advisory rows — about a correct program, never an error
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path) }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path), dependency: path !== set.entry, through: set.through }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
   // MO-14d: a module the host's declaration imports is one a JS host renders (CP-4d), whatever the build found
   if (whole) { const all = [...new Set([...hosts, ...(set.hosted ?? [])])]; diags.push(...resolvePeeks(facts, set, all)); diags.push(...hostExports(sigs, all, spa, set.placed)); }
   if (set.host) {   // MO-14c: the host's view, checked as a program of its own; what it says is the declaration's
@@ -656,7 +657,9 @@ class Checker {
     argCalls(p, this.argCalls);
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
-    const view = this.opts.hosted ? [] : p.view;   // MO-14d: a hosted module's default component is rendered by the host, where its declaration says
+    // MO-1c: the runtime mounts the entry's default component, and no other module's — a dependency's is applied where an
+    // importer applies it. MO-14d: a hosted module's is rendered by the host, where its declaration says
+    const view = this.opts.hosted || this.opts.dependency ? [] : p.view;
     providesIn(p.decls, view, this.provided, this.actionNames);
     this.block(p.decls, view, root, { scope: "reactive" });
     this.later.push(() => this.contentCheck(view, root, []));
@@ -1004,7 +1007,7 @@ class Checker {
         for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true, ...(p.optional ? { renderOptional: true } : {}) } : {}), ...(p.callback ? { callback: true } : {}), ...(p.pure ? { pure: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig; r.js = true;
         { const vp = x.props.filter(p => p.view).map(p => p.name); if (vp.length) this.viewProps.set(r, new Set(vp)); }   // MO-11t: the props that take a view
-        this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r });
+        this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(this.opts.through?.has(`${d.declared}#${x.name}`) ? { through: true } : {}) });
     };
     for (const { name, alias } of d.names) {
       const x = decls.find(y => y.name === name);
@@ -2456,7 +2459,8 @@ class Checker {
           if (!viewRoot) this.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there");
           else if (++styles > 1) this.err("STYLE_PLACEMENT", "CSS-1", "a second <style> in one view: a view has one stylesheet");
           break;
-        case "read": this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.keep(m.e, env); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
+        case "read": if (this.throughReads.has(m)) { this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break; }   // MO-14f: no expression of the program's
+          this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.keep(m.e, env); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
@@ -2488,7 +2492,7 @@ class Checker {
                 if (!leftOut && (real.length !== 1 || real[0].k !== "mview")) this.err("VIEW_FN_EXPECTED", "MO-11k", `<${m.tag}>'s children are a function of what it renders: write them as \`{view (item) { … }}\``);
                 for (const x of real) if (x.k === "mview") this.viewFns.add(x);
               }
-              this.markup([...m.children, ...values.values()], new Env(env, kids));
+              this.markup([...m.children, ...this.throughChildren(m, s, env), ...values.values()], new Env(env, kids));
               if (s.factory && !this.expanding.markup.has(s)) { this.expanding.markup.add(s); this.markup(this.factoryTree(s, m.line), new Env(s.factory.env, kids)); this.expanding.markup.delete(s); }   // MO-11f: named where the factory was called
             } else this.markup(m.children, env);
             break;
@@ -2627,6 +2631,7 @@ class Checker {
   }
   /** MO-11f, MO-11i: what a factory was given, as the markup the checks walk: each component applied with no arguments; with
    *  `nests(kids in inside)`, a record's `kids` entries are applied among its `inside` component's children. */
+  private nested = new Map<string, { name: string; env: Env; line: number; kids: string }>();   // MO-11i: the components a factory's records nest others in
   private factoryTree(s: Sym, line?: number): Markup[] {
     const f = s.factory!; this.factoryValues(s); const n = f.nests;
     const isValue = (e: Expr): e is Extract<Expr, { k: "id" }> => e.k === "id" && this.valueIds.has(e);
@@ -2640,6 +2645,7 @@ class Checker {
       if (!host || !isValue(host.v)) return e.fields.flatMap(x => "spread" in x ? [] : walk(x.v));
       const el = this.applied([host.v.name], line)[0] as Extract<Markup, { k: "el" }>;
       el.children = kids ? walk(kids.v) : [];
+      if (el.children.length) this.nested.set(`${host.v.name}@${line ?? 0}`, { name: host.v.name, env: f.env, line: line ?? this.line, kids: n!.kids });
       return [el, ...e.fields.flatMap(x => "spread" in x || x === host || x === kids ? [] : walk(x.v))];
     };
     return f.args.flatMap(walk);
@@ -2662,6 +2668,7 @@ class Checker {
           if (m.tag === "") { walk(m.children, anc, scoped, env); break; }
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag); if (s?.kind !== "comp") break; const S = this.shape(s);
+            if (s.through && this.propsNameOf(env) !== undefined) sh.childrenAt.push(anc);   // MO-14f: the component's children, rendered where it applies the host's own
             if (!anc.length) S.roots.forEach(r => roots.add(r));
             if (S.closesP && !scoped) sh.closesP = true; if (S.a) sh.a = true; if (S.form) sh.form = true;
             for (const ch of S.childrenAt) {                                               // the caller's children, where that component puts them
@@ -2682,6 +2689,22 @@ class Checker {
     };
     walk(c.comp.view, [], false, c.compEnv);
     sh.roots = [...roots]; this.shapes.set(c, sh); return sh;
+  }
+  /** MO-14f: in a host's view, a JS component the host renders through (`<Outlet />`, the router's own component in the
+   *  app's entry), applied in a component's view, renders that component's children there — the records the host's view
+   *  nests in it — as `{props.children}` written among its own children would. One reader per application, made once. */
+  private throughReads = new Map<Markup, Markup>();
+  private propsNameOf(env: Env): string | undefined {
+    const c = env.region.component; if (!c) return undefined;
+    for (let e: Env | null = env; e; e = e.parent) for (const [n, v] of e.vars) if (v.kind === "props" && v.region === c) return n;
+    return undefined;
+  }
+  private throughChildren(m: Markup, s: Sym, env: Env): Markup[] {
+    if (!s.through) return [];
+    const name = this.propsNameOf(env); if (name === undefined) return [];
+    let r = [...this.throughReads.entries()].find(([, at]) => at === m)?.[0];
+    if (!r) { r = { k: "read", e: { k: "member", o: { k: "id", name }, p: "children" }, line: m.line } as Markup; this.throughReads.set(r, m); }
+    return [r];
   }
   private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
   /** SV-7d: every element, text and component root of a view against the elements open above it (in this view; a view's
@@ -2919,6 +2942,8 @@ class Checker {
       const res = { fails, reqs }; escBusy.delete(C); escMemo.set(C, res); return res;
     };
     const top = esc(null);
+    // MO-11i: a record's children are nested in its component — which renders them among its own children, or nowhere
+    for (const n of this.nested.values()) { const c = n.env.lookup(n.name)?.compRegion; if (!c || PF(c, "children").some(p => p.term === null)) continue; this.line = n.line; this.err("NESTED_NOT_RENDERED", "MO-11i", `${n.name} is given the components under its record's \`${n.kids}\`, to render among its own children, and renders none: they would never show, and nothing above them is checked — render them where they go, \`{props.children}\` in ${n.name}'s view${(this.opts.file ?? "").endsWith(".host.rx") ? " (or, where the layout applies a component of the host's own that renders them — a router's outlet — import that component in the host's declaration, MO-14f)" : ""}`); }
     for (const it of top.fails) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — show it where it is read: \`errored fallback(e${it.cls === "Error" ? "" : `: ${it.cls}`}) { … } { … }\` around the reader (or \`await … catch (e) => …\` at the await, to make the rejection an answer)`); }
     for (const it of top.reqs) { this.line = it.line; if (it.name === HOLD && this.opts.spa) { this.err("ASYNC_OUTSIDE_LOADING_BOUNDARY", "CN-3d", `${it.what} can have no value yet, and no \`loading\` region above it holds it on some path that renders it: in a client-only build the first load would show nothing until it answers — put it under \`loading fallback { … } { … }\`, or give the await a first paint (\`await f() -> v\`). Later answers are transitions and need no region`); continue; } if (it.name === HOLD) { this.err("CLIENT_QUESTION_UNHELD", "SV-7b", `${it.what} awaits \`client\` JS, and no \`loading\` region above it holds it on any path that renders it: the server never asks a client question, so it could never finish this page — put the reader under \`loading fallback { … } { … }\`, or give the await a first paint (\`await f() -> v\`)`); continue; } this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision of ${keyName(it.name)} (declared in ${it.name.split("#")[0].split("/").pop()}) above this region on any path that renders it`); }
     for (const a of actF) if (a.f.cls.size) { this.line = a.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${a.name} can fail with ${[...a.f.cls].join(", ")} and does not catch it: a handler cannot (it does not await the action) — \`try { … } catch (e) { … }\` in the body`); }

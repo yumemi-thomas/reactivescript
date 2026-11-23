@@ -29,7 +29,13 @@ see the list at the end.
   (`TOP_LEVEL_MARKUP`). The app's view is the entry module's default
   component, `export default component App() { … }`: the runtime mounts it,
   as Solid's `render(() => <App />, el)`. A module imported for its exports
-  may have a default component too; it is a component like any other.
+  may have a default component too; it is a component like any other:
+  nothing mounts it, and it is checked where an importer applies it. (Both
+  checkers walked every loaded module's default component as a mounted
+  view until 2026-11-23, so a dependency whose default component relies on
+  a region of its caller's was refused where no one renders it. The entry
+  alone is mounted; `a_dependencys_default_component_is_mounted_by_no_one`
+  on both sides.)
 - **MO-1d.** [taken by default 2026-10-27] A declaration in a nested block
   may not shadow a name an import bound (`SHADOWED_IMPORT`): rename one,
   `import { filter as keep }`. A declaration that hides an imported
@@ -270,7 +276,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   A host declaration's view (MO-14b) writes two of these words,
   `provides(c)` and `nests(children in component)`, in the same place —
   after `export default component`, what rendering it does — and adds
-  none.
+  none; nor does what it renders through (MO-14f), which is an import.
 
 - **MO-8j (Strict declarations) — proposed 2026-11-20.** A row is an
   assertion (MO-8b); by default the checker takes it on trust. A project may
@@ -824,8 +830,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   the host renders, in the factory's own words, and the registered route
   types come back with the checks (`bench/tasks/router-provider` is a
   file-routed app again, and its two type probes given up here are back).
-  The factory stays what a tree written in `.rx` is given to. The
-  paragraph below is the reasoning as it stood.
+  The factory stays what a tree written in `.rx` is given to. And a
+  layout that renders the router's `<Outlet />` is credited by the host
+  declaration's import of that component (MO-14f), with no word on the
+  component: `outlet` stays withdrawn. The paragraph below is the
+  reasoning as it stood.
 
   *Why a factory, and not a route module in JavaScript.* The other way the
   bar leaves is to build the tree in JavaScript, in a module that imports
@@ -836,7 +845,8 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   a hook outside the provider is no longer refused. The factory keeps
   every check the withdrawn words gave (`router-provider`'s variants are
   refused as they were, but the one that needed the carried components),
-  with words two libraries write. So the tasks and `examples/tanstack` are
+  with words two libraries write. So the tasks and `examples/tanstack` (now
+  `examples/tanstack-factory`) are
   written with it. The types it loses are TanStack's own registration,
   which wants the router's value to name its type (`typeof router`): a
   tree made inside a module has none to name.
@@ -1826,7 +1836,12 @@ export default component App() {
   component value with the nested values as its children, as `<Layout><Page
   /></Layout>` would be, so a layout's `errored`, `loading` and `provide`
   above `props.children` reach its routes, and its content model holds them
-  (SV-7d). Sibling records stay siblings. Without the word, DV-24 applies;
+  (SV-7d). Sibling records stay siblings. A component given children this
+  way that renders none (no `{props.children}`; in a host's view, no
+  component the host renders through either, MO-14f) is
+  `NESTED_NOT_RENDERED`: a layout that forgot its pages, which would never
+  show (it was accepted, its routes dropped from the check, until
+  2026-11-23). Without the word, DV-24 applies;
   on a fn that hands back no `Component` it is a parse error. The word
   describes the shape of the arguments, not a router: any library that
   nests a tree of components it is given says it the same way. Two
@@ -1835,7 +1850,8 @@ export default component App() {
   as records (`createAppRouter({ component: Root, children: [{ path,
   component }] })`) and passes the library's `<Outlet />` to each layout
   as its `props.children` (S-module-22, S-module-23,
-  `bench/tasks/router-provider`, `examples/tanstack`).
+  `examples/tanstack-factory`; `bench/tasks/router-provider` ran it until
+  it moved to file routes, MO-14).
   *`joins(field)`, withdrawn 2026-11-22 (MO-8r); kept as a proposal.*
   Beside `nests(…)`, `joins(path)` said the library joins a nested
   record's `path` with its parents', and the projection (TY-1c), which is
@@ -2199,7 +2215,7 @@ export default component App() {
   its parent's component. A library that renders a page beside its
   layout is a mismatch; a row the scene does not reach is reported
   unverified. `examples/router/router.probe.mjs` and
-  `examples/tanstack/tsr.probe.mjs` check the two routers' rows this way.
+  `examples/tanstack-factory/tsr.probe.mjs` check the two routers' rows this way.
   A hook that warns rather than throws with no provider (TanStack's
   `useRouter`) counts as reading its context, for `rx-declare`'s draft
   and `rx-verify`'s check alike.
@@ -2730,7 +2746,9 @@ says what the host does, once, in the words a factory's row already has.
   "./routes/people/[id].rx"`) — and one view (MO-14b). It declares the
   contexts its view names as any declaration does (`export context
   router`, or MO-12e's `export context router from
-  "@tanstack/solid-router"`, the library's own).
+  "@tanstack/solid-router"`, the library's own). An import from any other
+  module — a JS module of the app's, a package — names a component of the
+  host's own that it renders through (MO-14f).
 - **MO-14b (The view).** `export default component provides(router)
   nests(children in component) = { component: Layout, children: [{
   component: Home }, { component: Person }] }` — where an `.rx` entry has
@@ -2774,10 +2792,11 @@ says what the host does, once, in the words a factory's row already has.
   runtime mounts it" is the entry of a program `.rx` owns). The view
   passes no props (MO-11f: each component applied with no arguments); what
   a route file's JavaScript passes is typed by the module's projection
-  (CP-4d, 13 TY-1c). What an `.rx` entry has *above* a JS router's
-  component — a region, a provision of its own — is not credited to the
-  pages: the view is a view of its own, under the host's provisions and
-  nothing else, so a boundary that must hold a page is its layout's.
+  (CP-4d, 13 TY-1c). The view is a view of its own: what it does not name
+  is not above its pages. An `.rx` entry that applies the router's
+  component is named in it, with the host's records as its children
+  (MO-14f); an entry the view leaves out credits its regions and
+  provisions to no page.
 - **MO-14e (Kept true).** The declaration is trusted as every `.d.rx` is,
   and run as every `.d.rx` is: `rx-verify host.d.rx` renders the scene its
   probe gives (`host.probe.mjs`: `scene(rx, h)`, the host's view built of a
@@ -2787,17 +2806,104 @@ says what the host does, once, in the words a factory's row already has.
   (`placement`); for each `provides(c)`, the probe's `uses.c`, a hook
   that throws or warns with no provider, is called where each component
   renders and must do neither (`provides:c`). A page the host renders
-  outside its declared layout is a mismatch. `rx-verify --record` records
-  the row as it records any (MO-8j); `--rx-strict` asks for the rows of
-  the declarations a program imports, which this one is not, so holding
-  the record is the project's own step (the benchmark's tasks run
-  `rx-verify` on theirs). `rx-declare --host <modules…>`
+  outside its declared layout is a mismatch. For each component imported
+  from JavaScript (MO-14f) the probe gives the real one (`through.Outlet`)
+  and the scene applies `rx.Outlet` where the app's component applies it:
+  a component of the view must render inside it (`through:Outlet`, a claim
+  of the import's own row). `rx-verify --record` records the rows as it
+  records any (MO-8j), and `--rx-strict` asks for them: a host declaration
+  is found by its place, not imported, and it is a declaration the program
+  is checked by all the same — its pages are credited what it says — so
+  `rx-tsc` in strict mode refuses the view, and each import from
+  JavaScript, of every host declaration a module of the project is under
+  until `rx-verify` has recorded it (`UNVERIFIED_ROW`). What the
+  declaration imports from JavaScript is a declaration the program
+  consumes through it, held to its pin, its record and its types as any
+  other. (Until 2026-11-23 strict mode passed a host declaration over,
+  because no module imports it: the reason was how the file is found, not
+  what strict mode is for.) `rx-declare --host <modules…>`
   drafts the file: the imports, the contexts those modules' own imports
   are declared to use (the host must provide them), and a view with every
   component at the top; which page is among which layout's children is
   the router's own knowledge (its file names, its generated tree), and is
   left to write. A generator that reads `.rx` route files is where the
   whole file should come from.
+
+- **MO-14f (What the host renders through) — proposed 2026-11-23; veto
+  here.** A record's children are rendered among its component's children
+  (MO-11i), and an `.rx` component has two ways to say where those are:
+  `{props.children}`, and a component of the host's own that it applies.
+  A router's root is rendered where the app applies the router's
+  component (`<AppRouter />`, `<Router />`); a TanStack layout's pages
+  where the layout applies `<Outlet />`. Such a component is JavaScript,
+  so the declaration says which they are, by importing them as an `.rx`
+  module would: `import { AppRouter } from "./router.tsx"`, `import {
+  Outlet } from "@tanstack/solid-router"` — any module that is not `.rx`,
+  whose own declaration declares the name a component (else
+  `NOT_EXPORTED`). **No word is added**; an import row takes a second kind
+  of module.
+  - *The rule.* In the host's view, a component the declaration imports
+    from JavaScript, applied in the view of an `.rx` component, renders
+    that component's children there — as `{props.children}` written among
+    its own children would. So the records nested in a component are
+    checked where it applies the host's component: under the regions and
+    provisions it has around the application, and under what the applied
+    component's own row provides (`export component AppRouter(props: {})
+    provides(router)`, MO-12c) and requires (`Outlet … uses(router)`).
+    Applied twice, they are checked at both places.
+  - *An `.rx` entry around the router.* The view names the entry's
+    component, with the host's records as its children:
+    `export default component nests(children in component) = [{ component:
+    App, children: [{ component: Root, children: [{ component: Home }] }]
+    }]`. What `App` has around `<AppRouter />` — an `errored` region, a
+    `provide` of the app's own — then holds every page. The router's
+    context is the applied component's to provide, by its own row, not the
+    view's: `App` is outside the router, and a hook in it above the
+    router's component is `CONTEXT_NOT_FOUND` as before. A module the
+    declaration imports is hosted (MO-14d), so the entry's default
+    component is checked in the host's view, where it is at the top with
+    nothing above it — what MO-1c's mount is.
+  - *A component that renders none.* A component the view (or a factory's
+    tree, MO-11i) gives children, which neither reads `props.children` nor
+    applies a component the host renders through, is
+    `NESTED_NOT_RENDERED`: its pages would never show. Before 2026-11-23
+    such a record was accepted and its children dropped — a TanStack
+    layout written with `<Outlet />`, the way that router's documentation
+    writes one, had its pages checked under nothing at all (built: a root
+    layout with every region removed, over a page that waits and rejects,
+    was "ok" in both checkers).
+  - *Where it is applied.* In the view of the component the record names.
+    A component of the host's applied by another `.rx` component in
+    between (`Root` applies `<Frame />`, which applies `<Outlet />`) is
+    `Frame`'s, and `Root` is refused as rendering none: `Frame` takes the
+    outlet as its children. In a module checked on its own, outside the
+    host's view, such a component is the plain JS component its row
+    declares.
+
+  *The bar (MO-8r), applied to MO-14f (2026-11-23).* Programs built and
+  run with the checker of `e30ca84` and with this one:
+
+  | | TanStack Router's file routes (`@tanstack/router-plugin`) | file-system routes on `@solidjs/router` (`filesystem-routing`) |
+  | --- | --- | --- |
+  | the program | an `.rx` entry that provides a context of the app's own and frames `<AppRouter />` (`router.tsx`: the library's `<RouterProvider>`); a root layout that renders `<Outlet />` inside its `errored` and `loading` regions; a page that reads the app's context | an `.rx` entry that provides a context of the app's own and holds `<Router />` (`router.ts`: `createRouter` over the manifest) in a `loading` region; a layout with `props.children`; a page that reads the app's context |
+  | before | refused, from every entry: `CONTEXT_NOT_FOUND` for the page's `use team`, on the host's view | refused: `CONTEXT_NOT_FOUND`, and `ASYNC_OUTSIDE_LOADING_BOUNDARY` for the first load the entry's region holds |
+  | before, the layout with `<Outlet />` | accepted — and still accepted with every region removed: the pages unchecked | (no outlet: its layouts take `props.children`) |
+  | fallbacks | the host's view cannot claim the app's context (`export context team from "./team.rx"` is `NOT_EXPORTED`: MO-12e names a declared JS context); the router left undeclared changes nothing above the pages; what is left is to move the provision and the region into the root layout — another program than the one written. For the outlet alone: the route file passes it as the layout's children (TanStack's route files are TSX, below), which keeps every check | the same; with the entry in TSX nothing above the router is `.rx`'s to check at all |
+  | now | accepted; the provision removed, the outlet beside the regions, a layout with no outlet, a declaration that does not import the outlet: each refused | accepted; the provision removed, the region beside the router, a hook above the router, a layout that forgets its pages, a declaration that does not import the router's component: each refused |
+  | it runs | built by Vite, navigated in Chromium, `rx-verify` on the declaration: 3 claims hold | the same: 2 claims hold |
+
+  Necessary: an app's own component around its router, providing what
+  its pages share, is how both routers' apps are written, and it was
+  refused with no undeclared, wrapped or vendor-typed way out. More than
+  one library: two routers write the import (`AppRouter`; `Router`). The
+  outlet is counted honestly: one router has that component. It is not a
+  second form — the same import row, the same rule, applied one level
+  down — and leaving it out would take a rule of its own ("only in the
+  view's first record") written to keep one library's component out,
+  while that library's ordinary layout stayed unchecked. On its own the
+  outlet would not have passed: a route file can hand it over as
+  `props.children`. `bench/tasks/router-provider` and `file-routes`;
+  `examples/tanstack`.
 
 *The bar (MO-8r), applied (2026-11-23).* Programs built and run, not
 types read:
@@ -2825,20 +2931,29 @@ asks for `solid-js ^1.9`; `filesystem-routing` is its file routes for
 Solid 2.) What MO-8r withdrew stays withdrawn: those words described one
 library's values; this describes what any host does with components.
 
-*What it does not say.* A layout renders its pages as `props.children`;
-a route file that hands a TanStack layout its `<Outlet />` passes it
-there. A layout that renders the library's outlet component itself has no
-row: that was `outlet` (MO-11p), one library's. Should TanStack's
-generator come to read `.rx` route files, its generated tree would have to
-pass the outlet the same way, or the question is asked again with a
-second library behind it. A host with two views (two routers on a page)
-writes one list.
+*What it does not say.* No word marks a component as an outlet: `outlet`
+(MO-11p) stays withdrawn, and a layout that renders the library's outlet
+is credited by the host declaration's import of it (MO-14f), which says
+nothing of the component beyond "the host renders through it". A route
+file may still hand a layout its `<Outlet />` as `props.children`
+(`bench/tasks/start-route` does). TanStack's route files stay TSX: its
+generator has no option that admits another kind of file. The physical
+scan keeps a fixed list of extensions (`.ts`, `.tsx`, `.js`, `.jsx`,
+`.vue`); a virtual route config (`@tanstack/virtual-file-routes`) may
+name any file, and the generator then parses it as JavaScript and reads
+`export const Route = createFileRoute(…)` out of its text, `.vue` alone
+excepted in its source (run on 1.168.0: an `.rx` file in the routes
+directory is skipped; named in a virtual config it throws, "Error
+transforming route file … SyntaxError"); its plugin hooks run after that
+transform. A limit of the library, recorded and not filed: a route file
+is a few lines of TSX that hand the route a component of `pages.rx`. A
+host with two views (two routers on a page) writes one list.
 
-S-module-37; the units
+S-module-37, S-module-38 (MO-14f); the units
 `a_host_declaration_places_the_components_a_js_host_renders`
-(`ref/units.ts`, the crate's `modules.rs`); the tree-sitter corpus's *A
-host declaration*; `bench/tasks/start-route`, `router-provider`,
-`file-routes`.
+(`ref/units.ts`, the crate's `modules.rs`); the tree-sitter corpus's two
+*A host declaration* entries; `bench/tasks/start-route`,
+`router-provider`, `file-routes`; `examples/tanstack`.
 
 ## Diagnostics this document adds
 
@@ -2855,6 +2970,8 @@ host declaration*; `bench/tasks/start-route`, `router-provider`,
 | `RESULT_AS_VALUE` | S | MO-10f: a prop whose type says which of its fields hold or fail, used as a value; MO-10l: a JS result with a `ref` part that waits or fails, used whole (a declared result's plain field no longer says so, MO-8r) |
 | `DRAFT_ESCAPES` | S | MO-10i: a draft named outside its callback's own run, or handed where its parameter is not known |
 | `UNHANDLED_FAILURE`, `ASYNC_OUTSIDE_LOADING_BOUNDARY`, `CONTEXT_NOT_FOUND` on a host declaration's view | S | MO-14c: what a component the host renders lets out of the view the declaration states |
+| `NESTED_NOT_RENDERED` | S | MO-11i, MO-14f: a component a record nests others in renders none of its children |
+| `NOT_EXPORTED` for a host declaration's import from JavaScript | S | MO-14f: the module's declaration declares no such component |
 
 ## Implementation
 
@@ -2902,6 +3019,20 @@ host declaration*; `bench/tasks/start-route`, `router-provider`,
   components out of CP-4d's cautious check, and checks the host's program
   after the entry's, each diagnostic of the module that stands for the
   declaration reported on the declaration.
+- MO-14f: the lowering keeps an import from JavaScript as the `.rx` import
+  it reads as; the loader resolves its declaration as any import's, holds
+  that it declares the name a component, and gives the host's set
+  `through` (`declaration#Name`). Checking that set, such a component's
+  symbol is marked, and each application of one in a component's view
+  adds a reader of that component's `children` in the application's
+  children region (`throughChildren`; the crate's `through_reads`, an
+  occurrence of the prop with no expression) — so the summary of
+  `children` (MO-3), the content model's `childrenAt` (SV-7d) and MO-11i's
+  nesting are the ones `{props.children}` has. `NESTED_NOT_RENDERED` is
+  asked after the application tree is resolved: a component a factory's
+  record nested others in whose `children` reach no place they render.
+- MO-1c: `checkModules` passes `dependency` for every module but the
+  set's entry, and a dependency's `view` is not walked.
 - The interpreter instantiates each dependency in a region of its own; the
   oracle declares it in a scope of its own inside the mounted root. The
   compiler emits `mN.mjs` per dependency — a factory over the app that

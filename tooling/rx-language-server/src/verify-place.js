@@ -280,7 +280,9 @@ async function verifyComponentCallbacks({ comps, at, probeMod, resolve }) {
  *  (the router the app's host makes, given these in place of the `.rx` components). Then: each component the tree
  *  names renders, and inside the component of the record it is a child of. For each `provides(c)`, the probe's
  *  `uses[c]` (a hook that throws or warns with no provider) is called where each recording component renders, and must do
- *  neither. `text` is the declaration with each row on one line. Null when the file states no view. */
+ *  neither. For each component the declaration imports from JavaScript (MO-14f), `rx` holds a marked wrapper of the probe's
+ *  `through[name]`: the scene applies it where the app's component applies the real one, and a component of the view must
+ *  render inside it. `text` is the declaration with each row on one line. Null when the file states no view. */
 async function verifyHost({ text, probeMod, resolve }) {
   const lines = text.split("\n");
   const at = lines.findIndex(l => /^\s*export\s+default\s+component\b/.test(l)); if (at < 0) return null;
@@ -288,9 +290,13 @@ async function verifyHost({ text, probeMod, resolve }) {
   const eq = row.indexOf("="); const words = row.slice(0, eq), tree = row.slice(eq + 1).trim();
   const provides = [...words.matchAll(/\bprovides\(([^)]*)\)/g)].flatMap(m => m[1].split(",").map(x => x.trim()).filter(Boolean));
   const n = /\bnests\(\s*([\w$]+)\s+in\s+([\w$]+)\s*\)/.exec(words); const nests = n && { kids: n[1], inside: n[2] };
-  const names = lines.flatMap(l => { const m = /^\s*import\s*\{([^}]*)\}\s*from\b/.exec(l); return m ? m[1].split(",").map(x => x.trim()).filter(Boolean).map(x => x.split(/\s+as\s+/).pop()) : []; });
+  const imported = lines.flatMap((l, i) => { const m = /^\s*import\s*\{([^}]*)\}\s*from\s*(["'])(.*?)\2/.exec(l); return m ? m[1].split(",").map(x => x.trim()).filter(Boolean).map(x => [x.split(/\s+as\s+/).pop(), m[3], i + 1, x.split(/\s+as\s+/)[0]]) : []; });
+  const names = imported.filter(([, from]) => from.endsWith(".rx")).map(([x]) => x);
+  // MO-14f: what the declaration imports from JavaScript — the host's own components, which it renders through
+  const throughRows = imported.filter(([, from]) => !from.endsWith(".rx"));   // [the name here, its module, the import's line, its name there]: the claim is the import's
+  const through = throughRows.map(([x]) => x);
   const out = []; const obs = ["placement", ...provides.map(c => `provides:${c}`)];
-  const all = (status, what) => obs.map(ob => ({ line, ob, status, what }));
+  const all = (status, what) => [...obs.map(ob => ({ line, ob, status, what })), ...throughRows.map(([, , at, name]) => ({ line: at, ob: `through:${name}`, status, what }))];
   if (typeof probeMod?.scene !== "function") return all("unverified", `the host's view is not run: give a scene in the probe beside the declaration (scene(rx, h): the host's view of rx.${names[0] ?? "Layout"}, …)`);
   const s = await import(resolve("solid-js"));
   const MARK = s.createContext(null); const chains = new Map(); const threw = new Map();   // threw: context → the components where its hook threw
@@ -309,6 +315,13 @@ async function verifyHost({ text, probeMod, resolve }) {
     const chain = [...(s.useContext(MARK) ?? []), name]; chains.set(name, chain);
     for (const c of provides) { const hook = probeMod.uses?.[c]; if (typeof hook !== "function") continue; (complains(hook) ? threw : used).set(c, [...((complains.last ? threw : used).get(c) ?? []), name]); }
     return s.createComponent(MARK, { value: chain, get children() { return parents.has(name) ? props.children : null; } });
+  };
+  // a component the host renders through: the probe's own (`through.Outlet`), applied where the scene applies `rx.Outlet`
+  // and marked, so that what renders inside it is seen to
+  const applied = new Set();
+  for (const t of through) rx[t] = props => {
+    applied.add(t); const real = probeMod.through?.[t];
+    return s.createComponent(MARK, { value: [...(s.useContext(MARK) ?? []), `→${t}`], get children() { return typeof real === "function" ? s.createComponent(real, props) : props.children; } });
   };
   try { built = new Function(...names, `return (${tree});`)(...names.map(x => rx[x])); } catch (e) { return all("unverified", `the host's tree is not read: ${String(e.message ?? e).slice(0, 60)}`); }
   Object.defineProperty(rx, "tree", { value: built, enumerable: false });
@@ -345,6 +358,15 @@ async function verifyHost({ text, probeMod, resolve }) {
       : threw.get(c)?.length ? { line, ob, status: "fail", what: `the host's view: declared provides(${c}), but the hook that uses it fails in ${[...new Set(threw.get(c))].join(", ")}` }
       : unseen.size || !used.get(c)?.length ? { line, ob, status: "unverified", what: `the host's view: provides(${c}) not shown for ${[...unseen].join(", ") || "any component"}: the scene does not render ${unseen.size ? "them" : "one"}` }
       : { line, ob, status: "ok", what: `the host's view: provides(${c}) holds: the hook that uses it runs in ${[...new Set(used.get(c))].join(", ")}` });
+  }
+  // MO-14f: each component the host renders through — applied by the scene inside a component of the view, it is what
+  // renders that component's children
+  for (const [t, , line, name] of throughRows) {
+    const ob = `through:${name}`; const inside = [...chains.values()].filter(ch => ch.slice(0, -1).includes(`→${t}`)).map(ch => ch[ch.length - 1]);
+    out.push(typeof probeMod.through?.[t] !== "function" ? { line, ob, status: "unverified", what: `the host's view: ${t} is not run: give the component as the probe's through.${t}, and apply rx.${t} in the scene where the app's component applies it` }
+      : !applied.has(t) ? { line, ob, status: "unverified", what: `the host's view: the scene does not apply rx.${t}: apply it where the app's component does (inside the component whose children it renders)` }
+      : !inside.length ? { line, ob, status: "fail", what: `the host's view: declared rendered through ${t}, and nothing the view names renders inside it` }
+      : { line, ob, status: "ok", what: `the host's view: rendered through ${t}: ${[...new Set(inside)].join(", ")}` });
   }
   return out;
 }

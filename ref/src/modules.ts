@@ -6,7 +6,7 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
 
-export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; declarationIds?: Map<string, string>; printed?: Set<string>; host?: HostView; hosted?: Set<string>; placed?: Set<string> };   // MO-14: host, the JS host's view above this program (its declaration, and the program that stands for it); hosted: the modules it imports; placed: the components it places, `path#Name`
+export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; declarationIds?: Map<string, string>; printed?: Set<string>; host?: HostView; hosted?: Set<string>; placed?: Set<string>; through?: Set<string> };   // through: MO-14f, in the host's own set — the JS components the host renders through, `declaration#Name`   // MO-14: host, the JS host's view above this program (its declaration, and the program that stands for it); hosted: the modules it imports; placed: the components it places, `path#Name`
 /** MO-14: a host declaration found above a program — `file`, the `host.d.rx`; `entry`, the module that stands for the
  *  host's view in the checker (never written: the declaration lowered onto a factory's words); `set`, that program. */
 export type HostView = { file: string; entry: string; set: ModuleSet };   // printed: MO-13a, the signatures a JS import's marked `.d.rx` gave, by `.rx` path   // declarationIds: SV-5a, `packageRelative`   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
@@ -162,8 +162,21 @@ export function loadModules(entry: string, read: (path: string) => string | unde
   const hosted = new Set<string>(), placed = new Set<string>();
   // placed: the imported components the tree names (one it imports and leaves out is still rendered where no one says)
   const host = ds.find(d => d.kind === "host") as Extract<JsDecl, { kind: "host" }>; const named = new Set(src.slice(host.span[1], host.span[2]).split(/[^A-Za-z0-9_$]+/));
-  for (const d of ds) if (d.kind === "import") { const to = joinPath(file, d.from); hosted.add(to); for (const n of d.names) if (named.has(n.alias)) placed.add(`${to}#${n.name}`); }
-  hs.hosted = hosted; hs.placed = placed;
+  // MO-14f: a component the declaration imports from a JS module is the host's own — one an `.rx` component applies, and the
+  // host renders through: `through`, each by its declaration and its name there
+  const through = new Set<string>();
+  for (const d of ds) if (d.kind === "import") {
+    if (!isRx(d.from)) {
+      const imp = hs.programs.get(hostEntry)?.decls.find(x => x.k === "import" && x.from === d.from && x.line === d.line); const dts = imp && imp.k === "import" ? imp.declared : undefined;
+      for (const n of d.names) {
+        if (!dts || !hs.declarations?.get(dts)?.some(x => x.kind === "comp" && x.name === n.name)) throw Object.assign(new ParseError(`${file}: line ${d.line}: import { ${n.name} } from ${JSON.stringify(d.from)}: a host declaration imports from a JS module a component the host renders through, and ${dts ? `${dts} declares no component ${n.name}` : `${d.from} has no declaration`} — \`export component ${n.name}(props: {})\` in its \`.d.rx\` (MO-14f)`), { code: "NOT_EXPORTED" });
+        through.add(`${dts}#${n.name}`);
+      }
+      continue;
+    }
+    const to = joinPath(file, d.from); hosted.add(to); for (const n of d.names) if (named.has(n.alias)) placed.add(`${to}#${n.name}`);
+  }
+  hs.hosted = hosted; hs.placed = placed; hs.through = through;
   set.host = { file, entry: hostEntry, set: hs }; set.hosted = hosted; set.placed = placed;
   return set;
 }

@@ -1,7 +1,8 @@
 // `rx-declare --host` (09 MO-14): a draft of a host declaration, from the `.rx` modules a JS host renders. What it can
 // read is written: each module's exported components, as imports; the contexts those modules' own imports are declared
 // to use, which the host must then provide; a view that names every component. What it cannot is said in a comment:
-// which component is among which one's children is the router's own knowledge (its file names, its generated tree).
+// which component is among which one's children is the router's own knowledge (its file names, its generated tree), and
+// so is which of the router's own components a layout renders its pages through (MO-14f).
 const fs = require("node:fs");
 const path = require("node:path");
 const { lookup } = require("./rxc");
@@ -53,6 +54,8 @@ function draftHost(files, dir) {
     ...(contexts.size ? ["// the contexts these modules' imports are declared to use: the host provides each above every component it renders"] : []),
     ...[...contexts].map(([c, m]) => `export context ${c} from ${JSON.stringify(m)}`),
     "// TODO: every component is placed at the top: write each page among its layout's `children`, as the router nests them",
+    "// (a layout that renders its pages with a component of the router's own — an outlet — or an `.rx` entry that applies the",
+    "// router's component: import that component from its JS module, and name the entry's component around the rest, MO-14f)",
     `export default component${provides} nests(children in component) = [${names.map(n => `{ component: ${n} }`).join(", ")}]`,
     "",
   ].join("\n");
