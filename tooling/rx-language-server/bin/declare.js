@@ -14,7 +14,8 @@ const args = process.argv.slice(2);
 // Which page is among which layout's children is the router's to know: it is left to write, and said so.
 // `rx-declare --host --routes <source> [<entry.rx>…] [--out host.d.rx]` (MO-14g): the whole declaration, derived from
 // the router's own tree — TanStack Router's generated `routeTree.gen.ts`, a routes directory the project's
-// filesystem-routing scans, or a JSON tree — with the entry around the router when one is named. The file says where
+// filesystem-routing scans, a module that exports the project's filesystem-routing router (any `toPath`, any
+// `toRoute`), or a JSON tree — with the entry around the router when one is named. The file says where
 // it came from (`//@ routes …`), and `--host --sync <host.d.rx>` writes it again from there; `--host --check
 // <host.d.rx>` exits 1 when it has fallen behind (as rx-tsc, rx-verify and a build do: HOST_VIEW_STALE).
 if (args.includes("--host") && (args.includes("--routes") || args.includes("--sync") || args.includes("--check"))) {
@@ -35,7 +36,7 @@ if (args.includes("--host") && (args.includes("--routes") || args.includes("--sy
     process.exit(bad);
   }
   const source = args[routesAt + 1];
-  if (!source || source.startsWith("--")) { process.stderr.write("usage: rx-declare --host --routes <routeTree.gen.ts | routes directory | routes.json> [<entry.rx>…] [--out host.d.rx]\n"); process.exit(2); }
+  if (!source || source.startsWith("--")) { process.stderr.write("usage: rx-declare --host --routes <routeTree.gen.ts | routes directory | router module | routes.json> [<entry.rx>…] [--out host.d.rx]\n"); process.exit(2); }
   const d = H.derive(out ? path.dirname(path.resolve(out)) : process.cwd(), path.resolve(source), rest.map(f => path.resolve(f)));
   if (d.problems.length) { for (const p of d.problems) process.stderr.write(`rx-declare: ${p}\n`); process.exit(1); }
   if (out) fs.writeFileSync(out, d.text); else process.stdout.write(d.text);

@@ -580,6 +580,32 @@ whole-program build, since JavaScript may render that one anywhere.
   With the declaration there, a route file's default component is not a mounted view: it is the host's to render.
   The plugin's `types` option writes the manifest as a literal tuple, which types the router's `paths`:
   `paths.person("9")` in a layout is a type error (`bench/tasks/file-routes`).
+
+  `rx-declare --host --routes src/routes src/main.rx` reads that directory with the package's own convention. A
+  convention of your own — a `toPath`, a `toRoute` that leaves files out, `FlatFileSystemRouter` — is the router's to
+  say, so write the router once, as a module, and give the same object to the plugin and to the tool:
+
+  ```js
+  // src/routes.config.js
+  import { fileURLToPath } from "node:url";
+  import { PageFileSystemRouter, routePathFromFile } from "filesystem-routing";
+  export default new PageFileSystemRouter({
+    dir: fileURLToPath(new URL("./routes", import.meta.url)), extensions: ["rx"],
+    toPath: file => routePathFromFile(file.replace("/(app)/people/", "/people/")),   // these pages sit outside the (app) layout
+    toRoute: (src, router) => ({ path: router.toPath(src), page: true, $component: { src: `${src}?rx-page`, pick: ["default"] }, $$route: undefined }),
+  });
+  ```
+
+  ```ts
+  // vite.config.ts                                       # and: rx-declare --host --routes src/routes.config.js src/main.rx
+  import router from "./src/routes.config.js";
+  fileRoutes({ router, types: "src/file-routes.d.ts" })
+  ```
+
+  The declaration's first line then names the module (`//@ routes ./routes.config.js ./main.rx`), and the tool asks
+  the router for its routes: nothing of the convention is computed a second time. A directory named under a Vite
+  config that sets `toPath`, `router` or `routers` inline is refused with those words — it would be read with a
+  convention the app does not have.
 - **Solid's start mode** — server rendering and hydration with nothing but Solid's Vite plugin. SolidStart is not
   needed on Solid 2 (and `@solidjs/start` 2 still asks for Solid 1.9): `@solidjs/vite-plugin` 3 has Start as a mode,
   which owns the entries, the dev server's render and the build. An app is its root component and its routes — no
@@ -589,13 +615,10 @@ whole-program build, since JavaScript may render that one anywhere.
   // vite.config.ts
   export default defineConfig({ plugins: [
     fileRoutes({ extensions: ["rx"], types: "src/file-routes.d.ts", toRoute: /* as above */ }),
-    solid({ ssr: true, start: { nodeServer: true } }),      // `vite` renders each request; `vite build`, then `node dist/server/node.js`
-  ] })
-  ```
-
-  ```ts
-  // src/App.ts — start mode's root is a TS or JSX file: hand it the .rx root as a page
-  export { default } from "./App.rx?rx-page";
+    // `vite` renders each request; `vite build`, then `node dist/server/node.js`. The root is the .rx file itself,
+    // said once: start mode imports the file it is given, and the front end compiles that file as a page
+    solid({ ssr: true, start: { app, nodeServer: true }, frontends: { ".rx": rx({ pages: [app] }) } }),
+  ] })                                                      // const app = "src/App.rx"; rx from "@reactivescript/compiler/vite"
   ```
 
   ```rx
@@ -609,9 +632,11 @@ whole-program build, since JavaScript may render that one anywhere.
 
   The routes are the `.rx` files of `src/routes`, as above, and `host.d.rx` is derived from that directory
   (`rx-declare --host --routes src/routes src/App.rx`). Each request is rendered on the server, streamed, and
-  hydrated (`bench/tasks/start-mode`). List `@reactivescript/runtime` in your `package.json` dependencies: Solid's
-  plugin finds the packages that run on Solid there, and under the dev server loads them with your app's copy of
-  Solid — a runtime Node loads on its own has another, and the first `provide` then says so.
+  hydrated (`bench/tasks/start-mode`). The app lists `@reactivescript/compiler` and nothing else of ReactiveScript's:
+  the runtime is the compiler's dependency, and Solid's plugin — which under the dev server loads with your app's
+  copy of Solid every package that runs on Solid — reaches it through the compiler's `package.json`. (An app that
+  lists neither, with both installed all the same, gets a runtime on Node's copy of Solid: the first `provide` says
+  so, and what to list.)
 
 For a host with no tree to read, `rx-declare --host src/pages.rx` (or the route files) drafts what it can: the
 imports, the contexts those modules' imports are declared to use, and a view with every component at the top; which

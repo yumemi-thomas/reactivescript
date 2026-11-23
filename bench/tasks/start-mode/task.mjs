@@ -21,7 +21,7 @@ const bodyText = html => html.replace(/<head[\s\S]*?<\/head>/, "").replace(/<scr
 export default {
   title: "Solid's start mode (@solidjs/vite-plugin `start`, filesystem-routing, @solidjs/router): an .rx root and .rx route files, served, streamed and hydrated",
   entries: [LAYOUT, "src/App.rx", PAGE],
-  host: true,   // the manifest imports each route file's page, and src/App.ts the root (?rx-page): JS applies them, where src/host.d.rx says
+  host: true,   // the manifest imports each route file's page (?rx-page), and start mode the root (vite.config.ts: `pages`): JS applies them, where src/host.d.rx says
   // the build first: filesystem-routing's plugin writes the manifest's types (src/file-routes.d.ts), which type `paths`,
   // and start mode writes both bundles and the Node server (dist/server/node.js)
   prepare(dir) { execFileSync(process.execPath, [path.join(dir, "../../node_modules/vite/bin/vite.js"), "build"], { cwd: dir, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, RX_TYPECHECK: "0" } }); },
@@ -29,7 +29,6 @@ export default {
     { name: "a link to no route is refused (the manifest's generated types)", edit: ['paths.people("9")', 'paths.person("9")'], expect: /TS2339|TS2551/ },
     { name: "a route's param is given (the path's type is the file's name)", edit: ['paths.people("1")', "paths.people()"], expect: /TS2554|TS2345|TS2322|TS2769/ },
     { name: "the answer keeps the backend's type in the page", file: PAGE, edit: ["{person.role}, #{params.id}</p>", "{person.rank}, #{params.id}</p>"], expect: /TS2339/ },
-    { name: "the root handed to start mode is the .rx module's component (App.ts is typed by App.rx)", file: "src/App.ts", edit: ['export { default } from "./App.rx?rx-page";', 'import App from "./App.rx?rx-page";\nexport default App satisfies string;'], expect: /TS1360|TS2322|TS2345/ },
   ],
   bad: [
     { name: "a page that can fail, with no errored region in its layout", edit: [REGION, "<main>{props.children}</main>"], expect: "UNHANDLED_FAILURE" },

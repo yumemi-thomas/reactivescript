@@ -134,8 +134,8 @@
       "fails": []
     },
     "runtime": {
-      "pass": 5,
-      "total": 5,
+      "pass": 8,
+      "total": 8,
       "fails": []
     },
     "bad": {
@@ -1154,8 +1154,8 @@
       "fails": []
     },
     "types": {
-      "pass": 6,
-      "total": 6,
+      "pass": 5,
+      "total": 5,
       "fails": []
     },
     "runtime": {

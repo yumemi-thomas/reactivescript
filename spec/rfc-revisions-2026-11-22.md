@@ -489,6 +489,20 @@ for a program:
 | a project's declaration of a router | the library's whole draft, 296 rows | `rx-declare <package> --only <exports>`: 28 rows |
 | a package whose signature names a library through its own `rx-types/` | built "ok", and wrong in every app | refused by `rx-lib` |
 
+## After the eleventh round (2026-11-24): three limits that were this project's
+
+Recorded in 11 CP-4a (*Who installs it*) and CP-4d, 09 MO-14g and MO-8s,
+and `rfc-declaration-types-2026-11-22.md` (*A twelfth round*). The
+eleventh round wrote three things down as limits that were not a
+library's: each was looked at again for what this side could do.
+
+| what a Solid app writes | was | now |
+| --- | --- | --- |
+| `package.json` of an app in Solid's start mode | `@reactivescript/runtime` listed for the plugin's sake, or `provide` had no owner under the dev server | the compiler listed; the runtime is its dependency and is found by the front end |
+| the root of an app in start mode | `src/App.ts`, one line handing `App.rx` over | `start: { app: "src/App.rx" }`, and `rx({ pages: ["src/App.rx"] })` |
+| `host.d.rx` under a `filesystem-routing` config with a `toPath` of its own | derived with the package's default convention, in silence: pages nested as the router does not | the router is a module, named as the source and asked for its routes; a directory under such a config is refused |
+| a wrapper that renders a library's provider inside a fragment, or calls its hook through a helper of the same module | its declaration by hand | drafted with the library's words (MO-8s) |
+
 ## Limits that remain, and why they are inside the goal
 
 - **`renders(H)` places a fn's components side by side beneath H**
@@ -517,7 +531,10 @@ for a program:
   drafted whole, MO-8s.)
 - **A record of components is read in the literal the prop is given**
   (MO-11c): one built elsewhere and passed by name is
-  `COMPONENT_AS_VALUE` where it is written.
+  `COMPONENT_AS_VALUE` where it is written. (Read again 2026-11-24 as a
+  limit a tool might lift: it is the rule, ruled with its unit — a name
+  bound to a record is a value, which `.rx` cannot apply and could hand
+  anywhere — and not a reader's shortfall.)
 - **A package written in `.rx` cannot name another package's host** in
   its signature (MO-13b, as a context): the app shows the toast, or
   mounts the toaster. (Decided 2026-11-24: no library writes it. A
@@ -527,10 +544,13 @@ for a program:
 - **A host declaration written by hand is trusted** (09 MO-14e), as
   every `.d.rx` is. One that names the router's tree (`//@ routes`,
   MO-14g) is that tree's, and refused when it falls behind — for the
-  three sources the tools read (TanStack's generated tree, a
-  `filesystem-routing` directory with that package's default nesting, a
-  JSON tree). A custom `toPath` in the Vite config is not read; such a
-  project writes the JSON, or the declaration. Which component a layout
+  four sources the tools read (TanStack's generated tree, a
+  `filesystem-routing` directory with that package's own convention, the
+  project's `filesystem-routing` router as a module, a JSON tree). A
+  convention of the project's own is the router's to say: the router is a
+  module, given to the plugin and named as the source, and a directory
+  under a Vite config that sets one inline is refused (2026-11-24; it was
+  read with the default convention, in silence). Which component a layout
   renders its pages through is still said by the reader for the router
   it knows (TanStack's `<Outlet />`), and `rx-verify` runs it.
 - **The checkers read no router** (08 CN-8): `HOST_VIEW_STALE` is the
@@ -545,12 +565,22 @@ for a program:
   `.rx` file is a fork's (`routeComponentExtensions`), built against and
   not upstream. A route with a loader or search validation is a TS route
   file either way.
-- **Solid's start mode takes its root from a TS or JSX file**: an `.rx`
-  root is handed over in one line of `src/App.ts`.
+- **Solid's start mode is told its `.rx` root twice in one line of
+  config** (`start: { app }`, and `rx({ pages: [app] })`, 11 CP-4d,
+  2026-11-24): the plugin writes the import, and a front end is not told
+  who imports a module. The file with no option, `src/App.*`, is looked
+  for under five extensions, which is the plugin's.
+- **The runtime is found by naming one module** (11 CP-4a, 2026-11-24):
+  an app lists the compiler and nothing else of this project's. Under a
+  package manager that hoists nothing, an app that also installs a
+  package written in `.rx` lists the runtime, as that package's peer
+  asks.
 - **A module of the app's own takes a library's words by its shape**
-  (MO-8s): exported again, rendered alone, made by a factory, called at
-  the top of a hook, read by a field. A module that does the same thing
-  another way — the provider inside a fragment, the hook in a helper —
+  (MO-8s): exported again, rendered alone (a fragment around it is
+  nothing), made by a factory, called at the top of a hook — or of a
+  helper the hook calls so — read by a field. A module that does the same
+  thing another way — the provider inside an element of its own, a hook
+  called through a helper of another module, or behind a condition —
   takes nothing, and its declaration is written by hand as before.
 - **A duplicate key computed at run time is reported in development
   only** (06 ST-4d), and not refused; **a `pure` fn that differs between

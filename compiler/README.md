@@ -125,10 +125,17 @@ The app mounts a program with `createApp` from `@reactivescript/runtime`
   URLs — a timestamp after each edit, and Vite 8 spells the query of a `?import` module in two orders — and the
   browser evaluates each: without the name a module's state and its contexts were made twice, and an edited route
   file read `no provision` for what the app's entry provides. A build names nothing. `test/vite.mjs` (*context*).
-- **Solid's start mode** (`solid({ start: true, ssr: true })`): the root is `src/App.ts`, one line that hands an
-  `.rx` root over as a page (`export { default } from "./App.rx?rx-page"`); `bench/tasks/start-mode`. List
-  `@reactivescript/runtime` in the app's `package.json`: Solid's plugin then loads it with the app's copy of Solid
-  under the dev server.
+- **Solid's start mode** (`solid({ start: { app }, ssr: true, frontends: { ".rx": rx({ pages: [app] }) } })`, `app`
+  an `.rx` file): start mode takes its root as a file and writes the import itself, so `pages` tells the front end
+  that file is a page — its default component, as an import with `?rx-page` says (spec/11 CP-4d);
+  `bench/tasks/start-mode`.
+- **The runtime is this package's dependency** (spec/11 CP-4a): an app lists the compiler, and the import a compiled
+  `?rx-lib` or `?rx-page` module carries is found here (`runtimeFor`) — the bare name where the app's own imports
+  reach the package, else this package's own copy by its folder. The published manifest
+  (`scripts/published.mjs`, written by the publish job: the runtime in `dependencies`, Solid as a peer) is also what
+  lets Solid's plugin load the runtime with the app's copy of Solid under the dev server; it is not committed to
+  `package.json`, as the platform packages are not, and the suites install the package with it
+  (`bench/harness.mjs`, `test/runtime-resolve.mjs`: the runtime nested, hoisted, and listed nowhere).
 - **Whole program (opt-in).** `rx({ wholeProgram: true })` counts the JS
   under the Vite root that imports a module with `?rx-lib` as its hosts
   (02 E-5a); `hostRoots: ["../site"]` names folders or files beyond the

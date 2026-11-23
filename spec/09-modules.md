@@ -975,9 +975,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | the module writes | its row takes |
   | --- | --- |
   | `export { Toast }` of a library's component (or `export { Toast } from …`, or under another name), with its members | that row's `uses(…)` and `provides(…)`, member for member |
-  | a component whose body is one `return` of one library component and nothing around it (`return <RouterProvider router={router} />`) | that component's `uses(…)` and `provides(…)` |
+  | a component whose body is one `return` of one library component and nothing around it (`return <RouterProvider router={router} />`), or of a fragment around that one element alone | that component's `uses(…)` and `provides(…)` |
   | `export const Router = createRouter(…)`, of a fn whose row hands back a `Component` with words | the component's words (`provides(router)`) |
   | a fn that calls a library's hook at the top of its body — not behind a condition, not in a nested function | the hook's `uses(…)`; and `pure`, where the hook is `pure` and the body does nothing else but return a record of functions and names |
+  | a fn that calls, at the top of its body, a helper of the module's own (a function declared once at the module's top, not exported) that calls the hook so | what the helper's call takes: `uses(…)`, and `pure` only where neither body does anything else |
   | a field of that record that only reads the hook's result, `data: () => q.data` | `ref` (an accessor, read as a value); and `pending fails(E)` where rx-declare knows the result's field to wait or throw |
   | a fn that hands its own parameters straight to a library call known to render them (`toast => toaster.show(toast)`) | `renders(H)`, where the module exports H too |
 
@@ -997,9 +998,13 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   And it is not the guess RFC 26 forbids: `pure` is still never read off
   a name. A word is copied from the row it was written on, only where
   the text shows the module does what that row describes and nothing
-  more — a component that renders the provider inside markup of its own,
-  a hook called behind a condition, a body that also logs, take nothing
-  (or `uses` without `pure`), and their questions stay. As any row, a
+  more — a component that renders the provider inside markup of its own
+  (an element is something of its own; a fragment is not, and one with
+  the children beside the provider puts them outside it), a hook called
+  behind a condition, here or in a helper, a body that also logs, take
+  nothing (or `uses` without `pure`), and their questions stay. (The
+  fragment and the helper were added 2026-11-24, having been listed as
+  the two ways a module does the same thing and took nothing.) As any row, a
   carried one is `rx-verify`'s to run. `--types-only` leaves them out.
   What it cut, measured on the benchmark's own modules: `query.d.rx` in
   two tasks 20 words each to none, the routers' `router.d.rx` 6 and 13 to
@@ -3269,7 +3274,24 @@ says what the host does, once, in the words a factory's row already has.
     or the one `.rx` component its TS route file hands the route. **A
     routes directory**, scanned by the project's own
     `filesystem-routing` (its `toPath`, its `buildRouteTree`): every
-    `.rx` file a page, nested as that package nests them. **A JSON
+    `.rx` file a page, nested as that package nests them — the package's
+    convention, and no other. **The project's router, as a module**
+    (2026-11-24): a project whose convention is its own — a `toPath`, a
+    `toRoute` that leaves files out, another router class — writes the
+    router once, `export default new PageFileSystemRouter({ dir,
+    extensions, toPath, toRoute })`, gives it to the plugin
+    (`fileRoutes({ router })`, the package's own option) and names the
+    module as the source. The tool imports it and asks it: the router's
+    own routes, nested by the package's `buildRouteTree`, each with the
+    `.rx` file of its component (`$component.src`, else the file the
+    router scanned). Nothing of a convention is recomputed, so any is
+    honoured. (Weighed first: the files the plugin writes. It writes no
+    manifest — the routes are a virtual module — and its `types` output
+    has each path, id and nesting but no file, and for an `.rx` component
+    no import to find one by.) A directory named under a Vite config that
+    gives the plugin `toPath`, `router` or `routers` is refused, with
+    this source to name instead: it had been answered with the default
+    tree, in silence. **A JSON
     tree** (`[{ file, component?, path?, children? }]`), for a host no
     reader is written for. A route with no `.rx` component is left out,
     its children its parent's.

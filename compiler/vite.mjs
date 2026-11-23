@@ -32,6 +32,18 @@
 // kept `peek` of a prop or provision is decided by every application and provision; a module some JS file under the
 // root imports with `?rx-lib` counts as applied from outside; `rx({ hostRoots: ["../site"] })` names the folders or files
 // beyond the root that hold such hosts (another app's, a server's). Off by default: the editor checks per module.
+//
+// The runtime (11 CP-4a): what a compiled `?rx-lib` or `?rx-page` module imports the app binding from is found here,
+// not asked of the app's package.json — @reactivescript/runtime is this package's dependency. Where the app's own
+// imports reach it (`node_modules` up from the Vite root, as Vite resolves a bare import), the import is that bare
+// name: one module with the app's `createApp`, and Solid's plugin, which loads with the app every package that runs
+// on Solid, finds it listed in the app's package.json or through this package's. Where they do not (a package manager
+// that hoists nothing), it is this package's own copy, by its folder: an import by path is never left to Node.
+//
+// A root some JS names by its file (CP-4d): `rx({ pages: ["src/App.rx"] })` — an `.rx` module named there is compiled
+// as a page (its default component, as `?rx-page`) when it is imported with no query. Solid's start mode takes its
+// root as a file path and writes the import itself (`solid({ start: { app: "src/App.rx" } })`), so the query has
+// nowhere to go.
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -262,6 +274,28 @@ async function hostsVia(root, resolve, alias, via, more) {
   return [...out].sort();
 }
 
+/** 11 CP-4a: the folder of `@reactivescript/runtime` that `node_modules` up from `from` reaches, as Vite and Node
+ *  resolve a bare import (the package exports no `package.json`, so `require.resolve` cannot be asked). */
+function runtimeDir(from) {
+  for (let dir = path.resolve(from); ; dir = path.dirname(dir)) {
+    const at = path.join(dir, "node_modules/@reactivescript/runtime");
+    if (existsSync(path.join(at, "package.json"))) return at;
+    if (path.dirname(dir) === dir) return undefined;
+  }
+}
+const runtimes = new Map();   // a Vite root → how its compiled modules name the runtime
+/** How a compiled module names the runtime for the app under `root`: the bare name where the app's own imports reach
+ *  the package (one module with them, and with what Solid's plugin loads with the app); else this package's own copy —
+ *  its dependency, or the repository's beside it — by its folder, whose `exports` Vite reads for the environment. */
+function runtimeFor(root) {
+  if (runtimes.has(root)) return runtimes.get(root);
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const own = () => runtimeDir(here) ?? [path.join(here, "../runtime")].find(d => existsSync(path.join(d, "dist/web.js")));
+  const spec = runtimeDir(root) ? "@reactivescript/runtime" : own() ? posix(real(own())) : "@reactivescript/runtime";
+  runtimes.set(root, spec);
+  return spec;
+}
+
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx(options = {}) {
   const flag = process.env.RX_TYPECHECK;
@@ -292,7 +326,11 @@ export default function rx(options = {}) {
   let lastRoot;   // the Vite root, for whole-program checking's ?rx-lib hosts   // entry\0target\0moduleName\0spa\0lib → { entry, target, moduleName, spa, lib, out, stamps }
   // E-5a: the hosts a whole-program check counted are part of what it was checked against: a JS file that starts or stops
   // importing a module with ?rx-lib makes the check stale, as an edit of one of its modules does
-  const hostsNow = () => options.wholeProgram ? hostsUnder(lastRoot ?? process.cwd(), options.alias, options.hostRoots) : [];
+  // CP-4d: the modules `rx({ pages })` names, by their real paths (against the Vite root): JS applies their default
+  // component, as it does a module imported with ?rx-page — so each is a host of a whole-program check too
+  const pagesUnder = root => (options.pages ?? []).map(p => real(path.resolve(root, p)));
+  const withPages = (hosts, root) => options.pages?.length ? [...new Set([...hosts, ...pagesUnder(root).filter(existsSync).flatMap(f => [...keysOf(f, root)])])].sort() : hosts;
+  const hostsNow = () => options.wholeProgram ? withPages(hostsUnder(lastRoot ?? process.cwd(), options.alias, options.hostRoots), lastRoot ?? process.cwd()) : [];
   const fresh = (b, hosts = hostsNow()) => [...b.stamps].every(([f, t]) => mtime(f) === t) && b.hosts.join("\0") === hosts.join("\0");
   function build(entry, target, moduleName, spa, lib = false, hosts = hostsNow()) {
     const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${lib}`;
@@ -353,7 +391,7 @@ export default function rx(options = {}) {
       // E-5a: with Solid's plugin handing a resolver (`context.resolve`), the hosts are resolved by Vite, so asynchronously;
       // without it, here (the `alias` option and tsconfig paths), and the compile stays synchronous
       if (options.wholeProgram && typeof context.resolve === "function")
-        return hostsVia(lastRoot ?? process.cwd(), context.resolve, options.alias, via, options.hostRoots).then(hosts => compileWith(context, hosts));
+        return hostsVia(lastRoot ?? process.cwd(), context.resolve, options.alias, via, options.hostRoots).then(hosts => compileWith(context, withPages(hosts, lastRoot ?? process.cwd())));
       return compileWith(context, hostsNow());
     },
     // TY-1d: a build starts (Solid's plugin calls this where it has the hook: each `vite build`, each rebuild of
@@ -379,7 +417,8 @@ export default function rx(options = {}) {
       const spa = target === "dom" && solid.hydratable === false;
       const dep = isDep(moduleId);
       const query = new URLSearchParams(moduleId.split("?")[1] ?? "");
-      const page = query.has(PAGE);
+      // CP-4d: a page by its query, or — imported with none — by `rx({ pages })`: a root a JS host names as a file
+      const page = query.has(PAGE) || (!dep && !query.has(LIB) && !!options.pages?.length && pagesUnder(path.resolve(root ?? lastRoot ?? process.cwd())).includes(real(file)));
       const lib = page || query.has(LIB);
       let typeOutcome = null;
       if (typed() && !dep) {
@@ -419,7 +458,7 @@ export default function rx(options = {}) {
         ? `${code}\n${fn}.__rxKey = ${JSON.stringify(`${path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/")}?${page ? PAGE : lib ? LIB : DEP}#${createHash("sha1").update(m.code).digest("hex").slice(0, 12)}`)};\n` : code;
       const libName = JSON.stringify(path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/"));
       const named = lib && file === entry
-        ? `\nmodule.__rxName = ${libName};` + (out.components?.length ? `\nimport { components as __rxComponents } from "@reactivescript/runtime";\nconst __rx = __rxComponents(module, undefined, ${libName});\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n` : "\n")
+        ? `\nmodule.__rxName = ${libName};` + (out.components?.length ? `\nimport { components as __rxComponents } from ${JSON.stringify(runtimeFor(path.resolve(root ?? lastRoot ?? process.cwd())))};\nconst __rx = __rxComponents(module, undefined, ${libName});\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n` : "\n")
         : "";
       // CP-4d: a route file's page (`?rx-page`) — the default export is the module's default component, bound as the named
       // ones are (a file-based router imports a route file for its default export); the module itself is `__rxModule`.

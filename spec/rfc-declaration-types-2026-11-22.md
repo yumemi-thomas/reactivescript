@@ -1929,3 +1929,160 @@ to what a draft writes (one reading more, the record-of-components rule
 — whose first form took `solid-marked`'s `Break?: () => JSX.Element` out
 of its record and cost that entry 45 words until it was read as the
 component it is), to the runtime and to `rx-verify`.
+
+## A twelfth round: three limits that were ours (2026-11-24)
+
+The eleventh round wrote down, among its limits, three that no library
+set: the runtime had to be in the app's `package.json`; start mode's root
+had to be a TS file; a host declaration derived from a routes directory
+ignored a `toPath` of the project's own. Review asked for each to be
+taken from this side, and for the rest of the list to be read again for
+others like them. Recorded in 11 CP-4a (*Who installs it*) and CP-4d, 09
+MO-14g and MO-8s. No word was added to a row, and neither checker has a
+line of it.
+
+### The runtime is the compiler's dependency (11 CP-4a)
+
+Under start mode's dev server `provide` had no owner unless the app
+listed `@reactivescript/runtime`: the request is rendered in Vite's
+module graph, and a package Vite leaves to Node runs on Node's copy of
+Solid. Solid's plugin decides what Vite loads with the app by following
+`package.json`s — the app's dependencies, then, for each that depends on
+`solid-js` or `@solidjs/web`, that package's own, in turn
+(`vitefu`'s `crawlFrameworkPkgs`, read) — and stops at a package that
+names no Solid. Weighed:
+
+| | |
+| --- | --- |
+| have every compiled module import the runtime by its file's path | never left to Node; but an app's own `import { createApp } from "@reactivescript/runtime"` is pre-bundled by the dev server under another URL than the file's: two runtimes in the page |
+| a Vite plugin of this project's that sets `resolve.dedupe` and `ssr.noExternal` | a front end is no Vite plugin (it is loaded at the first `.rx` module, after the config is resolved), so it would be one more line of every app's config |
+| **say in the compiler's manifest what is true — the runtime is its dependency, Solid its peer — and have the front end name the runtime** | the plugin's own walk reaches the runtime through the compiler; the import is the bare name where the app reaches the package (one module with the app's own imports) and the compiler's copy, by its folder, where it does not |
+
+The manifest is written by the publish job (`compiler/scripts/published.mjs`),
+as the platform packages are and for the same reason: committed, it puts
+npm's release of the runtime in the compiler's folder beside the
+repository's own. So the suites install the compiler with that manifest
+— `bench/harness.mjs` for every task, where it was a link to the
+repository's folder — and what is tested is what is published.
+
+Run, each under start mode with an `.rx` root that provides a context a
+component beneath it reads (`compiler/test/runtime-resolve.mjs`; in CI
+with the suites):
+
+| the install | the app lists | the dev server's render | hydrated | the build's server |
+| --- | --- | --- | --- | --- |
+| the runtime only under the compiler (nothing hoisted) | the compiler | rendered: the import is the compiler's copy, by its folder | live, no console error | rendered |
+| the runtime at the top (npm) | the compiler | rendered: Solid's plugin reaches it through the compiler | live, no console error | rendered |
+| both at the top | neither | `provide team: no owner`, with what to list | — | — |
+
+The third is the setup that is really broken — nothing tells the plugin
+the runtime runs on Solid — and the message is kept for it.
+`bench/tasks/start-mode` lists no runtime; with the manifest taken away
+its two dev-server checks fail, as they did before the app listed it
+(run as the control).
+
+### An `.rx` root for start mode (11 CP-4d)
+
+Read again, the plugin's limit was narrower than recorded: `start.app`
+takes any file there is — only the file found with no option, `src/App.*`,
+is looked for under five extensions. What stood in the way is on this
+side: start mode writes `import App from "<the file>"`, with no query,
+and that import of an `.rx` module is a program's entry, whose default
+export is what `createApp` mounts; the front end is given a module's id
+and not its importer. So it is told the module: `rx({ pages: ["src/App.rx"]
+})`. A module named there, imported with no query, is compiled as
+`?rx-page` compiles it, and is a host's module to a whole-program check.
+
+```ts
+const app = "src/App.rx";
+solid({ ssr: true, start: { app, nodeServer: true }, frontends: { ".rx": rx({ pages: [app] }) } })
+```
+
+`bench/tasks/start-mode` has no `App.ts`; its type probe of that file
+(the handover typed by `App.rx`) went with it, 6 to 5. Not done on the
+plugin's side: the fork's branch is consumed by two tests beside a clone
+(CONTRIBUTING), not by the benchmark, which installs the release — a
+change there would have left the task as it was. What the plugin could
+do, were it asked: look for `src/App` under its front ends' extensions,
+and hand a front end the importer.
+
+### A router's own convention (09 MO-14g)
+
+`//@ routes ./routes` scans the directory with the package's default
+convention, whatever the Vite config says: a project with a `toPath` of
+its own got a declaration that nests pages as its router does not, and
+nothing said so. Looked for first, a file to read:
+
+- the plugin writes no manifest: the routes are a virtual module;
+- its `types` output has every path, id and the nesting — and no file.
+  A ref to a module TypeScript resolves is written as `typeof import(…)`;
+  an `.rx` component is `FileRouteLazyRef`, with nothing to find it by.
+
+So the tool asks the router. The package's own option for a convention
+is a router object (`fileRoutes({ router })`); a project that has one
+writes it as a module and names the module as the source. The tool
+imports it, takes `getRoutes()`, nests the pages with the project's
+`buildRouteTree`, and reads each route's file off its component. Nothing
+is recomputed, so any `toPath`, any `toRoute`, any router class is
+honoured. And the silent case is closed: a directory named under a Vite
+config that gives the plugin `toPath`, `router` or `routers` is refused,
+with the module form in the message.
+
+Run against the library (`bench/tasks/file-routes`, three checks): a
+copy of the task whose router's `toPath` puts the `people/` pages outside
+the `(app)` layout — the declaration comes out `[{ component: App,
+children: [{ component: Layout, children: [{ component: Home }] }, {
+component: Person }] }]`, where the directory gives `Person` among
+`Layout`'s children; `--check` holds it; and the same routes directory
+under that config is refused. Not taken: loading the project's Vite
+config to find the plugin's router. The router is private to the plugin's
+closure, so it would mean calling the plugin's hooks by hand with a
+context made up for them.
+
+### The rest of the list, read again
+
+| the limit | whose | decided |
+| --- | --- | --- |
+| a wrapper takes a library's words only in the shapes read (MO-8s): "the provider inside a fragment, the hook in a helper" took nothing | ours, no word | both read now: a fragment around the one element alone (not with the children beside it, which would be outside the provider); a helper declared once at the module's top, read as a hook is, `pure` only where neither body does anything else. An element of the module's own around the provider still takes nothing, as before |
+| a record of components is read in the literal the prop is given (MO-11c) | the language's | left: ruled 2026-11-24 with its unit (`mdname`). A name bound to a record is a value, which `.rx` cannot apply and could hand anywhere; it is not a reader that stops short |
+| which component a layout renders its pages through is said by the reader, for the router it knows | ours, by construction | left: a JSON tree says its own (`through`), and `rx-verify` runs it |
+| `renders(H)` side by side; one H; a method of an object; a package naming another's host | the vocabulary's | decided in the tenth and eleventh rounds, each with what was run |
+| a TanStack route file is TSX with the router as released | the library's | the fork's option is the proposal |
+| a duplicate key at run time; a `pure` fn that differs on the server | Solid's to compare | as recorded |
+
+### Found on the way
+
+- The benchmark's workspace linked the compiler's folder, so no task
+  could show what an app gets from the compiler's `package.json`. It
+  installs the published manifest now.
+- `rx-declare --host --routes <dir>` answered with the default tree
+  under any config: above.
+- The plugin's limit on start mode's root was recorded wider than it is
+  (`start.app` takes an `.rx` file; a path with a query does not exist).
+
+### The numbers
+
+`node bench/run.mjs`, at `877f72e` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `877f72e` (37 tasks) | 132/132 | 184/184 | 258/258 | 228/228 | 13/13 | 259 | 57 | 0 | 29 |
+| now (37 tasks) | 132/132 | 183/183 | 261/261 | 228/228 | 13/13 | 259 | 57 | 0 | 29 |
+
+No check is red. Two tasks moved:
+
+| task | good | types | runtime | bad caught | unrepresentable | words |
+| --- | --- | --- | --- | --- | --- | --- |
+| `file-routes`, was | 6/6 | 5/5 | 5/5 | 14/14 | — | 12 |
+| `file-routes`, now | 6/6 | 5/5 | 8/8 | 14/14 | — | 12 |
+| `start-mode`, was | 9/9 | 6/6 | 15/15 | 11/11 | 1/1 | 12 |
+| `start-mode`, now | 9/9 | 5/5 | 15/15 | 11/11 | 1/1 | 12 |
+
+`file-routes` gained the three checks of a router with its own
+convention; `start-mode` lost the type probe of the `App.ts` it no longer
+has, and its fifteen runtime checks now run with no runtime in the app's
+`package.json`. No word moved: the two shapes MO-8s reads more are in no
+task's module. Coverage is as it was, entry for entry: 123 programs, all
+green; 193 modules drafted whole (4904 rows), 1195 `any`s the libraries'
+own, none introduced, 1519 by place; 277 hand-written words; 13/13 bad
+caught.

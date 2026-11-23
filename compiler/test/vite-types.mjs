@@ -30,7 +30,8 @@ const good = run([
   `const aliased: Frontend = rx({ wholeProgram: true, alias: { "@": "/src" }, generate: false });`,
   `const regexp: Frontend = rx({ wholeProgram: true, alias: [{ find: /^@\\//, replacement: "/src/" }] });`,
   `const plain: Frontend = rx();`,
-  `export { whole, aliased, regexp, plain };`,
+  `const rooted: Frontend = rx({ pages: ["src/App.rx"] });`,
+  `export { whole, aliased, regexp, plain, rooted };`,
   ``,
 ].join("\n"));
 check("rx({ wholeProgram: true }) and its other options type-check through @reactivescript/compiler/vite", good === "", good);

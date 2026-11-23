@@ -2,7 +2,8 @@
 # reference implementation's (ref/: the interpreter over every scenario, the same scenarios lowered onto Solid, the
 # compiled modules, streamed SSR and hydration in Chromium, the TSX projection), the crate against ref/ in each of its
 # modes (CP-5: checked, client-only, whole-program, lowered, projected), and the three suites that run a guarantee
-# rather than a list of cases (compiler/test/confined.mjs, drafts.mjs).
+# rather than a list of cases (compiler/test/confined.mjs, drafts.mjs), with what an app must install to run at all
+# (compiler/test/runtime-resolve.mjs).
 #
 # ref/ runs on Solid built from source at ref/SOLID_NEXT (ref/scripts/solid-next.sh: pnpm, and a Rust build of Solid's
 # native compiler). That build is kept in a cache keyed by the pin, so it is made once per pin and restored after.
@@ -111,3 +112,5 @@ jobs:
           (cd bench/.out/ws && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock)
       - name: "the guarantees, run: the counterexamples and their controls, in Chromium (CN-7)"
         run: node compiler/test/confined.mjs
+      - name: "an app that lists only the compiler: the runtime nested, hoisted, and listed nowhere, under start mode's dev server and its build (CP-4a)"
+        run: node compiler/test/runtime-resolve.mjs

@@ -34,6 +34,13 @@ export interface RxOptions {
    * project's tsconfig.json `paths`, then as this build does.
    */
   hostRoots?: string[];
+  /**
+   * CP-4d: `.rx` modules (against the Vite root) that a JS host names by file and imports with no query, for their
+   * default component — compiled as a page, as an import with `?rx-page` is. Solid's start mode takes its root so:
+   * `solid({ start: { app: "src/App.rx" }, frontends: { ".rx": rx({ pages: ["src/App.rx"] }) } })`. A module named
+   * here is not also a program's entry (what `createApp` mounts): that is the same import, with the other meaning.
+   */
+  pages?: string[];
 }
 
 /** ReactiveScript's front end for `@solidjs/vite-plugin`, which loads it on its own for `.rx` when this package is installed. */

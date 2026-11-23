@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { published } from "../compiler/scripts/published.mjs";
 
 export const here = path.dirname(fileURLToPath(import.meta.url));
 export const repo = path.resolve(here, "..");
@@ -37,11 +38,20 @@ export function workspace() {
   installLocked(here, ws);
   linkOwn(path.join(ws, "node_modules"));
 }
+/** The compiler as npm installs it: a folder with the manifest it is published with (compiler/scripts/published.mjs:
+ *  the runtime its dependency, Solid its peer — what Solid's plugin reads to load the runtime with the app, so no task
+ *  lists the runtime for the plugin's sake) and the files it ships, each linked to the repository's. */
+export function installCompiler(at) {
+  mkdirSync(at, { recursive: true });
+  const from = path.join(repo, "compiler"), read = f => JSON.parse(readFileSync(f, "utf8"));
+  writeFileSync(path.join(at, "package.json"), JSON.stringify(published(read(path.join(from, "package.json")), read(path.join(repo, "runtime/package.json"))), null, 2) + "\n");
+  for (const f of ["index.js", "index.d.ts", "vite.mjs", "vite.d.mts", "lib.mjs", "README.md"]) symlinkSync(path.join(from, f), path.join(at, f));
+}
 /** This repository's packages in a node_modules, as an app installs them: the compiler and the language server linked,
  *  the runtime copied (its peers are then that install's Solid, one copy), the shipped declaration of solid-js copied. */
 function linkOwn(nm) {
   const rx = path.join(nm, "@reactivescript"); rmSync(rx, { recursive: true, force: true }); mkdirSync(path.join(rx, "runtime"), { recursive: true });
-  symlinkSync(path.join(repo, "compiler"), path.join(rx, "compiler"));
+  installCompiler(path.join(rx, "compiler"));
   symlinkSync(path.join(repo, "tooling/rx-language-server"), path.join(rx, "language-server"));
   for (const f of ["package.json", "dist", "rx-lib.d.ts"]) cpSync(path.join(repo, "runtime", f), path.join(rx, "runtime", f), { recursive: true });
   // and the declaration of Solid itself the repository ships (09 MO-8k, a shared declaration): @rx-types/solid-js, copied

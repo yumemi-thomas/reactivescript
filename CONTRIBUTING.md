@@ -57,6 +57,12 @@ A library that is not released as the benchmark needs it is used from
 the lockfile all the same, as packed tarballs with the commit they were
 built from (`bench/tasks/router-rx-routes/vendor`): a test that runs
 only beside a clone is green in CI by not running.
+What an app must install is tested as installed: the compiler goes into the
+suites' workspaces with the manifest it is published with
+(`compiler/scripts/published.mjs`: the runtime its dependency, Solid its
+peer; not committed to `package.json`, as the platform packages are not),
+and `compiler/test/runtime-resolve.mjs` runs an app that lists only the
+compiler under three installs (11 CP-4a).
 
 Decisions recorded in the spec as *ruled* with a date are settled; please
 open an issue rather than a PR to revisit one. Decisions marked *taken by
@@ -91,7 +97,7 @@ The crate, the plugin, the runtime and the tooling, from the repository's root:
 
 ```sh
 (cd compiler && cargo test --release)
-for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined lib; do node compiler/test/$t.mjs; done   # SOLID_NEXT=<checkout> for vite.mjs when Solid is not at ../solid-next (a nested worktree); vite.mjs installs TanStack Router's Vite plugin once into compiler/test/.out (examples/tanstack is built with it); `node compiler/test/vite.mjs context` is the dev server after an edit (11 CP-4b)
+for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined lib runtime-resolve; do node compiler/test/$t.mjs; done   # SOLID_NEXT=<checkout> for vite.mjs when Solid is not at ../solid-next (a nested worktree); vite.mjs installs TanStack Router's Vite plugin once into compiler/test/.out (examples/tanstack is built with it); `node compiler/test/vite.mjs context` is the dev server after an edit (11 CP-4b)
 # with a Solid plugin that has context.resolve and Frontend.buildStart (compiler/README.md):
 for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done   # git clone -b frontend-resolve https://github.com/yumemi-thomas/solid-vite-plugin && pnpm install && npx rolldown -c
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar

@@ -7,6 +7,7 @@
 // generated declaration types the manifest, so the router's `paths` are the route files'.
 // (Until 2026-11-23 the entry was TSX, and nothing an `.rx` entry had above the router was credited to a page.)
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const REGION = "errored fallback(e: NotFound) { <p class=\"missing\">{e.message}</p> } {\n    <main>{props.children}</main>\n  }";
@@ -59,5 +60,33 @@ export default {
       const v = spawnSync(process.execPath, ["--conditions=browser", path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/verify.js"), "--dom", "src/host.d.rx"], { cwd: h.dir, encoding: "utf8" });
       h.check("rx-verify: the host's declaration holds where it is run (each page inside its layout, rendered through the router's component)", (v.stdout.match(/ ok /g) ?? []).length === 2 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
     } finally { server.kill(); }
+    // 09 MO-14g: a router with a convention of the project's own. A copy of the app whose router is a module —
+    // `people/` pages are outside the `(app)` layout by its `toPath` — given to the plugin (`fileRoutes({ router })`)
+    // and named as the declaration's source: the tool asks that router, and recomputes nothing
+    const own = path.join(h.dir, "own"); rmSync(own, { recursive: true, force: true }); cpSync(path.join(h.dir, "src"), path.join(own, "src"), { recursive: true });
+    try {
+      const declare = (...a) => spawnSync(process.execPath, [path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/declare.js"), "--host", ...a], { cwd: own, encoding: "utf8" });
+      writeFileSync(path.join(own, "src/routes.config.mjs"), `import { fileURLToPath } from "node:url";
+import { PageFileSystemRouter, routePathFromFile } from "filesystem-routing";
+export default new PageFileSystemRouter({
+  dir: fileURLToPath(new URL("./routes", import.meta.url)), extensions: ["rx"],
+  toPath: file => routePathFromFile(file.replace("/(app)/people/", "/people/")),
+  toRoute: (src, router) => ({ path: router.toPath(src), page: true, $component: { src: \`\${src}?rx-page\`, pick: ["default"] }, $$route: undefined }),
+});
+`);
+      writeFileSync(path.join(own, "vite.config.mjs"), `import { defineConfig } from "vite";
+import solid from "@solidjs/vite-plugin";
+import { fileRoutes } from "filesystem-routing/vite";
+import router from "./src/routes.config.mjs";
+export default defineConfig({ plugins: [fileRoutes({ router, types: "src/file-routes.d.ts" }), solid()] });
+`);
+      const made = declare("--routes", "src/routes.config.mjs", "src/main.rx", "--out", "src/host.d.rx");
+      const text = made.status === 0 ? readFileSync(path.join(own, "src/host.d.rx"), "utf8") : made.stderr;
+      h.check("rx-declare --host --routes <the router's module>: the declaration nests as the project's own toPath does (a page outside its folder's layout)", text.startsWith("//@ routes ./routes.config.mjs ./main.rx\n") && text.includes("= [{ component: App, children: [{ component: Layout, children: [{ component: Home }] }, { component: Person }] }]"), text);
+      h.check("...and is held to that router (--check: in step)", declare("--check", "src/host.d.rx").status === 0, declare("--check", "src/host.d.rx").stderr);
+      // the same routes directory read as a directory is the package's convention: under this config it is another tree
+      const dir = declare("--routes", "src/routes", "src/main.rx");
+      h.check("a routes directory is refused where the Vite config gives the plugin a router of its own (it was read with the default convention, in silence)", dir.status === 1 && /vite\.config\.mjs gives filesystem-routing `router` of its own/.test(dir.stderr) && /routes\.config/.test(dir.stderr), dir.stdout + dir.stderr);
+    } finally { rmSync(own, { recursive: true, force: true }); }
   },
 };

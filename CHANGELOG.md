@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+**An app lists the compiler and nothing else, an `.rx` root in start mode, a router's own convention** (spec/11 CP-4a, CP-4d; spec/09 MO-14g, MO-8s; spec/rfc-declaration-types-2026-11-22.md, *A twelfth round*)
+
+- **Fixed: under Solid's start mode's dev server, `provide` failed unless your app listed `@reactivescript/runtime`.**
+  That was this project's to solve. `@reactivescript/runtime` is now a dependency of `@reactivescript/compiler`
+  (which also names `solid-js` and `@solidjs/web` as peers), and the Vite front end finds the runtime itself: your
+  app's own copy where its imports reach one, the compiler's otherwise. You can remove `@reactivescript/runtime` from
+  your `package.json` unless your own code imports it (`createApp`). The message stays for the setup that is really
+  broken — neither package listed, both installed — and now says what to list.
+- **New: an `.rx` root for Solid's start mode, with no `src/App.ts`.** `solid({ ssr: true, start: { app: "src/App.rx" },
+  frontends: { ".rx": rx({ pages: ["src/App.rx"] }) } })`: the new `pages` option names `.rx` modules that JS imports
+  by file, with no query, for their default component. The one-line `src/App.ts` still works; delete it when you add
+  the option.
+- **New: `rx-declare --host --routes <router module>`** — a `filesystem-routing` router with a convention of your own
+  (`toPath`, `toRoute`, another router class) is written once as a module, given to the plugin (`fileRoutes({ router
+  })`) and named as the declaration's source; the tool asks the router for its routes. **A routes directory under a
+  Vite config that sets `toPath`, `router` or `routers` inline is now refused** (`HOST_VIEW_STALE`, with the fix in
+  the message): it was read with the package's default convention, and the declaration could nest pages as the
+  router does not. Move the router into a module as guide/libraries.md shows, then `rx-declare --host --routes
+  <module> [<entry.rx>…] --out src/host.d.rx`.
+- **`rx-declare` carries a library's words through two more shapes of a wrapper** (MO-8s): a component that renders
+  the library's inside a fragment, alone, and a hook that calls a helper of the same module which calls the
+  library's hook at the top of its body.
+
 **The router's own tree, a dev server that keeps one module one, Solid's start mode** (spec/09 MO-14g, MO-8s, MO-11u, MO-13b; spec/11 CP-4b, CP-4d; spec/06 ST-4d; spec/10 SV-7c; spec/rfc-declaration-types-2026-11-22.md, *An eleventh round*)
 
 - **Fixed: after an edit under the dev server, a page could read `RG-7b: no provision` for a context your entry
@@ -28,11 +51,11 @@
   stays a few lines of TSX that hand the route an `.rx` component; both are in guide/libraries.md.
 - **New: Solid's start mode** — `solid({ start: true, ssr: true })` in `@solidjs/vite-plugin` 3 — builds, serves and
   hydrates an `.rx` app with no `index.html`, no mount file and no server file; SolidStart is not needed on Solid 2.
-  The root is `src/App.ts`, one line: `export { default } from "./App.rx?rx-page"`. The routes are
-  `filesystem-routing`'s. **List `@reactivescript/runtime` in your app's `package.json` dependencies**: Solid's plugin
-  finds there the packages to load with your app's copy of Solid under the dev server; without it the runtime now
-  says so (`provide …: no owner. A component is rendered by one copy of Solid and @reactivescript/runtime runs on
-  another`) where it threw `Cannot read properties of null`.
+  The root is an `.rx` file named in the config (above; it was first `src/App.ts`, one line: `export { default }
+  from "./App.rx?rx-page"`). The routes are `filesystem-routing`'s. A runtime that Vite leaves to Node under the dev
+  server says so (`provide …: no owner. A component is rendered by one copy of Solid and @reactivescript/runtime
+  runs on another`) where it threw `Cannot read properties of null`; the entry above is what keeps an app from
+  meeting it.
 - **New: `rx-declare` drafts the declaration of a small module over a library whole** (MO-8s). A module that exports
   a library's component again, renders it and nothing else, binds what a factory makes, calls a library's hook at
   the top of its own, or hands its argument straight to a library method takes the words of the library's rows:

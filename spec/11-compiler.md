@@ -123,6 +123,40 @@ record argued each way; this is the decision.
   to prove no draft was kept; it is a value's meaning, not a check, and
   costs a `typeof` where the value is a primitive.
 
+  *Who installs it (2026-11-24).* The runtime is the compiler's
+  dependency: an app lists `@reactivescript/compiler`, and the modules the
+  compiler writes find the runtime themselves. It had been asked of the
+  app's `package.json` — and an app in Solid's start mode, which writes no
+  line that imports it, failed under the dev server with no owner at its
+  first `provide` (CP-4d): a usability defect of this project's, not the
+  app's mistake. Two things carry it now.
+  - *The published manifest* (`compiler/scripts/published.mjs`, written by
+    the publish job as the platform packages are): the runtime in
+    `dependencies`, and `solid-js` and `@solidjs/web` as peers — what the
+    compiler's output runs on. Solid's Vite plugin loads with the app
+    every package that depends on Solid, and that package's dependencies
+    in turn, starting from the app's `package.json`; so it reaches the
+    runtime through the compiler's, and under the dev server the runtime
+    is on Vite's copy of Solid, as the app is.
+  - *The front end* (`compiler/vite.mjs`, `runtimeFor`): the import a
+    `?rx-lib` or `?rx-page` module carries is the bare name where the
+    app's own imports reach the package (`node_modules` up from the Vite
+    root) — one module with the app's `createApp`, by construction — and
+    otherwise the compiler's own copy, by its folder, whose `exports` Vite
+    reads for the environment (a package manager that hoists nothing). An
+    import by path is never left to Node.
+
+  One instance is kept by naming one module, not by a rule at run time. A
+  package written in `.rx` imports the runtime as a peer (CP-4e), which a
+  package manager resolves to the app's; under one that hoists nothing,
+  an app with such a package lists the runtime, as the peer asks. An app
+  that lists neither the compiler nor the runtime, with both reachable
+  all the same, is the setup that is really broken: nothing tells Solid's
+  plugin the runtime runs on Solid, and the server runtime says so in
+  words at the first `provide`. Run: `compiler/test/runtime-resolve.mjs`
+  (the three installs, the dev server and the built server);
+  `bench/tasks/start-mode`, whose app lists no runtime.
+
 - **CP-4b (The names, pinned 2026-10-26).** What compiled code calls. The
   Rust crate emits exactly these; a change is a change to both.
 
@@ -262,26 +296,32 @@ record argued each way; this is the decision.
   *Solid's start mode (2026-11-24).* `@solidjs/vite-plugin` 3 has Start as
   a mode of the plugin — `solid({ start: true, ssr: true })` — which owns
   the entries, the dev server's render and the build: an app is its root
-  component (`src/App.*`) and whatever it renders, with no `index.html`, no
-  mount file and no server file, and SolidStart is not needed for it. The
-  root is a Solid component, so an `.rx` root is handed over as a page:
-  `src/App.ts` is one line, `export { default } from "./App.rx?rx-page"`.
-  (Start mode's `app` — the conventional file or `start.app` — is a file
-  with one of `.tsx`, `.jsx`, `.ts`, `.js`, `.tsrx`: an `.rx` file is not
-  looked for, a path with a query "does not exist", and a plain import of
-  an `.rx` module is a program's entry, not a component. A limit of the
-  plugin, recorded and not filed.) The routes are `filesystem-routing`'s,
-  over `.rx` route files, as in a client-only build. Built and run:
-  `bench/tasks/start-mode` — each request rendered on the server, streamed
-  and hydrated, by the Node server start mode emits and by its dev server.
+  component and whatever it renders, with no `index.html`, no mount file
+  and no server file, and SolidStart is not needed for it. The root is a
+  Solid component, and an `.rx` root is named as it is:
+
+  ```ts
+  const app = "src/App.rx";
+  solid({ ssr: true, start: { app }, frontends: { ".rx": rx({ pages: [app] }) } })
+  ```
+
+  `start.app` takes any file there is, and start mode writes the import
+  itself, with no query; a plain import of an `.rx` module is a program's
+  entry (what `createApp` mounts), and a front end is not told who imports
+  a module. So the front end is told which module: one that `rx({ pages })`
+  names is compiled as a page — its default component, as `?rx-page` says
+  — when it is imported with no query, and counts as a host's in a
+  whole-program check. (Until this was taken, `src/App.ts` was one line,
+  `export { default } from "./App.rx?rx-page"`, and it still works. The
+  convention alone — `src/App.*` with no option — looks for five
+  extensions, `.rx` not among them; that part is the plugin's.) The routes
+  are `filesystem-routing`'s, over `.rx` route files, as in a client-only
+  build. Built and run: `bench/tasks/start-mode` — each request rendered
+  on the server, streamed and hydrated, by the Node server start mode
+  emits and by its dev server.
   Under the dev server the app's modules run on Vite's copy of Solid, and
   a package Vite leaves to Node runs on Node's: the runtime must be the
-  app's. Solid's plugin has Vite load every package that runs on Solid
-  with the app — it finds them from the app's `package.json` — so
-  `@reactivescript/runtime` is listed there, as any dependency the
-  compiled modules import is. Left out, a `provide` has no owner; the
-  server runtime says so in those words (it was `Cannot read properties of
-  null`).
+  app's. It is, with the compiler listed (CP-4a, *Who installs it*).
 - **CP-4e (A package's `.rx` modules) — proposed 2026-11-22.** A library
   written in `.rx` is built once for every app (09 MO-13e): `rx-lib`
   (`compiler/lib.mjs`, the bin of `@reactivescript/compiler`) compiles each

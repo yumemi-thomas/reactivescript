@@ -2,10 +2,9 @@
   "name": "start-mode-app",
   "private": true,
   "type": "module",
-  "description": "The app as a project lists it: Solid's plugin finds the packages that run on Solid from here (the runtime among them: its peers are solid-js and @solidjs/web) and, under the dev server, has Vite load them with the app's own copy of Solid rather than Node's.",
+  "description": "The app as a project lists it. The runtime is not here: it is the compiler's dependency, and Solid's plugin, which loads with the app every package that runs on Solid, follows the compiler's own package.json to it (under the dev server it is then on Vite's copy of Solid, as the app is, and not Node's).",
   "dependencies": {
     "@reactivescript/compiler": "*",
-    "@reactivescript/runtime": "*",
     "@solidjs/router": "2.0.1",
     "@solidjs/vite-plugin": "3.0.1",
     "@solidjs/web": "2.0.2",

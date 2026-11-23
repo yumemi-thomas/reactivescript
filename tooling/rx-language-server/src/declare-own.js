@@ -6,7 +6,8 @@
 // hook that calls the library's, `pending fails(Error)` on the field that reads a store field known to wait.
 //
 // Each is read off the module's own text, and only in the shapes where it holds for every run (a single `return` of
-// one element; a call at the top of the body, not behind a condition; a field that reads the result and does nothing
+// one element, or of a fragment around it alone; a call at the top of the body, not behind a condition — of the
+// library's fn, or of a helper of the module's own that calls it so; a field that reads the result and does nothing
 // else). Anything else is left as the types drafted it, with its TODO: this never guesses, it copies a word from the
 // row it was written on. The library's rows are the project's declaration of the package where it has one (as the
 // checker finds it), else known.js for the installed release.
@@ -93,20 +94,52 @@ function carried(ts, spec, from) {
   const unparen = e => { while (e && ts.isParenthesizedExpression(e)) e = e.expression; return e; };
   /** A function's one result where its body is a single `return` (or an expression body): else undefined. */
   const oneReturn = fn => { if (!fn.body) return undefined; if (!ts.isBlock(fn.body)) return unparen(fn.body); const ss = fn.body.statements; return ss.length === 1 && ts.isReturnStatement(ss[0]) && ss[0].expression ? unparen(ss[0].expression) : undefined; };
-  /** The component an expression renders and nothing else: `<C … />`, `<C>…</C>`, `createComponent(C, …)`. */
-  const rendered = e => { const tag = e && tagOf(e); if (tag) return named(tag); if (e && ts.isCallExpression(e) && ts.isIdentifier(e.expression) && e.expression.text === "createComponent" && e.arguments[0]) return named(e.arguments[0]); return undefined; };
+  /** What a fragment holds where that is one element and nothing else (`<><C /></>`: a fragment renders its child, and
+   *  is nothing of its own; white space between is none): that element, through fragments. Else the expression. */
+  const inFragment = e => {
+    while (e && ts.isJsxFragment(e)) {
+      const kids = e.children.filter(c => !(ts.isJsxText(c) && !c.text.trim()));
+      if (kids.length !== 1 || !(ts.isJsxElement(kids[0]) || ts.isJsxSelfClosingElement(kids[0]) || ts.isJsxFragment(kids[0]))) return undefined;
+      e = kids[0];
+    }
+    return e;
+  };
+  /** The component an expression renders and nothing else: `<C … />`, `<C>…</C>`, `createComponent(C, …)`, or a
+   *  fragment around one of them alone. */
+  const rendered = e => { e = inFragment(e); const tag = e && tagOf(e); if (tag) return named(tag); if (e && ts.isCallExpression(e) && ts.isIdentifier(e.expression) && e.expression.text === "createComponent" && e.arguments[0]) return named(e.arguments[0]); return undefined; };
+  // a helper: a function of the module's own, not exported, declared once at its top (`function load() { … }`,
+  // `const load = () => { … }`). A hook that calls one calls what the helper calls, so the helper is read as a hook is
+  // and its words are the call's — `uses`, and `pure` only where the helper does nothing else. (One that calls itself,
+  // or is assigned again, is not read: nothing is carried.)
+  const helpers = new Map(); const reading = new Set(); const read = new Map();
+  for (const st of sf.statements) {
+    if (st.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    if (ts.isFunctionDeclaration(st) && st.name && st.body) helpers.set(st.name.text, helpers.has(st.name.text) ? null : st);
+    if (ts.isVariableStatement(st) && (st.declarationList.flags & ts.NodeFlags.Const)) for (const d of st.declarationList.declarations) { const init = unparen(d.initializer); if (ts.isIdentifier(d.name) && init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) helpers.set(d.name.text, helpers.has(d.name.text) ? null : init); }
+  }
+  const helper = callee => {
+    if (!ts.isIdentifier(callee) || imports.has(callee.text) || !helpers.get(callee.text)) return undefined;
+    const n = callee.text; if (read.has(n)) return read.get(n); if (reading.has(n)) return undefined;
+    reading.add(n); const key = `\0helper:${n}`; hook(key, helpers.get(n)); reading.delete(n);
+    const at = out.get(key); out.delete(key);
+    const w = at && at.uses.length ? { uses: at.uses, provides: [], pure: at.pure === true, component: false, makes: false, name: `${n}()`, spec: "this module", local: at.from.filter(f => f !== "it calls nothing else" && f !== "a field of the library's result") } : undefined;
+    read.set(n, w); return w;
+  };
+  /** The row a call's callee names: a library's, or what a helper of the module's own calls. */
+  const called = callee => named(callee) ?? helper(callee);
+  const whence = w => w.local ? `${w.name}, a helper here, which calls ${w.local.join(" and ")}` : `${w.name} of ${w.spec}`;
   /** A hook over a library's: `const q = lib(…)` at the top of the body, then a record of what `q` holds. */
   const hook = (name, fn) => {
     // `renders(H)` goes with the call where the fn hands its own parameters straight on: what it is given is what the library is given
     const own = new Set(fn.parameters.filter(p => ts.isIdentifier(p.name)).map(p => p.name.text));
     const straight = call => call.arguments.length > 0 && call.arguments.every(a => ts.isIdentifier(a) && own.has(a.text));
-    if (!fn.body || !ts.isBlock(fn.body)) { const e = unparen(fn.body); if (e && ts.isCallExpression(e)) { const w = named(e.expression); if (w && !w.component && !w.makes) note(name, { ...w, renders: straight(e) ? w.renders : undefined }, `${w.name} of ${w.spec}`); } return; }
+    if (!fn.body || !ts.isBlock(fn.body)) { const e = unparen(fn.body); if (e && ts.isCallExpression(e)) { const w = called(e.expression); if (w && !w.component && !w.makes) note(name, { ...w, renders: straight(e) ? w.renders : undefined }, whence(w)); } return; }
     const results = new Map(); let pure = true; const uses = [];
     for (const st of fn.body.statements) {
-      if (ts.isVariableStatement(st)) { for (const d of st.declarationList.declarations) { const init = unparen(d.initializer); const w = init && ts.isCallExpression(init) ? named(init.expression) : undefined; if (w && !w.component && !w.makes) { if (ts.isIdentifier(d.name)) results.set(d.name.text, w); uses.push(w); pure &&= w.pure; } else pure = false; } continue; }
+      if (ts.isVariableStatement(st)) { for (const d of st.declarationList.declarations) { const init = unparen(d.initializer); const w = init && ts.isCallExpression(init) ? called(init.expression) : undefined; if (w && !w.component && !w.makes) { if (ts.isIdentifier(d.name)) results.set(d.name.text, w); uses.push(w); pure &&= w.pure; } else pure = false; } continue; }
       if (ts.isReturnStatement(st)) {
         const r = unparen(st.expression);
-        if (r && ts.isCallExpression(r)) { const w = named(r.expression); if (w && !w.component && !w.makes) { uses.push(w); pure &&= w.pure; if (w.renders && straight(r)) note(name, { renders: w.renders }, `${w.name} of ${w.spec}`); } else pure = false; continue; }
+        if (r && ts.isCallExpression(r)) { const w = called(r.expression); if (w && !w.component && !w.makes) { uses.push(w); pure &&= w.pure; if (w.renders && straight(r)) note(name, { renders: w.renders }, whence(w)); } else pure = false; continue; }
         if (!r || !(ts.isObjectLiteralExpression(r) || ts.isArrayLiteralExpression(r) || ts.isIdentifier(r))) { pure = false; continue; }
         // the record's fields: a function, a name, a read of a result — nothing that runs when the hook is called
         const inert = x => { x = unparen(x); return ts.isArrowFunction(x) || ts.isFunctionExpression(x) || ts.isIdentifier(x) || ts.isLiteralExpression(x) || (ts.isPropertyAccessExpression(x) && inert(x.expression)); };
@@ -116,7 +149,7 @@ function carried(ts, spec, from) {
             if (!inert(p.initializer)) pure = false;
             // `data: () => q.data`: the field hands out what the library's result holds at that name
             const f = unparen(p.initializer); const body = f && ts.isArrowFunction(f) && !ts.isBlock(f.body) ? unparen(f.body) : undefined;
-            if (body && ts.isPropertyAccessExpression(body) && ts.isIdentifier(body.expression) && results.has(body.expression.text) && ts.isIdentifier(p.name)) { const w = results.get(body.expression.text); const said = w.lib.fields?.[w.name]?.[body.name.text]; if (said) waits[p.name.text] = said; reads.push(p.name.text); }
+            if (body && ts.isPropertyAccessExpression(body) && ts.isIdentifier(body.expression) && results.has(body.expression.text) && ts.isIdentifier(p.name)) { const w = results.get(body.expression.text); const said = w.lib?.fields?.[w.name]?.[body.name.text]; if (said) waits[p.name.text] = said; reads.push(p.name.text); }
           } else if (ts.isShorthandPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isGetAccessorDeclaration(p)) { /* a name, a function */ } else pure = false;
         } else if (ts.isArrayLiteralExpression(r) && !r.elements.every(inert)) pure = false;
         // (a field that only reads the library's result is an accessor of it: read as a value, `x.isFetching`, MO-10b)
@@ -125,7 +158,7 @@ function carried(ts, spec, from) {
       }
       pure = false;
     }
-    if (uses.length) for (const w of uses) note(name, { uses: w.uses, provides: [], lib: w.lib, spec: w.spec }, `${w.name} of ${w.spec}`);
+    if (uses.length) for (const w of uses) note(name, { uses: w.uses, provides: [], lib: w.lib, spec: w.spec }, whence(w));
     if (uses.length && pure) note(name, { pure: true }, "it calls nothing else");
     else if (out.has(name)) out.get(name).pure = false;
   };

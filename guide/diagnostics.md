@@ -2331,6 +2331,11 @@ where. Write the file again from the tree: `rx-declare --host --sync src/host.d.
 the tree first where it is not there (`vite build`, or the router's own CLI): the router's plugin writes it, and the
 declaration is read off it.
 
+The same code refuses a source that cannot be read as the router has it: a routes directory named under a Vite
+config that gives `filesystem-routing` a `toPath`, `router` or `routers` of its own. A directory is read with the
+package's convention; put the router in a module, give it to the plugin (`fileRoutes({ router })`), and name the
+module (`//@ routes ./routes.config.js`, guide/libraries.md).
+
 ```d.rx before
 //@ routes ./routeTree.gen.ts ./main.rx
 import { App } from "./main.rx"

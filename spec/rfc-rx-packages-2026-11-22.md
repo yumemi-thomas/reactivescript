@@ -422,3 +422,26 @@ in development: Solid's plugin loads with the app every package whose
 app's own dependencies. A package built by `rx-lib` lists
 `@reactivescript/runtime`, `solid-js` and `@solidjs/web` as peers
 (`rx-lib` holds that), so it is found; the app lists the runtime itself.
+
+## Who installs the runtime (2026-11-24)
+
+"The app lists the runtime itself" was true of an app that mounts a
+program (`createApp` is the runtime's) and a burden on one that does not:
+an app in Solid's start mode writes no line that imports the runtime, and
+without it in `package.json` the dev server's first `provide` had no
+owner. That was this project's to solve (11 CP-4a, *Who installs it*):
+`@reactivescript/runtime` is the compiler's dependency, the compiler
+names Solid as its peer — so Solid's plugin reaches the runtime through
+the compiler's `package.json` — and the front end finds the runtime where
+the app's own imports do, else under the compiler.
+
+For a package written in `.rx` nothing changes: the runtime stays its
+peer, since the package's `dist/` imports it and must share the app's.
+A package manager that installs peers at the top (npm) gives the app,
+the compiler and the package one copy. One that hoists nothing gives the
+package its peer only where the app lists the runtime — so an app with
+an `.rx` package lists it there, as the peer asks, and the front end then
+names that copy too. `compiler/test/runtime-resolve.mjs` runs the app's
+side of it: the runtime only under the compiler, at the top with only the
+compiler listed, and at the top with nothing listed (the setup the
+runtime's message is kept for).

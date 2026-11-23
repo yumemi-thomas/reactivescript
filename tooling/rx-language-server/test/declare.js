@@ -516,6 +516,17 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   w("routes.json", JSON.stringify([{ file: "./routes/__root.rx", path: "/", children: [{ file: "./pages/about.rx", component: "Team", path: "/team" }] }]));
   const js = declare("--host", "--routes", "src/routes.json");
   check("a JSON tree names each file, and a component other than the default by name", /import \{ Team \} from "\.\/src\/pages\/about\.rx"/.test(js.stdout) && /\[\{ component: Root, children: \[\{ component: Team \}\] \}\]/.test(js.stdout), js.stdout + js.stderr);
+  // a routes directory is filesystem-routing's convention: a Vite config that gives the plugin another is not answered
+  // with the default tree (the router's own module is the source then; bench/tasks/file-routes runs one)
+  fs.writeFileSync(path.join(app, "package.json"), "{}");
+  const cfg = opts => fs.writeFileSync(path.join(app, "vite.config.ts"), `import { fileRoutes } from "filesystem-routing/vite";\nexport default { plugins: [fileRoutes({ extensions: ["rx"], ${opts} })] };\n`);
+  cfg("toPath: file => file.endsWith(\".page\") ? file.slice(0, -5) : undefined");
+  const own = declare("--host", "--routes", "src/routes");
+  check("a routes directory under a Vite config with a `toPath` of its own is refused, with the source to name instead (the router's module)", own.status === 1 && /vite\.config\.ts gives filesystem-routing `toPath` of its own/.test(own.stderr) && /fileRoutes\(\{ router \}\)/.test(own.stderr), own.stdout + own.stderr);
+  cfg("toRoute: (src, router) => ({ path: router.toPath(src), page: true })");
+  const dflt = declare("--host", "--routes", "src/routes");
+  check("...and not where the config only calls the router's own toPath (the convention is the package's: the directory is scanned with it)", !/of its own/.test(dflt.stderr) && /filesystem-routing, which did not run/.test(dflt.stderr), dflt.stdout + dflt.stderr);
+  fs.rmSync(path.join(app, "vite.config.ts"));
   w("hand.d.rx", "import { Root } from \"./routes/__root.rx\"\nexport default component nests(children in component) = [{ component: Root }]\n");
   check("a declaration that names no routes is written by hand: not derived, never stale", H.drift(path.join(app, "src/hand.d.rx")) === null);
 }
@@ -536,9 +547,17 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
     "export function useData(opts) { const q = useThing(opts); return { data: () => q.data }; }",
     "export function useMaybe(opts) { if (opts) return useThing(opts); return null; }",
     "export function useNoisy(opts) { const q = useThing(opts); console.log(q); return { data: () => q.data }; }",
+    "export const Wrapped = props => <><Provider>{props.children}</Provider></>;",
+    "export const Beside = props => <><Provider />{props.children}</>;",
+    "function load(opts) { const q = useThing(opts); return { data: () => q.data }; }",
+    "const loud = opts => { console.log(opts); return useThing(opts); };",
+    "const sometimes = opts => { if (opts) return useThing(opts); return null; };",
+    "export function useLoaded(opts) { return load(opts); }",
+    "export function useLoud(opts) { const q = loud(opts); return { data: () => q.data }; }",
+    "export function useSometimes(opts) { return sometimes(opts); }",
     "export { Part };", "",
   ].join("\n"));
-  fs.writeFileSync(path.join(app, "own.d.ts"), "import type { JSX } from \"@solidjs/web\";\nexport declare function Frame(): JSX.Element;\nexport declare function Mixed(): JSX.Element;\nexport declare const Made: (props: {}) => JSX.Element;\nexport declare function useData(opts: () => { key: string }): { data: () => string };\nexport declare function useMaybe(opts?: () => { key: string }): unknown;\nexport declare function useNoisy(opts: () => { key: string }): { data: () => string };\nexport declare function Part(props: {}): JSX.Element;\n");
+  fs.writeFileSync(path.join(app, "own.d.ts"), "import type { JSX } from \"@solidjs/web\";\nexport declare function Frame(): JSX.Element;\nexport declare function Mixed(): JSX.Element;\nexport declare const Made: (props: {}) => JSX.Element;\nexport declare function useData(opts: () => { key: string }): { data: () => string };\nexport declare function useMaybe(opts?: () => { key: string }): unknown;\nexport declare function useNoisy(opts: () => { key: string }): { data: () => string };\nexport declare function Wrapped(props: { children?: JSX.Element }): JSX.Element;\nexport declare function Beside(props: { children?: JSX.Element }): JSX.Element;\nexport declare function useLoaded(opts: () => { key: string }): { data: () => string };\nexport declare function useLoud(opts: () => { key: string }): { data: () => string };\nexport declare function useSometimes(opts?: () => { key: string }): unknown;\nexport declare function Part(props: {}): JSX.Element;\n");
   const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./own.jsx"], { cwd: app, encoding: "utf8" });
   const text = r.stdout + r.stderr; const row = n => text.split("\n").find(l => new RegExp(`^export (?:pure )?(?:fn|component) ${n}\\b`).test(l)) ?? "";
   check("a component that renders a library's and nothing else takes its words; the context is the library's, named from there (MO-12e)", /provides\(kit\)$/.test(row("Frame")) && text.includes("export context kit from \"kit\""), text);
@@ -548,6 +567,11 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   check("a hook that calls the library's at the top of its body uses what it uses, and is pure where it does nothing else", /^export pure fn useData\b.*uses\(kit\)$/.test(row("useData")) && !/TODO useData: which context/.test(text) && !/TODO useData: pure\?/.test(text), text);
   check("...one that calls it behind a condition takes nothing: its questions stay", row("useMaybe") && !/uses\(|pure/.test(row("useMaybe")) && /TODO useMaybe: which context/.test(text), text);
   check("...one that does something else uses the context, and is not drafted pure", /^export fn useNoisy\b.*uses\(kit\)$/.test(row("useNoisy")), text);
+  check("a provider inside a fragment, alone, is still the library's component rendered and nothing else", /provides\(kit\)$/.test(row("Wrapped")), text);
+  check("...and not one with the children beside it in the fragment (they would not be under the provider)", row("Beside") && !/provides|uses/.test(row("Beside")), text);
+  check("a hook that calls a helper of the module's own takes what the helper calls: uses, and pure where neither does anything else", /^export pure fn useLoaded\b.*uses\(kit\)$/.test(row("useLoaded")) && /load\(\), a helper here, which calls useThing of kit/.test(text), text);
+  check("...not pure where the helper does something else", /^export fn useLoud\b.*uses\(kit\)$/.test(row("useLoud")), text);
+  check("...and nothing where the helper calls the library behind a condition", row("useSometimes") && !/uses\(|pure/.test(row("useSometimes")), text);
   const rt = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./own.jsx", "--types-only"], { cwd: app, encoding: "utf8" });
   check("--types-only leaves the carried words out", !/provides\(kit\)|uses\(kit\)/.test(rt.stdout), rt.stdout);
 }
