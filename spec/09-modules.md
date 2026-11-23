@@ -1092,7 +1092,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | `solid-sonner` 1.0.0 | `toast`, a function | `success`, `error`, `info`, `warning`, `message`, `loading`, `custom` → an id; `promise`; `dismiss`; `getToasts`, `getHistory` | no error: one more toast each time the computation runs (three after two changes) |
   | `@ui-sdk/solid` 0.1.0-beta.13 | `toast`, a function; `overlays`; `shortcuts` | `toast.success`… → a string; `overlays.mount` → a string; `shortcuts.register` → a disposer | no error: one more toast each time |
   | `@solidjs/router` 2.0.1 | `query`, a function | `get`; `set`, `clear` → nothing; `delete` → a boolean | no error: the cache cleared on every computation |
-  | `@solid-primitives/storage` 2.x | `cookieStorage`, an object | `getItem`; `setItem`, `removeItem` → nothing | (not run) |
+  | `@solid-primitives/storage` 5.0.0 | `cookieStorage`, an object | `getItem`; `setItem`, `removeItem` → nothing | (not run) |
   | `@tanstack/solid-query` 6.0.0-rc.6 | `focusManager`, `onlineManager`, `notifyManager`, `timeoutManager` | `setFocused`, `setOnline` → nothing; `subscribe` → a disposer | (not run) |
 
   Six libraries by five authors export such an object; four were run.
@@ -1137,7 +1137,32 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   tree-sitter corpus's *a method of a value the file declares*;
   `bench/tasks/kobalte-toast` (the library's own `toaster`, twelve
   variants), `bench/coverage/solid-sonner/toaster`,
-  `bench/coverage/ui-sdk/toast`, `bench/tasks/router-data`.
+  `bench/coverage/ui-sdk/overlays`, `bench/tasks/router-data`.
+
+- **MO-8u (A module's default export) — 2026-11-25.** A JavaScript
+  module's default export is the export named `default`, and its row is
+  named so: `export pure fn default(): ref boolean`, `export component
+  default(props: MarkdownProps & { … })`. An `.rx` module imports it as
+  JavaScript does, under a name of its own — `import { default as
+  useOnlineStatus } from "solid-use/online-status"`, `import { default as
+  Markdown } from "solid-marked/component"` — and that name is the one
+  the program calls, applies (a component by its capital, 07 §4) and is
+  told of in a diagnostic. **Nothing was added, to the notation or to
+  either implementation**: a row is named by its export (MO-8a), `default`
+  is a name both declaration parsers read, and the import form is the one
+  an alias has always had. What was missing was the draft, and the
+  sentence: `rx-declare` wrote a default export as a note to hand it out
+  by name from a JS module of the app's own (`export { default as x }
+  from …`), and so every program that used such a library had one —
+  seven of the coverage suite's thirty modules of the app's own gave "a
+  default export" as a reason. It drafts the row now (a component by what
+  it is: a default export has no capital to go by). Three modules that
+  did nothing else are gone from the benchmark
+  (`bench/coverage/solid-marked/markdown`, `solid-use/online-status`,
+  `solid-use/page-visibility`), and `bench/tasks/solid-use-primitives`
+  imports two utilities directly; the four that remain have a reason of
+  their own. Executable: S-module-43; `tooling/rx-language-server`'s
+  `test/declare.js`.
 
 ## MO-9 — A signature read in place of its module
 

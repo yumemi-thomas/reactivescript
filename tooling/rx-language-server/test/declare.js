@@ -486,6 +486,27 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   const decl = require("../src/rxc").declaration(path.join(app, "kit.d.rx"));
   check("...and projects to a `.d.ts`: a value's methods in its type, a fn's in the namespace merged with it (13 TY-4b)", /export declare const toaster: \(typeof import\("\.\/kit\.js"\)\.toaster\) & \{ show: \(toast: Component<\{ id: number; \}>\) => number; dismiss: \(id: number\) => void; getCount: \(\) => number; \};/.test(decl.code) && /export declare namespace toast \{ function success\(message: string, options\?: \{ onDismiss\?: \(\) => void \}\): number; \}/.test(decl.code), JSON.stringify(decl).slice(0, 600));
 }
+// 09 MO-8u: a module's default export is drafted as the row named `default` (it was a TODO to write a JS helper)
+{
+  const app = path.join(ws, "defaults"); fs.mkdirSync(app, { recursive: true });
+  fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(app, "node_modules"), "dir");
+  fs.writeFileSync(path.join(app, "status.js"), "export default function useOnline() { return () => true; }\n");
+  fs.writeFileSync(path.join(app, "status.d.ts"), "export default function useOnline(): () => boolean;\n");
+  fs.writeFileSync(path.join(app, "card.js"), "export default function Card(props) { return props.children; }\n");
+  fs.writeFileSync(path.join(app, "card.d.ts"), "import type { JSX } from \"@solidjs/web\";\nexport default function Card(props: { title: string; children?: JSX.Element }): JSX.Element;\n");
+  const draftOf = m => { const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), m], { cwd: app, encoding: "utf8" }); return r.stdout + r.stderr; };
+  const fnDraft = draftOf("./status.js"), compDraft = draftOf("./card.js");
+  check("rx-declare drafts a module's default export as the row named `default`: a fn", /^export fn default\(\): ref boolean$/m.test(fnDraft) && !/JS helper/.test(fnDraft), fnDraft);
+  check("...and a component (it has no capital to go by: a component by what it is)", /^export component default\(props: \{ title: string; children\?: View \}\)$/m.test(compDraft), compDraft);
+  fs.writeFileSync(path.join(app, "status.d.rx"), "export pure fn default(): ref boolean\n");
+  fs.writeFileSync(path.join(app, "card.d.rx"), "export component default(props: { title: string; children?: View })\n");
+  fs.writeFileSync(path.join(app, "main.rx"), "import { default as useOnline } from \"./status.js\"\nimport { default as Card } from \"./card.js\"\nexport default component App() {\n  online = useOnline()\n  <Card title=\"net\">{online ? \"on\" : \"off\"}</Card>\n}\n");
+  const got = require("../src/rxc").checkProgram(path.join(app, "main.rx"));
+  check("...which an `.rx` module imports as JavaScript does, `import { default as x }`: checked by the row", !got.error && (got.diagnostics ?? []).length === 0, JSON.stringify(got).slice(0, 400));
+  fs.writeFileSync(path.join(app, "main.rx"), "import { default as useOnline } from \"./status.js\"\nexport default component App() {\n  <p>{useOnline() ? \"on\" : \"off\"}</p>\n}\n");
+  const bad = require("../src/rxc").checkProgram(path.join(app, "main.rx"));
+  check("...its words the row's: a primitive made where the view reads it is refused", (bad.diagnostics ?? []).some(d => d.code === "INSTANTIATION_NOT_BOUND"), JSON.stringify(bad).slice(0, 400));
+}
 // 09 MO-14g: `rx-declare --host --routes`, the whole declaration derived from the router's own tree — and held to it
 {
   const app = path.join(ws, "routesapp"); fs.mkdirSync(path.join(app, "src/routes"), { recursive: true }); fs.mkdirSync(path.join(app, "src/pages"), { recursive: true });

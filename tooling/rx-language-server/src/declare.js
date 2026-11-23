@@ -917,7 +917,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   // MO-8t: an export's own methods — `toaster.show`, `toast.success` — each drafted as a fn is, after its object. A
   // method is a property the library's own types declare (not what every function, array or string has) whose type is
   // called and is no component; one step down, and no further
-  const methodsOf = (base, bt) => bt.getProperties().filter(q => /^[a-z_$][\w$]*$/.test(q.name) && (q.declarations ?? []).length && (q.declarations ?? []).every(d => !program.isSourceFileDefaultLibrary(d.getSourceFile()))).map(q => ({ member: true, name: `${base}.${q.name}`, sym: q, t: checker.getTypeOfSymbolAtLocation(q, imp) })).filter(m => { const u = checker.getNonNullableType(m.t); return u.getCallSignatures().length > 0 && !u.getConstructSignatures().length && !isComponent(ts, checker, m.t); });
+  const methodsOf = (base, bt) => bt.getProperties().filter(q => /^[a-z_$][\w$]*$/.test(q.name) && !/^(toString|toJSON|valueOf|toLocaleString)$/.test(q.name) && (q.declarations ?? []).length && (q.declarations ?? []).every(d => !program.isSourceFileDefaultLibrary(d.getSourceFile()))).map(q => ({ member: true, name: `${base}.${q.name}`, sym: q, t: checker.getTypeOfSymbolAtLocation(q, imp) })).filter(m => { const u = checker.getNonNullableType(m.t); return u.getCallSignatures().length > 0 && !u.getConstructSignatures().length && !isComponent(ts, checker, m.t); });
   const work = checker.getExportsOfModule(mod).map(sym0 => ({ sym0 }));
   for (let wi = 0; wi < work.length; wi++) {
     const item = work[wi]; const sym0 = item.sym0;
@@ -925,7 +925,9 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const name = item.member ? item.name : sym0.name;
     const leafName = name.split(".").pop();
     if (!item.member) {
-    if (name === "default") { lines.push(`// TODO: the module's default export: import it by name in a JS helper (\`export { default as x } from …\`) and declare that`); continue; }
+    // MO-8u (2026-11-25): a module's default export is the export named `default`, and its row is named so: an `.rx`
+    // module imports it as JavaScript does, `import { default as x } from "…"`. (Until then the draft said to hand it
+    // out by name from a JS helper, and every such module had one.)
     if (sym.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(sym.flags & ts.SymbolFlags.Value)) {
       const tp = sym.declarations?.[0]?.typeParameters ?? [];
       // a generic type is declared with its parameters by name: its bounds name the library's own types, which the
@@ -995,7 +997,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
       if (!item.member && !checker.isArrayType(t)) work.splice(wi + 1, 0, ...methodsOf(name, t));   // MO-8t: and its methods, each a row
       continue;
     }
-    if (!item.member && /^[A-Z]/.test(name) && isComponent(ts, checker, t)) {
+    if (!item.member && (/^[A-Z]/.test(name) || name === "default") && isComponent(ts, checker, t)) {   // (a default export has no capital to go by: it is a component by what it is)
       if (/Provider$/.test(name)) lines.push(`// TODO ${name}: does it provide a context to its children? add provides(<context>) (MO-12c)`);
       lines.push(componentOf(name, t));
       if (members.length) { lines.push(`// TODO ${name}: its parts likely read a context it provides: add provides(<context>) to it and uses(<context>) to them (MO-12)`); memberLines(); }

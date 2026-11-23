@@ -329,7 +329,10 @@ export function declarations(dir, flagsFor = {}) {
       places += tokens(line).filter(t => PLACE.has(t)).length;
       if (whole.has(line)) continue;
       const was = allByName.get(exported(line));
-      words += was ? Math.min(...was.map(w => written(line, w))) : tokens(line).filter(isWord).length;
+      const cost = was ? Math.min(...was.map(w => written(line, w))) : tokens(line).filter(isWord).length;
+      // BENCH_WORDS=1: each row written by hand, with the draft's row of the same export (what a person added to it)
+      if (process.env.BENCH_WORDS && cost) console.error(`[words] ${path.relative(dir, p)} +${cost}\n   written: ${line.slice(0, 400)}\n   drafted: ${was ? was[0].slice(0, 400) : "(no row)"}`);
+      words += cost;
     }
     let any = 0, inherited = 0; const rows = [];
     for (const [n, k] of anyBy) { any += k; const h = Math.min(k, draft.inherited.get(n) ?? 0); inherited += h; if (k > h) rows.push({ name: n, introduced: k - h }); }

@@ -2,7 +2,9 @@
 // follows; a part only the browser renders, with the element the server sends in its place; and a ticket the server makes once and the browser takes from it.
 import { useMediaQuery, usePrefersDark } from "solid-use/media-query"
 import { ClientOnly, createClientSignal } from "solid-use/client-only"
-import { useOnlineStatus, usePageVisibility, useTicket } from "./use.js"
+import { default as useOnlineStatus } from "solid-use/online-status"
+import { default as usePageVisibility } from "solid-use/page-visibility"
+import { useTicket } from "./use.js"
 
 component Measuring() {
   <p class="only">measuring</p>

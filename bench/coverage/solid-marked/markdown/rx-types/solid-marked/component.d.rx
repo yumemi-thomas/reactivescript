@@ -1,0 +1,6 @@
+// solid-marked/component in rows: rx-declare's draft, as it is — no word by hand. The runtime component is the module's
+// default export, a row named `default` (09 MO-8u); the components that render each kind of node are given by name, in
+// a record, and each is checked as applied beneath it (MO-11c).
+//@ for solid-marked ^1.0.0
+export component default(props: MarkdownProps & { builtins: { Blockquote?: Component; Code?: Component; Definition?: Component; Delete?: Component; Emphasis?: Component; FootnoteDefinition?: Component; FootnoteReference?: Component; HTML?: Component; Heading?: Component; Image?: Component; ImageReference?: Component; InlineCode?: Component; Link?: Component; LinkReference?: Component; List?: Component; ListItem?: Component; Paragraph?: Component; Root?: Component; Strong?: Component; Table?: Component; TableCell?: Component; TableRow?: Component }; components?: Record<string, Component> })
+export type MarkdownProps = import("solid-marked/component").MarkdownProps

@@ -42,6 +42,23 @@ module.exports = {
       defineRoute: "export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition",
       useSubmissions: "export pure fn useSubmissions<T extends unknown[], U, V>(fn_: import(\"@solidjs/router\").FormAction<T, U, V>, filter?: (input: V) => boolean): { input: V; result?: unknown; error: unknown }[] uses(router)",
     },
+    // its hook reads the router's context and writes nothing (run: with no router above it throws; a page under file
+    // routes follows its params, bench/tasks/file-routes, start-mode)
+    words: { useParams: { pure: true, after: "uses(router)" } },
+  },
+  // UI SDK's dialog and radio group: the root provides what its parts read (run, each part alone and inside its root:
+  // DialogBackdrop, DialogClose, DialogContent, DialogDescription and DialogTitle throw alone — "must be used inside
+  // <Dialog>" — and render inside; a Radio fails alone and renders inside its group). DialogTrigger has no word: it
+  // renders outside a Dialog too (a detached trigger), which the benchmark's hand-written row had wrong until 2026-11-25
+  "@ui-sdk/solid/dialog": {
+    range: ">=0.1.0-beta.13 <0.2.0",
+    contexts: ["dialog"],
+    words: { Dialog: { after: "provides(dialog)" }, DialogBackdrop: { after: "uses(dialog)" }, DialogClose: { after: "uses(dialog)" }, DialogContent: { after: "uses(dialog)" }, DialogDescription: { after: "uses(dialog)" }, DialogTitle: { after: "uses(dialog)" } },
+  },
+  "@ui-sdk/solid/radio": {
+    range: ">=0.1.0-beta.13 <0.2.0",
+    contexts: ["radioGroup"],
+    words: { RadioGroup: { after: "provides(radioGroup)" }, Radio: { after: "uses(radioGroup)" } },
   },
   // a toaster: `toast()` is given a message or a component, and <Toaster> renders it (MO-11u). Its methods have rows of
   // their own (MO-8t), each io as drafted; `toast.custom(fn)` keeps no word: it calls `fn` with no owner at all (run:

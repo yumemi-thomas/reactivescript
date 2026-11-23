@@ -1,7 +1,7 @@
 //@ for @ui-sdk/solid ^0.1.0-beta.13
-// As `rx-declare @ui-sdk/solid/radio` drafts them. By hand: `handler` on the group's change, and the group's context — a
-// radio reads the group it is in (`<Radio> must be used inside <RadioGroup>`, read off a run), which neither the types
-// nor a hook show.
+// As `rx-declare @ui-sdk/solid/radio` drafts them: the group's context is what rx-declare knows of the release (known.js,
+// 2026-11-25: a radio read off a run fails alone, "<Radio> must be used inside <RadioGroup>", and renders inside its
+// group). By hand: `handler` on the group's change.
 export type RadioState = import("@ui-sdk/solid/radio").RadioState
 export type RadioProps = import("@ui-sdk/solid/radio").RadioProps
 export type RadioGroupOptions<T extends string = string> = import("@ui-sdk/solid/radio").RadioGroupOptions<T>

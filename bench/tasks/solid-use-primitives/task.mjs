@@ -2,7 +2,9 @@
 // signal that is false on the server and through hydration; a value the server makes and the browser takes from it.
 // Solid: `const wide = useMediaQuery("(min-width: 600px)")`, `<ClientOnly fallback={<p>…</p>}>`, `useServerValue(() => …)`.
 // The fallback is an element in a prop: a component of the app's given by name (09 MO-11t).
-// Half of the package's modules export their utility as the default (`solid-use/online-status`): src/use.js names them.
+// Half of the package's modules export their utility as the default (`solid-use/online-status`): the program imports
+// each as JavaScript does, `import { default as useOnlineStatus }`, and its row is named `default` (09 MO-8u). src/use.js
+// named them until 2026-11-25, and keeps the one call an `.rx` program cannot write.
 const ticketOf = text => /ticket (\w+)/.exec(text)?.[1];
 export default {
   title: "solid-use: media, network and visibility primitives, a client-only part, a value made on the server",
