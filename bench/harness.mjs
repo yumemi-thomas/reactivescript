@@ -24,6 +24,9 @@ function installLocked(from, at) {
   const stamp = path.join(at, "node_modules/.installed-from-lock");
   if (existsSync(path.join(at, "node_modules/solid-js")) && files.every(same) && existsSync(stamp) && readFileSync(stamp, "utf8") === readFileSync(path.join(from, "package-lock.json"), "utf8")) return;
   for (const f of files) writeFileSync(path.join(at, f), readFileSync(path.join(from, f), "utf8"));
+  // packages the lock names by file (`file:vendor/x.tgz`: a library's fork, packed; each has its integrity in the lock)
+  rmSync(path.join(at, "vendor"), { recursive: true, force: true });
+  if (existsSync(path.join(from, "vendor"))) cpSync(path.join(from, "vendor"), path.join(at, "vendor"), { recursive: true });
   execFileSync("npm", ["ci", "--no-audit", "--no-fund", "--silent", "--legacy-peer-deps"], { cwd: at, stdio: "inherit" });
   writeFileSync(stamp, readFileSync(path.join(from, "package-lock.json"), "utf8"));
 }
@@ -225,6 +228,16 @@ const hostRows = text => { const ls = code(text).map(l => l.trim()).filter(Boole
  *  imports, the contexts those modules use, and every component placed at the top. */
 function hostDraft(file) {
   const text = readFileSync(file, "utf8");
+  // 09 MO-14g: a declaration that names the router's tree it is derived from (`//@ routes <source> [<entry.rx>…]`) is
+  // drafted from there, whole: the command its first line records
+  const from = /^[ \t]*\/\/@[ \t]*routes[ \t]+(\S+)((?:[ \t]+\S+)*)[ \t]*$/m.exec(text);
+  if (from) {
+    const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--host", "--routes", from[1], ...from[2].trim().split(/\s+/).filter(Boolean)], { cwd: path.dirname(file), encoding: "utf8", env: { ...process.env, RXC: rxc } });
+    const lines = r.status === 0 ? hostRows(r.stdout) : [];
+    lines.inherited = new Map();
+    lines.whole = { rows: lines.length, any: 0, vendor: 0, introduced: 0, places: 0, introducedRows: [], drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
+    return lines;
+  }
   // (the `.rx` modules: what it imports from JavaScript, MO-14f, is not the draft's to know — those rows are by hand)
   const modules = [...text.matchAll(/^\s*import\s*\{[^}]*\}\s*from\s*(["'])(.*?)\1/gm)].filter(m => m[2].endsWith(".rx")).map(m => path.resolve(path.dirname(file), m[2]));
   const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--host", ...modules], { cwd: path.dirname(file), encoding: "utf8", env: { ...process.env, RXC: rxc } });

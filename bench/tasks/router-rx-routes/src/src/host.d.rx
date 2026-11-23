@@ -1,0 +1,11 @@
+//@ routes ./routeTree.gen.ts ./main.rx
+// Derived (rx-declare --host --routes): what the router does with the app's components (09 MO-14), read from the
+// router's own tree. Not edited by hand — `rx-declare --host --sync` writes it again, the dev server does on its own,
+// and a build, rx-tsc and rx-verify refuse it once the tree has moved (HOST_VIEW_STALE).
+import { App } from "./main.rx"
+import { Root } from "./routes/__root.rx"
+import { Home } from "./routes/index.rx"
+import { Person } from "./routes/people.$id.rx"
+import { AppRouter } from "./router.tsx"
+import { Outlet } from "@tanstack/solid-router"
+export default component nests(children in component) = [{ component: App, children: [{ component: Root, children: [{ component: Home }, { component: Person }] }] }]

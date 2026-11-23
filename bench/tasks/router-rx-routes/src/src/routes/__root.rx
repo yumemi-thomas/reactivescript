@@ -1,0 +1,11 @@
+// The root route: a route file that is its component. The layout renders its pages with the router's <Outlet />, as
+// TanStack's documentation writes one, inside the regions that hold what a page waits for and fails with.
+import { Link, Outlet } from "@tanstack/solid-router"
+import { NotFound } from "../people.js"
+
+export default component Root() {
+  <nav><Link to="/">Home</Link> <Link to="/people/$id" params={{ id: "1" }}>Ann</Link> <Link to="/people/$id" params={{ id: "9" }}>Nobody</Link></nav>
+  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
+    loading fallback { <p>loading…</p> } { <main><Outlet /></main> }
+  }
+}

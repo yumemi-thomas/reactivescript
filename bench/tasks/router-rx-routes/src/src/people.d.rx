@@ -1,0 +1,5 @@
+export type Person = { name: string; role: string }
+export error NotFound
+export pure fn fetchPerson(id: string): Promise<Person> rejects(NotFound)
+export error Stale
+export pure fn fetchStamp(id: string): Promise<string> rejects(Stale)

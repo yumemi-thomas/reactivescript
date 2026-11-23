@@ -19,7 +19,7 @@
 //        VERBOSE=1                            prints every check, not only the failures
 // Needs: the crate (`cargo build --release` in compiler/), the runtime (`npm run build` in runtime/), the language
 // server's packages (`npm ci` in tooling/rx-language-server), Node 22.6+, and the network once (bench/package.json).
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -106,7 +106,14 @@ async function runTask(id, entry) {
   };
   for (const b of task.bad ?? []) {
     const col = b.ts || UNWRITABLE.has(b.expect) ? res.unrep : res.bad;   // a mistake that cannot be written is counted apart
-    let undo; try { const u1 = edit(dir, b.file ?? entries[0], b.edit); const u2 = b.edit2 ? edit(dir, b.file ?? entries[0], b.edit2) : null; undo = () => { u2?.(); u1(); }; } catch (e) { mark(col, b.name, false, e.message); continue; }
+    // the variant: one edit (two where an import has to come with it), or a file added (`add`: a route file a router finds)
+    let undo; try {
+      const undos = [];
+      if (b.add) { const f = path.join(dir, b.add[0]); if (existsSync(f)) throw new Error(`${b.add[0]} is already there`); writeFileSync(f, b.add[1]); undos.push(() => rmSync(f, { force: true })); }
+      if (b.edit) undos.push(edit(dir, b.file ?? entries[0], b.edit));
+      if (b.edit2) undos.push(edit(dir, b.file ?? entries[0], b.edit2));
+      undo = () => { for (const u of undos.reverse()) u(); undos.length = 0; };
+    } catch (e) { mark(col, b.name, false, e.message); continue; }
     const e0 = b.entry ?? entries[0]; const entry = path.join(dir, e0);
     try {
       if (b.expect) {
@@ -129,6 +136,17 @@ async function runTask(id, entry) {
       } else if (b.ts) {
         const out = rxTsc(dir);
         mark(col, `${b.name} (${b.ts.source})`, b.ts.test(out), out || "rx-tsc accepted it");
+      } else if (b.gate) {
+        // refused by rx-tsc's own gate, not by TypeScript and not by a rule of the language: a declaration that has fallen
+        // behind what it was derived from (HOST_VIEW_STALE, 09 MO-14g), a row no run has verified
+        const out = rxTsc(dir);
+        mark(res.bad, `${b.name} (rx-tsc: ${b.gate.source})`, b.gate.test(out), out || "rx-tsc accepted it");
+      } else if (b.build) {
+        // refused by the build itself (`vite build`, the router's own plugin run first): what a deploy would meet
+        const r = spawnSync(process.execPath, [path.join(ws, "node_modules/vite/bin/vite.js"), "build"], { cwd: dir, encoding: "utf8", env: { ...process.env, RX_TYPECHECK: "0" } });
+        const out = String(r.stdout ?? "") + String(r.stderr ?? "");
+        mark(res.bad, `${b.name} (build: ${b.build.source})`, r.status !== 0 && b.build.test(out), r.status === 0 ? "the build passed" : out);
+        undo(); if (task.prepare) await task.prepare(dir);   // what the build generated from the variant is made again from the good program
       } else if (b.dev) {
         // only the runtime can know: the program compiles, and running it reports the mistake where a developer sees it
         const r = both(entry, b.spa ?? task.spa, task.host);
