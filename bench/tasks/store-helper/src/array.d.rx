@@ -1,8 +1,5 @@
 // array.js in rows, from rx-declare's draft. Read from the code by rx-declare (09 MO-8v; it was by hand): the two helpers change the list they are given in place
 // (`draft`, MO-10i), so a store's draft is given to them as it is — and nothing else is.
-//@ inferred moveItem: draft(list)
 export fn moveItem<T>(draft list: T[], from: number, to: number): void
-//@ inferred sortBy: draft(list)
 export fn sortBy<T>(draft list: T[], key: keyof T): void
-//@ inferred later: handler(run)
 export fn later(run: handler () => void): void

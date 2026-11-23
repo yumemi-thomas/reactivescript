@@ -1,6 +1,8 @@
 //@ for @solid-primitives/sortable ^1.0.0
 export type Comparator<T> = import("@solid-primitives/sortable").Comparator<T>
 export type CreateSortedOptions = import("@solid-primitives/sortable").CreateSortedOptions
-export pure fn createSorted<T>(ref list: T[], ref comparator?: Comparator<T>, options?: CreateSortedOptions): ref T[]
-//@ inferred by: pure
+// createSorted is not `pure`: under `{ dirty: true }` it sorts the list it is given in place, each time its memo
+// computes (sort.js). It was declared `pure` by hand until the code was read (09 MO-8w, `rx-declare --audit`); an app
+// that wants the sorted copy calls it from a module of its own that never asks for that (sorted.js).
+export fn createSorted<T>(ref list: T[], ref comparator?: Comparator<T>, options?: CreateSortedOptions): ref T[]
 export pure fn by<T, K>(accessor: (item: T) => K, comparator?: (a: K, b: K) => number): ((a: T, b: T) => number)

@@ -2,7 +2,8 @@
 // size in a static store, and a page size that can be overridden until the list changes.
 import { createStaticStore } from "@solid-primitives/static-store"
 import { createWritableMemo } from "@solid-primitives/memo"
-import { createSorted, by } from "@solid-primitives/sortable"
+import { by } from "@solid-primitives/sortable"
+import { sortedBy } from "./sorted.js"
 import { createSegment } from "@solid-primitives/pagination"
 import { persisted } from "./storage.js"
 
@@ -12,7 +13,7 @@ export default component App() {
   [name, setName] = persisted("anonymous", { name: "rx-bench-name" })
   [size, setSize] = createStaticStore({ width: 0, height: 0 })
   [perPage, setPerPage] = createWritableMemo<number>(() => people.length > 3 ? 3 : 2)
-  sorted = createSorted(people, by((p: { name: string, born: number }) => p.born))
+  sorted = sortedBy(people, by((p: { name: string, born: number }) => p.born))
   shown = createSegment(sorted, perPage, page)
   <p class="who">hello {name}</p>
   <ol>{for p in shown { <li>{p.name}</li> }}</ol>

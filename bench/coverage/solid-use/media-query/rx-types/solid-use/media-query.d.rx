@@ -1,5 +1,3 @@
 //@ for solid-use ^1.0.0
-//@ inferred useMediaQuery: pure
 export pure fn useMediaQuery(query: string): ref boolean instantiates
-//@ inferred usePrefersDark: pure
 export pure fn usePrefersDark(): ref boolean

@@ -1,6 +1,7 @@
 // solid-primitives' state helpers (09 MO-10a, MO-10b, 02 W-1a, C-3a): a signal's two halves, a store read a field at a
 // time, accessors given on to another primitive, a pure function a memo computes with. Solid: `const [name, setName] =
-// makePersisted(createSignal("anonymous"))`, `const sorted = createSorted(people, by(p => p.born))`.
+// makePersisted(createSignal("anonymous"))`, `const sorted = createSorted(people, by(p => p.born))` — through a module of the app's own (sorted.js): the library's
+// createSorted sorts in place when asked, so it is not `pure`, and the wrapper that never asks is (read from the code).
 export default {
   title: "solid-primitives: a persisted signal, a static store, a sorted and paged list, a writable memo",
   types: [
@@ -11,7 +12,12 @@ export default {
   bad: [
     { name: "a setter called while the view computes", edit: ['<p class="who">hello {name}</p>', '<p class="who">hello {name}{setName("x")}</p>'], expect: "IO_IN_REACTIVE" },
     { name: "a handler attribute given the setter called", edit: ["onClick={() => { setName(\"Ada\") }}", "onClick={setName(\"Ada\")}"], expect: "IO_IN_REACTIVE" },
-    { name: "the source's list sorted in place for display", edit: ["sorted = createSorted(people, by((p: { name: string, born: number }) => p.born))", "sorted = people.sort((a: { name: string, born: number }, b: { name: string, born: number }) => a.born - b.born)"], expect: "MUTATION_IN_PLACE" },
+    { name: "the source's list sorted in place for display", edit: ["sorted = sortedBy(people, by((p: { name: string, born: number }) => p.born))", "sorted = people.sort((a: { name: string, born: number }, b: { name: string, born: number }) => a.born - b.born)"], expect: "MUTATION_IN_PLACE" },
+    // 09 MO-8w: the library's own createSorted sorts the list it is given in place under `{ dirty: true }`, so its row is
+    // not `pure` (it was, by hand, until the code was read): called where a view computes, it is refused
+    // (no rule of the language reads the difference where the call is bound once — an instantiating fn is bound whether
+    // or not it is `pure` — so the word is held where it can be: against the code, by rx-verify)
+    { name: "the library's createSorted declared `pure`, as it was by hand: it sorts the list it is given in place when asked", file: "rx-types/@solid-primitives/sortable.d.rx", edit: ["export fn createSorted<T>(", "export pure fn createSorted<T>("], verify: ["rx-types/@solid-primitives/sortable.d.rx", /createSorted: pure is contradicted by the code: it changes its argument `list` in place \(\.sort\(\)\)/] },
     { name: "the memo's function writes a source", edit: ["createWritableMemo<number>(() => people.length > 3 ? 3 : 2)", "createWritableMemo<number>(() => { page := 1; return 2 })"], expect: "REACTIVE_WRITE_IN_OWNED_SCOPE" },
     { name: "the persisted name copied into a source by an effect", edit: ['  <p class="who">hello {name}</p>', '  source greeting: string := ""\n  effect (name) { greeting := "hello " + $0 }\n  <p class="who">{greeting}</p>'], expect: "EFFECT_RELAY_TEAR" },
     { name: "a primitive's value written as a source is", edit: ["onClick={() => { setPerPage(10); page := 1 }}", "onClick={() => { perPage := 10 }}"], expect: "WRITE_TO_NON_SOURCE" },

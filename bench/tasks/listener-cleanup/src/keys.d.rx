@@ -1,3 +1,2 @@
-//@ inferred onShortcut: handler(run)
 export fn onShortcut(key: string, run: handler () => void): () => void
 export fn liveListeners(): number

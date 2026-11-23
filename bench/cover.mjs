@@ -52,6 +52,9 @@ export function use(meta, spec) {
       else page = await h.open(base);
       if (spec.dom instanceof RegExp) h.check(`browser${spec.ssr && !spec.hydration ? " (hydrated)" : ""}: ${spec.dom.source}`, await h.until(async () => spec.dom.test(await h.text(page))), await h.text(page));
       else if (spec.dom) await spec.dom(h, page);
+      // what a library says on a timer of its own (a development check it defers with `setTimeout`) is said before the
+      // console is looked at (harness.mjs `settled`): it was seen only on the runs that took longer than the timer
+      await h.settled(page);
       h.check("no console errors or warnings", h.problems.length === 0, h.problems);
     },
   };

@@ -301,7 +301,7 @@
      "vendor": 0,
      "introduced": 0,
      "places": 0,
-     "inferred": 0,
+     "inferred": 220,
      "todos": 2
     }
    }
@@ -490,7 +490,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 2,
-     "todos": 10
+     "todos": 8
     }
    }
   },
@@ -521,10 +521,10 @@
     "@solid-primitives/context"
    ],
    "decl": {
-    "words": 8,
-    "inferred": 0,
-    "probed": 0,
-    "todos": 3,
+    "words": 7,
+    "inferred": 2,
+    "probed": 2,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -537,7 +537,7 @@
      "introduced": 0,
      "places": 8,
      "inferred": 0,
-     "todos": 4
+     "todos": 3
     }
    }
   },
@@ -1100,8 +1100,8 @@
      "vendor": 5,
      "introduced": 0,
      "places": 2,
-     "inferred": 7,
-     "todos": 5
+     "inferred": 494,
+     "todos": 1
     }
    }
   },
@@ -1195,7 +1195,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 0,
-     "todos": 11
+     "todos": 7
     }
    }
   },
@@ -1509,7 +1509,7 @@
    ],
    "decl": {
     "words": 1,
-    "inferred": 0,
+    "inferred": 1,
     "probed": 0,
     "todos": 0,
     "any": 0,
@@ -1697,7 +1697,7 @@
    ],
    "decl": {
     "words": 1,
-    "inferred": 0,
+    "inferred": 1,
     "probed": 0,
     "todos": 2,
     "any": 0,
@@ -1791,7 +1791,7 @@
    ],
    "decl": {
     "words": 1,
-    "inferred": 0,
+    "inferred": 1,
     "probed": 0,
     "todos": 1,
     "any": 0,
@@ -1900,7 +1900,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 0,
-     "todos": 8
+     "todos": 7
     }
    }
   },
@@ -1932,9 +1932,9 @@
    ],
    "decl": {
     "words": 2,
-    "inferred": 0,
+    "inferred": 1,
     "probed": 0,
-    "todos": 4,
+    "todos": 3,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1947,7 +1947,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 2,
-     "todos": 13
+     "todos": 9
     }
    }
   },
@@ -2087,7 +2087,7 @@
      "vendor": 3,
      "introduced": 0,
      "places": 0,
-     "inferred": 0,
+     "inferred": 1,
      "todos": 0
     }
    }
@@ -2370,7 +2370,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 1,
-     "todos": 5
+     "todos": 4
     }
    }
   },
@@ -2511,7 +2511,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 0,
-     "todos": 6
+     "todos": 5
     }
    }
   },
@@ -2746,7 +2746,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 0,
-     "todos": 4
+     "todos": 3
     }
    }
   },
@@ -3122,7 +3122,7 @@
      "introduced": 0,
      "places": 12,
      "inferred": 1,
-     "todos": 11
+     "todos": 10
     }
    }
   },
@@ -3248,7 +3248,7 @@
    ],
    "decl": {
     "words": 3,
-    "inferred": 0,
+    "inferred": 1,
     "probed": 0,
     "todos": 0,
     "any": 0,
@@ -3263,7 +3263,7 @@
      "introduced": 0,
      "places": 1,
      "inferred": 2,
-     "todos": 4
+     "todos": 2
     }
    }
   },
@@ -3310,7 +3310,7 @@
      "introduced": 0,
      "places": 1,
      "inferred": 5,
-     "todos": 6
+     "todos": 5
     }
    }
   },
@@ -3344,7 +3344,7 @@
     "words": 1,
     "inferred": 0,
     "probed": 0,
-    "todos": 2,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3498,7 +3498,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 0,
-     "todos": 4
+     "todos": 3
     }
    }
   },
@@ -3592,7 +3592,7 @@
      "introduced": 0,
      "places": 2,
      "inferred": 3,
-     "todos": 9
+     "todos": 7
     }
    }
   },
@@ -3754,8 +3754,8 @@
     "fails": []
    },
    "bad": {
-    "pass": 0,
-    "total": 0,
+    "pass": 1,
+    "total": 1,
     "fails": []
    },
    "server": true,
@@ -3764,9 +3764,9 @@
     "@solid-primitives/sortable"
    ],
    "decl": {
-    "words": 1,
-    "inferred": 1,
-    "probed": 0,
+    "words": 0,
+    "inferred": 2,
+    "probed": 1,
     "todos": 1,
     "any": 0,
     "inherited": 0,
@@ -4031,7 +4031,7 @@
      "introduced": 0,
      "places": 5,
      "inferred": 3,
-     "todos": 2
+     "todos": 1
     },
     "@solid-primitives/storage/tauri": {
      "rows": 1,
@@ -4086,7 +4086,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 0,
-     "todos": 3
+     "todos": 2
     }
    }
   },
@@ -4306,7 +4306,7 @@
    ],
    "decl": {
     "words": 0,
-    "inferred": 1,
+    "inferred": 2,
     "probed": 1,
     "todos": 0,
     "any": 0,
@@ -4414,8 +4414,8 @@
      "vendor": 18,
      "introduced": 0,
      "places": 20,
-     "inferred": 31,
-     "todos": 6
+     "inferred": 33,
+     "todos": 4
     },
     "@solid-primitives/utils/immutable": {
      "rows": 41,
@@ -4524,7 +4524,7 @@
      "vendor": 0,
      "introduced": 0,
      "places": 0,
-     "inferred": 2,
+     "inferred": 226,
      "todos": 4
     }
    }
@@ -4716,12 +4716,12 @@
    },
    "modules": {
     "solid-marked": {
-     "rows": 17,
+     "rows": 18,
      "vendor": 0,
      "introduced": 0,
      "places": 0,
-     "inferred": 1,
-     "todos": 3
+     "inferred": 3,
+     "todos": 1
     },
     "solid-marked/component": {
      "rows": 2,
@@ -4776,7 +4776,7 @@
      "introduced": 0,
      "places": 4,
      "inferred": 1,
-     "todos": 11
+     "todos": 10
     }
    }
   },
@@ -4949,9 +4949,9 @@
    ],
    "decl": {
     "words": 0,
-    "inferred": 2,
+    "inferred": 3,
     "probed": 1,
-    "todos": 2,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4964,7 +4964,7 @@
      "introduced": 0,
      "places": 0,
      "inferred": 4,
-     "todos": 4
+     "todos": 0
     }
    }
   },
@@ -5139,7 +5139,7 @@
     "words": 8,
     "inferred": 0,
     "probed": 0,
-    "todos": 2,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -5186,7 +5186,7 @@
     "words": 1,
     "inferred": 0,
     "probed": 0,
-    "todos": 2,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -5775,7 +5775,7 @@
    "vendor": 3,
    "introduced": 0,
    "places": 42,
-   "inferred": 4,
+   "inferred": 7,
    "todos": 60
   },
   "@wardic/solid/v1": {
@@ -5783,7 +5783,7 @@
    "vendor": 4,
    "introduced": 0,
    "places": 14,
-   "inferred": 13,
+   "inferred": 16,
    "todos": 63
   },
   "@wardic/solid/unstable/v2": {
@@ -5791,7 +5791,7 @@
    "vendor": 3,
    "introduced": 0,
    "places": 42,
-   "inferred": 4,
+   "inferred": 7,
    "todos": 60
   },
   "@wardic/dom": {
@@ -5799,16 +5799,16 @@
    "vendor": 0,
    "introduced": 0,
    "places": 7,
-   "inferred": 0,
-   "todos": 38
+   "inferred": 14,
+   "todos": 26
   },
   "@ui-sdk/solid": {
-   "rows": 1352,
+   "rows": 1370,
    "vendor": 522,
    "introduced": 0,
    "places": 584,
-   "inferred": 11,
-   "todos": 180
+   "inferred": 32,
+   "todos": 179
   },
   "@ui-sdk/solid/accordion": {
    "rows": 21,
@@ -5832,7 +5832,7 @@
    "introduced": 0,
    "places": 0,
    "inferred": 0,
-   "todos": 4
+   "todos": 2
   },
   "@ui-sdk/solid/autocomplete": {
    "rows": 52,
@@ -5859,19 +5859,19 @@
    "todos": 0
   },
   "@ui-sdk/solid/calendar": {
-   "rows": 38,
+   "rows": 39,
    "vendor": 9,
    "introduced": 0,
    "places": 0,
-   "inferred": 0,
+   "inferred": 11,
    "todos": 3
   },
   "@ui-sdk/solid/carousel": {
-   "rows": 33,
+   "rows": 34,
    "vendor": 12,
    "introduced": 0,
    "places": 9,
-   "inferred": 0,
+   "inferred": 1,
    "todos": 3
   },
   "@ui-sdk/solid/checkbox": {
@@ -5915,11 +5915,11 @@
    "todos": 4
   },
   "@ui-sdk/solid/command": {
-   "rows": 47,
+   "rows": 49,
    "vendor": 20,
    "introduced": 0,
    "places": 24,
-   "inferred": 0,
+   "inferred": 2,
    "todos": 4
   },
   "@ui-sdk/solid/date": {
@@ -5963,11 +5963,11 @@
    "todos": 2
   },
   "@ui-sdk/solid/field": {
-   "rows": 21,
+   "rows": 24,
    "vendor": 12,
    "introduced": 0,
    "places": 0,
-   "inferred": 1,
+   "inferred": 6,
    "todos": 2
   },
   "@ui-sdk/solid/file-input": {
@@ -6035,19 +6035,19 @@
    "todos": 3
   },
   "@ui-sdk/solid/menu": {
-   "rows": 56,
+   "rows": 58,
    "vendor": 17,
    "introduced": 0,
    "places": 8,
-   "inferred": 0,
+   "inferred": 4,
    "todos": 7
   },
   "@ui-sdk/solid/menubar": {
-   "rows": 9,
+   "rows": 10,
    "vendor": 1,
    "introduced": 0,
    "places": 0,
-   "inferred": 0,
+   "inferred": 1,
    "todos": 2
   },
   "@ui-sdk/solid/meter": {
@@ -6059,11 +6059,11 @@
    "todos": 0
   },
   "@ui-sdk/solid/navigation-menu": {
-   "rows": 34,
+   "rows": 36,
    "vendor": 13,
    "introduced": 0,
    "places": 12,
-   "inferred": 0,
+   "inferred": 4,
    "todos": 3
   },
   "@ui-sdk/solid/number": {
@@ -6099,19 +6099,19 @@
    "todos": 2
   },
   "@ui-sdk/solid/pagination": {
-   "rows": 22,
+   "rows": 23,
    "vendor": 11,
    "introduced": 0,
    "places": 6,
-   "inferred": 1,
+   "inferred": 8,
    "todos": 3
   },
   "@ui-sdk/solid/password-input": {
-   "rows": 10,
+   "rows": 11,
    "vendor": 4,
    "introduced": 0,
    "places": 3,
-   "inferred": 0,
+   "inferred": 2,
    "todos": 3
   },
   "@ui-sdk/solid/popover": {
@@ -6136,7 +6136,7 @@
    "introduced": 0,
    "places": 0,
    "inferred": 1,
-   "todos": 1
+   "todos": 0
   },
   "@ui-sdk/solid/progress": {
    "rows": 12,
@@ -6171,11 +6171,11 @@
    "todos": 3
   },
   "@ui-sdk/solid/scroll-area": {
-   "rows": 18,
+   "rows": 19,
    "vendor": 12,
    "introduced": 0,
    "places": 12,
-   "inferred": 0,
+   "inferred": 1,
    "todos": 2
   },
   "@ui-sdk/solid/segmented-control": {
@@ -6315,11 +6315,11 @@
    "todos": 4
   },
   "@ui-sdk/solid/toolbar": {
-   "rows": 21,
+   "rows": 22,
    "vendor": 10,
    "introduced": 0,
    "places": 12,
-   "inferred": 0,
+   "inferred": 1,
    "todos": 2
   },
   "@ui-sdk/solid/tooltip": {
@@ -6331,11 +6331,11 @@
    "todos": 3
   },
   "@ui-sdk/solid/tree": {
-   "rows": 38,
+   "rows": 39,
    "vendor": 6,
    "introduced": 0,
    "places": 0,
-   "inferred": 1,
+   "inferred": 6,
    "todos": 3
   },
   "@ui-sdk/solid/trigger-menu": {

@@ -1,9 +1,6 @@
 export type Person = import("./people.js").Person
 export error NotFound
-//@ inferred fetchPeople: pure
 export pure fn fetchPeople(): Promise<{ id: string; name: string }[]>
-//@ inferred fetchPerson: pure, rejects(NotFound)
 export pure fn fetchPerson(id: string): Promise<Person> rejects(NotFound)
 export error Stale
-//@ inferred fetchStamp: pure, rejects(Stale)
 export pure fn fetchStamp(id: string): Promise<string> rejects(Stale)

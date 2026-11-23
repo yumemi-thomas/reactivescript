@@ -1,3 +1,2 @@
 //@ for @solid-primitives/lifecycle ^1.0.0
-//@ inferred createIsMounted: pure
 export pure fn createIsMounted(): ref boolean

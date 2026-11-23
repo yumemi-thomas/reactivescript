@@ -25,13 +25,8 @@ export type BaseTransformation<TInput, TOutput, TIssue extends BaseIssue<unknown
 export type BaseTransformationAsync<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseTransformationAsync<TInput, TOutput, TIssue>
 export type BaseValidation<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseValidation<TInput, TOutput, TIssue>
 export type BaseValidationAsync<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseValidationAsync<TInput, TOutput, TIssue>
-//@ inferred object: pure
 export pure fn object<const TEntries extends ObjectEntries>(entries: TEntries): ObjectSchema<TEntries, undefined>
-//@ inferred array: pure
 export pure fn array<const TItem extends BaseSchema<unknown, unknown, BaseIssue<unknown>>>(item: TItem): ArraySchema<TItem, undefined>
-//@ inferred string: pure
 export pure fn string(): StringSchema<undefined>
-//@ inferred pipe: pure
 export pure fn pipe<const TSchema extends BaseSchema<unknown, unknown, BaseIssue<unknown>>, const TItem1 extends PipeItem<InferOutput<TSchema>, unknown, BaseIssue<unknown>>>(schema: TSchema, item1: TItem1 | PipeAction<InferOutput<TSchema>, InferOutput<TItem1>, InferIssue<TItem1>>): SchemaWithPipe<readonly [TSchema, TItem1]>
-//@ inferred minLength: pure
 export pure fn minLength<TInput extends LengthInput, const TRequirement extends number>(requirement: TRequirement): MinLengthAction<TInput, TRequirement, undefined>

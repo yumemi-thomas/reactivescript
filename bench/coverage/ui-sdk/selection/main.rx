@@ -1,17 +1,19 @@
-// UI SDK's selection components: a select and a listbox whose value the app holds.
+// UI SDK's selection components: a select and a listbox whose value the app holds. The select's trigger and the listbox are
+// named (aria-label): unnamed, the library says so 300 ms after each is mounted, which the entry saw only on the runs
+// that took that long.
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@ui-sdk/solid/select"
 import { Listbox, ListboxItem } from "@ui-sdk/solid/listbox"
 
 export default component App() {
   source role: string | null := null
   <Select placeholder="Select a role" value={role} onValueChange={(value: string | null) => { role := value }}>
-    <SelectTrigger class="role"><SelectValue /></SelectTrigger>
+    <SelectTrigger class="role" aria-label="Role"><SelectValue /></SelectTrigger>
     <SelectContent>
       <SelectItem value="viewer">Viewer</SelectItem>
       <SelectItem class="editor" value="editor">Editor</SelectItem>
     </SelectContent>
   </Select>
-  <Listbox defaultValue="mentions">
+  <Listbox defaultValue="mentions" aria-label="Notify me about">
     <ListboxItem value="mentions">Mentions</ListboxItem>
     <ListboxItem value="replies">Replies</ListboxItem>
   </Listbox>

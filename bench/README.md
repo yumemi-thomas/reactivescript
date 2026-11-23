@@ -476,3 +476,27 @@ whole drafts of the tasks' modules read 808 words and ask 994 questions. Coverag
 drafted whole (5076 rows: a property that may be absent is no method's row, 5105 before), 407 words read, 979
 questions asked (1215), 245 hand-written words in the kept rows (277) with 28 inferred beside them.
 
+On 2026-11-27 the marks went, and every word is audited (09 MO-8w: `rx-declare` reads `handler` through JSX,
+`uses(c)`, `provides(c)` and values made by a call; a draft has no `//@ inferred` lines). **inferred words** is now
+every word of a kept declaration that the code proves, a row written by hand included: for each `.d.rx` the harness
+runs `rx-declare --audit --json`, which sorts each behaviour word — `pure`, `handler`, `draft`, `rejects(E)`,
+`uses(c)`, `provides(c)`, `nests(…)`, `renders(H)` — into *proven*, *contradicted* and *unproven*. Proven words are
+the ones `rx-verify` holds to the reading (the "run by rx-verify" number). **A contradicted word is a problem
+whoever wrote it**: `--check` refuses any (it took the place of the check that a kept row's mark was the draft's;
+`BENCH_MARKS` is gone with the marks). The unproven words are written out, each with the first thing the reading
+stops at — what a reviewer should check — in `bench/audit.txt` (the tasks) and `bench/coverage/audit.txt` (the
+entries) by `--write`. The audit found one false word, in two declarations: `@solid-primitives/sortable`'s
+`createSorted` was declared `pure` by hand and sorts its list in place under `{ dirty: true }`. Its row is `fn` now,
+`primitives-state` and `coverage/primitives/sortable` call it through a module of their own (`sorted.js`, whose `pure`
+the reading proves), and each holds the old row as a variant `rx-verify` must report. Every coverage entry also
+waits for the page's pending timers before it looks at the console (`harness.mjs` `settled`): `ui-sdk/selection`
+failed one run in a few on a warning its library gives 300 ms after mount, which was a real mistake of the entry's
+program (an unnamed listbox and trigger), seen only on slow runs.
+Totals, at `7afde53` and now, both from a fresh `npm ci`: good 132/132, types 186/186, runtime 268/268, bad
+245/245 and 246/246, unrepresentable 13/13; hand-written words 157 and 154; inferred 48 (marked) and 71 (proven), 43
+and 54 of them run (a `uses` and a `provides` rx-verify ran are counted now); questions in the kept rows 57 and 50; `any` 61 inherited, 0 introduced, 30 by place. The tasks'
+audit: 71 proven, 0 contradicted, 91 unproven. Coverage: 123 programs green; 193 modules drafted whole, 5 112 rows
+(5 076), 1 431 words read (407: 984 `handler`, 353 `pure`, 42 `provides`, 25 `uses`, 18 `instantiates`, 9 `draft`),
+926 questions asked (979); 243 hand-written words in the kept rows (245), 38 proven beside them, 119 unproven, none
+contradicted; 22/22 bad caught (21/21).
+

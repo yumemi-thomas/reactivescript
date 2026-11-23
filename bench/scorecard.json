@@ -188,12 +188,11 @@
         "inferredBy": {
           "pure": 12
         },
-        "todos": 27,
+        "todos": 26,
         "todosBy": {
           "uses": 13,
           "pure": 11,
           "store fields": 1,
-          "provides/nests": 1,
           "rejects": 1
         }
       }
@@ -226,10 +225,10 @@
       "fails": []
     },
     "decl": {
-      "words": 2,
-      "inferred": 5,
+      "words": 1,
+      "inferred": 6,
       "probed": 5,
-      "todos": 10,
+      "todos": 9,
       "any": 11,
       "inherited": 11,
       "introduced": 0,
@@ -240,19 +239,17 @@
         "vendor": 64,
         "introduced": 0,
         "places": 16,
-        "inferred": 261,
+        "inferred": 262,
         "inferredBy": {
+          "handler": 2,
           "pure": 258,
-          "handler": 1,
           "draft": 2
         },
-        "todos": 108,
+        "todos": 105,
         "todosBy": {
-          "handler": 1,
           "store fields": 82,
           "pure": 1,
           "draft": 12,
-          "uses": 2,
           "rejects": 5,
           "ref fields": 3,
           "overloads": 2
@@ -287,10 +284,10 @@
       "fails": []
     },
     "decl": {
-      "words": 2,
-      "inferred": 5,
+      "words": 1,
+      "inferred": 6,
       "probed": 5,
-      "todos": 6,
+      "todos": 5,
       "any": 11,
       "inherited": 11,
       "introduced": 0,
@@ -301,19 +298,17 @@
         "vendor": 64,
         "introduced": 0,
         "places": 16,
-        "inferred": 261,
+        "inferred": 262,
         "inferredBy": {
+          "handler": 2,
           "pure": 258,
-          "handler": 1,
           "draft": 2
         },
-        "todos": 108,
+        "todos": 105,
         "todosBy": {
-          "handler": 1,
           "store fields": 82,
           "pure": 1,
           "draft": 12,
-          "uses": 2,
           "rejects": 5,
           "ref fields": 3,
           "overloads": 2
@@ -349,8 +344,8 @@
     },
     "decl": {
       "words": 0,
-      "inferred": 1,
-      "probed": 1,
+      "inferred": 2,
+      "probed": 2,
       "todos": 0,
       "any": 0,
       "inherited": 0,
@@ -447,8 +442,8 @@
     },
     "decl": {
       "words": 0,
-      "inferred": 2,
-      "probed": 2,
+      "inferred": 7,
+      "probed": 7,
       "todos": 1,
       "any": 0,
       "inherited": 0,
@@ -460,8 +455,9 @@
         "vendor": 3,
         "introduced": 0,
         "places": 2,
-        "inferred": 3,
+        "inferred": 15,
         "inferredBy": {
+          "handler": 12,
           "pure": 2,
           "rejects": 1
         },
@@ -660,9 +656,9 @@
     },
     "decl": {
       "words": 5,
-      "inferred": 0,
+      "inferred": 1,
       "probed": 0,
-      "todos": 7,
+      "todos": 6,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
@@ -677,12 +673,11 @@
         "inferredBy": {
           "handler": 5
         },
-        "todos": 34,
+        "todos": 26,
         "todosBy": {
           "pure": 18,
           "store fields": 4,
           "ref fields": 2,
-          "uses": 8,
           "draft": 2
         }
       }
@@ -705,8 +700,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 7,
-      "total": 7,
+      "pass": 8,
+      "total": 8,
       "fails": []
     },
     "unrep": {
@@ -715,23 +710,23 @@
       "fails": []
     },
     "decl": {
-      "words": 3,
-      "inferred": 3,
-      "probed": 3,
+      "words": 2,
+      "inferred": 4,
+      "probed": 4,
       "todos": 3,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 4,
       "draft": {
-        "rows": 37,
+        "rows": 38,
         "any": 7,
         "vendor": 7,
         "introduced": 0,
         "places": 17,
-        "inferred": 17,
+        "inferred": 18,
         "inferredBy": {
-          "pure": 17
+          "pure": 18
         },
         "todos": 11,
         "todosBy": {
@@ -770,7 +765,7 @@
     },
     "decl": {
       "words": 2,
-      "inferred": 4,
+      "inferred": 7,
       "probed": 2,
       "todos": 2,
       "any": 0,
@@ -783,19 +778,17 @@
         "vendor": 5,
         "introduced": 0,
         "places": 3,
-        "inferred": 12,
+        "inferred": 499,
         "inferredBy": {
-          "handler": 4,
-          "pure": 7,
+          "handler": 490,
+          "pure": 8,
           "instantiates": 1
         },
-        "todos": 13,
+        "todos": 8,
         "todosBy": {
-          "handler": 2,
-          "pure": 5,
-          "draft": 2,
           "overloads": 2,
-          "uses": 1,
+          "draft": 1,
+          "pure": 4,
           "ref fields": 1
         }
       }
@@ -890,19 +883,19 @@
         "vendor": 56,
         "introduced": 0,
         "places": 9,
-        "inferred": 16,
+        "inferred": 17,
         "inferredBy": {
-          "pure": 12,
+          "pure": 13,
           "handler": 4
         },
-        "todos": 71,
+        "todos": 70,
         "todosBy": {
           "rejects": 15,
           "pure": 25,
           "draft": 6,
           "store fields": 2,
           "ref fields": 1,
-          "uses": 7,
+          "uses": 6,
           "overloads": 3,
           "class": 12
         }
@@ -950,16 +943,16 @@
         "vendor": 56,
         "introduced": 0,
         "places": 6,
-        "inferred": 16,
+        "inferred": 17,
         "inferredBy": {
-          "pure": 12,
+          "pure": 13,
           "handler": 4
         },
-        "todos": 39,
+        "todos": 38,
         "todosBy": {
           "rejects": 2,
           "ref fields": 1,
-          "uses": 7,
+          "uses": 6,
           "pure": 11,
           "overloads": 3,
           "class": 12,
@@ -997,32 +990,33 @@
     },
     "decl": {
       "words": 0,
-      "inferred": 2,
-      "probed": 2,
+      "inferred": 4,
+      "probed": 3,
       "todos": 1,
       "any": 16,
       "inherited": 16,
       "introduced": 0,
       "places": 1,
       "draft": {
-        "rows": 302,
+        "rows": 303,
         "any": 63,
         "vendor": 63,
         "introduced": 0,
         "places": 26,
-        "inferred": 32,
+        "inferred": 33,
         "inferredBy": {
           "pure": 27,
           "rejects": 1,
           "handler": 1,
-          "draft": 3
+          "draft": 3,
+          "provides": 1
         },
-        "todos": 61,
+        "todos": 54,
         "todosBy": {
           "store fields": 7,
           "handler": 3,
           "pure": 23,
-          "uses": 18,
+          "uses": 11,
           "class": 7,
           "provides/nests": 2,
           "overloads": 1
@@ -1058,7 +1052,7 @@
     },
     "decl": {
       "words": 4,
-      "inferred": 0,
+      "inferred": 2,
       "probed": 0,
       "todos": 2,
       "any": 4,
@@ -1075,13 +1069,12 @@
         "inferredBy": {
           "pure": 12
         },
-        "todos": 28,
+        "todos": 27,
         "todosBy": {
           "rejects": 2,
           "uses": 13,
           "pure": 11,
-          "store fields": 1,
-          "provides/nests": 1
+          "store fields": 1
         }
       }
     }
@@ -1122,24 +1115,25 @@
       "introduced": 0,
       "places": 1,
       "draft": {
-        "rows": 331,
+        "rows": 332,
         "any": 64,
         "vendor": 64,
         "introduced": 0,
         "places": 41,
-        "inferred": 32,
+        "inferred": 33,
         "inferredBy": {
           "handler": 1,
           "pure": 27,
           "draft": 3,
+          "provides": 1,
           "rejects": 1
         },
-        "todos": 77,
+        "todos": 70,
         "todosBy": {
           "store fields": 9,
           "handler": 3,
           "pure": 25,
-          "uses": 18,
+          "uses": 11,
           "class": 7,
           "provides/nests": 2,
           "overloads": 1,
@@ -1186,24 +1180,25 @@
       "introduced": 0,
       "places": 1,
       "draft": {
-        "rows": 336,
+        "rows": 337,
         "any": 64,
         "vendor": 64,
         "introduced": 0,
         "places": 41,
-        "inferred": 35,
+        "inferred": 36,
         "inferredBy": {
           "handler": 1,
           "pure": 29,
           "draft": 3,
+          "provides": 1,
           "rejects": 2
         },
-        "todos": 77,
+        "todos": 70,
         "todosBy": {
           "store fields": 9,
           "handler": 3,
           "pure": 25,
-          "uses": 18,
+          "uses": 11,
           "class": 7,
           "provides/nests": 2,
           "overloads": 1,
@@ -1342,9 +1337,9 @@
     },
     "decl": {
       "words": 1,
-      "inferred": 5,
+      "inferred": 6,
       "probed": 5,
-      "todos": 4,
+      "todos": 1,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
@@ -1359,11 +1354,10 @@
         "inferredBy": {
           "pure": 8
         },
-        "todos": 9,
+        "todos": 4,
         "todosBy": {
           "provides/nests": 2,
-          "pure": 2,
-          "uses": 5
+          "pure": 2
         }
       }
     }
@@ -1398,7 +1392,7 @@
       "words": 8,
       "inferred": 1,
       "probed": 1,
-      "todos": 2,
+      "todos": 1,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
@@ -1413,9 +1407,8 @@
         "inferredBy": {
           "pure": 1
         },
-        "todos": 2,
+        "todos": 1,
         "todosBy": {
-          "uses": 1,
           "pure": 1
         }
       }
@@ -1562,12 +1555,11 @@
         "inferredBy": {
           "pure": 12
         },
-        "todos": 27,
+        "todos": 26,
         "todosBy": {
           "uses": 13,
           "pure": 11,
           "store fields": 1,
-          "provides/nests": 1,
           "rejects": 1
         }
       }
@@ -1601,7 +1593,7 @@
     },
     "decl": {
       "words": 20,
-      "inferred": 0,
+      "inferred": 2,
       "probed": 0,
       "todos": 0,
       "any": 0,
@@ -1609,23 +1601,24 @@
       "introduced": 0,
       "places": 1,
       "draft": {
-        "rows": 302,
+        "rows": 303,
         "any": 65,
         "vendor": 65,
         "introduced": 0,
         "places": 25,
-        "inferred": 29,
+        "inferred": 31,
         "inferredBy": {
           "handler": 1,
-          "pure": 26,
-          "draft": 2
+          "pure": 27,
+          "draft": 2,
+          "provides": 1
         },
-        "todos": 61,
+        "todos": 54,
         "todosBy": {
           "store fields": 7,
           "handler": 3,
           "pure": 23,
-          "uses": 18,
+          "uses": 11,
           "class": 7,
           "provides/nests": 2,
           "overloads": 1
@@ -1815,8 +1808,8 @@
     },
     "decl": {
       "words": 6,
-      "inferred": 0,
-      "probed": 0,
+      "inferred": 2,
+      "probed": 2,
       "todos": 2,
       "any": 10,
       "inherited": 10,
@@ -1867,8 +1860,8 @@
     },
     "decl": {
       "words": 2,
-      "inferred": 0,
-      "probed": 0,
+      "inferred": 1,
+      "probed": 1,
       "todos": 2,
       "any": 9,
       "inherited": 9,
@@ -1932,16 +1925,16 @@
         "vendor": 3,
         "introduced": 0,
         "places": 49,
-        "inferred": 4,
+        "inferred": 21,
         "inferredBy": {
-          "pure": 3,
-          "draft": 1
+          "draft": 5,
+          "pure": 16
         },
-        "todos": 98,
+        "todos": 86,
         "todosBy": {
-          "store fields": 16,
-          "draft": 8,
+          "draft": 6,
           "pure": 45,
+          "store fields": 6,
           "overloads": 11,
           "ref fields": 1,
           "uses": 11,
@@ -1992,16 +1985,16 @@
         "vendor": 3,
         "introduced": 0,
         "places": 49,
-        "inferred": 4,
+        "inferred": 21,
         "inferredBy": {
-          "pure": 3,
-          "draft": 1
+          "draft": 5,
+          "pure": 16
         },
-        "todos": 98,
+        "todos": 86,
         "todosBy": {
-          "store fields": 16,
-          "draft": 8,
+          "draft": 6,
           "pure": 45,
+          "store fields": 6,
           "overloads": 11,
           "ref fields": 1,
           "uses": 11,
