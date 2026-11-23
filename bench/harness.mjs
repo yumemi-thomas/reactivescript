@@ -291,6 +291,16 @@ function draftNow(spec, from, flags) {
   rmSync(at, { force: true });
   const lines = r.status === 0 ? code(r.stdout).map(l => l.trim()).filter(Boolean) : [];
   lines.inherited = inherited;
+  // 09 MO-8v: the words the draft read from the code that runs (its `//@ inferred` lines), by export and by kind; and
+  // the questions it still asks (its `// TODO` lines), by export and by kind
+  const marks = new Map(), todoBy = new Map(), inferredBy = {}, todosBy = {};
+  for (const l of r.status === 0 ? r.stdout.split("\n") : []) {
+    const m = /^\/\/@ inferred ([\w$.]+): (.*)$/.exec(l);
+    if (m) { const ws = wordsOfMark(m[2]); marks.set(m[1], ws); for (const w of ws) { const k = w.replace(/\(.*$/, ""); inferredBy[k] = (inferredBy[k] ?? 0) + 1; } continue; }
+    const t = /^\/\/ TODO(?: ([\w$.]+))?: (.*)$/.exec(l);
+    if (t) { const k = todoKind(t[2]); todosBy[k] = (todosBy[k] ?? 0) + 1; if (t[1]) todoBy.set(t[1], [...(todoBy.get(t[1]) ?? []), k]); }
+  }
+  lines.marks = marks; lines.todoBy = todoBy;
   // 09 MO-8q, over the whole draft — every export of the module, not only the rows an app keeps: the `any`s that are the
   // library's own, the ones that are not (each with the draft's cause for it; an `any` no cause answers for is a row of
   // known.js, written by hand), and the parts said by place
@@ -299,9 +309,14 @@ function draftNow(spec, from, flags) {
   const rows = [];
   for (const [n, k] of anyBy) { const own = k - (inherited.get(n) ?? 0); if (own > 0) rows.push({ name: n, introduced: own, causes: [...new Set([...(why.get(n) ?? []), ...(k > (caused.get(n) ?? 0) ? ["written by hand (known.js)"] : [])])] }); }
   const any = [...anyBy.values()].reduce((a, b) => a + b, 0), introduced = rows.reduce((a, x) => a + x.introduced, 0);
-  lines.whole = { rows: lines.length, any, vendor: any - introduced, introduced, places, introducedRows: rows, drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
+  const count = o => Object.values(o).reduce((a, b) => a + b, 0);
+  lines.whole = { rows: lines.length, any, vendor: any - introduced, introduced, places, introducedRows: rows, inferred: count(inferredBy), inferredBy, todos: count(todosBy), todosBy, drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
   return lines;
 }
+/** The words of a `//@ inferred <export>: …` line: `pure`, `handler(run)`, `rejects(A | B)`, `draft(list)`, `instantiates`. */
+export const wordsOfMark = text => text.split(/,\s*(?![^()]*\))/).map(w => w.trim()).filter(Boolean);
+/** What a draft's question is about (the kinds the scorecard counts). */
+export const todoKind = q => /^pure\?/.test(q) ? "pure" : /^is the result a store with fields/.test(q) ? "store fields" : /called later, outside any computation\?/.test(q) ? "handler" : /signatures in the library's types/.test(q) ? "overloads" : /which context does this hook read|likely read a context|the module's contexts/.test(q) ? "uses" : /its fields drafted `ref`/.test(q) ? "ref fields" : /^does it change /.test(q) ? "draft" : /^what does its promise reject with/.test(q) ? "rejects" : /does it provide a context|does its component provide/.test(q) ? "provides/nests" : /is a class\b/.test(q) ? "class" : /where does the library render/.test(q) ? "renders" : /takes a Solid signal/.test(q) ? "signal" : /`any` here (is|are) the draft's/.test(q) ? "any" : "other";
 const PLACE = new Set(["Parameters", "ReturnType", "ConstructorParameters", "InstanceType"]);
 /** The `any`s a row writes: the word in a type, not the name of what it exports (valibot exports a schema called `any`). */
 const anysIn = line => { const ts = tokens(line); const at = ts.findIndex((t, i) => i > 0 && /^(fn|component|const|type|context|error)$/.test(ts[i - 1]) && ts.slice(0, i).includes("export")); return ts.filter((t, i) => t === "any" && i !== at).length; };
@@ -313,7 +328,7 @@ const anysIn = line => { const ts = tokens(line); const at = ts.findIndex((t, i)
  *  library's own), and `introduced`, every other: an `any` where the library has a type. `places`: the parts said by
  *  their place in the library's declaration (`Parameters<typeof import(…)>`), counted apart — not a way around the rule.
  *  `{ words, any, inherited, introduced, places, files: [{ file, words, any, inherited, introduced, places, drafted, rows }] }`. */
-export function declarations(dir, flagsFor = {}) {
+export function declarations(dir, flagsFor = {}, dry = false) {
   const files = [];
   for (const p of own(dir, n => n.endsWith(".d.rx"))) {
     const host = isHost(readFileSync(p, "utf8"));
@@ -322,8 +337,13 @@ export function declarations(dir, flagsFor = {}) {
     const whole = new Set(draft), byName = new Map(draft.map(l => [exported(l), l]).filter(([n]) => n));
     // a name the draft has more than one line for: each row is measured against the nearest of them
     const allByName = new Map(); for (const l of draft) { const n = exported(l); if (n) allByName.set(n, [...(allByName.get(n) ?? []), l]); }
-    let words = 0, places = 0; const anyBy = new Map();
+    let words = 0, places = 0, inferred = 0, todos = 0; const anyBy = new Map(); const unmarked = [], kept = new Set();
+    const text0 = readFileSync(p, "utf8");
+    const mine = new Map([...text0.matchAll(/^\/\/@ inferred ([\w$.]+): (.*)$/gm)].map(m => [m[1], wordsOfMark(m[2])]));
     for (const line of host ? hostRows(readFileSync(p, "utf8")) : code(readFileSync(p, "utf8")).map(l => l.trim()).filter(Boolean)) {
+      // 09 MO-8v: a row kept as the draft wrote it, with words the draft read from the code: counted apart from the
+      // words written by hand, and marked in the file as in the draft (so that rx-verify runs each against its claim)
+      { const n = exported(line); if (n && !kept.has(n)) { kept.add(n); todos += (draft.todoBy?.get(n) ?? []).length; if (whole.has(line) && draft.marks?.has(n)) { const ws = draft.marks.get(n); inferred += ws.length; if (JSON.stringify(mine.get(n) ?? []) !== JSON.stringify(ws)) unmarked.push(`//@ inferred ${n}: ${ws.join(", ")}`); } } }
       const k = anysIn(line);
       if (k) anyBy.set(exported(line) ?? line, (anyBy.get(exported(line) ?? line) ?? 0) + k);
       places += tokens(line).filter(t => PLACE.has(t)).length;
@@ -337,12 +357,33 @@ export function declarations(dir, flagsFor = {}) {
     let any = 0, inherited = 0; const rows = [];
     for (const [n, k] of anyBy) { any += k; const h = Math.min(k, draft.inherited.get(n) ?? 0); inherited += h; if (k > h) rows.push({ name: n, introduced: k - h }); }
     void byName;
-    files.push({ file: path.relative(dir, p), spec, words, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows, whole: draft.whole });
+    // a mark the file has that the draft does not write for a row as the file has it: a claim nobody proved
+    const stray = [...mine].filter(([n, ws]) => JSON.stringify(draft.marks?.get(n) ?? []) !== JSON.stringify(ws)).map(([n]) => n);
+    const probe = !dry && !host && mine.size ? probeInferred(dir, p, mine) : { probed: 0, contradicted: [], unprobed: [] };
+    const fix = [...unmarked.map(l => ({ name: /^\/\/@ inferred ([\w$.]+):/.exec(l)[1], line: l })), ...stray.filter(n => !unmarked.some(l => l.startsWith(`//@ inferred ${n}:`))).map(n => ({ name: n, line: null }))];
+    files.push({ file: path.relative(dir, p), spec, words, inferred, todos, unmarked, stray, fix, ...probe, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows, whole: draft.whole });
   }
   const sum = k => files.reduce((n, f) => n + f[k], 0);
-  const wsum = k => files.reduce((n, f) => n + f.whole[k], 0);
+  const wsum = k => files.reduce((n, f) => n + (f.whole[k] ?? 0), 0);
+  const wby = k => { const o = {}; for (const f of files) for (const [n, v] of Object.entries(f.whole[k] ?? {})) o[n] = (o[n] ?? 0) + v; return o; };
   // `draft`: the same modules drafted whole (every export), 09 MO-8q's numbers over what no app of the benchmark keeps
-  return { words: sum("words"), any: sum("any"), inherited: sum("inherited"), introduced: sum("introduced"), places: sum("places"), draft: { rows: wsum("rows"), any: wsum("any"), vendor: wsum("vendor"), introduced: wsum("introduced"), places: wsum("places") }, files };
+  return { words: sum("words"), inferred: sum("inferred"), todos: sum("todos"), probed: sum("probed"), contradicted: files.flatMap(f => f.contradicted.map(c => `${f.file}: ${c}`)), unmarked: files.flatMap(f => [...f.unmarked.map(m => `${f.file}: missing \`${m}\``), ...f.stray.map(n => `${f.file}: \`//@ inferred ${n}\` is not what rx-declare reads from the code now`)]), any: sum("any"), inherited: sum("inherited"), introduced: sum("introduced"), places: sum("places"), draft: { rows: wsum("rows"), any: wsum("any"), vendor: wsum("vendor"), introduced: wsum("introduced"), places: wsum("places"), inferred: wsum("inferred"), inferredBy: wby("inferredBy"), todos: wsum("todos"), todosBy: wby("todosBy") }, files };
+}
+/** 09 MO-8v: the words a declaration marks as read from the code, run by rx-verify against what that reading claims.
+ *  `{ probed, contradicted: [what], unprobed: [export] }`: a word run and not contradicted, one that running refutes
+ *  (a defect of rx-declare, or a mark nobody proved), and the exports rx-verify had no arguments to call with. */
+function probeInferred(dir, file, marks) {
+  const v = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/verify.js"), "--dom", path.relative(dir, file)], { cwd: dir, encoding: "utf8", timeout: 120000, maxBuffer: 1 << 26 });
+  const out = String(v.stdout ?? "").split("\n"); const probedNames = new Set(); const contradicted = [];
+  let probed = 0;
+  for (const l of out) {
+    const bad = /MISMATCH\s+(.*(?:read from its code|read from the code).*)$/.exec(l); if (bad) { contradicted.push(bad[1].slice(0, 300)); continue; }
+    const pure = /\s([\w$.]+): the pure read from its code is not contradicted/.exec(l); if (pure && marks.get(pure[1])?.includes("pure")) { probed++; probedNames.add(pure[1]); }
+    const rej = /\s([\w$.]+): under the probe's (?:failing )?arguments it rejects with \w+, as its row says/.exec(l); if (rej && marks.get(rej[1])?.some(w => w.startsWith("rejects("))) { if (!probedNames.has(`${rej[1]}#rejects`)) probed++; probedNames.add(`${rej[1]}#rejects`); probedNames.add(rej[1]); }
+    const cb = /\s([\w$.]+): callback ([\w$.]+) holds/.exec(l); if (cb && marks.get(cb[1])?.includes(`handler(${cb[2]})`)) { probed++; probedNames.add(cb[1]); }
+    const dr = /\s([\w$.]+): it changes its `draft` parameter in place during the call/.exec(l); if (dr && marks.get(dr[1])?.some(w => w.startsWith("draft("))) { probed++; probedNames.add(dr[1]); }
+  }
+  return { probed, contradicted, unprobed: [...marks.keys()].filter(n => !probedNames.has(n)) };
 }
 
 /** rx-tsc's errors that are on the lines an edit wrote: `file(line,col): error …` rows whose file is the edited one and

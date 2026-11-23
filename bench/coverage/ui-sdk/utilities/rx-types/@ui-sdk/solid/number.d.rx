@@ -1,4 +1,5 @@
 //@ for @ui-sdk/solid ^0.1.0-beta.13
 export type NumberFormat = import("@ui-sdk/solid/number").NumberFormat
+//@ inferred clamp: pure
 export pure fn clamp(value: number, min: number, max: number): number
 export pure fn formatNumber(value: number | null, locale?: string, format?: NumberFormat): string

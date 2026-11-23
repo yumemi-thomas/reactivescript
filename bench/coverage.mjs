@@ -70,9 +70,9 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   for (const m of extra) rows.push(m.crash ? { group: groupOf(m.lib), spec: m.spec, crash: m.crash, entry: "—" } : { group: groupOf(m.lib), spec: m.spec, version: version(Object.keys(libs[m.lib].packages).find(p => m.spec === p || m.spec.startsWith(p + "/")) ?? m.spec), ...m, used: false, entry: "no program" });
   rows.sort((a, b) => a.group.localeCompare(b.group) || a.spec.localeCompare(b.spec));
   const lines = [];
-  const head = ["module", "version", "rows drafted", "`any` library's", "introduced", "by place", "used by", "hand words", "accepted", "types", "runs", "bad caught", "server", "hydrated"];
+  const head = ["module", "version", "rows drafted", "`any` library's", "introduced", "by place", "inferred", "TODOs", "used by", "hand words", "accepted", "types", "runs", "bad caught", "server", "hydrated"];
   const table = rs => {
-    const data = rs.map(x => x.crash ? [x.spec, "CRASHED", "", "", "", "", "", "", "", "", "", "", "", ""] : [x.spec, x.version, x.drafted ? String(x.rows) : "no draft", String(x.vendor), String(x.introduced), String(x.places), x.used ? x.entry : x.entry === "no program" ? "—" : `— (${x.entry})`, x.used ? String(x.words) : "", x.used ? x.good : "", x.used ? x.types : "", x.used ? x.runtime : "", x.used ? x.bad : "", x.used ? (x.server ? "yes" : "no") : "", x.used ? (x.hydrates ? "yes" : "no") : ""]);
+    const data = rs.map(x => x.crash ? [x.spec, "CRASHED", "", "", "", "", "", "", "", "", "", "", "", "", "", ""] : [x.spec, x.version, x.drafted ? String(x.rows) : "no draft", String(x.vendor), String(x.introduced), String(x.places), String(x.inferred ?? 0), String(x.todos ?? 0), x.used ? x.entry : x.entry === "no program" ? "—" : `— (${x.entry})`, x.used ? String(x.words) : "", x.used ? x.good : "", x.used ? x.types : "", x.used ? x.runtime : "", x.used ? x.bad : "", x.used ? (x.server ? "yes" : "no") : "", x.used ? (x.hydrates ? "yes" : "no") : ""]);
     const w = head.map((h, i) => Math.max(h.length, ...data.map(d => d[i].length)));
     return [head.map((h, i) => h.padEnd(w[i])).join("  "), w.map(n => "-".repeat(n)).join("  "), ...data.map(d => d.map((c, i) => c.padEnd(w[i])).join("  "))];
   };
@@ -80,7 +80,7 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   const sum = (rs, k) => rs.reduce((n, x) => n + (Number(x[k]) || 0), 0);
   for (const g of groups) {
     const rs = rows.filter(x => x.group === g); const es = results.filter(r => r.entry.split("/")[0] === g);
-    lines.push(`\n${g}: ${rs.length} modules drafted (${sum(rs, "rows")} rows, ${sum(rs, "vendor")} \`any\` the libraries' own, ${sum(rs, "introduced")} introduced, ${sum(rs, "places")} by place); ${es.length} programs, ${es.filter(ok).length} green; ${es.reduce((n, r) => n + (r.crash ? 0 : r.decl.words), 0)} hand-written words`);
+    lines.push(`\n${g}: ${rs.length} modules drafted (${sum(rs, "rows")} rows, ${sum(rs, "vendor")} \`any\` the libraries' own, ${sum(rs, "introduced")} introduced, ${sum(rs, "places")} by place, ${sum(rs, "inferred")} words read from the code, ${sum(rs, "todos")} questions asked); ${es.length} programs, ${es.filter(ok).length} green; ${es.reduce((n, r) => n + (r.crash ? 0 : r.decl.words), 0)} hand-written words`);
     lines.push(...table(rs).map(l => `  ${l}`));
   }
   const failing = [];
@@ -94,12 +94,20 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   // app's own is there for (the shapes no row says, 09 MO-8r)
   const notes = results.filter(r => !r.crash && (r.server !== true || typeof r.hydrates === "string" || r.note)).map(r => `  ${r.entry}:${r.server !== true ? ` not rendered on the server — ${r.server}.` : ""}${typeof r.hydrates === "string" ? ` Rendered on the server and mounted in the browser, not hydrated — ${r.hydrates}.` : ""}${r.note ? ` ${r.note[0].toUpperCase()}${r.note.slice(1)}.` : ""}`);
   const off = Object.entries(libs).flatMap(([lib, l]) => Object.entries(l.notOnSolid2 ?? {}).map(([n, v]) => `${n}@${v.version} (solid-js ${v.solid})`));
-  const total = `Coverage: ${results.length} programs, ${results.filter(ok).length} green; ${rows.filter(x => !x.crash).length} modules drafted whole (${sum(rows, "rows")} rows): ${sum(rows, "vendor")} \`any\` the libraries' own, ${sum(rows, "introduced")} introduced, ${sum(rows, "places")} by place; ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.words), 0)} hand-written words, ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.inherited), 0)} \`any\` inherited and ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.introduced), 0)} introduced in the kept rows, ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.places), 0)} by place`;
+  // 09 MO-8v: over every module drafted — the words read from the code that runs and the questions still asked, by kind;
+  // a module is counted once (two entries may draft the same one)
+  const once = [...new Map(rows.filter(x => !x.crash).map(x => [x.spec, x])).values()];
+  const kinds = k => { const o = {}; for (const x of once) for (const [n, v] of Object.entries(x[k] ?? {})) o[n] = (o[n] ?? 0) + v; return o; };
+  const said = o => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([n, v]) => `${v} ${n}`).join(", ") || "none";
+  const inferredBy = kinds("inferredBy"), todosBy = kinds("todosBy");
+  const kept = results.filter(r => !r.crash);
+  const contradicted = kept.flatMap(r => (r.decl.contradicted ?? []).map(c => `${r.entry}/${c}`)), unmarked = kept.flatMap(r => (r.decl.unmarked ?? []).map(c => `${r.entry}/${c}`));
+  const total = `Coverage: ${results.length} programs, ${results.filter(ok).length} green; ${rows.filter(x => !x.crash).length} modules drafted whole (${sum(rows, "rows")} rows): ${sum(rows, "vendor")} \`any\` the libraries' own, ${sum(rows, "introduced")} introduced, ${sum(rows, "places")} by place; ${sum(once, "inferred")} words read from the code that runs (${said(inferredBy)}), ${sum(once, "todos")} questions asked (${said(todosBy)}); in the kept rows ${kept.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} inferred words (${kept.reduce((n, r) => n + (r.decl.probed ?? 0), 0)} run by rx-verify, ${contradicted.length} contradicted) and ${kept.reduce((n, r) => n + (r.decl.todos ?? 0), 0)} questions; ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.words), 0)} hand-written words, ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.inherited), 0)} \`any\` inherited and ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.introduced), 0)} introduced in the kept rows, ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.places), 0)} by place`;
   const card = `${total}\n${lines.join("\n")}${failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green."}${notes.length ? `\n\nWhat the entries say of their packages (${notes.length}):\n${notes.join("\n")}` : ""}${off.length ? `\n\nNot on Solid 2, and not tested (the latest release's peer range): ${off.join(", ")}` : ""}`;
   console.log("\n" + card);
 
-  const drafts = Object.fromEntries(extra.filter(m => !m.crash).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places }]));
-  const snapshot = Object.fromEntries(results.map(r => [r.entry, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), server: r.server === true, hydrates: r.hydrates === true, uses: r.uses, decl: { words: r.decl.words, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places }, modules: Object.fromEntries((r.modules ?? []).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places }])) }]));
+  const drafts = Object.fromEntries(extra.filter(m => !m.crash).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places, inferred: m.inferred ?? 0, todos: m.todos ?? 0 }]));
+  const snapshot = Object.fromEntries(results.map(r => [r.entry, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), server: r.server === true, hydrates: r.hydrates === true, uses: r.uses, decl: { words: r.decl.words, inferred: r.decl.inferred ?? 0, probed: r.decl.probed ?? 0, todos: r.decl.todos ?? 0, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places }, modules: Object.fromEntries((r.modules ?? []).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places, inferred: m.inferred ?? 0, todos: m.todos ?? 0 }])) }]));
   if (write && !filters.length && !shard) {
     writeFileSync(path.join(root, "coverage.json"), JSON.stringify({ entries: snapshot, drafts }, null, 1) + "\n");
     writeFileSync(path.join(root, "coverage.txt"), card.replaceAll(ws, "bench/.out/ws") + "\n");
@@ -115,6 +123,7 @@ export async function runCoverage({ filters = [], check = false, strict = false,
       if (!m.drafted) problems.push(`coverage · ${m.spec}: rx-declare drafted nothing${m.error ? ` (${m.error})` : ""}`);
       for (const x of m.introducedRows ?? []) if (!allowDrafts.some(a => a.cover === "*" && a.draft === m.spec && a.name === x.name && x.introduced <= a.count)) problems.push(`coverage · whole draft of ${m.spec} · ${x.name}: ${x.introduced} \`any\` the draft wrote where the library has a type (09 MO-8q; ${x.causes.join(", ")})`);
       const o = recorded.drafts?.[m.spec]; if (o && m.places > o.places) problems.push(`coverage · whole draft of ${m.spec}: ${m.places} parts by place, was ${o.places} in bench/coverage/coverage.json`);
+      if (o?.todos !== undefined && (m.todos ?? 0) > o.todos) problems.push(`coverage · whole draft of ${m.spec}: ${m.todos} questions asked, was ${o.todos} in bench/coverage/coverage.json (09 MO-8v)`);
     }
     for (const r of results) {
       const old = was[r.entry];
@@ -124,13 +133,18 @@ export async function runCoverage({ filters = [], check = false, strict = false,
         if (old && !old[k]?.fails.includes(name)) problems.push(`coverage ${r.entry} · ${t} · ${name}: was green in bench/coverage/coverage.json`);
         else if (strict && !Object.keys(r.known ?? {}).some(n => name.includes(n))) problems.push(`coverage ${r.entry} · ${t} · ${name}: fails, and the entry's \`known\` gives no reason for it`);
       }
-      for (const k of ["words", "any", "inherited", "introduced", "places"]) if (old?.decl && r.decl[k] > old.decl[k]) problems.push(`coverage ${r.entry} · ${k} in its .d.rx: ${r.decl[k]}, was ${old.decl[k]} in bench/coverage/coverage.json`);
+      for (const k of ["words", "todos", "any", "inherited", "introduced", "places"]) if (old?.decl && old.decl[k] !== undefined && r.decl[k] > old.decl[k]) problems.push(`coverage ${r.entry} · ${k} in its .d.rx: ${r.decl[k]}, was ${old.decl[k]} in bench/coverage/coverage.json`);
+      // 09 MO-8v: no word read from the code goes back to hand, none is contradicted when run, and a kept row's mark is the draft's
+      for (const k of ["inferred", "probed"]) if (old?.decl?.[k] !== undefined && (r.decl[k] ?? 0) < old.decl[k]) problems.push(`coverage ${r.entry} · ${k} words in its .d.rx: ${r.decl[k] ?? 0}, was ${old.decl[k]} in bench/coverage/coverage.json`);
+      for (const c of r.decl.contradicted ?? []) problems.push(`coverage ${r.entry}/${c}: a word read from the code is contradicted by running it (09 MO-8v): fix rx-declare's reading`);
+      for (const c of r.decl.unmarked ?? []) problems.push(`coverage ${r.entry}/${c} (09 MO-8v: a kept row's \`//@ inferred\` line is the draft's)`);
       // 09 MO-8q: no `any` of its own in a kept row, nor in a whole draft, unless bench/any-allowlist.json names it
       for (const f of r.decl.files) for (const x of f.rows) if (!allow.some(a => a.cover === r.entry && a.file === f.file && a.name === x.name && x.introduced <= a.count)) problems.push(`coverage ${r.entry}/${f.file} · ${x.name}: ${x.introduced} \`any\` written where the library has a type (09 MO-8q)`);
       for (const m of r.modules ?? []) {
         if (!m.drafted) problems.push(`coverage ${r.entry} · ${m.spec}: rx-declare drafted nothing${m.error ? ` (${m.error})` : ""}`);
         for (const x of m.introducedRows ?? []) if (!allow.some(a => a.cover === r.entry && a.draft === m.spec && a.name === x.name && x.introduced <= a.count)) problems.push(`coverage ${r.entry} · whole draft of ${m.spec} · ${x.name}: ${x.introduced} \`any\` the draft wrote where the library has a type (09 MO-8q; ${x.causes.join(", ")}): fix rx-declare, or add it to bench/any-allowlist.json (\`cover\`: the entry, \`draft\`: the module)`);
         const o = old?.modules?.[m.spec]; if (o && m.places > o.places) problems.push(`coverage ${r.entry} · whole draft of ${m.spec}: ${m.places} parts by place, was ${o.places} in bench/coverage/coverage.json`);
+        if (o?.todos !== undefined && (m.todos ?? 0) > o.todos) problems.push(`coverage ${r.entry} · whole draft of ${m.spec}: ${m.todos} questions asked, was ${o.todos} in bench/coverage/coverage.json (09 MO-8v)`);
       }
     }
     if (!filters.length) {

@@ -28,6 +28,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -38,7 +41,9 @@
      "rows": 12,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 2,
+     "todos": 8
     }
    }
   },
@@ -70,6 +75,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -80,7 +88,9 @@
      "rows": 3,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 3,
+     "todos": 1
     }
    }
   },
@@ -112,6 +122,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -122,25 +135,33 @@
      "rows": 21,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 2,
+     "todos": 5
     },
     "@solid-primitives/analytics/relay": {
      "rows": 1,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 1
     },
     "@solid-primitives/analytics/relay/solidstart": {
      "rows": 1,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 1
     },
     "@solid-primitives/analytics/relay/tanstack": {
      "rows": 1,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 1
     }
    }
   },
@@ -172,6 +193,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -182,7 +206,9 @@
      "rows": 23,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 5,
+     "todos": 7
     }
    }
   },
@@ -214,6 +240,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 1,
     "inherited": 1,
     "introduced": 0,
@@ -224,7 +253,9 @@
      "rows": 9,
      "vendor": 7,
      "introduced": 0,
-     "places": 14
+     "places": 14,
+     "inferred": 3,
+     "todos": 2
     }
    }
   },
@@ -256,6 +287,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -266,7 +300,9 @@
      "rows": 7,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 2
     }
    }
   },
@@ -298,6 +334,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -308,7 +347,9 @@
      "rows": 6,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 1
     }
    }
   },
@@ -340,6 +381,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -350,7 +394,9 @@
      "rows": 4,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 1
     }
    }
   },
@@ -382,6 +428,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -392,7 +441,9 @@
      "rows": 15,
      "vendor": 4,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 4,
+     "todos": 3
     }
    }
   },
@@ -424,6 +475,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -434,7 +488,9 @@
      "rows": 11,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 2,
+     "todos": 10
     }
    }
   },
@@ -466,6 +522,9 @@
    ],
    "decl": {
     "words": 8,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 3,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -476,7 +535,9 @@
      "rows": 9,
      "vendor": 0,
      "introduced": 0,
-     "places": 8
+     "places": 8,
+     "inferred": 0,
+     "todos": 4
     }
    }
   },
@@ -507,7 +568,10 @@
     "@solid-primitives/controlled-props"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -518,7 +582,9 @@
      "rows": 13,
      "vendor": 0,
      "introduced": 0,
-     "places": 24
+     "places": 24,
+     "inferred": 0,
+     "todos": 2
     }
    }
   },
@@ -550,6 +616,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -560,7 +629,9 @@
      "rows": 8,
      "vendor": 0,
      "introduced": 0,
-     "places": 16
+     "places": 16,
+     "inferred": 0,
+     "todos": 10
     }
    }
   },
@@ -592,6 +663,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -602,7 +676,9 @@
      "rows": 8,
      "vendor": 0,
      "introduced": 0,
-     "places": 8
+     "places": 8,
+     "inferred": 1,
+     "todos": 3
     }
    }
   },
@@ -633,7 +709,10 @@
     "@solid-primitives/cursor"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -644,7 +723,9 @@
      "rows": 7,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 4,
+     "todos": 0
     }
    }
   },
@@ -676,6 +757,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -686,7 +770,9 @@
      "rows": 33,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 9
     }
    }
   },
@@ -718,6 +804,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -728,7 +817,9 @@
      "rows": 6,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -760,6 +851,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 3,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -770,7 +864,9 @@
      "rows": 6,
      "vendor": 6,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -802,6 +898,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -812,7 +911,9 @@
      "rows": 4,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 4
     }
    }
   },
@@ -844,6 +945,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -854,7 +958,9 @@
      "rows": 34,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 17,
+     "todos": 10
     }
    }
   },
@@ -886,6 +992,9 @@
    ],
    "decl": {
     "words": 5,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -896,7 +1005,9 @@
      "rows": 27,
      "vendor": 11,
      "introduced": 0,
-     "places": 20
+     "places": 20,
+     "inferred": 6,
+     "todos": 9
     }
    }
   },
@@ -927,7 +1038,10 @@
     "@solid-primitives/event-dispatcher"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 6,
     "inherited": 6,
     "introduced": 0,
@@ -938,7 +1052,9 @@
      "rows": 3,
      "vendor": 6,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 1,
+     "todos": 0
     }
    }
   },
@@ -969,7 +1085,10 @@
     "@solid-primitives/event-listener"
    ],
    "decl": {
-    "words": 2,
+    "words": 0,
+    "inferred": 2,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -980,7 +1099,9 @@
      "rows": 19,
      "vendor": 5,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 7,
+     "todos": 5
     }
    }
   },
@@ -1012,6 +1133,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1022,7 +1146,9 @@
      "rows": 5,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 1
     }
    }
   },
@@ -1054,6 +1180,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1064,7 +1193,9 @@
      "rows": 24,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 11
     }
    }
   },
@@ -1096,6 +1227,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 3,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1106,7 +1240,9 @@
      "rows": 26,
      "vendor": 0,
      "introduced": 0,
-     "places": 6
+     "places": 6,
+     "inferred": 9,
+     "todos": 7
     }
    }
   },
@@ -1138,6 +1274,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1148,7 +1287,9 @@
      "rows": 9,
      "vendor": 2,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 3,
+     "todos": 1
     }
    }
   },
@@ -1179,7 +1320,10 @@
     "@solid-primitives/focus"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1190,7 +1334,9 @@
      "rows": 15,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 9,
+     "todos": 4
     }
    }
   },
@@ -1222,6 +1368,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 3,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1232,7 +1381,9 @@
      "rows": 16,
      "vendor": 0,
      "introduced": 0,
-     "places": 15
+     "places": 15,
+     "inferred": 4,
+     "todos": 9
     }
    }
   },
@@ -1264,6 +1415,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1274,7 +1428,9 @@
      "rows": 4,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 3,
+     "todos": 1
     }
    }
   },
@@ -1306,6 +1462,9 @@
    ],
    "decl": {
     "words": 4,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1316,7 +1475,9 @@
      "rows": 7,
      "vendor": 0,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 5,
+     "todos": 0
     }
    }
   },
@@ -1347,7 +1508,10 @@
     "@solid-primitives/gestures"
    ],
    "decl": {
-    "words": 2,
+    "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1358,7 +1522,9 @@
      "rows": 19,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 16,
+     "todos": 0
     }
    }
   },
@@ -1390,6 +1556,9 @@
    ],
    "decl": {
     "words": 4,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1400,7 +1569,9 @@
      "rows": 13,
      "vendor": 3,
      "introduced": 0,
-     "places": 4
+     "places": 4,
+     "inferred": 2,
+     "todos": 3
     }
    }
   },
@@ -1432,6 +1603,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1442,7 +1616,9 @@
      "rows": 3,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 1
     }
    }
   },
@@ -1474,6 +1650,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1484,7 +1663,9 @@
      "rows": 34,
      "vendor": 3,
      "introduced": 0,
-     "places": 21
+     "places": 21,
+     "inferred": 8,
+     "todos": 0
     }
    }
   },
@@ -1515,7 +1696,10 @@
     "@solid-primitives/idle"
    ],
    "decl": {
-    "words": 2,
+    "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1526,7 +1710,9 @@
      "rows": 5,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 2,
+     "todos": 2
     }
    }
   },
@@ -1558,6 +1744,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1568,7 +1757,9 @@
      "rows": 14,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 3,
+     "todos": 1
     }
    }
   },
@@ -1599,7 +1790,10 @@
     "@solid-primitives/interaction"
    ],
    "decl": {
-    "words": 2,
+    "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1610,7 +1804,9 @@
      "rows": 12,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 4,
+     "todos": 2
     }
    }
   },
@@ -1642,6 +1838,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1652,7 +1851,9 @@
      "rows": 19,
      "vendor": 0,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 4,
+     "todos": 3
     }
    }
   },
@@ -1684,6 +1885,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1694,7 +1898,9 @@
      "rows": 9,
      "vendor": 1,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 8
     }
    }
   },
@@ -1725,7 +1931,10 @@
     "@solid-primitives/keyboard"
    ],
    "decl": {
-    "words": 3,
+    "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 4,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1736,7 +1945,9 @@
      "rows": 10,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 2,
+     "todos": 13
     }
    }
   },
@@ -1768,6 +1979,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 1,
     "inherited": 1,
     "introduced": 0,
@@ -1778,7 +1992,9 @@
      "rows": 7,
      "vendor": 1,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -1809,7 +2025,10 @@
     "@solid-primitives/lifecycle"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 1,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1820,7 +2039,9 @@
      "rows": 3,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 1
     }
    }
   },
@@ -1852,6 +2073,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 2,
     "inherited": 2,
     "introduced": 0,
@@ -1862,7 +2086,9 @@
      "rows": 3,
      "vendor": 3,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -1894,6 +2120,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 3,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1904,7 +2133,9 @@
      "rows": 9,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 6
     }
    }
   },
@@ -1936,6 +2167,9 @@
    ],
    "decl": {
     "words": 3,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1946,7 +2180,9 @@
      "rows": 3,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 4
     }
    }
   },
@@ -1978,6 +2214,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -1988,7 +2227,9 @@
      "rows": 2,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 0
     }
    }
   },
@@ -2020,6 +2261,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2030,7 +2274,9 @@
      "rows": 4,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 2
     }
    }
   },
@@ -2062,6 +2308,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2072,7 +2321,9 @@
      "rows": 3,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -2104,6 +2355,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2114,7 +2368,9 @@
      "rows": 9,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 5
     }
    }
   },
@@ -2146,6 +2402,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2156,7 +2415,9 @@
      "rows": 9,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 6
     }
    }
   },
@@ -2188,6 +2449,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2198,7 +2462,9 @@
      "rows": 10,
      "vendor": 3,
      "introduced": 0,
-     "places": 9
+     "places": 9,
+     "inferred": 4,
+     "todos": 6
     }
    }
   },
@@ -2230,6 +2496,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2240,7 +2509,9 @@
      "rows": 16,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 6
     }
    }
   },
@@ -2272,6 +2543,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2282,7 +2556,9 @@
      "rows": 3,
      "vendor": 1,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 1
     }
    }
   },
@@ -2314,6 +2590,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2324,7 +2603,9 @@
      "rows": 4,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 2
     }
    }
   },
@@ -2356,6 +2637,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2366,7 +2650,9 @@
      "rows": 5,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 2,
+     "todos": 5
     }
    }
   },
@@ -2398,6 +2684,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2408,7 +2697,9 @@
      "rows": 4,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 2
     }
    }
   },
@@ -2440,6 +2731,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2450,7 +2744,9 @@
      "rows": 4,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 4
     }
    }
   },
@@ -2481,7 +2777,10 @@
     "@solid-primitives/pagination"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2492,7 +2791,9 @@
      "rows": 7,
      "vendor": 0,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 1,
+     "todos": 2
     }
    }
   },
@@ -2524,6 +2825,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2534,7 +2838,9 @@
      "rows": 1,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 1
     }
    }
   },
@@ -2566,6 +2872,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2576,7 +2885,9 @@
      "rows": 23,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -2608,6 +2919,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2618,7 +2932,9 @@
      "rows": 15,
      "vendor": 0,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 0,
+     "todos": 7
     }
    }
   },
@@ -2650,6 +2966,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 3,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2660,7 +2979,9 @@
      "rows": 5,
      "vendor": 0,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 0,
+     "todos": 3
     }
    }
   },
@@ -2692,6 +3013,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 1,
     "inherited": 1,
     "introduced": 0,
@@ -2702,7 +3026,9 @@
      "rows": 10,
      "vendor": 4,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 3,
+     "todos": 2
     }
    }
   },
@@ -2734,6 +3060,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2744,7 +3073,9 @@
      "rows": 9,
      "vendor": 4,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 3,
+     "todos": 1
     }
    }
   },
@@ -2776,6 +3107,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2786,7 +3120,9 @@
      "rows": 11,
      "vendor": 0,
      "introduced": 0,
-     "places": 12
+     "places": 12,
+     "inferred": 1,
+     "todos": 11
     }
    }
   },
@@ -2817,7 +3153,10 @@
     "@solid-primitives/raf"
    ],
    "decl": {
-    "words": 2,
+    "words": 0,
+    "inferred": 2,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2828,7 +3167,9 @@
      "rows": 9,
      "vendor": 3,
      "introduced": 0,
-     "places": 1
+     "places": 1,
+     "inferred": 5,
+     "todos": 4
     }
    }
   },
@@ -2860,6 +3201,9 @@
    ],
    "decl": {
     "words": 10,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2870,7 +3214,9 @@
      "rows": 8,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 4,
+     "todos": 0
     }
    }
   },
@@ -2902,6 +3248,9 @@
    ],
    "decl": {
     "words": 3,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2912,7 +3261,9 @@
      "rows": 10,
      "vendor": 0,
      "introduced": 0,
-     "places": 1
+     "places": 1,
+     "inferred": 2,
+     "todos": 4
     }
    }
   },
@@ -2944,6 +3295,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2954,7 +3308,9 @@
      "rows": 11,
      "vendor": 0,
      "introduced": 0,
-     "places": 1
+     "places": 1,
+     "inferred": 5,
+     "todos": 6
     }
    }
   },
@@ -2986,6 +3342,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -2996,7 +3355,9 @@
      "rows": 11,
      "vendor": 2,
      "introduced": 0,
-     "places": 6
+     "places": 6,
+     "inferred": 5,
+     "todos": 3
     }
    }
   },
@@ -3027,7 +3388,10 @@
     "@solid-primitives/scheduled"
    ],
    "decl": {
-    "words": 3,
+    "words": 0,
+    "inferred": 3,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3038,7 +3402,9 @@
      "rows": 8,
      "vendor": 0,
      "introduced": 0,
-     "places": 6
+     "places": 6,
+     "inferred": 7,
+     "todos": 0
     }
    }
   },
@@ -3070,6 +3436,9 @@
    ],
    "decl": {
     "words": 8,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3080,7 +3449,9 @@
      "rows": 2,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 1
     }
    }
   },
@@ -3112,6 +3483,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3122,7 +3496,9 @@
      "rows": 8,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 4
     }
    }
   },
@@ -3154,6 +3530,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3164,7 +3543,9 @@
      "rows": 3,
      "vendor": 0,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 0,
+     "todos": 1
     }
    }
   },
@@ -3196,6 +3577,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3206,7 +3590,9 @@
      "rows": 17,
      "vendor": 0,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 3,
+     "todos": 9
     }
    }
   },
@@ -3238,6 +3624,9 @@
    ],
    "decl": {
     "words": 3,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3248,7 +3637,9 @@
      "rows": 8,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 3,
+     "todos": 4
     }
    }
   },
@@ -3280,6 +3671,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3290,7 +3684,9 @@
      "rows": 39,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 3
     }
    }
   },
@@ -3321,7 +3717,10 @@
     "@solid-primitives/signal-builders"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3332,7 +3731,9 @@
      "rows": 40,
      "vendor": 17,
      "introduced": 0,
-     "places": 4
+     "places": 4,
+     "inferred": 30,
+     "todos": 3
     }
    }
   },
@@ -3363,7 +3764,10 @@
     "@solid-primitives/sortable"
    ],
    "decl": {
-    "words": 2,
+    "words": 1,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3374,7 +3778,9 @@
      "rows": 14,
      "vendor": 4,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 10,
+     "todos": 2
     }
    }
   },
@@ -3406,6 +3812,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3416,7 +3825,9 @@
      "rows": 9,
      "vendor": 0,
      "introduced": 0,
-     "places": 4
+     "places": 4,
+     "inferred": 0,
+     "todos": 2
     }
    }
   },
@@ -3448,6 +3859,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3458,19 +3872,25 @@
      "rows": 22,
      "vendor": 1,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 10,
+     "todos": 1
     },
     "@solid-primitives/sse/worker": {
      "rows": 3,
      "vendor": 0,
      "introduced": 0,
-     "places": 4
+     "places": 4,
+     "inferred": 1,
+     "todos": 0
     },
     "@solid-primitives/sse/worker-handler": {
      "rows": 0,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -3502,6 +3922,9 @@
    ],
    "decl": {
     "words": 11,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3512,7 +3935,9 @@
      "rows": 9,
      "vendor": 2,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 1
     }
    }
   },
@@ -3543,7 +3968,10 @@
     "@solid-primitives/static-store"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3554,7 +3982,9 @@
      "rows": 5,
      "vendor": 0,
      "introduced": 0,
-     "places": 6
+     "places": 6,
+     "inferred": 2,
+     "todos": 1
     }
    }
   },
@@ -3586,6 +4016,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3596,13 +4029,17 @@
      "rows": 22,
      "vendor": 9,
      "introduced": 0,
-     "places": 5
+     "places": 5,
+     "inferred": 3,
+     "todos": 2
     },
     "@solid-primitives/storage/tauri": {
      "rows": 1,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 1
     }
    }
   },
@@ -3634,6 +4071,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3644,7 +4084,9 @@
      "rows": 4,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 3
     }
    }
   },
@@ -3676,6 +4118,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3686,7 +4131,9 @@
      "rows": 6,
      "vendor": 0,
      "introduced": 0,
-     "places": 5
+     "places": 5,
+     "inferred": 1,
+     "todos": 5
     }
    }
   },
@@ -3718,6 +4165,9 @@
    ],
    "decl": {
     "words": 3,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3728,7 +4178,9 @@
      "rows": 8,
      "vendor": 0,
      "introduced": 0,
-     "places": 6
+     "places": 6,
+     "inferred": 0,
+     "todos": 3
     }
    }
   },
@@ -3760,6 +4212,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3770,7 +4225,9 @@
      "rows": 3,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 3
     }
    }
   },
@@ -3802,6 +4259,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3812,7 +4272,9 @@
      "rows": 2,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 1
     }
    }
   },
@@ -3843,7 +4305,10 @@
     "@solid-primitives/upload"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 1,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3854,7 +4319,9 @@
      "rows": 20,
      "vendor": 0,
      "introduced": 0,
-     "places": 6
+     "places": 6,
+     "inferred": 8,
+     "todos": 4
     }
    }
   },
@@ -3886,6 +4353,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3896,7 +4366,9 @@
      "rows": 23,
      "vendor": 0,
      "introduced": 0,
-     "places": 5
+     "places": 5,
+     "inferred": 0,
+     "todos": 11
     }
    }
   },
@@ -3927,7 +4399,10 @@
     "@solid-primitives/utils"
    ],
    "decl": {
-    "words": 2,
+    "words": 0,
+    "inferred": 2,
+    "probed": 0,
+    "todos": 0,
     "any": 1,
     "inherited": 1,
     "introduced": 0,
@@ -3938,19 +4413,25 @@
      "rows": 80,
      "vendor": 18,
      "introduced": 0,
-     "places": 20
+     "places": 20,
+     "inferred": 31,
+     "todos": 6
     },
     "@solid-primitives/utils/immutable": {
      "rows": 41,
      "vendor": 5,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 23,
+     "todos": 0
     },
     "@solid-primitives/utils/colors": {
      "rows": 28,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 5,
+     "todos": 8
     }
    }
   },
@@ -3982,6 +4463,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -3992,7 +4476,9 @@
      "rows": 9,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 4
     }
    }
   },
@@ -4024,6 +4510,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4034,7 +4523,9 @@
      "rows": 14,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 2,
+     "todos": 4
     }
    }
   },
@@ -4066,6 +4557,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 1,
     "inherited": 1,
     "introduced": 0,
@@ -4076,7 +4570,9 @@
      "rows": 2,
      "vendor": 2,
      "introduced": 0,
-     "places": 3
+     "places": 3,
+     "inferred": 1,
+     "todos": 0
     }
    }
   },
@@ -4108,6 +4604,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4118,7 +4617,9 @@
      "rows": 16,
      "vendor": 0,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 1,
+     "todos": 6
     }
    }
   },
@@ -4150,6 +4651,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4160,13 +4664,17 @@
      "rows": 12,
      "vendor": 0,
      "introduced": 0,
-     "places": 3
+     "places": 3,
+     "inferred": 0,
+     "todos": 5
     },
     "@solid-primitives/workers/worker": {
      "rows": 2,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 0
     }
    }
   },
@@ -4198,6 +4706,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4208,13 +4719,17 @@
      "rows": 17,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 3
     },
     "solid-marked/component": {
      "rows": 2,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -4246,6 +4761,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4256,7 +4774,9 @@
      "rows": 20,
      "vendor": 0,
      "introduced": 0,
-     "places": 4
+     "places": 4,
+     "inferred": 1,
+     "todos": 11
     }
    }
   },
@@ -4287,7 +4807,10 @@
     "solid-use/atom"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4298,7 +4821,9 @@
      "rows": 2,
      "vendor": 2,
      "introduced": 0,
-     "places": 2
+     "places": 2,
+     "inferred": 2,
+     "todos": 0
     }
    }
   },
@@ -4329,7 +4854,10 @@
     "solid-use/client-only"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 1,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4340,7 +4868,9 @@
      "rows": 5,
      "vendor": 2,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 2,
+     "todos": 3
     }
    }
   },
@@ -4372,6 +4902,9 @@
    ],
    "decl": {
     "words": 4,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4382,7 +4915,9 @@
      "rows": 5,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 2
     }
    }
   },
@@ -4413,7 +4948,10 @@
     "solid-use/media-query"
    ],
    "decl": {
-    "words": 2,
+    "words": 0,
+    "inferred": 2,
+    "probed": 1,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4424,7 +4962,9 @@
      "rows": 4,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 4,
+     "todos": 4
     }
    }
   },
@@ -4455,7 +4995,10 @@
     "solid-use/online-status"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 1,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4466,7 +5009,9 @@
      "rows": 1,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 0
     }
    }
   },
@@ -4497,7 +5042,10 @@
     "solid-use/page-visibility"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 1,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4508,7 +5056,9 @@
      "rows": 1,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 0
     }
    }
   },
@@ -4539,7 +5089,10 @@
     "solid-use/props"
    ],
    "decl": {
-    "words": 1,
+    "words": 0,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 1,
     "inherited": 1,
     "introduced": 0,
@@ -4550,7 +5103,9 @@
      "rows": 7,
      "vendor": 2,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 4,
+     "todos": 1
     }
    }
   },
@@ -4582,6 +5137,9 @@
    ],
    "decl": {
     "words": 8,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4592,7 +5150,9 @@
      "rows": 7,
      "vendor": 2,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 1,
+     "todos": 3
     }
    }
   },
@@ -4624,6 +5184,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4634,7 +5197,9 @@
      "rows": 1,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -4666,6 +5231,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4676,7 +5244,9 @@
      "rows": 1,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 0,
+     "inferred": 0,
+     "todos": 0
     }
    }
   },
@@ -4710,6 +5280,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 4,
     "any": 22,
     "inherited": 22,
     "introduced": 0,
@@ -4752,6 +5325,9 @@
    ],
    "decl": {
     "words": 2,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 6,
     "any": 28,
     "inherited": 28,
     "introduced": 0,
@@ -4789,6 +5365,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 3,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4826,6 +5405,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 4,
     "any": 13,
     "inherited": 13,
     "introduced": 0,
@@ -4862,6 +5444,9 @@
    ],
    "decl": {
     "words": 1,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 2,
     "any": 6,
     "inherited": 6,
     "introduced": 0,
@@ -4900,6 +5485,9 @@
    ],
    "decl": {
     "words": 0,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 26,
     "inherited": 26,
     "introduced": 0,
@@ -4935,7 +5523,10 @@
     "@ui-sdk/solid/number"
    ],
    "decl": {
-    "words": 4,
+    "words": 3,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 0,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -4972,6 +5563,9 @@
    ],
    "decl": {
     "words": 13,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -5008,6 +5602,9 @@
    ],
    "decl": {
     "words": 21,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -5044,6 +5641,9 @@
    ],
    "decl": {
     "words": 21,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 3,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -5080,6 +5680,9 @@
    ],
    "decl": {
     "words": 12,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -5116,6 +5719,9 @@
    ],
    "decl": {
     "words": 12,
+    "inferred": 0,
+    "probed": 0,
+    "todos": 1,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -5151,7 +5757,10 @@
     "@wardic/solid"
    ],
    "decl": {
-    "words": 6,
+    "words": 5,
+    "inferred": 1,
+    "probed": 0,
+    "todos": 4,
     "any": 0,
     "inherited": 0,
     "introduced": 0,
@@ -5162,442 +5771,588 @@
  },
  "drafts": {
   "@wardic/solid": {
-   "rows": 259,
+   "rows": 250,
    "vendor": 3,
    "introduced": 0,
-   "places": 42
+   "places": 42,
+   "inferred": 4,
+   "todos": 60
   },
   "@wardic/solid/v1": {
-   "rows": 239,
+   "rows": 230,
    "vendor": 4,
    "introduced": 0,
-   "places": 14
+   "places": 14,
+   "inferred": 13,
+   "todos": 63
   },
   "@wardic/solid/unstable/v2": {
-   "rows": 259,
+   "rows": 250,
    "vendor": 3,
    "introduced": 0,
-   "places": 42
+   "places": 42,
+   "inferred": 4,
+   "todos": 60
   },
   "@wardic/dom": {
    "rows": 121,
    "vendor": 0,
    "introduced": 0,
-   "places": 7
+   "places": 7,
+   "inferred": 0,
+   "todos": 38
   },
   "@ui-sdk/solid": {
-   "rows": 1353,
+   "rows": 1352,
    "vendor": 522,
    "introduced": 0,
-   "places": 584
+   "places": 584,
+   "inferred": 11,
+   "todos": 180
   },
   "@ui-sdk/solid/accordion": {
    "rows": 21,
    "vendor": 9,
    "introduced": 0,
-   "places": 28
+   "places": 28,
+   "inferred": 0,
+   "todos": 4
   },
   "@ui-sdk/solid/alert-dialog": {
    "rows": 29,
    "vendor": 10,
    "introduced": 0,
-   "places": 10
+   "places": 10,
+   "inferred": 0,
+   "todos": 5
   },
   "@ui-sdk/solid/async-options": {
    "rows": 7,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 4
   },
   "@ui-sdk/solid/autocomplete": {
    "rows": 52,
    "vendor": 27,
    "introduced": 0,
-   "places": 38
+   "places": 38,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/avatar": {
    "rows": 9,
    "vendor": 6,
    "introduced": 0,
-   "places": 6
+   "places": 6,
+   "inferred": 0,
+   "todos": 1
   },
   "@ui-sdk/solid/button": {
    "rows": 6,
    "vendor": 2,
    "introduced": 0,
-   "places": 4
+   "places": 4,
+   "inferred": 0,
+   "todos": 0
   },
   "@ui-sdk/solid/calendar": {
    "rows": 38,
    "vendor": 9,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/carousel": {
    "rows": 33,
    "vendor": 12,
    "introduced": 0,
-   "places": 9
+   "places": 9,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/checkbox": {
    "rows": 22,
    "vendor": 4,
    "introduced": 0,
-   "places": 3
+   "places": 3,
+   "inferred": 0,
+   "todos": 6
   },
   "@ui-sdk/solid/collapsible": {
    "rows": 15,
    "vendor": 6,
    "introduced": 0,
-   "places": 6
+   "places": 6,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/color": {
    "rows": 15,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 2
   },
   "@ui-sdk/solid/color-picker": {
    "rows": 33,
    "vendor": 22,
    "introduced": 0,
-   "places": 30
+   "places": 30,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/combobox": {
    "rows": 70,
    "vendor": 34,
    "introduced": 0,
-   "places": 39
+   "places": 39,
+   "inferred": 0,
+   "todos": 4
   },
   "@ui-sdk/solid/command": {
    "rows": 47,
    "vendor": 20,
    "introduced": 0,
-   "places": 24
+   "places": 24,
+   "inferred": 0,
+   "todos": 4
   },
   "@ui-sdk/solid/date": {
    "rows": 31,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 10,
+   "todos": 1
   },
   "@ui-sdk/solid/date-picker": {
    "rows": 50,
    "vendor": 18,
    "introduced": 0,
-   "places": 11
+   "places": 11,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/date-input": {
    "rows": 18,
    "vendor": 2,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/dialog": {
    "rows": 50,
    "vendor": 10,
    "introduced": 0,
-   "places": 9
+   "places": 9,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/drawer": {
    "rows": 34,
    "vendor": 13,
    "introduced": 0,
-   "places": 12
+   "places": 12,
+   "inferred": 0,
+   "todos": 2
   },
   "@ui-sdk/solid/field": {
    "rows": 21,
    "vendor": 12,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 1,
+   "todos": 2
   },
   "@ui-sdk/solid/file-input": {
    "rows": 30,
    "vendor": 7,
    "introduced": 0,
-   "places": 7
+   "places": 7,
+   "inferred": 0,
+   "todos": 4
   },
   "@ui-sdk/solid/gesture": {
    "rows": 5,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 4,
+   "todos": 1
   },
   "@ui-sdk/solid/hover-card": {
    "rows": 17,
    "vendor": 4,
    "introduced": 0,
-   "places": 3
+   "places": 3,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/image": {
    "rows": 5,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 1
   },
   "@ui-sdk/solid/image-cropper": {
    "rows": 28,
    "vendor": 18,
    "introduced": 0,
-   "places": 24
+   "places": 24,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/input": {
    "rows": 18,
    "vendor": 4,
    "introduced": 0,
-   "places": 3
+   "places": 3,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/label": {
    "rows": 3,
    "vendor": 2,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 0
   },
   "@ui-sdk/solid/listbox": {
    "rows": 29,
    "vendor": 12,
    "introduced": 0,
-   "places": 19
+   "places": 19,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/menu": {
    "rows": 56,
    "vendor": 17,
    "introduced": 0,
-   "places": 8
+   "places": 8,
+   "inferred": 0,
+   "todos": 7
   },
   "@ui-sdk/solid/menubar": {
    "rows": 9,
    "vendor": 1,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 2
   },
   "@ui-sdk/solid/meter": {
    "rows": 11,
    "vendor": 10,
    "introduced": 0,
-   "places": 12
+   "places": 12,
+   "inferred": 0,
+   "todos": 0
   },
   "@ui-sdk/solid/navigation-menu": {
    "rows": 34,
    "vendor": 13,
    "introduced": 0,
-   "places": 12
+   "places": 12,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/number": {
    "rows": 25,
    "vendor": 0,
    "introduced": 0,
-   "places": 2
+   "places": 2,
+   "inferred": 8,
+   "todos": 0
   },
   "@ui-sdk/solid/number-input": {
    "rows": 18,
    "vendor": 10,
    "introduced": 0,
-   "places": 9
+   "places": 9,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/otp-input": {
    "rows": 16,
    "vendor": 6,
    "introduced": 0,
-   "places": 6
+   "places": 6,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/overlays": {
    "rows": 12,
    "vendor": 0,
    "introduced": 0,
-   "places": 2
+   "places": 2,
+   "inferred": 1,
+   "todos": 2
   },
   "@ui-sdk/solid/pagination": {
    "rows": 22,
    "vendor": 11,
    "introduced": 0,
-   "places": 6
+   "places": 6,
+   "inferred": 1,
+   "todos": 3
   },
   "@ui-sdk/solid/password-input": {
    "rows": 10,
    "vendor": 4,
    "introduced": 0,
-   "places": 3
+   "places": 3,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/popover": {
    "rows": 26,
    "vendor": 11,
    "introduced": 0,
-   "places": 14
+   "places": 14,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/primitive": {
    "rows": 9,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 6
   },
   "@ui-sdk/solid/preferences": {
    "rows": 3,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 1,
+   "todos": 1
   },
   "@ui-sdk/solid/progress": {
    "rows": 12,
    "vendor": 10,
    "introduced": 0,
-   "places": 12
+   "places": 12,
+   "inferred": 0,
+   "todos": 0
   },
   "@ui-sdk/solid/radio": {
    "rows": 16,
    "vendor": 4,
    "introduced": 0,
-   "places": 3
+   "places": 3,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/rating": {
    "rows": 12,
    "vendor": 2,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/resizable": {
    "rows": 20,
    "vendor": 6,
    "introduced": 0,
-   "places": 6
+   "places": 6,
+   "inferred": 1,
+   "todos": 3
   },
   "@ui-sdk/solid/scroll-area": {
    "rows": 18,
    "vendor": 12,
    "introduced": 0,
-   "places": 12
+   "places": 12,
+   "inferred": 0,
+   "todos": 2
   },
   "@ui-sdk/solid/segmented-control": {
    "rows": 16,
    "vendor": 4,
    "introduced": 0,
-   "places": 3
+   "places": 3,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/select": {
    "rows": 61,
    "vendor": 30,
    "introduced": 0,
-   "places": 39
+   "places": 39,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/separator": {
    "rows": 5,
    "vendor": 2,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 0
   },
   "@ui-sdk/solid/shortcuts": {
    "rows": 18,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 1,
+   "todos": 6
   },
   "@ui-sdk/solid/slider": {
    "rows": 20,
    "vendor": 11,
    "introduced": 0,
-   "places": 27
+   "places": 27,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/switch": {
    "rows": 10,
    "vendor": 3,
    "introduced": 0,
-   "places": 3
+   "places": 3,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/tabs": {
    "rows": 24,
    "vendor": 11,
    "introduced": 0,
-   "places": 30
+   "places": 30,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/text-match": {
    "rows": 5,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 1,
+   "todos": 0
   },
   "@ui-sdk/solid/agent": {
    "rows": 8,
    "vendor": 0,
    "introduced": 0,
-   "places": 2
+   "places": 2,
+   "inferred": 0,
+   "todos": 2
   },
   "@ui-sdk/solid/observe": {
    "rows": 4,
    "vendor": 0,
    "introduced": 0,
-   "places": 1
+   "places": 1,
+   "inferred": 0,
+   "todos": 0
   },
   "@ui-sdk/solid/history": {
    "rows": 6,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 1,
+   "todos": 3
   },
   "@ui-sdk/solid/textarea": {
    "rows": 16,
    "vendor": 1,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/time-input": {
    "rows": 16,
    "vendor": 2,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/timeline": {
    "rows": 22,
    "vendor": 14,
    "introduced": 0,
-   "places": 18
+   "places": 18,
+   "inferred": 0,
+   "todos": 2
   },
   "@ui-sdk/solid/toast": {
    "rows": 37,
    "vendor": 6,
    "introduced": 0,
-   "places": 9
+   "places": 9,
+   "inferred": 0,
+   "todos": 9
   },
   "@ui-sdk/solid/toggle": {
    "rows": 22,
    "vendor": 4,
    "introduced": 0,
-   "places": 3
+   "places": 3,
+   "inferred": 0,
+   "todos": 6
   },
   "@ui-sdk/solid/token-input": {
-   "rows": 33,
+   "rows": 32,
    "vendor": 3,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 2,
+   "todos": 4
   },
   "@ui-sdk/solid/toolbar": {
    "rows": 21,
    "vendor": 10,
    "introduced": 0,
-   "places": 12
+   "places": 12,
+   "inferred": 0,
+   "todos": 2
   },
   "@ui-sdk/solid/tooltip": {
    "rows": 20,
    "vendor": 5,
    "introduced": 0,
-   "places": 3
+   "places": 3,
+   "inferred": 0,
+   "todos": 3
   },
   "@ui-sdk/solid/tree": {
    "rows": 38,
    "vendor": 6,
    "introduced": 0,
-   "places": 0
+   "places": 0,
+   "inferred": 1,
+   "todos": 3
   },
   "@ui-sdk/solid/trigger-menu": {
    "rows": 55,
    "vendor": 17,
    "introduced": 0,
-   "places": 17
+   "places": 17,
+   "inferred": 1,
+   "todos": 5
   },
   "@ui-sdk/solid/waterfall": {
    "rows": 36,
    "vendor": 21,
    "introduced": 0,
-   "places": 30
+   "places": 30,
+   "inferred": 1,
+   "todos": 3
   }
  }
 }

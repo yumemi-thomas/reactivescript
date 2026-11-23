@@ -1,2 +1,3 @@
 //@ for @solid-primitives/pagination ^1.0.0
+//@ inferred createSegment: pure
 export pure fn createSegment<T>(ref items: T[], ref limit: number, ref page: number): ref T[]

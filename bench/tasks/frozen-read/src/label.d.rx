@@ -1,2 +1,3 @@
+//@ inferred createLabel: pure
 export pure fn createLabel(ref text: string): ref string
 export pure fn createStamp(text: string): ref string

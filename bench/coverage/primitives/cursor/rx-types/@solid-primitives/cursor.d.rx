@@ -1,3 +1,4 @@
 //@ for @solid-primitives/cursor ^1.0.0
 export type CursorProperty = import("@solid-primitives/cursor").CursorProperty
+//@ inferred createBodyCursor: pure
 export pure fn createBodyCursor(ref cursor: CursorProperty | import("@solid-primitives/utils").FalsyValue): void

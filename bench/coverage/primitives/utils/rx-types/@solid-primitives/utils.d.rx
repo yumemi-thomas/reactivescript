@@ -1,3 +1,5 @@
 //@ for @solid-primitives/utils ^7.0.1
+//@ inferred clamp: pure
 export pure fn clamp(n: number, min: number, max: number): number
+//@ inferred asArray: pure
 export pure fn asArray<T>(value: T): (T extends any[] ? T[number] : NonNullable<T>)[]

@@ -61,9 +61,12 @@ async function runTask(id, entry) {
   }
 
   // the declarations, against rx-declare's draft of the same modules (before anything is edited)
-  try { res.decl = declarations(dir, task.declare ?? {}); } catch (e) { res.decl = { words: 0, any: 0, inherited: 0, introduced: 0, places: 0, files: [], error: String(e.message ?? e) }; }
+  // BENCH_MARKS=1 (09 MO-8v): each kept row's `//@ inferred` line written into the task's own files as the draft has
+  // it — after rx-declare reads more, or less, from the code — before the declarations are measured
+  if (process.env.BENCH_MARKS) { const src = entry ? path.join(here, "coverage", entry) : path.join(here, "tasks", id, "src"); for (const f of declarations(dir, task.declare ?? {}, true).files) if (f.fix?.length) { for (const at of [path.join(src, f.file), path.join(dir, f.file)]) { let ls = readFileSync(at, "utf8").split("\n"); for (const { name, line } of f.fix) { ls = ls.filter(l => !l.startsWith(`//@ inferred ${name}:`)); if (line) { const i = ls.findIndex(l => new RegExp(`^export\\s+(?:(?:pure|server|client)\\s+)*(?:fn|component)\\s+${name.replace(/[.$]/g, "\\$&")}(?![\\w$.])`).test(l)); if (i >= 0) ls.splice(i, 0, line); } } writeFileSync(at, ls.join("\n")); } console.error(`[marks] ${id}/${f.file}: ${f.fix.map(x => x.line ?? `removed ${x.name}`).join("; ")}`); } }
+  try { res.decl = declarations(dir, task.declare ?? {}); } catch (e) { res.decl = { words: 0, inferred: 0, todos: 0, probed: 0, contradicted: [], unmarked: [], any: 0, inherited: 0, introduced: 0, places: 0, files: [], error: String(e.message ?? e) }; }
   // a coverage entry: each module of its packages drafted whole (09 MO-8q), whether its program imports it or not
-  if (task.modules) res.modules = task.modules.map(spec => { const w = draftOf(spec, dir, (task.declare ?? {})[spec] ?? []).whole; return { spec, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; });
+  if (task.modules) res.modules = task.modules.map(spec => { const w = draftOf(spec, dir, (task.declare ?? {})[spec] ?? []).whole; return { spec, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; });
   if (entry) Object.assign(res, { entry, pkgs: task.pkgs ?? [], uses: task.uses ?? [], server: task.server, hydrates: task.hydrates, note: task.note });
 
   // (b) TYPES: rx-tsc is clean with the library's own types, the program wrote no `any`, and each probe — a mistake
@@ -182,7 +185,7 @@ if (one) {
 const draftOnly = args.includes("--draft") ? args[args.indexOf("--draft") + 1] : null;
 if (draftOnly) {
   const id = `draft-${draftOnly.replace(/[^\w.-]+/g, "_")}`;
-  let r; try { const dir = path.join(ws, "tasks", id); mkdirSync(dir, { recursive: true }); const w = draftOf(draftOnly, dir).whole; r = { spec: draftOnly, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; } catch (e) { r = { spec: draftOnly, crash: e.stack ?? String(e) }; }
+  let r; try { const dir = path.join(ws, "tasks", id); mkdirSync(dir, { recursive: true }); const w = draftOf(draftOnly, dir).whole; r = { spec: draftOnly, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; } catch (e) { r = { spec: draftOnly, crash: e.stack ?? String(e) }; }
   writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify(r));
   process.exit(0);
 }
@@ -209,7 +212,9 @@ const cols = [["good", "good accepted"], ["types", "types kept"], ["runtime", "r
 // the declarations' two numbers (lower is better; no pass or fail): words written by hand over rx-declare's draft, and `any`s
 // (09 MO-8q): an `any` the library's own declaration has (inherited) and one written where it has a type (introduced, which
 // must be none, or on bench/any-allowlist.json with its reason); and the parts said by their place in the library's declaration
-const nums = [["words", "hand-written words"], ["inherited", "`any` inherited"], ["introduced", "`any` introduced"], ["places", "by-place"]];
+// (09 MO-8v) `inferred`: the words of the kept rows that rx-declare read from the code that runs, counted apart from the
+// words written by hand (more is better); `todos`: the questions the draft still asks about the rows a task keeps
+const nums = [["words", "hand-written words"], ["inferred", "inferred words"], ["todos", "TODOs"], ["inherited", "`any` inherited"], ["introduced", "`any` introduced"], ["places", "by-place"]];
 const cellText = c => !c || !c.total ? "—" : `${c.pass}/${c.total}`;
 const lines = [];
 const w = Math.max(...results.map(r => r.id.length), 4);
@@ -221,7 +226,7 @@ const total = Object.fromEntries(cols.map(([k]) => [k, { pass: 0, total: 0 }]));
 const sum = Object.fromEntries(nums.map(([k]) => [k, 0]));
 for (const r of results) {
   if (r.crash) { lines.push(`${r.id.padEnd(w)}  CRASHED: ${r.crash.split("\n")[0]}`); continue; }
-  lines.push(`${r.id.padEnd(w)}  ${[...cols.map(([k, t]) => { total[k].pass += r[k].pass; total[k].total += r[k].total; return `${cellText(r[k])}${r[k].total && r[k].pass === r[k].total ? " ✓" : r[k].total ? " ✗" : ""}`.padEnd(cw(t)); }), ...nums.map(([k, t]) => { sum[k] += r.decl[k]; return (r.decl.files.length ? String(r.decl[k]) : "—").padEnd(cw(t)); })].join("  ")}`);
+  lines.push(`${r.id.padEnd(w)}  ${[...cols.map(([k, t]) => { total[k].pass += r[k].pass; total[k].total += r[k].total; return `${cellText(r[k])}${r[k].total && r[k].pass === r[k].total ? " ✓" : r[k].total ? " ✗" : ""}`.padEnd(cw(t)); }), ...nums.map(([k, t]) => { r.decl[k] ??= 0; sum[k] += r.decl[k]; return (r.decl.files.length ? String(r.decl[k]) : "—").padEnd(cw(t)); })].join("  ")}`);
 }
 lines.push(rule);
 lines.push(`${"total".padEnd(w)}  ${[...cols.map(([k, t]) => `${total[k].pass}/${total[k].total}`.padEnd(cw(t))), ...nums.map(([k, t]) => String(sum[k]).padEnd(cw(t)))].join("  ")}`);
@@ -250,18 +255,27 @@ const allowAll = JSON.parse(readFileSync(path.join(here, "any-allowlist.json"), 
 const allowDrafts = allowAll.filter(a => a.draft);
 const wholeRows = wholeFiles.flatMap(f => f.whole.introducedRows.map(x => ({ id: f.id, spec: f.spec, ...x, entry: wholeAllowed(f.id, f.spec, x.name) })));
 const wholeCard = wholeFiles.length ? `\n\nWhole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; ${wholeFiles.length} drafts, ${wholeSum("rows")} rows): ${wholeSum("vendor")} \`any\` the libraries' own, ${wholeSum("introduced")} introduced, ${wholeSum("places")} by place\n${wholeLines.join("\n")}${wholeRows.length ? `\n  introduced, row by row:\n${wholeRows.map(x => `    ${x.id} · ${x.spec} · ${x.name}: ${x.introduced} (${x.causes.join(", ")}) — ${x.entry ? `allowed (${x.entry.count}): ${x.entry.reason} Blocked by: ${x.entry.blocked}` : "NOT ON bench/any-allowlist.json"}`).join("\n")}` : ""}` : "";
+// 09 MO-8v: the words read from the code that runs — in the rows the tasks keep (each run by rx-verify against what the
+// reading claims, where it has arguments to call with) and over the whole drafts — and the questions the drafts still ask
+const okr = results.filter(r => !r.crash);
+const byKind = k => { const o = {}; for (const r of okr) for (const [n, v] of Object.entries(r.decl.draft?.[k] ?? {})) o[n] = (o[n] ?? 0) + v; return Object.entries(o).sort((a, b) => b[1] - a[1]).map(([n, v]) => `${v} ${n}`).join(", ") || "none"; };
+const dsum = k => okr.reduce((n, r) => n + (r.decl.draft?.[k] ?? 0), 0);
+const contradicted = okr.flatMap(r => (r.decl.contradicted ?? []).map(c => `${r.id}/${c}`));
+const unmarked = okr.flatMap(r => (r.decl.unmarked ?? []).map(c => `${r.id}/${c}`));
+const unprobed = okr.flatMap(r => r.decl.files.flatMap(f => (f.unprobed ?? []).map(n => `${r.id}/${f.file} · ${n}`)));
+const inferCard = `\n\nRead from the code that runs (09 MO-8v): ${okr.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} words in the rows the tasks keep, counted apart from the ${okr.reduce((n, r) => n + r.decl.words, 0)} written by hand; ${okr.reduce((n, r) => n + (r.decl.probed ?? 0), 0)} of them run by rx-verify and not contradicted, ${contradicted.length} contradicted${unprobed.length ? `; not run (rx-verify has no arguments to call with, or the row is not one it runs): ${unprobed.length} row${unprobed.length === 1 ? "" : "s"}` : ""}\n  whole drafts: ${dsum("inferred")} words read (${byKind("inferredBy")}); ${dsum("todos")} questions asked (${byKind("todosBy")})${contradicted.length ? `\n  contradicted:\n${contradicted.map(c => `    ${c}`).join("\n")}` : ""}${unmarked.length ? `\n  marks out of step with the draft:\n${unmarked.map(c => `    ${c}`).join("\n")}` : ""}${process.env.BENCH_WORDS && unprobed.length ? `\n  not run:\n${unprobed.map(c => `    ${c}`).join("\n")}` : ""}`;
 const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green.") + (declLines.length ? `\n\nDeclarations (words written by hand over rx-declare's draft; \`any\`s the library's own declaration has, and \`any\`s written where it has a type; parts said by place):\n${declLines.join("\n")}` : "") + `\n\nIntroduced \`any\`s (09 MO-8q: none, or on bench/any-allowlist.json):${allowLines.length ? `\n${allowLines.join("\n")}` : " none"}`;
-console.log("\n" + card + wholeCard);
+console.log("\n" + card + inferCard + wholeCard);
 
 // the coverage suite (bench/coverage.mjs): every package of the libraries it lists, drafted whole and used once
 const shard = args.includes("--shard") ? args[args.indexOf("--shard") + 1].split("/").map(Number) : null;   // `--shard 2/3`: the coverage suite's second third (CI)
 if (shard && !(shard.length === 2 && shard[0] >= 1 && shard[0] <= shard[1])) { console.error("--shard i/n: 1 ≤ i ≤ n"); process.exit(2); }
 const coverage = flag("--tasks-only") ? { problems: [] } : await runCoverage({ filters, check: flag("--check"), strict: flag("--strict"), write: flag("--write"), shard });
 
-const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places, draft: r.decl.draft } }]));
+const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, inferred: r.decl.inferred ?? 0, probed: r.decl.probed ?? 0, todos: r.decl.todos ?? 0, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places, draft: r.decl.draft } }]));
 if (flag("--write") && !flag("--coverage-only")) {
   writeFileSync(path.join(here, "scorecard.json"), JSON.stringify(snapshot, null, 2) + "\n");
-  writeFileSync(path.join(here, "scorecard.txt"), (card + wholeCard).replaceAll(ws, "bench/.out/ws") + "\n");
+  writeFileSync(path.join(here, "scorecard.txt"), (card + inferCard + wholeCard).replaceAll(ws, "bench/.out/ws") + "\n");
 }
 let exit = 0;
 if (flag("--check")) {
@@ -278,7 +292,14 @@ if (flag("--check")) {
     }
     // the declarations may not need more hand-written words, nor hold more `any`s, than the committed scorecard's
     // nor more parts said by place (09 MO-8q: each of the numbers, and the `any`s together, task by task)
-    for (const [k, t] of [...nums, ["any", "`any` in .d.rx"]]) if (old?.decl && old.decl[k] !== undefined && r.decl[k] > old.decl[k]) problems.push(`${r.id} · ${t}: ${r.decl[k]}, was ${old.decl[k]} in bench/scorecard.json`);
+    for (const [k, t] of [...nums, ["any", "`any` in .d.rx"]]) if (k !== "inferred" && old?.decl && old.decl[k] !== undefined && r.decl[k] > old.decl[k]) problems.push(`${r.id} · ${t}: ${r.decl[k]}, was ${old.decl[k]} in bench/scorecard.json`);
+    // 09 MO-8v: a word the code proved may not go back to being written by hand, nor a whole draft ask more questions;
+    // a word run by rx-verify and contradicted is a false claim (none is allowed), and a kept row's mark is the draft's
+    if (old?.decl?.inferred !== undefined && (r.decl.inferred ?? 0) < old.decl.inferred) problems.push(`${r.id} · inferred words: ${r.decl.inferred ?? 0}, was ${old.decl.inferred} in bench/scorecard.json`);
+    if (old?.decl?.probed !== undefined && (r.decl.probed ?? 0) < old.decl.probed) problems.push(`${r.id} · inferred words run by rx-verify: ${r.decl.probed ?? 0}, was ${old.decl.probed} in bench/scorecard.json`);
+    if (old?.decl?.draft?.todos !== undefined && (r.decl.draft?.todos ?? 0) > old.decl.draft.todos) problems.push(`${r.id} · questions in whole drafts: ${r.decl.draft.todos}, was ${old.decl.draft.todos} in bench/scorecard.json`);
+    for (const c of r.decl.contradicted ?? []) problems.push(`${r.id}/${c}: a word read from the code is contradicted by running it (09 MO-8v): fix rx-declare's reading`);
+    for (const c of r.decl.unmarked ?? []) problems.push(`${r.id}/${c} (09 MO-8v: a kept row's \`//@ inferred\` line is the draft's)`);
     // 09 MO-8q over whole drafts: drafting every export of the task's modules may not write more `any`s of the draft's
     // own, nor say more parts by place, than the committed scorecard's (the library's own `any`s are the library's)
     for (const [k, t] of [["introduced", "`any` introduced in whole drafts"], ["places", "by-place in whole drafts"]]) if (old?.decl?.draft && r.decl.draft[k] > old.decl.draft[k]) problems.push(`${r.id} · ${t}: ${r.decl.draft[k]}, was ${old.decl.draft[k]} in bench/scorecard.json`);

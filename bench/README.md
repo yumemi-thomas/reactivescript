@@ -459,3 +459,20 @@ inherited 57 and 61 (`query`'s own type), introduced 0, by place 29 and 30. Cove
 193 modules drafted whole, 5 105 rows (4 904), 1 197 `any`s the libraries' own, none introduced, 1 551 by place; 277
 hand-written words; 21/21 bad caught (13/13: `solid-sonner/toaster`, `ui-sdk/overlays`, `solid-marked/markdown`);
 three modules of the app's own gone (`solid-marked/markdown`, `solid-use/online-status`, `page-visibility`).
+
+On 2026-11-26 the scorecard got three numbers more (09 MO-8v: `rx-declare` reads `pure`, `handler`, `draft` and
+`rejects(E)` from the code that runs, and marks each row that took one `//@ inferred`). **inferred words**: the words
+of a task's kept rows that the draft read from the code — a row kept as the draft writes it costs no hand-written
+word, and these are counted apart, so that a word nobody wrote is not mistaken for one nobody needs. **TODOs**: the
+questions the draft still asks about the rows a task keeps. And, under the table, how many of the inferred words
+`rx-verify` ran against what the reading claims, and how many it contradicted — which must be none: `--check` refuses
+a contradicted word, a kept row whose `//@ inferred` line is not the draft's (a claim nobody proved, or one the file
+lost), fewer inferred or run words than `scorecard.json` has, and a whole draft that asks more questions than it did.
+`BENCH_MARKS=1 node bench/run.mjs` writes each kept row's line again as the draft has it, in the tasks' and the
+entries' own files; a `<name>.probe.mjs` beside a declaration gives `rx-verify` the arguments to call a marked row
+with. No check moved: good 132/132, types 186/186, runtime 268/268, bad 245/245, unrepresentable 13/13. Hand-written
+words 214 to 157, with 48 inferred beside them (43 run, none contradicted) and 57 questions in the kept rows; the
+whole drafts of the tasks' modules read 808 words and ask 994 questions. Coverage: 123 programs green, 193 modules
+drafted whole (5076 rows: a property that may be absent is no method's row, 5105 before), 407 words read, 979
+questions asked (1215), 245 hand-written words in the kept rows (277) with 28 inferred beside them.
+

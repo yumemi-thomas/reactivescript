@@ -1,2 +1,3 @@
 export error Offline
+//@ inferred pushChanges: pure, rejects(Offline)
 export pure fn pushChanges(n: number): Promise<number> rejects(Offline)
