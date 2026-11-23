@@ -56,7 +56,7 @@ export default {
       h.check("no console errors or warnings", h.problems.length === 0, h.problems);
       // the declaration itself, run: rx-verify renders the probe's scene (host.probe.mjs) and holds the view to it
       const v = spawnSync(process.execPath, ["--conditions=browser", path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/verify.js"), "--dom", "src/host.d.rx"], { cwd: h.dir, encoding: "utf8" });
-      h.check("rx-verify: the host's declaration holds where it is run (each page inside its layout, rendered through the router's component and the outlet)", (v.stdout.match(/ ok /g) ?? []).length === 3 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
+      h.check("rx-verify: the host's declaration holds where it is run (each page inside its layout, rendered through the router's component and the outlet)", (v.stdout.match(/ held /g) ?? []).length === 3 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
     } finally { server.kill(); }
   },
 };

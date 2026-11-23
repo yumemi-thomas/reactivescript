@@ -24,7 +24,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { runCoverage } from "./coverage.mjs";
-import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, draftOf, onEdit } from "./harness.mjs";
+import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, draftOf, onEdit } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
  *  it, and the habits it names), or a name resolves to nothing. */
@@ -54,14 +54,14 @@ async function runTask(id, entry) {
     const r = both(path.join(dir, e), task.spa, task.host);
     const ok = !r.crate.diagnostics.length && !r.ref.diagnostics.length;
     accepted &&= ok;
-    mark(res.good, `${e}: accepted by the crate`, !r.crate.diagnostics.length, show(r.crate));
-    mark(res.good, `${e}: accepted by ref/`, !r.ref.diagnostics.length, show(r.ref));
-    mark(res.good, `${e}: the two agree`, r.agree, `crate: ${show(r.crate)} / ref: ${show(r.ref)}`);
+    // one check an entry: both checkers accept it and say the same (they were three — the crate's verdict, ref/'s, and
+    // that they agree, which follows when both accept — and a good program counted for three)
+    mark(res.good, `${e}: accepted by both checkers, which agree`, ok && r.agree, `crate: ${show(r.crate)} / ref: ${show(r.ref)}`);
     for (const a of task.advice ?? []) mark(res.good, `${e}: advice ${a}`, r.crate.advice.some(d => d.code === a) && r.ref.advice.some(d => d.code === a), `crate: ${r.crate.advice.map(d => d.code)} / ref: ${r.ref.advice.map(d => d.code)}`);
   }
 
   // the declarations, against rx-declare's draft of the same modules (before anything is edited)
-  try { res.decl = declarations(dir, task.declare ?? {}); } catch (e) { res.decl = { words: 0, inferred: 0, todos: 0, probed: 0, contradicted: [], unproven: [], any: 0, inherited: 0, introduced: 0, places: 0, files: [], error: String(e.message ?? e) }; }
+  try { res.decl = declarations(dir, task.declare ?? {}); } catch (e) { res.decl = { words: 0, inferred: 0, todos: 0, claims: { total: 0, run: 0, code: 0, unverified: 0, mismatch: 0 }, contradicted: [], unproven: [], problems: [`the declarations were not measured (${String(e.message ?? e).slice(0, 300)})`], any: 0, inherited: 0, introduced: 0, places: 0, files: [] }; }
   // a coverage entry: each module of its packages drafted whole (09 MO-8q), whether its program imports it or not
   if (task.modules) res.modules = task.modules.map(spec => { const w = draftOf(spec, dir, (task.declare ?? {})[spec] ?? []).whole; return { spec, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; });
   if (entry) Object.assign(res, { entry, pkgs: task.pkgs ?? [], uses: task.uses ?? [], server: task.server, hydrates: task.hydrates, note: task.note });
@@ -259,8 +259,9 @@ const byKind = k => { const o = {}; for (const r of okr) for (const [n, v] of Ob
 const dsum = k => okr.reduce((n, r) => n + (r.decl.draft?.[k] ?? 0), 0);
 const contradicted = okr.flatMap(r => (r.decl.contradicted ?? []).map(c => `${r.id}/${c}`));
 const unproven = okr.flatMap(r => (r.decl.unproven ?? []).map(c => `${r.id}/${c}`));
-const unprobed = okr.flatMap(r => r.decl.files.flatMap(f => (f.unprobed ?? []).map(n => `${r.id}/${f.file} · ${n}`)));
-const inferCard = `\n\nRead from the code that runs (09 MO-8v): ${okr.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} words in the rows the tasks keep, counted apart from the ${okr.reduce((n, r) => n + r.decl.words, 0)} written by hand; ${okr.reduce((n, r) => n + (r.decl.probed ?? 0), 0)} of them run by rx-verify and not contradicted, ${contradicted.length} contradicted${unprobed.length ? `; not run (rx-verify has no arguments to call with, or the row is not one it runs): ${unprobed.length} row${unprobed.length === 1 ? "" : "s"}` : ""}\n  whole drafts: ${dsum("inferred")} words read (${byKind("inferredBy")}); ${dsum("todos")} questions asked (${byKind("todosBy")})${contradicted.length ? `\n  contradicted:\n${contradicted.map(c => `    ${c}`).join("\n")}` : ""}\n  the audit (09 MO-8w: every behaviour word of the tasks' declarations held against the code): ${okr.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} proven, ${contradicted.length} contradicted, ${unproven.length} the code neither shows nor refutes (bench/audit.txt lists each with what to check)${process.env.BENCH_WORDS && unprobed.length ? `\n  not run:\n${unprobed.map(c => `    ${c}`).join("\n")}` : ""}`;
+const claims = k => okr.reduce((n, r) => n + (r.decl.claims?.[k] ?? 0), 0);
+const unmeasured = okr.flatMap(r => (r.decl.problems ?? []).map(c => `${r.id}/${c}`));
+const inferCard = `\n\nRead from the code that runs (09 MO-8v): ${okr.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} words in the rows the tasks keep, counted apart from the ${okr.reduce((n, r) => n + r.decl.words, 0)} written by hand; ${contradicted.length} contradicted\n  the claims those rows make (rx-verify, one result a claim: MO-8j): ${claims("total")} — ${claims("run")} held by running, ${claims("code")} held by the code's proof where no run reached them, ${claims("unverified")} unverified, ${claims("mismatch")} mismatched (held, of each kind: ${claimsSaid(claimKinds(okr.map(r => r.decl.claims?.by)))})${unmeasured.length ? `\n  NOT MEASURED:\n${unmeasured.map(c => `    ${c}`).join("\n")}` : ""}\n  whole drafts: ${dsum("inferred")} words read (${byKind("inferredBy")}); ${dsum("todos")} questions asked (${byKind("todosBy")})${contradicted.length ? `\n  contradicted:\n${contradicted.map(c => `    ${c}`).join("\n")}` : ""}\n  the audit (09 MO-8w: every behaviour word of the tasks' declarations held against the code): ${okr.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} proven, ${contradicted.length} contradicted, ${unproven.length} the code neither shows nor refutes (bench/audit.txt lists each with what to check)`;
 const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green.") + (declLines.length ? `\n\nDeclarations (words written by hand over rx-declare's draft; \`any\`s the library's own declaration has, and \`any\`s written where it has a type; parts said by place):\n${declLines.join("\n")}` : "") + `\n\nIntroduced \`any\`s (09 MO-8q: none, or on bench/any-allowlist.json):${allowLines.length ? `\n${allowLines.join("\n")}` : " none"}`;
 console.log("\n" + card + inferCard + wholeCard);
 
@@ -269,12 +270,12 @@ const shard = args.includes("--shard") ? args[args.indexOf("--shard") + 1].split
 if (shard && !(shard.length === 2 && shard[0] >= 1 && shard[0] <= shard[1])) { console.error("--shard i/n: 1 ≤ i ≤ n"); process.exit(2); }
 const coverage = flag("--tasks-only") ? { problems: [] } : await runCoverage({ filters, check: flag("--check"), strict: flag("--strict"), write: flag("--write"), shard });
 
-const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, inferred: r.decl.inferred ?? 0, probed: r.decl.probed ?? 0, todos: r.decl.todos ?? 0, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places, draft: r.decl.draft } }]));
+const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, inferred: r.decl.inferred ?? 0, claims: r.decl.claims, todos: r.decl.todos ?? 0, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places, draft: r.decl.draft } }]));
 if (flag("--write") && !flag("--coverage-only")) {
   writeFileSync(path.join(here, "scorecard.json"), JSON.stringify(snapshot, null, 2) + "\n");
   writeFileSync(path.join(here, "scorecard.txt"), (card + inferCard + wholeCard).replaceAll(ws, "bench/.out/ws") + "\n");
   // 09 MO-8w: the audit, word by word — what a reviewer has left to check
-  writeFileSync(path.join(here, "audit.txt"), `The tasks' declarations, every behaviour word (pure, handler, draft, rejects, uses, provides, nests, renders) held against what the code shows (09 MO-8w; \`rx-declare --audit <file.d.rx>\`).\n\n${okr.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} proven: read from the code, counted as inferred, run by rx-verify.\n${contradicted.length} contradicted: the code shows the opposite.${contradicted.length ? `\n${contradicted.map(c => `  ${c}`).join("\n")}` : ""}\n${unproven.length} the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.\n${unproven.map(c => `  ${c}`).join("\n")}\n`.replaceAll(ws, "bench/.out/ws"));
+  writeFileSync(path.join(here, "audit.txt"), `The tasks' declarations, every behaviour word (pure, handler, draft, rejects, uses, provides, nests, renders) held against what the code shows (09 MO-8w; \`rx-declare --audit <file.d.rx>\`).\n\n${okr.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.\n${contradicted.length} contradicted: the code shows the opposite.${contradicted.length ? `\n${contradicted.map(c => `  ${c}`).join("\n")}` : ""}\n${unproven.length} the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.\n${unproven.map(c => `  ${c}`).join("\n")}\n`.replaceAll(ws, "bench/.out/ws"));
 }
 let exit = 0;
 if (flag("--check")) {
@@ -295,7 +296,10 @@ if (flag("--check")) {
     // 09 MO-8v: a word the code proved may not go back to being written by hand, nor a whole draft ask more questions;
     // a word run by rx-verify and contradicted is a false claim (none is allowed), and a kept row's mark is the draft's
     if (old?.decl?.inferred !== undefined && (r.decl.inferred ?? 0) < old.decl.inferred) problems.push(`${r.id} · inferred words: ${r.decl.inferred ?? 0}, was ${old.decl.inferred} in bench/scorecard.json`);
-    if (old?.decl?.probed !== undefined && (r.decl.probed ?? 0) < old.decl.probed) problems.push(`${r.id} · inferred words run by rx-verify: ${r.decl.probed ?? 0}, was ${old.decl.probed} in bench/scorecard.json`);
+    // a claim that was held (by running, or by the code's proof) may not go back to unverified; what could not be
+    // measured is a problem, not a zero
+    { const held = c => (c?.run ?? 0) + (c?.code ?? 0); if (old?.decl?.claims && held(r.decl.claims) < held(old.decl.claims)) problems.push(`${r.id} · claims rx-verify holds: ${held(r.decl.claims)} (${r.decl.claims.run} by running), was ${held(old.decl.claims)} (${old.decl.claims.run}) in bench/scorecard.json`); }
+    for (const c of r.decl.problems ?? []) problems.push(`${r.id}/${c}`);
     if (old?.decl?.draft?.todos !== undefined && (r.decl.draft?.todos ?? 0) > old.decl.draft.todos) problems.push(`${r.id} · questions in whole drafts: ${r.decl.draft.todos}, was ${old.decl.draft.todos} in bench/scorecard.json`);
     for (const c of r.decl.contradicted ?? []) problems.push(`${r.id}/${c}: a word of the declaration is contradicted — by the code (09 MO-8w: the word is false: take it off) or, for one read from the code, by running it (MO-8v: fix rx-declare's reading)`);
     // 09 MO-8q over whole drafts: drafting every export of the task's modules may not write more `any`s of the draft's

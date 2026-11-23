@@ -58,7 +58,7 @@ export default {
       h.check("no console errors or warnings", h.problems.length === 0, h.problems);
       // the declaration itself, run: rx-verify renders the probe's scene (host.probe.mjs) and holds the view to it
       const v = spawnSync(process.execPath, ["--conditions=browser", path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/verify.js"), "--dom", "src/host.d.rx"], { cwd: h.dir, encoding: "utf8" });
-      h.check("rx-verify: the host's declaration holds where it is run (each page inside its layout, rendered through the router's component)", (v.stdout.match(/ ok /g) ?? []).length === 2 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
+      h.check("rx-verify: the host's declaration holds where it is run (each page inside its layout, rendered through the router's component)", (v.stdout.match(/ held /g) ?? []).length === 2 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
     } finally { server.kill(); }
     // 09 MO-14g: a router with a convention of the project's own. A copy of the app whose router is a module —
     // `people/` pages are outside the `(app)` layout by its `toPath` — given to the plugin (`fileRoutes({ router })`)

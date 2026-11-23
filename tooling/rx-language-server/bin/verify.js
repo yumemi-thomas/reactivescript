@@ -76,11 +76,12 @@ async function mount(ctx, hook, args, parts, run, provide = ctx.probeMod?.provid
 /** `uses(c)` by running, the evidence tied to each context named (the head of this file). `run(wrap)` renders or calls
  *  the subject under `wrap` (`(children, solid) => view`; null: with no provider) and answers what it threw or warned,
  *  or null; `providerOf(c)` is `{ wrap, name }` or undefined. One result for each context. */
-async function usesClaims({ name, line, contexts, run, providerOf }) {
+async function usesClaims({ name, line, contexts, run, providerOf, fails }) {
   const each = (status, what) => contexts.map(c => ({ line, ob: `uses:${c}`, status, what: what(c) }));
   const alone = await run(null);
   if (alone.env) return each("unverified", c => `${name}: uses(${c}) not run: it needs a browser (${alone.failed}); run rx-verify with --dom`);
   if (!alone.failed) return each("mismatch", c => `${name}: declared uses(${c}), but with no provider it neither throws nor warns: does it read a context?`);
+  fails.set(name, alone.failed);
   const provs = new Map(contexts.map(c => [c, providerOf(c)]));
   const missing = contexts.filter(c => !provs.get(c));
   if (missing.length) return each("unverified", c => `${name}: uses(${c}) not shown: with no provider it fails (${alone.failed}), which says something is missing and not that it is ${c} — nothing here provides ${missing.join(", ")} to run it with and without: a component of this file declared provides(${missing[0]}), or the probe's providers.${missing[0]}`);
@@ -134,7 +135,9 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
   const checked = rows.filter(r => ["fn", "component", "error", "const"].includes(r.kind));
   if (!js) return { results: checked.map(r => ({ line: r.line, ob: "exists", status: "mismatch", what: `${r.name}: no JS module beside ${path.basename(file)}, and it is not a project's declaration of a package that resolves (rx-types/<package>.d.rx)` })) };
   require("../src/declare-run.js").compileJsx(path.dirname(path.resolve(js)));   // a package that ships .jsx runs compiled (its solid build)
-  const mod = await import(pathToFileURL(path.resolve(js)).href);
+  // a module node cannot load (one that imports a bundler's virtual module): nothing of it is run, and nothing is said to hold
+  let mod; try { mod = await import(pathToFileURL(path.resolve(js)).href); }
+  catch (e) { return { unread: `${path.basename(js)} does not load here (${short(e, 90)})`, results: checked.flatMap(r => r.obligations.map(ob => ({ line: r.line, ob, status: "unverified", what: `${r.name}: not run: ${path.basename(js)} does not load here (${short(e, 90)})` }))) }; }
   const dir = path.dirname(path.resolve(js));
   const resolve = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
   const solid = await import(resolve("solid-js"));
@@ -177,7 +180,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
   // what failed only for want of a browser (no `window` here) is no evidence either way: run with --dom
   const failure = (e, warned) => e ? { failed: short(e), env: environmental(e) } : warned?.length ? { failed: `it warns: ${warned[0].slice(0, 60)}` } : { failed: null };
   const called = new Set();   // `line:claim`, where a run was made that could have refuted the claim and showed nothing
-  const failsAlone = new Set();   // hooks and parts that fail with no provider: what a provides(c) is shown through
+  const failsAlone = new Map();   // hooks and parts that fail with no provider, each with what it fails with: what a provides(c) is shown through
   const fns = checked.filter(r => r.kind === "fn"), comps = checked.filter(r => r.kind === "component");
 
   for (const row of checked) {
@@ -211,11 +214,15 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
         }
         let ran = false;
         if (obs.has("pure") && !bad.length) {   // (a fn that makes something each call is not alike on two calls by design)
-          let a, b, threw = null, across = null;
+          let a, b, threw = null, across = null, asked = false;
           createRoot(d => { try { a = v(...args()); b = v(...args()); } catch (e) { threw = e; } d(); });
+          asked = typeof a?.then === "function";
           try { [a, b] = await Promise.all([a, b]); } catch (e) { threw ??= e; }
           ran = !threw;
           if (threw) push("pure", "unverified", `pure not run: it threw (${short(threw, 50)})`);
+          // (what a promise answers is data, and `pure` says of a loader that it is safe to ask again, R-io-4: a later
+          // answer may be another one, and refutes nothing)
+          else if (!same(a, b) && asked) { ran = false; push("pure", "unverified", `pure not shown: asked twice it answers differently (${show(a)} then ${show(b)}), as a loader's data may; that it writes nothing is not seen by running`); }
           else if (!same(a, b)) bad.push(`declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})`);
           // 10 SV-7c: that a `pure` fn answers alike on the server and in the browser is part of the word, and a build
           // cannot see it (hydration adopts the server's text). So it is run on the other side too — this process has a
@@ -256,8 +263,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
             aloneWarned = quiet.warned;
             return failure(threw, quiet.warned);
           };
-          const rs = await usesClaims({ name, line, contexts: x.uses, run, providerOf: c => providerOf(c, x.uses.length === 1) });
-          if (!rs.some(r => /neither throws nor warns/.test(r.what))) failsAlone.add(name);
+          const rs = await usesClaims({ name, line, contexts: x.uses, run, providerOf: c => providerOf(c, x.uses.length === 1), fails: failsAlone });
           out.push(...rs);
           // what it is mounted under below, to read its parts: the providers it was just shown to run with
           const ps = x.uses.map(c => providerOf(c, x.uses.length === 1));
@@ -282,6 +288,10 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
             if (st.notAccessor) bad.push(`${label(f)} is declared ref, but is not an accessor (a function)`);
             if (st.failed && !f.ref) bad.push(`${key(f)} fails (${short(st.failed, 40)}) where it is read: a plain field that does has no row — hand it out as a function, declared \`fails(…) ref\` (MO-10l)`);
           }
+          // (a failure of a hook run with nothing around it and nothing given says that something is missing — a provider
+          // its row does not name, a device this page has not — and not what its parts do)
+          const bare = ran.boundary && !fails.length && !notReady(ran.boundary) && !own && !probe?.args && !probe?.provide && !probeMod?.provide;
+          if (bare) { push("fields", "unverified", `its fields are not read: run alone it fails (${short(ran.boundary, 60)}) — if it wants a provider, its row says uses(…); else give what it needs in the probe`); continue; }
           if (ran.boundary && !fails.length && !notReady(ran.boundary)) bad.push(`it fails into the errored boundary (${short(ran.boundary, 40)}), and no field is declared fails(…)`);
           const heldSeen = x.parts.filter(f => f.pending && ran.seen.get(key(f)).pending).map(label);
           // MO-10l: an accessor that waited and whose row does not say so — the row says less (MO-10d), and the checker asks for no region
@@ -333,8 +343,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
     const part = () => solid.createComponent(at(row.name), propsOf(row.name));
     let alone;
     const run = async wrap => { const r = await place.renderOnce(() => wrap ? wrap(part, solid) : part(), resolve); if (!wrap) alone = r; const same = wrap && alone ? r.warned.filter(w => alone.warned.includes(w)) : r.warned; return failure(r.error, same); };
-    const rs = await usesClaims({ name: row.name, line: row.line, contexts: row.facts.uses, run, providerOf: c => providerOf(c, row.facts.uses.length === 1) });
-    if (!rs.some(r => /neither throws nor warns/.test(r.what))) failsAlone.add(row.name);
+    const rs = await usesClaims({ name: row.name, line: row.line, contexts: row.facts.uses, run, providerOf: c => providerOf(c, row.facts.uses.length === 1), fails: failsAlone });
     out.push(...rs);
   }
   // provides(c) (MO-12c, RFC 28): each context is its own claim, answered only by actual provision: a hook or a part of
@@ -345,12 +354,16 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
     const only = (r, c) => r.facts.uses.length === 1 && r.facts.uses[0] === c && failsAlone.has(r.name);
     for (const c of row.facts.provides) {
       const push = (status, what) => out.push({ line: row.line, ob: `provides:${c}`, status, what: `${row.name}: ${what}` });
+      // one that fails under the component as it fails alone found no provider; one that fails otherwise wants something
+      // else there (a probe's props), which says nothing of `c`
+      const still = (n, e) => failure(e).failed === failsAlone.get(n) ? push("mismatch", `declared provides(${c}), but ${n}, which uses it, still fails under it (${short(e)})`)
+        : push("unverified", `provides(${c}) not shown: ${n}, which uses it, fails under it for another reason (${short(e)}) than alone (${failsAlone.get(n)}): give what it needs in the probe`);
       const hook = fns.find(h => only(h, c) && (probes[h.name]?.args || !h.facts.params.some(p => !p.optional && !p.rest)) && typeof at(h.name) === "function");
       const part = !hook && comps.find(p => p !== row && only(p, c) && typeof at(p.name) === "function");
       try {
         if (part) {   // MO-11q: a kit's part, rendered inside the component (it must not fail)
           const inside = await place.renderOnce(() => wrap(() => solid.createComponent(at(part.name), propsOf(part.name)), solid), resolve);
-          if (inside.error) push("mismatch", `declared provides(${c}), but ${part.name}, which uses it, still fails under it (${short(inside.error)})`);
+          if (inside.error) still(part.name, inside.error);
           else push("held", `provides(${c}) holds: ${part.name}, which uses it alone, fails without it and renders under it`);
           continue;
         }
@@ -358,7 +371,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
         if (!runs.has(hook.name)) runs.set(hook.name, await mount(ctx, at(hook.name), probes[hook.name]?.args?.() ?? [], [], null, wrap));
         const ran = runs.get(hook.name);
         if (ran.renderError) push("unverified", `provides(${c}) not run: it threw as it mounted (${short(ran.renderError, 50)}); give its props as the probe's props`);
-        else if (ran.boundary && !notReady(ran.boundary)) push("mismatch", `declared provides(${c}), but ${hook.name}, which uses it, still fails under it (${short(ran.boundary)})`);
+        else if (ran.boundary && !notReady(ran.boundary)) still(hook.name, ran.boundary);
         else push("held", `provides(${c}) holds: ${hook.name}, which fails without it, runs under it`);
       } catch (e) { if (!noRenderer(e)) throw e; push("unverified", `provides(${c}) not run: it is mounted with @solidjs/universal, which is not installed here (npm i -D @solidjs/universal)`); }
     }
@@ -464,10 +477,11 @@ const LABEL = { held: "held      ", mismatch: "MISMATCH  ", na: "n/a       ", un
     reg.GlobalRegistrator.register({ url: "http://localhost/" });
   }
   if (!files.length) { process.stderr.write("usage: rx-verify [--dom] [--record] [--json] <file.d.rx>...\n"); process.exit(2); }
-  let fails = 0; const all = [];
+  let fails = 0, unrun = 0; const all = [];
   const say = text => { if (!json) process.stdout.write(text); };
   for (const f of files) {
-    const { results, audit } = await verify(f);
+    const { results, audit, unread } = await verify(f);
+    if (unread) { process.stderr.write(`rx-verify: ${f}: ${unread}: none of its rows is run\n`); unrun++; }
     const names = rowsOf(f);
     for (const r of results) {
       r.name = names.find(x => r.line >= x.line && r.line <= x.end)?.name;
@@ -480,6 +494,6 @@ const LABEL = { held: "held      ", mismatch: "MISMATCH  ", na: "n/a       ", un
     all.push({ file: f, results: results.flatMap(r => [].concat(r.ob).map(ob => ({ line: r.line, name: r.name, ob, status: r.status, ...(r.by ? { by: r.by } : {}), what: r.what }))), ...(audit ? { audit } : {}) });
   }
   if (json) process.stdout.write(JSON.stringify(all) + "\n");
-  process.exitCode = fails ? 1 : 0;
+  process.exitCode = fails ? 1 : unrun ? 2 : 0;
   process.exit();
 })().catch(e => { process.stderr.write(`rx-verify: ${e?.stack ?? e}\n`); process.exit(2); });

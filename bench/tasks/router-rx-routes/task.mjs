@@ -73,7 +73,7 @@ export default {
       await page.close();
       // the declaration itself, run: rx-verify renders the probe's scene (host.probe.mjs) and holds the view to it
       const v = spawnSync(process.execPath, ["--conditions=browser", path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/verify.js"), "--dom", "src/host.d.rx"], { cwd: h.dir, encoding: "utf8" });
-      h.check("rx-verify: the host's declaration holds where it is run (each route file inside the root route, rendered through the router's component and the outlet)", (v.stdout.match(/ ok /g) ?? []).length === 3 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
+      h.check("rx-verify: the host's declaration holds where it is run (each route file inside the root route, rendered through the router's component and the outlet)", (v.stdout.match(/ held /g) ?? []).length === 3 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
     } finally { server.kill(); }
     // the dev server (11 CP-4b): an edit of a route file is shown, and what the app's entry provides is still there —
     // the context is declared in a module the entry and the route file both import, which the dev server serves again

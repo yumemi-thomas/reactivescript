@@ -305,9 +305,6 @@ function create(ts, options = {}) {
     if (ts.isJsxExpression(p) && ts.isJsxAttribute(p.parent)) {
       const tag = tagOf(p.parent); const an = p.parent.name.getText();
       if (isElementTag(tag)) { if (/^on[A-Z]/.test(an) || an === "ref") return { kind: "listen" }; return { kind: "kept" }; }
-      // a prop of a component the code declares: called when that component calls it
-      const fns = /^[\w$]+$/.test(an) ? tagFns(tag, m) : undefined;
-      if (fns) return { kind: "given", fns, index: 0, field: an, call: p.parent.parent.parent };
     }
     return { kind: "kept" };
   }
@@ -355,22 +352,6 @@ function create(ts, options = {}) {
   }
   const memberFn = (obj, name) => { for (const p of obj.properties) { const pn = p.name && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) ? p.name.text : undefined; if (pn !== name) continue; if (ts.isMethodDeclaration(p)) return p; if (ts.isPropertyAssignment(p) && isFn(skip(p.initializer))) return skip(p.initializer); } return undefined; };
   const staticOf = (e, m) => ts.isPropertyAccessExpression(e) && ts.isIdentifier(skip(e.expression)) && !m.top.has(skip(e.expression).text) && skip(e.expression).text !== "Math" && STATIC[skip(e.expression).text]?.[e.name.text] ? { kind: "builtin", name: `${skip(e.expression).text}.${e.name.text}`, gives: STATIC[skip(e.expression).text][e.name.text], sync: skip(e.expression).text === "Array" && e.name.text === "from" } : undefined;
-  /** The functions a JSX tag names, where it is a component the code declares: `<Inner …>`, `<Kit.Part …>`. */
-  function tagFns(tag, m) {
-    if (ts.isIdentifier(tag)) {
-      if (/^[a-z]/.test(tag.text)) return undefined;
-      const r = resolve(tag, m);
-      if (r.local) { if (r.local.multi || r.local.inits.length !== 1) return undefined; const i0 = r.local.inits[0]; const g = i0.fn ?? (i0.expr && isFn(skip(i0.expr)) ? skip(i0.expr) : undefined); return g ? [{ m, node: g, name: tag.text }] : undefined; }
-      if (!r.top) return undefined;
-      const c = fromBinding(binding(m, tag.text), tag.text, false); return c.kind === "fns" ? c.fns : undefined;
-    }
-    if (ts.isPropertyAccessExpression(tag) && ts.isIdentifier(tag.expression)) {
-      const r = resolve(tag.expression, m); const name = tag.name.text;
-      if (r.top?.kind === "ns") { const c = fromBinding(imported(m, r.top.from, name), `${tag.expression.text}.${name}`, false); return c.kind === "fns" ? c.fns : undefined; }
-      if (r.top?.kind === "var" && r.top.isConst && r.top.init && ts.isObjectLiteralExpression(skip(r.top.init))) { const f = memberFn(skip(r.top.init), name); return f ? [{ m, node: f, name: `${tag.expression.text}.${name}` }] : undefined; }
-    }
-    return undefined;
-  }
   /** The element or component a JSX attribute (or a spread among them) is written on. */
   const tagOf = attr => attr.parent.parent.tagName;
   const isElementTag = tag => ts.isIdentifier(tag) && /^[a-z]/.test(tag.text);
@@ -1264,10 +1245,7 @@ function create(ts, options = {}) {
       if (ts.isJsxExpression(par) && ts.isJsxAttribute(par.parent)) {
         const tag = tagOf(par.parent); const an = par.parent.name.getText();
         if (isElementTag(tag)) return /^on[A-Z]/.test(an) || an === "ref" ? use("later", `the element's ${an}`, par) : use("escape", `given to <${tag.getText()}> as ${an}`, par);
-        // a prop of a component the code declares: that component's field
-        const fns = /^[\w$]+$/.test(an) ? tagFns(tag, m) : undefined;
-        if (fns) { const t = timing(par, f); for (const g of fns) for (const u of callbackUses(g, 0, an, seen)) out.push({ ...u, how: u.how === "escape" || u.how === "reentry" ? u.how : u.how === "later" || t === "later" ? "later" : t === "reentry" ? "reentry" : u.how, why: `<${g.name}>: ${u.why}` }); return; }
-        return use("escape", `given to <${tag.getText()}> as ${an}`, par);
+        return use("escape", `given to <${tag.getText()}> as ${an}`, par);   // (a component: what it does with the prop is its own row's)
       }
       // `onClick={[cb, data]}`: Solid calls the first with the second, when the event comes
       if (ts.isArrayLiteralExpression(par) && par.elements[0] === n) { const [an2, ap2] = up(par); if (ap2 && ts.isJsxExpression(ap2) && ts.isJsxAttribute(ap2.parent) && isElementTag(tagOf(ap2.parent)) && /^on[A-Z]/.test(ap2.parent.name.getText())) return use("later", `the element's ${ap2.parent.name.getText()}`, par); void an2; }
@@ -1309,12 +1287,9 @@ function create(ts, options = {}) {
       if (ts.isSpreadAssignment(par) && ts.isObjectLiteralExpression(par.parent)) { const ps = par.parent.properties; if (ps.slice(ps.indexOf(par) + 1).some(q => (ts.isPropertyAssignment(q) || ts.isShorthandPropertyAssignment(q) || ts.isMethodDeclaration(q)) && q.name && (ts.isIdentifier(q.name) || ts.isStringLiteralLike(q.name)) && q.name.text === field)) return; return whole(par.parent, d + 1); }
       // `<button {...rec}>`: Solid sets an element's `on…` as its listener, calls its `ref` when the element is made,
       // renders its `children` (a function among them is called in a computation), and sets every other as an attribute;
-      // `<Part {...rec}>` is the record given to a component the code declares
       if (ts.isJsxSpreadAttribute(par)) {
         const tag = tagOf(par);
         if (isElementTag(tag)) { if (/^on[A-Z]/.test(field) || field === "ref") return use("later", `spread on <${tag.text}>, where ${field} is the element's ${field === "ref" ? "ref" : "listener"}`, par); if (field === "children") return use("sync", `spread on <${tag.text}>, which renders its children`, par); if (/^on/.test(field)) return use("escape", `spread on <${tag.text}>`, par); return; }
-        const fns = tagFns(tag, m);
-        if (fns) { const t = timing(par, f); for (const g of fns) for (const u of callbackUses(g, 0, field, seen)) out.push({ ...u, how: u.how === "escape" || u.how === "reentry" ? u.how : u.how === "later" || t === "later" ? "later" : t === "reentry" ? "reentry" : u.how, why: `<${g.name}>: ${u.why}` }); return; }
         return use("escape", `the record is spread on <${tag.getText()}>, which is not read`, par);
       }
       if (ts.isSpreadAssignment(par) || ts.isSpreadElement(par)) return use("escape", "the record is spread into another", par);
@@ -1727,7 +1702,7 @@ function create(ts, options = {}) {
     const k = `${m.file}\0${root.pos}\0${index}\0${env?.id ?? ""}`; if (seen.has(k)) return { list: [], clean: false }; seen.add(k);
     const found = []; let clean = true;
     // (a component the caller gave — a prop, a parameter of the factory — is the caller's: what it provides is its own row's)
-    const find = n => { const el = !isFn(n) || n === root ? elementOf(n, m) : undefined; if (el) { const lower = ts.isIdentifier(el.tag) && /^[a-z]/.test(el.tag.text); if (!lower) { const c = ctxOf(el.tag, m, env); if (c) found.push({ c, el }); else { const sn = solidName(el.tag, m); const g = sn ? undefined : fnValueOf(el.tag, m, env); if (g) { if (!providesOf(g, 0, new Set(seen)).clean) clean = false; } else if (!(sn && SOLID_FLOW.has(sn)) && (sn || mayBeUnread(el.tag, m, 0))) clean = false; } } } ts.forEachChild(n, find); };
+    const find = n => { const el = !isFn(n) || n === root ? elementOf(n, m) : undefined; if (el) { const lower = ts.isIdentifier(el.tag) && /^[a-z]/.test(el.tag.text); if (!lower) { const c = ctxOf(el.tag, m, env); if (c) found.push({ c, el }); else { const sn = solidName(el.tag, m); const g = sn ? undefined : fnValueOf(el.tag, m, env); if (g) { if (!providesOf(g, 0, new Set(seen)).clean) clean = false; } else if (!(sn && SOLID_FLOW.has(sn)) && (sn || mayBeUnread(el.tag, m, 0))) clean = false; } } } else if (ts.isCallExpression(n) && ctxOf(n.expression, m, env)) clean = false; /* a context called by hand (`C({ value, … })`) is a provider too, and is not followed */ ts.forEachChild(n, find); };
     if (root.body) find(root.body);
     const uses = recordUses(f, index);
     // the record given whole to a function or a component that is read: what that one does with it, there

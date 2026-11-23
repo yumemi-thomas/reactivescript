@@ -103,12 +103,12 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   }
   // --explain: why each `any` the draft holds is one (its cause, by export), and each row TypeScript did not hold with
   // the library's types named (MO-8m), on stderr; --any: the draft as it was before MO-8m, every unnamed type `any`
-  const causes = [], unheld = {}, places = {}, why = [], inferred = {}, notes = [];
+  const causes = [], unheld = {}, places = {}, why = [], inferred = {}, notes = [], anyRows = [];
   // --readings <export>[,<export>]: each reading of a row the draft tried (MO-8m, MO-8o) and TypeScript's answer to it, on stderr
   const readAt = args.indexOf("--readings");
   const readings = readAt >= 0 ? { names: (args[readAt + 1] ?? "").split(","), out: [] } : undefined;
   let text;
-  try { text = declare(require("typescript"), spec, process.cwd(), {}, { known: !args.includes("--types-only"), refs: !args.includes("--any"), causes, unheld, places, readings, infer: !args.includes("--no-infer") && process.env.RX_DECLARE_INFER !== "0", why: args.includes("--why") ? why : undefined, inferred, notes }); }
+  try { text = declare(require("typescript"), spec, process.cwd(), {}, { known: !args.includes("--types-only"), refs: !args.includes("--any"), causes, anyRows, unheld, places, readings, infer: !args.includes("--no-infer") && process.env.RX_DECLARE_INFER !== "0", why: args.includes("--why") ? why : undefined, inferred, notes }); }
   catch (e) {
     // a draft the crate cannot read: nothing is written, and the line and the parser's reason are the message (it was a
     // silent fall back to `any` for every row)
@@ -117,7 +117,7 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   }
   if (onlyAt >= 0) { const r = only(text, (args[onlyAt + 1] ?? "").split(",").map(x => x.trim()).filter(Boolean)); text = r.text; for (const n of r.missing) process.stderr.write(`rx-declare: --only ${n}: ${spec} has no such export to declare\n`); }
   if (readings) for (const r of readings.out) process.stderr.write(`rx-declare: ${r.name} read ${r.reading}: ${r.bad === null ? "held" : `not held — ${r.bad}`}\n${r.rows.map(l => `    ${l}`).join("\n")}\n`);
-  if (causesAt >= 0) fs.writeFileSync(args[causesAt + 1], JSON.stringify({ causes, places, unheld, inferred: inferred.words ?? {} }, null, 1) + "\n");
+  if (causesAt >= 0) fs.writeFileSync(args[causesAt + 1], JSON.stringify({ causes, rows: anyRows, places, unheld, inferred: inferred.words ?? {} }, null, 1) + "\n");
   // --why (MO-8v): each word read from the code that runs — proven, with what shows it, or refused, with the first
   // thing that stands in the way and its place — on stderr; --no-infer drafts from the types alone
   if (args.includes("--why")) {

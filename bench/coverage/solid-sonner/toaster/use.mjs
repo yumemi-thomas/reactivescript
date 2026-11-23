@@ -14,7 +14,7 @@ export default use(import.meta, { pkg: "solid-sonner", title: "a toast given a c
     h.check("…and the toasts dismissed by another", await h.until(async () => !/exported/.test(await h.text(page, "body")), 300), await h.text(page, "body"));
     // the row itself, run: rx-verify renders the probe's scene (rx-types/solid-sonner.probe.mjs) against the library
     const v = spawnSync(process.execPath, ["--conditions=browser", path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/verify.js"), "--dom", "rx-types/solid-sonner.d.rx"], { cwd: h.dir, encoding: "utf8" });
-    h.check("rx-verify: `renders(Toaster)` holds where solid-sonner is run — the component renders beneath the toaster", /solid-sonner\.d\.rx:\d+ ok\s+toast: placement holds: Saved beneath Toaster/.test(v.stdout) && !/MISMATCH/.test(v.stdout), v.stdout + v.stderr);
+    h.check("rx-verify: `renders(Toaster)` holds where solid-sonner is run — the component renders beneath the toaster", /solid-sonner\.d\.rx:\d+ held\s+toast: placement holds: Saved beneath Toaster/.test(v.stdout) && !/MISMATCH/.test(v.stdout), v.stdout + v.stderr);
   },
   bad: [
     { name: "the app's context provided beside the toaster, not above it", edit: ["    <Toaster />\n  </Themed>\n", "  </Themed>\n  <Toaster />\n"], expect: "CONTEXT_NOT_FOUND" },

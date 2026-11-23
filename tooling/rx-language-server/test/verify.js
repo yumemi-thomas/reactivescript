@@ -565,6 +565,14 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   const j = run("load4", LOAD, LOADROW, "export const probes = { load: { fail: () => [\"bad\"] } };\n", ["--json"]);
   let parsed; try { parsed = JSON.parse(j.stdout); } catch { parsed = null; }
   check("--json prints the results by claim, and nothing else", Array.isArray(parsed) && parsed[0].results.some(r => r.name === "load" && r.ob === "rejects" && r.status === "held") && parsed[0].results.every(r => r.ob && r.status && r.name), j.stdout);
+  // what is not evidence is not a result: a module that does not load, a loader's data asked twice, a part that fails
+  // under its provider for want of something else
+  const gone = run("gone", "import \"virtual:routes\";\nexport const f = () => 1;\n", "export pure fn f(): number\n", undefined, []);
+  check("a module that does not load here: every claim of its rows is unverified, with why, and nothing is held", /gone\.d\.rx:1 unverified f: not run: gone\.mjs does not load here/.test(gone.out) && !/d\.rx:\d+ held/.test(gone.out), gone.out);
+  const anew = run("anew", "let n = 0;\nexport const load = async () => [n++];\n", "export pure fn load(): Promise<number[]>\n", undefined, []);
+  check("a loader asked twice answers differently: no mismatch (it is safe to ask again, R-io-4), and not shown", /anew\.d\.rx:1 unverified load: pure not shown: asked twice it answers differently/.test(anew.out) && !/MISMATCH/.test(anew.out), anew.out);
+  const want = run("want", "import { createContext, useContext } from \"solid-js\";\nconst C = createContext();\nexport const P = props => C({ value: {}, get children() { return props.children; } });\nexport const useIt = () => { const c = useContext(C); return c.router.options; };\n", "export context it\nexport component P(props: { children?: View }) provides(it)\nexport fn useIt(): string uses(it)\n", undefined, []);
+  check("a hook that fails under its provider otherwise than alone: provides is unverified, not a mismatch", /want\.d\.rx:2 unverified P: provides\(it\) not shown: useIt, which uses it, fails under it for another reason/.test(want.out) && !/MISMATCH/.test(want.out), want.out);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

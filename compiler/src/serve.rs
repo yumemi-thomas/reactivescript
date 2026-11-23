@@ -197,6 +197,7 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
                         JsDecl::Host { .. } => "host",
                     };
                     let mut facts = facts(d);
+                    facts["types"] = json!(type_places(d));
                     if let JsDecl::Host { span, .. } = d {
                         facts["tree"] = json!(text.get(span.1..span.2).unwrap_or_default().trim()); // MO-14b: the view, as written
                     }
@@ -209,6 +210,115 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     }
 }
 
+/// Every place of a row a type is written at, in the order the row writes them, each under a name: `tparams`,
+/// `param:0`, `param:1.onDone` (a field of a record written there), `result`, `result.0` (an item of a tuple), `param:0.()0` and `param:0.=>` (a function type's
+/// parameter and result), `.<0>` (a type argument), `.|0` (a member of a union), `.[]` (an array's element), `props`
+/// (a component's props where they are a type the library names), `prop:label`, `type` (a value's, an alias's). What a
+/// tool compares two rows of one export by: an `any` at one place says nothing of another (09 MO-8q).
+fn type_places(d: &crate::parse::JsDecl) -> Vec<(String, String)> {
+    use crate::parse::{split_top, JsDecl};
+    /// Where the bracket `t` starts with is closed.
+    fn closes_at(t: &str) -> Option<usize> {
+        let (mut depth, mut quote) = (0i64, None::<char>);
+        for (i, ch) in t.char_indices() {
+            match quote {
+                Some(q) => {
+                    if ch == q {
+                        quote = None;
+                    }
+                }
+                None if "\"'`".contains(ch) => quote = Some(ch),
+                None if "([{<".contains(ch) => depth += 1,
+                None if ")]}".contains(ch) || (ch == '>' && !t[..i].ends_with('=')) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(i);
+                    }
+                }
+                None => {}
+            }
+        }
+        None
+    }
+    fn walk(id: String, t: &str, out: &mut Vec<(String, String)>) {
+        let t = t.trim();
+        if t.is_empty() {
+            return;
+        }
+        let end = closes_at(t);
+        let whole = end == Some(t.len() - 1);
+        // `(a: A) => R`: each parameter and the result are places of their own
+        if t.starts_with('(') {
+            if let Some((e, r)) = end.and_then(|e| t[e + 1..].trim_start().strip_prefix("=>").map(|r| (e, r))) {
+                for (k, p) in split_top(&t[1..e], ",").iter().enumerate() {
+                    walk(format!("{id}.(){k}"), p.split_once(':').map_or(p.as_str(), |(_, ty)| ty), out);
+                }
+                return walk(format!("{id}.=>"), r, out);
+            }
+            if whole {
+                return walk(id, &t[1..t.len() - 1], out);
+            }
+        }
+        let members = split_top(t, "|&");
+        if members.iter().filter(|m| !m.trim().is_empty()).count() > 1 {
+            for (k, m) in members.iter().enumerate() {
+                walk(format!("{id}.|{k}"), m, out);
+            }
+            return;
+        }
+        if let Some(of) = t.strip_suffix("[]") {
+            return walk(format!("{id}.[]"), of, out);
+        }
+        let body = t.strip_prefix("readonly").map(str::trim_start).filter(|r| r.starts_with('[')).unwrap_or(t);
+        let shut = closes_at(body) == Some(body.len() - 1);
+        if body.starts_with('{') && shut {
+            for (k, f) in split_top(&body[1..body.len() - 1], ",;").iter().enumerate() {
+                let name = f.find(':').map(|i| f[..i].trim().trim_start_matches("readonly ").trim().trim_end_matches('?').to_string()).filter(|n| !n.is_empty() && n.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$'));
+                match name {
+                    Some(n) => walk(format!("{id}.{n}"), &f[f.find(':').unwrap() + 1..], out),
+                    None => out.push((format!("{id}.#{k}"), f.clone())), // a method, an index signature: a place of its own
+                }
+            }
+        } else if body.starts_with('[') && shut {
+            for (k, x) in split_top(&body[1..body.len() - 1], ",").iter().enumerate() {
+                walk(format!("{id}.{k}"), x, out);
+            }
+        } else if let Some(lt) = body.find('<').filter(|&i| i > 0 && body[..i].chars().all(|c| c.is_alphanumeric() || "_$.".contains(c)) && closes_at(&body[i..]).is_some_and(|e| i + e == body.len() - 1)) {
+            for (k, x) in split_top(&body[lt + 1..body.len() - 1], ",").iter().enumerate() {
+                walk(format!("{id}.<{k}>"), x, out);
+            }
+        } else {
+            out.push((id, t.to_string()));
+        }
+    }
+    let mut out = vec![];
+    match d {
+        JsDecl::Fn { ptypes, ret, tparams, .. } => {
+            if let Some(t) = tparams {
+                out.push(("tparams".to_string(), t.clone()));
+            }
+            for (i, t) in ptypes.iter().enumerate() {
+                walk(format!("param:{i}"), t.as_deref().unwrap_or(""), &mut out);
+            }
+            walk("result".to_string(), ret.as_deref().unwrap_or(""), &mut out);
+        }
+        JsDecl::Comp { props, tparams, props_type, .. } => {
+            if let Some(t) = tparams {
+                out.push(("tparams".to_string(), t.clone()));
+            }
+            if let Some(t) = props_type {
+                out.push(("props".to_string(), t.clone()));
+            }
+            for p in props {
+                walk(format!("prop:{}", p.name), p.ty.as_deref().unwrap_or(""), &mut out);
+            }
+        }
+        JsDecl::Value { ty, .. } => walk("type".to_string(), ty.as_deref().unwrap_or(""), &mut out),
+        JsDecl::Type { text, .. } => walk("type".to_string(), text, &mut out),
+        JsDecl::Error { .. } | JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => {}
+    }
+    out
+}
 /// What a row says, as the parser read it. A fn: its words (`pure`, `side`, `instantiates`, `rejects`, `uses`,
 /// `provides`, `nests`, `renders`), its parameters (`name`, `type`, `ref`, `draft`, `optional`, `rest`), its callback
 /// positions (`callbacks`: `index`, `name`, `field`, `handler`), its result (`result`, TypeScript's text; `shape`; and

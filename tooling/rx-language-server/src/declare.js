@@ -1140,13 +1140,14 @@ function declare(ts, spec, from, options = {}, how = {}) {
     // and last (MO-8q) the reading that names nothing it cannot: no type parameters, every part without a name by its
     // place as it stands — a row TypeScript holds wherever the fn has a signature to read, so no `any` is the draft's
     const MODES = [{ generics: true, paths: true, decl: true, named: true }, { generics: true, paths: true, decl: true }, { generics: true, paths: false, decl: true }, { generics: true, paths: true }, { generics: true, paths: false }, { generics: false, paths: true }, { generics: false, paths: false }, { generics: false, paths: true, decl: true, whole: true }];
-    const cands = MODES.map(mode => rows(mode));
-    const bads = [];
-    for (const r of cands) { const b = check(r); if (!b) break; bads.push(b); if (!b.size && bads.length === 1) break; }   // the first reading held whole: it says the most
+    // (a reading is made when it is asked for: where the first holds whole — most modules — the other seven are not)
+    const cands = [], bads = [];
+    for (const mode of MODES) { const r = rows(mode); cands.push(r); const b = check(r); if (!b) break; bads.push(b); if (!b.size && bads.length === 1) break; }   // the first reading held whole: it says the most
+    if (how.readings) while (cands.length < MODES.length) cands.push(rows(MODES[cands.length]));
     // --readings <export>: each reading of that export's row, and what TypeScript says of it
     if (how.readings) cands.forEach((r, i) => { for (const [n, ls] of group(r.lines)) if (how.readings.names.includes(n)) how.readings.out.push({ name: n, reading: JSON.stringify(MODES[i]), rows: ls, bad: bads[i] ? bads[i].get(n) ?? null : "not checked" }); });
     if (bads.length === 1 && !bads[0].size) { lines = cands[0].lines; head = cands[0].out; contexts = cands[0].contexts; }
-    else if (bads.length === cands.length) {
+    else if (bads.length === MODES.length) {
       const groups = cands.map(r => group(r.lines)), plain = group(lines);
       const picked = { ...cands[0], lines: [] }, done = new Set(), why = new Map();
       for (const l of cands[0].lines) {
@@ -1181,6 +1182,9 @@ function declare(ts, spec, from, options = {}, how = {}) {
   // why each `any` left is one (--explain): what the type holds that the row cannot say; in a row of an overloaded fn,
   // where a type with no name would else be said by its place, that the fn has no one signature to take it from
   if (how.causes) for (const l of lines) { const n = exportedIn(l); for (const m of l.matchAll(/any\u00ab([^\u00bb]*)\u00bb/g)) how.causes.push({ name: n, cause: how.refs !== false && overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(m[1]) ? "overload" : m[1] }); }
+  // …and for each row, every `any` it writes in the order it writes them, with its cause (null: written by hand, a
+  // row of known.js): what tells, place by place, the library's own `any`s from the others (`--causes`: `rows`)
+  if (how.anyRows) for (const l of lines) { if (!exportedIn(l) || l.startsWith("//")) continue; const text = l.replace(/^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+[\w$.]+/, "").split(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/).filter((_, i) => i % 2 === 0).join("\"\""); how.anyRows.push({ name: exportedIn(l), row: l.replace(/\u00ab[^\u00bb]*\u00bb/g, "").trim(), anys: [...text.matchAll(/\bany\b(?:\u00ab([^\u00bb]*)\u00bb)?/g)].map(m => m[1] ?? null) }); }
   // MO-8q: the parts of each row said by their place in the library's declaration, counted apart
   if (how.places) for (const l of lines) { const n = exportedIn(l); const k = (l.match(/\b(?:Parameters|ReturnType)</g) ?? []).length; if (n && k) how.places[n] = (how.places[n] ?? 0) + k; }
   // MO-8q: an `any` the draft wrote where the library has a type is said on the row it is in, with why: it is for a

@@ -6,4 +6,4 @@ export context wardic
 export component WardicProvider(props: { env: WardicEnv; reducedMotion?: import("@wardic/core/ReducedMotion").Config | undefined; appear?: boolean | "explain" | undefined; nonce?: string | undefined; scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined; features?: FeaturesProp | undefined; strict?: boolean | undefined; children?: View }) provides(wardic)
 export pure fn createTransform<A, B>(ref source: A, fn_: (a: A) => B): ref B
 export pure fn createCycle<T>(...items: ReadonlyArray<T>): readonly [ref T, (i?: number) => void]
-export pure fn createReducedMotion(): ref boolean
+export pure fn createReducedMotion(): ref boolean uses(wardic)

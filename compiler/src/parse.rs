@@ -703,7 +703,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
                 out.push("placement".into());
             }
         }
-        JsDecl::Error { .. } | JsDecl::Value { .. } | JsDecl::Type { .. } | JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => {}
+        _ => {} // an error class, a value, a type, a context: that it is exported
     }
     out
 }
@@ -802,21 +802,28 @@ fn tracked_word(t: &str) -> bool {
     TRACKED_WORD.is_match(&masked_strings(t))
 }
 const RENDERS_HOST: &str = "renders(H): H is a component this file declares, named as its tag is (`renders(Toaster)`, `renders(Toast.List)`) — the components the fn is given are rendered later, beneath an application of it (MO-11u). `renders(later)` and `renders(root, …)` are not words of a declaration";
-const RENDERS_GONE: &str = "`renders` alone is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a component given to a fn that says nothing of where it renders it is checked under a root of its own (MO-11s) — leave the word out, and give the component what it needs as its props; where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(Toaster)` (MO-11u)";
-const FIELD_ROWS_GONE: &str = "`pending` before a result's plain field is not a word of a declaration, nor is `fails(…)` there (MO-8r, withdrawn 2026-11-23: one library wrote them): they are written before a `ref` part of a result — the whole result, an item of its tuple or a field of its record — an accessor that waits or fails where it is read, `pending fails(Error) ref T` (MO-10l). A store whose plain fields wait is handed out by a few lines of the app's own JavaScript, a function a field (`data: () => q.data`), declared `{ data: pending fails(Error) ref T }` (MO-10c)";
-const RENDERS_LATER_GONE: &str = "`renders(later)` is not a word of a declaration, nor is `renders` before a prop's type (MO-8r, withdrawn 2026-11-23: one library wrote them): a tree of components a library renders later is given to a factory — a fn of the app's own JavaScript that takes the tree as records and hands back the component that renders it, declared `Component provides(…) nests(children in component)` (MO-11f, MO-11i) — or is built in JavaScript, in a module that imports the `.rx` pages (11 CP-4d). With no word, a component given to a fn is checked under a root of its own (MO-11s); where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(RouterProvider)` (MO-11u)";
-const NESTS_UNDER_GONE: &str = "`nests(component under parent)` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a tree is written as records, each one's children in a field — `nests(children in component)` on the factory that is given them (MO-11i), which a few lines of the app's own JavaScript make of a library that links a child to its parent";
-const OUTLET_GONE: &str = "`outlet` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a layout renders its pages as `props.children`, which a factory declared `nests(children in component)` gives it (MO-11i) — the app's own module passes the library's outlet as the layout's children. Leave the word out: the component is then one that renders nothing of the app's";
-const TRACKED_GONE: &str = "`tracked` is not a word of a declaration: a function type without `handler` is a pure function already, however the library calls it (MO-10g) — leave the word out";
-/// Words a declaration had and has no more (09 MO-8i, the pruning of 2026-11-22): each is refused with what says it now,
-/// so a row written with one is not read as a type that ends in a name.
-const GONE_WORDS: [(&str, &str); 4] = [
+/// The words and forms a declaration had and has no more, each with what says it now: a row written with one is
+/// refused by that message, not read as a type that ends in a name (09 MO-8i, the pruning of 2026-11-22; MO-8r, the
+/// withdrawals of 2026-11-23). One table: a migration message is found here and nowhere else. The first four are plain
+/// words, refused wherever a row's words are read (`GONE_WORDS`); the rest are refused where their form is recognised.
+const GONE: [(&str, &str); 12] = [
     ("forwards", "`forwards` is not a word of a declaration: a `pure` fn that makes nothing hands what it is given back only as its result, so its call among a factory's arguments already hands its components on (MO-11g) — leave the word out"),
     ("joins", "`joins(…)` is not a word of a declaration: how a router joins a nested path with its parents' is that router's rule (08 CN-8c), and its own types say it — leave the word out"),
     ("methods", "`methods(…)` is not a word of a declaration: a method of an instance is a call whose answer may change (02 E-10); where it is made once, the argument says so with `peek` — leave the word out"),
     ("trusted", "`trusted` is not a word of a declaration (MO-8j): a row is taken on the declaration's word unless the project asks for strict declarations, and then it is shown by `rx-verify --record` — leave the word out"),
+    ("renders", "`renders` alone is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a component given to a fn that says nothing of where it renders it is checked under a root of its own (MO-11s) — leave the word out, and give the component what it needs as its props; where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(Toaster)` (MO-11u)"),
+    ("pending", "`pending` before a result's plain field is not a word of a declaration, nor is `fails(…)` there (MO-8r, withdrawn 2026-11-23: one library wrote them): they are written before a `ref` part of a result — the whole result, an item of its tuple or a field of its record — an accessor that waits or fails where it is read, `pending fails(Error) ref T` (MO-10l). A store whose plain fields wait is handed out by a few lines of the app's own JavaScript, a function a field (`data: () => q.data`), declared `{ data: pending fails(Error) ref T }` (MO-10c)"),
+    ("renders(later)", "`renders(later)` is not a word of a declaration, nor is `renders` before a prop's type (MO-8r, withdrawn 2026-11-23: one library wrote them): a tree of components a library renders later is given to a factory — a fn of the app's own JavaScript that takes the tree as records and hands back the component that renders it, declared `Component provides(…) nests(children in component)` (MO-11f, MO-11i) — or is built in JavaScript, in a module that imports the `.rx` pages (11 CP-4d). With no word, a component given to a fn is checked under a root of its own (MO-11s); where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(RouterProvider)` (MO-11u)"),
+    ("nests(under)", "`nests(component under parent)` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a tree is written as records, each one's children in a field — `nests(children in component)` on the factory that is given them (MO-11i), which a few lines of the app's own JavaScript make of a library that links a child to its parent"),
+    ("outlet", "`outlet` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a layout renders its pages as `props.children`, which a factory declared `nests(children in component)` gives it (MO-11i) — the app's own module passes the library's outlet as the layout's children. Leave the word out: the component is then one that renders nothing of the app's"),
+    ("tracked", "`tracked` is not a word of a declaration: a function type without `handler` is a pure function already, however the library calls it (MO-10g) — leave the word out"),
+    ("renders(root)", "`renders(root, …)` is not a word of a declaration: a component given to a fn that says nothing of where it renders it is already checked under a root of its own (MO-11s) — leave the word out"),
+    ("holds", "`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"),
 ];
-const GONE_ROOT: &str = "`renders(root, …)` is not a word of a declaration: a component given to a fn that says nothing of where it renders it is already checked under a root of its own (MO-11s) — leave the word out";
+const GONE_WORDS: &[(&str, &str)] = GONE.split_at(4).0;
+fn gone(word: &str) -> &'static str {
+    GONE.iter().find(|g| g.0 == word).map(|g| g.1).expect("a retired word of the table")
+}
 fn strip_draft(t: &str) -> String {
     let mut out = String::new();
     let mut at = 0;
@@ -1620,10 +1627,10 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             }
             // MO-11o, withdrawn (MO-8r, 2026-11-23): `router: renders any`
             if ty.as_deref().is_some_and(|t| t.strip_prefix("renders").is_some_and(|r| r.starts_with(char::is_whitespace))) {
-                return c.fail(RENDERS_LATER_GONE);
+                return c.fail(gone("renders(later)"));
             }
             if ty.as_deref().is_some_and(tracked_word) {
-                return c.fail(TRACKED_GONE);
+                return c.fail(gone("tracked"));
             }
             // MO-10g: `valueChange: handler (v: number) => void` — called later, outside any computation: a handler
             let mut handler = false;
@@ -1662,9 +1669,9 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         c.ws(false);
         if c.keyword("outlet") {
             // MO-11p, withdrawn (MO-8r, 2026-11-23)
-            return c.fail(OUTLET_GONE);
+            return c.fail(gone("outlet"));
         }
-        for (w, why) in GONE_WORDS {
+        for (w, why) in GONE_WORDS.iter().copied() {
             if c.keyword(w) {
                 return c.fail(why);
             }
@@ -2129,12 +2136,12 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 None => &t[..],
             };
             if OLD_HOLDS.is_match(head) {
-                return c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)");
+                return c.fail(gone("holds"));
             }
             let head = js_trim(head).to_string();
             // MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r
             // 2026-11-23) they are refused by name, wherever in the result they are written
-            let Some(w) = type_words(&head, Words::Result) else { return c.fail(FIELD_ROWS_GONE) };
+            let Some(w) = type_words(&head, Words::Result) else { return c.fail(gone("pending")) };
             held = w.held;
             waits = w.whole;
             if !w.parts.is_empty() {
@@ -2163,7 +2170,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 written = true;
                 continue;
             }
-            for (w, why) in GONE_WORDS {
+            for (w, why) in GONE_WORDS.iter().copied() {
                 if c.keyword(w) {
                     return c.fail(why);
                 }
@@ -2171,26 +2178,26 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             // MO-11r: the placement vocabulary is `nests(children in component)` on a factory, and no word (MO-11s). The
             // rest is withdrawn (MO-8r), each refused by name with what is written instead
             if c.keyword("carries") {
-                return c.fail(RENDERS_LATER_GONE);
+                return c.fail(gone("renders(later)"));
             }
             if c.keyword("under") {
-                return c.fail(NESTS_UNDER_GONE);
+                return c.fail(gone("nests(under)"));
             }
             if c.keyword("renders") {
                 c.ws(false);
                 if c.peek() != '(' {
                     // MO-11l, withdrawn (MO-8r, 2026-11-23): "here, where its result is bound"
-                    return c.fail(RENDERS_GONE);
+                    return c.fail(gone("renders"));
                 }
                 let paren = c.i;
                 c.i += 1;
                 c.ws(true);
                 if c.keyword("root") {
-                    return c.fail(GONE_ROOT);
+                    return c.fail(gone("renders(root)"));
                 }
                 if c.keyword("later") {
                     // MO-11o, withdrawn (MO-8r, 2026-11-23): "later, where a prop declared `renders` renders the result"
-                    return c.fail(RENDERS_LATER_GONE);
+                    return c.fail(gone("renders(later)"));
                 }
                 // MO-11u (2026-11-24): `renders(H)` — the components the fn is given are rendered later, beneath an
                 // application of H, a component this file declares
@@ -2243,7 +2250,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 }
                 if c.keyword("under") {
                     // MO-11p, withdrawn (MO-8r, 2026-11-23): a parent link
-                    return c.fail(NESTS_UNDER_GONE);
+                    return c.fail(gone("nests(under)"));
                 }
                 return c.fail("nests(children in component) (MO-11i)");
             }
@@ -2266,7 +2273,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
         for t in ptypes.iter().flatten().chain(ret.iter()) {
             if tracked_word(t) {
-                return c.fail(TRACKED_GONE);
+                return c.fail(gone("tracked"));
             }
         }
         for t in ptypes.iter().flatten().chain(ret.iter()) {

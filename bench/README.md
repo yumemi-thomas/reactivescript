@@ -190,7 +190,7 @@ Two libraries have no Solid 2 build yet, and each has a small adapter in its tas
 ## What the suite decided
 
 `scorecard.txt` lists every check that is not green, each with the reason its task's `known` gives: the rule of
-`spec/` that makes it one. `spec/rfc-revisions-2026-11-22.md` lists what each task changed in the language.
+`spec/` that makes it one. `spec/archive/rfc-revisions-2026-11-22.md` lists what each task changed in the language.
 
 ## The scorecard
 
@@ -211,7 +211,7 @@ running the declaration, not by a build).
 
 Kobalte's two tasks (`kobalte-dialog`, `kobalte-select`) left the suite on 2026-11-22, and three libraries came in
 (`ui-sdk-dialog`, `wardic-motion`, `solid-use-primitives`), each declared by `rx-declare`'s draft with the hand-written
-words counted; `spec/rfc-declaration-types-2026-11-22.md` (*A fourth round*) lists what their declarations could not
+words counted; `spec/archive/rfc-declaration-types-2026-11-22.md` (*A fourth round*) lists what their declarations could not
 say. The one run check that was red with a reason, Kobalte's own read of a store row in an effect's callback, went
 with `kobalte-select`. `baseline-rebased.txt` and the two older scorecards are records of their runs and still list the
 Kobalte tasks. (Kobalte is back since 2026-11-24, with `kobalte-toast`: its toaster is one of the three libraries
@@ -397,7 +397,7 @@ caught, a column the record did not have, 8/8. The whole draft of `@tanstack/sol
 the library's own `any`s (52 to 63, counted and not held): `createRoute`, `createRootRoute` and `createRouter` are the
 types' rows now, where `known.js` had written three short ones.
 
-On 2026-11-24, later, seven items set by review were taken (`spec/rfc-declaration-types-2026-11-22.md`, *An eleventh
+On 2026-11-24, later, seven items set by review were taken (`spec/archive/rfc-declaration-types-2026-11-22.md`, *An eleventh
 round*), and the suite follows each.
 
 **In:** `router-rx-routes` (TanStack Router with `.rx` route files, on a fork's generator option; the two packages are
@@ -435,7 +435,7 @@ and 13/13, hand-written words 340 and 259 (the five host declarations none; `que
 whole (4904 rows), 1195 `any`s the libraries' own, none introduced, 1519 by place; 277 hand-written words; bad caught
 13/13 — as before, entry for entry: no record moved.
 
-**2026-11-24, a twelfth round** (spec/rfc-declaration-types-2026-11-22.md): the workspace installs the compiler with
+**2026-11-24, a twelfth round** (spec/archive/rfc-declaration-types-2026-11-22.md): the workspace installs the compiler with
 the manifest it is published with (`compiler/scripts/published.mjs`: the runtime its dependency), where it linked the
 repository's folder, so `start-mode`'s app lists no runtime and its dev-server checks hold that an app needs only the
 compiler (11 CP-4a); its root is the `.rx` file, with no `App.ts` (its type probe of that file is gone: types 6 to
@@ -444,7 +444,7 @@ Totals, at `877f72e` and now, both from a fresh `npm ci`: good 132/132 and 132/1
 runtime 258/258 and 261/261, bad 228/228 and 228/228, unrepresentable 13/13, hand-written words 259, `any` inherited
 57, introduced 0, by place 29. Coverage: no record moved.
 
-**2026-11-25, a thirteenth round** (spec/rfc-declaration-types-2026-11-22.md): `kobalte-toast` calls the library's
+**2026-11-25, a thirteenth round** (spec/archive/rfc-declaration-types-2026-11-22.md): `kobalte-toast` calls the library's
 own `toaster` (a method has a row, 09 MO-8t: its module of the app's own is gone; bad 8 to 12, runtime 9 to 10);
 `router-code-routes` has its regions in the root layout, under a host declaration read off the router its module
 exports (MO-14g, MO-14h: bad 6 to 11, runtime 5 to 6); `router-rx-routes` has its outlet in a component of the app's

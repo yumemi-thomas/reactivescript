@@ -1,12 +1,14 @@
 // What bench/run.mjs runs a task with: the workspace (the libraries from npm, once), both checkers, rx-tsc, the compiled
 // program on the server and in Chromium. See bench/README.md.
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { published } from "../compiler/scripts/published.mjs";
+
+const { rowsOf } = createRequire(import.meta.url)("../tooling/rx-language-server/src/rows.js");   // a declaration's rows, as the crate reads them
 
 export const here = path.dirname(fileURLToPath(import.meta.url));
 export const repo = path.resolve(here, "..");
@@ -258,7 +260,6 @@ function hostDraft(file) {
   if (from) {
     const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--host", "--routes", from[1], ...from[2].trim().split(/\s+/).filter(Boolean)], { cwd: path.dirname(file), encoding: "utf8", env: { ...process.env, RXC: rxc } });
     const lines = r.status === 0 ? hostRows(r.stdout) : [];
-    lines.inherited = new Map();
     lines.whole = { rows: lines.length, any: 0, vendor: 0, introduced: 0, places: 0, introducedRows: [], drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
     return lines;
   }
@@ -266,7 +267,6 @@ function hostDraft(file) {
   const modules = [...text.matchAll(/^\s*import\s*\{[^}]*\}\s*from\s*(["'])(.*?)\1/gm)].filter(m => m[2].endsWith(".rx")).map(m => path.resolve(path.dirname(file), m[2]));
   const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--host", ...modules], { cwd: path.dirname(file), encoding: "utf8", env: { ...process.env, RXC: rxc } });
   const lines = r.status === 0 ? hostRows(r.stdout) : [];
-  lines.inherited = new Map();
   lines.whole = { rows: lines.length, any: 0, vendor: 0, introduced: 0, places: 0, introducedRows: [], drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
   return lines;
 }
@@ -291,7 +291,7 @@ function declares(dir, file) {
 }
 /** What `rx-declare` drafts for a module (its lines, comments dropped), with the flags the task says its draft was made
  *  with (`--run`, `--dom`: 09 MO-12, what running the package shows); [] when the module has no types to draft from.
- *  `draftOf.inherited`: per export, the `any`s of the draft that are the library's own (09 MO-8q). */
+ *  `draftOf(…).vendorAt`: per export, the `any`s of the draft that are the library's own, by place (09 MO-8q). */
 const drafted = new Map();   // a module is drafted once in a run of a task: its declarations' measure and its whole draft are one draft
 export function draftOf(spec, from, flags = []) {
   const key = JSON.stringify([spec, from, flags]); if (drafted.has(key)) return drafted.get(key);
@@ -301,21 +301,21 @@ function draftNow(spec, from, flags) {
   const at = path.join(ws, `.causes-${process.pid}.json`); rmSync(at, { force: true });
   const r = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/declare.js"), spec, "--causes", at, ...flags], { cwd: from, encoding: "utf8", maxBuffer: 1 << 26 });
   const inherited = new Map(), caused = new Map(), why = new Map();
-  let said = {};
-  try { said = JSON.parse(readFileSync(at, "utf8")).inferred ?? {}; } catch { /* no draft */ }
+  let said = {}, anyRows = [];
+  try { const j = JSON.parse(readFileSync(at, "utf8")); said = j.inferred ?? {}; anyRows = j.rows ?? []; } catch { /* no draft */ }
   try { for (const c of JSON.parse(readFileSync(at, "utf8")).causes) { if (!c.name) continue; caused.set(c.name, (caused.get(c.name) ?? 0) + 1); if (c.cause === "vendor-any") inherited.set(c.name, (inherited.get(c.name) ?? 0) + 1); else why.set(c.name, [...(why.get(c.name) ?? []), c.cause]); } } catch { /* no draft */ }
   rmSync(at, { force: true });
   const lines = r.status === 0 ? code(r.stdout).map(l => l.trim()).filter(Boolean) : [];
-  lines.inherited = inherited;
+  lines.vendorAt = r.status === 0 ? vendorPlaces(r.stdout, anyRows) : new Map();
   // 09 MO-8v, MO-8w: the words the draft read from the code that runs (said beside the draft, not in it: `--causes`),
   // by export and by kind; and the questions it still asks (its `// TODO` lines), by export and by kind
-  const marks = new Map(), todoBy = new Map(), inferredBy = {}, todosBy = {};
-  for (const [n, ws] of Object.entries(r.status === 0 ? said : {})) { marks.set(n, ws); for (const w of ws) { const k = w.replace(/\(.*$/, ""); inferredBy[k] = (inferredBy[k] ?? 0) + 1; } }
+  const todoBy = new Map(), inferredBy = {}, todosBy = {};
+  for (const ws of Object.values(r.status === 0 ? said : {})) for (const w of ws) { const k = w.replace(/\(.*$/, ""); inferredBy[k] = (inferredBy[k] ?? 0) + 1; }
   for (const l of r.status === 0 ? r.stdout.split("\n") : []) {
     const t = /^\/\/ TODO(?: ([\w$.]+))?: (.*)$/.exec(l);
     if (t) { const k = todoKind(t[2]); todosBy[k] = (todosBy[k] ?? 0) + 1; if (t[1]) todoBy.set(t[1], [...(todoBy.get(t[1]) ?? []), k]); }
   }
-  lines.marks = marks; lines.todoBy = todoBy;
+  lines.todoBy = todoBy;
   // 09 MO-8q, over the whole draft — every export of the module, not only the rows an app keeps: the `any`s that are the
   // library's own, the ones that are not (each with the draft's cause for it; an `any` no cause answers for is a row of
   // known.js, written by hand), and the parts said by place
@@ -328,44 +328,75 @@ function draftNow(spec, from, flags) {
   lines.whole = { rows: lines.length, any, vendor: any - introduced, introduced, places, introducedRows: rows, inferred: count(inferredBy), inferredBy, todos: count(todosBy), todosBy, drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
   return lines;
 }
-/** The words of a `//@ inferred <export>: …` line: `pure`, `handler(run)`, `rejects(A | B)`, `draft(list)`, `instantiates`. */
-export const wordsOfMark = text => text.split(/,\s*(?![^()]*\))/).map(w => w.trim()).filter(Boolean);
+/** 09 MO-8q, place by place: for each row of a draft, how many of the `any`s at each place a type is written
+ *  (`param:0`, `result.1`, `prop:label` — the crate's `types`, src/rows.js) are the library's own. `Map(export → [Map(place
+ *  → count)])`, one map a row (an overloaded fn has several). A row whose `any`s the places do not account for one by
+ *  one gives no credit, and is said (`out.unplaced`). */
+export function vendorPlaces(draftText, anyRows) {
+  const out = new Map(); const unplaced = out.unplaced = [];
+  let rows; try { rows = rowsOf("draft.d.rx", draftText); } catch { rows = []; }
+  const causes = new Map(); for (const x of anyRows) causes.set(x.row.replace(/\s+/g, " "), [...(causes.get(x.row.replace(/\s+/g, " ")) ?? []), x.anys]);
+  for (const row of rows) {
+    const anys = causes.get(row.text)?.shift() ?? []; const places = row.facts.types ?? []; const at = new Map(); let k = 0;
+    const counts = places.map(([, t]) => anysOf(t));
+    if (counts.reduce((a, b) => a + b, 0) === anys.length) places.forEach(([id], i) => { const v = anys.slice(k, k + counts[i]).filter(c => c === "vendor-any").length; k += counts[i]; if (v) at.set(id, (at.get(id) ?? 0) + v); });
+    else unplaced.push(`${row.name}: ${anys.length} \`any\`s drafted, ${counts.reduce((a, b) => a + b, 0)} placed`);
+    if (process.env.BENCH_ANY && unplaced.length) console.error("[unplaced]", unplaced.at(-1));
+    out.set(row.name, [...(out.get(row.name) ?? []), at]);
+  }
+  return out;
+}
+/** The `any`s a type's text writes (a word, outside its string literals). */
+const anysOf = t => (String(t ?? "").split(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/).filter((_, i) => i % 2 === 0).join(" ").match(/\bany\b/g) ?? []).length;
+/** A kept row's `any`s against one draft row of the same export: `inherited`, those at a place where the draft has as
+ *  many of the library's own (or under a place the library types `any` whole); `introduced`, every other — an `any`
+ *  where the library has a type, wherever else in the row it has one. */
+export function anysAgainst(row, vendor) {
+  let inherited = 0, introduced = 0;
+  const places = row.facts.types ?? [];
+  for (const [id, t] of places) {
+    const k = anysOf(t); if (!k) continue;
+    let own = vendor.get(id) ?? 0;
+    for (let up = id; !own && up.includes("."); ) { up = up.slice(0, up.lastIndexOf(".")); if (vendor.get(up)) own = k; }   // a part of what the library types `any` whole
+    const h = Math.min(k, own); inherited += h; introduced += k - h;
+  }
+  return { inherited, introduced };
+}
 /** What a draft's question is about (the kinds the scorecard counts). */
 export const todoKind = q => /^which context does this hook read beside/.test(q) ? "uses" : /^pure\?/.test(q) ? "pure" : /^is the result a store with fields|^run with no arguments, its fields? /.test(q) ? "store fields" : /called later, outside any computation\?/.test(q) ? "handler" : /signatures in the library's types/.test(q) ? "overloads" : /which context does this hook read|likely read a context|the module's contexts/.test(q) ? "uses" : /its fields drafted `ref`/.test(q) ? "ref fields" : /^does it change /.test(q) ? "draft" : /^what does its promise reject with/.test(q) ? "rejects" : /does it provide a context|does its component provide/.test(q) ? "provides/nests" : /is a class\b/.test(q) ? "class" : /where does the library render/.test(q) ? "renders" : /takes a Solid signal/.test(q) ? "signal" : /`any` here (is|are) the draft's/.test(q) ? "any" : "other";
 const PLACE = new Set(["Parameters", "ReturnType", "ConstructorParameters", "InstanceType"]);
-/** The `any`s a row writes: the word in a type, not the name of what it exports (valibot exports a schema called `any`). */
+/** The `any`s a draft's line writes: the word in a type, not the name of what it exports (valibot exports a schema called `any`). */
 const anysIn = line => { const ts = tokens(line); const at = ts.findIndex((t, i) => i > 0 && /^(fn|component|const|type|context|error)$/.test(ts[i - 1]) && ts.slice(0, i).includes("export")); return ts.filter((t, i) => t === "any" && i !== at).length; };
 /** A task's declarations, measured against the tool that drafts them: for each `.d.rx` of the task, the words a person
  *  wrote on top of `rx-declare`'s draft of the same module (a row the draft has, word for word, costs nothing; a row it
  *  has otherwise costs the words that differ; a row it has not costs every word; a row left out costs nothing), and the
- *  `any`s the file holds — what the checker is told nothing about — in two numbers (09 MO-8q): `inherited`, the ones the
- *  library's own declaration has at that place (as many, for an export, as the draft of the same export writes for the
- *  library's own), and `introduced`, every other: an `any` where the library has a type. `places`: the parts said by
- *  their place in the library's declaration (`Parameters<typeof import(…)>`), counted apart — not a way around the rule.
- *  `{ words, any, inherited, introduced, places, files: [{ file, words, any, inherited, introduced, places, drafted, rows }] }`. */
-export function declarations(dir, flagsFor = {}, dry = false) {
+ *  `any`s the file holds — what the checker is told nothing about — in two numbers (09 MO-8q), counted at each place a
+ *  type is written: `inherited`, an `any` where the library's own declaration has one (as the draft of the same export
+ *  shows, at the same parameter, result part or prop), and `introduced`, every other: an `any` where the library has a
+ *  type. (They were counted by export until 2026-11-26, so an `any` moved from a parameter the library leaves untyped
+ *  to a result it types was inherited.) `places`: the parts said by their place in the library's declaration
+ *  (`Parameters<typeof import(…)>`), counted apart — not a way around the rule. `claims`: what rx-verify shows of each
+ *  claim the kept rows make (`run`: held by running; `code`: held by the code's proof alone; `unverified`; `mismatch`).
+ *  `problems`: what could not be measured (an audit or a verifier that did not run) — never an empty measure. */
+export function declarations(dir, flagsFor = {}) {
   const files = [];
   for (const p of own(dir, n => n.endsWith(".d.rx"))) {
-    const host = isHost(readFileSync(p, "utf8"));
+    const text = readFileSync(p, "utf8"); const host = isHost(text); const problems = [];
     const { spec, from } = host ? { spec: "the JS host", from: path.dirname(p) } : declares(dir, p);
     const draft = host ? hostDraft(p) : draftOf(spec, from, flagsFor[spec] ?? []);
-    const whole = new Set(draft), byName = new Map(draft.map(l => [exported(l), l]).filter(([n]) => n));
+    const whole = new Set(draft);
     // a name the draft has more than one line for: each row is measured against the nearest of them
     const allByName = new Map(); for (const l of draft) { const n = exported(l); if (n) allByName.set(n, [...(allByName.get(n) ?? []), l]); }
-    let words = 0, places = 0, todos = 0; const anyBy = new Map(); const kept = new Set();
+    let words = 0, places = 0, todos = 0; const kept = new Set();
     // 09 MO-8w: every behaviour word of the file, held against what the code shows (`rx-declare --audit`): proven — a
-    // word read from the code, counted apart from the words written by hand, and run by rx-verify against what the
-    // reading claims; contradicted — a false word, which is a problem whoever wrote it; unproven — a person's, listed
+    // word read from the code, counted apart from the words written by hand; contradicted — a false word, which is a
+    // problem whoever wrote it; unproven — a person's, listed
     const read = host ? { rows: [] } : audited(p, from);
-    const mine = new Map(read.rows.map(x => [x.name, x.words.filter(w => w.verdict === "proven").map(w => w.word)]).filter(([, ws]) => ws.length));
-    const inferred = [...mine.values()].reduce((n, ws) => n + ws.length, 0);
-    const audit = { proven: inferred, contradicted: read.rows.flatMap(x => x.words.filter(w => w.verdict === "contradicted").map(w => `${x.name}: ${w.word} — ${w.why}`)), unproven: read.rows.flatMap(x => x.words.filter(w => w.verdict === "unproven" && w.word !== "instantiates").map(w => `${x.name}: ${w.word} — ${w.why}`)) };
-    for (const line of host ? hostRows(readFileSync(p, "utf8")) : code(readFileSync(p, "utf8")).map(l => l.trim()).filter(Boolean)) {
-      // 09 MO-8v: a row kept as the draft wrote it, with words the draft read from the code: counted apart from the
-      // words written by hand, and marked in the file as in the draft (so that rx-verify runs each against its claim)
+    if (read.error) problems.push(`the audit did not run (${read.error})`);
+    const said = v => read.rows.flatMap(x => x.words.filter(w => w.verdict === v && w.word !== "instantiates").map(w => `${x.name}: ${w.word} — ${w.why}`));
+    const inferred = read.rows.reduce((n, x) => n + x.words.filter(w => w.verdict === "proven").length, 0);
+    for (const line of host ? hostRows(text) : code(text).map(l => l.trim()).filter(Boolean)) {
       { const n = exported(line); if (n && !kept.has(n)) { kept.add(n); todos += (draft.todoBy?.get(n) ?? []).length; } }
-      const k = anysIn(line);
-      if (k) anyBy.set(exported(line) ?? line, (anyBy.get(exported(line) ?? line) ?? 0) + k);
       places += tokens(line).filter(t => PLACE.has(t)).length;
       if (whole.has(line)) continue;
       const was = allByName.get(exported(line));
@@ -374,44 +405,51 @@ export function declarations(dir, flagsFor = {}, dry = false) {
       if (process.env.BENCH_WORDS && cost) console.error(`[words] ${path.relative(dir, p)} +${cost}\n   written: ${line.slice(0, 400)}\n   drafted: ${was ? was[0].slice(0, 400) : "(no row)"}`);
       words += cost;
     }
+    // the `any`s, row by row and place by place, against the draft's row of the same export (the nearest of several)
     let any = 0, inherited = 0; const rows = [];
-    for (const [n, k] of anyBy) { any += k; const h = Math.min(k, draft.inherited.get(n) ?? 0); inherited += h; if (k > h) rows.push({ name: n, introduced: k - h }); }
-    void byName;
-    const probe = !dry && !host && mine.size ? probeInferred(dir, p, mine) : { probed: 0, contradicted: [], unprobed: [] };
-    probe.contradicted = [...audit.contradicted.map(c => `${c} (the code contradicts the word)`), ...probe.contradicted];
-    files.push({ file: path.relative(dir, p), spec, words, inferred, todos, audit, ...probe, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows, whole: draft.whole });
+    let mine = []; try { mine = rowsOf(p); } catch (e) { problems.push(`the declaration is not read (${String(e.message ?? e).slice(0, 200)})`); }
+    for (const row of mine) {
+      const best = (draft.vendorAt?.get(row.name) ?? [new Map()]).map(v => anysAgainst(row, v)).sort((a, b) => a.introduced - b.introduced)[0];
+      any += best.inherited + best.introduced; inherited += best.inherited;
+      if (best.introduced) rows.push({ name: row.name, introduced: best.introduced });
+    }
+    const claims = host ? { total: 0, run: 0, code: 0, unverified: 0, mismatch: 0, mismatches: [], by: {} } : claimsOf(dir, p, problems);
+    files.push({ file: path.relative(dir, p), spec, words, inferred, todos, contradicted: [...said("contradicted").map(c => `${c} (the code contradicts the word)`), ...claims.mismatches], unproven: said("unproven"), claims, problems, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows, whole: draft.whole });
   }
   const sum = k => files.reduce((n, f) => n + f[k], 0);
   const wsum = k => files.reduce((n, f) => n + (f.whole[k] ?? 0), 0);
   const wby = k => { const o = {}; for (const f of files) for (const [n, v] of Object.entries(f.whole[k] ?? {})) o[n] = (o[n] ?? 0) + v; return o; };
+  const all = k => files.flatMap(f => f[k].map(c => `${f.file}: ${c}`));
+  const csum = k => files.reduce((n, f) => n + f.claims[k], 0);
   // `draft`: the same modules drafted whole (every export), 09 MO-8q's numbers over what no app of the benchmark keeps
-  return { words: sum("words"), inferred: sum("inferred"), todos: sum("todos"), probed: sum("probed"), contradicted: files.flatMap(f => f.contradicted.map(c => `${f.file}: ${c}`)), unproven: files.flatMap(f => f.audit.unproven.map(c => `${f.file}: ${c}`)), any: sum("any"), inherited: sum("inherited"), introduced: sum("introduced"), places: sum("places"), draft: { rows: wsum("rows"), any: wsum("any"), vendor: wsum("vendor"), introduced: wsum("introduced"), places: wsum("places"), inferred: wsum("inferred"), inferredBy: wby("inferredBy"), todos: wsum("todos"), todosBy: wby("todosBy") }, files };
+  return { words: sum("words"), inferred: sum("inferred"), todos: sum("todos"), claims: { total: csum("total"), run: csum("run"), code: csum("code"), unverified: csum("unverified"), mismatch: csum("mismatch"), by: claimKinds(files.map(f => f.claims.by)) }, contradicted: all("contradicted"), unproven: all("unproven"), problems: all("problems"), any: sum("any"), inherited: sum("inherited"), introduced: sum("introduced"), places: sum("places"), draft: { rows: wsum("rows"), any: wsum("any"), vendor: wsum("vendor"), introduced: wsum("introduced"), places: wsum("places"), inferred: wsum("inferred"), inferredBy: wby("inferredBy"), todos: wsum("todos"), todosBy: wby("todosBy") }, files };
 }
-/** 09 MO-8w: a declaration's words, each sorted by what the code shows (`rx-declare --audit --json`). */
+/** 09 MO-8w: a declaration's words, each sorted by what the code shows (`rx-declare --audit --json`). `error`: the audit
+ *  did not answer — which is not an audit with nothing to say. */
 function audited(file, from) {
   const r = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--audit", "--json", file], { cwd: from, encoding: "utf8", maxBuffer: 1 << 26, timeout: 300000 });
-  try { return JSON.parse(r.stdout)[0] ?? { rows: [] }; } catch { return { rows: [], error: String(r.stderr ?? "").trim().split("\n").pop() }; }
+  try { const out = JSON.parse(r.stdout); if (!Array.isArray(out)) throw new Error("not a list"); return out[0] ?? { rows: [] }; } catch { return { rows: [], error: String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${r.status ?? r.signal}` }; }
 }
-/** 09 MO-8v: the words of a declaration that are read from the code, run by rx-verify against what that reading claims.
- *  `{ probed, contradicted: [what], unprobed: [export] }`: a word run and not contradicted, one that running refutes
- *  (a defect of rx-declare, or a mark nobody proved), and the exports rx-verify had no arguments to call with. */
-function probeInferred(dir, file, marks) {
-  const v = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/verify.js"), "--dom", path.relative(dir, file)], { cwd: dir, encoding: "utf8", timeout: 120000, maxBuffer: 1 << 26 });
-  const out = String(v.stdout ?? "").split("\n"); const probedNames = new Set(); const contradicted = [];
-  let probed = 0;
-  for (const l of out) {
-    const bad = /MISMATCH\s+(.*(?:read from its code|read from the code).*)$/.exec(l); if (bad) { contradicted.push(bad[1].slice(0, 300)); continue; }
-    if (/is contradicted by the code/.test(l)) continue;   // (counted from the audit itself)
-    const pure = /\s([\w$.]+): the pure read from its code is not contradicted/.exec(l); if (pure && marks.get(pure[1])?.includes("pure")) { probed++; probedNames.add(pure[1]); }
-    const rej = /\s([\w$.]+): under the probe's (?:failing )?arguments it rejects with \w+, as its row says/.exec(l); if (rej && marks.get(rej[1])?.some(w => w.startsWith("rejects("))) { if (!probedNames.has(`${rej[1]}#rejects`)) probed++; probedNames.add(`${rej[1]}#rejects`); probedNames.add(rej[1]); }
-    const cb = /\s([\w$.]+): callback ([\w$.]+) holds/.exec(l); if (cb && marks.get(cb[1])?.includes(`handler(${cb[2]})`)) { probed++; probedNames.add(cb[1]); }
-    // (09 MO-8w: a `uses(c)` and a `provides(c)` the code proves, run as rx-verify runs any: the hook with no provider
-    // throws or warns; the provider mounted around a part or a hook that needs it)
-    const us = /\s([\w$.]+): uses\(…\) holds/.exec(l); if (us && marks.get(us[1])?.some(w => w.startsWith("uses(")) && !probedNames.has(`${us[1]}#uses`)) { probed += marks.get(us[1]).filter(w => w.startsWith("uses(")).length; probedNames.add(`${us[1]}#uses`); probedNames.add(us[1]); }
-    const pr = /\s([\w$.]+): provides\(([\w$]+)\) holds/.exec(l); if (pr && marks.get(pr[1])?.includes(`provides(${pr[2]})`) && !probedNames.has(`${pr[1]}#provides(${pr[2]})`)) { probed++; probedNames.add(`${pr[1]}#provides(${pr[2]})`); probedNames.add(pr[1]); }
-    const dr = /\s([\w$.]+): it changes its `draft` parameter in place during the call/.exec(l); if (dr && marks.get(dr[1])?.some(w => w.startsWith("draft("))) { probed++; probedNames.add(dr[1]); }
+/** The claims of several files, kind by kind. */
+export const claimKinds = bys => { const o = {}; for (const by of bys) for (const [k, c] of Object.entries(by ?? {})) { o[k] ??= { run: 0, code: 0, unverified: 0, mismatch: 0 }; for (const s in c) o[k][s] += c[s]; } return o; };
+export const claimsSaid = by => Object.entries(by).sort((a, b) => (b[1].unverified - a[1].unverified) || a[0].localeCompare(b[0])).map(([k, c]) => `${k} ${c.run + c.code}/${c.run + c.code + c.unverified + c.mismatch}`).join(", ");
+/** What rx-verify shows of each claim a declaration's rows make (`rx-verify --json`: one result a claim, by name):
+ *  `total` (that an export is there, `exists`, is no claim about what it does, and a claim that does not apply, are not counted); `run`, held by running; `code`, held by the code's proof where no run reached it; `unverified`; `mismatch`,
+ *  with what each says. A verifier that did not answer is a problem, and counts nothing. */
+function claimsOf(dir, file, problems) {
+  const out = { total: 0, run: 0, code: 0, unverified: 0, mismatch: 0, mismatches: [], by: {} };
+  const v = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/verify.js"), "--dom", "--json", path.relative(dir, file)], { cwd: dir, encoding: "utf8", timeout: 180000, maxBuffer: 1 << 26 });
+  let res; try { res = JSON.parse(String(v.stdout).trim().split("\n").pop())[0].results; } catch { problems.push(`rx-verify did not run (${String(v.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${v.status ?? v.signal}`})`); return out; }
+  const worst = new Map(); const RANK = { mismatch: 3, unverified: 2, held: 1, na: 0 };
+  for (const r of res) { const k = `${r.line}:${r.ob}`; const was = worst.get(k); if (!was || RANK[r.status] > RANK[was.status]) worst.set(k, r); }
+  for (const r of worst.values()) {
+    if (r.status === "mismatch") out.mismatches.push(String(r.what).slice(0, 300));   // (an export that is not there, too)
+    if (r.ob === "exists" || r.status === "na") continue;
+    if (process.env.BENCH_CLAIMS) console.error(`[claim] ${r.status}${r.by ? ` by ${r.by}` : ""} ${path.relative(ws, file)} ${r.ob}: ${String(r.what).slice(0, 220)}`);
+    const st = r.status === "held" ? (r.by === "code" ? "code" : "run") : r.status, kind = r.ob.replace(/:.*$/, "");
+    out.total++; out[st]++; out.by[kind] ??= { run: 0, code: 0, unverified: 0, mismatch: 0 }; out.by[kind][st]++;
   }
-  return { probed, contradicted, unprobed: [...marks.keys()].filter(n => !probedNames.has(n)) };
+  return out;
 }
 
 /** rx-tsc's errors that are on the lines an edit wrote: `file(line,col): error …` rows whose file is the edited one and
@@ -422,4 +460,3 @@ export function onEdit(out, dir, file, [from, to]) {
   const name = file.split("/").pop().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return out.split("\n").filter(l => { const m = new RegExp(`(?:^|[\\\\/])${name}[(:](\\d+)[,:]`).exec(l); return m && Number(m[1]) >= first && Number(m[1]) <= last; }).join("\n");
 }
-export { statSync };

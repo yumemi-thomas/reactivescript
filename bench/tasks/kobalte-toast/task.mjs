@@ -26,7 +26,7 @@ export default {
     { name: "the toasts cleared while the view computes (a method with a row, io)", edit: ['<p class="last">last toast {shown}</p>', '<p class="last">last toast {shown}{toaster.clear()}</p>'], expect: "IO_IN_REACTIVE" },
     { name: "a method called where the handler is given", edit: ["onClick={() => { toaster.clear() }}", "onClick={toaster.clear()}"], expect: "IO_IN_REACTIVE" },
     { name: "a toast dismissed by an equation: the method answers a number, and its row says io", edit: ["component Editor() {\n", "component Editor() {\n  gone = toaster.dismiss(shown)\n"], expect: "IO_IN_REACTIVE" },
-    { name: "the toaster's name bound again: its methods' rows would be read off something else", edit: ['  <p class="last">last toast {shown}</p>', '  <p class="last">last toast {shown}</p>\n  {for toaster in ["a"] { <i>{toaster}</i> }}'], expect: "SHADOWED_IMPORT" },
+    { name: "the toaster's name bound again by a declaration (a loop's variable or a parameter of the name is another binding, and fine)", edit: ["component Editor() {\n", "component Editor() {\n  toaster = { clear: () => 1 }\n"], expect: "SHADOWED_IMPORT" },
     { name: "the toast's component called where it is handed over", edit: ["shown := toaster.show(Saved)", "shown := toaster.show(Saved({ toastId: 0 }))"], expect: "COMPONENT_AS_VALUE" },
   ],
   async run(h) {
@@ -46,7 +46,7 @@ export default {
     // the declaration itself, run: rx-verify renders the probe's scene (rx-types/@kobalte/core/toast.probe.mjs) against Kobalte, and holds each
     // word of it to what the library does
     const v = spawnSync(process.execPath, ["--conditions=browser", path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/verify.js"), "--dom", "rx-types/@kobalte/core/toast.d.rx"], { cwd: h.dir, encoding: "utf8" });
-    h.check("rx-verify: `renders(Toast.List)` holds where Kobalte is run — the toast renders beneath the list", /toast\.d\.rx:\d+ ok\s+toaster\.show: placement holds: Saved beneath Toast\.List/.test(v.stdout) && !/MISMATCH/.test(v.stdout), v.stdout + v.stderr);
-    h.check("rx-verify: so do the contexts — the region's, read by the list and a toast; the toast's, read by its parts", ["Toast\\.Region: provides\\(toastRegion\\) holds", "Toast: provides\\(toast\\) holds", "Toast: uses\\(…\\) holds", "Toast\\.List: uses\\(…\\) holds", "Toast\\.Title: uses\\(…\\) holds", "Toast\\.CloseButton: uses\\(…\\) holds"].every(x => new RegExp(x).test(v.stdout)), v.stdout + v.stderr);
+    h.check("rx-verify: `renders(Toast.List)` holds where Kobalte is run — the toast renders beneath the list", /toast\.d\.rx:\d+ held\s+toaster\.show: placement holds: Saved beneath Toast\.List/.test(v.stdout) && !/MISMATCH/.test(v.stdout), v.stdout + v.stderr);
+    h.check("rx-verify: so do the contexts — the region's, read by the list and a toast; the toast's, read by its parts", ["Toast\\.Region: provides\\(toastRegion\\) holds", "Toast: provides\\(toast\\) holds", "Toast: uses\\(toastRegion\\) holds", "Toast\\.List: uses\\(toastRegion\\) holds", "Toast\\.Title: uses\\(toast\\) holds", "Toast\\.CloseButton: uses\\(toast\\) holds"].every(x => new RegExp(x).test(v.stdout)), v.stdout + v.stderr);
   },
 };

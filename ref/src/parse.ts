@@ -220,7 +220,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     c.expect(")");
     if (pure && draftArgs.length) c.fail(`${name}: a fn that changes what it is given (\`draft ${params[draftArgs[0]]}\`) is not \`pure\` (MO-10i)`);
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined; let waits: [boolean, string[]] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b|\bforwards\b|\bjoins\(|\bmethods\(/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = typeWords(r ? t.slice(0, r.index) : t, "result"); if (!fr) c.fail(FIELD_ROWS_GONE);   /* MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r 2026-11-23) they are refused by name, wherever in the result they are written */ held = fr.held; waits = fr.whole; shape = fr.parts ? shapeOf(fr.parts) : undefined; ret = fr.text || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b|\bforwards\b|\bjoins\(|\bmethods\(/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail(gone("holds")); const fr = typeWords(r ? t.slice(0, r.index) : t, "result"); if (!fr) c.fail(gone("pending"));   /* MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r 2026-11-23) they are refused by name, wherever in the result they are written */ held = fr.held; waits = fr.whole; shape = fr.parts ? shapeOf(fr.parts) : undefined; ret = fr.text || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
     let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders: string | undefined;
@@ -230,13 +230,13 @@ export function parseDeclarations(src: string): JsDecl[] {
       for (const [w, why] of GONE_WORDS) if (c.keyword(w)) c.fail(why);
       // MO-11r: the placement vocabulary is `nests(children in component)` on a factory, and no word (MO-11s). The rest is
       // withdrawn (MO-8r), each refused by name with what is written instead
-      if (c.keyword("carries")) c.fail(RENDERS_LATER_GONE);
-      if (c.keyword("under")) c.fail(NESTS_UNDER_GONE);
+      if (c.keyword("carries")) c.fail(gone("renders(later)"));
+      if (c.keyword("under")) c.fail(gone("nests(under)"));
       if (c.keyword("renders")) { c.ws(false);
-        if (c.peek() !== "(") c.fail(RENDERS_GONE);   // MO-11l, withdrawn (MO-8r, 2026-11-23): "here, where its result is bound"
+        if (c.peek() !== "(") c.fail(gone("renders"));   // MO-11l, withdrawn (MO-8r, 2026-11-23): "here, where its result is bound"
         const at = c.i; c.i++; c.ws();
-        if (c.keyword("root")) c.fail(GONE_ROOT);
-        if (c.keyword("later")) c.fail(RENDERS_LATER_GONE);   // MO-11o, withdrawn (MO-8r, 2026-11-23): "later, where a prop declared `renders` renders the result"
+        if (c.keyword("root")) c.fail(gone("renders(root)"));
+        if (c.keyword("later")) c.fail(gone("renders(later)"));   // MO-11o, withdrawn (MO-8r, 2026-11-23): "later, where a prop declared `renders` renders the result"
         // MO-11u (2026-11-24): `renders(H)` — the components the fn is given are rendered later, beneath an application of H, a component this file declares
         let h = c.ident(); if (!h || !/^[A-Z]/.test(h)) c.fail(RENDERS_HOST);
         while (c.peek() === ".") { c.i++; h += "." + (c.ident() ?? c.fail(RENDERS_HOST)); }
@@ -247,7 +247,7 @@ export function parseDeclarations(src: string): JsDecl[] {
       if (c.keyword("provides")) { c.ws(false); provides = [...(provides ?? []), ...contextNames(c)]; continue; }
       if (c.keyword("nests")) { c.ws(false); c.expect("("); c.ws(); const first = c.ident() ?? c.fail("nests(children in component): a field of the record (MO-11i)"); c.ws();
         if (c.keyword("in")) { c.ws(); const inside = c.ident() ?? c.fail("nests(children in component): the field that holds the component"); c.ws(); c.expect(")"); nests = { kids: first, inside }; continue; }   // MO-11i: a children field
-        if (c.keyword("under")) c.fail(NESTS_UNDER_GONE);   // MO-11p, withdrawn (MO-8r, 2026-11-23): a parent link
+        if (c.keyword("under")) c.fail(gone("nests(under)"));   // MO-11p, withdrawn (MO-8r, 2026-11-23): a parent link
         c.fail("nests(children in component) (MO-11i)"); }
       break;
     }
@@ -259,7 +259,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     // the word is the .d.rx's, not TypeScript's
     const drafts = ptypes.flatMap((t, i) => { const ds = draftParams(t); return ds.length ? [[i, ds] as [number, number[]]] : []; });
     const partDrafts = draftParts(ret);
-    for (const t of [...ptypes, ret]) if (t && TRACKED_WORD.test(maskedStrings(t))) c.fail(TRACKED_GONE);
+    for (const t of [...ptypes, ret]) if (t && TRACKED_WORD.test(maskedStrings(t))) c.fail(gone("tracked"));
     for (const t of [...ptypes, ret]) if (t && HANDLER_MISPLACED.test(maskedStrings(t))) c.fail(`\`handler\` on fn ${name}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`);
     const cbs = callbacks(ptypes);   // MO-10g: before the word is taken out — only a function type marked `handler` is a callback
     for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripHandler(stripDraft(ptypes[i])); ret = stripHandler(stripDraft(ret));
@@ -423,26 +423,31 @@ function draftParts(ret: string | undefined): Record<string, [number, number[]][
   else if (t.startsWith("{") && t.endsWith("}")) for (const f of splitTop(t.slice(1, -1), ",;")) { const c = f.indexOf(":"); if (c < 0) continue; const d = draftsOfFn(f.slice(c + 1).trim()); if (d.length) out[fieldName(f.slice(0, c))] = d; }
   return Object.keys(out).length ? out : undefined;
 }
-/** Words a declaration had and has no more (09 MO-8i, the pruning of 2026-11-22): each is refused with what says it now,
- *  so a row written with one is not read as a type that ends in a name. */
-const GONE_WORDS: [string, string][] = [
+/** The words and forms a declaration had and has no more, each with what says it now: a row written with one is refused
+ *  by that message, not read as a type that ends in a name (09 MO-8i, the pruning of 2026-11-22; MO-8r, the withdrawals
+ *  of 2026-11-23). One table: a migration message is found here and nowhere else. The first four are plain words,
+ *  refused wherever a row's words are read (`GONE_WORDS`); the rest are refused where their form is recognised. */
+const GONE: [string, string][] = [
   ["forwards", "`forwards` is not a word of a declaration: a `pure` fn that makes nothing hands what it is given back only as its result, so its call among a factory's arguments already hands its components on (MO-11g) — leave the word out"],
   ["joins", "`joins(…)` is not a word of a declaration: how a router joins a nested path with its parents' is that router's rule (08 CN-8c), and its own types say it — leave the word out"],
   ["methods", "`methods(…)` is not a word of a declaration: a method of an instance is a call whose answer may change (02 E-10); where it is made once, the argument says so with `peek` — leave the word out"],
   ["trusted", "`trusted` is not a word of a declaration (MO-8j): a row is taken on the declaration's word unless the project asks for strict declarations, and then it is shown by `rx-verify --record` — leave the word out"],
+  ["renders", "`renders` alone is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a component given to a fn that says nothing of where it renders it is checked under a root of its own (MO-11s) — leave the word out, and give the component what it needs as its props; where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(Toaster)` (MO-11u)"],
+  ["pending", "`pending` before a result's plain field is not a word of a declaration, nor is `fails(…)` there (MO-8r, withdrawn 2026-11-23: one library wrote them): they are written before a `ref` part of a result — the whole result, an item of its tuple or a field of its record — an accessor that waits or fails where it is read, `pending fails(Error) ref T` (MO-10l). A store whose plain fields wait is handed out by a few lines of the app's own JavaScript, a function a field (`data: () => q.data`), declared `{ data: pending fails(Error) ref T }` (MO-10c)"],
+  ["renders(later)", "`renders(later)` is not a word of a declaration, nor is `renders` before a prop's type (MO-8r, withdrawn 2026-11-23: one library wrote them): a tree of components a library renders later is given to a factory — a fn of the app's own JavaScript that takes the tree as records and hands back the component that renders it, declared `Component provides(…) nests(children in component)` (MO-11f, MO-11i) — or is built in JavaScript, in a module that imports the `.rx` pages (11 CP-4d). With no word, a component given to a fn is checked under a root of its own (MO-11s); where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(RouterProvider)` (MO-11u)"],
+  ["nests(under)", "`nests(component under parent)` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a tree is written as records, each one's children in a field — `nests(children in component)` on the factory that is given them (MO-11i), which a few lines of the app's own JavaScript make of a library that links a child to its parent"],
+  ["outlet", "`outlet` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a layout renders its pages as `props.children`, which a factory declared `nests(children in component)` gives it (MO-11i) — the app's own module passes the library's outlet as the layout's children. Leave the word out: the component is then one that renders nothing of the app's"],
+  ["tracked", "`tracked` is not a word of a declaration: a function type without `handler` is a pure function already, however the library calls it (MO-10g) — leave the word out"],
+  ["renders(root)", "`renders(root, …)` is not a word of a declaration: a component given to a fn that says nothing of where it renders it is already checked under a root of its own (MO-11s) — leave the word out"],
+  ["holds", "`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"],
 ];
-const GONE_ROOT = "`renders(root, …)` is not a word of a declaration: a component given to a fn that says nothing of where it renders it is already checked under a root of its own (MO-11s) — leave the word out";
+const GONE_WORDS = GONE.slice(0, 4);
+const gone = (word: string): string => GONE.find(g => g[0] === word)![1];
 /** `tracked` was a word before a function type (a callback the library calls inside a computation of its own). A function
  *  type without `handler` is a pure function already (MO-10g), which is all the checker read of it: the word is refused, so
  *  that a row written with it is not read by the prop's name instead. */
 const TRACKED_WORD = /\btracked\s+(?=\()/;
 const RENDERS_HOST = "renders(H): H is a component this file declares, named as its tag is (`renders(Toaster)`, `renders(Toast.List)`) — the components the fn is given are rendered later, beneath an application of it (MO-11u). `renders(later)` and `renders(root, …)` are not words of a declaration";
-const RENDERS_GONE = "`renders` alone is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a component given to a fn that says nothing of where it renders it is checked under a root of its own (MO-11s) — leave the word out, and give the component what it needs as its props; where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(Toaster)` (MO-11u)";
-const FIELD_ROWS_GONE = "`pending` before a result's plain field is not a word of a declaration, nor is `fails(…)` there (MO-8r, withdrawn 2026-11-23: one library wrote them): they are written before a `ref` part of a result — the whole result, an item of its tuple or a field of its record — an accessor that waits or fails where it is read, `pending fails(Error) ref T` (MO-10l). A store whose plain fields wait is handed out by a few lines of the app's own JavaScript, a function a field (`data: () => q.data`), declared `{ data: pending fails(Error) ref T }` (MO-10c)";
-const RENDERS_LATER_GONE = "`renders(later)` is not a word of a declaration, nor is `renders` before a prop's type (MO-8r, withdrawn 2026-11-23: one library wrote them): a tree of components a library renders later is given to a factory — a fn of the app's own JavaScript that takes the tree as records and hands back the component that renders it, declared `Component provides(…) nests(children in component)` (MO-11f, MO-11i) — or is built in JavaScript, in a module that imports the `.rx` pages (11 CP-4d). With no word, a component given to a fn is checked under a root of its own (MO-11s); where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(RouterProvider)` (MO-11u)";
-const NESTS_UNDER_GONE = "`nests(component under parent)` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a tree is written as records, each one's children in a field — `nests(children in component)` on the factory that is given them (MO-11i), which a few lines of the app's own JavaScript make of a library that links a child to its parent";
-const OUTLET_GONE = "`outlet` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a layout renders its pages as `props.children`, which a factory declared `nests(children in component)` gives it (MO-11i) — the app's own module passes the library's outlet as the layout's children. Leave the word out: the component is then one that renders nothing of the app's";
-const TRACKED_GONE = "`tracked` is not a word of a declaration: a function type without `handler` is a pure function already, however the library calls it (MO-10g) — leave the word out";
 /** MO-10g: `handler` before a function type — the library calls it later, outside any computation (an event, a mutation's
  *  `onSuccess`), so a closure passed there is a handler's: imperative scope. The word is the .d.rx's, not TypeScript's. */
 const HANDLER_MISPLACED = /\bhandler\s+(?!\()/;
@@ -478,8 +483,8 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
         }
         type = c.src.slice(t0, c.i).trim() || undefined;
       }
-      if (type && /^renders\s+/.test(type)) c.fail(RENDERS_LATER_GONE);   // MO-11o, withdrawn (MO-8r, 2026-11-23): `router: renders any`
-      if (type && TRACKED_WORD.test(maskedStrings(type))) c.fail(TRACKED_GONE);
+      if (type && /^renders\s+/.test(type)) c.fail(gone("renders(later)"));   // MO-11o, withdrawn (MO-8r, 2026-11-23): `router: renders any`
+      if (type && TRACKED_WORD.test(maskedStrings(type))) c.fail(gone("tracked"));
       let handler = false; if (type && /^handler\s+/.test(type)) { handler = true; type = type.replace(/^handler\s+/, "") || undefined; if (!type || partOf(type) !== "fn") c.fail(`\`handler\` on prop ${fname}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`); }
       props.push({ name: fname, optional, ...(type ? { type } : {}), ...(catches ? { catches } : {}),  component: !!type && isComponentType(type), ...(type && holdsComponent(type) ? { components: true } : {}), ...(fname !== "children" && type && isViewType(type) ? { view: true } : {}), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && handler && !isComponentType(type) && partOf(type) === "fn" ? { callback: true } : type && !isComponentType(type) && partOf(type) === "fn" ? { pure: true } : {}) });   // pure: MO-10g, a function type without `handler`: the declaration decides, whatever the prop's name
       c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
@@ -491,7 +496,7 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
   for (;;) {
     c.ws(false);
     for (const [w, why] of GONE_WORDS) if (c.keyword(w)) c.fail(why);
-    if (c.keyword("outlet")) c.fail(OUTLET_GONE);   // MO-11p, withdrawn (MO-8r, 2026-11-23)
+    if (c.keyword("outlet")) c.fail(gone("outlet"));   // MO-11p, withdrawn (MO-8r, 2026-11-23)
     if (c.keyword("fails")) { c.ws(false); c.expect("("); fails = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); continue; }
     if (c.keyword("uses")) { c.ws(false); uses = [...(uses ?? []), ...contextNames(c)]; continue; }          // MO-12b
     if (c.keyword("provides")) { c.ws(false); provides = [...(provides ?? []), ...contextNames(c)]; continue; }   // MO-12c

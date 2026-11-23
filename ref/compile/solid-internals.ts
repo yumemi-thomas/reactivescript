@@ -18,7 +18,7 @@
 // otherwise is refused with an error that names its version and what is missing: nothing here falls back to a guess,
 // because a wrong guess is one render reading another's state. `runtime/test.mjs` asserts the same four facts against
 // the installed Solid ("Solid's contract"), reading Solid and not this file, so a Solid bump that moves one fails there first. What Solid would have to
-// publish for this file to go is in spec/rfc-rx-packages-2026-11-22.md.
+// publish for this file to go is in spec/archive/rfc-rx-packages-2026-11-22.md.
 import { getOwner, runWithOwner } from "solid-js";
 import * as web from "@solidjs/web";
 import { RequestContext } from "@solidjs/web";

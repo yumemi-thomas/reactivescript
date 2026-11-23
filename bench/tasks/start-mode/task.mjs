@@ -72,7 +72,7 @@ export default {
       await page.close();
       // the declaration itself, run: rx-verify renders the probe's scene (host.probe.mjs), built from the routes directory
       const v = spawnSync(process.execPath, ["--conditions=browser", path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/verify.js"), "--dom", "src/host.d.rx"], { cwd: h.dir, encoding: "utf8" });
-      h.check("rx-verify: the host's declaration holds where it is run (each page inside its layout, rendered through the router's component)", (v.stdout.match(/ ok /g) ?? []).length === 2 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
+      h.check("rx-verify: the host's declaration holds where it is run (each page inside its layout, rendered through the router's component)", (v.stdout.match(/ held /g) ?? []).length === 2 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
     } finally { server.kill(); }
     // the dev server: start mode renders each request in Vite's own server, and an edit of a route file is shown
     const dev = spawn(process.execPath, ["dev.mjs"], { cwd: h.dir, env: process.env });
