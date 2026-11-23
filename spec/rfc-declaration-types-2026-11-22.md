@@ -2402,4 +2402,61 @@ at every draft; the nine words stay.
 
 ### The numbers
 
-@@NUMBERS@@
+`node bench/run.mjs`, at `93fe1df` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `93fe1df` (37 tasks) | 132/132 | 183/183 | 261/261 | 228/228 | 13/13 | 259 | 57 | 0 | 29 |
+| now (37 tasks) | 132/132 | 186/186 | 268/268 | 245/245 | 13/13 | 214 | 61 | 0 | 30 |
+
+No check is red. Ten tasks moved:
+
+| task | good | types | runtime | bad caught | unrepresentable | words | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `file-routes`, was | 6/6 | 5/5 | 8/8 | 14/14 | — | 12 | 0 | 0 | 0 |
+| `file-routes`, now | 6/6 | 5/5 | 8/8 | 14/14 | — | 9 | 0 | 0 | 0 |
+| `kobalte-toast`, was | 3/3 | 5/5 | 9/9 | 8/8 | — | 3 | 0 | 0 | 0 |
+| `kobalte-toast`, now | 3/3 | 5/5 | 10/10 | 12/12 | — | 3 | 0 | 0 | 1 |
+| `query-forward`, was | 3/3 | 6/6 | 6/6 | 9/9 | — | 5 | 0 | 0 | 0 |
+| `query-forward`, now | 3/3 | 6/6 | 6/6 | 9/9 | — | 1 | 0 | 0 | 0 |
+| `router-code-routes`, was | 3/3 | 6/6 | 5/5 | 6/6 | 1/1 | 7 | 16 | 0 | 1 |
+| `router-code-routes`, now | 3/3 | 6/6 | 6/6 | 11/11 | 1/1 | 3 | 16 | 0 | 1 |
+| `router-data`, was | 3/3 | 5/5 | 5/5 | 7/7 | — | 4 | 0 | 0 | 0 |
+| `router-data`, now | 3/3 | 5/5 | 7/7 | 10/10 | — | 4 | 4 | 0 | 0 |
+| `router-provider`, was | 6/6 | 5/5 | 5/5 | 12/12 | 1/1 | 7 | 0 | 0 | 1 |
+| `router-provider`, now | 6/6 | 5/5 | 5/5 | 12/12 | 1/1 | 3 | 0 | 0 | 1 |
+| `router-rx-routes`, was | 12/12 | 6/6 | 14/14 | 11/11 | — | 10 | 0 | 0 | 1 |
+| `router-rx-routes`, now | 12/12 | 9/9 | 17/17 | 16/16 | — | 7 | 0 | 0 | 1 |
+| `start-mode`, was | 9/9 | 5/5 | 15/15 | 11/11 | 1/1 | 12 | 0 | 0 | 0 |
+| `start-mode`, now | 9/9 | 5/5 | 15/15 | 11/11 | 1/1 | 9 | 0 | 0 | 0 |
+| `ui-sdk-dialog`, was | 3/3 | 6/6 | 9/9 | 6/6 | 1/1 | 23 | 10 | 0 | 9 |
+| `ui-sdk-dialog`, now | 3/3 | 6/6 | 9/9 | 6/6 | 1/1 | 6 | 10 | 0 | 9 |
+| `ui-sdk-forms`, was | 3/3 | 5/5 | 5/5 | 4/4 | 2/2 | 9 | 9 | 0 | 10 |
+| `ui-sdk-forms`, now | 3/3 | 5/5 | 5/5 | 4/4 | 2/2 | 2 | 9 | 0 | 10 |
+
+`kobalte-toast` lost its module of the app's own and calls the library's
+`toaster`: four variants more (a method called while the view computes,
+where the handler is given, by an equation; the toaster's name bound
+again), one part more by place (the method's options). `router-code-routes`
+has its regions in the root layout and a derived host declaration (five
+variants more). `router-rx-routes` has its outlet in a frame, a loader
+and a validated search (three type probes, three run checks, five
+variants more). `router-data` calls `query.clear()` (three variants, two
+run checks; the four `any`s are the library's, in `query`'s own type).
+The other six lost words only: `known.js` (UI SDK's contexts, the
+router's `useParams`) and the draft's own type rows. 45 words fewer in
+all.
+
+Coverage, entry for entry: 123 programs, all green (as before); 193
+modules drafted whole, 5 105 rows (4 904: a method is a row now — UI
+SDK's `toast`, `overlays` and `shortcuts`, Wardic's objects — and a
+default export one too), 1 197 `any`s the libraries' own (1 195), none
+introduced, 1 551 by place (1 519); 277 hand-written words (277: the
+three modules of the app's own that are gone had one word each, `pure`,
+which their rows keep); 21/21 bad caught (13/13: `solid-sonner/toaster`
+3 to 6, `ui-sdk/overlays` 0 to 3, `solid-marked/markdown` 2 to 4).
+Twenty-seven entries have a module of the app's own (thirty).
+
+Parity: 720 programs agree between the crate and `ref/` in each of the
+three checking modes (698 before this round), 281 lower alike, 316
+project alike.

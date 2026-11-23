@@ -2825,7 +2825,7 @@
    },
    "modules": {
     "@solid-primitives/raf": {
-     "rows": 8,
+     "rows": 9,
      "vendor": 3,
      "introduced": 0,
      "places": 1
@@ -3593,10 +3593,10 @@
    },
    "modules": {
     "@solid-primitives/storage": {
-     "rows": 19,
+     "rows": 22,
      "vendor": 9,
      "introduced": 0,
-     "places": 2
+     "places": 5
     },
     "@solid-primitives/storage/tauri": {
      "rows": 1,
@@ -3947,7 +3947,7 @@
      "places": 2
     },
     "@solid-primitives/utils/colors": {
-     "rows": 26,
+     "rows": 28,
      "vendor": 0,
      "introduced": 0,
      "places": 0
@@ -4187,8 +4187,8 @@
     "fails": []
    },
    "bad": {
-    "pass": 2,
-    "total": 2,
+    "pass": 4,
+    "total": 4,
     "fails": []
    },
    "server": true,
@@ -4211,7 +4211,7 @@
      "places": 0
     },
     "solid-marked/component": {
-     "rows": 1,
+     "rows": 2,
      "vendor": 0,
      "introduced": 0,
      "places": 0
@@ -4230,13 +4230,13 @@
     "fails": []
    },
    "runtime": {
-    "pass": 5,
-    "total": 5,
+    "pass": 7,
+    "total": 7,
     "fails": []
    },
    "bad": {
-    "pass": 3,
-    "total": 3,
+    "pass": 6,
+    "total": 6,
     "fails": []
    },
    "server": false,
@@ -4253,10 +4253,10 @@
    },
    "modules": {
     "solid-sonner": {
-     "rows": 9,
+     "rows": 20,
      "vendor": 0,
      "introduced": 0,
-     "places": 0
+     "places": 4
     }
    }
   },
@@ -4295,10 +4295,10 @@
    },
    "modules": {
     "solid-use/atom": {
-     "rows": 1,
-     "vendor": 0,
+     "rows": 2,
+     "vendor": 2,
      "introduced": 0,
-     "places": 0
+     "places": 2
     }
    }
   },
@@ -4379,7 +4379,7 @@
    },
    "modules": {
     "solid-use/fetch": {
-     "rows": 4,
+     "rows": 5,
      "vendor": 0,
      "introduced": 0,
      "places": 0
@@ -4463,7 +4463,7 @@
    },
    "modules": {
     "solid-use/online-status": {
-     "rows": 0,
+     "rows": 1,
      "vendor": 0,
      "introduced": 0,
      "places": 0
@@ -4505,7 +4505,7 @@
    },
    "modules": {
     "solid-use/page-visibility": {
-     "rows": 0,
+     "rows": 1,
      "vendor": 0,
      "introduced": 0,
      "places": 0
@@ -4631,7 +4631,7 @@
    },
    "modules": {
     "solid-use/server-value": {
-     "rows": 0,
+     "rows": 1,
      "vendor": 0,
      "introduced": 0,
      "places": 0
@@ -4673,7 +4673,7 @@
    },
    "modules": {
     "solid-use/string": {
-     "rows": 0,
+     "rows": 1,
      "vendor": 0,
      "introduced": 0,
      "places": 0
@@ -4771,13 +4771,13 @@
     "fails": []
    },
    "runtime": {
-    "pass": 4,
-    "total": 4,
+    "pass": 6,
+    "total": 6,
     "fails": []
    },
    "bad": {
-    "pass": 0,
-    "total": 0,
+    "pass": 3,
+    "total": 3,
     "fails": []
    },
    "server": false,
@@ -4792,7 +4792,7 @@
     "any": 0,
     "inherited": 0,
     "introduced": 0,
-    "places": 1
+    "places": 2
    },
    "modules": {}
   },
@@ -5162,34 +5162,34 @@
  },
  "drafts": {
   "@wardic/solid": {
-   "rows": 247,
+   "rows": 259,
    "vendor": 3,
    "introduced": 0,
    "places": 42
   },
   "@wardic/solid/v1": {
-   "rows": 227,
+   "rows": 239,
    "vendor": 4,
    "introduced": 0,
-   "places": 12
+   "places": 14
   },
   "@wardic/solid/unstable/v2": {
-   "rows": 247,
+   "rows": 259,
    "vendor": 3,
    "introduced": 0,
    "places": 42
   },
   "@wardic/dom": {
-   "rows": 30,
+   "rows": 121,
    "vendor": 0,
    "introduced": 0,
-   "places": 0
+   "places": 7
   },
   "@ui-sdk/solid": {
-   "rows": 1329,
+   "rows": 1353,
    "vendor": 522,
    "introduced": 0,
-   "places": 577
+   "places": 584
   },
   "@ui-sdk/solid/accordion": {
    "rows": 21,
@@ -5294,7 +5294,7 @@
    "places": 0
   },
   "@ui-sdk/solid/dialog": {
-   "rows": 49,
+   "rows": 50,
    "vendor": 10,
    "introduced": 0,
    "places": 9
@@ -5402,7 +5402,7 @@
    "places": 6
   },
   "@ui-sdk/solid/overlays": {
-   "rows": 6,
+   "rows": 12,
    "vendor": 0,
    "introduced": 0,
    "places": 2
@@ -5444,7 +5444,7 @@
    "places": 12
   },
   "@ui-sdk/solid/radio": {
-   "rows": 15,
+   "rows": 16,
    "vendor": 4,
    "introduced": 0,
    "places": 3
@@ -5486,7 +5486,7 @@
    "places": 0
   },
   "@ui-sdk/solid/shortcuts": {
-   "rows": 13,
+   "rows": 18,
    "vendor": 0,
    "introduced": 0,
    "places": 0
@@ -5552,10 +5552,10 @@
    "places": 18
   },
   "@ui-sdk/solid/toast": {
-   "rows": 27,
+   "rows": 37,
    "vendor": 6,
    "introduced": 0,
-   "places": 2
+   "places": 9
   },
   "@ui-sdk/solid/toggle": {
    "rows": 22,
@@ -5564,7 +5564,7 @@
    "places": 3
   },
   "@ui-sdk/solid/token-input": {
-   "rows": 30,
+   "rows": 33,
    "vendor": 3,
    "introduced": 0,
    "places": 0

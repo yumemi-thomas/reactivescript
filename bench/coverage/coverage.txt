@@ -1,6 +1,6 @@
-Coverage: 123 programs, 123 green; 193 modules drafted whole (4904 rows): 1195 `any` the libraries' own, 0 introduced, 1519 by place; 277 hand-written words, 109 `any` inherited and 0 introduced in the kept rows, 196 by place
+Coverage: 123 programs, 123 green; 193 modules drafted whole (5105 rows): 1197 `any` the libraries' own, 0 introduced, 1551 by place; 277 hand-written words, 109 `any` inherited and 0 introduced in the kept rows, 197 by place
 
-primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 introduced, 264 by place); 98 programs, 98 green; 162 hand-written words
+primitives: 107 modules drafted (1243 rows, 127 `any` the libraries' own, 0 introduced, 267 by place); 98 programs, 98 green; 162 hand-written words
   module                                        version  rows drafted  `any` library's  introduced  by place  used by                           hand words  accepted  types  runs  bad caught  server  hydrated
   --------------------------------------------  -------  ------------  ---------------  ----------  --------  --------------------------------  ----------  --------  -----  ----  ----------  ------  --------
   @solid-primitives/a11y                        1.0.0    12            0                0           0         primitives/a11y                   2           3/3       2/2    3/3   —           yes     yes     
@@ -72,7 +72,7 @@ primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 intr
   @solid-primitives/promise                     2.0.0    10            4                0           0         primitives/promise                0           3/3       2/2    3/3   —           yes     yes     
   @solid-primitives/props                       4.0.0    9             4                0           0         primitives/props                  2           3/3       2/2    3/3   —           no      no      
   @solid-primitives/queue                       1.0.0    11            0                0           12        primitives/queue                  1           3/3       2/2    4/4   —           yes     yes     
-  @solid-primitives/raf                         4.0.0    8             3                0           1         primitives/raf                    2           3/3       2/2    4/4   —           yes     yes     
+  @solid-primitives/raf                         4.0.0    9             3                0           1         primitives/raf                    2           3/3       2/2    4/4   —           yes     yes     
   @solid-primitives/range                       1.0.0    8             0                0           0         primitives/range                  10          3/3       2/2    5/5   —           yes     yes     
   @solid-primitives/refs                        3.0.0    10            0                0           1         primitives/refs                   3           3/3       2/2    3/3   —           yes     no      
   @solid-primitives/resize-observer             4.0.0    11            0                0           1         primitives/resize-observer        1           3/3       2/2    4/4   —           yes     yes     
@@ -92,7 +92,7 @@ primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 intr
   @solid-primitives/sse/worker-handler          1.0.0    0             0                0           0         — (primitives/sse)                                                                               
   @solid-primitives/state-machine               1.0.0    9             2                0           0         primitives/state-machine          11          3/3       2/2    3/3   —           yes     yes     
   @solid-primitives/static-store                1.0.0    5             0                0           6         primitives/static-store           1           3/3       2/2    3/3   —           yes     yes     
-  @solid-primitives/storage                     5.0.0    19            9                0           2         primitives/storage                1           3/3       2/2    4/4   —           yes     yes     
+  @solid-primitives/storage                     5.0.0    22            9                0           5         primitives/storage                1           3/3       2/2    4/4   —           yes     yes     
   @solid-primitives/storage/tauri               5.0.0    1             0                0           0         — (primitives/storage)                                                                           
   @solid-primitives/styles                      1.0.0    4             0                0           0         primitives/styles                 1           3/3       2/2    3/3   —           yes     yes     
   @solid-primitives/timer                       1.4.5    6             0                0           5         primitives/timer                  1           3/3       2/2    3/3   —           yes     yes     
@@ -102,7 +102,7 @@ primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 intr
   @solid-primitives/upload                      1.0.0    20            0                0           6         primitives/upload                 1           3/3       2/2    3/3   —           yes     yes     
   @solid-primitives/url                         0.2.0    23            0                0           5         primitives/url                    1           3/3       2/2    3/3   —           yes     yes     
   @solid-primitives/utils                       7.0.1    80            18               0           20        primitives/utils                  2           3/3       2/2    3/3   —           yes     yes     
-  @solid-primitives/utils/colors                7.0.1    26            0                0           0         — (primitives/utils)                                                                             
+  @solid-primitives/utils/colors                7.0.1    28            0                0           0         — (primitives/utils)                                                                             
   @solid-primitives/utils/immutable             7.0.1    41            5                0           2         — (primitives/utils)                                                                             
   @solid-primitives/vibrate                     1.0.0    9             0                0           0         primitives/vibrate                1           3/3       2/2    4/4   —           yes     yes     
   @solid-primitives/video                       1.0.0    14            0                0           0         primitives/video                  1           3/3       2/2    3/3   —           yes     yes     
@@ -111,35 +111,35 @@ primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 intr
   @solid-primitives/workers                     2.0.1    12            0                0           3         primitives/workers                1           3/3       2/2    2/2   —           no      no      
   @solid-primitives/workers/worker              2.0.1    2             0                0           0         — (primitives/workers)                                                                           
 
-solid-marked: 2 modules drafted (18 rows, 0 `any` the libraries' own, 0 introduced, 0 by place); 1 programs, 1 green; 0 hand-written words
+solid-marked: 2 modules drafted (19 rows, 0 `any` the libraries' own, 0 introduced, 0 by place); 1 programs, 1 green; 0 hand-written words
   module                  version  rows drafted  `any` library's  introduced  by place  used by                    hand words  accepted  types  runs  bad caught  server  hydrated
   ----------------------  -------  ------------  ---------------  ----------  --------  -------------------------  ----------  --------  -----  ----  ----------  ------  --------
   solid-marked            1.0.0    17            0                0           0         — (solid-marked/markdown)                                                                 
-  solid-marked/component  1.0.0    1             0                0           0         solid-marked/markdown      0           3/3       2/2    5/5   2/2         yes     yes     
+  solid-marked/component  1.0.0    2             0                0           0         solid-marked/markdown      0           3/3       2/2    5/5   4/4         yes     yes     
 
-solid-sonner: 1 modules drafted (9 rows, 0 `any` the libraries' own, 0 introduced, 0 by place); 1 programs, 1 green; 0 hand-written words
+solid-sonner: 1 modules drafted (20 rows, 0 `any` the libraries' own, 0 introduced, 4 by place); 1 programs, 1 green; 0 hand-written words
   module        version  rows drafted  `any` library's  introduced  by place  used by               hand words  accepted  types  runs  bad caught  server  hydrated
   ------------  -------  ------------  ---------------  ----------  --------  --------------------  ----------  --------  -----  ----  ----------  ------  --------
-  solid-sonner  1.0.0    9             0                0           0         solid-sonner/toaster  0           3/3       2/2    5/5   3/3         no      no      
+  solid-sonner  1.0.0    20            0                0           4         solid-sonner/toaster  0           3/3       2/2    7/7   6/6         no      no      
 
-solid-use: 10 modules drafted (28 rows, 6 `any` the libraries' own, 0 introduced, 0 by place); 10 programs, 10 green; 21 hand-written words
+solid-use: 10 modules drafted (34 rows, 8 `any` the libraries' own, 0 introduced, 2 by place); 10 programs, 10 green; 21 hand-written words
   module                     version  rows drafted  `any` library's  introduced  by place  used by                    hand words  accepted  types  runs  bad caught  server  hydrated
   -------------------------  -------  ------------  ---------------  ----------  --------  -------------------------  ----------  --------  -----  ----  ----------  ------  --------
-  solid-use/atom             1.0.0    1             0                0           0         solid-use/atom             1           3/3       2/2    3/3   —           yes     yes     
+  solid-use/atom             1.0.0    2             2                0           2         solid-use/atom             1           3/3       2/2    3/3   —           yes     yes     
   solid-use/client-only      1.0.0    5             2                0           0         solid-use/client-only      1           3/3       2/2    3/3   —           yes     yes     
-  solid-use/fetch            1.0.0    4             0                0           0         solid-use/fetch            4           3/3       2/2    2/2   2/2         no      no      
+  solid-use/fetch            1.0.0    5             0                0           0         solid-use/fetch            4           3/3       2/2    2/2   2/2         no      no      
   solid-use/media-query      1.0.0    4             0                0           0         solid-use/media-query      2           3/3       2/2    3/3   —           yes     yes     
-  solid-use/online-status    1.0.0    0             0                0           0         solid-use/online-status    1           3/3       2/2    3/3   —           yes     yes     
-  solid-use/page-visibility  1.0.0    0             0                0           0         solid-use/page-visibility  1           3/3       2/2    3/3   —           yes     yes     
+  solid-use/online-status    1.0.0    1             0                0           0         solid-use/online-status    1           3/3       2/2    3/3   —           yes     yes     
+  solid-use/page-visibility  1.0.0    1             0                0           0         solid-use/page-visibility  1           3/3       2/2    3/3   —           yes     yes     
   solid-use/props            1.0.0    7             2                0           0         solid-use/props            1           3/3       2/2    3/3   —           yes     yes     
   solid-use/provider         1.0.0    7             2                0           0         solid-use/provider         8           3/3       2/2    3/3   —           yes     yes     
-  solid-use/server-value     1.0.0    0             0                0           0         solid-use/server-value     1           3/3       2/2    3/3   —           yes     yes     
-  solid-use/string           1.0.0    0             0                0           0         solid-use/string           1           3/3       2/2    3/3   —           yes     yes     
+  solid-use/server-value     1.0.0    1             0                0           0         solid-use/server-value     1           3/3       2/2    3/3   —           yes     yes     
+  solid-use/string           1.0.0    1             0                0           0         solid-use/string           1           3/3       2/2    3/3   —           yes     yes     
 
-ui-sdk: 69 modules drafted (2861 rows, 1052 `any` the libraries' own, 0 introduced, 1159 by place); 7 programs, 7 green; 9 hand-written words
+ui-sdk: 69 modules drafted (2911 rows, 1052 `any` the libraries' own, 0 introduced, 1173 by place); 7 programs, 7 green; 9 hand-written words
   module                           version        rows drafted  `any` library's  introduced  by place  used by  hand words  accepted  types  runs  bad caught  server  hydrated
   -------------------------------  -------------  ------------  ---------------  ----------  --------  -------  ----------  --------  -----  ----  ----------  ------  --------
-  @ui-sdk/solid                    0.1.0-beta.13  1329          522              0           577       —                                                                       
+  @ui-sdk/solid                    0.1.0-beta.13  1353          522              0           584       —                                                                       
   @ui-sdk/solid/accordion          0.1.0-beta.13  21            9                0           28        —                                                                       
   @ui-sdk/solid/agent              0.1.0-beta.13  8             0                0           2         —                                                                       
   @ui-sdk/solid/alert-dialog       0.1.0-beta.13  29            10               0           10        —                                                                       
@@ -158,7 +158,7 @@ ui-sdk: 69 modules drafted (2861 rows, 1052 `any` the libraries' own, 0 introduc
   @ui-sdk/solid/date               0.1.0-beta.13  31            0                0           0         —                                                                       
   @ui-sdk/solid/date-input         0.1.0-beta.13  18            2                0           0         —                                                                       
   @ui-sdk/solid/date-picker        0.1.0-beta.13  50            18               0           11        —                                                                       
-  @ui-sdk/solid/dialog             0.1.0-beta.13  49            10               0           9         —                                                                       
+  @ui-sdk/solid/dialog             0.1.0-beta.13  50            10               0           9         —                                                                       
   @ui-sdk/solid/drawer             0.1.0-beta.13  34            13               0           12        —                                                                       
   @ui-sdk/solid/field              0.1.0-beta.13  21            12               0           0         —                                                                       
   @ui-sdk/solid/file-input         0.1.0-beta.13  30            7                0           7         —                                                                       
@@ -178,21 +178,21 @@ ui-sdk: 69 modules drafted (2861 rows, 1052 `any` the libraries' own, 0 introduc
   @ui-sdk/solid/number-input       0.1.0-beta.13  18            10               0           9         —                                                                       
   @ui-sdk/solid/observe            0.1.0-beta.13  4             0                0           1         —                                                                       
   @ui-sdk/solid/otp-input          0.1.0-beta.13  16            6                0           6         —                                                                       
-  @ui-sdk/solid/overlays           0.1.0-beta.13  6             0                0           2         —                                                                       
+  @ui-sdk/solid/overlays           0.1.0-beta.13  12            0                0           2         —                                                                       
   @ui-sdk/solid/pagination         0.1.0-beta.13  22            11               0           6         —                                                                       
   @ui-sdk/solid/password-input     0.1.0-beta.13  10            4                0           3         —                                                                       
   @ui-sdk/solid/popover            0.1.0-beta.13  26            11               0           14        —                                                                       
   @ui-sdk/solid/preferences        0.1.0-beta.13  3             0                0           0         —                                                                       
   @ui-sdk/solid/primitive          0.1.0-beta.13  9             0                0           0         —                                                                       
   @ui-sdk/solid/progress           0.1.0-beta.13  12            10               0           12        —                                                                       
-  @ui-sdk/solid/radio              0.1.0-beta.13  15            4                0           3         —                                                                       
+  @ui-sdk/solid/radio              0.1.0-beta.13  16            4                0           3         —                                                                       
   @ui-sdk/solid/rating             0.1.0-beta.13  12            2                0           0         —                                                                       
   @ui-sdk/solid/resizable          0.1.0-beta.13  20            6                0           6         —                                                                       
   @ui-sdk/solid/scroll-area        0.1.0-beta.13  18            12               0           12        —                                                                       
   @ui-sdk/solid/segmented-control  0.1.0-beta.13  16            4                0           3         —                                                                       
   @ui-sdk/solid/select             0.1.0-beta.13  61            30               0           39        —                                                                       
   @ui-sdk/solid/separator          0.1.0-beta.13  5             2                0           0         —                                                                       
-  @ui-sdk/solid/shortcuts          0.1.0-beta.13  13            0                0           0         —                                                                       
+  @ui-sdk/solid/shortcuts          0.1.0-beta.13  18            0                0           0         —                                                                       
   @ui-sdk/solid/slider             0.1.0-beta.13  20            11               0           27        —                                                                       
   @ui-sdk/solid/switch             0.1.0-beta.13  10            3                0           3         —                                                                       
   @ui-sdk/solid/tabs               0.1.0-beta.13  24            11               0           30        —                                                                       
@@ -200,22 +200,22 @@ ui-sdk: 69 modules drafted (2861 rows, 1052 `any` the libraries' own, 0 introduc
   @ui-sdk/solid/textarea           0.1.0-beta.13  16            1                0           0         —                                                                       
   @ui-sdk/solid/time-input         0.1.0-beta.13  16            2                0           0         —                                                                       
   @ui-sdk/solid/timeline           0.1.0-beta.13  22            14               0           18        —                                                                       
-  @ui-sdk/solid/toast              0.1.0-beta.13  27            6                0           2         —                                                                       
+  @ui-sdk/solid/toast              0.1.0-beta.13  37            6                0           9         —                                                                       
   @ui-sdk/solid/toggle             0.1.0-beta.13  22            4                0           3         —                                                                       
-  @ui-sdk/solid/token-input        0.1.0-beta.13  30            3                0           0         —                                                                       
+  @ui-sdk/solid/token-input        0.1.0-beta.13  33            3                0           0         —                                                                       
   @ui-sdk/solid/toolbar            0.1.0-beta.13  21            10               0           12        —                                                                       
   @ui-sdk/solid/tooltip            0.1.0-beta.13  20            5                0           3         —                                                                       
   @ui-sdk/solid/tree               0.1.0-beta.13  38            6                0           0         —                                                                       
   @ui-sdk/solid/trigger-menu       0.1.0-beta.13  55            17               0           17        —                                                                       
   @ui-sdk/solid/waterfall          0.1.0-beta.13  36            21               0           30        —                                                                       
 
-wardic: 4 modules drafted (751 rows, 10 `any` the libraries' own, 0 introduced, 96 by place); 6 programs, 6 green; 85 hand-written words
+wardic: 4 modules drafted (878 rows, 10 `any` the libraries' own, 0 introduced, 105 by place); 6 programs, 6 green; 85 hand-written words
   module                     version  rows drafted  `any` library's  introduced  by place  used by  hand words  accepted  types  runs  bad caught  server  hydrated
   -------------------------  -------  ------------  ---------------  ----------  --------  -------  ----------  --------  -----  ----  ----------  ------  --------
-  @wardic/dom                1.2.0    30            0                0           0         —                                                                       
-  @wardic/solid              2.0.1    247           3                0           42        —                                                                       
-  @wardic/solid/unstable/v2  2.0.1    247           3                0           42        —                                                                       
-  @wardic/solid/v1           2.0.1    227           4                0           12        —                                                                       
+  @wardic/dom                1.2.0    121           0                0           7         —                                                                       
+  @wardic/solid              2.0.1    259           3                0           42        —                                                                       
+  @wardic/solid/unstable/v2  2.0.1    259           3                0           42        —                                                                       
+  @wardic/solid/v1           2.0.1    239           4                0           14        —                                                                       
 
 All green.
 
@@ -250,18 +250,18 @@ What the entries say of their packages (52):
   primitives/virtual: not rendered on the server — the package ships one build, its JSX compiled for the DOM: <VirtualList> calls a client-only API of @solidjs/web on the server, in any app.
   primitives/websocket: not rendered on the server — createWS opens a WebSocket where it is called: on the server it would connect from the server, and the package has no server path.
   primitives/workers: not rendered on the server — a worker is the browser's (`new Worker`). A JS module of the app's own: createWorker is given functions (their source is sent to the worker) and hands back a tuple whose first part has a method for each: a mapped type.
-  solid-marked/markdown: The runtime component is its module's default export, handed out by name from a module of the app's own (markdown.js); its row is the draft's. A component in a record given to a prop is read as a direct one is (09 MO-11c, 2026-11-24): it was `COMPONENT_AS_VALUE`. `solid-marked/compiler` is the build-time compiler (a bundler plugin's, run in Node), not a module an app imports, and is not drafted.
-  solid-sonner/toaster: not rendered on the server — the package's default build is compiled for the DOM (its `solid` condition is the source an app's bundler compiles); the benchmark imports a package as Node resolves it. One of the three libraries whose row says `renders(<Component>)` (09 MO-11u, MO-8r). the row is the draft's (the word from known.js). A component that declares no props is the function of nothing the library's type asks for (13 TY-3d). `toast.custom(fn)` is not declared: it calls `fn` with no owner at all (found by running it: `getOwner()` is null there, and in Solid's development build `useContext` throws NoOwnerError), which no row describes (MO-11s).
-  solid-use/atom: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and an atom is one function that reads and writes, where a result's part is a reader or a function.
-  solid-use/fetch: not rendered on the server — the request is made where the primitive is made, from the browser. A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and what it answers is an object whose method makes the accessor (a method that instantiates).
-  solid-use/online-status: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports.
-  solid-use/page-visibility: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports.
+  solid-marked/markdown: The runtime component is its module's default export, imported as JavaScript imports one (`import { default as Markdown }`) and declared by a row named `default` (09 MO-8u, 2026-11-25: a module of the app's own, markdown.js, handed it out by name until then); the row is the draft's. A component in a record given to a prop is read as a direct one is (09 MO-11c, 2026-11-24): it was `COMPONENT_AS_VALUE`; and the record may have a name, where every mention of the name is that prop (2026-11-25: it was `COMPONENT_AS_VALUE` too). `solid-marked/compiler` is the build-time compiler (a bundler plugin's, run in Node), not a module an app imports, and is not drafted.
+  solid-sonner/toaster: not rendered on the server — the package's default build is compiled for the DOM (its `solid` condition is the source an app's bundler compiles); the benchmark imports a package as Node resolves it. One of the three libraries whose row says `renders(<Component>)` (09 MO-11u, MO-8r). the row is the draft's (the word from known.js). A component that declares no props is the function of nothing the library's type asks for (13 TY-3d). Its methods have rows of their own (MO-8t, 2026-11-25), the draft's: `toast.success(…)` in a view was accepted, and shows a toast on every computation (run). `toast.custom(fn)` has a row with no `renders(…)`: it calls `fn` with no owner at all (found by running it: `getOwner()` is null there, and in Solid's development build `useContext` throws NoOwnerError), which no row describes (MO-11s).
+  solid-use/atom: A JS module of the app's own: an atom is one function that reads and writes, where a result's part is a reader or a function (the utility is its module's default export, which an `.rx` module imports as JavaScript does, 09 MO-8u: that is no longer a reason for the module).
+  solid-use/fetch: not rendered on the server — the request is made where the primitive is made, from the browser. A JS module of the app's own: what it answers is an object whose method makes the accessor (a method that instantiates) (the utility is its module's default export, which an `.rx` module imports as JavaScript does, 09 MO-8u: no longer a reason for the module).
+  solid-use/online-status: The utility is its module's default export: imported as JavaScript imports one (`import { default as useOnlineStatus }`), and declared by a row named `default` (09 MO-8u, 2026-11-25). Until then a module of the app's own handed it out by name (status.js, with its declaration): that module is gone.
+  solid-use/page-visibility: The utility is its module's default export: imported as JavaScript imports one (`import { default as usePageVisibility }`), and declared by a row named `default` (09 MO-8u, 2026-11-25); the module of the app's own that handed it out by name is gone.
   solid-use/provider: A JS module of the app's own: `provide(context, value)` is a call made for what it does while a component is made, which has no place in an `.rx` component's body.
-  solid-use/server-value: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and its callback is called once, while the call is made, and is impure on purpose.
-  solid-use/string: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and it is a tagged template, which `.rx` has no call for.
+  solid-use/server-value: A JS module of the app's own: its callback is called once, while the call is made, and is impure on purpose (the utility is its module's default export, which an `.rx` module imports as JavaScript does, 09 MO-8u: no longer a reason for the module).
+  solid-use/string: A JS module of the app's own: it is a tagged template, which `.rx` has no call for (the utility is its module's default export, which an `.rx` module imports as JavaScript does, 09 MO-8u: no longer a reason for the module).
   ui-sdk/disclosure: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
   ui-sdk/forms: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
-  ui-sdk/overlays: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it. The second library `renders(later)` was said to have (09 MO-8r, 2026-11-23): it has not. `toast()` and `confirm()` are given values (a message, a title) and answer an id and a promise; nothing they are given is a component, and nothing they answer is given to the host, which reads a registry of the library's own. The three rows are the draft's, with no word.
+  ui-sdk/overlays: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it. One of the libraries whose API is an object's methods (09 MO-8t): `toast.success()` and `toast.dismiss()` have rows of their own, the draft's. Until 2026-11-25 a method was read by what its type answers, and `toast.success(…)` answers an id: it was accepted in a view, where it shows a toast on every computation (run). It is not the second library `renders(later)` was said to have (09 MO-8r, 2026-11-23): that word was withdrawn, and it has none: `toast()` and `confirm()` are given values (a message, a title) and answer an id and a promise; nothing they are given is a component, and nothing they answer is given to the host, which reads a registry of the library's own. The three rows are the draft's, with no word.
   ui-sdk/popups: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
   ui-sdk/selection: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
   ui-sdk/status: not rendered on the server — the package's default build is compiled for the DOM, and its server render is its `solid` condition's source, compiled by the app's bundler; the benchmark imports a package as Node resolves it.
