@@ -118,6 +118,18 @@ does for `.tsrx`. Nothing here is a second type system.
 - **TY-3c.** A component cannot know where it is applied: a module-level
   `Item | null` read in a component is `Item | null` there, whatever branch
   applies it. Pass the narrowed value as a prop, or narrow inside.
+- **TY-3d (A component that declares no props) — 2026-11-24.** `component
+  Saved() { … }` declares no props (RG-4b: reading them is `UNBOUND`), and
+  is projected as a function of nothing, `function Saved() { … }`. It was
+  `function Saved(props: any)`. A function of nothing is what TypeScript
+  holds wherever a component is asked for (`Component<P>`: fewer
+  parameters are assignable) *and* where a library asks for a function
+  that takes none — `solid-sonner`'s `toast(() => JSX.Element)`, a render
+  function — which a function of one `any` is not (TS2345: "Target
+  signature provides too few arguments"); and an attribute given to such a
+  component where it is applied is TypeScript's to refuse, as the
+  component cannot read it. A component whose props are named and not
+  typed (`component C(props)`) stays `props: any`.
 
 ## TY-4 — Modules
 

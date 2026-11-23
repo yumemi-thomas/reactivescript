@@ -153,7 +153,7 @@ record argued each way; this is the decision.
   | `context(name, dflt)`, `provide(c, entry)`, `use(c, owner)`, `useGet(c, owner)`, `owner()` | contexts (RG-7) | `createContext`, `setContext`, `getContext`, `getOwner` |
   | `module(key, factory)` | an `.rx` dependency, once per app (MO-1); `key` is the file's name in a sibling-file build, the factory itself when modules are imported by source for a bundler (`rxc app`), so a module two programs share is one key | — |
   | `serverRef(name, fn)`, `serverCall(name, gen, args)` | a server fn as the client calls it, and its body (12 SF-2, SF-6, SF-7) | Solid's `"use server"` functions |
-  | `show(v)`, `scopedClass(v, hash)` | `{e}` (a value formatted, a view inserted), a dynamic class with the view's scope (CSS-2) | — |
+  | `show(v)`, `kids(v)`, `scopedClass(v, hash)` | `{e}` (a value formatted, a view inserted); `{props.children}`, a component's children (a view, or the list of views and strings a JS library passes, inserted as it is — `show` printed a list of strings as the list it also is, until 2026-11-24); a dynamic class with the view's scope (CSS-2). On the server neither escapes: the compiled view wraps every hole in Solid's `escape` (the runtime escaped as well until 2026-11-24, and a served `a < b` read `a &lt; b`: S-server-5) | — |
   | `TypedErrored`, `Portal` | `errored fallback(e: A)` (R-f-4), `portal` (RG-8) | `Errored`, `Portal` |
   | `B` | the language's built-in functions (`len`, `str`, `map`, `filter`, `sum`, `every`, `indexOf`) and `log` | — |
 

@@ -506,8 +506,17 @@ impl Proj<'_> {
                     let t = self.expr(tail, false, None);
                     self.w.emit(Code::of(&format!("{ind}  return ")).c(t).t(&format!(";\n{ind}}}")), *line);
                 }
-                Decl::Component { name, props, decls, view, line, props_type, .. } => {
+                Decl::Component { name, props, decls, view, line, props_type, no_props, .. } => {
                     let nm = self.name(name, sp, &mut at);
+                    // TY-3d (2026-11-24): `component C()` declares no props, and takes none — a function of nothing
+                    if *no_props {
+                        self.w.emit(Code::of(ind).t(ex(d)).t("function ").c(nm).t("() {"), *line);
+                        self.decls(decls, &format!("{ind}  "), false);
+                        self.w.emit(Code::of(&format!("{ind}  return (")), *line);
+                        self.markup(view, &format!("{ind}    "));
+                        self.w.emit(Code::of(&format!("{ind}  );\n{ind}}}")), *line);
+                        continue;
+                    }
                     let pn = self.name(props, sp, &mut at);
                     let pt = match props_type {
                         // MO-10f: a field's row words (`data: pending fails(Error) T`) are `.rx`'s, not TypeScript's: the

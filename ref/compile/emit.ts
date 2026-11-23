@@ -16,7 +16,7 @@ import type { Shape, JsDecl } from "../src/parse.ts";
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[] };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; props?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[] };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 class Env {
   vars = new Map<string, Bind>(); parent: Env | null;
@@ -457,7 +457,7 @@ class Gen {
   }
   private component(d: Extract<Decl, { k: "component" }>, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
-    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props) });
+    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props), props: true });   // props: `{props.children}` is the component's children (below)
     return `${pad}function ${cm(d.name)}(${mg(d.props)}) {\n${this.block(d.decls, d.view, inner, ind + 1, undefined, true)}\n${pad}}`;
   }
 
@@ -690,7 +690,10 @@ class Gen {
     switch (m.k) {
       case "text": return `{${J(m.s)}}`;
       case "style": return "";                                                                 // CSS-4: removed; the stylesheet is the module's
-      case "read": return `{__rt.show(${this.expr(m.e, env, re)})}`;
+      // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another value
+      // is formatted. A JS library hands a component its text as an array of strings (solid-marked's paragraphs), which
+      // `show` would print as the list it also is (2026-11-24)
+      case "read": return `{__rt.${m.e.k === "member" && m.e.p === "children" && m.e.o.k === "id" && env.lookup(m.e.o.name)?.props ? "kids" : "show"}(${this.expr(m.e, env, re)})}`;
       case "el": {
         if (m.tag === "") return this.markup(m.children, env, ind);
         if (/^[A-Z]/.test(m.tag)) {

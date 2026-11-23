@@ -10,7 +10,7 @@ import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver, DEV } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, createOwner, getNextChildId, runInServerComponentScope, omit, createRoot, onCleanup } from "solid-js";
-import { escape, renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
+import { renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
 let warnedCopies = false;   // once per process
 const warnedFields = new Set<string>();   // SV-5a: a declared field an instance came without, once per class and field
 import { $TARGET } from "@solidjs/signals";
@@ -349,7 +349,11 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request
     fmt,
 
     // ---- views: compiled JSX (compile/jsx.ts, generate "ssr", hydratable) does the rest ----
-    show: (v: unknown) => isView(v) ? v : escape(fmt(v)),
+    // a value is formatted, a view is inserted. The text is escaped by the compiled view, which wraps every hole in Solid's
+    // `escape` (strings, and the strings of a list): escaping here as well showed `a < b` as `a &lt; b` (2026-11-24)
+    show: (v: unknown) => isView(v) ? v : fmt(v),
+    /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
+    kids: (v: unknown) => Array.isArray(v) || isView(v) ? v : fmt(v),
     /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The
      *  client's unwrapping memo has no counterpart here: its id is reserved. */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {

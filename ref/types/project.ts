@@ -199,7 +199,10 @@ class Proj {
         this.w.emit(`${ind}${ex(d)}function ${d.name}(${ps})${ann(d.ret)} {`, d.line); this.decls(d.decls, ind + "  "); this.w.emit(`${ind}  return ${this.expr(d.tail, false)};\n${ind}}`, d.line);
       }
       if (d.k === "component") {
-        this.w.emit(`${ind}${ex(d)}function ${d.name}(${d.props}${d.propsType ? `: ${d.propsType.replace(/(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)/g, "$1")}` : ": any"}) {`, d.line);   // MO-10f: a field's row words are .rx's, not TypeScript's
+        // TY-3d (2026-11-24): `component C()` declares no props, and takes none — a function of nothing, which TypeScript holds
+        // where a library asks for one (`toast(() => JSX.Element)`) and wherever a component is asked for
+        if (d.noProps) this.w.emit(`${ind}${ex(d)}function ${d.name}() {`, d.line);
+        else this.w.emit(`${ind}${ex(d)}function ${d.name}(${d.props}${d.propsType ? `: ${d.propsType.replace(/(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)/g, "$1")}` : ": any"}) {`, d.line);   // MO-10f: a field's row words are .rx's, not TypeScript's
         this.decls(d.decls, ind + "  ");
         this.w.emit(`${ind}  return (`, d.line); this.markup(d.view.length ? d.view : [], ind + "    "); this.w.emit(`${ind}  );\n${ind}}`, d.line);
       }

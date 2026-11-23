@@ -56,6 +56,8 @@ struct FnRef {
 struct Bind {
     kind: Kind,
     js: String,
+    /// a component's props: `{props.children}` is the component's children, inserted as they are
+    props: bool,
     w: Option<String>,
     f: Option<FnRef>,
     prev: Option<String>,
@@ -76,7 +78,7 @@ struct Bind {
     draft_args: Vec<usize>,
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
+    Bind { kind, js: js.into(), props: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -1488,7 +1490,9 @@ impl<'p> Gen<'p> {
     fn component(&mut self, d: &Decl, env: Env) -> R<S> {
         let Decl::Component { name, props, decls, view, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
-        self.set(inner, props, val(mg(props)));
+        let mut pb = val(mg(props));
+        pb.props = true;
+        self.set(inner, props, pb);
         let body = self.block(decls, view, inner, None, true)?;
         Ok(S::Func(Func { name: Some(cm(name)), params: vec![P::Id(mg(props))], directives: vec![], body, is_async: false, generator: false }))
     }
@@ -2103,7 +2107,12 @@ impl<'p> Gen<'p> {
             MarkupKind::Text(s) => Child::Expr(str(s.clone())),
             // CSS-4: removed; the stylesheet is the module's
             MarkupKind::Style(_) => return Ok(None),
-            MarkupKind::Read(e) => Child::Expr(rtc("show", vec![self.expr(e, env, &re)?])),
+            // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another
+            // value is formatted (a JS library hands a component its text as an array of strings)
+            MarkupKind::Read(e) => {
+                let kids = matches!(&e.k, ExprKind::Member { o, p, .. } if p == "children" && matches!(&o.k, ExprKind::Id(n) if self.lookup(env, n).is_some_and(|b| b.props)));
+                Child::Expr(rtc(if kids { "kids" } else { "show" }, vec![self.expr(e, env, &re)?]))
+            }
             MarkupKind::El { tag, children, .. } if tag.is_empty() => {
                 if children.is_empty() {
                     Child::Text("null".into())
