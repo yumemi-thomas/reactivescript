@@ -7,14 +7,13 @@ const dup = async h => {
 };
 export default {
   title: "A keyed list: every row has its own key",
-  known: {
-    "rows added with a key the list already has": "06 ST-4d, 08 CN-2: a key computed at run time is the data's (bin R). The checker refuses rows written out with one key; it cannot see a key that a click computes, a static check does not become a run-time one, and Solid's development build reports no duplicate either. The variant stays as the measure of that limit.",
-  },
   types: [
     { name: "a row's key field is its type's", edit: ["{ id: next, text: \"new\" }", "{ id: \"x\", text: \"new\" }"], expect: /TS2322|TS2345/ },
   ],
   bad: [
     { name: "two rows written with one key", edit: ['[{ id: 1, text: "a" }, { id: 2, text: "b" }]', '[{ id: 1, text: "a" }, { id: 1, text: "b" }]'], expect: "DUPLICATE_KEY" },
+    // a key a click computes is not the checker's to read (bin R): the development build's runtime reads the rows a keyed
+    // list is given and names the list on the console (06 ST-4d; Solid's own development build says nothing)
     { name: "rows added with a key the list already has (known only when it runs)", edit: ["rows := rs => [{ id: next, text: \"new\" }, ...rs]; next := n => n + 1", "rows := rs => [{ id: 1, text: \"new\" }, ...rs]"], dev: /duplicate key|DUPLICATE_KEY/i, drive: dup },
   ],
   async run(h) {

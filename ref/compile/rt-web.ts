@@ -151,6 +151,25 @@ function lent(v: unknown, to: string): unknown {
   };
   return wrap(v);
 }
+/** 06 ST-4d, where only a run can know it (2026-11-24): in a development build (Solid's `DEV`), the rows a keyed list is
+ *  given are read for two with one key, and the list is named on the console — once for a list and a key. The checker
+ *  refuses rows written out with one key (`DUPLICATE_KEY`, bin S); a key a click or an answer computes is the data's, and
+ *  Solid's own development build says nothing of it: the list then shows one row's state for both, or drops one.
+ *  Reported, not refused: the program goes on as its production build does (a keyed answer from a backend is not the
+ *  program's to make unique), and the report is the one place it is said. */
+const reportedKeys = new Set<string>();
+function oneKeyEach(name: string, key: string | undefined, rows: unknown): void {
+  if (!DEV || key === undefined || !Array.isArray(rows)) return;
+  const seen = new Set<unknown>();
+  for (const row of rows) {
+    if (row === null || typeof row !== "object") continue;
+    const k = (row as Record<string, unknown>)[key]; if (k === undefined || k === null) continue;
+    if (!seen.has(k)) { seen.add(k); continue; }
+    const id = `${name}\0${key}\0${String(k)}`; if (reportedKeys.has(id)) return; reportedKeys.add(id);
+    console.error(`DUPLICATE_KEY [ST-4d] ${name} is keyed by ${key}, and two of the rows it was given have ${key}: ${JSON.stringify(k)} — a key names one row: rows with one key share one identity, so one's state shows for both, or one is dropped. These keys were computed as the program ran (the checker refuses rows written out with one key): give each row its own key where the rows are made. (Reported in a development build only.)`);
+    return;
+  }
+}
 function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown> }) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
@@ -215,11 +234,12 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     /** ST-4a: `source xs key id := …` — a new value written to it is reconciled by its key: a row whose key is kept
      *  keeps its identity (and what is declared in its row's region), wherever the new list puts it. */
     source(name: string, init: unknown, guessed = false, key?: string): [Acc, Writer] {
-      void name;
+      oneKeyEach(name, key, init);
       if (typeof init === "object" && init !== null) {
         const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
         const w: Writer = {
-          set: v => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(key !== undefined ? reconcile(v as any, key) as any : () => v as any); set(store); } else set(v); },
+          // (ST-4d in development: the rows an updater answers, or leaves in its draft, and the rows a write gives)
+          set: v => { if (typeof v === "function") { setStore(DEV && key !== undefined ? ((d: unknown) => { const r = (v as (x: unknown) => unknown)(d); oneKeyEach(name, key, r === undefined ? d : r); return r; }) as any : v as any); set(store); } else if (typeof v === "object" && v !== null) { oneKeyEach(name, key, v); setStore(key !== undefined ? reconcile(v as any, key) as any : () => v as any); set(store); } else set(v); },
           path: pathWrite(setStore),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
@@ -241,7 +261,8 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
      *  written or probed by path, createStore(fn, {}) whose derive writes its draft. */
     question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
-      const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
+      const land = (draft: any, v: unknown) => { oneKeyEach(name, key, v); return landDraft(draft, v, key); };   // ST-4d in development: a keyed answer's rows
+      const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => land(draft, r instanceof Flight ? await r.first : await r))(); return land(draft, r); };
       const seed = () => key && !mode.record ? [] : {};
       if (mode.optimistic && mode.structured && mode.plain && !mode.derived) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
         const [truth, setTruth] = (createStore as any)(derive, seed(), key ? { key } : undefined);
@@ -285,7 +306,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     lend: (v: unknown, to: string): unknown => lent(copyOf(v, new Map()), to),
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
-    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
+    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => { const rows = fn(); oneKeyEach(name, key, rows); return rows; }) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */

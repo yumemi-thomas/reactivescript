@@ -56,7 +56,7 @@ function exportsOf(text) {
       const inst = /\binstantiates\b|\bnests\(|\bprovides\(|\brenders\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
       // MO-10i (2026-11-22): `draft list: T[]` — a parameter the fn changes in place, during the call
       const drafts = params.flatMap((p, index) => /^draft\s+[A-Za-z_$]/.test(p) ? [index] : []);
-      out.push({ kind: "fn", name: m[2], line: i + 1, pure: !!m[1], inst, drafts, required: params.filter(p => !/^((ref|draft)\s+)?[\w$]+\?/.test(p)).length, uses: /\buses\(/.test(l), usesNames: names(l, "uses"), holds: /\bpending\b|\bfails\(/.test(l), fields, cbs });
+      out.push({ kind: "fn", name: m[2], line: i + 1, pure: !!m[1], side: /^\s*export\s+(server|client)\s/.exec(l)?.[1], inst, drafts, required: params.filter(p => !/^((ref|draft)\s+)?[\w$]+\?/.test(p)).length, uses: /\buses\(/.test(l), usesNames: names(l, "uses"), holds: /\bpending\b|\bfails\(/.test(l), fields, cbs });
     } else if ((m = /^\s*export\s+component\s+([A-Za-z_$][\w$.]*)/.exec(l))) out.push({ kind: "component", name: m[1], line: i + 1, provides: /\bprovides\(/.test(l), providesNames: names(l, "provides"), usesNames: names(l, "uses") });   // MO-11q: a member, `Dialog.Trigger`
     else if ((m = /^\s*export\s+error\s+([A-Za-z_$][\w$]*)/.exec(l))) out.push({ kind: "error", name: m[1], line: i + 1 });
     else if ((m = /^\s*export\s+const\s+([A-Za-z_$][\w$]*)/.exec(l))) out.push({ kind: "value", name: m[1], line: i + 1 });   // MO-8g
@@ -270,12 +270,17 @@ async function verifyModule(file, base, js) {
     }
     // pure (MO-8): with the same arguments, two calls answer alike (promises awaited); a fn that makes something is not run
     if (x.kind === "fn" && x.pure && !x.inst && !x.uses && (probe?.args || !x.required)) {
-      let a, b, threw = null;
+      let a, b, threw = null, across = null;
       createRoot(d => { try { a = v(...(probe?.args?.() ?? [])); b = v(...(probe?.args?.() ?? [])); } catch (e) { threw = e; } d(); });
       try { [a, b] = await Promise.all([a, b]); } catch (e) { threw ??= e; }
       out.push(threw ? { line: x.line, ob: "pure", status: "unverified", what: `${x.name}: pure not run: it threw (${String(threw.message ?? threw).slice(0, 50)})` }
-        : same(a, b) ? { line: x.line, ob: "pure", status: "unverified", what: `${x.name}: pure not contradicted: two calls with the same arguments answer alike, which cannot show a fn is pure` }   // RFC 28: running can refute purity, never establish it
-        : { line: x.line, ob: "pure", status: "fail", what: `${x.name}: declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})` });
+        : !same(a, b) ? { line: x.line, ob: "pure", status: "fail", what: `${x.name}: declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})` }
+        // 10 SV-7c: that a `pure` fn answers alike on the server and in the browser is part of the word, and a build
+        // cannot see it (hydration adopts the server's text). So it is run on the other side too — this process has a
+        // browser's globals (--dom) or has not, a second one the other way — and a plain answer that is steady on each
+        // side and differs between them refutes the row. (`server` and `client` fns run on one side only.)
+        : ((across = x.side ? null : otherSide(js, x.name, probeFile)), across?.plain && plain(a) && !same(a, across.value)) ? { line: x.line, ob: "pure", status: "fail", what: `${x.name}: declared pure, but it answers differently on the server and in the browser (${show(across.dom ? a : across.value)} with no window, ${show(across.dom ? across.value : a)} with one): a page rendered on the server would show one and hydrate with the other. What only the browser knows is \`client\` JS, asked as a question (10 SV-7b, SV-7c)` }
+        : { line: x.line, ob: "pure", status: "unverified", what: `${x.name}: pure not contradicted: two calls with the same arguments answer alike${across?.plain ? ", on the server and in a browser's globals" : ""}, which cannot show a fn is pure` });   // RFC 28: running can refute purity, never establish it
       continue;
     }
     // provides(c) (MO-12c, RFC 28): each context is its own claim, answered only by actual provision: a hook or a part of
@@ -337,6 +342,20 @@ async function verifyModule(file, base, js) {
   return out;
 }
 
+/** Plain data: what two machines can be compared on (no function, no class instance, no accessor). */
+function plain(v, seen = new Set()) {
+  if (v === null || ["string", "number", "boolean", "undefined"].includes(typeof v)) return true;
+  if (typeof v !== "object" || seen.has(v)) return false; seen.add(v);
+  if (Array.isArray(v)) return v.every(x => plain(x, seen));
+  return Object.getPrototypeOf(v) === Object.prototype && Object.values(v).every(x => plain(x, seen));
+}
+/** SV-7c: a fn's answer on the other side — a second process with a browser's globals when this one has none, and the
+ *  other way round: `{ plain, value, dom }`, or null when it could not be asked (no happy-dom, it threw, it is not steady). */
+function otherSide(js, name, probeFile) {
+  const dom = !process.argv.includes("--dom");
+  const r = require("node:child_process").spawnSync(process.execPath, [...process.execArgv, __filename, "--answer", path.resolve(js), name, probeFile ? path.resolve(probeFile) : "-", ...(dom ? ["--dom"] : [])], { cwd: process.cwd(), encoding: "utf8" });
+  try { const out = JSON.parse(String(r.stdout).trim().split("\n").pop()); return out.ok ? { plain: true, value: out.value, dom } : null; } catch { return null; }
+}
 /** Structural equality, for `pure`: functions are alike when both are functions. */
 function same(a, b, seen = new Set()) {
   if (Object.is(a, b)) return true;
@@ -359,6 +378,19 @@ function environmental(e) {
   const dom = process.argv.includes("--dom");
   const record = process.argv.includes("--record");   // MO-8j: write what was verified beside each declaration
   const files = process.argv.slice(2).filter(a => a !== "--dom" && a !== "--record");
+  // `--answer <module.js> <export> <probe|->` (rx-verify's own second process, SV-7c): the export called with the probe's
+  // arguments, twice; its answer as JSON when it is plain data and steady
+  if (process.argv[2] === "--answer") {
+    const [, , , js, name, probeFile] = process.argv; let out = { ok: false };
+    try {
+      if (dom) require(require.resolve("@happy-dom/global-registrator", { paths: [process.cwd(), __dirname] })).GlobalRegistrator.register({ url: "http://localhost/" });
+      const mod = await import(pathToFileURL(js).href); const probeMod = probeFile && probeFile !== "-" ? await import(pathToFileURL(probeFile).href) : null;
+      const v = name.split(".").reduce((o, k) => o?.[k], mod); const args = () => probeMod?.probes?.[name]?.args?.() ?? [];
+      const [a, b] = await Promise.all([v(...args()), v(...args())]);
+      if (plain(a) && same(a, b)) out = { ok: true, value: a };
+    } catch { /* not asked */ }
+    process.stdout.write(JSON.stringify(out) + "\n", () => process.exit(0)); return;
+  }
   if (dom) {   // a browser's globals, from happy-dom, resolved from the project: its hooks then run as in a page
     let reg;
     try { reg = require(require.resolve("@happy-dom/global-registrator", { paths: [process.cwd(), __dirname] })); }

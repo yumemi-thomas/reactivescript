@@ -503,5 +503,21 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   check("with no component given for it, it is not verified", /host\.d\.rx:2 unverified the host's view: Slot is not run: give the component as the probe's through\.Slot/.test(ungiven.out), ungiven.out);
 }
 
+// 10 SV-7c: `pure` is run on the other side too — a second process, with a browser's globals when this one has none
+{
+  const dir = path.join(ws, "sides"); fs.mkdirSync(dir, { recursive: true });
+  fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(dir, "node_modules"), "dir");
+  fs.writeFileSync(path.join(dir, "env.mjs"), "export const whereNow = () => (typeof window === \"undefined\" ? \"the server\" : \"the browser\");\nexport const label = n => `#${n}`;\nlet n = 0;\nexport const nextId = () => `id${n++}`;\nexport const whereAmI = async () => typeof window;\n");
+  fs.writeFileSync(path.join(dir, "env.d.rx"), "export pure fn whereNow(): string\nexport pure fn label(n: number): string\nexport pure fn nextId(): string\nexport client pure fn whereAmI(): Promise<string>\n");
+  fs.writeFileSync(path.join(dir, "env.probe.mjs"), "export const probes = { label: { args: () => [1] } };\n");
+  const happy = (() => { try { require.resolve("@happy-dom/global-registrator", { paths: [dir] }); return true; } catch { return false; } })();
+  const o = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "env.d.rx"], { cwd: dir, encoding: "utf8" }).stdout;
+  if (happy) check("a `pure` fn that answers differently with a window than without is a mismatch: the page would be served with one answer and hydrated with the other (SV-7c)", /env\.d\.rx:1 MISMATCH\s+whereNow: declared pure, but it answers differently on the server and in the browser \("the server" with no window, "the browser" with one\)/.test(o), o);
+  else console.log("  - (no @happy-dom/global-registrator here: the other side is not asked)");
+  check("...one that answers alike on both sides is not contradicted, and not verified either", /env\.d\.rx:2 unverified\s+label: pure not contradicted/.test(o), o);
+  check("...one that answers anew each call is refuted by its own two calls, as before", /env\.d\.rx:3 MISMATCH\s+nextId: declared pure, but two calls with the same arguments answer differently/.test(o), o);
+  check("...and a `client` fn is asked on one side only", !/whereAmI: declared pure, but it answers differently/.test(o), o);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

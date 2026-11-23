@@ -1,21 +1,16 @@
 // A value computed differently on the server and in the browser (10 SV-7): the served page and the hydrated one disagree.
-const hydrate = async h => {
-  const base = await h.serve({ ssr: true }); const page = await h.open(base);
-  await new Promise(r => setTimeout(r, 500));
-  h.check("the hydrated page shows the browser's answer", /in the browser/.test(await h.text(page)), await h.text(page));
-};
 export default {
   title: "SSR: what only the browser knows is a client question, not a value computed on both sides",
-  known: {
-    "a `pure` JS call that answers differently on each side": "10 SV-7c (ruled 2026-10-24), 08 CN-5: `pure` is the author's assertion at the JS boundary, the one unchecked word, and that the function answers alike on both machines is part of it. What only the browser knows is `client` JS, which is checked (SV-7b: the good program). Solid's development build adopts the server's text without comparing it, so nothing reports this mismatch, and the language adds no run-time comparison of its own.",
-  },
   types: [
     { name: "the client question's answer keeps its type", edit: ["rendered in {place}", "rendered in {place.toFixed(1)}"], expect: /TS2339|TS2551/ },
   ],
   bad: [
     { name: "the client question read with nothing to hold it on the server", edit: ["loading fallback { <p class=\"place\">asking…</p> } { <p class=\"place\">rendered in {place}</p> }", "<p class=\"place\">rendered in {place}</p>"], expect: "CLIENT_QUESTION_UNHELD" },
     { name: "client JS called for its value while the view computes", edit: ["place = await whereAmI()", "place = whereAmI()"], expect: "CLIENT_NOT_AWAITED" },
-    { name: "a `pure` JS call that answers differently on each side, read by the view (the declaration's assertion: reported when it runs)", edit: ['import { whereAmI } from "./env.js"', 'import { whereAmI, whereNow } from "./env.js"'], edit2: ["<h1>Hello</h1>", "<h1>Hello from {whereNow()}</h1>"], dev: /HYDRATION_MISMATCH|mismatch/i, drive: hydrate },
+    // What a build cannot see and hydration does not say (Solid's development build adopts the server's text without
+    // reading it): `pure` is the declaration's word, and rx-verify runs it — with no window and with a browser's
+    // globals — and refuses a row whose answer is steady on each side and differs between them (10 SV-7c).
+    { name: "what only the browser knows declared `pure`, and read by the view: the page would be served with one answer and hydrated with the other", file: "env.d.rx", edit: ["export client pure fn whereAmI(): Promise<string>\n", "export client pure fn whereAmI(): Promise<string>\nexport pure fn whereNow(): string\n"], file2: "main.rx", edit2: ['import { whereAmI } from "./env.js"\n\nexport default component App() {\n  place = await whereAmI()\n  <h1>Hello</h1>', 'import { whereAmI, whereNow } from "./env.js"\n\nexport default component App() {\n  place = await whereAmI()\n  <h1>Hello from {whereNow()}</h1>'], verify: ["env.d.rx", /MISMATCH\s+whereNow: declared pure, but it answers differently on the server and in the browser/] },
   ],
   async run(h) {
     const r = await h.ssr("/");
@@ -23,5 +18,9 @@ export default {
     const base = await h.serve({ ssr: true }); const page = await h.open(base);
     h.check("hydrated, then answered in the browser", await h.until(async () => /rendered in the browser/.test(await h.text(page))), await h.text(page));
     h.check("no console errors or warnings (no mismatch)", h.problems.length === 0, h.problems);
+    // the declaration, run: its one row is a client question, which is asked on one side only — nothing to refute
+    const { spawnSync } = await import("node:child_process"); const path = (await import("node:path")).default;
+    const v = spawnSync(process.execPath, ["--conditions=browser", path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/verify.js"), "env.d.rx"], { cwd: h.dir, encoding: "utf8" });
+    h.check("rx-verify: the good declaration's rows are not contradicted, on either side", !/MISMATCH/.test(v.stdout), v.stdout + v.stderr);
   },
 };

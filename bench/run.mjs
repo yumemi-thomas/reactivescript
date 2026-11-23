@@ -111,7 +111,7 @@ async function runTask(id, entry) {
       const undos = [];
       if (b.add) { const f = path.join(dir, b.add[0]); if (existsSync(f)) throw new Error(`${b.add[0]} is already there`); writeFileSync(f, b.add[1]); undos.push(() => rmSync(f, { force: true })); }
       if (b.edit) undos.push(edit(dir, b.file ?? entries[0], b.edit));
-      if (b.edit2) undos.push(edit(dir, b.file ?? entries[0], b.edit2));
+      if (b.edit2) undos.push(edit(dir, b.file2 ?? b.file ?? entries[0], b.edit2));
       undo = () => { for (const u of undos.reverse()) u(); undos.length = 0; };
     } catch (e) { mark(col, b.name, false, e.message); continue; }
     const e0 = b.entry ?? entries[0]; const entry = path.join(dir, e0);
@@ -141,6 +141,16 @@ async function runTask(id, entry) {
         // behind what it was derived from (HOST_VIEW_STALE, 09 MO-14g), a row no run has verified
         const out = rxTsc(dir);
         mark(res.bad, `${b.name} (rx-tsc: ${b.gate.source})`, b.gate.test(out), out || "rx-tsc accepted it");
+      } else if (b.verify) {
+        // refused by rx-verify: a word of a declaration that only running it can test (`pure` on the server and in a
+        // browser's globals, 10 SV-7c), run. `[declaration, what it must say]`
+        const c = both(entry, b.spa ?? task.spa, task.host);
+        if (c.crate.diagnostics.length || c.ref.diagnostics.length) mark(res.bad, `${b.name} (rx-verify: ${b.verify[1].source})`, false, `not compiled (a checker refuses it, so it is not rx-verify's): ${show(c.crate)} / ${show(c.ref)}`);
+        else {
+          const r = spawnSync(process.execPath, ["--conditions=browser", path.join(ws, "node_modules/@reactivescript/language-server/bin/verify.js"), b.verify[0]], { cwd: dir, encoding: "utf8" });
+          const out = String(r.stdout ?? "") + String(r.stderr ?? "");
+          mark(res.bad, `${b.name} (rx-verify: ${b.verify[1].source})`, r.status !== 0 && b.verify[1].test(out), out || "rx-verify said nothing");
+        }
       } else if (b.build) {
         // refused by the build itself (`vite build`, the router's own plugin run first): what a deploy would meet
         const r = spawnSync(process.execPath, [path.join(ws, "node_modules/vite/bin/vite.js"), "build"], { cwd: dir, encoding: "utf8", env: { ...process.env, RX_TYPECHECK: "0" } });
