@@ -75,6 +75,8 @@ function splitTop(s) {
 export function foreignKeys(signature) {
   const out = new Set();
   for (const m of signature.matchAll(/\b(?:uses|provides|retains)\(([^)]*)\)/g)) for (const k of m[1].split(",").map(x => x.trim()).filter(Boolean)) if (/(^|\/)node_modules\//.test(k)) out.add(k);
+  // MO-11u: and the component a fn `renders(…)` beneath, named the same way in `hosts(<key> …)` and `export renders <key> from …`
+  for (const m of signature.matchAll(/(?:\bhosts\(|;\s*|^export renders\s+)((?:\.{1,2}\/)?[^\s();,]*node_modules\/[^\s();,]*#[\w$.]+)/gm)) out.add(m[1]);
   return [...out];
 }
 const VALUES = new Set(["accessor", "action", "error", "component", "primitive", "fn"]);
@@ -158,7 +160,7 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
     for (const [n, k] of exports) if (k === "server") problems.push(`${path.relative(dir, p)}: exports the server fn ${n}: a server fn is extracted by the app's bundler from the app's own modules, and a compiled package cannot carry one (MO-13f) — export a fn the app wraps in a server fn of its own`);
     const id = pkg.name ? `${pkg.name}/${name}` : name;   // the module's name: its root's id, the same on both sides (MO-13h)
     put(`${name}.js`, wrapper(base, `./${base}.dom.js`, exports, id, m.dom.css ? `./${base}.css` : undefined));
-    for (const key of foreignKeys(m.signature)) problems.push(`${path.relative(dir, p)}: its signature names a context of another package (${key}): a context's key is a path from this module, right only where that package is installed as it was when this one was built (hoisted or not, linked, in a store) — take the context's value as a prop or provide it from a component of this package (MO-13b)`);
+    for (const key of foreignKeys(m.signature)) problems.push(`${path.relative(dir, p)}: its signature names a context of another package (${key}): a context's key is a path from this module, right only where that package is installed as it was when this one was built (hoisted or not, linked, in a store) — take the context's value as a prop or provide it from a component of this package (MO-13b; the same of a component a fn renders its arguments beneath, MO-11u: show the toast, or mount the toaster, from the app)`);
     put(`${name}.server.js`, wrapper(base, `./${base}.ssr.js`, exports, id));
     put(`${name}.d.rx`, m.signature);
     put(`${name}.d.ts`, declaration(base, exports));

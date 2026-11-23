@@ -1540,8 +1540,10 @@ export default component App() {
 
 A component is applied in markup, `<Greeting name="x" />`, not stored or called as a function (RG-4a). The exception is
 JS that takes a component: a factory's arguments (`createRouter({ routes: [{ path: "/", component: Home }] })`), a JS
-component's prop typed `Component` (MO-11c, MO-11f), and the arguments of any other JS call, where a library may render
-it anywhere: there it is checked under a root of its own, with nothing above the call credited (MO-11s, below).
+component's prop typed `Component` — or one whose type holds components, in the record or the list you write there
+(`<Markdown builtins={{ Heading: Heading }}>`) (MO-11c, MO-11f) — and the arguments of any other JS call, where a
+library may render it anywhere: there it is checked under a root of its own, with nothing above the call credited
+(MO-11s, below), unless the fn's row names the component that renders it (`renders(Toaster)`, MO-11u).
 
 ```rx before
 component Greeting(props) { <p>{props.name}</p> }
@@ -1560,13 +1562,20 @@ export default component App() {
 
 Where a library renders the components it is given is said in its `.d.rx` (MO-11r): a fn handing back a `Component`
 renders them inside it (a factory, MO-11f), and `nests(children in component)` on it says the tree — each entry of a
-record's `children` among the children of that record's `component` (MO-11i).
+record's `children` among the children of that record's `component` (MO-11i). A fn that hands its components to
+another component of the library, which renders them later, names that component: `renders(Toaster)` (MO-11u) —
+they are then checked among its children, wherever the program applies it.
+
+A record or a list of components built outside the prop — `parts = { Heading: Heading }`, then `builtins={parts}` —
+is this diagnostic on the line of `parts`: the components are read in the literal the prop is given, where the
+checker can name them. Write the record in the prop.
 
 A JS fn that is no factory (or a JS import with no declaration) still takes a component: it is checked the most
 cautious way, under a root of its own (MO-11s). It must then stand on its own: an `errored`, a `loading` or a `provide`
 above the call does not count, so one it needs is refused as `UNHANDLED_FAILURE` or `CONTEXT_NOT_FOUND` there. Give the
-component its own boundary, or give the components to a factory: a few lines of the app's own JavaScript that take
-them as records and hand back the component that renders them (a route tree, `guide/libraries.md`).
+component its own boundary, say in the fn's row which component of the library renders it (`renders(Toaster)`), or give
+the components to a factory: a few lines of the app's own JavaScript that take them as records and hand back the
+component that renders them (a route tree, `guide/libraries.md`).
 
 ### INSTANTIATION_NOT_BOUND
 
@@ -1683,6 +1692,50 @@ component Room(props: { id: number }) {
 export default component App() {
   provide room = 1
   <Room id={1} />
+}
+```
+
+A component given to a library that renders it later, beneath a component of its own (a toast, a routed page), is
+checked where that component is applied: the fn's row says `renders(Toaster)` (MO-11u), and a context the component
+reads must be above every `<Toaster>` of the program — above the call is not where it runs. The diagnostic is on the
+line of the call, and says which fn and which component. (`UNHANDLED_FAILURE` and, in a client-only build,
+`ASYNC_OUTSIDE_LOADING_BOUNDARY` are reported the same way, for a failure or a first load nothing above that component
+holds.)
+
+```rx before
+-- module: ./toasts.d.rx
+export component Toaster(props: {})
+export fn toast(message: string | Component): number renders(Toaster)
+-- main
+import { Toaster, toast } from "./toasts.js"
+context accent: string
+component Saved() {
+  <b class={use accent}>saved</b>
+}
+component Editor() {
+  provide accent = "dark"
+  <button onClick={() => { toast(Saved) }}>save</button>
+}
+export default component App() {
+  <Editor />
+  <Toaster />
+}
+```
+
+```rx after
+-- module: ./toasts.d.rx
+export component Toaster(props: {})
+export fn toast(message: string | Component): number renders(Toaster)
+-- main
+import { Toaster, toast } from "./toasts.js"
+context accent: string
+component Saved() {
+  <b class={use accent}>saved</b>
+}
+export default component App() {
+  provide accent = "dark"
+  <button onClick={() => { toast(Saved) }}>save</button>
+  <Toaster />
 }
 ```
 

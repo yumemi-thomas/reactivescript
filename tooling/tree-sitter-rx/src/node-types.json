@@ -2868,6 +2868,10 @@
           "named": true
         },
         {
+          "type": "renders_clause",
+          "named": true
+        },
+        {
           "type": "row_word",
           "named": true
         },
@@ -6021,6 +6025,26 @@
     }
   },
   {
+    "type": "renders_clause",
+    "named": true,
+    "fields": {
+      "host": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "member_component_name",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "required_parameter",
     "named": true,
     "fields": {
@@ -6408,6 +6432,10 @@
           "named": true
         },
         {
+          "type": "signature_hosts",
+          "named": true
+        },
+        {
           "type": "signature_prop",
           "named": true
         },
@@ -6537,6 +6565,14 @@
             "named": true
           },
           {
+            "type": "signature_hosts",
+            "named": true
+          },
+          {
+            "type": "signature_renders",
+            "named": true
+          },
+          {
             "type": "signature_source",
             "named": true
           },
@@ -6595,6 +6631,51 @@
         },
         {
           "type": "signature_rows",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "signature_host",
+    "named": true,
+    "fields": {
+      "host": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "context_key",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "signature_catches",
+          "named": true
+        },
+        {
+          "type": "signature_provides",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "signature_hosts",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "signature_host",
           "named": true
         }
       ]
@@ -6698,6 +6779,60 @@
       "types": [
         {
           "type": "context_key",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "signature_renders",
+    "named": true,
+    "fields": {
+      "fn": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "host": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "context_key",
+            "named": true
+          }
+        ]
+      },
+      "line": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "number",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "fails_row",
+          "named": true
+        },
+        {
+          "type": "signature_hosts",
+          "named": true
+        },
+        {
+          "type": "signature_uses",
           "named": true
         }
       ]
@@ -8362,6 +8497,10 @@
     "named": true
   },
   {
+    "type": "hosts",
+    "named": false
+  },
+  {
     "type": "html_character_reference",
     "named": true
   },
@@ -8572,6 +8711,10 @@
   },
   {
     "type": "rejects",
+    "named": false
+  },
+  {
+    "type": "renders",
     "named": false
   },
   {

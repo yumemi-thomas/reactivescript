@@ -38,6 +38,7 @@ type Region = {
   js?: boolean;                        // a declared JS component's root (MO-11a)
   sig?: CompSig;                       // an imported component's root: its signature stands in for its body (MO-3)
   key?: string;                        // E-5a: a component root's identity across modules (`file#name`), for what its props are given
+  hostKey?: string;                    // MO-11u: a declared JS component some fn of its declaration `renders(…)` beneath: `declaration#Name`
 };
 // ---------------------------------------------------------------- failures (R-f)
 /** What a catch or a boundary discharges: named classes, or every failure. `Error` is the top: only "all" discharges it. */
@@ -54,7 +55,16 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][] }>; shape?: Shape; stored?: Record<string, string[]>; };   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; };   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+/** MO-11u: one application of a component a declared fn `renders(…)` beneath, as the components that fn is given see it:
+ *  what is discharged and provided between that application's children and the root of the component it is written in
+ *  (in a module's own list: the program's). */
+export type HostSite = { f: Catch; p: Catch };
+/** MO-11u: a call of a fn declared `renders(H)` that was given components — what they let out of H's children, H's own
+ *  `uses(…)` and `provides(…)` taken off: judged at each application of H in the program (`judgeHosted`). */
+export type Hosted = { host: string; name: string; fn: string; line: number; fails: string[]; requires: string[]; inner?: Record<string, HostSite[]> };   // inner: the places those components themselves apply a host (a routed layout's `<Toaster />`), from their own root, with what H uses and provides above them
+const siteKeyOf = (x: HostSite) => { const ck = (c: Catch) => c === "all" ? "*" : [...c].sort().join("|"); return `${ck(x.f)}~${ck(x.p)}`; };
+const joinCatch = (a: Catch, b: Catch): Catch => a === "all" || b === "all" ? "all" : new Set([...a, ...b]);
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -139,6 +149,7 @@ type Sym = {
   ofFn?: Expr;                          // MO-10k: a closure literal's parameter: that closure 
   retFlows?: { names: Set<string>; env: Env };   // MO-10k: what an `.rx` fn or an action of this module may give back: the names its result mentions, in its scope
   nests?: { kids: string; inside: string };   // MO-11i: how a declared factory nests what it is given
+  rendersIn?: { key: string; name: string; credit: string[] };   // MO-11u: a declared JS fn `renders(H)` — H's key (`declaration#H`), its name as written, and the contexts H itself uses and provides
   factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string }; exported?: Sym };   // MO-11f; exported: MO-11j, the component an importer sees: a component a JS factory made — the call's arguments, and the components in them
   exportKey?: string;                  // E-5a: an .rx import's `file#name`, whose changing the whole-program pass knows
   through?: boolean;                   // MO-14f: a JS component the host renders through — applied in a component's view, it renders that component's children there
@@ -575,26 +586,75 @@ export type ExportSig =
   | { kind: "comp"; sig: CompSig }
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
-export type ModSig = { file: string; exports: Map<string, ExportSig> };
+export type ModSig = { file: string; exports: Map<string, ExportSig>; hosted?: Hosted[]; hosts?: Record<string, HostSite[]> };   // MO-11u: hosted, the calls of `renders(H)` fns that were given components; hosts, the applications of such an H the module itself roots (its mounted view, a root of a library's own)
 type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string> };   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
-export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
+export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return [...c.diags, ...judgeHosted([c.signature(p)], [], !!opts.spa)]; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; advice: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, advice: c.advice, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
-export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: string[] = []): { diags: Diagnostic[]; advice: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {   // whole: E-5a, the modules are the whole program
+export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: string[] = [], judge = true): { diags: Diagnostic[]; advice: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {   // whole: E-5a, the modules are the whole program   // judge: MO-11u, this set is the program (a host's view is judged with the program it is the view of)
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
+  const hostSigs: ModSig[] = [];   // MO-11u: the modules of a host's view (MO-14), judged with this program
   const facts: [string, PeekFacts][] = []; const advice: Diagnostic[] = [];   // advice: 99, the advisory rows — about a correct program, never an error
   for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path), dependency: path !== set.entry, through: set.through }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
   // MO-14d: a module the host's declaration imports is one a JS host renders (CP-4d), whatever the build found
   if (whole) { const all = [...new Set([...hosts, ...(set.hosted ?? [])])]; diags.push(...resolvePeeks(facts, set, all)); diags.push(...hostExports(sigs, all, spa, set.placed)); }
   if (set.host) {   // MO-14c: the host's view, checked as a program of its own; what it says is the declaration's
-    const h = checkModules(set.host.set, spa, whole, hosts); const at = (d: Diagnostic): Diagnostic => (d.file ?? set.host!.entry) === set.host!.entry ? { ...d, file: set.host!.file } : d;
+    const h = checkModules(set.host.set, spa, whole, hosts, false); for (const [p, x] of h.sigs) if (!sigs.has(p)) hostSigs.push(x); const at = (d: Diagnostic): Diagnostic => (d.file ?? set.host!.entry) === set.host!.entry ? { ...d, file: set.host!.file } : d;
     const key = (d: Diagnostic) => `${d.file ?? set.entry}\0${d.line}\0${d.code}\0${d.msg}`; const have = new Set(diags.map(key)); const said = new Set(advice.map(key));
     for (const d of h.diags.map(at)) if (!have.has(key(d))) { have.add(key(d)); diags.push(d); }
     for (const d of h.advice.map(at)) if (!said.has(key(d))) { said.add(key(d)); advice.push(d); }
   }
+  // MO-11u: what the components given to a fn declared `renders(H)` need is judged at the program, at every application
+  // of H in it — in whichever module the call and the application are (a component's `uses` is judged at its application)
+  if (judge) {
+    const hostedBy = [...new Set([...hosts, ...(set.hosted ?? [])])].flatMap(h => [...(sigs.get(h)?.exports ?? [])].flatMap(([n, x]) => x.kind === "comp" && !set.placed?.has(`${h}#${n}`) && x.sig.hosts ? [x.sig.hosts] : []));   // CP-4d: a component a JS host applies, with nothing above it
+    const have = new Set(diags.map(d => `${d.file ?? set.entry}\0${d.line}\0${d.code}\0${d.msg}`));
+    for (const d of judgeHosted([...sigs.values(), ...hostSigs], hostedBy, spa)) { const k = `${d.file ?? set.entry}\0${d.line}\0${d.code}\0${d.msg}`; if (!have.has(k)) { have.add(k); diags.push(d); } }
+  }
   return { diags, advice, sigs, models };
+}
+
+/** MO-11u: a fn declared `renders(H)` hands the components it is given to H, which renders them later, any number of times,
+ *  among its children. So each is checked as applied there, with no arguments, at every application of H in the program:
+ *  what it lets out of H's children (its failures, the contexts it uses, a first load it waits on) must be discharged
+ *  above each one. With no application of H anywhere, nothing renders them yet, and they are held to the least H could
+ *  have above it: what H itself uses and provides (already taken off), under a root of its own (MO-11s). */
+export function judgeHosted(sigs: ModSig[], extra: Record<string, HostSite[]>[], spa: boolean): Diagnostic[] {
+  const sites = new Map<string, HostSite[]>(); const seen = new Set<string>();
+  const add = (r?: Record<string, HostSite[]>) => { for (const [k, xs] of Object.entries(r ?? {})) sites.set(k, [...(sites.get(k) ?? []), ...xs]); };
+  for (const s of sigs) { if (seen.has(s.file)) continue; seen.add(s.file); add(s.hosts); }
+  for (const r of extra) add(r);
+  // a component given to such a fn may itself apply a host (a routed layout with the app's `<Toaster />` in it): that
+  // place is wherever its own host renders it — what is above it there, and what is above the host — to a fixed point
+  const calls: Hosted[] = []; seen.clear();
+  for (const s of sigs) { if (seen.has(s.file)) continue; seen.add(s.file); calls.push(...(s.hosted ?? [])); }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const h of calls) for (const [k, xs] of Object.entries(h.inner ?? {})) for (const b of [...(sites.get(h.host) ?? [])]) for (const x of xs) {
+      const y: HostSite = { f: joinCatch(x.f, b.f), p: joinCatch(x.p, b.p) }; const cur = sites.get(k) ?? [];
+      if (!cur.some(z => siteKeyOf(z) === siteKeyOf(y))) { cur.push(y); sites.set(k, cur); changed = true; }
+    }
+  }
+  const out: Diagnostic[] = []; seen.clear();
+  for (const s of sigs) {
+    if (seen.has(s.file)) continue; seen.add(s.file);
+    for (const h of s.hosted ?? []) {
+      const at = sites.get(h.host) ?? []; const none = !at.length; const xs = none ? [{ f: new Set<string>(), p: new Set<string>() } as HostSite] : at;
+      const where = none
+        ? `${h.fn}() is declared \`renders(${h.name})\`, and the program applies <${h.name}> nowhere: what it is given is checked under a root of its own, with what <${h.name}> itself uses and provides (MO-11u, MO-11s)`
+        : `${h.fn}() is declared \`renders(${h.name})\`: what it is given is rendered beneath <${h.name}>, and is checked among its children at every place the program applies it (MO-11u)`;
+      const file = s.file ? { file: s.file } : {};
+      for (const cls of h.fails) if (xs.some(x => !caught(x.f, cls))) out.push({ code: "UNHANDLED_FAILURE", rule: "R-f-5", line: h.line, msg: `a component given to ${h.fn}() can fail with ${cls} where it renders, and no errored boundary above ${none ? "it" : `an application of <${h.name}>`} discharges ${cls} — ${where}: put <${h.name}> under \`errored fallback(e${cls === "Error" ? "" : `: ${cls}`}) { … } { … }\`, or catch it inside the component`, ...file });
+      for (const k of h.requires) {
+        if (!xs.some(x => !(x.p === "all" || x.p.has(k)))) continue;
+        if (k === HOLD) out.push({ code: spa ? "ASYNC_OUTSIDE_LOADING_BOUNDARY" : "CLIENT_QUESTION_UNHELD", rule: spa ? "CN-3d" : "SV-7b", line: h.line, msg: `a reader in a component given to ${h.fn}() can have no value yet, and no \`loading\` region above ${none ? "it" : `an application of <${h.name}>`} holds it — ${where}: put <${h.name}> under \`loading fallback { … } { … }\`, or the reader under one inside the component`, ...file });
+        else out.push({ code: "CONTEXT_NOT_FOUND", rule: "RG-7b", line: h.line, msg: `a component given to ${h.fn}() uses ${keyName(k)} (declared in ${k.split("#")[0].split("/").pop()}), and no provision of it is above ${none ? "it" : `an application of <${h.name}>`} — ${where}: provide it above <${h.name}>, or give the component the value as a prop`, ...file });
+      }
+    }
+  }
+  return out;
 }
 
 /** 11 CP-4d: a component a JS host renders (`pages.rx?rx-lib`) is applied where the checker cannot see, so nothing above
@@ -1004,8 +1064,9 @@ class Checker {
     const bindComp = (x: Extract<JsDecl, { kind: "comp" }>, alias: string) => {   // MO-11a: a Solid component — its declaration is its summary
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders
         const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
-        for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.render ? { render: true, ...(p.optional ? { renderOptional: true } : {}) } : {}), ...(p.callback ? { callback: true } : {}), ...(p.pure ? { pure: true } : {}) };
+        for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.components ? { components: true } : {}), ...(p.render ? { render: true, ...(p.optional ? { renderOptional: true } : {}) } : {}), ...(p.callback ? { callback: true } : {}), ...(p.pure ? { pure: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig; r.js = true;
+        if (decls.some(y => y.kind === "fn" && y.renders === x.name)) r.hostKey = `${d.declared}#${x.name}`;   // MO-11u: its applications are where a fn's components render
         { const vp = x.props.filter(p => p.view).map(p => p.name); if (vp.length) this.viewProps.set(r, new Set(vp)); }   // MO-11t: the props that take a view
         this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(this.opts.through?.has(`${d.declared}#${x.name}`) ? { through: true } : {}) });
     };
@@ -1020,10 +1081,12 @@ class Checker {
       if (x.kind === "value") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // MO-8g: a value, read as any import, never io
       if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
       if (x.kind === "comp") { bindComp(x, alias); continue; }   // MO-11a
+      // MO-11u: `renders(H)` — H is a component of the same declaration; what H itself uses and provides is above everything it renders
+      const rendersIn = (): Pick<Sym, "rendersIn"> => { if (x.kind !== "fn" || x.renders === undefined) return {}; const h = decls.find(y => y.kind === "comp" && y.name === x.renders); return { rendersIn: { key: `${d.declared}#${x.renders}`, name: x.renders, credit: h?.kind === "comp" ? [...new Set([...jsKeys(h.uses), ...jsKeys(h.provides)])] : [] } }; };
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.waits ? { waits: x.waits } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.ret } : {}) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.pure ? { pureFn: true } : {}), ...(x.kind === "fn" && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}),  ...(generated ? { generated } : {}) });
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.waits ? { waits: x.waits } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.ret } : {}), ...rendersIn() }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.pure ? { pureFn: true } : {}), ...(x.kind === "fn" && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...rendersIn(),  ...(generated ? { generated } : {}) });
     }
   }
   /** CN-3d: `e` can have no value on the first load: it awaits without a first paint, here or in an equation it reads,
@@ -1154,7 +1217,7 @@ class Checker {
         case "context": { const c = s.ctx!; exports.set(d.name, { kind: "context", key: c.key, source: c.source, dflt: c.dflt, rows: arr(c.contract?.rows), fails: arr(c.contract?.fails), type: d.k === "context" ? d.type?.replace(ROW_WORDS, "") : undefined }); break; }
       }
     }
-    return { file: this.opts.file ?? "", exports };
+    return { file: this.opts.file ?? "", exports, ...(this.hosted.length ? { hosted: this.hosted } : {}), ...(Object.keys(this.hosts).length ? { hosts: this.hosts } : {}) };
   }
 
   private cycles(decls: Decl[], env: Env) {
@@ -1236,7 +1299,7 @@ class Checker {
         if (d.e.k === "id" || d.e.k === "member" || d.e.k === "index") this.wholeOk.add(d.e);   // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
         { const ps = this.updaterPositions(d.name, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
           if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
-        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env);   /* MO-11s */ this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
+        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env, f);   /* MO-11s, MO-11u */ this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
@@ -2078,7 +2141,7 @@ class Checker {
     const go = (x: Expr) => this.expr(x, env, ctx);
     switch (e.k) {
       case "lit": return;
-      case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.updater && !this.updaterOk.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, \`setStore(${e.name})\` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one`);   /* MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else */ if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed \`Component\` or \`View\`, or a JS factory's arguments (MO-11c, MO-11t, MO-11f)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
+      case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.updater && !this.updaterOk.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, \`setStore(${e.name})\` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one`);   /* MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else */ if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed \`Component\` or \`View\` (or, where its type holds components, the record or the array written there), or a JS fn's arguments (MO-11c, MO-11t, MO-11f, MO-11s)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", true); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
       case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c) this.model.read(c, ctx.scope === "imperative"); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": this.model.snap++; go(e.e); this.model.snap--; return;                  // E-5: a snapshot
@@ -2181,7 +2244,7 @@ class Checker {
           this.markCallbacks(e.args, s?.cbs);
           if (s?.kind === "action" && s.arity !== undefined && e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
           this.model.call(s);
-          if (s && (s.kind === "import" || (s.kind === "fn" && s.foreign !== undefined)) && s.foreign !== "comp") this.unplaced(e.args, env);   // MO-11s
+          if (s && (s.kind === "import" || (s.kind === "fn" && s.foreign !== undefined)) && s.foreign !== "comp") this.unplaced(e.args, env, s);   // MO-11s, MO-11u
         }
         go(e.f); e.args.forEach(go); return;
       }
@@ -2481,6 +2544,7 @@ class Checker {
               this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: args.filter(a => !handles(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: args.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
               const kids = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag });              // RG-4c: children are named by the caller, owned where the component reads them
               kids.kids = { comp: s.compRegion!, site: env.region };
+              if (s.compRegion!.hostKey) this.hostSites.push({ key: s.compRegion!.hostKey, comp: s.compRegion!, region: kids });   // MO-11u
               const sigProps = s.compRegion!.sig?.props;
               for (const x of m.children) if (x.k === "mview" && x.prop) {                     // MO-11k: a named render prop
                 if (!sigProps?.[x.prop]?.render) this.err("VIEW_FN_MISPLACED", "MO-11k", `<${m.tag}> declares no render prop ${x.prop} (a prop typed as a function giving a View)`);
@@ -2558,7 +2622,20 @@ class Checker {
     const out = new Map<unknown, Markup>();
     const sig = env.lookup(m.tag)?.compRegion?.sig;
     const views = env.lookup(m.tag)?.compRegion ? this.viewProps.get(env.lookup(m.tag)!.compRegion!) : undefined;   // MO-11t: and the components given by name to its props typed `View`, each applied there with no arguments
-    for (const a of m.attrs) if ((sig?.props[a.name]?.component || views?.has(a.name)) && a.e.k === "id" && /^[A-Z]/.test(a.e.name) && env.lookup(a.e.name)?.kind === "comp") { out.set(a, this.applied([a.e.name], m.line)[0]); const k = env.lookup(a.e.name)!.compRegion?.key; if (k) this.escapes.add(k); }   // E-5a: a JS component applies it
+    const isComp = (e: Expr): e is Extract<Expr, { k: "id" }> => e.k === "id" && /^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp";
+    const escapes = (name: string) => { const k = env.lookup(name)!.compRegion?.key; if (k) this.escapes.add(k); };   // E-5a: a JS component applies it
+    for (const a of m.attrs) {
+      if ((sig?.props[a.name]?.component || views?.has(a.name)) && isComp(a.e)) { out.set(a, this.applied([a.e.name], m.line)[0]); escapes(a.e.name); continue; }
+      // MO-11c (2026-11-24): a prop whose type holds a `Component` in a record or an array (`builtins={{ Heading }}`,
+      // `tabs={[First, Second]}`) — each component in the literal is a value there, applied as a direct one is
+      if (!sig?.props[a.name]?.components) continue;
+      const walk = (e: Expr) => {
+        if (isComp(e)) { this.valueIds.add(e); out.set(e, this.applied([e.name], m.line)[0]); escapes(e.name); }
+        else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
+        else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
+      };
+      if (a.e.k === "rec" || a.e.k === "arr") walk(a.e);
+    }
     return out;
   }
   private viewProps = new Map<Region, Set<string>>();   // MO-11t: a JS component's props that take a view (typed `View`, not `children`)
@@ -2608,7 +2685,7 @@ class Checker {
    *  at all) — as values in its arguments, their record and array literals and the
    *  JS calls among them — are checked as the most cautious placement allows: applied under a root of their own, at any
    *  time, so nothing above the call (errored, loading, provide) is credited to them. */
-  private unplaced(args: Expr[], env: Env) {
+  private unplaced(args: Expr[], env: Env, f?: Sym) {
     const out: string[] = [];
     const walk = (e: Expr) => {
       if (e.k === "id" && /^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp" && !this.valueIds.has(e)) { this.valueIds.add(e); out.push(e.name); }
@@ -2617,8 +2694,18 @@ class Checker {
       else if (e.k === "call" && e.f.k === "id") { const g = env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined))) e.args.forEach(walk); }
     };
     args.forEach(walk);
-    if (out.length) this.markup(this.applied(out, this.line), new Env(env, this.rootOf()));
+    if (!out.length) return;
+    const h = f?.rendersIn;
+    if (!h) { this.markup(this.applied(out, this.line), new Env(env, this.rootOf())); return; }
+    // MO-11u: `renders(H)` — the components are rendered later, beneath an application of H. They are applied under a root
+    // that stands for H's children; what they let out of it is judged at every application of H in the program
+    const root = this.region(null, "root", { component: true, name: h.name });
+    this.markup(this.applied(out, this.line), new Env(env, root));
+    this.hostedCalls.push({ host: h.key, name: h.name, fn: f!.name, root, line: this.line, credit: h.credit });
   }
+  private hostedCalls: { host: string; name: string; fn: string; root: Region; line: number; credit: string[] }[] = [];   // MO-11u
+  private hostSites: { key: string; comp: Region; region: Region }[] = [];   // MO-11u: each application of a component a fn `renders(…)` beneath — its children's region
+  hosted: Hosted[] = []; hosts: Record<string, HostSite[]> = {};   // MO-11u: what the walk found of them, resolved (the module's signature)
   /** MO-11j: an exported factory's component, summarised as a component whose view applies it — what its values let out
    *  and need from above, and its content shape, are what an importer's `<Router />` gets (MO-3). */
   private exportMade(made: Sym, name: string, line: number) {
@@ -2950,6 +3037,27 @@ class Checker {
     // MO-3: the summaries an importing module checks against
     const meet = (a: Catch, b: Catch): Catch => a === "all" ? b : b === "all" ? a : new Set([...a].filter(x => b.has(x)));
     const along = (chain: Step[], which: "f" | "p"): Catch => { const out = new Set<string>(); for (const st of chain) { const c = st[which]; if (c === "all") return "all"; if (c) for (const x of c) out.add(x); } return out; };
+    // MO-11u: where the components a fn `renders(H)` is given are rendered — every application of H, as seen from the root
+    // of the component it is written in (through the components that component is applied in, by their own lists)
+    const siteKey = (x: HostSite) => `${ck(x.f)}~${ck(x.p)}`;
+    const sMemo = new Map<Region | null, Map<string, HostSite[]>>(); const sBusy = new Set<Region | null>();
+    const sitesOf = (C: Region | null): Map<string, HostSite[]> => {
+      if (C?.sig) return new Map(Object.entries(C.sig.hosts ?? {}));
+      if (sMemo.has(C)) return sMemo.get(C)!; if (sBusy.has(C)) return new Map(); sBusy.add(C);
+      const out = new Map<string, HostSite[]>();
+      const add = (k: string, chain: Step[]) => { const x = { f: along(chain, "f"), p: along(chain, "p") }; const xs = out.get(k) ?? []; if (!xs.some(y => siteKey(y) === siteKey(x))) xs.push(x); out.set(k, xs); };
+      for (const h of this.hostSites) if (compOf(h.region) === C) for (const q of routes(h.region)) add(h.key, [{ p: new Set(h.comp.sig?.requires ?? []) }, ...q]);   // what H itself uses is above what it renders
+      for (const a of this.apps) if (compOf(a.site) === C) for (const [k, xs] of sitesOf(a.comp)) for (const x of xs) for (const q of routes(a.site)) add(k, [{ f: x.f, p: x.p }, ...q]);
+      sBusy.delete(C); sMemo.set(C, out); return out;
+    };
+    const record = (m: Map<string, HostSite[]>): Record<string, HostSite[]> => Object.fromEntries([...m].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, xs]) => [k, [...xs].sort((a, b) => siteKey(a) < siteKey(b) ? -1 : siteKey(a) > siteKey(b) ? 1 : 0)]));
+    this.hosts = record(sitesOf(null));
+    this.hosted = this.hostedCalls.map(c => {
+      const e = esc(c.root);
+      // the hosts those components apply themselves, seen from their root: what H itself uses and provides is above them too
+      const inner = record(new Map([...sitesOf(c.root)].map(([k, xs]) => [k, xs.map(x => ({ f: x.f, p: x.p === "all" ? "all" as const : new Set([...x.p, ...c.credit]) }))])));
+      return { host: c.host, name: c.name, fn: c.fn, line: c.line, fails: [...new Set(e.fails.map(i => i.cls))].sort(), requires: [...new Set(e.reqs.map(r => r.name))].filter(k => !c.credit.includes(k)).sort(), ...(Object.keys(inner).length ? { inner } : {}) };
+    });
     this.compSig = (G: Region): CompSig => {
       const fields = new Set(occ.filter(o => o.comp === G).map(o => o.field));
       const props: CompSig["props"] = {};
@@ -2963,7 +3071,8 @@ class Checker {
       const cs = this.compSyms.get(G);
       const st = this.retains.get(G); const stored: Record<string, string[]> = {};
       if (st) for (const [f, ts] of st) stored[f] = [...new Set([...ts].map(t => t.startsWith("d:") ? "module" : t.slice(2)))].sort();   // an exported component's outside is its module
-      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE, ...(st ? { stored } : {}) };
+      const hosts = record(sitesOf(G));
+      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE, ...(st ? { stored } : {}), ...(Object.keys(hosts).length ? { hosts } : {}) };
     };
   }
   compSig: ((G: Region) => CompSig) | null = null;

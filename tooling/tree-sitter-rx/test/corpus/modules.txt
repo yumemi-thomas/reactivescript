@@ -1561,3 +1561,133 @@ export default component nests(children in component) = [
                       (pair
                         (property_identifier)
                         (identifier)))))))))))))
+
+================================================================================
+A declaration file's row: where the library renders the components a fn is given (09 MO-11u)
+================================================================================
+
+export context toastRegion
+export component Toaster(props: {})
+export component Toast.List(props: {}) uses(toastRegion)
+export fn toast(message: string | Component): number renders(Toaster)
+export pure fn createRoute(options: { component: Component }): any instantiates renders(Toast.List)
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (context_declaration
+      (identifier)))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type))))))
+  (export_statement
+    (component_signature
+      (member_component_name
+        (identifier)
+        (property_identifier))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (union_type
+              (predefined_type)
+              (type_identifier)))))
+      (type_annotation
+        (predefined_type))
+      (renders_clause
+        (identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (type_annotation
+        (predefined_type))
+      (row_word)
+      (renders_clause
+        (member_component_name
+          (identifier)
+          (property_identifier))))))
+
+================================================================================
+A printed signature: the places a component applies a host, and what a call's components need there (09 MO-11u)
+================================================================================
+
+//@ signature frame.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).
+export component Frame(props: { children: provides(./theme.rx#accent) }) hosts(./kit.d.rx#Toaster provides(./kit.d.rx#region, ./theme.rx#accent); ./kit.d.rx#Toast.List catches(Offline)) shape(children-at )
+export hosts(./kit.d.rx#Toaster catches(*))
+export renders ./kit.d.rx#Toaster from toast:7 fails(Error | Offline) uses(./theme.rx#accent, loading)
+export renders ./tsr.d.rx#RouterProvider from createRootRoute:12 hosts(./kit.d.rx#Toaster provides(./tsr.d.rx#router))
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (signature_provides
+          (context_key)))
+      (signature_hosts
+        (signature_host
+          (context_key)
+          (signature_provides
+            (context_key)
+            (context_key)))
+        (signature_host
+          (context_key)
+          (signature_catches
+            (type_identifier))))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_hosts
+      (signature_host
+        (context_key)
+        (signature_catches))))
+  (signature_export
+    (signature_renders
+      (context_key)
+      (identifier)
+      (number)
+      (fails_row
+        (type_identifier)
+        (type_identifier))
+      (signature_uses
+        (context_key))))
+  (signature_export
+    (signature_renders
+      (context_key)
+      (identifier)
+      (number)
+      (signature_hosts
+        (signature_host
+          (context_key)
+          (signature_provides
+            (context_key)))))))

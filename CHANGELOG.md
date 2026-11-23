@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+**A component a library renders later; components in a record** (spec/09 MO-11u, MO-11c, MO-11s, MO-8r; spec/13 TY-3d; spec/rfc-declaration-types-2026-11-22.md, *A tenth round*)
+
+- **New word: `renders(H)` after a declared fn's signature.** It names a component the same `.d.rx` declares: the
+  components the fn is given are rendered by the library later, beneath an application of that component. A toast
+  shown from a handler and rendered by a toaster, a page given to `createRoute` and rendered by the router's
+  provider:
+
+  ```rx
+  export fn toast(message: View | (() => View), data?: ExternalToast): string | number renders(Toaster)
+  export pure fn createRoute(options: RouteOptions): Route renders(RouterProvider)
+  ```
+
+  Each component is checked among H's children **at every place your program applies H**, in whichever module, with
+  what is above each: a toast may read a context you provide above `<Toaster>`, and the same `provide` beside the
+  toaster is `CONTEXT_NOT_FOUND` on the line of the call. With no application of H anywhere, the component is held
+  to what H itself uses and provides. It was `CONTEXT_NOT_FOUND` on the correct program (the component was checked
+  under a root of its own), with no way to say it. Three libraries of Solid 2 write the word: solid-sonner,
+  Kobalte's toaster and TanStack Router's code-based routes. `rx-declare` drafts it for solid-sonner and TanStack
+  Router, and asks the question of every fn that is given a component.
+- **It is not the words withdrawn on 2026-11-23.** `renders` alone, `renders(later)`, a prop's `renders`,
+  `nests(component under parent)`, `outlet` and `renders(root, …)` are still refused by name. `renders(H)` names a
+  component and follows no value; nothing is confined, and `RENDERS_ESCAPES` is no diagnostic.
+- **TanStack Router's code-based routes can be written in `.rx` again**, with the library's own `createRoute`, and
+  the route types register your router (a link to no route is a type error). Pages are checked side by side beneath
+  `<RouterProvider>`: a layout's own `errored` around its `<Outlet />` is **not** credited to its pages. Give a page
+  its own region, or put it above the provider; for a tree whose layouts are checked, keep the factory or a host
+  declaration (guide/libraries.md).
+- **New: a record or a list of components in a JS component's prop** (`<Markdown builtins={{ Heading: Heading }}>`,
+  `<Tabs panels={[First, Second]} />`). Where the prop's declared type holds a `Component`, each component in the
+  literal you write there is checked as applied beneath that component. It was `COMPONENT_AS_VALUE`. A record built
+  elsewhere and passed by name still is: write it in the prop.
+- **Changed: the bar a declaration word is held to counts the Solid 2 ecosystem's releases, pre-releases
+  included** (MO-8r), not only the libraries the benchmark covers.
+- **Changed: `rx-verify` runs two claims it took on trust.** That a JS component renders what a `Component` prop is
+  given beneath itself (DV-24) is checked against the probe's scene, and a component that mounts it elsewhere is a
+  MISMATCH; `rx-tsc --rx-strict` asks for it of every component row with such a prop, so **records made by an older
+  rx-verify need a rerun** (`rx-verify --record`). And a fn that *calls* a component it is given with no owner at all
+  is reported: in Solid 2 nothing the component makes is ever disposed there, and in development `useContext` throws
+  `NoOwnerError`. MO-11s no longer says a root of its own is the least a library can give a component.
+- **Changed: a component that declares no props is typed as a function of nothing** (TY-3d). `component Saved()` was
+  `(props: any) => …` to TypeScript; it is `() => …`, which a library that asks for a function taking none accepts.
+  **If you pass attributes to a component that declares no props, TypeScript now refuses them** (the component could
+  not read them): declare the props.
+- **Fixed: text was escaped twice on the server.** A value with a `<` or an `&` was served as `a &lt; b` and shown
+  so until the browser took the page over; through a component's children, escaped once more.
+- **Fixed: `{props.children}` showed a list of strings as a list.** A JS library that gives a component its text as
+  an array (`["text"]`) had it printed as JSON.
+- **`rx-declare`:** a parameter that is a component is written `Component<P>`; one that is a view or a function
+  giving one is written `View | (() => View)` (it was `ref message: View`, which made every call an instantiation);
+  a prop that holds components in a record or a list is written so that the checker reads it.
+- **`rx-lib`** refuses a signature that names, through `node_modules`, the component another package's fn renders
+  beneath, as it refuses such a context.
+- **Recorded, not filed:** solid-sonner 1.0.0's `toast.custom(fn)` calls `fn` with no owner; Kobalte 2.0.0-alpha.5's
+  `toaster.show` is reachable only as a method of an exported object, so an app hands it out from a module of its own.
+
 **File-based routers: the app around the router, and a layout's outlet** (spec/09 MO-14f, MO-11i, MO-1c; spec/rfc-declaration-types-2026-11-22.md, *A ninth round*)
 
 - **New: a host declaration says what the host renders *through*.** `host.d.rx` may import a component from a JS

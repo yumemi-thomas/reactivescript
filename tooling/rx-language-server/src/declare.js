@@ -572,6 +572,8 @@ function propText(ts, checker, p, at, precise = false, obj) {
   if (/^(as|component)$/.test(p.name) && checker.getNonNullableType(t).isUnion?.() && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u))) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
   if (isElement(ts, checker, t)) return `${p.name}${opt}: View`;
   if (isFn(checker, t)) return `${p.name}${opt}: ${(precise && fnText(ts, checker, t)) || callbackText(ts, checker, t, here, "callback", annotation(ts, p))}`;   // a callback (MO-10g)
+  // MO-11c (2026-11-24): a record or a list of components — each component in the literal the prop is given is applied there
+  if (obj !== undefined || CTX.decl) { const held = heldComponents(ts, checker, t, at); if (held) { const all = `${p.name}${opt}: ${held.all}`; HELD_ONLY.set(all.replace(MARK, ""), `${p.name}${opt}: ${held.only}`); return all; } }
   return `${p.name}${opt}: ${text(ts, checker, t, here, annotation(ts, p))}`;
 }
 
@@ -602,12 +604,49 @@ function signalOf(ts, checker, t) {
   if (!g || !set || !checker.getNonNullableType(set).getCallSignatures().length) return undefined;
   return g.getReturnType();
 }
+/** Whether `s` is one type's text: no `,` outside its brackets (a parameter list would have one). */
+function oneType(s) {
+  let d = 0;
+  for (let i = 0; i < s.length; i++) { const c = s[i]; if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && s[i - 1] !== "=")) d--; else if (c === "," && d === 0) return false; }
+  return d === 0;
+}
+/** MO-11c (2026-11-24): a prop that holds components in a record or a list (`builtins: { Heading?: … }`, an MDX
+ *  provider's `components`, a tab strip's panels) — written as the checker reads it, each component a `Component`:
+ *  `{ all, only }`, the record with every field, and with its component fields alone (what a row adds to a type the
+ *  library names, MO-8o). undefined: the type holds none where a row can say so. */
+function heldComponents(ts, checker, t, at, depth = 0) {
+  const u = checker.getNonNullableType(t);
+  const comp = x => isComponent(ts, checker, x) && !isElement(ts, checker, x) && checker.getNonNullableType(x).getCallSignatures().every(g => g.getParameters().length === 1);
+  if (depth > 1 || u.isUnion?.() || u.getCallSignatures().length) return undefined;
+  if (checker.isArrayType(u)) {
+    const e = checker.getTypeArguments(u)[0]; if (!e) return undefined;
+    if (comp(e)) return { all: "Component[]", only: "Component[]" };
+    const r = heldComponents(ts, checker, e, at, depth + 1); return r && { all: `${r.all}[]`, only: `${r.only}[]` };
+  }
+  if (!(u.flags & ts.TypeFlags.Object) || checker.isTupleType(u) || u.symbol?.flags & ts.SymbolFlags.Class) return undefined;
+  const ix = checker.getIndexInfoOfType(u, ts.IndexKind.String);
+  if (ix && comp(ix.type) && !u.getProperties().length) return { all: "Record<string, Component>", only: "Record<string, Component>" };
+  const ps = u.getProperties(); if (!ps.length || ps.length > 80 || !ps.every(q => /^[A-Za-z_$][\w$]*$/.test(q.name))) return undefined;
+  const file = u.symbol?.declarations?.[0]?.getSourceFile().fileName ?? ""; if (/\/typescript\/lib\/lib\./.test(file)) return undefined;
+  const of = q => checker.getTypeOfSymbolAtLocation(q, at);
+  if (!ps.some(q => comp(of(q)))) return undefined;
+  const o = q => q.flags & ts.SymbolFlags.Optional ? "?" : "";
+  const only = ps.filter(q => comp(of(q))).map(q => `${q.name}${o(q)}: Component`);
+  const all = ps.map(q => comp(of(q)) ? `${q.name}${o(q)}: Component` : propText(ts, checker, q, at));
+  return { all: `{ ${all.join("; ")} }`, only: `{ ${only.join("; ")} }` };
+}
+/** The records `heldComponents` wrote whole, by their text: the same with the component fields alone. */
+const HELD_ONLY = new Map();
 function paramText(ts, checker, p, at, generic = false, here) {
   const t = checker.getTypeOfSymbolAtLocation(p, at);
   const node = annotation(ts, p);   // MO-8o: the parameter as the library declares it
   const opt = p.valueDeclaration && ts.isParameter(p.valueDeclaration) && (p.valueDeclaration.questionToken || p.valueDeclaration.initializer) ? "?" : "";   // MO-8e
   const name = RESERVED.has(p.name) ? `${p.name}_` : p.name;   // a parameter's name is only a name: never a row word (`ref`)
   const read = accessorOf(ts, checker, t);
+  // MO-11u (2026-11-24): a function of nothing that gives an element is no accessor of a value — the library renders it
+  // (a component with no props, a render function: sonner's `toast(() => <Saved />)`). The parameter takes a view, or
+  // such a function, and a call of the fn is a call, not an instantiation
+  if (read && isElement(ts, checker, read)) { const u = checker.getNonNullableType(t); return `${name}${opt}: ${u.flags & ts.TypeFlags.Union && u.types.some(x => !x.getCallSignatures().length) ? "View | " : ""}(() => View)`; }
   if (read) {
     // an accessor of an options object the library declares: its callbacks are typed as functions, as a plain options
     // parameter's are (what marks one `handler` is written on it)
@@ -625,6 +664,10 @@ function paramText(ts, checker, p, at, generic = false, here) {
     if (CTX.decl && own.flags & ts.TypeFlags.TypeParameter && CTX.scope.has(own.symbol)) { const said = declared(ts, checker, node, t, true); if (said && !introduced(said)) return `${name}${opt}: ${said}`; }
     if (!checker.getNonNullableType(t).getCallSignatures().some(s => checker.getTypePredicateOfSignature?.(s))) {
       const c = callbackText(ts, checker, t, here, "callback", node);
+      // MO-11c, MO-11u: a parameter that is a component (it takes props and gives an element) is written `Component<P>`,
+      // the same type under its own name — what the fn is given is then read as what it is
+      { const k = isComponent(ts, checker, t) && !isElement(ts, checker, t) ? /^\(([A-Za-z_$][\w$]*): ([^]*)\) => View$/.exec(c) : null;
+        if (k && oneType(k[2])) return `${name}${opt}: Component<${k[2]}>`; }
       // the last reading (`whole`): a callback with no name is its place as it stands — taken apart
       // (`(...args: Parameters<P>) => ReturnType<P>`) it is the function at its bounds, which TypeScript may not hold
       return `${name}${opt}: ${CTX.whole && here && (byPlace(c) || introduced(c)) ? present(checker, t, here) : c}`;
@@ -908,7 +951,8 @@ function declare(ts, spec, from, options = {}, how = {}) {
       // closes the props is the row's own, the fields that carry words (MO-8o), and this one is the library's text
       if (named && /\}\s*$/.test(named.replace(MARK, ""))) named = `(${named})`;
       // (MO-11t: and a prop that takes a view, other than `children` — a component given to it by name is applied there)
-      if (named) props = props.filter(x => /^[\w$]+\??: (?:Component$|string \| Component$|\(.*=>)/.test(x.replace(MARK, "")) || /^(?!children\b)[\w$]+\??: (?:View|View \| undefined|string \| View)$/.test(x.replace(MARK, "")));
+      // (MO-11c: and a prop that holds components in a record or a list, with its component fields alone)
+      if (named) props = props.filter(x => /^[\w$]+\??: (?:Component$|string \| Component$|\(.*=>)/.test(x.replace(MARK, "")) || /^(?!children\b)[\w$]+\??: (?:View|View \| undefined|string \| View)$/.test(x.replace(MARK, "")) || HELD_ONLY.has(x.replace(MARK, ""))).map(x => HELD_ONLY.get(x.replace(MARK, "")) ?? x);
       // MO-10g: a prop's function type is pure unless it says `handler`, whatever its name, so an event-like name is only
       // a suggestion here, never the word
       const events = [...new Set(props.map(x => /^(on[A-Z][\w$]*)\??\s*:\s*\(/.exec(x)?.[1]).filter(Boolean))];
@@ -961,6 +1005,12 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const config = /^define[A-Z]|[a-z]Options$/.test(name);   // a config helper (`defineRoute`, `queryOptions`): pure by convention
     if (/^use[A-Z]/.test(name)) todos.unshift("which context does this hook read? add uses(<context>) (MO-12b)");
     const factory = ret === "Component";
+    // MO-11u: a fn that is given a component (as a parameter, or in a record it takes) renders it somewhere: types do
+    // not say where, so it is asked
+    { const viewFn = x => { const r = accessorOf(ts, checker, x); return !!r && isElement(ts, checker, r); };   // a function of nothing giving an element: rendered, as a component with no props is
+      const isC = x => viewFn(x) || (isComponent(ts, checker, x) && !isElement(ts, checker, x) && checker.getNonNullableType(x).getCallSignatures().every(g => g.getParameters().length === 1));
+      const given = params.filter(p => { const pt = checker.getTypeOfSymbolAtLocation(p, imp); const o = checker.getNonNullableType(pt); return isC(pt) || (!o.getCallSignatures().length && !!(o.flags & ts.TypeFlags.Object) && !checker.isArrayType(o) && o.getProperties().length <= 80 && o.getProperties().some(q => isC(checker.getTypeOfSymbolAtLocation(q, imp)))); });
+      if (given.length && !factory) todos.push(`${given.map(p => `\`${p.name}\``).join(", ")} ${given.length > 1 ? "are" : "is"} given a component: where does the library render it? If beneath a component this module exports, name that component, \`renders(<Component>)\` (MO-11u); with no word it is checked under a root of its own, where nothing above the call reaches it (MO-11s)`); }
     if (factory) todos.unshift("does its component provide a context, or nest what it is given? add provides(<context>), nests(<kids> in <component>) (MO-12c, MO-11i)");
     // RFC 26: a name is a convention, not a fact, so it suggests `pure` (a TODO for a person) and never writes it: a draft
     // states only what the types show, and an unreviewed row stays io, the checker's cautious reading (R-io-4)

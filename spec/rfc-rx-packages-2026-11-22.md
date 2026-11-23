@@ -358,3 +358,27 @@ What 09 MO-14 changes for a package written in `.rx`, which is little:
   any exported component is; the declaration is the app's, and is not
   shipped.
 
+## `renders(H)` and a package (2026-11-24)
+
+What 09 MO-11u changes for a package written in `.rx`:
+
+- **A printed signature has two rows more.** A component that applies a
+  component some fn `renders(…)` beneath says where, `hosts(<key>
+  catches(…) provides(…); …)`, and a module whose code calls such a fn
+  with components says what they let out, `export renders <key> from
+  <fn>:<line> fails(…) uses(…)`. Neither is written by hand: both are
+  what the body proved, as `retains(…)` and `takes(…)` are (MO-9b), and
+  a package's shipped `.d.rx` carries them, so an app is judged against a
+  package as against its source.
+- **H is named by its declaration's path**, as a context is. Inside a
+  package that is a path of the package; a key that goes through
+  `node_modules` names another package's declaration where it happened to
+  be installed, and `rx-lib` refuses it as it refuses such a context
+  (MO-13b). So a package written in `.rx` may ship a toaster of its own
+  and the function that shows a toast in it; a package that calls
+  *another* package's `toast()` with a component, or mounts another
+  package's `<Toaster>`, is built with that left to the app (the app
+  shows the toast, or mounts the toaster). The same limit, for the same
+  reason, as a context of another package.
+- **Nothing at run time.** The word is a check's; a compiled call of a
+  fn that says it is the call it was.

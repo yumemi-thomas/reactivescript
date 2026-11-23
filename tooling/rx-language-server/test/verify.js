@@ -169,6 +169,68 @@ check("a part declared uses(…) that reads nothing is a mismatch", /kit\.d\.rx:
 check("the root's provides(…) is checked through a part that uses it alone: it fails without it and renders under it", /kit\.d\.rx:2 ok\s+Dialog: provides\(dialog\) holds: Dialog\.Trigger, which uses it alone, fails without it and renders under it/.test(out2), out2);
 check("placement with no scene is not verified, and says so", /unscened\.d\.rx:2 unverified createRouter: where it renders what it is given is not run: give a scene/.test(out2), out2);
 
+// MO-11u, MO-11c, MO-11s: `renders(H)` against a scene, a component given to a prop, and a component called with no
+// owner. A toaster whose `toast` hands a component to `<Toaster>`; `show`, to a member (`Board.List`); `popup`, declared
+// the same, mounts it under a root of its own; `bare`, with no word, calls it with no owner at all. `Panel` renders the
+// component its prop is given beneath itself; `Later`, declared the same, mounts it from a root of its own, later.
+fs.writeFileSync(path.join(ws, "toasts.mjs"), [
+  "import { createSignal, createComponent, createRoot } from \"solid-js\";",
+  "const [items, setItems] = createSignal([]);",
+  "const [listed, setListed] = createSignal([]);",
+  "export const toast = C => { setItems(xs => [...xs, C]); return 1; };",
+  "export const show = C => { setListed(xs => [...xs, C]); return 1; };",
+  "export const Toaster = () => () => items().map(C => createComponent(C, {}));",
+  "export const Board = { List: () => () => listed().map(C => createComponent(C, {})) };",
+  "export const popup = C => { createRoot(() => createComponent(C, {})); return 1; };",
+  "export const bare = C => { C({}); return 1; };",
+  "export const stray = () => 1;",
+  "export const Panel = props => createComponent(props.body, {});",
+  "export const Later = props => { const C = props.body; queueMicrotask(() => createRoot(() => createComponent(C, {}))); return null; };",
+  "export const Unused = () => null;",
+  "",
+].join("\n"));
+const toastsDecl = [
+  "export component Toaster(props: {})",
+  "export component Board.List(props: {})",
+  "export fn toast(c: Component): number renders(Toaster)",
+  "export fn show(c: Component): number renders(Board.List)",
+  "// a comment line between rows",
+  "export fn popup(c: Component): number renders(Toaster)",
+  "export fn bare(c: Component): number",
+  "export fn stray(c: Component): number renders(Toaster)",
+  "export component Panel(props: { body: Component })",
+  "export component Later(props: { body: Component })",
+  "export component Unused(props: { tabs: { view: Component }[] })",
+  "",
+].join("\n");
+fs.writeFileSync(path.join(ws, "toasts.d.rx"), toastsDecl);
+fs.writeFileSync(path.join(ws, "toasts.probe.mjs"), [
+  "let made;",
+  "export const scene = (lib, h) => {",
+  "  made = Object.fromEntries([\"A\", \"B\", \"P\", \"N\", \"X\", \"Y\"].map(n => [n, h.component(n)]));",
+  "  return () => [h.s.createComponent(lib.Toaster, {}), h.s.createComponent(lib.Board.List, {}), h.s.createComponent(lib.Panel, { body: made.X }), h.s.createComponent(lib.Later, { body: made.Y })];",
+  "};",
+  "export const act = lib => { lib.toast(made.A); lib.show(made.B); lib.popup(made.P); lib.bare(made.N); };",
+  "",
+].join("\n"));
+fs.writeFileSync(path.join(ws, "toasts2.mjs"), fs.readFileSync(path.join(ws, "toasts.mjs"), "utf8"));
+fs.writeFileSync(path.join(ws, "toasts2.d.rx"), toastsDecl);
+{
+  const r = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "toasts.d.rx", "toasts2.d.rx"], { cwd: ws, encoding: "utf8" });
+  const o = r.stdout + r.stderr;
+  if (process.env.VERBOSE) console.log(o);
+  check("renders(H): a component the fn is given renders beneath an application of H (by a scene)", /toasts\.d\.rx:3 ok\s+toast: placement holds: A beneath Toaster/.test(o), o);
+  check("renders(H): H may be a member of an object (`Board.List`)", /toasts\.d\.rx:4 ok\s+show: placement holds: B beneath Board\.List/.test(o), o);
+  check("renders(H): a library that mounts the component under a root of its own is a mismatch", /toasts\.d\.rx:6 MISMATCH\s+popup: P renders outside Toaster/.test(o), o);
+  check("a fn with no word that calls the component it is given with no owner is reported (MO-11s)", /toasts\.d\.rx:7 MISMATCH\s+bare: it calls N with no owner/.test(o), o);
+  check("renders(H): a fn the scene does not call is not verified", /toasts\.d\.rx:8 unverified stray: the scene does not call it/.test(o), o);
+  check("a component given to a prop renders beneath the component it is given to (MO-11c, DV-24, by a scene)", /toasts\.d\.rx:9 ok\s+Panel: placement holds: X \(given as body\) beneath it/.test(o), o);
+  check("a component that mounts what its prop is given from a root of its own, later, is a mismatch", /toasts\.d\.rx:10 MISMATCH\s+Later: Y \(given as body\) renders outside it/.test(o), o);
+  check("a component the scene does not apply leaves its props unverified", /toasts\.d\.rx:11 unverified Unused: the scene does not apply it/.test(o), o);
+  check("with no scene, neither is run: each says to give one", /toasts2\.d\.rx:3 unverified toast: where it renders what it is given is not run: give a scene/.test(o) && /toasts2\.d\.rx:9 unverified Panel: where it renders the component given as body is not run: give a scene/.test(o) && /toasts2\.d\.rx:11 unverified Unused: where it renders the component given as tabs is not run/.test(o) && !/toasts2\.d\.rx:7 (unverified|MISMATCH)/.test(o), o);
+  check("a fn declared renders(H) is not run twice to refute `pure`: it makes something each call", !/toasts\.d\.rx:\d+ MISMATCH\s+\w+: declared pure/.test(o), o);
+}
+
 // MO-10g: a callback row checked by running — the library calls it outside tracking (a handler), inside a computation
 // (a mismatch: the parameter would be `ref`), or never under the probe (unverified).
 // MO-8j: `--record` writes what running showed; strict mode refuses the rows not recorded as verified.
@@ -319,7 +381,7 @@ check("provides(a, b): a hook that uses only a answers provides(a) alone; b is u
 check("...and strict refuses the row (no `ok` record for provides(a, b))", bothStrict.some(u => u.name === "Both" && /could not check it/.test(u.message)), bothStrict);
 check("a component's handler prop it never calls: unverified, and strict refuses it", /both\.d\.rx:5 unverified Lone: prop ref never called/.test(both.stdout) && bothStrict.some(u => u.name === "Lone" && /could not check it/.test(u.message)), { out: both.stdout, bothStrict });
 const bothRec = JSON.parse(fs.readFileSync(path.join(ws, "both.verified.json"), "utf8"));
-check("...in a version-5 record", bothRec.version === 5 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
+check("...in a version-6 record", bothRec.version === 6 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
 
 // RFC 28 (revised after review): provides(b) is not shown by a hook declared uses(a, b) that reads only a, nor by a part
 // that still fails under the provider; only actual provision verifies it

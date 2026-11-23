@@ -12,7 +12,7 @@ use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Cod
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
 use crate::parse::{field_rows, js_trim, split_top, JsDecl, Part, Shape as FShape};
-use crate::signature::{Catch, CompSig, ExportSig, ModSig, Own, PropSig, SigParam, HOLD};
+use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, HOLD};
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
 use std::cell::Cell;
@@ -180,6 +180,8 @@ struct Region {
     sig: Option<CompSig>,
     /// E-5a: a component root's identity across modules (`file#name`), for what its props are given
     key: Option<String>,
+    /// MO-11u: a declared JS component some fn of its declaration `renders(…)` beneath: `declaration#Name`
+    host_key: Option<String>,
 }
 
 #[derive(Clone)]
@@ -285,6 +287,9 @@ struct Sym<'a> {
     gives: Vec<String>,
     /// MO-11i: how a declared factory (and the component it made) nests what it is given: (kids field, component field)
     nests: Option<(String, String)>,
+    /// MO-11u: a declared JS fn `renders(H)` — H's key (`declaration#H`), its name as written, and the contexts H itself
+    /// uses and provides
+    renders_in: Option<(String, String, Vec<String>)>,
     /// MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a
     /// draft: the parameter positions that are drafts
     updater: Option<Vec<usize>>,
@@ -385,6 +390,7 @@ impl<'a> Sym<'a> {
             needs: vec![],
             gives: vec![],
             nests: None,
+            renders_in: None,
             updater: None,
             disposer: None,
             ret_ty: None,
@@ -1480,6 +1486,26 @@ fn esc_p(chain: &[Step], name: &str) -> bool {
         None => false,
     })
 }
+/// MO-11u: a list of places in the order a signature prints (by key, then by what each discharges and provides).
+fn sort_sites(m: IndexMap<String, Vec<HostSite>>) -> IndexMap<String, Vec<HostSite>> {
+    let mut m: Vec<(String, Vec<HostSite>)> = m.into_iter().collect();
+    m.sort_by(|a, b| a.0.cmp(&b.0));
+    m.into_iter()
+        .map(|(k, mut xs)| {
+            xs.sort_by_key(site_key);
+            (k, xs)
+        })
+        .collect()
+}
+fn join_catch(a: &Catch, b: &Catch) -> Catch {
+    match (a, b) {
+        (Catch::All, _) | (_, Catch::All) => Catch::All,
+        (Catch::Set(a), Catch::Set(b)) => Catch::Set(a.iter().chain(b.iter()).cloned().collect()),
+    }
+}
+fn site_key(x: &HostSite) -> String {
+    format!("{}~{}", ck(&Some(x.f.clone())), ck(&Some(x.p.clone())))
+}
 fn meet(a: Catch, b: &Catch) -> Catch {
     match (a, b) {
         (Catch::All, b) => b.clone(),
@@ -1756,6 +1782,16 @@ pub struct Opts<'a> {
 pub struct Checker<'a> {
     /// MO-11f: the components in a factory call's arguments (values there, not reads), and each factory's, by its symbol
     value_ids: HashSet<*const Expr>,
+    /// MO-11u: the calls of `renders(H)` fns that were given components (H's key, its name, the fn, the root the
+    /// components were applied under, the line, what H itself uses and provides)
+    hosted_calls: Vec<(String, String, String, RId, i64, Vec<String>)>,
+    /// MO-11u: each application of a component a fn `renders(…)` beneath (its key, its root, its children's region)
+    host_sites: Vec<(String, RId, RId)>,
+    /// MO-11u: what the walk found of them, resolved (the module's signature)
+    hosted: Vec<Hosted>,
+    hosts: IndexMap<String, Vec<HostSite>>,
+    s_memo: HashMap<Option<RId>, IndexMap<String, Vec<HostSite>>>,
+    s_busy: HashSet<Option<RId>>,
     factory_values: HashMap<SId, Vec<String>>,
     /// MO-11f: the factories being expanded, per walk (markup, content, shape); a factory may be given itself (C-1 reports it)
     expanding: [HashSet<SId>; 3],
@@ -1914,6 +1950,11 @@ pub fn check_modules_with(set: &ModuleSet, spa: bool, whole: bool) -> Checked {
 }
 /// E-5a, whole program: as `check_modules_with`, with `hosts` the modules a JS host imports with `?rx-lib` (CP-4d).
 pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[String]) -> Checked {
+    check_modules_judged(set, spa, whole, hosts, true)
+}
+/// `judge` (MO-11u): this set is the program — a host's view is judged with the program it is the view of.
+fn check_modules_judged(set: &ModuleSet, spa: bool, whole: bool, hosts: &[String], judge: bool) -> Checked {
+    let mut host_sigs: Vec<ModSig> = vec![]; // MO-11u: the modules of a host's view (MO-14), judged with this program
     let mut sigs: IndexMap<String, ModSig> = set.signatures.clone();
     let mut diags = set.diags.clone();
     let mut models = IndexMap::new();
@@ -1938,7 +1979,12 @@ pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[Str
     }
     if let Some(host) = &set.host {
         // MO-14c: the host's view, checked as a program of its own; what it says is the declaration's
-        let h = check_modules_hosts(&host.set, spa, whole, hosts);
+        let h = check_modules_judged(&host.set, spa, whole, hosts, false);
+        for (p, x) in &h.sigs {
+            if !sigs.contains_key(p) {
+                host_sigs.push(x.clone());
+            }
+        }
         let at = |mut d: Diagnostic| {
             if d.file.as_deref().unwrap_or(&host.entry) == host.entry {
                 d.file = Some(host.file.clone());
@@ -1959,7 +2005,146 @@ pub fn check_modules_hosts(set: &ModuleSet, spa: bool, whole: bool, hosts: &[Str
             }
         }
     }
+    // MO-11u: what the components given to a fn declared `renders(H)` need is judged at the program, at every application
+    // of H in it — in whichever module the call and the application are (a component's `uses` is judged at its application)
+    if judge {
+        // CP-4d: a component a JS host applies, with nothing above it
+        let mut all: Vec<&String> = hosts.iter().collect();
+        let mut more: Vec<&String> = set.hosted.iter().filter(|h| !hosts.contains(h)).collect();
+        more.sort();
+        all.extend(more);
+        let mut hosted_by: Vec<IndexMap<String, Vec<HostSite>>> = vec![];
+        for h in all {
+            let Some(sig) = sigs.get(h) else { continue };
+            for (n, x) in &sig.exports {
+                if let ExportSig::Comp { sig: c } = x {
+                    if !set.placed.contains(&format!("{h}#{n}")) && !c.hosts.is_empty() {
+                        hosted_by.push(c.hosts.clone());
+                    }
+                }
+            }
+        }
+        let key = |d: &Diagnostic| format!("{}\0{}\0{}\0{}", d.file.as_deref().unwrap_or(&set.entry), d.line, d.code, d.msg);
+        let mut have: HashSet<String> = diags.iter().map(key).collect();
+        let all_sigs: Vec<&ModSig> = sigs.values().chain(host_sigs.iter()).collect();
+        for d in judge_hosted(&all_sigs, &hosted_by, spa) {
+            if have.insert(key(&d)) {
+                diags.push(d);
+            }
+        }
+    }
     Checked { diags, advice, sigs, models }
+}
+
+/// MO-11u: a fn declared `renders(H)` hands the components it is given to H, which renders them later, any number of
+/// times, among its children. So each is checked as applied there, with no arguments, at every application of H in the
+/// program: what it lets out of H's children (its failures, the contexts it uses, a first load it waits on) must be
+/// discharged above each one. With no application of H anywhere, nothing renders them yet, and they are held to the
+/// least H could have above it: what H itself uses and provides (already taken off), under a root of its own (MO-11s).
+pub fn judge_hosted(sigs: &[&ModSig], extra: &[IndexMap<String, Vec<HostSite>>], spa: bool) -> Vec<Diagnostic> {
+    let mut sites: IndexMap<String, Vec<HostSite>> = IndexMap::new();
+    let mut seen: HashSet<&str> = HashSet::new();
+    for s in sigs {
+        if !seen.insert(s.file.as_str()) {
+            continue;
+        }
+        for (k, xs) in &s.hosts {
+            sites.entry(k.clone()).or_default().extend(xs.iter().cloned());
+        }
+    }
+    for r in extra {
+        for (k, xs) in r {
+            sites.entry(k.clone()).or_default().extend(xs.iter().cloned());
+        }
+    }
+    // a component given to such a fn may itself apply a host (a routed layout with the app's `<Toaster />` in it):
+    // that place is wherever its own host renders it — what is above it there, and what is above the host — to a
+    // fixed point
+    let mut calls: Vec<&Hosted> = vec![];
+    seen.clear();
+    for s in sigs {
+        if seen.insert(s.file.as_str()) {
+            calls.extend(s.hosted.iter());
+        }
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for h in &calls {
+            for (k, xs) in &h.inner {
+                let base: Vec<HostSite> = sites.get(&h.host).cloned().unwrap_or_default();
+                for b in &base {
+                    for x in xs {
+                        let y = HostSite { f: join_catch(&x.f, &b.f), p: join_catch(&x.p, &b.p) };
+                        let cur = sites.entry(k.clone()).or_default();
+                        if !cur.iter().any(|z| site_key(z) == site_key(&y)) {
+                            cur.push(y);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut out = vec![];
+    seen.clear();
+    let bare = [HostSite { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()) }];
+    for s in sigs {
+        if !seen.insert(s.file.as_str()) {
+            continue;
+        }
+        for h in &s.hosted {
+            let at = sites.get(&h.host).map(|v| v.as_slice()).unwrap_or(&[]);
+            let none = at.is_empty();
+            let xs: &[HostSite] = if none { &bare } else { at };
+            let (f, n) = (&h.r#fn, &h.name);
+            let wh = if none {
+                format!("{f}() is declared `renders({n})`, and the program applies <{n}> nowhere: what it is given is checked under a root of its own, with what <{n}> itself uses and provides (MO-11u, MO-11s)")
+            } else {
+                format!("{f}() is declared `renders({n})`: what it is given is rendered beneath <{n}>, and is checked among its children at every place the program applies it (MO-11u)")
+            };
+            let above = if none { "it".to_string() } else { format!("an application of <{n}>") };
+            let file = (!s.file.is_empty()).then(|| s.file.clone());
+            for cls in &h.fails {
+                if xs.iter().any(|x| !x.f.caught(cls)) {
+                    out.push(Diagnostic {
+                        code: "UNHANDLED_FAILURE".into(),
+                        rule: "R-f-5".into(),
+                        line: h.line as i64,
+                        msg: format!(
+                            "a component given to {f}() can fail with {cls} where it renders, and no errored boundary above {above} discharges {cls} — {wh}: put <{n}> under `errored fallback(e{}) {{ … }} {{ … }}`, or catch it inside the component",
+                            if cls == "Error" { String::new() } else { format!(": {cls}") }
+                        ),
+                        file: file.clone(),
+                    });
+                }
+            }
+            for k in &h.requires {
+                if !xs.iter().any(|x| !match &x.p { Catch::All => true, Catch::Set(p) => p.contains(k) }) {
+                    continue;
+                }
+                if k == HOLD {
+                    out.push(Diagnostic {
+                        code: if spa { "ASYNC_OUTSIDE_LOADING_BOUNDARY" } else { "CLIENT_QUESTION_UNHELD" }.into(),
+                        rule: if spa { "CN-3d" } else { "SV-7b" }.into(),
+                        line: h.line as i64,
+                        msg: format!("a reader in a component given to {f}() can have no value yet, and no `loading` region above {above} holds it — {wh}: put <{n}> under `loading fallback {{ … }} {{ … }}`, or the reader under one inside the component"),
+                        file: file.clone(),
+                    });
+                } else {
+                    let decl = k.split('#').next().unwrap_or("").split('/').last().unwrap_or("");
+                    out.push(Diagnostic {
+                        code: "CONTEXT_NOT_FOUND".into(),
+                        rule: "RG-7b".into(),
+                        line: h.line as i64,
+                        msg: format!("a component given to {f}() uses {} (declared in {decl}), and no provision of it is above {above} — {wh}: provide it above <{n}>, or give the component the value as a prop", key_name(k)),
+                        file: file.clone(),
+                    });
+                }
+            }
+        }
+    }
+    out
 }
 
 /// 11 CP-4d: a component a JS host renders (`pages.rx?rx-lib`) is applied where the checker cannot see, so nothing
@@ -1998,6 +2183,12 @@ impl<'a> Checker<'a> {
         Checker {
             holds_mode: Cell::new(false),
             value_ids: HashSet::new(),
+            hosted_calls: vec![],
+            host_sites: vec![],
+            hosted: vec![],
+            hosts: IndexMap::new(),
+            s_memo: HashMap::new(),
+            s_busy: HashSet::new(),
             factory_values: HashMap::new(),
             expanding: Default::default(),
             diags: vec![],
@@ -2089,7 +2280,7 @@ impl<'a> Checker<'a> {
         let r = self.regions.len();
         let depth = parent.map(|p| self.regions[p].depth + 1).unwrap_or(0);
         let comp = if component { Some(r) } else { parent.and_then(|p| self.regions[p].component) };
-        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, kids: None, js: false, sig: None, key: None });
+        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, kids: None, js: false, sig: None, key: None, host_key: None });
         self.model.region(id, kind, parent.map(|p| self.regions[p].id), name);
         r
     }
@@ -2369,8 +2560,8 @@ impl<'a> Checker<'a> {
                             };
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
-                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, takes: vec![] });
-                            self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new() });
+                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, components: false, takes: vec![] });
+                            self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new(), hosts: IndexMap::new() });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
                             sym.factory = Some((args.as_slice(), env));
@@ -2634,17 +2825,21 @@ impl<'a> Checker<'a> {
                 let empty = || Catch::Set(IndexSet::new());
                 let given = || Catch::Set(gives.iter().cloned().collect());
                 let mut props = IndexMap::new();
-                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false, takes: vec![] });
+                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false, components: false, takes: vec![] });
                 for p in xprops {
                     let f = match &p.catches {
                         Some(c) => Catch::of(c),
                         None => empty(),
                     };
-                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component, takes: vec![] });
+                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component, components: p.components, takes: vec![] });
                 }
                 let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                 let r = c.region(None, "imported", true, Some(alias.to_string()));
-                c.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new() });
+                c.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new(), hosts: IndexMap::new() });
+                // MO-11u: its applications are where a fn's components render
+                if decls.iter().any(|y| matches!(y, JsDecl::Fn { renders: Some(h), .. } if h == xname)) {
+                    c.regions[r].host_key = Some(format!("{}#{}", declared, xname));
+                }
                 let renders: HashSet<String> = xprops.iter().filter(|p| p.render).map(|p| p.name.clone()).collect();
                 if !renders.is_empty() {
                     c.render_props.insert(r, renders);
@@ -2711,7 +2906,18 @@ impl<'a> Checker<'a> {
                     bind_comp(self, x, alias);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, waits: xwaits, cbs: xcbs, drafts: xdrafts, part_drafts: xpart_drafts, ret: xret, draft_args: xdraft_args, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, waits: xwaits, cbs: xcbs, drafts: xdrafts, part_drafts: xpart_drafts, ret: xret, draft_args: xdraft_args, renders: xrenders, .. } => {
+                    // MO-11u: `renders(H)` — H is a component of the same declaration; what H itself uses and provides is
+                    // above everything it renders
+                    let renders_in = |c: &mut Self| -> Option<(String, String, Vec<String>)> {
+                        let h = xrenders.as_ref()?;
+                        let mut credit: IndexSet<String> = IndexSet::new();
+                        if let Some(JsDecl::Comp { uses: hu, provides: hp, .. }) = decls.iter().find(|y| matches!(y, JsDecl::Comp { name, .. } if name == h)) {
+                            credit.extend(js_keys(c, hu));
+                            credit.extend(js_keys(c, hp));
+                        }
+                        Some((format!("{}#{}", declared, h), h.clone(), credit.into_iter().collect()))
+                    };
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
                         if *pure && !xpure {
@@ -2733,6 +2939,7 @@ impl<'a> Checker<'a> {
                         s.waits = xwaits.clone();
                         s.cbs = xcbs.clone();
                         s.ret_ty = xret.clone();
+                        s.renders_in = renders_in(self);
                         self.bind(env, alias, s);
                         continue;
                     }
@@ -2758,6 +2965,7 @@ impl<'a> Checker<'a> {
                     s.draft_args = xdraft_args.clone();
                     s.part_drafts = xpart_drafts.clone();
                     s.pure_fn = *xpure;
+                    s.renders_in = renders_in(self);
                     s.generated = generated.clone();
                     self.bind(env, alias, s);
                 }
@@ -3054,7 +3262,7 @@ impl<'a> Checker<'a> {
             };
             exports.insert(name.to_string(), x);
         }
-        ModSig { file: self.opts.file.clone().unwrap_or_default(), exports }
+        ModSig { file: self.opts.file.clone().unwrap_or_default(), exports, hosted: self.hosted.clone(), hosts: self.hosts.clone() }
     }
 
     fn cycles(&mut self, decls: &'a [Decl], env: EId) {
@@ -3292,7 +3500,7 @@ impl<'a> Checker<'a> {
                                 self.call_marks(f, args, env);
                                 self.mark_callbacks(args, fs);
                                 if self.unplaced_fn(fs) {
-                                    self.unplaced(args, env); // MO-11s
+                                    self.unplaced(args, env, Some(fs)); // MO-11s, MO-11u
                                 }
                                 self.snapshot_args(e, fs, env);
                                 // MO-12b: a hook reads its context where it is called
@@ -5068,7 +5276,7 @@ impl<'a> Checker<'a> {
                     match self.syms[s].kind {
                         // MO-11m: a made component's properties (`Router.paths`) are values
                         SymKind::Comp if field.is_some() && self.syms[s].factory.is_some() => {}
-                        SymKind::Comp => self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed `Component` or `View`, or a JS factory's arguments (MO-11c, MO-11t, MO-11f)", name)),
+                        SymKind::Comp => self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed `Component` or `View` (or, where its type holds components, the record or the array written there), or a JS fn's arguments (MO-11c, MO-11t, MO-11f, MO-11s)", name)),
                         SymKind::Context => self.err("CONTEXT_AS_VALUE", "RG-7", format!("context {} used as a value: read the nearest provision with `use {}`", name, name)),
                         _ => {}
                     }
@@ -5369,8 +5577,8 @@ impl<'a> Checker<'a> {
                         }
                     }
                     self.model.call(s, kind.map(|k| k.as_str()).unwrap_or(""));
-                    if s.is_some_and(|s| self.unplaced_fn(s)) {
-                        self.unplaced(args, env); // MO-11s
+                    if let Some(s) = s.filter(|&s| self.unplaced_fn(s)) {
+                        self.unplaced(args, env, Some(s)); // MO-11s, MO-11u
                     }
                 }
                 self.expr(f, env, ctx, None);
@@ -6111,12 +6319,13 @@ impl<'a> Checker<'a> {
                             }
                         }
                         let values = self.component_values(tag, attrs, env);
-                        for (i, _) in &values {
-                            if let Some(Attr { e: Expr { k: ExprKind::Id(n), .. }, .. }) = attrs.get(*i) {
-                                self.escape_comp(n, env); // E-5a: a JS component applies it
+                        for (i, v, at) in &values {
+                            self.escape_comp(&v.tag, env); // E-5a: a JS component applies it
+                            if i.is_none() {
+                                self.value_ids.insert(*at); // MO-11c: a component inside a record or an array given to the prop
                             }
                         }
-                        let args: Vec<&'a Attr> = attrs.iter().enumerate().filter(|(i, _)| !values.iter().any(|(j, _)| j == i)).map(|(_, a)| a).collect();
+                        let args: Vec<&'a Attr> = attrs.iter().enumerate().filter(|(i, _)| !values.iter().any(|(j, _, _)| *j == Some(*i))).map(|(_, a)| a).collect();
                         // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure),
                         // whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element (07 §4: the DOM
                         // calls it once, with the node), not on a component, which calls its props when it likes: there it is
@@ -6140,6 +6349,7 @@ impl<'a> Checker<'a> {
                             self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: tag.clone(), args: args.iter().filter(|a| !handles(&a.name)).map(|a| (field_of(&a.name), &a.e, env)).collect(), passed: args.iter().map(|a| (field_of(&a.name), &a.e, env)).collect() });
                             let kids = self.region(Some(region), "children", false, Some(tag.clone()));
                             self.regions[kids].kids = Some((cr, region));
+        self.note_host_site(cr, kids); // MO-11u
                             let kenv = self.env(Some(env), kids);
                             let renders = self.render_props.get(&cr).cloned().unwrap_or_default();
                             for x in children.iter() {
@@ -6173,7 +6383,7 @@ impl<'a> Checker<'a> {
                                     self.through_reads.push((kids, c));
                                 }
                             }
-                            for (_, v) in &values {
+                            for (_, v, _) in &values {
                                 self.apply_tree(v, m.line, kenv);
                             }
                             self.apply_factory(s.unwrap(), kids, m.line);
@@ -6404,20 +6614,46 @@ impl<'a> Checker<'a> {
     /// SV-7d: every element, text and component root of a view against the elements open above it.
     /// MO-11c: the components passed to a JS component's `Component` props (by attribute index) — each checked as applied,
     /// with no arguments, among the application's children (DV-24).
-    fn component_values(&self, tag: &str, attrs: &'a [Attr], env: EId) -> Vec<(usize, VTree)> {
+    fn component_values(&self, tag: &str, attrs: &'a [Attr], env: EId) -> Vec<(Option<usize>, VTree, *const Expr)> {
         let Some(sig) = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.regions[r].sig.as_ref()) else { return vec![] };
         // MO-11t: and the components given by name to its props typed `View`, each applied there with no arguments
         let views = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.view_props.get(&r));
+        let is_comp = |e: &Expr| matches!(&e.k, ExprKind::Id(n) if is_upper_tag(n) && self.lookup(env, n).is_some_and(|s| self.syms[s].kind == SymKind::Comp));
         let mut out = vec![];
         for (i, a) in attrs.iter().enumerate() {
-            if !sig.props.get(&a.name).is_some_and(|p| p.component) && !views.is_some_and(|v| v.contains(&a.name)) {
+            let prop = sig.props.get(&a.name);
+            if (prop.is_some_and(|p| p.component) || views.is_some_and(|v| v.contains(&a.name))) && is_comp(&a.e) {
+                if let ExprKind::Id(n) = &a.e.k {
+                    out.push((Some(i), VTree { tag: n.clone(), kids: vec![] }, &a.e as *const Expr));
+                }
                 continue;
             }
-            if let ExprKind::Id(n) = &a.e.k {
-                if is_upper_tag(n) && self.lookup(env, n).is_some_and(|s| self.syms[s].kind == SymKind::Comp) {
-                    out.push((i, VTree { tag: n.clone(), kids: vec![] }));
+            // MO-11c (2026-11-24): a prop whose type holds a `Component` in a record or an array (`builtins={{ Heading }}`,
+            // `tabs={[First, Second]}`) — each component in the literal is a value there, applied as a direct one is
+            if !prop.is_some_and(|p| p.components) || !matches!(a.e.k, ExprKind::Rec(_) | ExprKind::Arr(_)) {
+                continue;
+            }
+            fn walk(e: &Expr, is_comp: &dyn Fn(&Expr) -> bool, out: &mut Vec<(Option<usize>, VTree, *const Expr)>) {
+                match &e.k {
+                    ExprKind::Id(n) if is_comp(e) => out.push((None, VTree { tag: n.clone(), kids: vec![] }, e as *const Expr)),
+                    ExprKind::Rec(fields) => {
+                        for f in fields {
+                            if let Field::Kv { v, .. } = f {
+                                walk(v, is_comp, out);
+                            }
+                        }
+                    }
+                    ExprKind::Arr(items) => {
+                        for x in items {
+                            if !matches!(x.k, ExprKind::Spread(_)) {
+                                walk(x, is_comp, out);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
+            walk(&a.e, &is_comp, &mut out);
         }
         out
     }
@@ -6425,7 +6661,7 @@ impl<'a> Checker<'a> {
     /// at all) — as values in its arguments, their record and array literals and
     /// the JS calls among them — are checked as the most cautious placement allows: applied under a root of their own, at
     /// any time, so nothing above the call (errored, loading, provide) is credited to them.
-    fn unplaced(&mut self, args: &'a [Expr], env: EId) {
+    fn unplaced(&mut self, args: &'a [Expr], env: EId, f: Option<SId>) {
         let mut out = vec![];
         fn walk<'a>(c: &mut Checker<'a>, e: &'a Expr, env: EId, out: &mut Vec<String>) {
             match &e.k {
@@ -6467,11 +6703,30 @@ impl<'a> Checker<'a> {
         if out.is_empty() {
             return;
         }
-        let r = self.region(None, "root", false, None);
-        let at = self.env(Some(env), r);
         let line = self.line as usize;
+        let Some((key, name, credit)) = f.and_then(|f| self.syms[f].renders_in.clone()) else {
+            let r = self.region(None, "root", false, None);
+            let at = self.env(Some(env), r);
+            for n in out {
+                self.apply_tree(&VTree { tag: n, kids: vec![] }, Some(line), at);
+            }
+            return;
+        };
+        // MO-11u: `renders(H)` — the components are rendered later, beneath an application of H. They are applied under a
+        // root that stands for H's children; what they let out of it is judged at every application of H in the program
+        let root = self.region(None, "root", true, Some(name.clone()));
+        let at = self.env(Some(env), root);
         for n in out {
             self.apply_tree(&VTree { tag: n, kids: vec![] }, Some(line), at);
+        }
+        let fname = self.syms[f.unwrap()].name.clone();
+        self.hosted_calls.push((key, name, fname, root, line as i64, credit));
+    }
+    /// MO-11u: an application of a component a fn `renders(…)` beneath — its children's region is where that fn's
+    /// components render
+    fn note_host_site(&mut self, cr: RId, kids: RId) {
+        if let Some(k) = self.regions[cr].host_key.clone() {
+            self.host_sites.push((k, cr, kids));
         }
     }
     /// MO-11s: a JS fn with no word for where it renders what it is given
@@ -6540,6 +6795,7 @@ impl<'a> Checker<'a> {
         self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: tag.to_string(), args: vec![], passed: vec![] });
         let kids = self.region(Some(region), "children", false, Some(tag.to_string()));
         self.regions[kids].kids = Some((cr, region));
+        self.note_host_site(cr, kids); // MO-11u
         self.apply_factory(s, kids, line);
     }
     /// MO-11f: what a factory was given, applied among the children of its component's application, named where it was called.
@@ -6587,6 +6843,7 @@ impl<'a> Checker<'a> {
         self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: t.tag.clone(), args: vec![], passed: vec![] });
         let kids = self.region(Some(region), "children", false, Some(t.tag.clone()));
         self.regions[kids].kids = Some((cr, region));
+        self.note_host_site(cr, kids); // MO-11u
         let kenv = self.env(Some(env), kids);
         if let Some(w) = self.nesting_word.clone() {
             self.nested.entry((t.tag.clone(), self.line)).or_insert((cr, w));
@@ -6674,7 +6931,7 @@ impl<'a> Checker<'a> {
             for k in vkids {
                 self.content_app(&k.tag, &[], &[], &k.kids, line, env, &a2);
             }
-            for (_, v) in self.component_values(tag, attrs, env) {
+            for (_, v, _) in self.component_values(tag, attrs, env) {
                 self.content_app(&v.tag, &[], &[], &v.kids, line, env, &a2);
             }
             if let Some((_, fenv)) = self.syms[s].factory {
@@ -6722,7 +6979,7 @@ impl<'a> Checker<'a> {
             for k in vkids {
                 self.shape_app(&k.tag, &[], &[], &k.kids, env, &a2, sc, sh, roots);
             }
-            for (_, v) in self.component_values(tag, attrs, env) {
+            for (_, v, _) in self.component_values(tag, attrs, env) {
                 self.shape_app(&v.tag, &[], &[], &v.kids, env, &a2, sc, sh, roots);
             }
             if let Some((_, fenv)) = self.syms[s].factory {
@@ -7784,6 +8041,94 @@ impl<'a> Checker<'a> {
                 );
             }
         }
+        // MO-11u: where the components a fn `renders(H)` is given are rendered, and what they let out of H's children
+        self.hosts = self.sites_record(None);
+        for (host, name, fname, root, line, credit) in self.hosted_calls.clone() {
+            let e = self.esc(Some(root));
+            let mut fails: Vec<String> = e.fails.iter().map(|i| i.cls.clone()).collect::<IndexSet<_>>().into_iter().collect();
+            fails.sort();
+            let mut requires: Vec<String> = e.reqs.iter().map(|r| r.name.clone()).collect::<IndexSet<_>>().into_iter().filter(|k| !credit.contains(k)).collect();
+            requires.sort();
+            // the hosts those components apply themselves, seen from their root: what H itself uses and provides is
+            // above them too
+            let inner: IndexMap<String, Vec<HostSite>> = self
+                .sites_of(Some(root))
+                .into_iter()
+                .map(|(k, xs)| {
+                    let xs = xs
+                        .into_iter()
+                        .map(|x| HostSite {
+                            f: x.f,
+                            p: match x.p {
+                                Catch::All => Catch::All,
+                                Catch::Set(mut p) => {
+                                    p.extend(credit.iter().cloned());
+                                    Catch::Set(p)
+                                }
+                            },
+                        })
+                        .collect();
+                    (k, xs)
+                })
+                .collect();
+            let inner = sort_sites(inner);
+            self.hosted.push(Hosted { host, name, r#fn: fname, line: line as usize, fails, requires, inner });
+        }
+    }
+    /// MO-11u: every application of a component a fn `renders(…)` beneath, as seen from the root of the component it is
+    /// written in (`None`: the program's) — through the components that component is applied in, by their own lists.
+    fn sites_of(&mut self, c: Option<RId>) -> IndexMap<String, Vec<HostSite>> {
+        if let Some(sig) = c.and_then(|ci| self.regions[ci].sig.as_ref()) {
+            return sig.hosts.clone();
+        }
+        if let Some(m) = self.s_memo.get(&c) {
+            return m.clone();
+        }
+        if !self.s_busy.insert(c) {
+            return IndexMap::new();
+        }
+        let mut out: IndexMap<String, Vec<HostSite>> = IndexMap::new();
+        fn add(out: &mut IndexMap<String, Vec<HostSite>>, k: &str, chain: &[Step]) {
+            let x = HostSite { f: along(chain, true), p: along(chain, false) };
+            let xs = out.entry(k.to_string()).or_default();
+            if !xs.iter().any(|y| site_key(y) == site_key(&x)) {
+                xs.push(x);
+            }
+        }
+        for (key, comp, region) in self.host_sites.clone() {
+            if self.regions[region].component != c {
+                continue;
+            }
+            // what H itself uses is above what it renders
+            let uses: IndexSet<String> = self.regions[comp].sig.as_ref().map(|s| s.requires.iter().cloned().collect()).unwrap_or_default();
+            for q in self.routes(region) {
+                let mut chain = vec![Step { f: None, p: Some(Catch::Set(uses.clone())) }];
+                chain.extend(q);
+                add(&mut out, &key, &chain);
+            }
+        }
+        let apps: Vec<(RId, RId)> = self.apps.iter().map(|a| (a.comp, a.site)).collect();
+        for (comp, site) in apps {
+            if self.regions[site].component != c {
+                continue;
+            }
+            for (k, xs) in self.sites_of(Some(comp)) {
+                for x in xs {
+                    for q in self.routes(site) {
+                        let mut chain = vec![Step { f: Some(x.f.clone()), p: Some(x.p.clone()) }];
+                        chain.extend(q);
+                        add(&mut out, &k, &chain);
+                    }
+                }
+            }
+        }
+        self.s_busy.remove(&c);
+        self.s_memo.insert(c, out.clone());
+        out
+    }
+    /// MO-11u: `sites_of`, in the order a signature prints (by key, then by what each site discharges and provides).
+    fn sites_record(&mut self, c: Option<RId>) -> IndexMap<String, Vec<HostSite>> {
+        sort_sites(self.sites_of(c))
     }
     /// The steps from a region up to its component's root (or the program's), through children's reads.
     fn routes(&mut self, r0: RId) -> Vec<Vec<Step>> {
@@ -8035,7 +8380,7 @@ impl<'a> Checker<'a> {
                 }
             }
             let takes = self.prop_held.get(&g).map(|hs| hs.iter().filter_map(|(p, h, c)| p.strip_prefix(&format!("{f}.")).map(|r| (r.to_string(), *h, c.clone()))).collect()).unwrap_or_default();
-            props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, takes });
+            props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, components: false, takes });
         }
         let e = self.esc(Some(g));
         let file = self.opts.file.clone().unwrap_or_else(|| "main.rx".into()).split('/').last().unwrap_or("").to_string();
@@ -8053,7 +8398,8 @@ impl<'a> Checker<'a> {
                 stored.insert(f.clone(), v);
             }
         }
-        CompSig { made: false, own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored }
+        let hosts = self.sites_record(Some(g));
+        CompSig { made: false, own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored, hosts }
     }
 }
 

@@ -463,5 +463,56 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   const read = require("../src/rxc").rows(path.join(app, "src/host.d.rx"));
   check("...which the crate reads as a host declaration (its view claims placement and each provision)", !read.error && JSON.stringify(read.rows.filter(r => r.kind === "host").map(r => r.obligations)) === JSON.stringify([["placement", "provides:router"]]), JSON.stringify(read));
 }
+// MO-11u, MO-11c (2026-11-24): what a library is given to render. A parameter that is a component is a `Component<P>`,
+// one that is a view or a function giving one is that (not an accessor: the call is a call), and each gets the question
+// types cannot answer — where the library renders it. A prop that holds components in a record or a list is written so
+// that the checker reads them, with its component fields alone after a type the library names.
+fs.writeFileSync(path.join(ws, "kit.js"), "export const show = () => 1;\nexport const toast = () => 1;\nexport const createPage = o => o;\nexport const Toaster = () => null;\nexport const Markdown = () => null;\nexport const Tabs = () => null;\n");
+fs.writeFileSync(path.join(ws, "kit.d.ts"), [
+  "import type { JSX } from \"@solidjs/web\";",
+  "type C<P = {}> = (props: P) => JSX.Element;",
+  "export interface Builtins { Heading?: C<{ depth: number }>; Paragraph?: C; Break?: () => JSX.Element; title?: string }",
+  "export interface MarkdownProps { builtins: Builtins; components?: Record<string, C<any>>; children: string }",
+  "export declare function show(toast: C<{ toastId: number }>, ms?: number): number;",
+  "export declare function toast(message: (() => JSX.Element) | JSX.Element): number;",
+  "export declare function createPage(options: { path: string; component?: C }): { path: string };",
+  "export declare function Toaster(props: {}): JSX.Element;",
+  "export declare function Markdown(props: MarkdownProps): JSX.Element;",
+  "export declare function Tabs(props: { panels: C[]; labels: string[] }): JSX.Element;",
+  "",
+].join("\n"));
+{
+  const rk = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./kit.js"], { cwd: ws, encoding: "utf8" });
+  const kit = rk.stdout; const hasKit = line => kit.split("\n").includes(line);
+  if (process.env.VERBOSE) console.log(kit);
+  check("a parameter that is a component is written `Component<P>` (MO-11c)", hasKit("export fn show(toast: Component<{ toastId: number; }>, ms?: number): number"), kit);
+  check("…and the draft asks where the library renders it (MO-11u)", /\/\/ TODO show: `toast` is given a component: where does the library render it\? If beneath a component this module exports, name that component, `renders\(<Component>\)`/.test(kit), kit);
+  check("a view, or a function of nothing giving one, is no accessor: the fn is called, not instantiated", hasKit("export fn toast(message: View | (() => View)): number") && /\/\/ TODO toast: `message` is given a component/.test(kit), kit);
+  check("a component in a record a fn takes is asked about too", /\/\/ TODO createPage: `options` is given a component/.test(kit), kit);
+  check("a prop that holds components in a record is written with its component fields, after the type the library names", hasKit("export component Markdown(props: MarkdownProps & { builtins: { Heading?: Component; Paragraph?: Component }; components?: Record<string, Component> })"), kit);
+  check("…and a list of components, in a record the row writes whole", hasKit("export component Tabs(props: { panels: Component[]; labels: string[] })"), kit);
+  fs.writeFileSync(path.join(ws, "kit.d.rx"), kit.replace("export fn show(toast: Component<{ toastId: number; }>, ms?: number): number", "export fn show(toast: Component<{ toastId: number; }>, ms?: number): number renders(Toaster)"));
+  fs.writeFileSync(path.join(ws, "kit.rx"), [
+    "import { show, toast, Toaster, Markdown, Tabs } from \"./kit.js\"",
+    "component Saved(props: { toastId: number }) {",
+    "  <b>saved {props.toastId}</b>",
+    "}",
+    "component Plain() {",
+    "  <i>plain</i>",
+    "}",
+    "export default component App() {",
+    "  <button onClick={() => { show(Saved) }}>save</button>",
+    "  <button onClick={() => { toast(Plain) }}>note</button>",
+    "  <Markdown builtins={{ Paragraph: Plain }}>{\"text\"}</Markdown>",
+    "  <Tabs panels={[Plain]} labels={[\"one\"]} />",
+    "  <Toaster />",
+    "}",
+    "",
+  ].join("\n"));
+  fs.writeFileSync(path.join(ws, "tsconfig.kit.json"), JSON.stringify({ extends: "./tsconfig.json", include: ["kit.rx"] }));
+  const tk = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "-p", "tsconfig.kit.json"], { cwd: ws, encoding: "utf8" });
+  check("rx-tsc holds the draft, with `renders(Toaster)` added, against the same types — and a component that declares no props where a function of nothing is asked for (TY-3d)", tk.status === 0, tk.stdout + tk.stderr);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

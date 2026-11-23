@@ -834,6 +834,130 @@ mod tests {
         assert_eq!(diags(&app(""), "/app/page.rx"), ["UNHANDLED_FAILURE@page.rx:5"]);
     }
 
+    /// MO-11u: `renders(H)` after a fn: the components it is given are checked among H's children, at every application
+    /// of H in the program (in whichever module), with what H itself uses and provides; with none, under a root of their own.
+    #[test]
+    fn renders_names_the_component_a_fns_components_render_beneath() {
+        let fs: Vec<(&str, &str)> = vec![
+            ("/app/kit.d.rx", "export context region\nexport error Lost\nexport pure fn load(): Promise<string> rejects(Lost)\nexport component Region(props: { children?: View }) provides(region)\nexport component Toaster(props: {}) uses(region)\nexport component Toast(props: { children?: View }) uses(region)\nexport fn toast(message: string | Component): number renders(Toaster)\nexport pure fn createRoute(options: { component: Component }): any renders(Toaster)\nexport fn plain(message: string | Component): number\nexport component Markdown(props: { builtins?: { Heading?: Component<{ depth: number }> }; tabs?: Component[]; table?: Record<string, Component>; one?: Component; meta?: { title: string }; children?: View })\n"),
+            ("/app/theme.rx", "export context accent: string\n"),
+            ("/app/saved.rx", "import { toast, Toast } from \"./kit.js\"\nimport { accent } from \"./theme.rx\"\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport action save() {\n  toast(Saved)\n}\n"),
+            ("/app/frame.rx", "import { Toaster, Region } from \"./kit.js\"\nimport { accent } from \"./theme.rx\"\nexport component Frame(props: { children?: View }) {\n  provide accent = \"dark\"\n  {props.children}\n  <Region><Toaster /></Region>\n}\nexport component Bare(props: { children?: View }) {\n  {props.children}\n  <Region><Toaster /></Region>\n}\n"),
+            ("/app/good.rx", "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport default component App() {\n  provide accent = \"dark\"\n  <button onClick={() => { toast(Saved) }}>save</button>\n  <Region><Toaster /></Region>\n}\n"),
+            ("/app/beside.rx", "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\ncomponent Editor() {\n  provide accent = \"dark\"\n  <button onClick={() => { toast(Saved) }}>save</button>\n}\nexport default component App() {\n  <Editor />\n  <Region><Toaster /></Region>\n}\n"),
+            ("/app/two.rx", "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\ncomponent Themed() {\n  provide accent = \"dark\"\n  <Region><Toaster /></Region>\n}\nexport default component App() {\n  <button onClick={() => { toast(Saved) }}>save</button>\n  <Themed />\n  <Region><Toaster /></Region>\n}\n"),
+            ("/app/nosite.rx", "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport default component App() {\n  provide accent = \"dark\"\n  <button onClick={() => { toast(Saved) }}>save</button>\n}\n"),
+            ("/app/noword.rx", "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport default component App() {\n  provide accent = \"dark\"\n  <button onClick={() => { plain(Saved) }}>save</button>\n  <Region><Toaster /></Region>\n}\n"),
+            ("/app/route.rx", "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nroute = createRoute({ component: Saved })\nexport default component App() {\n  provide accent = \"dark\"\n  <p>{route ? \"made\" : \"\"}</p>\n  <Region><Toaster /></Region>\n}\n"),
+            ("/app/routebad.rx", "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nroute = createRoute({ component: Saved })\nexport default component App() {\n  <p>{route ? \"made\" : \"\"}</p>\n  <Region><Toaster /></Region>\n}\n"),
+            ("/app/unbound.rx", "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport default component App() {\n  <button onClick={() => { createRoute({ component: Saved }) }}>save</button>\n}\n"),
+            ("/app/fails.rx", "import { toast, load, Toaster, Region } from \"./kit.js\"\ncomponent Loads() {\n  text = await load()\n  <i>{text}</i>\n}\nexport default component App() {\n  <button onClick={() => { toast(Loads) }}>save</button>\n  loading fallback { <p>…</p> } { <Region><Toaster /></Region> }\n}\n"),
+            ("/app/held.rx", "import { toast, load, Toaster, Region } from \"./kit.js\"\ncomponent Loads() {\n  text = await load()\n  <i>{text}</i>\n}\nexport default component App() {\n  <button onClick={() => { toast(Loads) }}>save</button>\n  errored fallback(e) { <p>lost</p> } { loading fallback { <p>…</p> } { <Region><Toaster /></Region> } }\n}\n"),
+            ("/app/waits.rx", "import { toast, load, Toaster, Region } from \"./kit.js\"\ncomponent Loads() {\n  text = await load()\n  <i>{text}</i>\n}\nexport default component App() {\n  <button onClick={() => { toast(Loads) }}>save</button>\n  errored fallback(e) { <p>lost</p> } { <Region><Toaster /></Region> }\n}\n"),
+            ("/app/cross.rx", "import { save } from \"./saved.rx\"\nimport { Frame } from \"./frame.rx\"\nexport default component App() {\n  <Frame><button onClick={() => { save() }}>save</button></Frame>\n}\n"),
+            ("/app/crossbad.rx", "import { save } from \"./saved.rx\"\nimport { Bare } from \"./frame.rx\"\nexport default component App() {\n  <Bare><button onClick={() => { save() }}>save</button></Bare>\n}\n"),
+        ];
+        let read = |p: &str| fs.iter().find(|(k, _)| *k == p).map(|(_, v)| v.to_string());
+        let diags = |name: &str, spa: bool| -> Vec<String> {
+            let entry = format!("/app/{name}.rx");
+            crate::check::check_modules_hosts(&load_modules(&entry, &read).unwrap(), spa, false, &[]).diags.iter().map(|d| format!("{}@{}:{}", d.code, d.file.as_deref().unwrap_or(&entry).rsplit('/').next().unwrap(), d.line)).collect()
+        };
+        // a toast that reads the app's context and the library's region, under the app's provision and a toaster in its region
+        assert_eq!(diags("good", false), [] as [&str; 0]);
+        // the context provided above the call, not above the toaster
+        assert_eq!(diags("beside", false), ["CONTEXT_NOT_FOUND@beside.rx:8"] as [&str; 1]);
+        // two toasters, one without the provision: every application is held to it
+        assert_eq!(diags("two", false), ["CONTEXT_NOT_FOUND@two.rx:11"] as [&str; 1]);
+        // no toaster in the program: held to what the toaster itself uses (the region's context is credited, the app's is not)
+        assert_eq!(diags("nosite", false), ["CONTEXT_NOT_FOUND@nosite.rx:8"] as [&str; 1]);
+        // the row without the word: a root of its own (MO-11s), nothing credited
+        assert_eq!(diags("noword", false), ["CONTEXT_NOT_FOUND@noword.rx:4", "CONTEXT_NOT_FOUND@noword.rx:4"] as [&str; 2]);
+        // a `pure` fn with the word is a constructor (`instantiates` inferred), bound at the module's top
+        assert_eq!(diags("route", false), [] as [&str; 0]);
+        // ... and its component is held to the same
+        assert_eq!(diags("routebad", false), ["CONTEXT_NOT_FOUND@routebad.rx:6"] as [&str; 1]);
+        // ... so it is bound, not called from a handler
+        assert_eq!(diags("unbound", false), ["INSTANTIATION_NOT_BOUND@unbound.rx:7", "CONTEXT_NOT_FOUND@unbound.rx:7"] as [&str; 2]);
+        // a failure, with no errored region above the toaster
+        assert_eq!(diags("fails", false), ["UNHANDLED_FAILURE@fails.rx:7"] as [&str; 1]);
+        // ... and with one
+        assert_eq!(diags("held", false), [] as [&str; 0]);
+        // a client-only build: the first load is held by the region above the toaster
+        assert_eq!(diags("held", true), [] as [&str; 0]);
+        // ... and is not, with none
+        assert_eq!(diags("waits", true), ["ASYNC_OUTSIDE_LOADING_BOUNDARY@waits.rx:7"] as [&str; 1]);
+        // the call in one module, the toaster in another: judged at the program
+        assert_eq!(diags("cross", false), [] as [&str; 0]);
+        // ... on the line of the call, in its module
+        assert_eq!(diags("crossbad", false), ["CONTEXT_NOT_FOUND@saved.rx:7"] as [&str; 1]);
+        // MO-9: the requirement and the place are rows of the modules' printed signatures, and read back
+        let c = crate::check::check_modules(&load_modules("/app/cross.rx", &read).unwrap(), false);
+        let (saved, frame) = (crate::signature::print_signature(&c.sigs["/app/saved.rx"]), crate::signature::print_signature(&c.sigs["/app/frame.rx"]));
+        assert_eq!(saved, "//@ signature saved.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).\nexport action save\nexport renders ./kit.d.rx#Toaster from toast:7 uses(./theme.rx#accent)\n");
+        assert_eq!(frame, "//@ signature frame.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).\nexport component Frame(props: { children: provides(./theme.rx#accent) }) hosts(./kit.d.rx#Toaster provides(./kit.d.rx#region, ./theme.rx#accent)) shape(children-at )\nexport component Bare(props: { children }) hosts(./kit.d.rx#Toaster provides(./kit.d.rx#region)) shape(children-at )\n");
+        assert_eq!(crate::signature::print_signature(&crate::signature::parse_signature(&saved, "/app/saved.rx").unwrap()), saved);
+        assert_eq!(crate::signature::print_signature(&crate::signature::parse_signature(&frame, "/app/frame.rx").unwrap()), frame);
+        // the word names one component, of the same file; a factory has no use for it
+        for (bad, why) in [
+            ("export fn toast(c: Component): number renders(Toaster)\n", "declares no component Toaster"),
+            ("export component Toaster(props: {})\nexport fn toast(c: Component): number renders(toaster)\n", "renders(H)"),
+            ("export component A(props: {})\nexport fn toast(c: Component): number renders(A) renders(A)\n", "twice"),
+            ("export component A(props: {})\nexport pure fn make(c: Component): Component renders(A)\n", "hands back a Component"),
+            ("export component A(props: {})\nexport fn toast(c: Component): number renders(A, theme)\n", "renders(H)"),
+        ] {
+            let e = crate::parse::parse_declarations(bad).expect_err(bad);
+            assert!(e.0.contains(why), "{bad} -> {}", e.0);
+        }
+        let ds = crate::parse::parse_declarations("export component Toast.List(props: {})\nexport fn show(c: Component): number renders(Toast.List)\nexport pure fn createRoute(o: any): any renders(Toast.List)\n").unwrap();
+        let words: Vec<(Option<String>, bool)> = ds.iter().filter_map(|d| if let crate::parse::JsDecl::Fn { renders, instantiates, .. } = d { Some((renders.clone(), *instantiates)) } else { None }).collect();
+        assert_eq!(words, [(Some("Toast.List".to_string()), false), (Some("Toast.List".to_string()), true)]);
+    }
+    /// MO-11c (2026-11-24): a JS component's prop whose declared type holds a `Component` inside a record or an array takes
+    /// the components written in the literal it is given, each applied among the application's children.
+    #[test]
+    fn a_component_inside_a_record_or_an_array_in_a_prop_is_a_value_there() {
+        let fs: Vec<(&str, &str)> = vec![
+            ("/app/kit.d.rx", "export context region\nexport error Lost\nexport pure fn load(): Promise<string> rejects(Lost)\nexport component Region(props: { children?: View }) provides(region)\nexport component Toaster(props: {}) uses(region)\nexport component Toast(props: { children?: View }) uses(region)\nexport fn toast(message: string | Component): number renders(Toaster)\nexport pure fn createRoute(options: { component: Component }): any renders(Toaster)\nexport fn plain(message: string | Component): number\nexport component Markdown(props: { builtins?: { Heading?: Component<{ depth: number }> }; tabs?: Component[]; table?: Record<string, Component>; one?: Component; meta?: { title: string }; children?: View })\n"),
+            ("/app/md.rx", "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  provide accent = \"dark\"\n  <Markdown builtins={{ Heading: Heading }} tabs={[Plain, Heading]} table={{ h1: Heading, deep: [Plain] }} one={Plain}>{\"# hi\"}</Markdown>\n}\n"),
+            ("/app/mdbad.rx", "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown builtins={{ Heading: Heading }}>{\"# hi\"}</Markdown>\n}\n"),
+            ("/app/mdmeta.rx", "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown meta={{ title: \"x\", icon: Plain }} />\n}\n"),
+            ("/app/mdone.rx", "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown one={{ a: Plain }} />\n}\n"),
+            ("/app/mdname.rx", "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  tabs = [Plain]\n  <Markdown tabs={tabs} />\n}\n"),
+            ("/app/mdundeclared.rx", "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown other={{ a: Plain }} />\n}\n"),
+        ];
+        let read = |p: &str| fs.iter().find(|(k, _)| *k == p).map(|(_, v)| v.to_string());
+        let diags = |name: &str, spa: bool| -> Vec<String> {
+            let entry = format!("/app/{name}.rx");
+            crate::check::check_modules_hosts(&load_modules(&entry, &read).unwrap(), spa, false, &[]).diags.iter().map(|d| format!("{}@{}:{}", d.code, d.file.as_deref().unwrap_or(&entry).rsplit('/').next().unwrap(), d.line)).collect()
+        };
+        // a record, a list, a table and a nested list of components, and a direct one
+        assert_eq!(diags("md", false), [] as [&str; 0]);
+        // checked as applied there: the heading's context is not above the component
+        assert_eq!(diags("mdbad", false), ["CONTEXT_NOT_FOUND@mdbad.rx:4"] as [&str; 1]);
+        // a record in a prop whose type holds no component
+        assert_eq!(diags("mdmeta", false), ["COMPONENT_AS_VALUE@mdmeta.rx:10"] as [&str; 1]);
+        // a record in a prop typed `Component`
+        assert_eq!(diags("mdone", false), ["COMPONENT_AS_VALUE@mdone.rx:10"] as [&str; 1]);
+        // a list built elsewhere: the literal is where the checker can name them
+        assert_eq!(diags("mdname", false), ["COMPONENT_AS_VALUE@mdname.rx:10"] as [&str; 1]);
+        // an undeclared prop
+        assert_eq!(diags("mdundeclared", false), ["COMPONENT_AS_VALUE@mdundeclared.rx:10"] as [&str; 1]);
+        for (t, holds) in [
+            ("{ Heading?: Component<{ depth: number }> }", true),
+            ("Component[]", true),
+            ("Record<string, Component>", true),
+            ("Partial<{ a: Component }> | undefined", true),
+            ("readonly [Component, string]", true),
+            ("Component", false),
+            ("string | Component", false),
+            ("(c: Component) => void", false),
+            ("{ render: (c: Component) => View }", false),
+            ("{ title: string }", false),
+            ("Array<{ view: Component; path: string }>", true),
+        ] {
+            assert_eq!(crate::parse::holds_component(t, false, 0), holds, "{t}");
+        }
+    }
     /// MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)
     #[test]
     fn a_marked_declaration_is_read_as_a_signature() {

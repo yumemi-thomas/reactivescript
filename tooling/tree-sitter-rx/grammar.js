@@ -72,6 +72,8 @@ module.exports = grammar(tsx, {
       $.signature_context,
       $.signature_fn,
       $.signature_component,
+      $.signature_hosts,
+      $.signature_renders,
       $.signature_equation,
     ))),
 
@@ -115,6 +117,7 @@ module.exports = grammar(tsx, {
         $.fails_row,
         $.signature_uses,
         $.signature_retains,
+        $.signature_hosts,
         $.signature_shape,
       )),
     ),
@@ -135,10 +138,20 @@ module.exports = grammar(tsx, {
     // `uses(./ui.rx#who, loading)`: context keys relative to the signature's module (MO-13b), and SV-7b's `loading`
     signature_uses: $ => seq('uses', '(', commaSep1(choice($.context_key, 'loading')), ')'),
     signature_retains: $ => seq('retains', '(', commaSep1(seq(field('name', choice(alias($.identifier, $.property_identifier), '...props')), ':', choice('module', $.context_key))), ')'),
+    // MO-11u, the components a fn declared `renders(H)` is given. `hosts(./kit.d.rx#Toaster catches(Error)
+    // provides(./theme.rx#theme); ./kit.d.rx#Toaster)`: each place a component (or, as a row of its own, the module)
+    // applies H — what is discharged and provided above H's children there
+    signature_hosts: $ => seq('hosts', '(', $.signature_host, repeat(seq(';', $.signature_host)), ')'),
+    signature_host: $ => seq(field('host', $.context_key), optional($.signature_catches), optional($.signature_provides)),
+    // `export renders ./kit.d.rx#Toaster from toast:12 fails(Error) uses(./theme.rx#theme, loading)`: a call of `toast`
+    // that was given components, and what they let out of H's children
+    // (and, after them, each place those components themselves apply a host: `hosts(…)`)
+    signature_renders: $ => seq('renders', field('host', $.context_key), 'from', field('fn', $.identifier), ':', field('line', $.number), optional($.fails_row), optional($.signature_uses), optional($.signature_hosts)),
     // `shape(roots p div; closes-p; children-at div)`: SV-7d's words
     signature_shape: $ => seq('shape', '(', optional($.shape_words), ')'),
     shape_words: _ => token(/[a-z0-9;\- \t]+/),
-    context_key: _ => token(/[.\/@A-Za-z0-9_$-]+#[A-Za-z_$][\w$]*/),
+    // (a member component's key keeps its dots: `./kit.d.rx#Toast.List`, MO-11u)
+    context_key: _ => token(/[.\/@A-Za-z0-9_$-]+#[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*/),
 
     _module_item: $ => choice(
       $.import_statement,
@@ -308,6 +321,7 @@ module.exports = grammar(tsx, {
       $.uses_clause,
       $.provides_clause,
       $.nests_clause,
+      $.renders_clause,
     ),
 
     // `instantiates`
@@ -329,6 +343,10 @@ module.exports = grammar(tsx, {
       field('of', alias($.identifier, $.property_identifier)),
       ')',
     ),
+
+    // `renders(Toaster)`, `renders(Toast.List)` (MO-11u): the component of this file beneath which the library renders
+    // the components the fn is given
+    renders_clause: $ => seq('renders', '(', field('host', choice($.identifier, $.member_component_name)), ')'),
 
     // A declaration file's component: `component Dialog.Title(props: { id?: string }) uses(coreDialog)` (MO-11a,
     // MO-11q). As a fn's row, it does not end at a newline that a `{` follows: that is a component's body

@@ -91,7 +91,7 @@ named.
 | `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
 | `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a; `props` of a component that declares none, RG-4b) | S-check-1 |
 | `ARGUMENT_COUNT` (new)            | S   | AC-1f: a call of a declared action with another number of arguments than its parameters | S-check-1 |
-| `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories; MO-11q, a tag that begins with a small letter and has a `.` (`<wardic.div>`: no element's name has one, and a member component is applied through a name with a capital) is `UNKNOWN_COMPONENT`; MO-11s, a component given to JS that says nothing of where it renders it, is checked under a root of its own | S-check-1, S-region-5, S-module-5, S-module-6, S-module-24, S-module-27 |
+| `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories; MO-11q, a tag that begins with a small letter and has a `.` (`<wardic.div>`: no element's name has one, and a member component is applied through a name with a capital) is `UNKNOWN_COMPONENT`; MO-11s, a component given to JS that says nothing of where it renders it, is checked under a root of its own; MO-11c (2026-11-24), a component in a record or an array given to a JS component's prop whose type holds one is a value there, and one in a record built elsewhere is `COMPONENT_AS_VALUE` | S-check-1, S-region-5, S-module-5, S-module-6, S-module-24, S-module-27, S-module-39 |
 | `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k (render props) | S-module-14 |
 | `NESTED_NOT_RENDERED` (new, 2026-11-23) | S | 09 MO-11i, MO-14f: a component a record nests others in (a factory's tree, a host declaration's view) renders none of its children — no `{props.children}`, no component the host renders through | S-module-38 |
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
@@ -118,10 +118,10 @@ named.
 | `INVALID_REFRESH_TARGET`, `INVALID_AFFECTS_TARGET` | S | AC-4, AC-5 | S-check-1 |
 | `REGION_ESCAPE`                   | S   | O-3, O-3a, O-3b | S-check-1 (seven shapes), S-module-1 |
 | `UNSTABLE_LIST_IDENTITY`          | S   | ST-4b (narrow form: `map` into fresh records, unkeyed) | S-store-3 |
-| `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree; a context with a default is always found); MO-12b for a JS hook | S-check-1, S-region-7, S-ai-feed, S-context-1, S-module-7 |
+| `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree; a context with a default is always found); MO-12b for a JS hook; MO-11u, for a component given to a fn declared `renders(H)`: on the line of the call, where no provision is above some application of H in the program | S-check-1, S-region-7, S-ai-feed, S-context-1, S-module-7, S-module-22 |
 | `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written); R-f-9 for `fails(…)` | S-check-1, S-fail-1 |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3 (directly or through equations; not closures the apply creates) | S-check-2 |
-| `UNHANDLED_FAILURE`               | S   | R-f-5 / CN-6a (over the static application tree; props where read, children where rendered) | S-fail-1, S-fail-2 |
+| `UNHANDLED_FAILURE`               | S   | R-f-5 / CN-6a (over the static application tree; props where read, children where rendered); MO-11u, for a component given to a fn declared `renders(H)`, above every application of H | S-fail-1, S-fail-2, S-module-22 |
 | `CATCH_NOT_ON_AWAIT` (new)        | S   | R-f-4: a `catch` after anything but an `await` (a failed value is shown by an `errored` region where it is read; 2026-11-19) | S-fail-1, S-catch-snapshot |
 | `UNCAUGHT_ACTION_FAILURE`         | S   | R-f-6 / CN-6a (incl. a prop the action reads, checked at each application) | S-action-1, S-fail-2 |
 | `NOT_AN_ERROR_CLASS`              | S   | R-f-1 | S-fail-1 |

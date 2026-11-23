@@ -8,27 +8,61 @@
 // recording ids above it through one context, so where a component renders is read the way Solid itself finds a
 // context: up its owners. Then each row is checked:
 //   - a fn handing back a Component: what it was given renders inside the made component;
-//   - `nests(children in component)`: each entry's component inside its record's component.
+//   - `nests(children in component)`: each entry's component inside its record's component;
+//   - `renders(H)` (MO-11u): what the fn was given renders beneath an application of H, the file's own component
+//     (every application of H in the scene is recorded, as a made component is);
+//   - a component's prop whose type is, or holds, a `Component` (MO-11c, DV-24): what the prop was given renders
+//     beneath that application of the component — one it mounts elsewhere, later, is a mismatch.
+// And, for every fn the scene gives a recording component — a fn with no word too (MO-11s) — a component the library
+// calls with no owner at all is reported: Solid's `useContext` throws there in development (NoOwnerError) and finds
+// nothing above in production, and nothing it makes is ever
+// disposed, which is less than the root of its own the cautious placement assumes.
 // A row whose components the scene never renders is not verified, and says so. `draft` rows need no scene: the fn is
 // called (with the probe's `args`, else `{}`), and a draft callback must be handed an object whose writes the library keeps.
 
 /** The placement rows and draft rows of a `.d.rx`, per declaration line. */
 function rowsOf(text) {
   const fns = [], comps = [];
-  text.split("\n").forEach((l0, i) => {
-    const l = l0.replace(/\/\/.*$/, "");
+  const lines = text.split("\n").map(l => l.replace(/\/\/.*$/, ""));
+  // a row is its line and the lines after it, up to the next row (a word on a later line is the row's)
+  const rowAt = i => { let j = i + 1; while (j < lines.length && !/^\s*(export|import)\b/.test(lines[j])) j++; return lines.slice(i, j).join("\n"); };
+  lines.forEach((l, i) => {
     let m;
     if ((m = /^\s*export\s+(?:server\s+|client\s+)?(?:pure\s+)?fn\s+([A-Za-z_$][\w$]*)/.exec(l))) {
-      const nestsIn = /\bnests\(\s*([\w$]+)\s+in\s+([\w$]+)\s*\)/.exec(l);
+      const row = rowAt(i);
+      const nestsIn = /\bnests\(\s*([\w$]+)\s+in\s+([\w$]+)\s*\)/.exec(row);
+      const rendersIn = /\)\s*(?::[\s\S]*?)?\brenders\(\s*([A-Z][\w$.]*)\s*\)/.exec(row)?.[1] ?? null;   // MO-11u
       const mode = /\)\s*:\s*Component\b/.test(l) ? "factory" : null;
+      // MO-11s: no word, and a `Component` among its parameters: nothing to show, but a component it calls with no owner is said
+      const cautious = !mode && !nestsIn && !rendersIn && /\bComponent\b/.test(row.slice(0, closeOfParams(row)));
       // draft callbacks: in a parameter (`(update: (draft s: T) => …)`) or in a function part of a tuple result
-      const draftPart = (() => { const r = /\)\s*:\s*\[(.*)\]\s*(?:$|\b(?:uses|provides|nests|instantiates)\b)/.exec(l); if (!r) return -1; let d = 0, from = 0, idx = 0; const t = r[1]; for (let j = 0; j <= t.length; j++) { const c = t[j]; if (j === t.length || (c === "," && d === 0)) { if (/\(\s*draft\s+[\w$]/.test(t.slice(from, j))) return idx; idx++; from = j + 1; } else if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && t[j - 1] !== "=")) d--; } return -1; })();
-      if (mode || nestsIn || draftPart >= 0) fns.push({ name: m[1], line: i + 1, mode, nestsIn: nestsIn && { kids: nestsIn[1], inside: nestsIn[2] }, draftPart });
+      const draftPart = (() => { const r = /\)\s*:\s*\[(.*)\]\s*(?:$|\b(?:uses|provides|nests|renders|instantiates)\b)/.exec(l); if (!r) return -1; let d = 0, from = 0, idx = 0; const t = r[1]; for (let j = 0; j <= t.length; j++) { const c = t[j]; if (j === t.length || (c === "," && d === 0)) { if (/\(\s*draft\s+[\w$]/.test(t.slice(from, j))) return idx; idx++; from = j + 1; } else if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && t[j - 1] !== "=")) d--; } return -1; })();
+      if (mode || nestsIn || rendersIn || cautious || draftPart >= 0) fns.push({ name: m[1], line: i + 1, mode, nestsIn: nestsIn && { kids: nestsIn[1], inside: nestsIn[2] }, rendersIn, cautious, draftPart });
     } else if ((m = /^\s*export\s+component\s+([A-Za-z_$][\w$.]*)\s*[(<]/.exec(l))) {
-      comps.push({ name: m[1], line: i + 1 });
+      comps.push({ name: m[1], line: i + 1, componentProps: componentProps(rowAt(i)) });
     }
   });
   return { fns, comps };
+}
+/** The index where a fn row's parameter list closes (its first `(` matched). */
+function closeOfParams(row) {
+  const open = row.indexOf("("); if (open < 0) return row.length; let d = 0;
+  for (let j = open; j < row.length; j++) { const c = row[j]; if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && row[j - 1] !== "=")) { if (--d === 0) return j; } }
+  return row.length;
+}
+/** MO-11c: the props of a component row whose type is a `Component`, or holds one in a record or an array (a function
+ *  type is no such prop: what it is given is the library's to call). */
+function componentProps(row) {
+  const at = /\(\s*props\s*:/.exec(row); if (!at) return [];
+  const from0 = at.index + at[0].length, end = at.index + closeOfParams(row.slice(at.index));
+  // the record that closes the props: the last `{ … }` at the parameter's top level (MO-8o: the one after a `&`)
+  let start = -1, stop = -1, d = 0;
+  for (let j = from0; j < end; j++) { const c = row[j]; if (c === "{" && d === 0) start = j; if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && row[j - 1] !== "=")) { d--; if (c === "}" && d === 0) stop = j; } }
+  if (start < 0 || stop < start) return [];
+  const body = row.slice(start + 1, stop); const out = []; let from = 0; d = 0;
+  const field = f => { const k = /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (!k) return; const ty = k[2].replace(/^catches\([^)]*\)\s*/, "").replace(/^handler\s+/, ""); if (/\bComponent\b/.test(ty) && !/=>/.test(ty)) out.push(k[1]); };
+  for (let j = 0; j <= body.length; j++) { const c = body[j]; if (j === body.length || ((c === ";" || c === "," || c === "\n") && d === 0)) { field(body.slice(from, j)); from = j + 1; } else if ("([{<".includes(c)) d++; else if (")]}".includes(c) || (c === ">" && body[j - 1] !== "=")) d--; }
+  return out;
 }
 
 /** Walk a value for the recording components in it (records, arrays; a cycle or depth stops it). */
@@ -41,9 +75,10 @@ function componentsIn(v, known, out = new Set(), seen = new Set(), depth = 0) {
 }
 
 async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
-  const { fns } = rowsOf(text);
+  const { fns, comps } = rowsOf(text);
   const out = [];
-  if (!fns.length) return out;
+  const propComps = comps.filter(c => c.componentProps.length);   // MO-11c, DV-24: components given components in props
+  if (!fns.length && !propComps.length) return out;
   const s = await import(resolve("solid-js"));
   // drafts first: they need no scene
   for (const f of fns.filter(f => f.draftPart >= 0)) {
@@ -66,11 +101,13 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
       : !kept ? { line: f.line, ob: "draft", status: "fail", what: `${f.name}: declared a draft callback, but a write to what it is handed is not kept (MO-10i)` }
       : { line: f.line, ob: "draft", status: "ok", what: `${f.name}: draft holds: its callback is handed an object, and a write to it is kept` });
   }
-  const placing = fns.filter(f => f.mode || f.nestsIn);
-  if (!placing.length) return out;
+  const placing = fns.filter(f => f.mode || f.nestsIn || f.rendersIn);
+  const watched = fns.filter(f => f.mode || f.nestsIn || f.rendersIn || f.cautious);   // every fn that is given components
+  if (!watched.length && !propComps.length) return out;
   if (process.env.RXV_DEBUG) require("node:fs").writeSync(2, "[rx-verify] scene\n");
   if (typeof probeMod?.scene !== "function") {
     for (const f of placing) out.push({ line: f.line, status: "unverified", what: `${f.name}: where it renders what it is given is not run: give a scene in the probe (scene(lib, h))` });
+    for (const c of propComps) out.push({ line: c.line, status: "unverified", what: `${c.name}: where it renders the component${c.componentProps.length > 1 ? "s" : ""} given as ${c.componentProps.join(", ")} is not run: give a scene in the probe (scene(lib, h)) that applies it with h.component(…) there (MO-11c, DV-24)` });
     return out;
   }
   // the instrumentation: one context carries the chain of recording ids above wherever something renders
@@ -78,19 +115,46 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
   const chains = new Map();   // recording id → the chain of ids above it, as rendered (the last render)
   const known = new Map();    // recording component → its name
   let seq = 0;
-  const mark = (id, render) => props => { const chain = [...(s.useContext(MARK) ?? []), id]; chains.set(id, chain); return s.createComponent(MARK, { value: chain, get children() { return render(props); } }); };
+  const ownerless = new Set();   // recording ids rendered with no owner at all (MO-11s: less than a root of its own)
+  const above = () => { try { return s.useContext(MARK) ?? []; } catch { return []; } };   // Solid 2 throws NoOwnerError with no owner
+  const mark = (id, render) => props => {
+    // called with no owner: nothing is above it, and a provider cannot be made there either
+    if (s.getOwner && !s.getOwner()) { ownerless.add(id); chains.set(id, [id]); try { return render(props); } catch { return null; } }
+    const chain = [...above(), id]; chains.set(id, chain); return s.createComponent(MARK, { value: chain, get children() { return render(props); } });
+  };
   const h = { s, component: (name, inner) => { const C = mark(name, props => inner ? inner(props) : null); known.set(C, name); return C; } };
   const calls = [];           // { fn, args, result, caller (the chain where it was called), made (a made component's id) }
+  // MO-11u, MO-11c: every application of a component a fn `renders(…)` beneath, or of one given components in its props —
+  // each a recording id of its own (`Toaster#app1`), with what its component props were given
+  const hostNames = new Set(placing.map(f => f.rendersIn).filter(Boolean));
+  const tracked = name => hostNames.has(name) || propComps.some(c => c.name === name);
+  const apps = [];            // { name, id, given: Map(prop → recording names) }
+  const applied = (name, C) => props => {
+    const id = `${name}#app${++seq}`; const pc = propComps.find(c => c.name === name); const given = new Map();
+    for (const p of pc?.componentProps ?? []) { let v; try { v = s.untrack(() => props[p]); } catch {} given.set(p, [...componentsIn(v, known)]); }
+    apps.push({ name, id, given });
+    return mark(id, q => s.createComponent(C, q))(props);
+  };
+  // a member (`Toast.List`) is reached through its object, which may itself be a component
+  const wrapped = (name, v) => {
+    const members = [...hostNames, ...propComps.map(c => c.name)].some(n => n.startsWith(name + "."));
+    if (!members) return tracked(name) && typeof v === "function" ? applied(name, v) : v;
+    if (!v || (typeof v !== "object" && typeof v !== "function")) return v;
+    const self = tracked(name) && typeof v === "function" ? applied(name, v) : null;
+    return new Proxy(v, { get(t, k) { const x = t[k]; return typeof k === "string" ? wrapped(`${name}.${k}`, x) : x; }, ...(self ? { apply(_t, _th, a) { return self(...a); } } : {}) });
+  };
   const lib = new Proxy(mod, { get(t, k) {
-    const v = t[k]; if (typeof k !== "string" || typeof v !== "function") return v;
-    const f = placing.find(x => x.name === k);
+    const v = t[k]; if (typeof k !== "string") return v;
+    if (tracked(k) || [...hostNames, ...propComps.map(c => c.name)].some(n => n.startsWith(k + "."))) return wrapped(k, v);
+    if (typeof v !== "function") return v;
+    const f = watched.find(x => x.name === k);
     if (!f) return v;
-    return (...args) => {
-      const rec = { fn: k, row: f, args, caller: [...(s.useContext(MARK) ?? [])] };
+    return Object.assign((...args) => {
+      const rec = { fn: k, row: f, args, caller: [...above()] };
       let result = v(...args);
       if (f.mode === "factory" && typeof result === "function") { const id = `${k}#made${++seq}`; const made = result; rec.made = id; result = mark(id, props => s.createComponent(made, props)); }
       rec.result = result; calls.push(rec); return result;
-    };
+    }, v);   // with the fn's own members (`toast.custom`): the scene may call them, as an app does
   } });
   let dispose = () => {}, renderError = null;
   try {
@@ -109,16 +173,24 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
   if (probeMod.act) { try { await probeMod.act(lib, h); } catch {} for (let i = 0; i < 40; i++) { s.flush?.(); await new Promise(r => setTimeout(r, 15)); } }
   if (renderError) {
     for (const f of placing) out.push({ line: f.line, status: "unverified", what: `${f.name}: the scene threw as it rendered (${String(renderError.message ?? renderError).slice(0, 60)})` });
+    for (const c of propComps) out.push({ line: c.line, status: "unverified", what: `${c.name}: the scene threw as it rendered (${String(renderError.message ?? renderError).slice(0, 60)})` });
     dispose(); return out;
   }
+  const noOwner = (name, c) => `${name}: it calls ${c} with no owner — Solid's useContext throws there in development (NoOwnerError) and finds nothing above in production, and what the component makes (its effects, its cleanups) is never disposed. That is less than a root of its own, the least a row assumes (MO-11s): pass it a component the app renders itself, or wrap the call in the app's own JavaScript (createRoot)`;
   const rendered = name => chains.get(name);
   const under = (name, id) => !!rendered(name)?.slice(0, -1).includes(id);
-  for (const f of placing) {
+  for (const f of watched) {
     const recs = calls.filter(r => r.fn === f.name);
+    if (f.cautious) {   // MO-11s: no word, no claim — but a component called with no owner is less than the row assumes
+      const lost = [...new Set(recs.flatMap(r => [...componentsIn(r.args, known)]).filter(c => ownerless.has(c)))];
+      if (lost.length) out.push({ line: f.line, status: "fail", what: noOwner(f.name, lost.join(", ")) });
+      continue;
+    }
     if (!recs.length) { out.push({ line: f.line, status: "unverified", what: `${f.name}: the scene does not call it` }); continue; }
     const bad = [], good = [], unseen = new Set();
     for (const r of recs) {
       const given = [...componentsIn(r.args, known)];
+      for (const c of given) if (ownerless.has(c)) bad.push(noOwner(f.name, c).slice(f.name.length + 2));
       // nests(children in component): each entry's component inside its record's component
       if (f.nestsIn) {
         const walk = v => { if (!v || typeof v !== "object") return; if (Array.isArray(v)) return v.forEach(walk); const host = known.get(v[f.nestsIn.inside]); if (host) for (const k of [].concat(v[f.nestsIn.kids] ?? [])) { const kid = k && known.get(k[f.nestsIn.inside]); if (kid) { if (!rendered(kid)) unseen.add(kid); else if (under(kid, host)) good.push(`${kid} inside ${host}`); else bad.push(`${kid} renders outside ${host}`); } } Object.values(v).forEach(x => typeof x === "object" && walk(x)); };
@@ -127,11 +199,29 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
       for (const c of given) {
         if (!rendered(c)) { unseen.add(c); continue; }
         if (f.mode === "factory" && r.made) { if (!under(c, r.made)) bad.push(`${c} renders outside the component ${f.name} made`); else good.push(`${c} inside the made component`); }
+        // MO-11u: beneath an application of H
+        if (f.rendersIn) { if (rendered(c).slice(0, -1).some(id => id.startsWith(`${f.rendersIn}#app`))) good.push(`${c} beneath ${f.rendersIn}`); else bad.push(`${c} renders outside ${f.rendersIn}${apps.some(a => a.name === f.rendersIn) ? "" : ` (the scene applies no ${f.rendersIn})`}`); }
       }
     }
     if (bad.length) out.push({ line: f.line, status: "fail", what: `${f.name}: ${[...new Set(bad)].join("; ")}` });
     else if (good.length) out.push({ line: f.line, status: "ok", what: `${f.name}: placement holds: ${[...new Set(good)].slice(0, 4).join("; ")}${unseen.size ? ` (not rendered by the scene: ${[...unseen].join(", ")})` : ""}` });
     else out.push({ line: f.line, status: "unverified", what: `${f.name}: the scene renders none of what it gives it${unseen.size ? ` (${[...unseen].join(", ")})` : ""}` });
+  }
+  // MO-11c, DV-24: a component given to a prop is credited with what is above the component it is given to — so it
+  // must render beneath that application, not from a root the component makes later
+  for (const c of propComps) {
+    const mine = apps.filter(a => a.name === c.name);
+    if (!mine.length) { out.push({ line: c.line, status: "unverified", what: `${c.name}: the scene does not apply it (lib.${c.name}, with h.component(…) as ${c.componentProps.join(", ")})` }); continue; }
+    const bad = [], good = [], unseen = new Set();
+    for (const a of mine) for (const [prop, names] of a.given) for (const n of names) {
+      if (ownerless.has(n)) bad.push(`${n} (given as ${prop}) is called with no owner`);
+      else if (!rendered(n)) unseen.add(n);
+      else if (rendered(n).slice(0, -1).includes(a.id)) good.push(`${n} (given as ${prop}) beneath it`);
+      else bad.push(`${n} (given as ${prop}) renders outside it: a component given to a prop is checked among the application's children (DV-24), which this one is not — wrap ${c.name} in the app's own JavaScript, or take the component as a child`);
+    }
+    if (bad.length) out.push({ line: c.line, status: "fail", what: `${c.name}: ${[...new Set(bad)].join("; ")}` });
+    else if (good.length) out.push({ line: c.line, status: "ok", what: `${c.name}: placement holds: ${[...new Set(good)].slice(0, 4).join("; ")}${unseen.size ? ` (not rendered by the scene: ${[...unseen].join(", ")})` : ""}` });
+    else out.push({ line: c.line, status: "unverified", what: `${c.name}: the scene renders none of what it gives ${c.componentProps.join(", ")}${unseen.size ? ` (${[...unseen].join(", ")})` : ": give it h.component(…) there"}` });
   }
   dispose();
   return out;

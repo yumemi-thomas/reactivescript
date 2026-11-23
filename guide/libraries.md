@@ -227,8 +227,9 @@ used correctly. What a single package does, you say without one, in one of three
 
 - **Leave it undeclared.** An import with no row is io and can fail with `Error`: call it from a handler or an action,
   and TypeScript still types the call from the library's own `.d.ts`. A component you give such a function is checked
-  under a root of its own (it must bring its own boundaries and contexts), which is also exactly right for a toaster or
-  a modal manager that mounts what it is given itself.
+  under a root of its own (it must bring its own boundaries and contexts), which is also exactly right for a
+  modal manager that mounts what it is given itself. (A library that renders it beneath a component of its own — a
+  toaster's `<Toaster>`, a router's provider — says so, `renders(Toaster)`: *Components and routers*, below.)
 - **A few lines of your own JavaScript, declared in the words there are.** A module beside your app (`./storage.js`
   with `./storage.d.rx`, and a `.d.ts` or TypeScript source for its types) turns the library's shape into one a row
   can say:
@@ -348,8 +349,45 @@ export default component App() {
 ```
 
 - **A component is a value only where JS takes one:** in a factory's arguments (`component: Home`), or on a JS
-  component's prop typed `Component` (`<Shell header={Title} />`). Given to any other JS call, it is checked under a root
-  of its own, with nothing above the call credited (MO-11s); applied nowhere else, it is `COMPONENT_AS_VALUE`.
+  component's prop typed `Component` (`<Shell header={Title} />`) — or holding one in a record or a list, in the
+  literal you write there (`<Markdown builtins={{ Heading: Heading }}>`, `<Tabs panels={[First, Second]} />`): each is
+  checked as applied beneath that component. Given to any other JS call, it is checked under a root of its own, with
+  nothing above the call credited (MO-11s), unless the fn's row says where the library renders it (next); applied
+  nowhere else, it is `COMPONENT_AS_VALUE`.
+- **A component a library renders later, beneath one of its own.** A toaster is given a toast in a handler and renders
+  it in its `<Toaster>`; a router is given a page by `createRoute` and renders it in its provider. The row names that
+  component, which the same declaration declares:
+
+  ```rx
+  // rx-types/solid-sonner.d.rx
+  export component Toaster(props: ToasterProps)
+  export fn toast(message: View | (() => View), data?: ExternalToast): string | number renders(Toaster)
+  ```
+
+  ```rx
+  import { Toaster, toast } from "solid-sonner"
+  context accent: string
+  component Saved() { <b class={use accent}>saved</b> }
+  export default component App() {
+    provide accent = "dark"
+    <button onClick={() => { toast(Saved) }}>save</button>
+    <Toaster />                       // Saved is checked here: `accent` is above it
+  }
+  ```
+
+  The component is checked among `<Toaster>`'s children, at every place your program applies it — in whichever module
+  — with what is above each: move the `provide` beside the toaster and `toast(Saved)` is `CONTEXT_NOT_FOUND`, on the
+  line of the call. With no `<Toaster>` anywhere, the component is held to what `Toaster` itself uses and provides.
+  A `<Toaster />` in a layout that a router renders is where the router's provider is: what you provide above the
+  provider is above the layout, and so above the toaster.
+  `rx-declare` asks the question of every function that is given a component, and writes the word for the releases it
+  was run against (solid-sonner's `toast`, TanStack Router's `createRoute`). Where the library's function is a method
+  of an object (Kobalte's `toaster.show`), hand it out from a module of your own with the parts it renders with, and
+  say the word there: `export fn show(toast: Component<{ toastId: number }>): number renders(Toast.List)`
+  (`bench/tasks/kobalte-toast`). A library that *calls* what it is given with no owner at all (sonner's
+  `toast.custom(fn)`) is another matter: nothing your component reads from above is there (in development Solid
+  throws `NoOwnerError` from `useContext`), and nothing it makes is cleaned up. No row describes that; `rx-verify`
+  reports it.
 - **Each component you hand over is checked as if it were applied there:** its failures need an `errored` above
   `<Router />` (or inside the page), the contexts it uses need a `provide` above `<Router />`, and in a client-only
   app its first load needs a `loading` above it.
@@ -358,13 +396,17 @@ export default component App() {
   puts above `props.children` covers it. Without the word, put them above `<Router />`.
 - **A router can live in its own module.** `export Router = createRouter(…)` exports it; whoever applies `<Router />`
   gets its pages' needs through its signature, so the `errored` or `provide` they need goes above `<Router />` there.
-- **A router whose routes are values is given a factory of your own.** TanStack Router builds its tree from values
-  (`createRoute({ getParentRoute, component })`, `createRouter({ routeTree })`, `<RouterProvider router={…} />`) and
-  renders a page at its parent's `<Outlet />`. No word says where such a value's components render (until 2026-11-23
-  `renders(later)`, a prop's `renders`, `nests(component under parent)` and `outlet` did: one library wrote them, and
-  each is refused by name now), so a page given to the library's own `createRoute` is checked under a root of its own,
-  where the router's context is not found. Write the tree as records and give it to a few lines of JavaScript that
-  build the library's routes from them, in the shape above:
+- **A router whose routes are values.** TanStack Router builds its tree from values (`createRoute({ getParentRoute,
+  component })`, `createRouter({ routeTree })`, `<RouterProvider router={…} />`) and renders a page at its parent's
+  `<Outlet />`. Its rows say where the pages render — `createRoute(…) renders(RouterProvider)`, drafted by
+  `rx-declare` — so you write the tree with the library's own functions, the route types register your router (a link
+  to no route is a type error), and every page is checked beneath the provider: the router's hooks are found, and what
+  you provide or catch above `<RouterProvider>` reaches it (`bench/tasks/router-code-routes`). What the word does not
+  say is the tree's nesting: pages are checked side by side beneath the provider, so a layout's own `errored` around
+  its `<Outlet />` is not credited to its pages — a page holds its own failure, or the region goes above the provider.
+  (`renders(later)`, a prop's `renders`, `nests(component under parent)` and `outlet`, which followed the route values
+  to the provider, stay refused by name.) For a tree whose layouts' regions are checked, write it as records and give
+  it to a few lines of JavaScript that build the library's routes from them, in the shape above:
 
   ```js
   // routes.js
@@ -392,8 +434,8 @@ export default component App() {
   package as usual, and every check above holds: a page's failure needs the layout's `errored` around its children, a
   hook outside `<AppRouter />` is `CONTEXT_NOT_FOUND`. What it gives up is TanStack's registered route types (a link
   to no route is no longer a type error): they need the router's own value to name its type. A route tree kept in
-  TypeScript — a file-based router's — keeps them, and keeps the checks too once you say what the router does with
-  your pages: *File-based routers*, below.
+  TypeScript — a file-based router's — keeps them, and keeps the layouts' checks too once you say what the router
+  does with your pages: *File-based routers*, below.
 - **A provider can be wrapped.** The made router is a component: your app's frame takes it as its children
   (`<Shell title="Directory"><AppRouter /></Shell>`), and the pages are checked under what `Shell` puts around
   `props.children`. (With a router built in JavaScript, name your app's component in `host.d.rx`: *File-based

@@ -17,7 +17,16 @@
 // above a reader of a client question. `retains(onPick: module, onFocus: ./form.rx#fields)` names the props the component
 // stores where they outlive it (O-3) — in its module's sources, or through a provision above it — so a closure passed for one
 // is checked at the application. Context keys are paths relative to the signature's own module.
-import type { ModSig, ExportSig, CompSig } from "./check.ts";
+//
+// MO-11u, the components a fn declared `renders(H)` is given (H by its declaration's path, as a context is):
+//
+//   export component Shell(props: {}) hosts(./kit.d.rx#Toaster catches(Error) provides(./theme.rx#theme); ./kit.d.rx#Toaster)
+//                                                            each place the component applies H: what is discharged and provided above H's children there
+//   export hosts(./kit.d.rx#Toaster provides(./theme.rx#theme))   the same, for the applications the module itself roots (its mounted view)
+//   export renders ./kit.d.rx#Toaster from toast:12 fails(Error) uses(./theme.rx#theme, loading) hosts(./kit.d.rx#Toaster)
+//                                                            a call of `toast` (line 12) that was given components: what they let out of H's children,
+//                                                            and each place they themselves apply a host (from their own root)
+import type { ModSig, ExportSig, CompSig, HostSite, Hosted } from "./check.ts";
 import { EMPTY_SHAPE, type Shape } from "./content.ts";
 
 type Catch = Set<string> | "all";
@@ -54,6 +63,28 @@ function shapeText(s: Shape | undefined): string {
   return parts.length ? ` shape(${parts.join("; ")})` : "";
 }
 
+/** MO-11u: `hosts(<key> catches(…) provides(…); …)`, one entry an application. */
+function hostsText(file: string, hs?: Record<string, HostSite[]>): string {
+  const xs = Object.entries(hs ?? {}).flatMap(([k, sites]) => sites.map(x => `${relKey(file, k)}${x.f instanceof Set && x.f.size === 0 ? "" : ` catches(${cls(x.f)})`}${x.p instanceof Set && x.p.size === 0 ? "" : ` provides(${x.p === "all" ? "*" : [...x.p].sort().map(q => relKey(file, q)).join(", ")})`}`));
+  return xs.length ? `hosts(${xs.join("; ")})` : "";
+}
+function hostedText(file: string, h: Hosted): string {
+  return `export renders ${relKey(file, h.host)} from ${h.fn}:${h.line}${h.fails.length ? ` fails(${[...h.fails].sort().join(" | ")})` : ""}${h.requires.length ? ` uses(${h.requires.map(k => relKey(file, k)).join(", ")})` : ""}${h.inner ? ` ${hostsText(file, h.inner)}` : ""}`;
+}
+/** The text inside the balanced parentheses that open at `at` (the index of `(`). */
+function balanced(s: string, at: number): string | undefined {
+  let depth = 0; for (let i = at; i < s.length; i++) { if (s[i] === "(") depth++; else if (s[i] === ")" && --depth === 0) return s.slice(at + 1, i); }
+  return undefined;
+}
+function hostsOf(file: string, text: string): Record<string, HostSite[]> {
+  const out: Record<string, HostSite[]> = {};
+  for (const part of split(text, ";")) {
+    const key = part.split(/\s+/)[0]; const rest = part.slice(key.length);
+    const c = /\bcatches\(([^)]*)\)/.exec(rest); const p = /\bprovides\(([^)]*)\)/.exec(rest);
+    (out[absKey(file, key)] ??= []).push({ f: c ? catchOf(c[1]) : new Set(), p: p ? (p[1].trim() === "*" ? "all" : new Set(p[1].split(",").map(k => absKey(file, k.trim())).filter(Boolean))) : new Set() });
+  }
+  return out;
+}
 function line(file: string, name: string, x: ExportSig): string {
   switch (x.kind) {
     case "source": { const r = rows(x.rows, x.fails); return `export source ${name}${r ? `: ${r}` : ""} ${x.question ? "=" : ":="} …`; }
@@ -78,7 +109,7 @@ function line(file: string, name: string, x: ExportSig): string {
         return `${f === "*" ? "...props" : f}${parts.length ? `: ${parts.join(" ")}` : ""}`;
       });
       const own = [...new Set(s.own.map(o => o.cls))];
-      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${s.made ? " made" : ""}${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${retainsText(file, s.stored)}${shapeText(s.shape)}`;
+      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${s.made ? " made" : ""}${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${retainsText(file, s.stored)}${s.hosts ? ` ${hostsText(file, s.hosts)}` : ""}${shapeText(s.shape)}`;
     }
   }
 }
@@ -86,6 +117,8 @@ function line(file: string, name: string, x: ExportSig): string {
 export function printSignature(sig: ModSig): string {
   const out = [`//@ signature ${sig.file.split("/").pop()} (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).`];
   for (const [n, x] of sig.exports) out.push(line(sig.file, n, x));
+  if (sig.hosts && Object.keys(sig.hosts).length) out.push(`export ${hostsText(sig.file, sig.hosts)}`);   // MO-11u
+  for (const h of sig.hosted ?? []) out.push(hostedText(sig.file, h));
   return out.join("\n") + "\n";
 }
 
@@ -121,13 +154,20 @@ export function contentShapeOf(s: string | undefined): Shape {
 /** A `.d.rx` printed for (or written as) an `.rx` module's signature, read in place of the module. `file` is the `.rx`
  *  module's path: context keys are its, and relative keys resolve against it. */
 export function parseSignature(src: string, file: string): ModSig {
-  const exports = new Map<string, ExportSig>();
+  const exports = new Map<string, ExportSig>(); let hosts: Record<string, HostSite[]> | undefined; const hosted: Hosted[] = [];
   src.split("\n").forEach((raw, i) => {
     const t = raw.replace(/\s\/\/.*$/, "").replace(/^\/\/.*$/, "").trim(); if (!t) return;
     const fail = (msg: string): never => { throw new SignatureError(`${file.replace(/\.rx$/, ".d.rx")}:${i + 1}: ${msg}: ${t}`); };
     let m: RegExpExecArray | null;
     if (!t.startsWith("export ")) fail("a signature declares exports");
     const s = t.slice(7).trim();
+    // MO-11u
+    if (s.startsWith("hosts(")) { const inner = balanced(s, 5); if (inner === undefined) fail("hosts(…)"); hosts = hostsOf(file, inner!); return; }
+    if (/^renders\s/.test(s)) {
+      let row = s; let inner: Record<string, HostSite[]> | undefined;
+      const at = /\shosts\(/.exec(row); if (at) { const open = at.index + at[0].length - 1; const text = balanced(row, open); if (text === undefined) fail("hosts(…)"); inner = hostsOf(file, text!); row = (row.slice(0, at.index) + row.slice(open + text!.length + 2)).trim(); }
+      if ((m = /^renders\s+(\S+)\s+from\s+([A-Za-z_$][\w$.]*):(\d+)\s*(?:fails\(([^)]*)\))?\s*(?:uses\(([^)]*)\))?$/.exec(row))) { const host = absKey(file, m[1]); hosted.push({ host, name: host.slice(host.lastIndexOf("#") + 1), fn: m[2], line: Number(m[3]), fails: classesOf(m[4] ?? "").sort(), requires: (m[5] ?? "").split(",").map(k => k.trim()).filter(Boolean).map(k => absKey(file, k)), ...(inner ? { inner } : {}) }); return; }
+    }
     if ((m = /^type\s+([A-Za-z_$][\w$]*)/.exec(s))) { exports.set(m[1], { kind: "type" }); return; }
     if ((m = /^action\s+([A-Za-z_$][\w$]*)$/.exec(s))) { exports.set(m[1], { kind: "action" }); return; }
     if ((m = /^error\s+([A-Za-z_$][\w$]*)\s*(?:\(([^)]*)\))?$/.exec(s))) { exports.set(m[1], { kind: "errclass", params: (m[2] ?? "").split(",").map(x => x.trim()).filter(Boolean) }); return; }
@@ -161,7 +201,8 @@ export function parseSignature(src: string, file: string): ModSig {
         const p = /\bprovides\(([^)]*)\)/.exec(rest); if (p) v.p = p[1].trim() === "*" ? "all" : new Set(p[1].split(",").map(k => absKey(file, k.trim())).filter(Boolean));
         sig.props[fname] = v;
       }
-      const tail = m[3];
+      let tail = m[3];
+      { const at = /(^|\s)hosts\(/.exec(tail); if (at) { const open = at.index + at[0].length - 1; const inner = balanced(tail, open); if (inner === undefined) fail("hosts(…)"); sig.hosts = hostsOf(file, inner!); tail = tail.slice(0, at.index) + tail.slice(open + inner!.length + 2); } }   // MO-11u
       if (/^\s*made\b/.test(tail)) sig.made = true;   // MO-11j: a JS factory's component, applied as JSX's <X />
       const fl = /\bfails\(([^)]*)\)/.exec(tail); if (fl) sig.own = classesOf(fl[1]).map(c => ({ cls: c, what: `${m![1]}'s root`, at: file.split("/").pop() }));
       const us = /\buses\(([^)]*)\)/.exec(tail); if (us) sig.requires = us[1].split(",").map(k => absKey(file, k.trim()));
@@ -172,5 +213,5 @@ export function parseSignature(src: string, file: string): ModSig {
     if ((m = /^([A-Za-z_$][\w$]*)\s*(?::\s*(.*))?$/.exec(s))) { const r = rowWords(m[2] ?? ""); if (r.rest) fail("an equation's rows"); exports.set(m[1], { kind: "eq", rows: r.rows.filter(x => x !== "io"), fails: r.fails, io: r.rows.includes("io") }); return; }
     fail("not an export");
   });
-  return { file, exports };
+  return { file, exports, ...(hosted.length ? { hosted } : {}), ...(hosts ? { hosts } : {}) };
 }

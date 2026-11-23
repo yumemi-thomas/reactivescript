@@ -20,8 +20,9 @@
 // called twice with the same arguments and must answer alike. For each `c` a component `provides(c)`, it is mounted
 // (with the probe's `props`) around a hook or a part of the same file that uses `c` alone and fails without it, which
 // must then run cleanly. A component's function-typed props are run with the probe's props, each wrapped in a spy.
-// Placement rows (a fn that hands back a `Component`, `nests(children in component)`) are checked against a scene the probe gives
-// (`scene(lib, h)`), `draft` rows by calling the setter, and a component's `uses(…)` (a kit's compound part) by rendering
+// Placement rows (a fn that hands back a `Component`, `nests(children in component)`, `renders(H)`, and a component's
+// props that take components: MO-11c) are checked against a scene the probe gives (`scene(lib, h)`), which also reports a
+// fn that calls a component it is given with no owner, `draft` rows by calling the setter, and a component's `uses(…)` (a kit's compound part) by rendering
 // it alone, where it must fail or warn, and inside a component of the file that provides it (`probes[P].around` when the
 // provider renders something else than its children), where it must not: src/verify-place.js. RXV_DEBUG=1 names each
 // export on stderr as it is checked.
@@ -40,7 +41,7 @@ function exportsOf(text) {
       const close = matching(l, m.index + m[0].length - 1);
       const params = splitTop(l.slice(m.index + m[0].length, close)).map(p => p.trim()).filter(Boolean);
       const after = l.slice(close + 1).replace(/^\s*:\s*/, "");
-      const ret = after.split(/\s(?=uses\(|provides\(|nests\(|instantiates\b|rejects\()/)[0].trim();
+      const ret = after.split(/\s(?=uses\(|provides\(|nests\(|renders\(|instantiates\b|rejects\()/)[0].trim();
       // MO-10g: its callbacks, a parameter typed as a function or a function-typed field of a record parameter (`ref` too)
       const cbs = [];
       params.forEach((p0, index) => {
@@ -52,7 +53,7 @@ function exportsOf(text) {
         else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && fnType(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0), handler: handlerOf(m2[2].trim()) }); }
       });
       const fields = ret.startsWith("{") ? fieldsOf(ret) : ret.startsWith("[") ? partsOf(ret) : (r => r.ref ? [{ path: [], holds: r.holds, fails: r.fails, ref: true }] : null)(rowsOf(ret));   // MO-10l: the whole result an accessor, with its rows
-      const inst = /\binstantiates\b|\bnests\(|\bprovides\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
+      const inst = /\binstantiates\b|\bnests\(|\bprovides\(|\brenders\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
       // MO-10i (2026-11-22): `draft list: T[]` — a parameter the fn changes in place, during the call
       const drafts = params.flatMap((p, index) => /^draft\s+[A-Za-z_$]/.test(p) ? [index] : []);
       out.push({ kind: "fn", name: m[2], line: i + 1, pure: !!m[1], inst, drafts, required: params.filter(p => !/^((ref|draft)\s+)?[\w$]+\?/.test(p)).length, uses: /\buses\(/.test(l), usesNames: names(l, "uses"), holds: /\bpending\b|\bfails\(/.test(l), fields, cbs });

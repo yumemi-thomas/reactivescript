@@ -14,7 +14,10 @@ with the rule it adds or amends and at least one scenario that shows it.
 A word or a form of a JS declaration (`.d.rx`) is held to the bar of
 `spec/09-modules.md` MO-8r: without it a correct Solid program that people
 commonly write cannot be written, or a mistake Solid programs really make
-cannot be refused, and more than one library writes it. Expressing one
+cannot be refused, and more than one library writes it. The libraries
+counted are the Solid 2 ecosystem's releases on npm — a pre-release (an
+alpha, a release candidate) counts as a stable one does — and not only
+those the benchmark covers (ruled 2026-11-24). Expressing one
 package's API is not a reason: that package is left undeclared, wrapped in
 a module of the app's own, or typed by its own `.d.ts`. A word that is
 withdrawn is refused by name in both declaration parsers, with what to
@@ -30,6 +33,14 @@ outlet), the record says so.
 A mistake the checkers accept in silence is a defect whatever the bar
 says of the word that would have named it: it is refused (09 MO-11i's
 `NESTED_NOT_RENDERED`), and the word is decided apart.
+A word that comes in names its evidence the same way: 09 MO-8r's table
+for `renders(H)` (2026-11-24) lists three libraries by three authors,
+each with the release that was run and what the run showed, and the
+benchmark holds a program for each (`bench/tasks/kobalte-toast`,
+`router-code-routes`, `bench/coverage/solid-sonner/toaster`). A claim a
+row makes that running can test is `rx-verify`'s to test: where a
+component renders what it is given (a scene), and that a library does
+not call a component it is given with no owner at all.
 
 Decisions recorded in the spec as *ruled* with a date are settled; please
 open an issue rather than a PR to revisit one. Decisions marked *taken by

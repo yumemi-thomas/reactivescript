@@ -274,6 +274,8 @@
   "uses"
   "provides"
   "nests"
+  "renders"
+  "hosts"
   "shape"
   "handler"
   "pending"

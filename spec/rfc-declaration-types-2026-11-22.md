@@ -1420,3 +1420,226 @@ Every `@solid-primitives` package, every module of solid-use and the
 families of Wardic and UI SDK are as they were: no row of theirs is
 touched.
 
+## A tenth round: a word comes back, in the form three libraries share (2026-11-24)
+
+The seventh round withdrew `renders` in all four of its forms, each one
+library's. What it left with no answer in a row was the question the
+forms had been about: a component a program gives a library in one place,
+which another component of the library renders later. A judgment run
+surveyed the Solid 2 ecosystem for it and ran real programs; this round
+implements what it decided, and what running found on the way.
+
+### The bar counts the ecosystem's releases, pre-releases included
+
+Ruled 2026-11-24 (09 MO-8r, CONTRIBUTING): the libraries a word is
+counted over are the Solid 2 releases on npm, an alpha or a release
+candidate as much as a stable one, and not only the libraries the
+benchmark covers. While Solid 2 is new, half of what accepts
+`solid-js ^2` is a pre-release (Kobalte 2 is an alpha, TanStack's
+adapters are release candidates), and a count that waited for each to be
+final would count the libraries that moved first last. Kobalte, which
+left the benchmark on 2026-11-22, is back with the task it was missed
+for.
+
+### The question, and three libraries that ask it
+
+| library (its release) | the fn that is given a component | the component that renders it | what was run |
+| --- | --- | --- | --- |
+| `@kobalte/core` 2.0.0-alpha.5 | `toaster.show(Component)` | `<Toast.List>` | the toast's `useContext` finds what is provided above the list and the region's own context; `<Toast>` rendered alone throws |
+| `solid-sonner` 1.0.0 | `toast(Component)` | `<Toaster>` | the component finds what is provided above `<Toaster>`; with the provision beside it, the default |
+| `@tanstack/solid-router` 2.0.0-rc.11 | `createRoute({ component })`, `createRootRoute({ component })` | `<RouterProvider>` | a page's `useParams` and a context above the provider are found; a page applied beside it throws |
+
+Three libraries by three authors, each with the same shape, and each a
+correct program that was refused: with no word the component is checked
+under a root of its own (MO-11s), where nothing above the *other*
+component is credited. None of the three ways the bar leaves applies. An
+undeclared function is read the same way; the library's types say
+nothing of owners; and a module of the app's own cannot give the
+component another owner than the library does.
+
+### The decision: `renders(H)` (09 MO-11u)
+
+After a fn's signature, `renders(H)` names a component H that the same
+`.d.rx` declares. Every component among the fn's arguments (found as
+MO-11s finds them) is rendered later, any number of times, beneath an
+application of H:
+
+```rx
+export fn toast(message: View | (() => View), data?: ExternalToast): string | number renders(Toaster)
+export fn show(toast: Component<{ toastId: number }>): number renders(Toast.List)
+export pure fn createRoute(options: RouteOptions): Route renders(RouterProvider)
+```
+
+- **Checked at every application of H.** Each component is checked as
+  applied, with no arguments, among H's children, wherever the program
+  applies H: H's `provides`, H's own `uses` (what H reads is above what
+  it renders), and what is above that place — contexts, `errored` and
+  `loading` regions, the first load of a client-only build. Two
+  toasters, one without the provision, refuse the program.
+- **No application in the program:** the component is held to what H
+  itself uses and provides, under a root of its own. Kobalte's toast,
+  whose `<Toast>` reads the region's context, is accepted before a list
+  is written.
+- **Across modules, by signature.** The call and the application may be
+  a module apart, and the judgment is the program's, as a component's
+  `uses` is judged where it is applied. A module's signature carries
+  both halves: `export renders ./sonner.d.rx#Toaster from toast:7
+  uses(./theme.rx#accent)` for a call that was given components, and
+  `hosts(./sonner.d.rx#Toaster provides(./theme.rx#accent))` on a
+  component for each place it applies H. A module read by its printed
+  signature (MO-9) is judged as its source is, and `ref/run.ts` holds it.
+- **A host inside a hosted component.** The app's `<Toaster />` is
+  usually in the root layout, and in a code-routed app the root layout
+  is itself a component `createRootRoute` is given. Its toaster is then
+  wherever the provider renders the layout: a call's row lists the
+  places its components apply a host themselves, and the judgment
+  composes each with every place of their own host, to a fixed point.
+  (The first cut of this round dropped such a place, and refused the
+  toast in the commonest app that has one.)
+- **What it does to the row: nothing else.** `toast` is io and called
+  from a handler. A `pure` fn with the word is a constructor: it keeps
+  the component in what it makes, so `instantiates` is inferred and the
+  result is bound once.
+
+What it is not, and stays refused by name: `renders` alone ("where the
+result is bound"), `renders(later)` with a prop's `renders T` (a value
+followed by mention to the prop that rendered it, with `RENDERS_ESCAPES`
+to hold the program to it), `nests(component under parent)` and `outlet`
+(a tree's nesting), `renders(root, ctx…)`. This word follows no value
+and confines none. H is a component, not a function that answers a view:
+a table adapter exports a `<FlexRender>` component for it, as
+`@tanstack/solid-table` 9 does.
+
+**CN-8.** The word states an owner's place and means the same for a
+toaster and for a router. The checker reads the name of a declared
+component, and nothing of which library it is.
+
+**What it does not say: a tree's nesting.** Pages given to
+`createRoute` are checked side by side beneath the provider. A layout's
+own `errored` around its `<Outlet />` is not credited to the page the
+outlet renders, so the check errs on the strict side: a page holds its
+own failure, or the region goes above the provider. Nesting stays with a
+factory's `nests(children in component)` and with a host declaration
+(MO-14).
+
+### A component inside a record or an array, in a prop (09 MO-11c)
+
+`solid-marked` 1.0.0's `<Markdown builtins={{ Heading }}>` and an MDX
+provider's `components` give a component its components in a record.
+MO-11c read a prop typed `Component` and nothing that only holds one: the
+record was `COMPONENT_AS_VALUE`, and no row could say otherwise. A prop
+whose declared type holds a `Component` — a record's field, an array's
+element, the last argument of `Record<…>`, `Array<…>`, `Partial<…>` — is
+now read as a direct one is, with no word: each component written in the
+literal the prop is given is checked as applied among the application's
+children. `rx-declare` writes such a prop so (`builtins: { Heading?:
+Component; … }`, the component fields alone after the type the library
+names).
+
+### What running found: two claims taken on a declaration's word
+
+- **DV-24 was not run.** A component given to a JS component's prop is
+  credited with what is above that component. A component that mounts
+  what its prop is given later, from a handler, into a root of its own
+  was accepted by the checker and by `rx-verify`, which had no check for
+  it. It is a claim of the component's row now (`placement`), and
+  `rx-verify` runs it against a scene: each application is recorded, and
+  what a prop was given must render beneath it. Strict declarations ask
+  for it. The applications recorded are the same ones `renders(H)` is
+  held to — the host-site recording the seventh round took out, back
+  for a claim that names its component.
+- **"A root of its own is the least a component can be given" was too
+  strong** (MO-11s). In Solid 2 a library can do less: call the component
+  with no owner at all. Run on `solid-js` 2.0.2: in the development
+  build `useContext` throws there (`NoOwnerError`, a context with a
+  default included); in the production build it finds nothing above. In
+  both, nothing owns what the component makes: an effect is never
+  disposed and an `onCleanup` never runs. `solid-sonner`'s
+  `toast.custom(fn)` calls its function so. The rule is narrowed to what
+  it holds for (a library that renders under *some* owner), and
+  `rx-verify` reports a fn that calls a component it is given with no
+  owner, with or without a placement word.
+
+### Found on the way
+
+- **A component that declares no props is a function of nothing** (13
+  TY-3d). `component Saved()` was projected `function Saved(props:
+  any)`, which TypeScript does not hold where a library asks for a
+  function that takes none (`toast(() => JSX.Element)`: TS2345). It is
+  `function Saved()` now, which is also assignable wherever a component
+  is asked for.
+- **`{props.children}` showed a list of strings as a list.** A JS
+  library hands a component its text as an array of strings
+  (solid-marked's paragraphs), and the runtime printed it as JSON. A
+  component's children are inserted as they are (`__rt.kids`).
+- **The server escaped a value twice.** The runtime's `show` escaped,
+  and so does the compiled view around every hole: a served `a < b` read
+  `a &lt; b` until the browser took the page over, and through a
+  component's children once more. The runtime no longer escapes
+  (S-server-5).
+- **`rx-declare`:** a parameter that is a component is written
+  `Component<P>`; a view or a function of nothing giving one
+  (`(() => JSX.Element) | JSX.Element`) is written `View | (() => View)`
+  and not `ref message: View`, which made each call an instantiation; a
+  fn that is given a component gets the question types cannot answer
+  (where does the library render it?); and `known.js` writes the word
+  for the releases it was run against.
+- **`rx-lib`** refuses a signature whose `hosts(…)` or `renders … from`
+  row names a component through `node_modules`, as it refuses a
+  context's key that leaves the package.
+
+### Library defects recorded, not filed
+
+- `solid-sonner` 1.0.0: `toast.custom(fn)` calls `fn` with no owner
+  (`getOwner()` is null in it), so a component rendered from it has no
+  context above it and nothing it makes is disposed. `toast(fn)` does
+  not: it renders the function beneath `<Toaster>`.
+- `@kobalte/core` 2.0.0-alpha.5: `toaster.show` is reachable only as a
+  method of the exported `toaster` object (and of `Toast.toaster`); no
+  function export. A row declares a function, so an app hands it out
+  from a module of its own.
+- `solid-sonner` 1.0.0 and `@kobalte/core` 2.0.0-alpha.5: the default
+  build is compiled for the DOM; a server render needs the `solid`
+  condition's source compiled by the app's bundler (as UI SDK).
+
+### The numbers
+
+`node bench/run.mjs`, at `cb68950` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `cb68950` (33 tasks) | 105/105 | 161/161 | 214/214 | 184/186 | 11/11 | 308 | 41 | 0 | 28 |
+| now (35 tasks) | 111/111 | 172/172 | 228/228 | 199/201 | 12/12 | 340 | 60 | 0 | 41 |
+
+The two red checks are the two each task's `known` gives a reason for,
+unchanged. By task, where a task moved or is new:
+
+| task | good | types | runtime | bad caught | unrepresentable | words | `any` inherited | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `kobalte-toast` (new) | 3/3 | 5/5 | 9/9 | 8/8 | — | 24 | 0 | 0 |
+| `router-code-routes` (new) | 3/3 | 6/6 | 5/5 | 6/6 | 1/1 | 7 | 19 | 14 |
+| `table-pagination`, was | 3/3 | 8/8 | 10/10 | 2/2 | — | 43 | 0 | 1 |
+| `table-pagination`, now | 3/3 | 8/8 | 10/10 | 3/3 | — | 44 | 0 | 0 |
+
+`table-pagination` has its cell's context back, for one word
+(`renders(FlexRender)`), and one part fewer said by place (the
+`flexRender` fn's row is gone). `kobalte-toast`'s 24 words are the
+app's own module over Kobalte's toaster: the two contexts and their
+`uses`/`provides` on five parts, and the word; `rx-verify` holds each of
+them against Kobalte in the task's run. `router-code-routes` writes no
+word by hand in the router's declaration (the draft, with `known.js`);
+its 7 are its fake backend's. The 19 inherited `any`s and 14 parts by
+place are the router's own rows for `createRoute`, `createRootRoute`,
+`createRouter` and `RouterProvider`, kept whole.
+
+| coverage | programs | green | modules drafted | rows | library's `any` | introduced | by place | hand-written words | bad caught |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `cb68950` | 121 | 121 | 190 | 4877 | 1195 | 0 | 1519 | 277 | 8/8 |
+| now | 123 | 123 | 193 | 4904 | 1195 | 0 | 1519 | 277 | 13/13 |
+
+Two entries are new (`solid-sonner/toaster`, `solid-marked/markdown`),
+each with the draft's rows and no word by hand, three and two bad
+variants. No other entry's record moved: every `@solid-primitives`
+package, every module of solid-use and the families of Wardic and UI SDK
+are as they were, through the changes to what a draft writes, to the
+projection of a component with no props, and to the runtime.

@@ -11306,6 +11306,14 @@
               },
               {
                 "type": "SYMBOL",
+                "name": "signature_hosts"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "signature_renders"
+              },
+              {
+                "type": "SYMBOL",
                 "name": "signature_equation"
               }
             ]
@@ -11923,6 +11931,10 @@
               },
               {
                 "type": "SYMBOL",
+                "name": "signature_hosts"
+              },
+              {
+                "type": "SYMBOL",
                 "name": "signature_shape"
               }
             ]
@@ -12402,6 +12414,157 @@
         }
       ]
     },
+    "signature_hosts": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "hosts"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "SYMBOL",
+          "name": "signature_host"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": ";"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "signature_host"
+              }
+            ]
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "signature_host": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "host",
+          "content": {
+            "type": "SYMBOL",
+            "name": "context_key"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "signature_catches"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "signature_provides"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "signature_renders": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "renders"
+        },
+        {
+          "type": "FIELD",
+          "name": "host",
+          "content": {
+            "type": "SYMBOL",
+            "name": "context_key"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "from"
+        },
+        {
+          "type": "FIELD",
+          "name": "fn",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        },
+        {
+          "type": "FIELD",
+          "name": "line",
+          "content": {
+            "type": "SYMBOL",
+            "name": "number"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "fails_row"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "signature_uses"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "signature_hosts"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
     "signature_shape": {
       "type": "SEQ",
       "members": [
@@ -12442,7 +12605,7 @@
       "type": "TOKEN",
       "content": {
         "type": "PATTERN",
-        "value": "[.\\/@A-Za-z0-9_$-]+#[A-Za-z_$][\\w$]*"
+        "value": "[.\\/@A-Za-z0-9_$-]+#[A-Za-z_$][\\w$]*(\\.[A-Za-z_$][\\w$]*)*"
       }
     },
     "_module_item": {
@@ -13321,6 +13484,10 @@
         {
           "type": "SYMBOL",
           "name": "nests_clause"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "renders_clause"
         }
       ]
     },
@@ -13485,6 +13652,40 @@
             },
             "named": true,
             "value": "property_identifier"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "renders_clause": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "renders"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "FIELD",
+          "name": "host",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "identifier"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "member_component_name"
+              }
+            ]
           }
         },
         {

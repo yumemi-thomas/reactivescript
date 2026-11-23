@@ -530,7 +530,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, waits: Option<(bool, Vec<String>)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, draft_args: Vec<usize> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, waits: Option<(bool, Vec<String>)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, draft_args: Vec<usize>, /** MO-11u: `renders(H)` — the components the fn is given are rendered beneath an application of H, a component this file declares */ renders: Option<String> },
     /// SV-5a: `fields`, what of an instance is sent to the client (`export error HttpError(status, code)`); none, name and message only
     Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
@@ -560,6 +560,9 @@ pub struct JsProp {
     pub ty: Option<String>,
     pub catches: Option<Option<Vec<String>>>,
     pub component: bool,
+    /// MO-11c (2026-11-24): its type holds a `Component` inside a record or an array (`builtins: { Heading?: Component }`):
+    /// each component in the literal given to it is applied there
+    pub components: bool,
     /// MO-11k: a function giving a View (a render prop)
     pub render: bool,
     /// MO-10g: any other function (a callback, checked as a handler)
@@ -584,7 +587,7 @@ impl JsDecl {
 /// it, however it is laid out: `exists` (the export is there, of its kind), `pure`, `uses`, `provides`, `fields` (a result
 /// part that is `ref`, `pending` or `fails(…)`), `fails` (a field, or a component, that fails with a class), `callbacks`
 /// (a function-typed parameter or record field: handler or pure), `draft`, `placement` (`nests(…)`, a fn that hands back
-/// a component). rx-verify tags each result with the claim it
+/// a component, `renders(H)`, a component's prop that takes components). rx-verify tags each result with the claim it
 /// ran; a claim no result answers is not verified.
 pub fn obligations(d: &JsDecl) -> Vec<String> {
     // MO-14: a host declaration's rows — an import of `.rx` components is no claim of its own; the view claims where each
@@ -603,7 +606,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
         fn_params_text(t).is_some()
     };
     match d {
-        JsDecl::Fn { params, pure, instantiates, uses, provides, held, waits, shape, ptypes, nests, drafts, part_drafts, .. } => {
+        JsDecl::Fn { params, pure, instantiates, uses, provides, held, waits, shape, ptypes, nests, drafts, part_drafts, renders, .. } => {
             if *pure && !*instantiates {
                 out.push("pure".into());
             }
@@ -641,7 +644,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
             if !drafts.is_empty() || !part_drafts.is_empty() {
                 out.push("draft".into());
             }
-            if nests.is_some() || matches!(shape, Shape::Comp) {
+            if nests.is_some() || matches!(shape, Shape::Comp) || renders.is_some() {
                 out.push("placement".into());
             }
         }
@@ -659,6 +662,11 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
             }
             if !fails.is_empty() {
                 out.push("fails".into());
+            }
+            // MO-11c, DV-24: a component given to a prop is checked among the application's children — that the component
+            // renders it there is a claim, run by a scene
+            if props.iter().any(|p| p.component || p.components) {
+                out.push("placement".into());
             }
         }
         JsDecl::Error { .. } | JsDecl::Value { .. } | JsDecl::Type { .. } | JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => {}
@@ -758,9 +766,10 @@ fn is_handler(t: &str) -> bool {
 fn tracked_word(t: &str) -> bool {
     TRACKED_WORD.is_match(&masked_strings(t))
 }
-const RENDERS_GONE: &str = "`renders` alone is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a component given to a fn that says nothing of where it renders it is checked under a root of its own (MO-11s) — leave the word out, and give the component what it needs as its props";
+const RENDERS_HOST: &str = "renders(H): H is a component this file declares, named as its tag is (`renders(Toaster)`, `renders(Toast.List)`) — the components the fn is given are rendered later, beneath an application of it (MO-11u). `renders(later)` and `renders(root, …)` are not words of a declaration";
+const RENDERS_GONE: &str = "`renders` alone is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a component given to a fn that says nothing of where it renders it is checked under a root of its own (MO-11s) — leave the word out, and give the component what it needs as its props; where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(Toaster)` (MO-11u)";
 const FIELD_ROWS_GONE: &str = "`pending` before a result's plain field is not a word of a declaration, nor is `fails(…)` there (MO-8r, withdrawn 2026-11-23: one library wrote them): they are written before a `ref` part of a result — the whole result, an item of its tuple or a field of its record — an accessor that waits or fails where it is read, `pending fails(Error) ref T` (MO-10l). A store whose plain fields wait is handed out by a few lines of the app's own JavaScript, a function a field (`data: () => q.data`), declared `{ data: pending fails(Error) ref T }` (MO-10c)";
-const RENDERS_LATER_GONE: &str = "`renders(later)` is not a word of a declaration, nor is `renders` before a prop's type (MO-8r, withdrawn 2026-11-23: one library wrote them): a tree of components a library renders later is given to a factory — a fn of the app's own JavaScript that takes the tree as records and hands back the component that renders it, declared `Component provides(…) nests(children in component)` (MO-11f, MO-11i) — or is built in JavaScript, in a module that imports the `.rx` pages (11 CP-4d). With no word, a component given to a fn is checked under a root of its own (MO-11s)";
+const RENDERS_LATER_GONE: &str = "`renders(later)` is not a word of a declaration, nor is `renders` before a prop's type (MO-8r, withdrawn 2026-11-23: one library wrote them): a tree of components a library renders later is given to a factory — a fn of the app's own JavaScript that takes the tree as records and hands back the component that renders it, declared `Component provides(…) nests(children in component)` (MO-11f, MO-11i) — or is built in JavaScript, in a module that imports the `.rx` pages (11 CP-4d). With no word, a component given to a fn is checked under a root of its own (MO-11s); where the library renders what the fn is given beneath a component of its own, the row names that component, `renders(RouterProvider)` (MO-11u)";
 const NESTS_UNDER_GONE: &str = "`nests(component under parent)` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a tree is written as records, each one's children in a field — `nests(children in component)` on the factory that is given them (MO-11i), which a few lines of the app's own JavaScript make of a library that links a child to its parent";
 const OUTLET_GONE: &str = "`outlet` is not a word of a declaration (MO-8r, withdrawn 2026-11-23: one library wrote it): a layout renders its pages as `props.children`, which a factory declared `nests(children in component)` gives it (MO-11i) — the app's own module passes the library's outlet as the layout's children. Leave the word out: the component is then one that renders nothing of the app's";
 const TRACKED_GONE: &str = "`tracked` is not a word of a declaration: a function type without `handler` is a pure function already, however the library calls it (MO-10g) — leave the word out";
@@ -1396,6 +1405,49 @@ fn is_view_type(t: &str) -> bool {
     let alts = split_top(t, "|");
     alts.iter().any(|a| js_trim(a) == "View") && !alts.iter().any(|a| a.contains("=>") || is_component_type(a))
 }
+/// MO-11c (2026-11-24): a type that holds a `Component` inside a record or an array, read from its text — a record's
+/// field, an array's element, the last argument of `Array<…>`, `Record<K, …>`, `Partial<…>`, `Readonly<…>`, `Required<…>`.
+/// A function type holds none, and a `Component` itself is MO-11c's own case. `ref/src/parse.ts` `holdsComponent`.
+pub fn holds_component(t: &str, inside: bool, depth: usize) -> bool {
+    let t = js_trim(t);
+    let t = t.strip_prefix("readonly").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
+    if t.is_empty() || depth > 8 {
+        return false;
+    }
+    let alts = split_top(t, "|");
+    if alts.len() > 1 {
+        return alts.iter().any(|a| holds_component(a, inside, depth + 1));
+    }
+    let parts = split_top(t, "&");
+    if parts.len() > 1 {
+        return parts.iter().any(|a| holds_component(a, inside, depth + 1));
+    }
+    if part_of(t) == Part::Fn {
+        return false;
+    }
+    if is_component_type(t) {
+        return inside;
+    }
+    if let Some(el) = t.strip_suffix("[]") {
+        return holds_component(el, true, depth + 1);
+    }
+    if t.starts_with('[') && t.ends_with(']') {
+        return split_top(&t[1..t.len() - 1], ",").iter().any(|x| holds_component(x, true, depth + 1));
+    }
+    if t.starts_with('{') && t.ends_with('}') && t.len() >= 2 {
+        return split_top(&t[1..t.len() - 1], ",;\n").iter().any(|f| f.find(':').is_some_and(|i| holds_component(&f[i + 1..], true, depth + 1)));
+    }
+    for w in ["Array", "ReadonlyArray", "Record", "Partial", "Readonly", "Required"] {
+        if let Some(r) = t.strip_prefix(w).map(str::trim_start).and_then(|r| r.strip_prefix('<')) {
+            if let Some(inner) = r.strip_suffix('>') {
+                let args = split_top(inner, ",");
+                return args.last().is_some_and(|a| holds_component(a, true, depth + 1));
+            }
+            return false;
+        }
+    }
+    false
+}
 fn is_component_type(t: &str) -> bool {
     // MO-11c: `string | Component` (a polymorphic `as`), `Component | undefined`
     let alts = split_top(t, "|");
@@ -1549,7 +1601,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             let callback = handler && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
             let pure = !callback && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
             let view = fname != "children" && ty.as_deref().is_some_and(is_view_type);
-            props.push(JsProp { name: fname, optional, ty, catches, component, render, callback, pure, view });
+            let components = ty.as_deref().is_some_and(|t| holds_component(t, false, 0));
+            props.push(JsProp { name: fname, optional, ty, catches, component, components, render, callback, pure, view });
             // a newline separates fields too, as in TypeScript
             c.ws(false);
             if !c.eat(";") && !c.eat(",") && c.peek() != '\n' {
@@ -1720,9 +1773,17 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
     let mut c = Cursor::new(src);
     let mut out = vec![];
     let mut starts = vec![];
+    let mut hosts: Vec<(String, String, usize)> = vec![]; // MO-11u: each `renders(H)` — the fn, H, and where the word's `(` is
     loop {
         c.ws(true);
         if c.eof() {
+            // MO-11u: H is a component this file declares — the place is said in the library's own rows, and named by no path
+            for (f, h, at) in &hosts {
+                if !out.iter().any(|d| matches!(d, JsDecl::Comp { name, .. } if name == h)) {
+                    c.i = *at;
+                    return c.fail(&format!("renders({h}) on fn {f}: this file declares no component {h} — the word names the component beneath which the library renders what the fn is given, declared here as `export component {h}(props: {{ … }})` (MO-11u)"));
+                }
+            }
             return Ok((out, starts));
         }
         let line = c.line();
@@ -2030,6 +2091,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             c.expect(")")?;
         }
         let (mut written, mut uses, mut provides, mut nests) = (false, vec![], vec![], None);
+        let mut renders: Option<String> = None;
         loop {
             // MO-12b: `instantiates`, `uses(…)`, `provides(…)`, in any order
             c.ws(false);
@@ -2056,13 +2118,39 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                     // MO-11l, withdrawn (MO-8r, 2026-11-23): "here, where its result is bound"
                     return c.fail(RENDERS_GONE);
                 }
+                let paren = c.i;
                 c.i += 1;
                 c.ws(true);
                 if c.keyword("root") {
                     return c.fail(GONE_ROOT);
                 }
-                // MO-11o, withdrawn (MO-8r, 2026-11-23): "later, where a prop declared `renders` renders the result"
-                return c.fail(RENDERS_LATER_GONE);
+                if c.keyword("later") {
+                    // MO-11o, withdrawn (MO-8r, 2026-11-23): "later, where a prop declared `renders` renders the result"
+                    return c.fail(RENDERS_LATER_GONE);
+                }
+                // MO-11u (2026-11-24): `renders(H)` — the components the fn is given are rendered later, beneath an
+                // application of H, a component this file declares
+                let mut h = match c.ident() {
+                    Some(h) if h.starts_with(|ch: char| ch.is_ascii_uppercase()) => h,
+                    _ => return c.fail(RENDERS_HOST),
+                };
+                while c.peek() == '.' {
+                    c.i += 1;
+                    match c.ident() {
+                        Some(m) => { h.push('.'); h.push_str(&m); }
+                        None => return c.fail(RENDERS_HOST),
+                    }
+                }
+                c.ws(true);
+                if !c.eat(")") {
+                    return c.fail(RENDERS_HOST);
+                }
+                if renders.is_some() {
+                    return c.fail(&format!("fn {} says `renders(…)` twice: the components it is given are rendered beneath one component (MO-11u)", name));
+                }
+                hosts.push((name.clone(), h.clone(), paren));
+                renders = Some(h);
+                continue;
             }
             if c.keyword("uses") {
                 c.ws(false);
@@ -2099,12 +2187,17 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         }
         // MO-10i (2026-11-22): a result with a function part that hands out drafts is state the call made: a primitive
         let makes_drafts = !draft_parts(ret.as_deref()).is_empty();
-        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || makes_drafts; // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
+        let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref() || *s == Shape::Comp) || !uses.is_empty() || !held.is_empty() || makes_drafts || (pure && renders.is_some()); // MO-11u: a `pure` fn that keeps the components it is given, for H to render, made something to keep them in // MO-10a; MO-11f: a component handed back; MO-12b: a context read needs the caller's owner
         if nests.is_some() && shape != Some(Shape::Comp) {
             return c.fail(&format!("nests(…) on fn {}: only a fn that hands back a Component renders what it is given (MO-11i)", name));
         }
         if !provides.is_empty() && shape != Some(Shape::Comp) {
             return c.fail(&format!("provides(…) on fn {}: only a fn that hands back a Component provides a context, to what it renders (MO-12c)", name));
+        }
+        if let Some(h) = &renders {
+            if shape == Some(Shape::Comp) {
+                return c.fail(&format!("renders({h}) on fn {name}: a fn that hands back a Component renders what it is given inside the component it makes (MO-11f) — leave the word out"));
+            }
         }
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
         for t in ptypes.iter().flatten().chain(ret.iter()) {
@@ -2123,7 +2216,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         let part_drafts = draft_parts(ret.as_deref());
         let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_draft(&t)))).collect();
         let ret = ret.map(|t| strip_handler(&strip_draft(&t)));
-        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, waits, drafts, part_drafts, draft_args };
+        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, waits, drafts, part_drafts, draft_args, renders };
         // one row an export: a fn with several signatures (TypeScript's overloads) is declared by one of them, and the
         // library's own types say the rest (13 TY-4b)
         if out.iter().any(|d| matches!(d, JsDecl::Fn { .. }) && d.name() == row.name()) {

@@ -254,7 +254,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | the kind of fn | before `fn` | `pure`, `server`, `client` |
   | a parameter | before the parameter, as in an `.rx` fn (`fn f(ref n)`) | `ref`, `...` (rest); `draft` on a parameter the fn changes in place, and on a callback's parameter |
   | a value read | before its type, as in an `.rx` row annotation (`x: pending fails(E) T`) | `ref` (an accessor), with `pending` and `fails(E)` before it where the accessor waits or fails (MO-10l); `catches(E)` on a prop; `handler` on a function type (MO-10g) |
-  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `nests(children in component)`, `shape(…)`, a component's `fails(E)` |
+  | what calling it, or rendering it, does | after the signature | `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)`, `nests(children in component)`, `renders(H)` (MO-11u), `shape(…)`, a component's `fails(E)` |
   | a pin | a comment line | `//@ for <package> <range>` |
 
   A row word names the same row as the `.rx` word for it. `rejects(E)` is
@@ -270,6 +270,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   form (MO-8p); on 2026-11-23 `pending` and `fails(E)` before a result's
   plain field, `renders` alone after a signature, `renders(later)`, a
   prop's `renders`, `nests(component under parent)` and `outlet` went too.
+  On 2026-11-24 one came in, by the bar and on three libraries' evidence:
+  `renders(H)`, which names a component of the same file (MO-11u). It is
+  none of the forms withdrawn the day before, which stay refused by name.
   A row written
   with one of them is refused by name, with what says it now, so that it
   is never read as a type that ends in a name.
@@ -706,7 +709,14 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   written down. That is not a reason. **A word or a form is in the
   notation only if, without it, a correct Solid program that people
   commonly write cannot be written, or a mistake Solid programs really
-  make cannot be refused — and that for more than one library.** What a
+  make cannot be refused — and that for more than one library.** The
+  libraries counted are the Solid 2 ecosystem's releases — what npm has
+  that accepts `solid-js ^2`, a pre-release (an alpha, a release
+  candidate) as much as a stable one — and not only the ones the
+  benchmark covers (ruled 2026-11-24: half of the ecosystem's Solid 2
+  releases are pre-releases while Solid 2 is new, and a count that waited
+  for each to be final would count the libraries that moved first last).
+  What a
   single package does is said without a word, in one of the three ways
   the language already has:
   - *leave the function undeclared*: it is io and `fails(Error)` (R-io-4,
@@ -742,7 +752,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | `export component`, a member's name, a render prop's type (MO-11a, k, q) | 8 tasks, 6 libraries | kept | a component library cannot be used otherwise (`UNKNOWN_COMPONENT`) |
   | `catches(E)` on a JS component's prop, `fails(E)` and `shape(…)` after one (MO-11a) | no task | kept | upstream's words in upstream's place, a component's row (MO-3, MO-9b): refusing them in a JS component's row would make that row differ from a printed one and take no word out |
   | a fn that hands back a `Component` (MO-11f) | 1 task (`@solidjs/router`) | kept: no word | the result's type says it |
-  | `renders` (MO-11l) | 1 task (a table) | kept, then **withdrawn** 2026-11-23 (*Settled*, below) | kept because three libraries ask where what they are given is rendered, each in the one form its API has; the form is one library's |
+  | `renders` (MO-11l) | 1 task (a table) | kept, then **withdrawn** 2026-11-23 (*Settled*, below) | kept because three libraries ask where what they are given is rendered, each in the one form its API has; the form is one library's. (The question came back with a form three libraries share, `renders(H)`: MO-11u, 2026-11-24) |
   | `renders(later)`, `renders T` on a prop (MO-11o) | 1 task, 1 library (TanStack Router); its example | kept, then **withdrawn** 2026-11-23 (*Settled*, below) | the same question for components that travel in values; kept because without it no page of a code-based route tree may read the router's context. A factory of the app's own gives the tree the words `@solidjs/router`'s has |
   | `nests(kids in inside)` (MO-11i) | 2 tasks, 2 libraries (`@solidjs/router` natively; TanStack Router through the app's own factory, since 2026-11-23) | kept | a boundary or a provider in a layout, around its pages, is how every routed app is written, and without `nests` it must be hoisted above the router, where a failure takes the navigation with it |
   | `nests(inside under parent)`, `outlet` (MO-11p) | 1 task, 1 library (TanStack Router: the second form of `nests`, and its other half) | kept, then **withdrawn** 2026-11-23 (*Settled*, below) | they place what `renders(later)` carries, and go with it |
@@ -753,7 +763,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   | `readonly` before a field or a prop (MO-10b, MO-11a) | 1 task; every row of Wardic's whole draft | kept | a modifier of TypeScript's, part of no name; a draft is written as the library declares |
   | props as the library's type, `P & { … }` (MO-8o) | 5 tasks, 4 libraries | kept | it is the third way above, in a row: the props are the library's, and only the fields that carry a word are written again |
   | `//@ for <package> <range>`, `//@ generated`, `//@ signature` | every declared package; MO-8l; MO-13 | kept | comment lines, no part of a row: a pin, and what kind of file this is |
-  | `made`, `keeps(…)`, `takes(…)`, `retains(…)`, `renders` on an `.rx` prop | printed signatures only | kept | never written by hand: what a body proved, so that a module read by its signature gets the verdicts its source gets (MO-9b) |
+  | `made`, `takes(…)`, `retains(…)`, and since 2026-11-24 `hosts(…)` and a module's `renders … from …` row (MO-11u); until 2026-11-23 `keeps(…)` and `renders` on an `.rx` prop | printed signatures only | kept | never written by hand: what a body proved, so that a module read by its signature gets the verdicts its source gets (MO-9b) |
   | confined values (MO-10k) | — | kept | rules, not words; `methods(…)` was their one word |
 
   *The size of it.* Upstream, a JS row has seven words (`pure`, `fn`,
@@ -763,10 +773,12 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   `uses`, `provides`, `catches`, `fails`, `shape`, `pending`) and added
   twelve of its own: `const`, `handler`, `tracked`, `draft`, `signal`,
   `renders`, `nests`, `joins`, `forwards`, `outlet`, `methods`,
-  `trusted`. Four of the twelve are left — `const`, `handler`, `draft`,
-  `nests` — and one form of grammar fewer (a row a signature): `renders`
-  went in all four of its forms and `outlet` with it (2026-11-23,
-  *Settled*, below), and `nests` keeps the one form two routers write.
+  `trusted`. Four of the twelve were left on 2026-11-23 — `const`,
+  `handler`, `draft`, `nests` — and one form of grammar fewer (a row a
+  signature): `renders` went in all four of its forms and `outlet` with it
+  (*Settled*, below), and `nests` keeps the one form two routers write.
+  A fifth is back since 2026-11-24, in a form it never had: `renders(H)`,
+  the name of a component, which three libraries write (below).
   `const`, `handler`, `draft` and `nests(children in component)` are each
   written in more than one library. Of upstream's words in a JS row,
   `pending` and `fails` have one place more than a component's row: before
@@ -874,6 +886,44 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   third: the checkers confine by mention one kind of value now, the
   instance a primitive made (E-10, E-5a).
 
+  *`renders(H)`, taken (MO-11u, 2026-11-24).* The withdrawals above left
+  one question with no answer in a row: a component given to a fn in one
+  place and rendered by another component of the library, later. With no
+  word it is checked under a root of its own (MO-11s), which refuses the
+  correct program — a toast that reads the app's theme, a page that calls
+  the router's hook — and the three ways out do not apply: an undeclared
+  function is read the same way, the library's types say nothing of
+  owners, and a module of the app's own cannot give the component a
+  different owner than the library does. The bar was applied to programs
+  built and run against what npm has (2026-11-24; the probes are
+  `bench/tasks/kobalte-toast`, `bench/coverage/solid-sonner/toaster`,
+  `bench/tasks/router-code-routes`):
+
+  | library (its release) | the fn that is given a component | the component that renders it | run |
+  | --- | --- | --- | --- |
+  | `@kobalte/core` 2.0.0-alpha.5 | `toaster.show(Component)` | `<Toast.List>` | the toast's `useContext` finds what is provided above the list, and the region's own context; `<Toast>` rendered alone throws |
+  | `solid-sonner` 1.0.0 | `toast(Component)` | `<Toaster>` | the component's `useContext` finds what is provided above `<Toaster>`; with the provision beside it, it finds none |
+  | `@tanstack/solid-router` 2.0.0-rc.11 | `createRoute({ component })`, `createRootRoute({ component })` | `<RouterProvider>` | a page's `useParams` and the app's context above the provider are found; a page applied beside it throws |
+
+  Three libraries, by three authors, each with the same shape and each
+  refused before. So the word is in, in the one form the three share: it
+  names the component. What it is not: `renders` alone ("where the result
+  is bound": one library), `renders(later)` with a prop's `renders T`
+  (which followed a value by mention to the prop that rendered it, and
+  needed `RENDERS_ESCAPES` to hold the program to it: one library),
+  `nests(component under parent)` and `outlet` (a tree's nesting: one
+  library), `renders(root, ctx…)` (none). Those stay withdrawn, each
+  refused by name. `renders(H)` follows no value and confines none: the
+  place is a component, found where the program applies it, in whichever
+  module. It carries no package's rule (08 CN-8): the checker reads the
+  name of a declared component and nothing of what the library is.
+  TanStack Router writes it for a tree whose pages are then checked side
+  by side beneath the provider; the nesting of a tree stays with a
+  factory's `nests(children in component)` and a host declaration.
+  Counted: five of the twelve words this branch added are in a JS row
+  now — `const`, `handler`, `draft`, `nests`, `renders` — each in one
+  form, each written by more than one library.
+
   *An accessor that waits or fails (MO-10l, 2026-11-23).* The proposal
   the sixth round recorded — `pending` and `fails(E)` before a `ref`
   part — is taken. It meets the bar the withdrawn field words did not:
@@ -941,7 +991,17 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     above it (SV-7b);
   - `shape(…)`: what SV-7d's content-model check needs where the component
     is applied — its roots, `closes-p`, `a`, `form`, and `children-at`
-    chains.
+    chains;
+  - MO-11u's two rows, for the components a fn declared `renders(H)` is
+    given: on a component, `hosts(./kit.d.rx#Toaster catches(E)
+    provides(./theme.rx#theme); …)`, one entry for each place it applies H
+    (what is discharged and provided above H's children there); and of
+    the module, `export hosts(…)` for the places it roots itself and
+    `export renders ./kit.d.rx#Toaster from toast:12 fails(E) uses(…)
+    hosts(…)` for each call that was given components (the fn, its line,
+    what the components let out, and the places they apply a host
+    themselves). H is named by its declaration's path, relative
+    to the module, as a context is.
 - **MO-9c.** A `.d.rx` carries rows, not code or types. The compiler binds
   an import's kinds from it (accessor, function, instantiating function,
   action, component) and imports the module's own compiled JavaScript,
@@ -1766,6 +1826,26 @@ export default component App() {
   Its props are the library's (`params`, `location`, `children`) and carry
   no rows. It lowers to the compiled component itself. A prop typed `View`
   takes one too, applied (MO-11t).
+
+  *A component inside a record or an array (2026-11-24).* A library's
+  component is given components in a record — `solid-marked`'s `<Markdown
+  builtins={{ Heading }}>`, an MDX provider's `components` — or in a
+  list. A prop whose declared type *holds* a `Component` — a field of a
+  record, an element of an array or a tuple, the last argument of
+  `Record<…>`, `Array<…>`, `Partial<…>`, `Readonly<…>`, `Required<…>`, at
+  any depth; never inside a function type — is read as a prop typed
+  `Component` is, with no word: every component written in the record and
+  array literals the prop is given is a value there, checked as applied,
+  with no arguments, among the application's children. It was
+  `COMPONENT_AS_VALUE`, and no row could say otherwise. The components are
+  read in the literal, where the checker can name them: a record built
+  elsewhere and given by name is a value (`COMPONENT_AS_VALUE` where it is
+  written), as is one given to a prop whose type holds none. It is a form
+  of the same rule, not a word, and the type is the row's own text:
+  `rx-declare` writes such a prop so (`builtins: { Heading?: Component;
+  … }`, after the type the library names, MO-8o). Executable: S-module-39;
+  the units `a_component_inside_a_record_or_an_array_in_a_prop_is_a_value_there`;
+  `bench/coverage/solid-marked/markdown`.
 - **MO-11d (Hooks).** A library's hooks are MO-10's primitives. `useParams`
   and `useLocation` hand back a store, a value whose fields track at run
   time (MO-10b), so `id = params.id` follows the URL. `useNavigate` hands
@@ -2186,13 +2266,15 @@ export default component App() {
   | --- | --- | --- |
   | (a fn handing back a `Component`) | inside the made component, where it is applied | MO-11f |
   | `nests(children in component)` | each entry of a record's `children` field among its `component`'s children | MO-11i |
+  | `renders(H)` | among the children of H, a component of the same declaration, at every place the program applies it | MO-11u |
   | (no word) | under a root of their own, with nothing above the call credited | MO-11s |
 
   A component a program gives a library is a *value* from the literal it
   is written in until the place the library renders it, and it is checked
   once, as applied, at that place, under the boundaries, providers and
   content model there, and nowhere else: the made component (a factory),
-  or a fresh root (no word). The tree (`nests(…)`) only rearranges the
+  each application of the component a row names (`renders(H)`), or a
+  fresh root (no word). The tree (`nests(…)`) only rearranges the
   values inside a factory's place: a nested entry is applied among its
   parent's children, and a parent the checker cannot find leaves the
   entry a sibling at the same place, crediting nothing of the parent's.
@@ -2211,8 +2293,12 @@ export default component App() {
   for the program's components. `rx-verify` mounts it and reads where
   each of those rendered, through a context every recording component
   provides (so the evidence is Solid's own owner chain): what a factory
-  was given inside the made component, and each `nests(…)` entry inside
-  its parent's component. A library that renders a page beside its
+  was given inside the made component, each `nests(…)` entry inside
+  its parent's component, what a `renders(H)` fn was given beneath an
+  application of H (each application in the scene is recorded), and — a
+  claim of every component row with such a prop, since 2026-11-24 — what
+  a prop that takes components was given beneath that application
+  (MO-11c, DV-24). A library that renders a page beside its
   layout is a mismatch; a row the scene does not reach is reported
   unverified. `examples/router/router.probe.mjs` and
   `examples/tanstack-factory/tsr.probe.mjs` check the two routers' rows this way.
@@ -2228,10 +2314,33 @@ export default component App() {
   call, with nothing above the call credited to it: no `errored`, no
   `loading`, no `provide`. It is the right reading of a library that
   mounts what it is given under a root of its own (a toaster, MO-11n),
-  and it is sound whatever the library does: a library that renders the
-  component beneath the call gives it more than was assumed, never less,
-  and one that renders it later, many times or never needs nothing more
-  of an `.rx` component. What it costs is precision: a component that
+  and it holds for a library that renders the component under *some*
+  owner: one that renders it beneath the call gives it more than was
+  assumed, never less, and one that renders it later, many times or
+  never needs nothing more of an `.rx` component.
+
+  *What it does not cover (narrowed 2026-11-24).* The claim was "sound
+  whatever the library does", with a root of its own as the least a
+  component could be given. In Solid 2 there is less: a component the
+  library *calls with no owner at all*. Run on `solid-js` 2.0.2: in
+  Solid's development build `useContext` throws there (`NoOwnerError`,
+  "Context can only be accessed under a reactive root", even for a
+  context with a default), and in its production build it finds nothing
+  above (the default, or `ContextNotFoundError`); in both, nothing owns
+  what the component makes — an effect is never disposed, and a cleanup
+  it registers (`onCleanup`) never runs. Under `createRoot` the context's
+  default is read and disposing the root runs both. `solid-sonner`
+  1.0.0's `toast.custom(fn)` calls `fn` so (from the handler's own stack,
+  outside any owner: `getOwner()` is null in it), where its `toast(fn)`
+  renders the function beneath `<Toaster>`. No row describes a call with
+  no owner, and the checker does not assume one: a declaration is not to
+  say of such a fn that it takes a component (`toast.custom` is a member
+  and has no row; a component is handed to it from the app's own
+  JavaScript, under `createRoot`). `rx-verify` reports it where a scene
+  shows it: a recording component rendered with no owner is a mismatch of
+  the fn that was given it, with or without a placement word.
+
+  What it costs is precision: a component that
   needs a context or a boundary from above is refused
   (`CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`) until the declaration says
   where it renders, and the content model (SV-7d) is not checked against
@@ -2297,6 +2406,126 @@ export default component App() {
   `a_prop_typed_view_takes_a_component_by_name`; `bench/coverage/`
   `primitives/keyed`, `list`, `range`, `virtual`, `solid-use/client-only`
   (each shows its fallback's element), `bench/tasks/solid-use-primitives`.
+- **MO-11u (Components a library renders beneath a component of its
+  own) — accepted 2026-11-24 (MO-8r).** `renders(H)` after a declared
+  fn's signature names a component H that the same `.d.rx` declares
+  (`renders(Toaster)`; a member by its written name, `renders(Toast.List)`):
+  every component among the fn's arguments — found as MO-11s finds them,
+  through its record and array literals and the JS calls among them — is
+  rendered by the library later, any number of times, *beneath an
+  application of H*.
+
+  ```rx
+  // solid-sonner
+  export component Toaster(props: ToasterProps)
+  export fn toast(message: View | (() => View), data?: ExternalToast): string | number renders(Toaster)
+  // the app's own module over Kobalte's toaster
+  export fn show(toast: Component<{ toastId: number }>): number renders(Toast.List)
+  // @tanstack/solid-router's code-based routes
+  export pure fn createRoute(options: RouteOptions): Route renders(RouterProvider)
+  ```
+
+  *What is checked.* Each such component is checked as applied, with no
+  arguments, among H's children, at **every** place the program applies
+  H: what H `provides(…)` reaches it, and so does everything above that
+  place — contexts, `errored` regions, `loading` regions (the server's
+  hold, and in a client-only build the first load, CN-3d). H's own
+  `uses(…)` is credited too: what H reads is above H, so it is above what
+  H renders (Kobalte's toast reads the region's context, which the list
+  reads itself). What the component lets out of all of that is the
+  program's error, on the line of the call: `CONTEXT_NOT_FOUND`,
+  `UNHANDLED_FAILURE`, `CLIENT_QUESTION_UNHELD` or
+  `ASYNC_OUTSIDE_LOADING_BOUNDARY`, saying which fn and which component.
+  Two applications of H, one with a provision above it and one without,
+  refuse the program: either may render the component. The content model
+  (SV-7d) is not checked against H, whose own markup the checker does not
+  know.
+
+  *No application in the program.* Nothing renders the component yet (a
+  toaster not mounted, a router not yet given to its provider). It is
+  then held to the least H could have above it — what H itself `uses`
+  and `provides` — under a root of its own (MO-11s). So the Kobalte toast
+  whose `<Toast>` reads the region's context is accepted before a list
+  is written, and a toast that reads the app's theme is not.
+
+  *Across modules.* The call may be in one module and the application of
+  H in another (a `save` action in `saved.rx`, the toaster in the app's
+  frame). The judgment is the program's, as a component's `uses(…)` is
+  judged where it is applied: each module's signature (MO-3) carries what
+  it found, and the checker of the program puts them together.
+  - a call that was given components is a row of its module:
+    `export renders ./sonner.d.rx#Toaster from toast:7 fails(Offline)
+    uses(./theme.rx#accent, loading)` — H by its declaration's path (as a
+    context is named), the fn and the line, and what the components let
+    out of H's children, H's own `uses` and `provides` taken off;
+  - a component that applies H says where, once for each place:
+    `export component Frame(props: { … }) hosts(./sonner.d.rx#Toaster
+    catches(Offline) provides(./theme.rx#accent))` — what is discharged
+    and provided between H's children there and the component's root. A
+    component that applies such a component in turn carries its places
+    on, with what is above each application; the module's own row
+    (`export hosts(…)`) is for the applications it roots itself (its
+    mounted view, a root of a library's own);
+  - the program's places are every module's own row, and the components a
+    JS host applies (CP-4d, with nothing above them, unless a host
+    declaration places them: MO-14, whose view is judged with the program
+    it is the view of);
+  - *a host inside a hosted component.* A component given to such a fn
+    may itself apply a host: the app's `<Toaster />` in a layout that
+    `createRootRoute` is given. That place is wherever the layout's own
+    host renders it, so the call's row lists it, from the components'
+    own root with what H uses and provides above it (`… hosts(./sonner.d.rx#Toaster
+    provides(./tsr.d.rx#router))`), and the judgment composes it with
+    each place of H (what is above the provider is above the layout, and
+    so above the toaster), to a fixed point. With no place of H, nothing
+    renders the layout, and its toaster is no place.
+
+  A module read by its printed signature (MO-9) is therefore judged as
+  its source is; `ref/run.ts` holds it for every scenario with modules.
+
+  *What the word does to the row.* Nothing else: `toast` is `fn` (io,
+  called from a handler), and its call is a call. A `pure` fn that says
+  `renders(H)` is a constructor — it keeps the components it is given in
+  what it makes (a route), where a `pure` fn that makes nothing keeps
+  nothing (MO-11g) — so `instantiates` is inferred, as from a `uses`, and
+  its result is bound once (E-9): `personRoute = createRoute({ … })`. On
+  a fn that hands back a `Component` the word is refused: a factory
+  renders what it is given inside the component it makes (MO-11f).
+
+  *What it does not say.* The nesting of a tree. Every component the fn
+  is given is placed beneath H side by side: a layout's own `errored`
+  around its `<Outlet />` is not credited to the page the outlet renders,
+  so the check errs on the strict side, and a page holds its own failure
+  or the region goes above the provider. A tree whose nesting is to be
+  checked is given to a factory declared `nests(children in component)`
+  (MO-11i), or stated by a host declaration (MO-14). Nor does it say
+  anything of a *value*: the fn's result is a value like any other, no
+  value is followed to H, and nothing is confined (`RENDERS_ESCAPES` is
+  no diagnostic). H is a component: a function that answers a view when
+  the app calls it (`flexRender(cell, ctx)`) is not one, and a library
+  whose rendering is such a function exports a component for it — as
+  `@tanstack/solid-table` 9 does, `<FlexRender>` — which the row names
+  (`bench/tasks/table-pagination`). `renders` alone, `renders(later)`, a
+  prop's `renders T`, `nests(component under parent)`, `outlet` and
+  `renders(root, ctx…)` stay refused by name (MO-8r).
+
+  *Checked by running.* `rx-verify` holds the row to a scene (MO-11r):
+  every application of H in the scene is recorded, and a component the fn
+  was given must render beneath one. A library that mounts it under a
+  root of its own, or calls it with no owner (MO-11s), is a mismatch.
+  `rx-declare` asks the question of every fn that is given a component (a
+  parameter that is one, or a record that holds one) — where the library
+  renders it is not in a type — and writes the word for the releases it
+  was run against (`known.js`: `solid-sonner`'s `toast`,
+  `@tanstack/solid-router`'s `createRoute` and `createRootRoute`;
+  Kobalte's `toaster.show` is a method of an object, which no row
+  declares, so an app hands it out from a module of its own, with the
+  parts, and says the word there).
+
+  Executable: S-module-22; the unit
+  `renders_names_the_component_a_fns_components_render_beneath` in both;
+  `bench/tasks/kobalte-toast`, `router-code-routes`, `table-pagination`;
+  `bench/coverage/solid-sonner/toaster`.
 - **DV-24 (a component value is owned at its application) — taken by
   default 2026-11-13.** Solid lets a library render a component value
   anywhere: under any owner, any number of times, or never. MO-11c's check
@@ -2304,7 +2533,13 @@ export default component App() {
   to, which is what `@solidjs/router` does (every route renders inside
   `<Router />`, so an `errored` or a `provide` above `<Router />` reaches it).
   A library that renders one under a root of its own escapes the check
-  (CN-3b); Solid's run-time errors stand there. The assumption also gives
+  (CN-3b); Solid's run-time errors stand there. It is a claim of the
+  component's row, and `rx-verify` runs it since 2026-11-24 (it was taken
+  on the declaration's word, so a component that mounts what its prop is
+  given later, from a handler, into a root of its own, was accepted):
+  with a scene, a recording component given to such a prop must render
+  beneath that application; strict declarations (MO-8j) ask for it of
+  every component row with a prop that takes components. The assumption also gives
   away precision: a route component is checked as a child of `<Router />`,
   not of its parent route's `props.children`, so a `provide` or an
   `errored` in a layout route is not credited to the routes it wraps. A
@@ -2972,6 +3207,8 @@ S-module-37, S-module-38 (MO-14f); the units
 | `UNHANDLED_FAILURE`, `ASYNC_OUTSIDE_LOADING_BOUNDARY`, `CONTEXT_NOT_FOUND` on a host declaration's view | S | MO-14c: what a component the host renders lets out of the view the declaration states |
 | `NESTED_NOT_RENDERED` | S | MO-11i, MO-14f: a component a record nests others in renders none of its children |
 | `NOT_EXPORTED` for a host declaration's import from JavaScript | S | MO-14f: the module's declaration declares no such component |
+| `CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`, `CLIENT_QUESTION_UNHELD`, `ASYNC_OUTSIDE_LOADING_BOUNDARY` on a call of a fn declared `renders(H)` | S | MO-11u: what a component the fn is given lets out of H's children, at a place the program applies H (or, with none, under a root of its own) |
+| `PARSE` for `renders(H)` where the file declares no component H, or on a fn that hands back a `Component` | U | MO-11u |
 
 ## Implementation
 
@@ -3031,6 +3268,26 @@ S-module-37, S-module-38 (MO-14f); the units
   nesting are the ones `{props.children}` has. `NESTED_NOT_RENDERED` is
   asked after the application tree is resolved: a component a factory's
   record nested others in whose `children` reach no place they render.
+- MO-11u: `parseDeclarations` keeps `renders` on a fn's row and holds, at
+  the end of the file, that it names a declared component. `importDeclared`
+  binds the fn with `rendersIn` (H's key, `declaration#H`, and the keys H
+  itself uses and provides) and marks H's region (`hostKey`). A call of
+  such a fn that is given components applies them under a root that
+  stands for H's children (a component root nothing applies; `unplaced`),
+  and each application of H records its children's region. After the
+  application tree is resolved, `sitesOf` gives, for a component's root
+  or the program's, each place H is applied as the catches and provisions
+  between H's children and that root — through the components that
+  component is applied in, by their own lists (an imported one's
+  `hosts`) — and each call's root is summarised as any component's is
+  (`esc`), H's own keys taken off. Both are in the module's signature
+  (`ModSig.hosted`, `ModSig.hosts`, `CompSig.hosts`), printed and read by
+  `signature.ts` / `signature.rs`. `judgeHosted` (`judge_hosted`), run by
+  `checkModules` once the set is checked (and with a host's view, MO-14,
+  over both sets), puts every module's calls against every place of the
+  program. MO-11c's nested components: `parseDeclarations` marks a prop
+  whose type `holdsComponent` (`holds_component`), and
+  `componentValues` walks the literal the prop is given.
 - MO-1c: `checkModules` passes `dependency` for every module but the
   set's entry, and a dependency's `view` is not walked.
 - The interpreter instantiates each dependency in a region of its own; the

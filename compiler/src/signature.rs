@@ -50,6 +50,8 @@ pub struct PropSig {
     pub action: Option<(Catch, String)>,
     /// MO-11c: a JS component's prop that takes a component value
     pub component: bool,
+    /// MO-11c (2026-11-24): a JS component's prop whose type holds a `Component` inside a record or an array
+    pub components: bool,
     /// MO-10f: the fields of this prop its type says hold or fail where they are read (path, holds, classes): a JS
     /// result with such fields may be given whole
     pub takes: Vec<(String, bool, Vec<String>)>,
@@ -71,6 +73,29 @@ pub struct CompSig {
     pub shape: Option<Shape>,
     /// O-3: the props it stores where they outlive it — "module", or a provision's key.
     pub stored: IndexMap<String, Vec<String>>,
+    /// MO-11u: each place the component applies a component a declared fn `renders(…)` beneath, by that component's key
+    /// (`declaration#Name`): what is discharged and provided between its children there and this component's root
+    pub hosts: IndexMap<String, Vec<HostSite>>,
+}
+/// MO-11u: one application of a component a declared fn `renders(…)` beneath, as the components that fn is given see it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostSite {
+    pub f: Catch,
+    pub p: Catch,
+}
+/// MO-11u: a call of a fn declared `renders(H)` that was given components — what they let out of H's children, H's own
+/// `uses(…)` and `provides(…)` taken off: judged at each application of H in the program (`check::judge_hosted`).
+#[derive(Debug, Clone)]
+pub struct Hosted {
+    pub host: String,
+    pub name: String,
+    pub r#fn: String,
+    pub line: usize,
+    pub fails: Vec<String>,
+    pub requires: Vec<String>,
+    /// the places those components themselves apply a host (a routed layout's `<Toaster />`), from their own root, with
+    /// what H uses and provides above them
+    pub inner: IndexMap<String, Vec<HostSite>>,
 }
 #[derive(Debug, Clone)]
 pub struct SigParam {
@@ -94,6 +119,10 @@ pub enum ExportSig {
 pub struct ModSig {
     pub file: String,
     pub exports: IndexMap<String, ExportSig>,
+    /// MO-11u: the calls of `renders(H)` fns that were given components
+    pub hosted: Vec<Hosted>,
+    /// MO-11u: the applications of such an H the module itself roots (its mounted view, a root of a library's own)
+    pub hosts: IndexMap<String, Vec<HostSite>>,
 }
 
 fn sorted(xs: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -197,6 +226,67 @@ fn shape_text(s: &Option<Shape>) -> String {
     }
     if parts.is_empty() { String::new() } else { format!(" shape({})", parts.join("; ")) }
 }
+/// MO-11u: `hosts(<key> catches(…) provides(…); …)`, one entry an application.
+fn hosts_text(file: &str, hs: &IndexMap<String, Vec<HostSite>>) -> String {
+    let xs: Vec<String> = hs
+        .iter()
+        .flat_map(|(k, sites)| {
+            sites.iter().map(move |x| {
+                format!(
+                    "{}{}{}",
+                    rel_key(file, k),
+                    if x.f.is_empty_set() { String::new() } else { format!(" catches({})", cls(&x.f)) },
+                    match &x.p {
+                        Catch::Set(ks) if ks.is_empty() => String::new(),
+                        Catch::All => " provides(*)".to_string(),
+                        Catch::Set(ks) => format!(" provides({})", sorted(ks.iter().cloned()).iter().map(|q| rel_key(file, q)).collect::<Vec<_>>().join(", ")),
+                    }
+                )
+            })
+        })
+        .collect();
+    if xs.is_empty() { String::new() } else { format!("hosts({})", xs.join("; ")) }
+}
+fn hosted_text(file: &str, h: &Hosted) -> String {
+    format!(
+        "export renders {} from {}:{}{}{}",
+        rel_key(file, &h.host),
+        h.r#fn,
+        h.line,
+        if h.fails.is_empty() { String::new() } else { format!(" fails({})", sorted(h.fails.iter().cloned()).join(" | ")) },
+        if h.requires.is_empty() { String::new() } else { format!(" uses({})", h.requires.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) }
+    ) + &(if h.inner.is_empty() { String::new() } else { format!(" {}", hosts_text(file, &h.inner)) })
+}
+/// The text inside the balanced parentheses that open at byte `at` (the index of `(`).
+fn balanced(s: &str, at: usize) -> Option<&str> {
+    let mut depth = 0i64;
+    for (i, ch) in s[at..].char_indices() {
+        if ch == '(' {
+            depth += 1;
+        } else if ch == ')' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(&s[at + 1..at + i]);
+            }
+        }
+    }
+    None
+}
+fn hosts_of(file: &str, text: &str) -> IndexMap<String, Vec<HostSite>> {
+    let mut out: IndexMap<String, Vec<HostSite>> = IndexMap::new();
+    for part in split(text, ';') {
+        let key = part.split_whitespace().next().unwrap_or("").to_string();
+        let rest = &part[key.len()..];
+        let f = P_CATCHES.captures(rest).map(|c| catch_of(&c[2])).unwrap_or_else(|| Catch::Set(IndexSet::new()));
+        let p = match P_PROVIDES.captures(rest) {
+            Some(p) if crate::parse::js_trim(&p[2]) == "*" => Catch::All,
+            Some(p) => Catch::Set(p[2].split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).filter(|x| !x.is_empty()).collect()),
+            None => Catch::Set(IndexSet::new()),
+        };
+        out.entry(abs_key(file, &key)).or_default().push(HostSite { f, p });
+    }
+    out
+}
 fn with_rows(head: String, r: String) -> String {
     if r.is_empty() { head } else { format!("{}: {}", head, r) }
 }
@@ -270,13 +360,14 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 .collect();
             let own: IndexSet<String> = s.own.iter().map(|o| o.cls.clone()).collect();
             format!(
-                "export component {}(props: {}){}{}{}{}{}",
+                "export component {}(props: {}){}{}{}{}{}{}",
                 name,
                 if props.is_empty() { "{}".to_string() } else { format!("{{ {} }}", props.join("; ")) },
                 if s.made { " made" } else { "" },
                 if own.is_empty() { String::new() } else { format!(" fails({})", sorted(own).join(" | ")) },
                 if s.requires.is_empty() { String::new() } else { format!(" uses({})", s.requires.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) },
                 retains_text(file, &s.stored),
+                if s.hosts.is_empty() { String::new() } else { format!(" {}", hosts_text(file, &s.hosts)) },
                 shape_text(&s.shape)
             )
         }
@@ -287,6 +378,13 @@ pub fn print_signature(sig: &ModSig) -> String {
     let mut out = vec![format!("//@ signature {} (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).", sig.file.split('/').last().unwrap_or(""))];
     for (n, x) in &sig.exports {
         out.push(line(&sig.file, n, x));
+    }
+    // MO-11u
+    if !sig.hosts.is_empty() {
+        out.push(format!("export {}", hosts_text(&sig.file, &sig.hosts)));
+    }
+    for h in &sig.hosted {
+        out.push(hosted_text(&sig.file, h));
     }
     out.join("\n") + "\n"
 }
@@ -303,6 +401,9 @@ macro_rules! re {
 re!(ROW, r"^(io|pending|lane|fails\(([^)]*)\))$");
 re!(TRAIL_COMMENT, r"\s//.*$");
 re!(LEAD_COMMENT, r"^//.*$");
+re!(T_RENDERS, r"^renders\s+(\S+)\s+from\s+([A-Za-z_$][A-Za-z0-9_$.]*):(\d+)\s*(?:fails\(([^)]*)\))?\s*(?:uses\(([^)]*)\))?$");
+re!(C_HOSTS, r"(^|\s)hosts\(");
+re!(R_HOSTS, r"\shosts\(");
 re!(T_TYPE, r"^type\s+([A-Za-z_$][A-Za-z0-9_$]*)");
 re!(T_ACTION, r"^action\s+([A-Za-z_$][A-Za-z0-9_$]*)$");
 re!(T_ERROR, r"^error\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\(([^)]*)\))?$");
@@ -400,6 +501,8 @@ pub fn content_shape_of(s: Option<&str>) -> Result<Shape, String> {
 /// module's path: context keys are its, and relative keys resolve against it.
 pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> {
     let mut exports = IndexMap::new();
+    let mut hosts: IndexMap<String, Vec<HostSite>> = IndexMap::new();
+    let mut hosted: Vec<Hosted> = vec![];
     for (i, raw) in src.split('\n').enumerate() {
         let t = TRAIL_COMMENT.replace(raw, "");
         let t = LEAD_COMMENT.replace(&t, "");
@@ -412,6 +515,32 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             return Err(fail("a signature declares exports"));
         }
         let s = crate::parse::js_trim(&t[7..]).to_string();
+        // MO-11u
+        if s.starts_with("hosts(") {
+            let Some(inner) = balanced(&s, 5) else { return Err(fail("hosts(…)")) };
+            hosts = hosts_of(file, inner);
+            continue;
+        }
+        // `export renders <key> from <fn>:<line> … hosts(…)`: the places taken out first (their entries write `provides(…)`)
+        let (s, inner) = match (s.starts_with("renders "), R_HOSTS.find(&s)) {
+            (true, Some(at)) => {
+                let open = at.end() - 1;
+                let Some(text) = balanced(&s, open) else { return Err(fail("hosts(…)")) };
+                let inner = hosts_of(file, text);
+                let end = open + text.len() + 2;
+                (crate::parse::js_trim(&format!("{}{}", &s[..at.start()], &s[end..])).to_string(), inner)
+            }
+            _ => (s, IndexMap::new()),
+        };
+        if let Some(m) = T_RENDERS.captures(&s) {
+            let host = abs_key(file, &m[1]);
+            let name = host.rsplit('#').next().unwrap_or("").to_string();
+            let mut fails = classes_of(m.get(4).map(|x| x.as_str()).unwrap_or(""));
+            fails.sort();
+            let requires = m.get(5).map(|x| x.as_str()).unwrap_or("").split(',').map(crate::parse::js_trim).filter(|k| !k.is_empty()).map(|k| abs_key(file, k)).collect();
+            hosted.push(Hosted { host, name, r#fn: m[2].to_string(), line: m[3].parse().unwrap_or(1), fails, requires, inner });
+            continue;
+        }
         if let Some(m) = T_TYPE.captures(&s) {
             exports.insert(m[1].to_string(), ExportSig::Type);
             continue;
@@ -471,7 +600,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_COMP.captures(&s) {
-            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new() };
+            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), hosts: IndexMap::new() };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
                 let (fname0, spec) = match f.find(':') {
@@ -479,7 +608,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     None => (crate::parse::js_trim(&f).to_string(), String::new()),
                 };
                 let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
-                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, takes: vec![] };
+                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, components: false, takes: vec![] };
                 let a = P_ACTION.captures(&spec);
                 let rest = match &a {
                     Some(a) => {
@@ -521,7 +650,16 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                 }
                 sig.props.insert(fname, v);
             }
-            let tail = &m[3];
+            // MO-11u: `hosts(…)` is taken out of the tail first — its entries write `catches(…)` and `provides(…)`
+            let mut tail_owned = m[3].to_string();
+            if let Some(at) = C_HOSTS.find(&tail_owned) {
+                let open = at.end() - 1;
+                let Some(inner) = balanced(&tail_owned, open) else { return Err(fail("hosts(…)")) };
+                sig.hosts = hosts_of(file, inner);
+                let end = open + inner.len() + 2;
+                tail_owned = format!("{}{}", &tail_owned[..at.start()], &tail_owned[end..]);
+            }
+            let tail = tail_owned.as_str();
             if let Some(fl) = C_FAILS.captures(tail) {
                 let at = file.split('/').last().map(String::from);
                 sig.own = classes_of(&fl[2]).into_iter().map(|c| Own { cls: c, what: format!("{}'s root", &m[1]), at: at.clone() }).collect();
@@ -556,5 +694,5 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
         }
         return Err(fail("not an export"));
     }
-    Ok(ModSig { file: file.into(), exports })
+    Ok(ModSig { file: file.into(), exports, hosted, hosts })
 }

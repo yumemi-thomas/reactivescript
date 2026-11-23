@@ -133,8 +133,15 @@ any[]) => Promise<void>`); a larger type stays `any`. An accessor of an options 
 is one word on the row. The module's own exported types are named (`Promise<Todo[]>`), and a generic type
 is declared with its parameters (`export type Table<TData> = import(…).Table<TData>`).
 
+A parameter that is a component is written `Component<P>`; one that is a view or a function of nothing giving one, as
+that (`View | (() => View)`, not an accessor); a prop that holds components in a record or a list, so that the checker
+reads them (`builtins: { Heading?: Component }`, 09 MO-11c). A fn that is given a component gets the question a type
+cannot answer — where the library renders it (`renders(<Component>)`, 09 MO-11u).
+
 For a few libraries the draft also has what types cannot show (`src/known.js`): a router's context and its factory's
-`nests(…)` (`@tanstack/solid-router`, `@solidjs/router`), TanStack Query's context, `handler` on its callbacks, `pure`
+`nests(…)` (`@tanstack/solid-router`, `@solidjs/router`), where a library renders the components a fn is given
+(`renders(Toaster)` for solid-sonner's `toast`, `renders(RouterProvider)` for TanStack Router's `createRoute`), the
+contexts of Kobalte's toast parts, TanStack Query's context, `handler` on its callbacks, `pure`
 on those primitives, and `pending` or `fails(…)` before a `ref` part that waits or fails where it is read
 (`@solid-primitives/sse`, `@solid-primitives/geolocation`; 09 MO-10l). Each entry
 is for a version range and was checked by running that release; outside the range, and for every other package, the
@@ -165,6 +172,15 @@ not have). `rx-tsc` checks what types can (TY-6); this checks what running can.
 
 A parameter declared as a function (a callback, MO-10g) is wrapped in a spy: the row holds if the library calls it
 outside tracking, as a handler, and is a mismatch if it calls it inside a computation.
+
+Where a library renders the components it is given is run against a scene (spec/09 MO-11r): the probe exports
+`scene(lib, h)`, a small app built of the module's exports with `h.component(name)` for the program's components (and
+`act(lib, h)` for what happens after it is mounted: `lib.toast(Saved)`). A fn that hands back a `Component` must render
+what it was given inside the made component; `nests(children in component)`, each entry inside its record's component;
+`renders(H)` (MO-11u), beneath an application of H — every one in the scene is recorded; and a component with a prop
+that takes components (MO-11c, DV-24), beneath that application. A component a fn *calls with no owner at all* is
+reported whatever its row says, a fn with no placement word included (MO-11s): nothing it makes is ever disposed, and
+in development Solid's `useContext` throws there.
 
 A host declaration (`host.d.rx`, spec/09 MO-14: what a JS host, such as a file-based router, does with the `.rx`
 components it renders) declares no module's exports, and its view is run against a scene: a probe beside it

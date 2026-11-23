@@ -446,7 +446,56 @@ a program:
 | a module imported for a function, whose default component relies on its caller's region | refused where no one renders it | accepted; the default component is checked where it is applied (MO-1c) |
 | an `.rx` file as a TanStack route file | not picked up | the same: the generator has no option for it (recorded, not filed) |
 
+## After the ninth round (2026-11-24): a component a library renders later
+
+Recorded in 09 MO-11u, MO-11c, MO-11s, MO-8r and DV-24, 13 TY-3d, and
+`rfc-declaration-types-2026-11-22.md` (*A tenth round*). What changed for
+a program:
+
+| what a Solid app writes | was | now |
+| --- | --- | --- |
+| a toast component that reads the app's context, shown from a handler and rendered by the library's toaster (`solid-sonner`, Kobalte) | `CONTEXT_NOT_FOUND` on a correct program: the component was checked under a root of its own | accepted where the context is above the toaster: the fn's row says `renders(Toaster)`, and the component is checked among its children, at every place the program applies it (MO-11u) |
+| the same toast, with the provision above the call and not above the toaster | refused, for the wrong reason (nothing was credited) | `CONTEXT_NOT_FOUND`, on the line of the call, naming the fn and the component |
+| TanStack Router's code-based routes written in `.rx` (`createRoute({ component: Person })`), a page that calls `useParams` | `CONTEXT_NOT_FOUND`: the route tree had to be given to a factory of the app's own, which gave up the registered route types | accepted beneath `<RouterProvider>`, with the route types registered (`bench/tasks/router-code-routes`); a layout's own regions are not credited to its pages (the word places them side by side) |
+| a table cell that reads the app's context | no form (decided 2026-11-23): the cell took what it needed as props | accepted: the adapter exports a `<FlexRender>` component, as TanStack Table 9 does, and `createTable`'s row names it |
+| `<Markdown builtins={{ Heading: Heading }}>` (`solid-marked`), a record or a list of components in a prop | `COMPONENT_AS_VALUE` | each component is checked as applied beneath the component it is given to (MO-11c) |
+| `toast(Saved)` where the library's type asks for a function of nothing, `Saved` a component with no props | TS2345: a component was `(props: any) => …` | accepted: a component that declares no props is a function of nothing (TY-3d) |
+| a JS component that mounts what its `Component` prop is given later, into a root of its own | accepted by the checker and by `rx-verify` | the checker is unchanged (DV-24 is the declaration's claim); `rx-verify` runs the claim against a scene and reports the mismatch, and strict mode asks for it |
+| a library fn that calls the component it is given with no owner | not known to anyone | reported by `rx-verify` where a scene shows it; MO-11s no longer claims to cover it |
+| a served page whose text has a `<` or an `&` | escaped twice until the browser took the page over | escaped once (S-server-5) |
+| a component whose children a JS library gives as a list of strings | shown as the list, `["text"]` | shown as the text |
+
+`renders` alone, `renders(later)`, a prop's `renders`, `nests(component
+under parent)`, `outlet` and `renders(root, …)` are refused by name as
+before. `RENDERS_ESCAPES` is no diagnostic.
+
 ## Limits that remain, and why they are inside the goal
+
+- **`renders(H)` places a fn's components side by side beneath H**
+  (09 MO-11u). A layout's own regions are not credited to the pages its
+  outlet renders: the word names a place, and a tree's nesting is a
+  factory's or a host declaration's to say. The check errs on the strict
+  side.
+- **H is one component, of the same declaration.** A library whose fn
+  hands its components to one of two components (a toaster per region,
+  chosen by an option) is checked at every application of the one the
+  row names, and not at the other's. A library that renders through a
+  function the app calls, not a component, exports a component for it
+  or is left to MO-11s.
+- **A row's place is the declaration's word**, as every row is:
+  `rx-verify` holds `renders(H)`, a factory's placement and a
+  component's `Component` props to a scene, and reports a component the
+  library calls with no owner; nothing in a build runs the library.
+- **A method of a library's object has no row** (Kobalte's
+  `toaster.show`, sonner's `toast.custom`): a component given to one
+  is `COMPONENT_AS_VALUE`, and the app hands the method out as a
+  function from a module of its own.
+- **A record of components is read in the literal the prop is given**
+  (MO-11c): one built elsewhere and passed by name is
+  `COMPONENT_AS_VALUE` where it is written.
+- **A package written in `.rx` cannot name another package's host** in
+  its signature (MO-13b, as a context): the app shows the toast, or
+  mounts the toaster.
 
 - **A host declaration is trusted** (09 MO-14e), as every `.d.rx` is: it
   says which layout a page is rendered in and which of the host's
