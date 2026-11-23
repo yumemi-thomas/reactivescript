@@ -443,3 +443,19 @@ compiler (11 CP-4a); its root is the `.rx` file, with no `App.ts` (its type prob
 Totals, at `877f72e` and now, both from a fresh `npm ci`: good 132/132 and 132/132, types 184/184 and 183/183,
 runtime 258/258 and 261/261, bad 228/228 and 228/228, unrepresentable 13/13, hand-written words 259, `any` inherited
 57, introduced 0, by place 29. Coverage: no record moved.
+
+**2026-11-25, a thirteenth round** (spec/rfc-declaration-types-2026-11-22.md): `kobalte-toast` calls the library's
+own `toaster` (a method has a row, 09 MO-8t: its module of the app's own is gone; bad 8 to 12, runtime 9 to 10);
+`router-code-routes` has its regions in the root layout, under a host declaration read off the router its module
+exports (MO-14g, MO-14h: bad 6 to 11, runtime 5 to 6); `router-rx-routes` has its outlet in a component of the app's
+own (MO-14f), and a loader and a validated search in its route files (11 CP-4d, the fork's second option: types 6 to
+9, runtime 14 to 17, bad 11 to 16); `router-data` calls `query.clear()` (bad 7 to 10, runtime 5 to 7);
+`solid-use-primitives` imports two default exports directly (MO-8u). Six tasks lost hand-written words to `known.js`
+and to the draft's own type rows (`ui-sdk-dialog` 23 to 6, `ui-sdk-forms` 9 to 2, `file-routes` and `start-mode` 12
+to 9, `query-forward` 5 to 1, `router-code-routes` and `router-provider` 7 to 3, `router-rx-routes` 10 to 7).
+Totals, at `93fe1df` and now, both from a fresh `npm ci`: good 132/132 and 132/132, types 183/183 and 186/186,
+runtime 261/261 and 268/268, bad 228/228 and 245/245, unrepresentable 13/13, hand-written words 259 and 214, `any`
+inherited 57 and 61 (`query`'s own type), introduced 0, by place 29 and 30. Coverage: 123 programs green, as before;
+193 modules drafted whole, 5 105 rows (4 904), 1 197 `any`s the libraries' own, none introduced, 1 551 by place; 277
+hand-written words; 21/21 bad caught (13/13: `solid-sonner/toaster`, `ui-sdk/overlays`, `solid-marked/markdown`);
+three modules of the app's own gone (`solid-marked/markdown`, `solid-use/online-status`, `page-visibility`).
