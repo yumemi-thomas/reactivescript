@@ -81,7 +81,7 @@ SOLID_VITE_PLUGIN=<that checkout> node test/vite-watch.mjs   # vite build --watc
 
 (`vite-watch` polls, and makes an edit again until a rebuild has started for it: Rolldown's watcher takes a file's
 state some time after the build that named it has ended, and on macOS an edit made before that was never seen. Run at
-`27e56ed` of that branch, 2026-11-23: `vite-hosts` 6/6, `vite-watch` 7/7.)
+`27e56ed` of that branch, 2026-11-23, and again with 09 MO-14f in the crate: `vite-hosts` 6/6, `vite-watch` 7/7.)
 
 What happens to a `.rx` module in Vite:
 
@@ -112,8 +112,10 @@ The app mounts a program with `createApp` from `@reactivescript/runtime`
 - **A route file's page.** `import Person from "./routes/people/[id].rx?rx-page"` is `?rx-lib` with the module's
   default component as the default export (spec/11 CP-4d): what a file-based router that takes `.rx` route files
   imports each as (`bench/tasks/file-routes`). A `host.d.rx` in the folder of a program's modules, or one above
-  it, says what the host does with the components it renders (spec/09 MO-14): the crate reads it with the program,
-  and it is watched as every declaration the program read is.
+  it, says what the host does with the components it renders (spec/09 MO-14) and which of its own components it
+  renders through (MO-14f: the router's component in an `.rx` entry, a layout's `<Outlet />`): the crate reads it
+  with the program, and it is watched as every declaration the program read is. `examples/tanstack` is such an app,
+  built here with TanStack Router's Vite plugin (`test/vite.mjs` installs it once into `test/.out`).
 - **Whole program (opt-in).** `rx({ wholeProgram: true })` counts the JS
   under the Vite root that imports a module with `?rx-lib` as its hosts
   (02 E-5a); `hostRoots: ["../site"]` names folders or files beyond the

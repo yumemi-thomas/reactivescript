@@ -41,7 +41,7 @@ const apps = {
   router: "router/main.rx",
   virtual: "virtual/main.rx", "virtual-headless": "virtual/headless.rx", query: "query/main.rx",
   primitives: "primitives/main.rx",
-  tanstack: "tanstack/main.rx",
+  tanstack: "tanstack/main.rx", "tanstack-factory": "tanstack-factory/main.rx",
 };
 const filter = process.argv[2];
 const out = path.join(here, ".out"); mkdirSync(out, { recursive: true });
@@ -96,10 +96,20 @@ function project(name, entry) {
   return dir;
 }
 /** The apps whose build type-checks (13 TY-1a); the rest build with RX_TYPECHECK=0. */
-const TYPED = new Set(["router", "primitives", "tanstack"]);
-const config = (dir, entry) => ({
+const TYPED = new Set(["router", "primitives", "tanstack", "tanstack-factory"]);
+/** TanStack Router's Vite plugin (its file-based routing: the generator that writes routeTree.gen.ts), installed once into
+ *  .out — a build tool, with no Solid of its own. `examples/tanstack` is built with it. */
+const ROUTER_PLUGIN = "@tanstack/router-plugin@1.169.0";
+async function routerPlugin() {
+  const at = path.join(here, ".out/.router-plugin"), dir = path.join(at, "node_modules/@tanstack/router-plugin");
+  if (!existsSync(path.join(dir, "package.json"))) { mkdirSync(at, { recursive: true }); execFileSync("npm", ["install", "--prefix", at, "--no-save", "--silent", "--legacy-peer-deps", ROUTER_PLUGIN], { stdio: "inherit" }); }
+  return (await import(pathToFileURL(path.join(dir, "dist/esm/vite.js")).href)).tanstackRouter;
+}
+/** The plugins an app's own vite.config.ts names before `solid()` (examples/tanstack/vite.config.ts), for this project. */
+const before = async (name, dir) => name === "tanstack" ? [(await routerPlugin())({ target: "solid", routesDirectory: path.join(dir, "src/tanstack/routes"), generatedRouteTree: path.join(dir, "src/tanstack/routeTree.gen.ts"), autoCodeSplitting: false, disableLogging: true })] : [];
+const config = (dir, entry, plugins = []) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
-  plugins: [solid()],
+  plugins: [...plugins, solid()],
   // the dev server polls for changes: what is tested is an edit reaching the page, not the platform's file events. On
   // macOS they report a project written just before the server started late, as a burst of changes, and an edit made
   // meanwhile is merged into the burst or never reported (plain Vite, no plugin, shows it): "styles (dev)" then failed
@@ -182,7 +192,8 @@ const primitives = async page => {
   await page.click("#theme"); await until("a persisted signal", async () => (await t("#theme")) === "theme: dark");
   if ((await page.evaluate(() => localStorage.getItem("theme"))) !== JSON.stringify("dark")) throw new Error(`persisted: ${await page.evaluate(() => localStorage.getItem("theme"))}`);
 };
-// @tanstack/solid-router from .rx: a route tree given to the app's own factory (tsr.js), links, a param, navigate, a failing page's typed boundary in its layout
+// @tanstack/solid-router from .rx — its file routes around .rx pages (examples/tanstack), and a route tree given to the
+// app's own factory (examples/tanstack-factory): links, a param, navigate, a failing page's typed boundary in its layout
 const tanstack = async page => {
   const h1 = async () => (await page.textContent("h1"))?.trim();
   const app = async () => (await page.textContent("#app")).replace(/\s+/g, " ");
@@ -197,20 +208,21 @@ const tanstack = async page => {
   await page.click("nav >> text=Nobody"); await until("an unknown id, its typed boundary", async () => (await app()).includes("no person 9"));
   if (!(await page.evaluate(() => window.__loaded))) throw new Error("a link reloaded the page");
 };
-const drivers = { todo, router, virtual, "virtual-headless": headless, query, primitives, tanstack };
+const drivers = { todo, router, virtual, "virtual-headless": headless, query, primitives, tanstack: async page => { await tanstack(page); await page.click("nav >> text=Home"); if (!(await page.textContent("#app")).includes("of the directory")) throw new Error(`what the app's entry provides above the router: ${await page.textContent("#app")}`); }, "tanstack-factory": tanstack };
 
 for (const [name, entry] of Object.entries(apps)) {
   if (filter && !name.includes(filter)) continue;
   let dir;
   process.env.RX_TYPECHECK = TYPED.has(name) ? "1" : "0";
-  try { dir = project(name, entry); await vite.build(config(dir, entry)); }
+  let plugins = [];
+  try { dir = project(name, entry); plugins = await before(name, dir); await vite.build(config(dir, entry, plugins)); }
   catch (e) { fail++; console.log(`✗ ${name}: build: ${e.message.split("\n").slice(0, 8).join(" | ")}`); continue; }
   // CP-1c: the bundle's map reaches the .rx sources
   const maps = readdirSync(path.join(dir, "dist/assets")).filter(f => f.endsWith(".js.map"));
   const sources = maps.flatMap(f => JSON.parse(readFileSync(path.join(dir, "dist/assets", f), "utf8")).sources);
   if (!sources.some(s => s.endsWith(".rx"))) { fail++; console.log(`✗ ${name}: the bundle's source map names no .rx file`); continue; }
   const dist = path.join(dir, "dist");
-  const http = createServer((req, res) => { let f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f) && (name === "router" || name === "tanstack") && !path.extname(f)) f = path.join(dist, "index.html"); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });   // router/: a page's URL serves the app
+  const http = createServer((req, res) => { let f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f) && (name === "router" || name.startsWith("tanstack")) && !path.extname(f)) f = path.join(dist, "index.html"); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });   // router/: a page's URL serves the app
   await new Promise(r => http.listen(0, "127.0.0.1", r));
   await drive(`${name} (build)`, `http://127.0.0.1:${http.address().port}/`, drivers[name]);
   if (name === "router") {   // TY-1a: a route whose path lacks the param its page needs fails the build, on its line
@@ -220,12 +232,24 @@ for (const [name, entry] of Object.entries(apps)) {
     catch (e) { if (/TS2\d+/.test(e.message) && /routes\.rx/.test(e.message)) { pass++; console.log(`✓ router (typed build): refused, ${e.message.split("\n").find(l => /routes\.rx/.test(l)).trim().slice(0, 90)}`); } else { fail++; console.log(`✗ router (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
     cpSync(path.join(repo, "examples/router/routes.rx"), routes);
   }
-  if (name === "tanstack") {   // TY-1d through the app's own factory (tsr.d.ts types the route tree): a route record without its component fails the build
-    const main = path.join(dir, "src/tanstack/main.rx");
+  if (name === "tanstack") {   // the generated route tree registers the router: a link to no route in an .rx page fails the typed build, on its line
+    const pages = path.join(dir, "src/tanstack/pages.rx");
+    writeFileSync(pages, readFileSync(pages, "utf8").replace('<Link to="/">Home</Link>', '<Link to="/home">Home</Link>'));
+    try { await vite.build(config(dir, entry, plugins)); fail++; console.log("✗ tanstack (typed build): a link to no route built"); }
+    catch (e) { if (/TS2\d+/.test(e.message) && /pages\.rx/.test(e.message)) { pass++; console.log(`✓ tanstack (typed build): a link to no route refused, ${e.message.split("\n").find(l => /TS2\d+/.test(l)).trim().slice(0, 100)}`); } else { fail++; console.log(`✗ tanstack (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
+    cpSync(path.join(repo, "examples/tanstack/pages.rx"), pages);
+    // 09 MO-14: the host's declaration places the pages in the layout, at its outlet — without the layout's region, a page's failure is refused
+    writeFileSync(pages, readFileSync(pages, "utf8").replace(/  errored fallback\(e: NotFound\) \{[^\n]*\n    (<main><Outlet \/><\/main>)\n  \}\n/, "  $1\n"));
+    try { await vite.build(config(dir, entry, plugins)); fail++; console.log("✗ tanstack (host declaration): a page's failure with no region around the layout's outlet built"); }
+    catch (e) { if (/UNHANDLED_FAILURE/.test(e.message) && /host\.d\.rx/.test(e.message)) { pass++; console.log("✓ tanstack (host declaration): a page's failure with no region around the layout's outlet is refused, on host.d.rx"); } else { fail++; console.log(`✗ tanstack (host declaration): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
+    cpSync(path.join(repo, "examples/tanstack/pages.rx"), pages);
+  }
+  if (name === "tanstack-factory") {   // TY-1d through the app's own factory (tsr.d.ts types the route tree): a route record without its component fails the build
+    const main = path.join(dir, "src/tanstack-factory/main.rx");
     writeFileSync(main, readFileSync(main, "utf8").replace('{ path: "/", component: Home },', '{ path: "/" },'));
-    try { await vite.build(config(dir, entry)); fail++; console.log("✗ tanstack (typed build): a route record with no component built"); }
-    catch (e) { if (/TS2\d+/.test(e.message) && /main\.rx/.test(e.message)) { pass++; console.log(`✓ tanstack (typed build): refused, ${e.message.split("\n").find(l => /TS2\d+/.test(l)).trim().slice(0, 100)}`); } else { fail++; console.log(`✗ tanstack (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
-    cpSync(path.join(repo, "examples/tanstack/main.rx"), main);
+    try { await vite.build(config(dir, entry)); fail++; console.log("✗ tanstack-factory (typed build): a route record with no component built"); }
+    catch (e) { if (/TS2\d+/.test(e.message) && /main\.rx/.test(e.message)) { pass++; console.log(`✓ tanstack-factory (typed build): refused, ${e.message.split("\n").find(l => /TS2\d+/.test(l)).trim().slice(0, 100)}`); } else { fail++; console.log(`✗ tanstack-factory (typed build): ${e.message.split("\n").slice(0, 3).join(" | ")}`); } }
+    cpSync(path.join(repo, "examples/tanstack-factory/main.rx"), main);
   }
   if (name === "router") await drive("router (build, a page's URL)", `http://127.0.0.1:${http.address().port}/people/2`, async page => { await page.waitForTimeout(300); const t = await page.textContent("h1"); if (t?.trim() !== "Bo") throw new Error(`/people/2 loaded: ${await page.textContent("#app")}`); });
   http.close();
