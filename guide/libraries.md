@@ -35,8 +35,8 @@ export pure fn sortedBy<T>(ref list: T[], comparator: (a: T, b: T) => number): r
 - `draft`: the function changes that argument in place during the call and keeps nothing.
 - `rejects(E)`: every `throw` it reaches is of a class the module exports.
 - `handler` on a component's prop: the prop reaches only an element's event — `onClick={props.onPress}`, a closure
-  written there, `<button {...rest}>`, through `omit` and `merge`, through a component of the same module. Called
-  while the component renders, or handed to a component whose code is not read, it gets no word.
+  written there, `<button {...rest}>`, through `omit` and `merge`. Called while the component renders, or handed to
+  another component, it gets no word.
 - `uses(c)`: `useContext(C)` runs on **every** path of the call and `C` has no default (or the code throws on its
   `null`) — and a component of the same draft is shown to provide it. A context read only when a prop says so, or
   inside a function the hook hands back, is not one every call needs: no word, and the question stays.
@@ -66,11 +66,7 @@ is io, the callback is pure, the promise rejects with `Error` — and the questi
 
 The draft's types are the library's own, by name: `import("@tanstack/solid-query").QueryClient`, a generic row's type
 parameters, a callback's signature. You rarely need to touch them, and never need to restate them: TypeScript checks
-your `.rx` against the package's types either way, and the checker reads only a row's shape and words. For the words,
-`npx rx-declare <package> --source [<checkout>]` reads the library's *original* source and writes what it finds above
-each row — `// SOURCE …: called from addEventListener … — `handler`? [src/eventListener.ts:67]` — as a suggestion with
-its place: for the words the shipped code does not prove (`uses`, `provides`, `instantiates`), it never writes the
-word for you.
+your `.rx` against the package's types either way, and the checker reads only a row's shape and words.
 
 A component's props can be the library's own type, with only the fields that carry a word written after it —
 `export component Dialog(props: import("@ui-sdk/solid/dialog").DialogProps & { onOpenChange?: handler (open: boolean,

@@ -53,5 +53,7 @@ jobs:
           # from the lockfile, as bench/harness.mjs installs them: every machine resolves the same tree
           mkdir -p bench/.out/ws && cp bench/package.json bench/package-lock.json bench/.out/ws/
           (cd bench/.out/ws && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock && npx playwright install --with-deps chromium)
+      - name: The benchmark's own counting
+        run: RXC=$GITHUB_WORKSPACE/compiler/target/release/rxc node bench/measure.test.mjs
       - name: The benchmark, against bench/scorecard.json and bench/coverage/coverage.json
         run: node bench/run.mjs ${{ matrix.run }} --check --strict

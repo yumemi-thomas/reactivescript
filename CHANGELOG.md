@@ -2,7 +2,28 @@
 
 ## Unreleased
 
-**`rx-declare` reads JSX and contexts; every word of a declaration is audited; drafts carry no marks** (spec/09 MO-8w; spec/rfc-declaration-types-2026-11-22.md, *A fifteenth round*)
+**What an independent review found, acted on** (spec/09, rewritten to its rules; spec/archive/; tooling/rx-language-server/DECLARATIONS.md)
+
+- **Fixed: strict declarations certified claims nothing had tested.** Each claim of a row has a name and a result of its
+  own (`uses:theme`, `rejects`, `callbacks:onPick`); a `uses(c)` needs a failure without `c` and a run with it; a
+  `rejects(E)` needs something that fails. Records of earlier versions no longer count: run `rx-verify --record` again.
+  Expect rows that passed to be `unverified` — nothing had shown them.
+- **Fixed in both checkers: a name is its binding's.** A sibling component's local of the same name no longer refuses a
+  record of components given by name (`COMPONENT_AS_VALUE`) or a named draft callback (`DRAFT_ESCAPES`); a loop's
+  variable or a parameter named as an import whose methods have rows is another binding and is accepted, and a
+  declaration that shadows it is refused once (`SHADOWED_IMPORT`, twice before). The type `"ref label"` keeps its text.
+- **Fixed: `rx-verify`.** A module node cannot load is `unverified`, claim by claim (it died). A loader whose answer
+  changes is not a `pure` mismatch; a hook that fails under its provider for another reason than alone is not a
+  `provides` mismatch.
+- **Removed: `rx-declare --source`** (it wrote comments, for the 16 packages of 192 that ship their source; what the
+  shipped code proves is written into the row), and `handler` read through a component of the same module (it proved no
+  word in 193 modules). An element's own event is read as before.
+- **Changed: the benchmark counts an `any` where it stands**, a good program once, and each claim by its result.
+  bench/README.md says what earlier numbers overstated.
+- **Changed: spec/09 is its rules only** (1,110 lines, from 4,394). The RFCs, the chapter as it was and the withdrawn
+  rules are in `spec/archive/`; how the tools draft, audit and verify is in DECLARATIONS.md.
+
+**`rx-declare` reads JSX and contexts; every word of a declaration is audited; drafts carry no marks** (spec/09 MO-8w; spec/archive/rfc-declaration-types-2026-11-22.md, *A fifteenth round*)
 
 - **New: `handler` on a component's prop, read from JSX.** A prop that reaches only an element's event —
   `onClick={props.onPress}`, a closure written there, `[f, data]`, `<button {...rest}>`, through `omit`, `merge`,
@@ -50,7 +71,7 @@
 - **Fixed (the benchmark's own declarations): `@solid-primitives/sortable`'s `createSorted` is not `pure`.** Under
   `{ dirty: true }` it sorts the list it is given in place. It was declared `pure` by hand; the audit found it.
 
-**`rx-declare` reads `pure`, `handler`, `draft` and `rejects(E)` from the code** (spec/09 MO-8v; spec/rfc-declaration-types-2026-11-22.md, *A fourteenth round*)
+**`rx-declare` reads `pure`, `handler`, `draft` and `rejects(E)` from the code** (spec/09 MO-8v; spec/archive/rfc-declaration-types-2026-11-22.md, *A fourteenth round*)
 
 - **New: a draft writes the words the code proves.** `rx-declare` reads the JavaScript an import resolves to — your
   own module, a package's shipped ES module, every build its export map has — and writes `pure` before `fn`,
@@ -83,7 +104,7 @@
   Router's router became `export fn router._replaceRouteChunk(…)`, a row TypeScript does not hold (`undefined` is no
   function), written with `any` for every type. It has no row now.
 
-**Methods of a library's object, route options in an `.rx` route file, layouts under code routes, fewer modules of your own** (spec/09 MO-8t, MO-8u, MO-11c, MO-14f, MO-14g, MO-14h; spec/11 CP-4d; spec/rfc-declaration-types-2026-11-22.md, *A thirteenth round*)
+**Methods of a library's object, route options in an `.rx` route file, layouts under code routes, fewer modules of your own** (spec/09 MO-8t, MO-8u, MO-11c, MO-14f, MO-14g, MO-14h; spec/11 CP-4d; spec/archive/rfc-declaration-types-2026-11-22.md, *A thirteenth round*)
 
 - **New: a method of a library's object has a row** (MO-8t). `export fn toaster.show(toast: Component<…>): number
   renders(Toast.List)` beside `export const toaster`, `export fn toast.success(…)` beside `export fn toast`: a fn's
@@ -125,7 +146,7 @@
 - `rxc app --unchecked` and an eighth argument of the Node API's `app` compile a program whatever the checkers say:
   for the tool above, never for a build.
 
-**An app lists the compiler and nothing else, an `.rx` root in start mode, a router's own convention** (spec/11 CP-4a, CP-4d; spec/09 MO-14g, MO-8s; spec/rfc-declaration-types-2026-11-22.md, *A twelfth round*)
+**An app lists the compiler and nothing else, an `.rx` root in start mode, a router's own convention** (spec/11 CP-4a, CP-4d; spec/09 MO-14g, MO-8s; spec/archive/rfc-declaration-types-2026-11-22.md, *A twelfth round*)
 
 - **Fixed: under Solid's start mode's dev server, `provide` failed unless your app listed `@reactivescript/runtime`.**
   That was this project's to solve. `@reactivescript/runtime` is now a dependency of `@reactivescript/compiler`
@@ -148,7 +169,7 @@
   the library's inside a fragment, alone, and a hook that calls a helper of the same module which calls the
   library's hook at the top of its body.
 
-**The router's own tree, a dev server that keeps one module one, Solid's start mode** (spec/09 MO-14g, MO-8s, MO-11u, MO-13b; spec/11 CP-4b, CP-4d; spec/06 ST-4d; spec/10 SV-7c; spec/rfc-declaration-types-2026-11-22.md, *An eleventh round*)
+**The router's own tree, a dev server that keeps one module one, Solid's start mode** (spec/09 MO-14g, MO-8s, MO-11u, MO-13b; spec/11 CP-4b, CP-4d; spec/06 ST-4d; spec/10 SV-7c; spec/archive/rfc-declaration-types-2026-11-22.md, *An eleventh round*)
 
 - **Fixed: after an edit under the dev server, a page could read `RG-7b: no provision` for a context your entry
   provides** — until the server was restarted; a reload did not help. A dev server serves a module again under a new
@@ -208,7 +229,7 @@
   object (`toaster.show`), a layout's regions credited to its pages under `renders(H)`, and a package naming another
   package's host.
 
-**A component a library renders later; components in a record** (spec/09 MO-11u, MO-11c, MO-11s, MO-8r; spec/13 TY-3d; spec/rfc-declaration-types-2026-11-22.md, *A tenth round*)
+**A component a library renders later; components in a record** (spec/09 MO-11u, MO-11c, MO-11s, MO-8r; spec/13 TY-3d; spec/archive/rfc-declaration-types-2026-11-22.md, *A tenth round*)
 
 - **New word: `renders(H)` after a declared fn's signature.** It names a component the same `.d.rx` declares: the
   components the fn is given are rendered by the library later, beneath an application of that component. A toast
@@ -263,7 +284,7 @@
 - **Recorded, not filed:** solid-sonner 1.0.0's `toast.custom(fn)` calls `fn` with no owner; Kobalte 2.0.0-alpha.5's
   `toaster.show` is reachable only as a method of an exported object, so an app hands it out from a module of its own.
 
-**File-based routers: the app around the router, and a layout's outlet** (spec/09 MO-14f, MO-11i, MO-1c; spec/rfc-declaration-types-2026-11-22.md, *A ninth round*)
+**File-based routers: the app around the router, and a layout's outlet** (spec/09 MO-14f, MO-11i, MO-1c; spec/archive/rfc-declaration-types-2026-11-22.md, *A ninth round*)
 
 - **New: a host declaration says what the host renders *through*.** `host.d.rx` may import a component from a JS
   module — `import { AppRouter } from "./router.tsx"`, `import { Outlet } from "@tanstack/solid-router"` — and an
@@ -300,7 +321,7 @@
   scan keeps a fixed list of extensions; a virtual route config names any file, which it then parses as
   JavaScript). A TanStack route file stays a few lines of TSX.
 
-**File-based routers: typed routes and the checks, together** (spec/09 MO-14, spec/11 CP-4d; spec/rfc-declaration-types-2026-11-22.md, *An eighth round*)
+**File-based routers: typed routes and the checks, together** (spec/09 MO-14, spec/11 CP-4d; spec/archive/rfc-declaration-types-2026-11-22.md, *An eighth round*)
 
 - **New: a host declaration, `host.d.rx`.** A file-based router renders your `.rx` pages from JavaScript — a generated
   route tree, a manifest — where no `.rx` module shows the checker what is above them. Say it once, in `host.d.rx`
@@ -330,7 +351,7 @@
 - **Fixed: `rx-declare` on a module named with its `.ts` extension** (`rx-declare ./router.ts`) wrote `any` where
   the module's types had a name: its own check refused the import.
 
-**The vocabulary held to its bar, to the end** (spec/09 MO-8r *Settled*, MO-10l, MO-11r; spec/rfc-declaration-types-2026-11-22.md, *A seventh round*)
+**The vocabulary held to its bar, to the end** (spec/09 MO-8r *Settled*, MO-10l, MO-11r; spec/archive/rfc-declaration-types-2026-11-22.md, *A seventh round*)
 
 - **Withdrawn: `renders(later)`, `renders` before a prop's type, `nests(component under parent)` and `outlet`**
   (MO-11o, MO-11p). One library wrote them, TanStack Router's code-based route tree. Each is refused by name in a
@@ -369,7 +390,7 @@
 - The tree-sitter grammar reads `nests(… in …)` alone and no `renders`, `outlet` or `keeps(…)`; the bench's coverage
   entries may hold bad variants of their own (`bad` in `use.mjs`, a `bad caught` column in the record).
 
-**What the fifth round left open, settled** (spec/09 MO-8r *Settled*, MO-11t, MO-12e; spec/rfc-declaration-types-2026-11-22.md, *A sixth round*)
+**What the fifth round left open, settled** (spec/09 MO-8r *Settled*, MO-11t, MO-12e; spec/archive/rfc-declaration-types-2026-11-22.md, *A sixth round*)
 
 - **An element in a prop**: a component of yours given by name to a JS component's prop typed `View` —
   `<Key each={rows} by="id" fallback={Nobody}>`, `<ClientOnly fallback={Measuring}>` — is applied there with no
@@ -403,7 +424,7 @@
   the coverage suite in three shards, `node bench/run.mjs --coverage-only --shard i/3`).
   `compiler/test/ssr-held.mjs` is gone with the form it ran.
 
-**Four libraries, whole** (spec/rfc-declaration-types-2026-11-22.md, *A fifth round*; bench/coverage/)
+**Four libraries, whole** (spec/archive/rfc-declaration-types-2026-11-22.md, *A fifth round*; bench/coverage/)
 
 Every `@solid-primitives` package on Solid 2 (98), every module of `solid-use`, and each family of Wardic and UI SDK is
 now drafted whole by `rx-declare` and used by a program the suite checks, types and runs: 190 modules, 4877 rows, no
@@ -609,7 +630,7 @@ went, none of them released; a row written with one is refused by name, with wha
 - `bench/`: Kobalte's two tasks are gone for now, and three libraries are in: `ui-sdk-dialog` (`@ui-sdk/solid`),
   `wardic-motion` (`@wardic/solid`) and `solid-use-primitives` (`solid-use`). `compiler/test/kobalte.mjs` and
   `examples/kobalte` are `compiler/test/wardic.mjs` and `examples/wardic`. What the three libraries' declarations
-  could not say is in `spec/rfc-declaration-types-2026-11-22.md` (*A fourth round*).
+  could not say is in `spec/archive/rfc-declaration-types-2026-11-22.md` (*A fourth round*).
 - `compiler/test/vite.mjs`: the dev servers poll for changes. "styles (dev): after the edit" failed on macOS, where the
   file watcher reports a project copied just before the server started as a late burst and drops an edit made then.
 - `affects` on a keyed or structured source that takes a guess threw `INVALID_AFFECTS_TARGET` in a dev build, so the

@@ -59,7 +59,7 @@ TypeScript's errors are reported.
 
 ## Drafting a declaration
 
-`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
+`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
 types, resolved from the current directory as an import there would be. A package's declaration goes in the project's
 `rx-types/` folder, named by the import (spec/09 MO-8k); the import in `.rx` stays as written:
 
@@ -132,23 +132,6 @@ only before an `any`, has no type parameters and says every part without a name 
 `--readings <export>[,<export>]` prints each reading of that row and what TypeScript said of it, which is how to find out
 why a row was drafted the way it was. A component's props record is held to the props' type as `rx-tsc` holds it (13
 TY-6f) before the row is written.
-
-`--source [<checkout>]` adds what the library's own TypeScript source shows of the words types cannot
-(`src/declare-source.js`, spec/09 MO-8n). The source is the folder you name (a checkout of the package's repository:
-the package is found in it by name), else the `src/` the package publishes, else the sources its source maps carry;
-for a package that ships only built files the command says so, with the repository and version to check out:
-
-```sh
-npx rx-declare @tanstack/solid-query --source                       # it publishes src/
-npx rx-declare @solid-primitives/event-listener --source ../solid-primitives   # a checkout at the installed version
-```
-
-Each finding is a `// SOURCE` comment above the row it is about, with the reason's file and line, and never a change
-to the row: `// SOURCE makeEventListener: `handler`: called from addEventListener, after the call and outside any
-computation — `handler`? (MO-10g) [src/eventListener.ts:67]`. It suggests `handler` for a callback the library calls later, says where one is called inside a computation (no word:
-an unmarked function type is pure), `ref` for a parameter read as an accessor inside a computation, `uses(…)` and
-`provides(…)` for a context the library makes, `instantiates`, and a result that undoes the call. A callback handed
-to another package is followed no further. Read the place it names before writing the word.
 
 A result is typed a step at a time, as the checker reads it (MO-10b, MO-10k). One that takes nothing and answers
 nothing is `() => void`, through the library's own name for it (`VoidFunction`), so the checker holds a call to keeping

@@ -450,7 +450,6 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 | `STALE_OWN_READ` (new)          | S   | AC-1d: a read of the change's own write          |
 | `STALE_WRITE_BACK` (new)        | S   | AC-1e: a pre-`await` read written back after it  |
 | `STALE_CAPTURE` (new)           | S   | AC-1g: after an `await`, an answer written with anything but the server's |
-| `GUESS_NO_QUESTION` (retired 2026-11-20) | S | AC-3 / ST-5c: any source takes a guess |
 | `GUESS_ON_DEFERRED` (new)  | S   | AC-3 / ST-5c: a deferred equation lags its truth |
 | `GUESS_WHILE_LOADING` (new) | S | AC-3a: a guess a click can make while its value loads a new question (D-34) |
 

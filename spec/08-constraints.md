@@ -236,7 +236,7 @@ runtime check.
   key that misses an input of its function is the example: the cache's
   contract, checked by TanStack's ESLint rule `exhaustive-deps`, and no
   mistake of Solid's (`keyed(queryKey)` was proposed for it and rejected,
-  `rfc-revisions-2026-11-22.md`).
+  `archive/rfc-revisions-2026-11-22.md`).
 - **CN-8c (What a tool may know).** `rx-declare` may know a named release
   of a package (09 MO-8k: its version-ranged table), to draft the generic
   words its types cannot show. That is access: the draft is a declaration

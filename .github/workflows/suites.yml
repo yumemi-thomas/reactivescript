@@ -12,9 +12,9 @@ name: suites
 on:
   push:
     branches: [main]
-    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", ".github/workflows/suites.yml"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml"]
   pull_request:
-    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", ".github/workflows/suites.yml"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml"]
   workflow_dispatch:
 
 jobs:
@@ -71,6 +71,8 @@ jobs:
       - name: "the runtime as built: both builds, the request's and the render's state, and Solid's contract (the installed release and the pin)"
         working-directory: runtime
         run: SOLID_NEXT="${{ github.workspace }}/../solid-next" node test.mjs
+      - name: "spec: every rule and diagnostic that is named is in it"
+        run: node scripts/spec-refs.mjs
       - name: "ref: the interpreter over every scenario"
         working-directory: ref
         run: npm test

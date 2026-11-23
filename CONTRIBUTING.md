@@ -43,7 +43,7 @@ component renders what it is given (a scene), that a library does
 not call a component it is given with no owner at all, and that a `pure`
 fn answers alike with a window and without one (10 SV-7c).
 A word a tool writes into a row is held to a harder bar than one a person
-writes: it is written only where the code proves it (09 MO-8v: `pure`,
+writes: it is written only where the code proves it (tooling/rx-language-server/DECLARATIONS.md, MO-8v: `pure`,
 `handler`, `draft`, `rejects(E)`; MO-8w: `handler` through JSX,
 `uses(c)`, `provides(c)`, a value made by a call — read by `rx-declare`
 from the JavaScript an import resolves to), and "probably" is a refusal.
@@ -64,6 +64,13 @@ by being proven, or by being checked and said so in the file.
 reading that merely does not follow something (a library's own scope
 that is no Solid context, a prop that may hold a view) is "unproven",
 with the thing to check.
+A number says what it counts: a check is one fact, an `any` is counted
+where it stands, a claim has one result, and what could not be measured
+is a failure and not a zero (`bench/measure.test.mjs`).
+`spec/` holds the rules; what was measured, rejected or withdrawn goes to
+`spec/archive/`, and how a tool does its work beside the tool.
+A part of the reading that proves nothing on the ecosystem's code is
+deleted (DECLARATIONS.md's table, each part switched off in turn).
 A reason a word is refused is recorded as an example, not a count
 (`rx-declare --why`).
 A form that is asked for and not taken is recorded the same way, with
@@ -102,7 +109,7 @@ fork is pushed to the fork's branch, never forced, and the tarballs are
 packed again at the new commit with their integrities in the task's lock
 (the vendor folder's README says the commit and the commands); what the
 fork would need upstream is written as a proposal, with its test, in
-`spec/rfc-declaration-types-2026-11-22.md` (*Proposed upstream*), and
+`spec/archive/rfc-declaration-types-2026-11-22.md` (*Proposed upstream*), and
 sent by a person.
 What an app must install is tested as installed: the compiler goes into the
 suites' workspaces with the manifest it is published with
@@ -150,6 +157,8 @@ for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/te
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar
 (cd runtime && node test.mjs)
 (cd tooling/rx-language-server && npm test)
+node scripts/spec-refs.mjs       # every rule and diagnostic that is named is in spec/
+node bench/measure.test.mjs      # the benchmark's own counting
 node bench/run.mjs --check     # the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
 node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)
 BENCH_WORDS=1 node bench/run.mjs <task>   # each row of the task's declarations written by hand, beside rx-declare's row of the same export; and each row with an inferred word that rx-verify did not run
