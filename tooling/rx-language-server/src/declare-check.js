@@ -1,17 +1,18 @@
 // MO-8m: a draft's rows, held against the module they declare before the draft is written. `rx-declare` names the
 // library's types in a row (`import("kit").Placement`, `Parameters<typeof import("kit").Select>[0]["placement"]`)
 // instead of `any`; whether TypeScript accepts the row as that export's type is TY-6's question, asked here as rx-tsc
-// asks it: the crate writes the boundary check for the draft's text (`boundary`), TypeScript checks it in memory, and
+// asks it: the crate writes the boundary check for the draft's text (`boundary`), tsrs checks it in memory (src/checker.js), and
 // each row an error lands on is named. Such a row is then written as every draft was (its `any`s), so a draft never
 // brings a DECLARATION_MISMATCH of its own making.
 const path = require("node:path");
+const { checker, asLibrary } = require("./checker.js");
 
 /** @param {string} text the draft; `first`: the lines before its rows; `rows`: its row entries (each one line, or TODO
  *  lines and a row) @returns {Map<string, string> | null} export name → TypeScript's reason, for each row it does not
  *  hold; null when there is no crate to check the draft with. A draft the crate cannot read is not that: no row of it
  *  could be held to the module, and every row would be written as every draft was, `any` for each type, with nothing
  *  said (a `readonly` prop did that to a whole library: 726 `any`s). It throws, with the line and the parser's reason. */
-function failing(ts, text, first, rows, spec, from, options, old, lib, cache) {
+function failing(text, first, rows, spec, from, options, lib) {
   let b;
   const file = path.join(from, "__rx_declare__.d.rx");
   try { b = require("./rxc").boundary(file, spec, text); } catch { return null; }
@@ -22,29 +23,27 @@ function failing(ts, text, first, rows, spec, from, options, old, lib, cache) {
   const starts = []; let at = first + 1;
   for (const r of rows) { starts.push(at); at += r.split("\n").length; }
   const rowAt = line => { let i = -1; for (let k = 0; k < starts.length; k++) if (starts[k] <= line) i = k; return i < 0 ? undefined : name(rows[i]); };
-  const unit = path.join(from, "__rx_declare__.rx-boundary.ts");
-  const host = ts.createCompilerHost(options);
-  const { getSourceFile, fileExists, readFile } = host;
-  host.getSourceFile = (f, lang, ...rest) => path.resolve(f) === unit ? ts.createSourceFile(f, b.code, lang) : getSourceFile.call(host, f, lang, ...rest);
-  host.fileExists = f => path.resolve(f) === unit || fileExists.call(host, f);
-  host.readFile = f => path.resolve(f) === unit ? b.code : readFile.call(host, f);
-  // a package a row names is the one the library imports (MO-8o): resolved from the library's location, as rx-tsc holds it
-  if (lib) require("./library-resolve.js").resolveUnitsAsLibrary(ts, host, new Map([[unit, lib]]), cache);
-  const program = ts.createProgram([unit], { ...options, noEmit: true }, host, old);
-  const sf = program.getSourceFile(unit);
   const bad = new Map();
   const codeLines = b.code.split("\n");
   const checks = [...b.checks].sort((x, y) => x.at - y.at);
-  for (const dg of [...program.getSyntacticDiagnostics(sf), ...program.getSemanticDiagnostics(sf)]) {
-    const line = dg.start === undefined ? 0 : sf.getLineAndCharacterOfPosition(dg.start).line + 1;
+  for (const dg of diagnostics(b.code, from, options, lib)) {
+    const line = dg.line;
     // a type row (`export type Row<T> = …`) is its own line of the check; a value's row is its type's line, then its assignment's
     const alias = /^type\s+([A-Za-z_$][\w$]*)/.exec(codeLines[line - 1] ?? "")?.[1];
     const c = checks.find(x => x.at >= line);
     const n = alias && !alias.startsWith("__decl_") ? alias : c && rowAt(c.line);
     if (!n) return null;                                             // an error no row answers for: nothing is known
-    if (!bad.has(n)) bad.set(n, ts.flattenDiagnosticMessageText(dg.messageText, " ").slice(0, 1500));
+    if (!bad.has(n)) bad.set(n, dg.message.replace(/\n\s*/g, " ").slice(0, 1500));
   }
   return bad;
+}
+
+/** TypeScript's diagnostics of a check the crate wrote, by line: a package a row names is the one the library imports
+ *  (MO-8o), resolved from the library's location, as rx-tsc holds it. */
+function diagnostics(code, from, options, lib) {
+  const ck = checker(from);
+  const u = asLibrary(ck, { name: "__rx_declare__.rx-boundary.ts", code, beside: from, lib }, options);
+  return ck.check({ roots: [u.file], files: new Map([[u.file, code]]), options: { ...options, noEmit: true }, resolutions: u.resolutions });
 }
 
 /** The draft's own text does not parse as a `.d.rx`: a defect of rx-declare (a row the notation cannot say must be left out

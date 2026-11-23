@@ -385,7 +385,7 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
 // said (a `readonly` prop the parser refused did that to a whole library)
 {
   const { failing } = require("../src/declare-check.js");
-  let thrown; try { failing(require("typescript"), "export pure fn ok(): number\nexport component Broken(props: { a b })\n", 0, ["export pure fn ok(): number", "export component Broken(props: { a b })"], "./more.js", ws, {}, undefined); } catch (e) { thrown = e; }
+  let thrown; try { failing("export pure fn ok(): number\nexport component Broken(props: { a b })\n", 0, ["export pure fn ok(): number", "export component Broken(props: { a b })"], "./more.js", ws, {}); } catch (e) { thrown = e; }
   check("a draft the crate cannot parse is not checked row by row: it throws, naming the line, the parser's reason and the row", thrown?.code === "RX_DRAFT_UNREADABLE" && thrown.line === 2 && /line 2: /.test(thrown.message) && /2 \| export component Broken\(props: \{ a b \}\)/.test(thrown.message), String(thrown?.message ?? thrown));
   // the same through rx-declare: the crate is made to refuse the draft, and the run fails with that message and writes nothing
   const stub = path.join(ws, "refuse-draft.cjs");

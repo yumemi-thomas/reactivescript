@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// `rx-tsc`: TypeScript's own `tsc`, with `.rx` modules in the program (spec/13 TY-1a), for CI and the command line. It
-// is Volar's tsc runner (the one `vue-tsc` uses) with the language server's `.rx` plugin, so the editor and the command
-// line check the same projection. It takes tsc's arguments (`rx-tsc --noEmit`, `-p`, `--watch`) and reads the
-// tsconfig.json's `include`, which must name the `.rx` files. Type errors are placed on the `.rx`.
+// `rx-tsc`: a project type-checked with its `.rx` modules in the program (spec/13 TY-1a), for CI and the command line, by
+// tsrs (TypeScript 7, src/checker.js) over the projections the editor checks (src/program.js). It takes tsc's arguments
+// (`rx-tsc --noEmit`, `-p`, `--watch`, `--declaration …`) and reads the tsconfig.json's `include`, which must name the
+// `.rx` files. Type errors are placed on the `.rx`.
 //
 // The crate's own diagnostics (parse errors, else the checker's, with their rules) are reported after TypeScript's, for
 // every `.rx` module in the program: a module that does not parse has no projection, so TypeScript alone would pass it.
@@ -15,11 +15,13 @@ const inputs = (() => {
   const out = process.argv[at + 1]; process.argv.splice(at, 2);
   return require("../src/inputs.js").record(out);
 })();
-const { runTsc } = require("@volar/typescript/lib/quickstart/runTsc");
-const { rxLanguagePlugin, analyses, guideUrl } = require("../src/index.js");
+const fs = require("node:fs");
+const { analysis, analyses, isModule, guideUrl } = require("../src/index.js");
 const { checkBoundaries } = require("../src/boundary.js");
+const { Checker, overlay, readConfig, diagnosticsOf, isFile } = require("../src/program.js");
+const { plain, versionText } = require("../src/checker.js");
+const { report } = require("../src/report.js");
 
-const tsc = require.resolve("typescript/lib/tsc");
 // MO-8j: `--rx-strict` (or `"reactivescript": { "strict": true }` in the tsconfig): every row of a declaration the program
 // imports must be verified by rx-verify, its record beside it (UNVERIFIED_ROW, TY-7). Not tsc's flag.
 const strictFlag = process.argv.includes("--rx-strict");
@@ -32,11 +34,9 @@ let hostList = [];
 { const at = process.argv.indexOf("--rx-hosts");
   if (at >= 0) { inputs?.ignore(process.argv[at + 1]); try { hostList = JSON.parse(require("node:fs").readFileSync(process.argv[at + 1], "utf8")); } catch (e) { process.stderr.write(`rx-tsc: --rx-hosts ${process.argv[at + 1]}: ${e.message}\n`); process.exit(2); } process.argv.splice(at, 2); } }
 process.argv = process.argv.filter(a => a !== "--rx-whole-program");
-const { patchSystem } = require("../src/declarations.js");   // TY-4b: a JS module typed only by its .d.rx, through ts.sys
 
-process.on("exit", code => {
-  const watching = process.argv.includes("--watch") || process.argv.includes("-w");
-  if (watching) return;
+/** The crate's rows, and what is held of the declarations (MO-8f, MO-8j, MO-14g, TY-6), after TypeScript's: how many. */
+function crateReport(checker, cfg, parsed, options) {
   let errors = 0;
   const codes = new Set();
   // per module, as the editor has them; or, whole-program, from each program's entry
@@ -72,15 +72,6 @@ process.on("exit", code => {
       process.stdout.write(`${path.relative(process.cwd(), file)}:${where} - error ${d.code}: ${d.message} (${d.rule})\n`);
     }
   }
-  // TY-6: each .d.rx against the JS module it declares
-  const ts = require(require.resolve("typescript"));
-  // the tsconfig tsc itself reads: `-p`/`--project` (a file, or a folder holding tsconfig.json), else the nearest above the
-  // working directory; TY-6's options and the strict setting come from the same file
-  const at = process.argv.findIndex(x => x === "-p" || x === "--project");
-  const project = at >= 0 && process.argv[at + 1] ? path.resolve(process.argv[at + 1]) : undefined;
-  const cfg = project ? (ts.sys.directoryExists(project) ? path.join(project, "tsconfig.json") : project) : ts.findConfigFile(process.cwd(), ts.sys.fileExists);
-  const parsed = cfg ? ts.parseJsonConfigFileContent(ts.readConfigFile(cfg, ts.sys.readFile).config, ts.sys, path.dirname(cfg), undefined, undefined, undefined, [{ extension: ".rx", isMixedContent: true, scriptKind: ts.ScriptKind.Deferred }]) : null;
-  const options = parsed ? parsed.options : {};
   // TY-1d: what a folder's listing counts for the gate — the files this project's program can hold
   if (parsed) inputs?.takes([".ts", ".tsx", ".mts", ".cts", ".rx", ...(options.allowJs ? [".js", ".jsx", ".mjs", ".cjs"] : []), ...(options.resolveJsonModule ? [".json"] : [])]);
   // MO-8f, MO-8j, TY-6 cover the declarations the program consumed — as the crate's loader resolved each import, from
@@ -91,7 +82,7 @@ process.on("exit", code => {
   for (const a of analyses()) for (const u of a.result.declarations ?? []) if (!uses.some(x => x.file === u.file && x.importer === u.importer && x.spec === u.spec)) uses.push(u);
   // (MO-13a: a printed signature — `//@ signature` before its first row — declares no JS module: the compiler wrote its rows)
   const printed = f => { try { for (const l of require("node:fs").readFileSync(f, "utf8").split("\n")) { const t = l.trim(); if (!t) continue; if (/^\/\/@\s*signature(\s|$)/.test(t)) return true; if (!t.startsWith("//")) return false; } } catch { /* unreadable: not one */ } return false; };
-  const namedDecls = [...new Set((parsed?.fileNames ?? []).filter(f => f.endsWith(".d.rx")).map(f => path.resolve(f)))].filter(f => !printed(f));
+  const namedDecls = [...new Set((parsed?.declarations ?? []).map(f => path.resolve(f)))].filter(f => !printed(f));
   const importers = new Map();
   for (const u of uses) importers.set(path.resolve(u.file), [...(importers.get(path.resolve(u.file)) ?? []), u.importer]);
   for (const f of namedDecls) if (!importers.has(f)) importers.set(f, []);
@@ -108,11 +99,11 @@ process.on("exit", code => {
   // shared base that sets it would otherwise be passed over in silence)
   const strictOf = (file, seen = new Set()) => {
     if (!file || seen.has(file)) return undefined; seen.add(file);
-    const config = ts.readConfigFile(file, ts.sys.readFile).config; if (!config) return undefined;
+    let config; try { config = checker.api.readConfigFile(file).config; } catch { /* none */ } if (!config) return undefined;
     if (config.reactivescript?.strict !== undefined) return !!config.reactivescript.strict;
     for (const ext of [].concat(config.extends ?? []).reverse()) {   // a later entry overrides an earlier one, as tsc's
       let base;
-      if (ext.startsWith(".") || path.isAbsolute(ext)) { base = path.resolve(path.dirname(file), ext); if (!ts.sys.fileExists(base)) base += ".json"; }
+      if (ext.startsWith(".") || path.isAbsolute(ext)) { base = path.resolve(path.dirname(file), ext); if (!isFile(base)) base += ".json"; }
       else { try { base = require.resolve(ext, { paths: [path.dirname(file)] }); } catch { try { base = require.resolve(ext + ".json", { paths: [path.dirname(file)] }); } catch {} } }
       const found = strictOf(base, seen); if (found !== undefined) return found;
     }
@@ -134,7 +125,8 @@ process.on("exit", code => {
     codes.add("UNVERIFIED_ROW");
     process.stdout.write(`${path.relative(process.cwd(), u.file)}:${u.line}:1 - error UNVERIFIED_ROW: ${u.message} (TY-7)\n`);
   }
-  for (const b of checkBoundaries(ts, [], options, { uses, named: namedDecls })) {
+  // TY-6: each .d.rx against the JS module it declares
+  for (const b of checkBoundaries(checker, options, { uses, named: namedDecls })) {
     errors++;
     codes.add("DECLARATION_MISMATCH");
     process.stdout.write(`${path.relative(process.cwd(), b.file)}:${b.line}:1 - error DECLARATION_MISMATCH: ${b.name ? `${b.name}: ` : ""}${b.message} (TY-6)\n`);
@@ -142,9 +134,55 @@ process.on("exit", code => {
   if (errors) {
     process.stdout.write(`\nFound ${errors} ReactiveScript error${errors === 1 ? "" : "s"}.\n`);
     for (const c of codes) process.stdout.write(`${c}: why, and the fix — ${guideUrl(c)}\n`);
-    if (!code) process.exitCode = 1;
   }
-});
+  return errors;
+}
 
-if (inputs) process.on("exit", () => inputs.write());   // after the handler above, which reads declarations and records too
-runTsc(tsc, [".rx"], ts => { patchSystem(ts.sys); return [rxLanguagePlugin(ts)]; });
+const argv = process.argv.slice(2);
+const usage = m => { process.stderr.write(`rx-tsc: ${m}\n`); process.exit(2); };
+if (argv.includes("--version") || argv.includes("-v")) { process.stdout.write(`Version ${versionText()}\n`); process.exit(0); }
+for (const f of ["-b", "--build", "--init", "--showConfig", "--lsp", "--help", "-h", "--all", "--locale"]) if (argv.includes(f)) usage(`${f} is not one of rx-tsc's: run the project's own tsc for it`);
+
+/** One check of the project: what it found, and the files it read that are the project's. */
+function run() {
+  const checker = new Checker({ overlay: overlay(), record: !!inputs });
+  try {
+    const cmd = checker.api.parseCommandLine(argv);
+    const named = cmd.fileNames.length > 0;
+    const project = cmd.options.project;
+    const { project: _p, watch, ...given } = cmd.options;
+    let errors = [...cmd.errors], cfg;
+    if (project) { cfg = !named && fs.existsSync(project) ? (fs.statSync(project).isDirectory() ? path.join(project, "tsconfig.json") : project) : undefined; if (named || !cfg || !isFile(cfg)) usage(named ? "a project and files cannot both be given (TS5042)" : `there is no tsconfig.json at ${project} (TS5058)`); }
+    else if (!named) { for (let d = process.cwd(); ; d = path.dirname(d)) { if (isFile(path.join(d, "tsconfig.json"))) { cfg = path.join(d, "tsconfig.json"); break; } if (path.dirname(d) === d) break; } if (!cfg) usage("there is no tsconfig.json here or above"); }
+    const parsed = cfg ? readConfig(checker, cfg) : null;
+    const options = { ...(parsed?.options ?? {}), ...given, allowArbitraryExtensions: true };
+    if (parsed) errors.push(...parsed.errors);
+    const roots = parsed ? parsed.roots : cmd.fileNames.map(f => isModule(f) ? f + ".tsx" : f);
+    const pretty = options.pretty ?? !!process.stdout.isTTY;
+    const { program, dispose } = checker.program({ roots, options, references: parsed?.references });
+    let found, emitted, files;
+    try {
+      files = program.getSourceFileNames();
+      if (options.listFiles || options.listFilesOnly) process.stdout.write(files.map(f => f.endsWith(".rx.tsx") ? f.slice(0, -4) : f).join("\n") + "\n");
+      found = options.listFilesOnly ? [] : diagnosticsOf(program, options, errors);
+      if (!options.noEmit && !options.listFilesOnly) { const e = program.emit(); emitted = !e.emitSkipped; const more = e.diagnostics.map(plain); found.push(...more.filter(d => !found.some(x => x.code === d.code && x.file === d.file && x.start === d.start))); }
+    } finally { dispose(); }
+    process.stdout.write(report(found, { pretty }));
+    const bad = found.filter(d => d.category === 1).length;
+    const rx = crateReport(checker, cfg, parsed, options);
+    return { status: bad ? (emitted ? 2 : 1) : rx ? 1 : 0, watch, files, cfg };
+  } finally { checker.close(); }
+}
+
+if (inputs) process.on("exit", () => inputs.write());
+let last;
+try { last = run(); } catch (e) { if (e.code !== "RX_NO_CHECKER") throw e; process.stderr.write(`rx-tsc: ${e.message}\n`); process.exit(2); }
+if (!last.watch) process.exitCode = last.status;
+else {
+  // --watch: the project's own files (and its tsconfig's folder, for one added) are looked at again twice a second
+  const stamp = () => { const own = new Set([last.cfg, ...last.files.filter(f => !/[\\/]node_modules[\\/]/.test(f)).map(f => f.endsWith(".rx.tsx") ? f.slice(0, -4) : f), ...analyses().flatMap(a => (a.result.declarations ?? []).map(u => u.file))].filter(Boolean)); const dirs = new Set([...own].map(f => path.dirname(f))); const at = f => { try { return `${f}:${fs.statSync(f).mtimeMs}`; } catch { return `${f}:-`; } }; return [...own, ...dirs].map(at).join("\n"); };
+  let seen = stamp();
+  const say = () => process.stdout.write(`[${new Date().toLocaleTimeString()}] Watching for file changes.\n`);
+  say();
+  setInterval(() => { const now = stamp(); if (now === seen) return; analysis.forget(); require("../src/declarations.js").forget(); try { last = run(); } catch (e) { process.stderr.write(`rx-tsc: ${e.stack ?? e}\n`); } seen = stamp(); say(); }, 500);
+}

@@ -1134,8 +1134,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     // leaves the fewest `any`s (the earlier of two alike), and the row every draft had where it holds none
     const strip = ls => ls.map(l => l.replace(MARK, ""));
     const group = ls => { const by = new Map(); for (const l of ls) { const n = exportedIn(l); if (n) by.set(n, [...(by.get(n) ?? []), l]); } return by; };
-    const { resolutions } = require("./library-resolve.js"); const cache = resolutions(ts, opts, host);   // one reading of the disk: every candidate's
-    const check = r => require("./declare-check.js").failing(ts, [...out, ...r.out, ...strip(r.lines)].join("\n") + "\n", out.length + r.out.length, strip(r.lines), spec, from, opts, program, lib, cache);
+    const check = r => require("./declare-check.js").failing([...out, ...r.out, ...strip(r.lines)].join("\n") + "\n", out.length + r.out.length, strip(r.lines), spec, from, opts, lib);
     const fall = (r, bad, to) => { const by = group(to); const kept = [], done = new Set(); for (const l of r.lines) { const n = exportedIn(l); if (!n || !bad.has(n)) kept.push(l); else if (!done.has(n)) { done.add(n); kept.push(...(by.get(n) ?? [])); } } return { ...r, lines: kept }; };
     // fewest `any`s of the draft's own (MO-8q: the library's are not the draft's), then fewest parts said by their place
     const anys = (ls, mode) => introduced(ls.join("\n")) * 1000 + (ls.join("\n").match(/\b(?:Parameters|ReturnType)</g) ?? []).length + (mode?.whole ? 500 : 0);   // the last reading says least: only before an `any`
