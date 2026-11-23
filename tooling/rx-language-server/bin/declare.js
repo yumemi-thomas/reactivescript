@@ -12,6 +12,35 @@ const args = process.argv.slice(2);
 // JS host renders (a file-based router's route files) — an import of each one's exported components, the contexts
 // their own imports are declared to use (the host must provide them), and a view that places every one at the top.
 // Which page is among which layout's children is the router's to know: it is left to write, and said so.
+// `rx-declare --host --routes <source> [<entry.rx>…] [--out host.d.rx]` (MO-14g): the whole declaration, derived from
+// the router's own tree — TanStack Router's generated `routeTree.gen.ts`, a routes directory the project's
+// filesystem-routing scans, or a JSON tree — with the entry around the router when one is named. The file says where
+// it came from (`//@ routes …`), and `--host --sync <host.d.rx>` writes it again from there; `--host --check
+// <host.d.rx>` exits 1 when it has fallen behind (as rx-tsc, rx-verify and a build do: HOST_VIEW_STALE).
+if (args.includes("--host") && (args.includes("--routes") || args.includes("--sync") || args.includes("--check"))) {
+  const path = require("node:path"); const H = require("../src/host-routes.js");
+  const outAt = args.indexOf("--out"); const out = outAt >= 0 ? args[outAt + 1] : undefined;
+  const routesAt = args.indexOf("--routes");
+  const rest = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--out" && args[i - 1] !== "--routes");
+  if (routesAt < 0) {
+    if (!rest.length) { process.stderr.write("usage: rx-declare --host --sync|--check <host.d.rx>\n"); process.exit(2); }
+    let bad = 0;
+    for (const f of rest) {
+      const d = H.drift(f);
+      if (!d) { process.stderr.write(`rx-declare: ${f} names no routes (\`//@ routes <source>\`): it is written by hand, and rx-verify's probe is what holds it\n`); bad ||= 2; continue; }
+      if (!d.stale) { process.stderr.write(`rx-declare: ${f} is the router's tree\n`); continue; }
+      if (args.includes("--sync") && H.sync(f)) { process.stderr.write(`rx-declare: ${f} written again from the router's tree (${d.problems.join("; ")})\n`); continue; }
+      process.stderr.write(`rx-declare: HOST_VIEW_STALE: ${H.message(f, d)}\n`); bad = 1;
+    }
+    process.exit(bad);
+  }
+  const source = args[routesAt + 1];
+  if (!source || source.startsWith("--")) { process.stderr.write("usage: rx-declare --host --routes <routeTree.gen.ts | routes directory | routes.json> [<entry.rx>…] [--out host.d.rx]\n"); process.exit(2); }
+  const d = H.derive(out ? path.dirname(path.resolve(out)) : process.cwd(), path.resolve(source), rest.map(f => path.resolve(f)));
+  if (d.problems.length) { for (const p of d.problems) process.stderr.write(`rx-declare: ${p}\n`); process.exit(1); }
+  if (out) fs.writeFileSync(out, d.text); else process.stdout.write(d.text);
+  process.exit(0);
+}
 if (args.includes("--host")) {
   const path = require("node:path");
   const outAt = args.indexOf("--out"); const out = outAt >= 0 ? args[outAt + 1] : undefined;

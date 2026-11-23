@@ -463,6 +463,62 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   const read = require("../src/rxc").rows(path.join(app, "src/host.d.rx"));
   check("...which the crate reads as a host declaration (its view claims placement and each provision)", !read.error && JSON.stringify(read.rows.filter(r => r.kind === "host").map(r => r.obligations)) === JSON.stringify([["placement", "provides:router"]]), JSON.stringify(read));
 }
+// 09 MO-14g: `rx-declare --host --routes`, the whole declaration derived from the router's own tree — and held to it
+{
+  const app = path.join(ws, "routesapp"); fs.mkdirSync(path.join(app, "src/routes"), { recursive: true }); fs.mkdirSync(path.join(app, "src/pages"), { recursive: true });
+  const w = (f, text) => fs.writeFileSync(path.join(app, "src", f), text);
+  w("router.d.rx", "export context router\nexport component AppRouter(props: {}) provides(router)\nexport component Outlet(props: {}) uses(router)\nexport pure fn useParams(): { id: string } instantiates uses(router)\n");
+  w("router.tsx", "import { routeTree } from \"./routeTree.gen\";\nexport const AppRouter = () => routeTree;\nexport const Outlet = () => null;\nexport const useParams = () => ({ id: \"1\" });\n");
+  w("main.rx", "import { AppRouter } from \"./router.tsx\"\nexport default component App() {\n  <main><AppRouter /></main>\n}\n");
+  w("routes/__root.rx", "export default component Root(props: { children?: View }) {\n  <main>{props.children}</main>\n}\n");
+  w("routes/index.rx", "export default component Page() {\n  <h1>home</h1>\n}\n");
+  w("routes/people.$id.rx", "import { useParams } from \"../router.tsx\"\nexport default component Page() {\n  params = useParams()\n  <h1>{params.id}</h1>\n}\n");
+  w("pages/about.rx", "export component About() {\n  <h1>about</h1>\n}\nexport component Team() {\n  <h1>team</h1>\n}\n");
+  w("routes/about.tsx", "import { createFileRoute } from \"@tanstack/solid-router\";\nimport { About, Team } from \"../pages/about.rx?rx-lib\";\nvoid Team;\nexport const Route = createFileRoute(\"/about\")({ component: About });\n");
+  w("routes/plain.tsx", "import { createFileRoute } from \"@tanstack/solid-router\";\nexport const Route = createFileRoute(\"/plain\")({ component: () => null });\n");
+  const tree = extra => [
+    "import { createFileRoute, createRootRoute } from '@tanstack/solid-router'", "",
+    "import { default as rootRouteComponent } from './routes/__root.rx?rx-page'",
+    "import { default as IndexRouteComponent } from './routes/index.rx?rx-page'",
+    "import { default as PeopleIdRouteComponent } from './routes/people.$id.rx?rx-page'",
+    "import { Route as AboutRouteImport } from './routes/about'",
+    "import { Route as PlainRouteImport } from './routes/plain'",
+    "const rootRouteImport = createRootRoute({ component: rootRouteComponent })",
+    "const IndexRouteImport = createFileRoute('/')({\n  component: IndexRouteComponent,\n})",
+    "const PeopleIdRouteImport = createFileRoute('/people/$id')({\n  component: PeopleIdRouteComponent,\n})",
+    "const IndexRoute = IndexRouteImport.update({\n  id: '/',\n  path: '/',\n  getParentRoute: () => rootRouteImport,\n} as any)",
+    `const PeopleIdRoute = PeopleIdRouteImport.update({\n  id: '/people/$id',\n  path: '/people/$id',\n  getParentRoute: () => ${extra ? "AboutRoute" : "rootRouteImport"},\n} as any)`,
+    "const AboutRoute = AboutRouteImport.update({\n  id: '/about',\n  path: '/about',\n  getParentRoute: () => rootRouteImport,\n} as any)",
+    "const PlainRoute = PlainRouteImport.update({\n  id: '/plain',\n  path: '/plain',\n  getParentRoute: () => rootRouteImport,\n} as any)", "",
+  ].join("\n");
+  w("routeTree.gen.ts", tree(false));
+  const declare = (...a) => spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), ...a], { cwd: app, encoding: "utf8" });
+  const rh = declare("--host", "--routes", "src/routeTree.gen.ts", "src/main.rx", "--out", "src/host.d.rx");
+  const text = rh.status === 0 ? fs.readFileSync(path.join(app, "src/host.d.rx"), "utf8") : rh.stderr;
+  const rows = text.split("\n").filter(l => l && !l.startsWith("//"));
+  check("rx-declare --host --routes records where the declaration comes from, on its first line", text.startsWith("//@ routes ./routeTree.gen.ts ./main.rx\n"), text);
+  check("...imports each route's component — a route file's default component, two of one name told apart; the component a TSX route file hands its route — and the app's component that renders the routes (the one from the module that imports the tree)", JSON.stringify(rows.slice(0, 6)) === JSON.stringify(["import { App } from \"./main.rx\"", "import { Root } from \"./routes/__root.rx\"", "import { Page } from \"./routes/index.rx\"", "import { Page as Page2 } from \"./routes/people.$id.rx\"", "import { About } from \"./pages/about.rx\"", "import { AppRouter } from \"./router.tsx\""]), text);
+  check("...and writes the view as the tree nests it, the entry around it; a route with no .rx component is left out; a context the entry's router component provides is not the view's to provide", rows[6] === "export default component nests(children in component) = [{ component: App, children: [{ component: Root, children: [{ component: Page }, { component: Page2 }, { component: About }] }] }]" && rows.length === 7, text);
+  const read = require("../src/rxc").rows(path.join(app, "src/host.d.rx"));
+  check("...which the crate reads as a host declaration (the pragma is a comment to it)", !read.error && read.rows.some(r => r.kind === "host"), JSON.stringify(read).slice(0, 300));
+  check("rx-declare --host --check: in step with the tree", declare("--host", "--check", "src/host.d.rx").status === 0);
+  w("routeTree.gen.ts", tree(true));   // the router nests a page elsewhere
+  const stale = declare("--host", "--check", "src/host.d.rx");
+  check("...and refused once the tree has moved, saying which route and where (HOST_VIEW_STALE)", stale.status === 1 && /HOST_VIEW_STALE/.test(stale.stderr) && /Page2 is among About's children in \.\/routeTree\.gen\.ts, and among Root's in the view/.test(stale.stderr), stale.stderr);
+  const H = require("../src/host-routes.js");
+  check("...drift() says the same to rx-tsc, rx-verify and the build", H.drift(path.join(app, "src/host.d.rx")).stale === true && H.hostFor(path.join(app, "src/routes/index.rx")) === path.join(app, "src/host.d.rx"));
+  const sync = declare("--host", "--sync", "src/host.d.rx");
+  check("rx-declare --host --sync writes it again from the tree", sync.status === 0 && /\{ component: About, children: \[\{ component: Page2 \}\] \}/.test(fs.readFileSync(path.join(app, "src/host.d.rx"), "utf8")) && declare("--host", "--check", "src/host.d.rx").status === 0, sync.stderr);
+  // no entry named: the routes' own imports say what the host must provide
+  const bare = declare("--host", "--routes", "src/routeTree.gen.ts");
+  check("with no entry, the view provides what the routes' imports are declared to use", /export context router from "\.\/src\/router\.tsx"\nexport default component provides\(router\) nests/.test(bare.stdout), bare.stdout + bare.stderr);
+  // a tree in JSON, for a host no reader is written for
+  w("routes.json", JSON.stringify([{ file: "./routes/__root.rx", path: "/", children: [{ file: "./pages/about.rx", component: "Team", path: "/team" }] }]));
+  const js = declare("--host", "--routes", "src/routes.json");
+  check("a JSON tree names each file, and a component other than the default by name", /import \{ Team \} from "\.\/src\/pages\/about\.rx"/.test(js.stdout) && /\[\{ component: Root, children: \[\{ component: Team \}\] \}\]/.test(js.stdout), js.stdout + js.stderr);
+  w("hand.d.rx", "import { Root } from \"./routes/__root.rx\"\nexport default component nests(children in component) = [{ component: Root }]\n");
+  check("a declaration that names no routes is written by hand: not derived, never stale", H.drift(path.join(app, "src/hand.d.rx")) === null);
+}
 // MO-11u, MO-11c (2026-11-24): what a library is given to render. A parameter that is a component is a `Component<P>`,
 // one that is a view or a function giving one is that (not an accessor: the call is a call), and each gets the question
 // types cannot answer — where the library renders it. A prop that holds components in a record or a list is written so

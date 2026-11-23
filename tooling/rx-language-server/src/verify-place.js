@@ -373,7 +373,7 @@ async function verifyComponentCallbacks({ comps, at, probeMod, resolve }) {
  *  neither. For each component the declaration imports from JavaScript (MO-14f), `rx` holds a marked wrapper of the probe's
  *  `through[name]`: the scene applies it where the app's component applies the real one, and a component of the view must
  *  render inside it. `text` is the declaration with each row on one line. Null when the file states no view. */
-async function verifyHost({ text, probeMod, resolve }) {
+async function verifyHost({ text, probeMod, resolve, routes }) {
   const lines = text.split("\n");
   const at = lines.findIndex(l => /^\s*export\s+default\s+component\b/.test(l)); if (at < 0) return null;
   const line = at + 1; const row = lines[at];
@@ -417,13 +417,16 @@ async function verifyHost({ text, probeMod, resolve }) {
   Object.defineProperty(rx, "tree", { value: built, enumerable: false });
   let dispose = () => {}, renderError = null;
   try {
-    const view = await probeMod.scene(rx, { s });
+    const view = await probeMod.scene(rx, { s }, routes?.(rx));
     if (typeof document !== "undefined" && document.body) { const web = await import(resolve("@solidjs/web")); const el = document.createElement("div"); document.body.appendChild(el); dispose = web.render(view, el); }
     else { const { createRenderer } = await import(resolve("@solidjs/universal")); const nodes = { createElement: t => ({ t, c: [] }), createTextNode: x => ({ x }), replaceText: (a, v) => { a.x = v; }, isTextNode: a => "x" in a, setProperty() {}, insertNode: (p, a) => { (p.c ??= []).push(a); a.p = p; }, removeNode: (p, a) => { p.c = (p.c ?? []).filter(y => y !== a); }, getParentNode: a => a.p, getFirstChild: a => a.c?.[0], getNextSibling: a => { const c = a.p?.c ?? []; return c[c.indexOf(a) + 1]; } }; dispose = createRenderer(nodes).render(view, { t: "root", c: [] }); }
   } catch (e) { renderError = e; }
   const settle = async () => { for (let i = 0; i < 40; i++) { s.flush?.(); await new Promise(r => setTimeout(r, 15)); } };
   await settle();
-  if (probeMod.act) { try { await probeMod.act(rx, { s }); } catch {} await settle(); }
+  // `act` shows what the first render does not (another page). Given the routes (MO-14g) it is called for each leaf of
+  // the tree in turn — `act(rx, h, route)` — so every route file is rendered without the probe naming one
+  const leaves = []; const leaf = ns => (ns ?? []).forEach(n => n.children?.length ? leaf(n.children) : leaves.push(n)); leaf(routes?.(rx));
+  if (probeMod.act) { for (const r of leaves.length ? leaves : [undefined]) { try { await probeMod.act(rx, { s }, r); } catch {} await settle(); } }
   try { dispose(); } catch {}
   if (renderError) return all("unverified", `the scene threw as it rendered (${String(renderError.message ?? renderError).slice(0, 60)})`);
   // placement: every component the tree names renders, a record's children inside its component

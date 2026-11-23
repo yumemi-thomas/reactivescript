@@ -143,7 +143,15 @@ async function verify(file) {
     const probeFile = [".probe.mjs", ".probe.js"].map(x => base + x).find(f => fs.existsSync(f));
     const probeMod = probeFile ? await import(pathToFileURL(path.resolve(probeFile)).href) : null;
     const dir = path.dirname(path.resolve(file));
-    const host = await require("../src/verify-place.js").verifyHost({ text: require("../src/strict.js").rowText(file), probeMod, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href });
+    // MO-14g: a declaration derived from the router's tree is first held to it — one that has fallen behind is a
+    // mismatch before anything is run — and its probe is handed the routes (the scene's third argument), so the scene
+    // is the tree's and restates none of it
+    const H = require("../src/host-routes.js"); const stale = H.drift(file);
+    if (stale?.stale) {
+      const rows = require("../src/strict.js").rowsOf(file);
+      return rows.flatMap(row => (row.obligations ?? []).map(ob => ({ line: row.line, ob, status: "fail", what: `HOST_VIEW_STALE: ${H.message(file, stale)}` })));
+    }
+    const host = await require("../src/verify-place.js").verifyHost({ text: require("../src/strict.js").rowText(file), probeMod, routes: stale ? rx => H.sceneRoutes(file, rx) : undefined, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href });
     if (!js) return [...host, ...require("../src/strict.js").unanswered(file, host)];
     return [...host, ...(await verifyModule(file, base, js)).filter(r => !host.some(h => h.line === r.line && h.ob === r.ob))];   // a module's own rows beside the view
   }

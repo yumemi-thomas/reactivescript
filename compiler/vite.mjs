@@ -108,6 +108,15 @@ function generator(entry) {
   return existsSync(local) ? createRequire(import.meta.url)(local) : undefined;
 }
 
+/** MO-14g: the language server's reader of a router's tree — the project's, else this checkout's. */
+function hostRoutes(entry) {
+  for (const from of [path.join(path.dirname(entry), "package.json"), fileURLToPath(import.meta.url)]) {
+    try { return createRequire(from)("@reactivescript/language-server/src/host-routes.js"); } catch {}
+  }
+  const local = path.join(path.dirname(fileURLToPath(import.meta.url)), "../tooling/rx-language-server/src/host-routes.js");
+  return existsSync(local) ? createRequire(import.meta.url)(local) : undefined;
+}
+
 const RX_IMPORT = /^import\b[^"']*?\bfrom\s+(["'])(\.{1,2}\/[^"'?]*\.rx)\1/gm;
 /** The `.rx` files under `root` from which `file` is reached by imports: first those no other `.rx` file imports. */
 function entriesOf(file, root) {
@@ -279,6 +288,7 @@ export default function rx(options = {}) {
   }
   const builds = new Map();
   const via = new Map();   // E-5a: what this instance's Vite resolved each ?rx-lib import to (hostsVia)
+  let serving = false;   // the dev server (Vite's `serve`, as Solid's plugin says it: `solid.dev` with hot updates or a dev build's transform)
   let lastRoot;   // the Vite root, for whole-program checking's ?rx-lib hosts   // entry\0target\0moduleName\0spa\0lib → { entry, target, moduleName, spa, lib, out, stamps }
   // E-5a: the hosts a whole-program check counted are part of what it was checked against: a JS file that starts or stops
   // importing a module with ?rx-lib makes the check stale, as an edit of one of its modules does
@@ -295,6 +305,10 @@ export default function rx(options = {}) {
       for (const r of drafted) if (r.removed) console.warn(`[reactivescript] removed an outdated drafted declaration for ${r.spec} that could not be redone (${r.reason}): it is undeclared until it is declared or can be drafted again (MO-8l)`);
       for (const r of drafted) if (r.status === "written") console.info(`[reactivescript] drafted a declaration for ${r.spec} from its types: ${path.relative(process.cwd(), r.file)} (MO-8l)`);
     }
+    // MO-14g, before the program is read: a host declaration derived from the router's tree (`//@ routes`) is held to
+    // the tree as it is now — the router's plugin has written it by the time a module is compiled. The dev server writes a
+    // declaration that fell behind again (a route file was added while it runs); a build refuses it (HOST_VIEW_STALE)
+    hostInStep(entry);
     // E-5a: `rx({ wholeProgram: true })` checks a build as the whole program, counting every module a JS host imports with
     // ?rx-lib as applied from outside; off by default, so a build and the editor (per module) agree
     const out = JSON.parse(options.wholeProgram ? app(entry, target, moduleName, spa, lib, true, hosts) : app(entry, target, moduleName, spa, lib));
@@ -306,6 +320,14 @@ export default function rx(options = {}) {
     const b = { entry, target, moduleName, spa, lib, out, hosts, stamps: new Map(files.map(f => [f, mtime(f)])) };
     builds.set(key, b);
     return b;
+  }
+  function hostInStep(entry) {
+    let H; try { H = hostRoutes(entry); } catch { H = undefined; }
+    const file = H?.hostFor(entry); if (!file) return;
+    let d; try { d = H.drift(file); } catch (e) { d = { stale: true, problems: [String(e?.message ?? e)] }; }
+    if (!d?.stale) return;
+    if (serving) { let wrote = false; try { wrote = H.sync(file); } catch {} if (wrote) { console.info(`[reactivescript] ${path.relative(process.cwd(), file)} written again from the router's tree: ${d.problems.join("; ")} (MO-14g)`); return; } }
+    throw new Error(`HOST_VIEW_STALE [MO-14g] ${H.message(file, d)}\n\nHOST_VIEW_STALE: why, and the fix — ${GUIDE}#host_view_stale`);
   }
   const built = (file, target, moduleName, spa) =>
     [...builds.values()].filter(b => b.target === target && b.moduleName === moduleName && b.spa === spa && b.out.modules?.[file]);
@@ -327,6 +349,7 @@ export default function rx(options = {}) {
   return {
     compile(source, context) {
       if (context.root) lastRoot = path.resolve(context.root);
+      serving = !!context.solid?.dev && process.env.NODE_ENV !== "production";
       // E-5a: with Solid's plugin handing a resolver (`context.resolve`), the hosts are resolved by Vite, so asynchronously;
       // without it, here (the `alias` option and tsconfig paths), and the compile stays synchronous
       if (options.wholeProgram && typeof context.resolve === "function")

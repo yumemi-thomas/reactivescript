@@ -122,6 +122,13 @@ process.on("exit", code => {
   // MO-14e: the host declarations the program's modules are under (`host.d.rx`, found from each one's folder upward) are
   // declarations the program is checked by: their pages are credited what they say, so strict mode asks for their record too
   const hostDecls = new Set(analyses().flatMap(a => a.result.host ? [path.resolve(a.result.host)] : []));
+  // MO-14g: a host declaration that names the router's tree it was derived from (`//@ routes`) is that tree's: one that
+  // has fallen behind it — a route file added, moved or gone since — credits pages what the router no longer does
+  for (const f of hostDecls) { const H = require("../src/host-routes.js"); let d = null; try { d = H.drift(f); } catch (e) { d = { stale: true, problems: [String(e.message ?? e)], line: 1 }; }
+    if (!d?.stale) continue;
+    errors++; codes.add("HOST_VIEW_STALE");
+    process.stdout.write(`${path.relative(process.cwd(), f)}:${d.line}:1 - error HOST_VIEW_STALE: ${H.message(f, d)} (MO-14g)\n`);
+  }
   if (strict) for (const f of new Set([...pinned, ...hostDecls])) for (const u of require("../src/strict.js").checkStrict(f)) {
     errors++;
     codes.add("UNVERIFIED_ROW");
