@@ -516,6 +516,19 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   w("routes.json", JSON.stringify([{ file: "./routes/__root.rx", path: "/", children: [{ file: "./pages/about.rx", component: "Team", path: "/team" }] }]));
   const js = declare("--host", "--routes", "src/routes.json");
   check("a JSON tree names each file, and a component other than the default by name", /import \{ Team \} from "\.\/src\/pages\/about\.rx"/.test(js.stdout) && /\[\{ component: Root, children: \[\{ component: Team \}\] \}\]/.test(js.stdout), js.stdout + js.stderr);
+  // MO-14f (2026-11-25): the host's own components reached through `.rx` components of the app's — the entry applies
+  // <Shell />, which applies the router's component; the root applies <Frame />, which applies the router's outlet
+  {
+    const was = Object.fromEntries(["main.rx", "routes/__root.rx", "routeTree.gen.ts"].map(f => [f, fs.readFileSync(path.join(app, "src", f), "utf8")]));
+    w("routeTree.gen.ts", tree(false).replace("from '@tanstack/solid-router'", "from '@tanstack/solid-router'"));
+    w("shell.rx", "import { AppRouter } from \"./router.tsx\"\nexport component Shell() {\n  <main><AppRouter /></main>\n}\n");
+    w("frame.rx", "import { Outlet } from \"@tanstack/solid-router\"\nexport component Frame() {\n  <main><Outlet /></main>\n}\n");
+    w("main.rx", "import { Shell } from \"./shell.rx\"\nexport default component App() {\n  <Shell />\n}\n");
+    w("routes/__root.rx", "import { Frame } from \"../frame.rx\"\nexport default component Root() {\n  <Frame />\n}\n");
+    const far = declare("--host", "--routes", "src/routeTree.gen.ts", "src/main.rx");
+    check("a component of the host's own applied by an `.rx` component in between is found: the entry's router component through <Shell />, the root's outlet through <Frame />", /import \{ AppRouter \} from "\.\/src\/router\.tsx"\nimport \{ Outlet \} from "@tanstack\/solid-router"/.test(far.stdout) && /\[\{ component: App, children: \[\{ component: Root, children:/.test(far.stdout), far.stdout + far.stderr);
+    for (const [f, text] of Object.entries(was)) w(f, text);
+  }
   // a routes directory is filesystem-routing's convention: a Vite config that gives the plugin another is not answered
   // with the default tree (the router's own module is the source then; bench/tasks/file-routes runs one)
   fs.writeFileSync(path.join(app, "package.json"), "{}");

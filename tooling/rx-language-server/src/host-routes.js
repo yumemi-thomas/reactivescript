@@ -44,6 +44,16 @@ function componentsOf(file) {
   return { all: all.map(c => c.name), dflt: all.find(c => c.dflt)?.name, src };
 }
 
+/** An `.rx` module and the `.rx` modules it imports, to any depth (the file itself first): where a component of the
+ *  host's own may be applied on a layout's behalf — `Root` applies `<Frame />`, of `./chrome.rx`, which applies the
+ *  router's `<Outlet />` (MO-14f, 2026-11-25). */
+function rxReach(file, seen = []) {
+  if (seen.includes(file)) return seen; seen.push(file);
+  let src; try { src = fs.readFileSync(file, "utf8"); } catch { return seen; }
+  for (const m of src.matchAll(/^import\s*\{[^}]*\}\s*from\s*(["'])(\.[^"']*\.rx)\1/gm)) rxReach(path.resolve(path.dirname(file), m[2]), seen);
+  return seen;
+}
+
 /** A TS route file of TanStack's (`routes/index.tsx`): the `.rx` component it hands its route — the one name it
  *  imports from an `.rx` module (`?rx-lib`, `?rx-page`) that its `component:` option names. `{ file, name }`,
  *  undefined when the route has no `.rx` component, or `{ problem }`. */
@@ -91,7 +101,8 @@ function readTanstack(source, text) {
   for (const r of routes.values()) if (r.key !== "root") (routes.get(r.parent ?? "root") ?? at("root")).children.push(r);
   const root = at("root"); root.id ??= "__root__"; root.path ??= "/";
   // a layout that renders its pages with the router's own component, not `props.children`: the host renders through it (MO-14f)
-  const outlet = [...routes.values()].some(r => r.file && r.children.length && /<Outlet\b/.test(componentsOf(r.file).src ?? "") && !/\bprops\.children\b/.test(componentsOf(r.file).src ?? ""));
+  // — itself, or through an `.rx` component it applies (2026-11-25)
+  const outlet = [...routes.values()].some(r => r.file && r.children.length && !/\bprops\.children\b/.test(componentsOf(r.file).src ?? "") && rxReach(r.file).some(f => /<Outlet\b/.test(componentsOf(f).src ?? "")));
   return { kind: "tanstack", pkg, imports: [stripExt(posix(source))], nodes: [root], through: outlet ? [{ name: "Outlet", from: pkg }] : [], problems };
 }
 const stripExt = f => f.replace(/\.(m?[jt]sx?|c[jt]s)$/, "");
@@ -197,9 +208,11 @@ function entryOf(file, routes, sourceAbs) {
   const c = componentsOf(file);
   if (!c.dflt) return { problem: `${path.basename(file)} has no default component to put around the routes` };
   const found = [];
-  for (const m of c.src.matchAll(/^import\s*\{([^}]*)\}\s*from\s*(["'])(\.[^"']*)\2/gm)) {
+  // the entry applies the router's component itself, or an `.rx` component it applies does (MO-14f, 2026-11-25)
+  for (const at of rxReach(file)) { const src = componentsOf(at).src ?? "";
+  for (const m of src.matchAll(/^import\s*\{([^}]*)\}\s*from\s*(["'])(\.[^"']*)\2/gm)) {
     if (m[3].endsWith(".rx")) continue;
-    const js = jsFile(path.resolve(path.dirname(file), m[3])); if (!js) continue;
+    const js = jsFile(path.resolve(path.dirname(at), m[3])); if (!js) continue;
     const text = fs.readFileSync(js, "utf8");
     const names = [...text.matchAll(/\bfrom\s*(["'])([^"']+)\1|\bimport\s*\(\s*(["'])([^"']+)\3/g)].map(x => x[2] ?? x[4]);
     const reads = names.some(spec => routes.imports.includes(spec) || (spec.startsWith(".") && [posix(path.resolve(path.dirname(js), spec)), stripExt(posix(path.resolve(path.dirname(js), spec)))].some(p => p === posix(sourceAbs) || p === stripExt(posix(sourceAbs)))));
@@ -207,11 +220,11 @@ function entryOf(file, routes, sourceAbs) {
     const decl = declBeside(js);
     for (const part of m[1].split(",").map(x => x.trim()).filter(Boolean)) {
       const [name, local = name] = part.split(/\s+as\s+/);
-      if (!new RegExp(`<${local.replace(/\$/g, "\\$")}[\\s/>]`).test(c.src)) continue;
+      if (!new RegExp(`<${local.replace(/\$/g, "\\$")}[\\s/>]`).test(src)) continue;
       const row = decl && rowOf(decl, name);
-      if (row) found.push({ name, from: m[3], abs: js, provides: row.provides });
+      if (row && !found.some(f => f.abs === js && f.name === name)) found.push({ name, from: m[3], abs: js, provides: row.provides });
     }
-  }
+  } }
   if (found.length !== 1) return { problem: `${path.basename(file)}: ${found.length ? `it applies ${found.map(f => f.name).join(" and ")}, each from a module that reads the routes` : "it applies no declared component of a JS module that imports the router's tree"}: which component renders the routes is then not the tool's to say (write the declaration by hand, without \`//@ routes\`)` };
   return { file, name: c.dflt, through: found[0] };
 }

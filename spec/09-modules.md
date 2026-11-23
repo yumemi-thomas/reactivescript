@@ -3257,13 +3257,40 @@ says what the host does, once, in the words a factory's row already has.
     writes one, had its pages checked under nothing at all (built: a root
     layout with every region removed, over a page that waits and rejects,
     was "ok" in both checkers).
-  - *Where it is applied.* In the view of the component the record names.
-    A component of the host's applied by another `.rx` component in
-    between (`Root` applies `<Frame />`, which applies `<Outlet />`) is
-    `Frame`'s, and `Root` is refused as rendering none: `Frame` takes the
-    outlet as its children. In a module checked on its own, outside the
-    host's view, such a component is the plain JS component its row
-    declares.
+  - *Where it is applied (revised 2026-11-25).* In the view of the
+    component the record names — or in the view of an `.rx` component
+    that one applies, to any depth: `Root` applies `<Frame />`, a
+    component of the app's own, which applies `<Outlet />`. Until
+    2026-11-25 that was `NESTED_NOT_RENDERED` on `Root` ("`Frame` takes
+    the outlet as its children"), a correct program refused: a router's
+    outlet renders the pages of the nearest route *above* it, which is
+    the layout that applied the frame, whatever `.rx` components are in
+    between. The checker reads those components, so it follows them: in
+    a host's view, **an `.rx` component whose view applies a component
+    the host renders through is itself one** — applied in another
+    component's view, it renders that component's children where its own
+    view applies the host's. The pages are then checked under what the
+    frame has around the outlet, under what the layout has around the
+    frame, and against the elements open above the outlet in both
+    (SV-7d). Which components those are is read off each module's tree
+    before it is walked (a component may be applied above its
+    declaration), by the tags its view writes; a tag that a component
+    declared *inside* that view also names is left out, and an imported
+    component carries it from its module's check (in memory: a host's
+    view is checked from source, and a module read by its printed
+    signature — an `.rx` package — is not followed, and its applier is
+    refused as before). Sound, and strict where it is not exact: a
+    component between that *also* reads its own `props.children` has the
+    pages checked at that place too (the same over-approximation a
+    record's own component has had since MO-14f), and one that is given
+    no children and applies nothing of the host's is still
+    `NESTED_NOT_RENDERED` — `Card`, which renders `props.children`, is
+    not an outlet. No word and no form; `rx-declare --host --routes`
+    finds the outlet, and the entry's router component, through the
+    `.rx` modules a layout or an entry imports. In a module checked on
+    its own, outside the host's view, such a component is the plain JS
+    component its row declares. S-module-40;
+    `bench/tasks/router-rx-routes` (the outlet in `src/frame.rx`).
 
   *The bar (MO-8r), applied to MO-14f (2026-11-23).* Programs built and
   run with the checker of `e30ca84` and with this one:

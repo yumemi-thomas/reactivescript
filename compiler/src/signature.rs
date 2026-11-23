@@ -76,6 +76,9 @@ pub struct CompSig {
     /// MO-11u: each place the component applies a component a declared fn `renders(…)` beneath, by that component's key
     /// (`declaration#Name`): what is discharged and provided between its children there and this component's root
     pub hosts: IndexMap<String, Vec<HostSite>>,
+    /// MO-14f (2026-11-25), in a host's view: the component's view applies a component the host renders through, so it
+    /// renders its applier's children there. Not printed: a host's view is checked from source
+    pub through: bool,
 }
 /// MO-11u: one application of a component a declared fn `renders(…)` beneath, as the components that fn is given see it.
 #[derive(Debug, Clone, PartialEq)]
@@ -600,7 +603,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_COMP.captures(&s) {
-            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), hosts: IndexMap::new() };
+            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), hosts: IndexMap::new(), through: false };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
                 let (fname0, spec) = match f.find(':') {

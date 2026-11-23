@@ -55,7 +55,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; };   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 /** MO-11u: one application of a component a declared fn `renders(…)` beneath, as the components that fn is given see it:
  *  what is discharged and provided between that application's children and the root of the component it is written in
  *  (in a module's own list: the program's). */
@@ -100,7 +100,7 @@ type Sym = {
   kind: SymKind; name: string; region: Region; line: number;
   question?: boolean;                  // source x = e
   eqDecl?: Extract<Decl, { k: "eq" }>;  // a declared equation: a guess may sit over it (AC-3, ST-5c)
-  through?: { ids: Extract<Expr, { k: "id" }>[]; env: Env; line: number; sites: Set<Expr>; exported: boolean };   // MO-11c: bound to a literal of components, read as the literal where it is given to a prop that holds components
+  lit?: { ids: Extract<Expr, { k: "id" }>[]; env: Env; line: number; sites: Set<Expr>; exported: boolean };   // MO-11c: bound to a literal of components, read as the literal where it is given to a prop that holds components
   io?: boolean;                        // calling it is io (R-io)
   param?: boolean;                     // a fn's parameter: never a write target (O-4)
   instantiating?: boolean;             // fn with ref params or declarations (E-9)
@@ -724,7 +724,7 @@ class Checker {
   private bind(env: Env, name: string, sym: Sym) { env.vars.set(name, sym); this.model.sym(sym); }
 
   run(p: Program) {
-    argCalls(p, this.argCalls); idCounts(p, this.idCounts);
+    argCalls(p, this.argCalls); idCounts(p, this.idCounts); this.throughPre(p);
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     // MO-1c: the runtime mounts the entry's default component, and no other module's — a dependency's is applied where an
@@ -739,7 +739,7 @@ class Checker {
     this.loadingOnOutside();
     this.guessWhileLoading();
     this.keptPeekCheck();
-    this.throughCheck();
+    this.litCheck();
   }
 
   // ---- AC-3a: a guess a click can make while its value loads a new question ----
@@ -1036,7 +1036,7 @@ class Checker {
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
-        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; { const ph = Object.entries(x.sig.props).flatMap(([k, v]) => (v.takes ?? []).map(([p, h, c]) => [`${k}.${p}`, h, c] as [string, boolean, string[]])); if (ph.length) this.propHeld.set(r, ph); } break; }   // E-5a
+        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; r.key = `${d.resolved}#${name}`; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(x.sig.through && this.opts.through?.size ? { through: true } : {}) }; { const ph = Object.entries(x.sig.props).flatMap(([k, v]) => (v.takes ?? []).map(([p, h, c]) => [`${k}.${p}`, h, c] as [string, boolean, string[]])); if (ph.length) this.propHeld.set(r, ph); } break; }   // E-5a
         case "context": sym = { kind: "context", name: alias, region: env.region, line: d.line, ctx: { key: x.key, source: x.source, dflt: x.dflt, contract: { rows: new Set(x.rows), fails: new Set(x.fails) }, ...(x.type !== undefined ? { ty: fieldRows(x.type).text } : {}) } }; break;
       }
       if (sym.kind === "source" || sym.kind === "eq" || sym.kind === "fn") sym.exportKey = `${d.resolved}#${name}`;   // E-5a
@@ -1224,7 +1224,7 @@ class Checker {
         case "action": exports.set(d.name, { kind: "action" }); break;
         case "server": exports.set(d.name, { kind: "server", io: !!s.io, params: (s.params ?? []).map(p => p.name), rejects: arr(s.serverRejects?.()) }); break;
         case "errclass": exports.set(d.name, { kind: "errclass", params: d.k === "error" ? d.params : [] }); break;
-        case "comp": exports.set(d.name, { kind: "comp", sig: s.factory?.exported ? { ...this.compSig!(s.factory.exported.compRegion!), made: true } : this.compSig!(s.compRegion!) }); break;   // MO-11j: a made component's summary is its wrapper's, and it is a JS component
+        case "comp": exports.set(d.name, { kind: "comp", sig: s.factory?.exported ? { ...this.compSig!(s.factory.exported.compRegion!), made: true } : { ...this.compSig!(s.compRegion!), ...(this.throughNames.has(d.name) ? { through: true } : {}) } }); break;   // MO-11j: a made component's summary is its wrapper's, and it is a JS component
         case "context": { const c = s.ctx!; exports.set(d.name, { kind: "context", key: c.key, source: c.source, dflt: c.dflt, rows: arr(c.contract?.rows), fails: arr(c.contract?.fails), type: d.k === "context" ? d.type?.replace(ROW_WORDS, "") : undefined }); break; }
       }
     }
@@ -1307,7 +1307,7 @@ class Checker {
           const h = made?.held?.[0];
           if (h) this.err("RESULT_AS_VALUE", "MO-10f", `${d.name} is a JS result whose fields hold or fail where each is read (${d.name}.${h[0]}), and a module's signature says nothing of a value's fields: export the field, \`export ${h[0].split(".").pop()} = ${d.name}.${h[0]}\`, which carries its rows`);
         }
-        if (made && !made.factory && (d.e.k === "rec" || d.e.k === "arr")) this.throughBinding(made, d, env);   // MO-11c: a literal of components bound to a name
+        if (made && !made.factory && (d.e.k === "rec" || d.e.k === "arr")) this.litBinding(made, d, env);   // MO-11c: a literal of components bound to a name
         if (d.e.k === "id" || d.e.k === "member" || d.e.k === "index") this.wholeOk.add(d.e);   // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
         { const ps = this.updaterPositions(d.name, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
           if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
@@ -2642,7 +2642,7 @@ class Checker {
       // `tabs={[First, Second]}`) — each component in the literal is a value there, applied as a direct one is
       if (!sig?.props[a.name]?.components) continue;
       // MO-11c (2026-11-25): … or the name of an equation bound to such a literal, read as the literal
-      if (a.e.k === "id") { const t = env.lookup(a.e.name)?.through; if (t && t.ids.every(x => env.lookup(x.name) === t.env.lookup(x.name))) { t.sites.add(a.e); for (const x of t.ids) { out.set(x, this.applied([x.name], m.line)[0]); escapes(x.name); } } continue; }
+      if (a.e.k === "id") { const t = env.lookup(a.e.name)?.lit; if (t && t.ids.every(x => env.lookup(x.name) === t.env.lookup(x.name))) { t.sites.add(a.e); for (const x of t.ids) { out.set(x, this.applied([x.name], m.line)[0]); escapes(x.name); } } continue; }
       const walk = (e: Expr) => {
         if (isComp(e)) { this.valueIds.add(e); out.set(e, this.applied([e.name], m.line)[0]); escapes(e.name); }
         else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
@@ -2654,10 +2654,10 @@ class Checker {
   }
   /** MO-11c (2026-11-25): an equation whose right side is a record or array literal with components in it
    *  (`builtins = { Heading }`) is read as that literal where it is given, by name, to a JS component's prop whose type
-   *  holds components. The components in it are values on that condition, held at the end of the module (throughCheck). */
+   *  holds components. The components in it are values on that condition, held at the end of the module (litCheck). */
   private idCounts = new Map<string, number>();
-  private throughs: Sym[] = [];
-  private throughBinding(made: Sym, d: Extract<Decl, { k: "eq" }>, env: Env) {
+  private lits: Sym[] = [];
+  private litBinding(made: Sym, d: Extract<Decl, { k: "eq" }>, env: Env) {
     const ids: Extract<Expr, { k: "id" }>[] = [];
     const walk = (e: Expr) => {
       if (e.k === "id") { if (/^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp" && !this.valueIds.has(e)) ids.push(e); }
@@ -2666,14 +2666,14 @@ class Checker {
     };
     walk(d.e); if (!ids.length) return;
     for (const x of ids) this.valueIds.add(x);
-    made.through = { ids, env, line: d.line, sites: new Set(), exported: !!d.exported };
-    this.throughs.push(made);
+    made.lit = { ids, env, line: d.line, sites: new Set(), exported: !!d.exported };
+    this.lits.push(made);
   }
   /** Every mention of the name is such a prop (counted over the module's whole tree, so a mention the walk does not
    *  resolve — a callee, a path, a name shadowed in between — counts against it), it is given to one, and it is not exported. */
-  private throughCheck() {
-    for (const s of this.throughs) {
-      const t = s.through!; const n = this.idCounts.get(s.name) ?? 0;
+  private litCheck() {
+    for (const s of this.lits) {
+      const t = s.lit!; const n = this.idCounts.get(s.name) ?? 0;
       if (!t.exported && t.sites.size > 0 && n === t.sites.size) continue;
       this.line = t.line;
       const why = t.exported ? "it is exported, and a signature says nothing of the components a value holds" : t.sites.size === 0 ? "it is given to no such prop" : "it is also read elsewhere";
@@ -2797,7 +2797,7 @@ class Checker {
           if (m.tag === "") { walk(m.children, anc, scoped, env); break; }
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag); if (s?.kind !== "comp") break; const S = this.shape(s);
-            if (s.through && this.propsNameOf(env) !== undefined) sh.childrenAt.push(anc);   // MO-14f: the component's children, rendered where it applies the host's own
+            if (this.isThrough(s) && this.propsNameOf(env) !== undefined) { if (s.compRegion?.js) sh.childrenAt.push(anc); else for (const at of S.childrenAt) sh.childrenAt.push([...anc, ...at]); }   // MO-14f: the component's children, rendered where it applies the host's own — or, through an `.rx` component that does, where that one places its own
             if (!anc.length) S.roots.forEach(r => roots.add(r));
             if (S.closesP && !scoped) sh.closesP = true; if (S.a) sh.a = true; if (S.form) sh.form = true;
             for (const ch of S.childrenAt) {                                               // the caller's children, where that component puts them
@@ -2828,8 +2828,40 @@ class Checker {
     for (let e: Env | null = env; e; e = e.parent) for (const [n, v] of e.vars) if (v.kind === "props" && v.region === c) return n;
     return undefined;
   }
+  /** MO-14f (2026-11-25): the components of this module, declared at its top, whose view applies a component the host
+   *  renders through — the host's own, or an `.rx` component that applies one, at any depth. Such a component renders its
+   *  applier's children where the host's component is: `Root` applies `<Frame />`, which applies `<Outlet />`. Read off
+   *  the module's tree before it is walked (a component may be applied above its declaration); a tag that a component
+   *  declared inside the view also names is left out. */
+  private throughNames = new Set<string>();
+  private throughPre(p: Program) {
+    if (!this.opts.through?.size) return;
+    const from = new Set<string>();
+    for (const d of p.decls) if (d.k === "import") for (const { name, alias } of d.names) {
+      if (d.resolved) { const x = this.opts.sigs?.get(d.resolved)?.exports.get(name); if (x?.kind === "comp" && x.sig.through) from.add(alias); }
+      else if (d.declared && this.opts.through.has(`${d.declared}#${name}`)) from.add(alias);
+    }
+    const comps = p.decls.flatMap(d => d.k === "component" ? [d] : []);
+    const tags = new Map<string, Set<string>>();
+    for (const d of comps) {
+      const applied = new Set<string>(); const inner = new Set<string>();
+      const walk = (v: unknown) => {
+        if (Array.isArray(v)) { v.forEach(walk); return; }
+        if (!v || typeof v !== "object") return;
+        const o = v as { k?: string; tag?: string; name?: string };
+        if (o.k === "el" && typeof o.tag === "string" && /^[A-Z]/.test(o.tag)) applied.add(o.tag);
+        if (o.k === "component" && typeof o.name === "string") inner.add(o.name);
+        Object.values(v).forEach(walk);
+      };
+      walk(d.decls); walk(d.view);
+      for (const n of inner) applied.delete(n);
+      tags.set(d.name, applied);
+    }
+    for (let grew = true; grew;) { grew = false; for (const d of comps) if (!this.throughNames.has(d.name) && !from.has(d.name) && [...tags.get(d.name)!].some(t => from.has(t) || this.throughNames.has(t))) { this.throughNames.add(d.name); grew = true; } }
+  }
+  private isThrough(s: Sym): boolean { return !!s.through || (s.kind === "comp" && this.throughNames.has(s.name) && this.rootEnv?.vars.get(s.name) === s); }
   private throughChildren(m: Markup, s: Sym, env: Env): Markup[] {
-    if (!s.through) return [];
+    if (!this.isThrough(s)) return [];
     const name = this.propsNameOf(env); if (name === undefined) return [];
     let r = [...this.throughReads.entries()].find(([, at]) => at === m)?.[0];
     if (!r) { r = { k: "read", e: { k: "member", o: { k: "id", name }, p: "children" }, line: m.line } as Markup; this.throughReads.set(r, m); }

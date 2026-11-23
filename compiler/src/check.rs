@@ -998,7 +998,7 @@ pub(crate) fn id_counts(v: &serde_json::Value, out: &mut HashMap<String, usize>)
 }
 /// MO-11c (2026-11-25): an equation bound to a record or array literal with components in it, read as that literal where
 /// it is given, by name, to a JS component's prop whose type holds components.
-struct Through {
+struct NamedLit {
     name: String,
     ids: Vec<(*const Expr, String)>,
     env: EId,
@@ -1882,7 +1882,10 @@ pub struct Checker<'a> {
     arg_calls: HashMap<String, Vec<(String, usize)>>,
     /// MO-11c (2026-11-25): each name's mentions in the module's tree, and the equations bound to a literal of components
     id_counts: HashMap<String, usize>,
-    throughs: IndexMap<SId, Through>,
+    /// MO-14f (2026-11-25): the components declared at this module's top whose view applies a component the host renders
+    /// through — the host's own, or an `.rx` component that applies one
+    through_names: HashSet<String>,
+    named_lits: IndexMap<SId, NamedLit>,
     /// …and the arguments so written that a draft-handing call took as its callback
     updater_ok: HashSet<*const Expr>,
     /// W-1a: the functions of functional writes of a source (`x := xs => …`): their parameter is the slot's value
@@ -2251,7 +2254,8 @@ impl<'a> Checker<'a> {
             view_props: HashMap::new(),
             arg_calls: HashMap::new(),
             id_counts: HashMap::new(),
-            throughs: IndexMap::new(),
+            through_names: HashSet::new(),
+            named_lits: IndexMap::new(),
             updater_ok: HashSet::new(),
             write_fns: HashSet::new(),
             advice: vec![],
@@ -2380,6 +2384,7 @@ impl<'a> Checker<'a> {
         let tree = p.to_json();
         arg_calls(&tree, &mut self.arg_calls);
         id_counts(&tree, &mut self.id_counts);
+        self.through_pre(p, &tree);
         let r = self.region(None, "program", false, None);
         let root = self.env(None, r);
         self.root_env = Some(root);
@@ -2405,13 +2410,13 @@ impl<'a> Checker<'a> {
         self.snapshot_guards();
         self.guess_while_loading();
         self.kept_peek_check();
-        self.through_check();
+        self.named_lit_check();
     }
     /// MO-11c (2026-11-25): the components in a literal bound to a name are values on a condition — every mention of the
     /// name is the whole value of a prop that holds components (counted over the module's whole tree, so a mention the walk
     /// does not resolve counts against it), it is given to one, and it is not exported.
-    fn through_check(&mut self) {
-        let ts: Vec<(String, Vec<String>, i64, bool, usize)> = self.throughs.values().map(|t| (t.name.clone(), t.ids.iter().map(|x| x.1.clone()).collect(), t.line, t.exported, t.sites.len())).collect();
+    fn named_lit_check(&mut self) {
+        let ts: Vec<(String, Vec<String>, i64, bool, usize)> = self.named_lits.values().map(|t| (t.name.clone(), t.ids.iter().map(|x| x.1.clone()).collect(), t.line, t.exported, t.sites.len())).collect();
         for (name, ids, line, exported, sites) in ts {
             let n = self.id_counts.get(&name).copied().unwrap_or(0);
             if !exported && sites > 0 && n == sites {
@@ -2424,7 +2429,84 @@ impl<'a> Checker<'a> {
             }
         }
     }
-    fn through_binding(&mut self, made: SId, name: &str, e: &'a Expr, env: EId, line: i64, exported: bool) {
+    /// MO-14f (2026-11-25): read off the module's tree before it is walked (a component may be applied above its
+    /// declaration); a tag that a component declared inside the view also names is left out.
+    fn through_pre(&mut self, p: &'a Program, tree: &serde_json::Value) {
+        if self.opts.through.is_empty() {
+            return;
+        }
+        let mut from: HashSet<String> = HashSet::new();
+        for d in &p.decls {
+            if let Decl::Import { names, resolved, declared, .. } = d {
+                for ImportName { name, alias } in names {
+                    if let Some(r) = resolved {
+                        if matches!(self.opts.sigs.get(r).and_then(|m| m.exports.get(name)), Some(ExportSig::Comp { sig }) if sig.through) {
+                            from.insert(alias.clone());
+                        }
+                    } else if let Some(dts) = declared {
+                        if self.opts.through.contains(&format!("{dts}#{name}")) {
+                            from.insert(alias.clone());
+                        }
+                    }
+                }
+            }
+        }
+        fn walk(v: &serde_json::Value, applied: &mut HashSet<String>, inner: &mut HashSet<String>) {
+            match v {
+                serde_json::Value::Array(xs) => xs.iter().for_each(|x| walk(x, applied, inner)),
+                serde_json::Value::Object(o) => {
+                    match o.get("k").and_then(|k| k.as_str()) {
+                        Some("el") => {
+                            if let Some(t) = o.get("tag").and_then(|t| t.as_str()).filter(|t| is_upper_tag(t)) {
+                                applied.insert(t.to_string());
+                            }
+                        }
+                        Some("component") => {
+                            if let Some(n) = o.get("name").and_then(|n| n.as_str()) {
+                                inner.insert(n.to_string());
+                            }
+                        }
+                        _ => {}
+                    }
+                    o.values().for_each(|x| walk(x, applied, inner));
+                }
+                _ => {}
+            }
+        }
+        let mut tags: Vec<(String, HashSet<String>)> = vec![];
+        for d in tree.get("decls").and_then(|d| d.as_array()).map(|d| d.as_slice()).unwrap_or(&[]) {
+            if d.get("k").and_then(|k| k.as_str()) != Some("component") {
+                continue;
+            }
+            let Some(name) = d.get("name").and_then(|n| n.as_str()) else { continue };
+            let (mut applied, mut inner) = (HashSet::new(), HashSet::new());
+            for part in ["decls", "view"] {
+                if let Some(v) = d.get(part) {
+                    walk(v, &mut applied, &mut inner);
+                }
+            }
+            for n in &inner {
+                applied.remove(n);
+            }
+            tags.push((name.to_string(), applied));
+        }
+        loop {
+            let mut grew = false;
+            for (name, applied) in &tags {
+                if !self.through_names.contains(name) && !from.contains(name) && applied.iter().any(|t| from.contains(t) || self.through_names.contains(t)) {
+                    self.through_names.insert(name.clone());
+                    grew = true;
+                }
+            }
+            if !grew {
+                break;
+            }
+        }
+    }
+    fn is_through(&self, s: SId) -> bool {
+        self.syms[s].through || (self.syms[s].kind == SymKind::Comp && self.through_names.contains(&self.syms[s].name) && self.root_env.is_some_and(|r| self.envs[r].vars.get(self.syms[s].name.as_str()) == Some(&s)))
+    }
+    fn named_lit_binding(&mut self, made: SId, name: &str, e: &'a Expr, env: EId, line: i64, exported: bool) {
         fn walk(c: &Checker, e: &Expr, env: EId, out: &mut Vec<(*const Expr, String)>) {
             match &e.k {
                 ExprKind::Id(n) => {
@@ -2457,14 +2539,14 @@ impl<'a> Checker<'a> {
         for (at, _) in &ids {
             self.value_ids.insert(*at);
         }
-        self.throughs.insert(made, Through { name: name.to_string(), ids, env, line, sites: HashSet::new(), exported });
+        self.named_lits.insert(made, NamedLit { name: name.to_string(), ids, env, line, sites: HashSet::new(), exported });
     }
     /// The equation a prop's argument names, where it is one read as its literal here: every component in it is the
     /// same component at this place as where it was bound.
-    fn through_at(&self, e: &Expr, env: EId) -> Option<SId> {
+    fn named_lit_at(&self, e: &Expr, env: EId) -> Option<SId> {
         let ExprKind::Id(n) = &e.k else { return None };
         let s = self.lookup(env, n)?;
-        let t = self.throughs.get(&s)?;
+        let t = self.named_lits.get(&s)?;
         t.ids.iter().all(|(_, x)| self.lookup(env, x) == self.lookup(t.env, x)).then_some(s)
     }
     fn run_later(&mut self, job: Later<'a>) {
@@ -2655,7 +2737,7 @@ impl<'a> Checker<'a> {
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
                             props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, components: false, takes: vec![] });
-                            self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new(), hosts: IndexMap::new() });
+                            self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new(), hosts: IndexMap::new(), through: false });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
                             sym.factory = Some((args.as_slice(), env));
@@ -2844,6 +2926,7 @@ impl<'a> Checker<'a> {
                     }
                     let mut s = Sym::new(SymKind::Comp, alias, region, line);
                     s.comp_region = Some(r);
+                    s.through = sig.through && !self.opts.through.is_empty(); // MO-14f: an `.rx` component that applies the host's own
                     s
                 }
                 ExportSig::Context { key, source, dflt, rows, fails, ty } => {
@@ -2929,7 +3012,7 @@ impl<'a> Checker<'a> {
                 }
                 let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                 let r = c.region(None, "imported", true, Some(alias.to_string()));
-                c.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new(), hosts: IndexMap::new() });
+                c.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new(), hosts: IndexMap::new(), through: false });
                 // MO-11u: its applications are where a fn's components render
                 if decls.iter().any(|y| matches!(y, JsDecl::Fn { renders: Some(h), .. } if h == xname)) {
                     c.regions[r].host_key = Some(format!("{}#{}", declared, xname));
@@ -3344,6 +3427,7 @@ impl<'a> Checker<'a> {
                     let r = self.syms[s].exported_as.and_then(|w| self.syms[w].comp_region).or(self.syms[s].comp_region).unwrap();
                     let mut sig = self.comp_sig(r);
                     sig.made = self.syms[s].exported_as.is_some(); // a JS component
+                    sig.through = self.through_names.contains(d.name().unwrap_or_default());
                     ExportSig::Comp { sig }
                 }
                 SymKind::Context => {
@@ -3571,7 +3655,7 @@ impl<'a> Checker<'a> {
                 if matches!(e.k, ExprKind::Rec(_) | ExprKind::Arr(_)) {
                     if let Some(&made) = self.envs[env].vars.get(name.as_str()) {
                         if self.syms[made].factory.is_none() {
-                            self.through_binding(made, name, e, env, d.line() as i64, d.exported());
+                            self.named_lit_binding(made, name, e, env, d.line() as i64, d.exported());
                         }
                     }
                 }
@@ -6424,8 +6508,8 @@ impl<'a> Checker<'a> {
                         if let Some(sig) = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.regions[r].sig.as_ref()) {
                             let held: Vec<&'a Attr> = attrs.iter().filter(|a| sig.props.get(&a.name).is_some_and(|p| p.components)).collect();
                             for a in held {
-                                if let Some(t) = self.through_at(&a.e, env) {
-                                    self.throughs[&t].sites.insert(&a.e as *const Expr);
+                                if let Some(t) = self.named_lit_at(&a.e, env) {
+                                    self.named_lits[&t].sites.insert(&a.e as *const Expr);
                                 }
                             }
                         }
@@ -6488,7 +6572,7 @@ impl<'a> Checker<'a> {
                             }
                             self.markup(children, kenv, false);
                             // MO-14f: the host renders this component's children through the one applied here
-                            if self.syms[s.unwrap()].through {
+                            if self.is_through(s.unwrap()) {
                                 if let Some(c) = self.regions[region].component {
                                     self.through_reads.push((kids, c));
                                 }
@@ -6744,8 +6828,8 @@ impl<'a> Checker<'a> {
                 continue;
             }
             // MO-11c (2026-11-25): … or the name of an equation bound to such a literal, read as the literal
-            if let Some(t) = self.through_at(&a.e, env) {
-                for (at, n) in &self.throughs[&t].ids {
+            if let Some(t) = self.named_lit_at(&a.e, env) {
+                for (at, n) in &self.named_lits[&t].ids {
                     out.push((None, VTree { tag: n.clone(), kids: vec![] }, *at));
                 }
                 continue;
@@ -7074,8 +7158,15 @@ impl<'a> Checker<'a> {
         }
         let ss = self.shape(s);
         // MO-14f: the component's children, rendered where it applies the host's own
-        if self.syms[s].through && self.regions[self.reg(env)].component.is_some() {
-            sh.children_at.push(anc.to_vec());
+        // … or, through an `.rx` component that does, where that one places its own
+        if self.is_through(s) && self.regions[self.reg(env)].component.is_some() {
+            if self.syms[s].comp_region.is_some_and(|r| self.regions[r].js) {
+                sh.children_at.push(anc.to_vec());
+            } else {
+                for at in &ss.children_at {
+                    sh.children_at.push(anc.iter().chain(at.iter()).cloned().collect());
+                }
+            }
         }
         if anc.is_empty() {
             for r in &ss.roots {
@@ -8519,7 +8610,7 @@ impl<'a> Checker<'a> {
             }
         }
         let hosts = self.sites_record(Some(g));
-        CompSig { made: false, own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored, hosts }
+        CompSig { made: false, own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored, hosts, through: false }
     }
 }
 

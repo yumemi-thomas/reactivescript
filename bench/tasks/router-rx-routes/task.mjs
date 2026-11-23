@@ -10,7 +10,8 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = "src/routes/__root.rx", HOME = "src/routes/index.rx", PERSON = "src/routes/people.$id.rx";
-const REGIONS = "errored fallback(e: NotFound) { <p class=\"missing\">{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main><Outlet /></main> }\n  }";
+const REGIONS = "errored fallback(e: NotFound) { <p class=\"missing\">{e.message}</p> } { <Frame /> }";
+const PAGE_FRAME = "src/frame.rx";   // the app's frame around the router's <Outlet />, a module away from the layout that applies it (09 MO-14f)
 const FRAME = '<Shell title="Directory"><AppRouter /></Shell>';
 const vite = dir => path.join(dir, "../../node_modules/vite/bin/vite.js");
 const listening = child => new Promise((resolve, reject) => { child.stdout.on("data", d => { const m = /listening (\d+)/.exec(String(d)); if (m) resolve(Number(m[1])); }); child.on("exit", c => reject(new Error(`server exited ${c}`))); });
@@ -28,14 +29,16 @@ export default {
     { name: "the answer keeps the backend's type in the page", file: PERSON, edit: ["<p>{person.role}, #{params.id}</p>", "<p>{person.rank}, #{params.id}</p>"], expect: /TS2339/ },
   ],
   bad: [
-    { name: "a page that can fail, with no errored region around the layout's outlet", file: ROOT, entry: ROOT, edit: [REGIONS, "loading fallback { <p>loading…</p> } { <main><Outlet /></main> }"], expect: "UNHANDLED_FAILURE" },
+    { name: "a page that can fail, with no errored region around the layout's frame (the outlet is in it)", file: ROOT, entry: ROOT, edit: [REGIONS, "<Frame />"], expect: "UNHANDLED_FAILURE" },
     { name: "a router hook called outside the provider (in the app, above the Shell)", edit: ["export default component App() {\n", "export default component App() {\n  where = useParams({ from: \"/people/$id\" })\n"], edit2: ['import { AppRouter } from "./router.tsx"', 'import { AppRouter } from "./router.tsx"\nimport { useParams } from "@tanstack/solid-router"'], expect: "CONTEXT_NOT_FOUND" },
     { name: "a link beside the router, in the app's frame (it reads the router's context)", edit: [FRAME, '<Shell title="Directory"><Link to="/">Home</Link><AppRouter /></Shell>'], edit2: ['import { AppRouter } from "./router.tsx"', 'import { AppRouter } from "./router.tsx"\nimport { Link } from "@tanstack/solid-router"'], expect: "CONTEXT_NOT_FOUND" },
     { name: "a route file's page applied by hand as well as routed, outside the router", edit: [FRAME, `${FRAME}\n  <Person />`], edit2: ['import { AppRouter } from "./router.tsx"', 'import { AppRouter } from "./router.tsx"\nimport { Person } from "./routes/people.$id.rx"'], expect: "CONTEXT_NOT_FOUND" },
-    { name: "a client-only build with no loading above a page that waits", file: ROOT, entry: ROOT, edit: ["loading fallback { <p>loading…</p> } { <main><Outlet /></main> }", "<main><Outlet /></main>"], expect: "ASYNC_OUTSIDE_LOADING_BOUNDARY" },
+    { name: "a client-only build with no loading above a page that waits (the frame's region, around its outlet)", file: PAGE_FRAME, entry: ROOT, edit: ["loading fallback { <p>loading…</p> } { <main><Outlet /></main> }", "<main><Outlet /></main>"], expect: "ASYNC_OUTSIDE_LOADING_BOUNDARY" },
+    { name: "the frame's outlet beside its region, not in it", file: PAGE_FRAME, entry: ROOT, edit: ["loading fallback { <p>loading…</p> } { <main><Outlet /></main> }", "loading fallback { <p>loading…</p> } { <p>ready</p> }\n  <main><Outlet /></main>"], expect: "ASYNC_OUTSIDE_LOADING_BOUNDARY" },
     { name: "the app's provision removed: a route file under the router reads it", edit: ['  provide team = { name: "Directory" }\n', ""], expect: "CONTEXT_NOT_FOUND" },
-    { name: "the layout's outlet beside its regions, not in them", file: ROOT, entry: ROOT, edit: [REGIONS, 'errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <p>ready</p> }\n  }\n  <main><Outlet /></main>'], expect: "UNHANDLED_FAILURE" },
-    { name: "the root route renders no outlet: its pages would never show", file: ROOT, entry: ROOT, edit: ["<main><Outlet /></main>", "<main>no pages</main>"], expect: "NESTED_NOT_RENDERED" },
+    { name: "the layout's frame beside its region, not in it", file: ROOT, entry: ROOT, edit: [REGIONS, 'errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } { <p>ready</p> }\n  <Frame />'], expect: "UNHANDLED_FAILURE" },
+    { name: "the frame renders no outlet: the root route's pages would never show", file: PAGE_FRAME, entry: ROOT, edit: ["<main><Outlet /></main>", "<main>no pages</main>"], expect: "NESTED_NOT_RENDERED" },
+    { name: "the root route applies a component that renders its own children, given none, and no frame: no outlet either", file: ROOT, entry: ROOT, edit: ["{ <Frame /> }", "{ <Shell title=\"none\" /> }"], edit2: ['import { Frame } from "../frame.rx"', 'import { Shell } from "../shell.rx"'], expect: "NESTED_NOT_RENDERED" },
     // the declaration is derived from the generated tree (`//@ routes`, 09 MO-14g): one that falls behind is refused
     { name: "a route file added, and the host's declaration not written again: the build refuses the stale one", add: ["src/routes/about.rx", "export default component About() {\n  <h1>About</h1>\n}\n"], build: /HOST_VIEW_STALE[\s\S]*About is a route/ },
     { name: "the host's declaration edited by hand: a page taken out of the root route's children", file: "src/host.d.rx", edit: ["{ component: Root, children: [{ component: Home }, { component: Person }] }", "{ component: Root, children: [{ component: Home }] }, { component: Person }"], gate: /HOST_VIEW_STALE.*Person is among Root's children/ },

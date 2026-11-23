@@ -374,6 +374,26 @@ export const units: [string, () => void][] = [
     deepStrictEqual(diags(entry(UNDER, ENTRY("  at = useParams()\n"))), ["CONTEXT_NOT_FOUND@host.d.rx:6"]);
     deepStrictEqual(diags(entry(UNDER, ENTRY("", "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>…</p> } { <AppRouter /> }\n"))), ["UNHANDLED_FAILURE@host.d.rx:6"]);
     deepStrictEqual(diags(entry(UNDER.replace("import { AppRouter } from \"./router.js\"\n", ""))), ["NESTED_NOT_RENDERED@host.d.rx:5"]);
+    // MO-14f (2026-11-25): an `.rx` component between the layout and the host's own — `Layout` applies `<Frame />`, which
+    // applies `<Outlet />` — renders the layout's pages there: under what the frame has around the outlet, and what the
+    // layout has around the frame. It was NESTED_NOT_RENDERED on the layout
+    const FRAME = "component Frame() {\n  <main><Outlet /></main>\n}\n";
+    const VIA = (frame = FRAME, body = "  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <Frame /> }\n  }\n") => "import { Outlet } from \"../router.js\"\nimport { NotFound } from \"../people.js\"\nexport default component Layout() {\n" + body + "}\n" + frame;
+    deepStrictEqual([diags(outlet(THROUGH, VIA())), diags(outlet(THROUGH, VIA()), "/app/src/routes/layout.rx", true)], [[], []]);   // declared below the layout that applies it
+    deepStrictEqual(diags(outlet(THROUGH, VIA(FRAME, "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>loading…</p> } { <Frame /> }\n"))), ["UNHANDLED_FAILURE@host.d.rx:7"]);   // the frame beside the layout's region
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } { loading fallback { <p>…</p> } { <main><Outlet /></main> } }\n}\n", "  <Frame />\n")), "/app/src/routes/person.rx", true), []);   // the regions are the frame's own
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  <main><Outlet /></main>\n}\n", "  <Frame />\n"))), ["UNHANDLED_FAILURE@host.d.rx:7"]);   // … and beside its outlet they hold nothing
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  <Inner />\n}\ncomponent Inner() {\n  <main><Outlet /></main>\n}\n"))), []);   // two components between
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  <main>no outlet</main>\n}\n"))), ["NESTED_NOT_RENDERED@host.d.rx:7"]);   // a frame with no outlet renders none
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame(props: { children?: View }) {\n  <main>{props.children}</main>\n}\n"))), ["NESTED_NOT_RENDERED@host.d.rx:7"]);   // a component that renders its own children, given none, is not one the host renders through
+    deepStrictEqual(diags(outlet(HOST, VIA())), ["NESTED_NOT_RENDERED@host.d.rx:6"]);   // … nor is the frame, where the declaration does not import the outlet
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  <p><Outlet /></p>\n}\n"))), diags(outlet(THROUGH, OUTLET.replace("<main><Outlet /></main>", "<p><Outlet /></p>"))).map(d => d.replace(/:\d+$/, ":7")));   // SV-7d: the pages are placed inside what the frame has around its outlet, as with the outlet written in the layout
+    { // the frame in a module of its own, and the app's own component reaching the router through one
+      const far = (frame: string) => { const fs = outlet(THROUGH, "import { Frame } from \"./frame.rx\"\nimport { NotFound } from \"../people.js\"\nexport default component Layout() {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <Frame /> }\n  }\n}\n"); return (p: string) => p === "/app/src/routes/frame.rx" ? frame : fs(p); };
+      deepStrictEqual([diags(far("import { Outlet } from \"../router.js\"\nexport component Frame() {\n  <main><Outlet /></main>\n}\n")), diags(far("export component Frame() {\n  <main>none</main>\n}\n"))], [[], ["NESTED_NOT_RENDERED@host.d.rx:7"]]);
+      const SHELL = "component Shell() {\n  <div class=\"shell\"><AppRouter /></div>\n}\n";
+      deepStrictEqual([diags(entry(UNDER, ENTRY("", HELD.replace("<AppRouter />", "<Shell />")) + SHELL)), diags(entry(UNDER, ENTRY("", "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>…</p> } { <Shell /> }\n") + SHELL))], [[], ["UNHANDLED_FAILURE@host.d.rx:6"]]);
+    }
     // what is imported from JavaScript is a component its module's declaration declares
     const fails = (host: string) => { try { loadModules("/app/src/routes/person.rx", outlet(host)); return ""; } catch (e) { return (e as { code?: string }).code ?? "?"; } };
     deepStrictEqual([fails(THROUGH.replace("{ Outlet }", "{ Inlet }")), fails(THROUGH.replace("\"./router.js\"\nexport", "\"./nowhere.js\"\nexport")), fails(THROUGH)], ["NOT_EXPORTED", "NOT_EXPORTED", ""]);

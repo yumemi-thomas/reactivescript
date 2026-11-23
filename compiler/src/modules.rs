@@ -798,6 +798,45 @@ mod tests {
         assert_eq!(diags(&entry(UNDER, &main("  at = useParams()\n", HELD)), PERSON, false, false), ["CONTEXT_NOT_FOUND@host.d.rx:6"]);
         assert_eq!(diags(&entry(UNDER, &main("", "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>…</p> } { <AppRouter /> }\n")), PERSON, false, false), ["UNHANDLED_FAILURE@host.d.rx:6"]);
         assert_eq!(diags(&entry(&UNDER.replace("import { AppRouter } from \"./router.js\"\n", ""), &main("", HELD)), PERSON, false, false), ["NESTED_NOT_RENDERED@host.d.rx:5"]);
+        // MO-14f (2026-11-25): an `.rx` component between the layout and the host's own — `Layout` applies `<Frame />`,
+        // which applies `<Outlet />` — renders the layout's pages there: under what the frame has around the outlet, and
+        // what the layout has around the frame. It was NESTED_NOT_RENDERED on the layout
+        const FRAME: &str = "component Frame() {\n  <main><Outlet /></main>\n}\n";
+        const HELD_FRAME: &str = "  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <Frame /> }\n  }\n";
+        let via = |frame: &str, body: &str| format!("import {{ Outlet }} from \"../router.js\"\nimport {{ NotFound }} from \"../people.js\"\nexport default component Layout() {{\n{body}}}\n{frame}");
+        // declared below the layout that applies it
+        assert_eq!(diags(&outlet(&through, &via(FRAME, HELD_FRAME)), PERSON, false, false), none);
+        assert_eq!(diags(&outlet(&through, &via(FRAME, HELD_FRAME)), "/app/src/routes/layout.rx", true, false), none);
+        // the frame beside the layout's region
+        assert_eq!(diags(&outlet(&through, &via(FRAME, "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>loading…</p> } { <Frame /> }\n")), PERSON, false, false), ["UNHANDLED_FAILURE@host.d.rx:7"]);
+        // the regions are the frame's own
+        assert_eq!(diags(&outlet(&through, &via("component Frame() {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } { loading fallback { <p>…</p> } { <main><Outlet /></main> } }\n}\n", "  <Frame />\n")), PERSON, true, false), none);
+        // … and beside its outlet they hold nothing
+        assert_eq!(diags(&outlet(&through, &via("component Frame() {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  <main><Outlet /></main>\n}\n", "  <Frame />\n")), PERSON, false, false), ["UNHANDLED_FAILURE@host.d.rx:7"]);
+        // two components between
+        assert_eq!(diags(&outlet(&through, &via("component Frame() {\n  <Inner />\n}\ncomponent Inner() {\n  <main><Outlet /></main>\n}\n", HELD_FRAME)), PERSON, false, false), none);
+        // a frame with no outlet renders none
+        assert_eq!(diags(&outlet(&through, &via("component Frame() {\n  <main>no outlet</main>\n}\n", HELD_FRAME)), PERSON, false, false), ["NESTED_NOT_RENDERED@host.d.rx:7"]);
+        // a component that renders its own children, given none, is not one the host renders through
+        assert_eq!(diags(&outlet(&through, &via("component Frame(props: { children?: View }) {\n  <main>{props.children}</main>\n}\n", HELD_FRAME)), PERSON, false, false), ["NESTED_NOT_RENDERED@host.d.rx:7"]);
+        // … nor is the frame, where the declaration does not import the outlet
+        assert_eq!(diags(&outlet(HOST, &via(FRAME, HELD_FRAME)), PERSON, false, false), ["NESTED_NOT_RENDERED@host.d.rx:6"]);
+        // SV-7d: the pages are placed inside what the frame has around its outlet, as with the outlet written in the layout
+        assert_eq!(diags(&outlet(&through, &via("component Frame() {\n  <p><Outlet /></p>\n}\n", HELD_FRAME)), PERSON, false, false), ["CONTENT_MODEL@host.d.rx:7"; 4]);
+        assert_eq!(diags(&outlet(&through, &outlet_layout.replace("<main><Outlet /></main>", "<p><Outlet /></p>")), PERSON, false, false).len(), 4);
+        {
+            // the frame in a module of its own, and the app's own component reaching the router through one
+            let far = |frame: &str| -> Vec<(String, String)> {
+                let mut fs = outlet(&through, "import { Frame } from \"./frame.rx\"\nimport { NotFound } from \"../people.js\"\nexport default component Layout() {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <Frame /> }\n  }\n}\n");
+                fs.push(("/app/src/routes/frame.rx".into(), frame.into()));
+                fs
+            };
+            assert_eq!(diags(&far("import { Outlet } from \"../router.js\"\nexport component Frame() {\n  <main><Outlet /></main>\n}\n"), PERSON, false, false), none);
+            assert_eq!(diags(&far("export component Frame() {\n  <main>none</main>\n}\n"), PERSON, false, false), ["NESTED_NOT_RENDERED@host.d.rx:7"]);
+            const SHELL: &str = "component Shell() {\n  <div class=\"shell\"><AppRouter /></div>\n}\n";
+            assert_eq!(diags(&entry(UNDER, &(main("", &HELD.replace("<AppRouter />", "<Shell />")) + SHELL)), PERSON, false, false), none);
+            assert_eq!(diags(&entry(UNDER, &(main("", "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>…</p> } { <Shell /> }\n") + SHELL)), PERSON, false, false), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+        }
         // what is imported from JavaScript is a component its module's declaration declares
         let fails = |host: &str| -> &'static str {
             let fs = outlet(host, &outlet_layout);
