@@ -508,3 +508,37 @@ or an app imports:
 
 Nothing here is a proposal to Solid.
 
+## Words read from JSX and from contexts, for a package (2026-11-27)
+
+09 MO-8w (a fifteenth round: `handler` through JSX, `uses(c)`,
+`provides(c)`, a value made by a call, the audit, no mark in the file)
+again changes nothing a package written in `.rx` ships: its contexts
+are `context` declarations, its components' `uses` and `provides` are
+inferred from their bodies by the checker (RG-7, MO-9), and its printed
+signature says them. Three things on the other side:
+
+- **A context of a JS dependency is named by the draft.** A generated
+  declaration (MO-8l) of a JS package now has `export context tabs`
+  with `provides(tabs)` on the root and `uses(tabs)` on the parts and
+  the hooks, where the code shows both. An `.rx` package that renders a
+  JS kit's part outside its root is refused where it is written,
+  without a `rx-types/` file of the package's own.
+- **The mark is gone, so a shipped declaration carries nothing extra.**
+  A package that ships a hand-written `.d.rx` for JavaScript of its own
+  (MO-10c) no longer keeps `//@ inferred` lines: `rx-verify` reads the
+  package's code again and tells the words it proves from the ones
+  written by hand; `rx-declare --audit` in the package's CI fails on a
+  word its own code contradicts.
+- **A context is declared once per declaration file, still.** The
+  draft names a context only in the module that makes it and shows a
+  provider of it. A package with several entries that share one
+  context (a kit with a subpath a component) gets a row in each entry's
+  draft, each with its own key: an app that takes the root from one
+  entry and a part from another is refused, though it is correct. The
+  form that says it — `export context c from "<entry>"` (MO-12e) —
+  needs a choice of which entry owns the context, and the draft does
+  not make it; a signature printed for an `.rx` package has no such
+  question (its key is the module's path).
+
+Nothing here is a proposal to Solid.
+

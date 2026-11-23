@@ -1231,7 +1231,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   is for a row written by hand (MO-10b). `rx-verify`'s comparison of the
   two sides (SV-7c) is run on an inferred `pure` as on any.
 
-  **How it is marked.** The row is the notation's: no new word, no new
+  **How it is marked** *(revised 2026-11-27, MO-8w: the line below is
+  no longer written — which words the code proves is read from the code
+  again wherever it is asked, and a draft says it once at its head).*
+  The row is the notation's: no new word, no new
   form (MO-8r), read by both checkers as any row (08 CN-8: nothing in a
   checker knows a word was inferred, and nothing in the reading names a
   package). Above it, one line: `//@ inferred fetchPerson: pure,
@@ -1306,6 +1309,193 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   (rx-tsc over the crate, `ref/`'s checker) with a program accepted for
   an inferred word and one refused for a word withheld; and `rx-verify`
   over rows that claim what their code does not do.
+
+- **MO-8w (Words read from JSX, from a context, from a call's result;
+  the audit; no mark in the file) — 2026-11-27.** MO-8v left four things
+  to a person that are in the code as plainly as a write to an argument
+  is: a prop that reaches an element's event (`handler`), a context a
+  hook reads (`uses(c)`), a provider around what a component is given
+  (`provides(c)`), and every row whose export is a value made by a call
+  (`export const Toggle = rootScope(function Toggle(props) { … })`,
+  `export const easeIn = named(bezier(0.42, 0, 1, 1), "easeIn")`). This
+  rule reads them. The bar is MO-8v's, unchanged: **a word is written
+  only where the code proves it**, and what the reading cannot see
+  through is a refusal with its place.
+
+  *What is taken as known* is Solid's and `@solidjs/web`'s, never a
+  package's (08 CN-8): a lower-case tag is an element; an element's
+  `on…` prop is its listener (`onClick={f}`, `onClick={[f, data]}`), its
+  `ref` is called when the element is made, its `children` are rendered
+  (a function among them is called in a computation), any other prop is
+  an attribute; `{...record}` on an element is each of those by its
+  name; `createComponent(Tag, { … })` is JSX written out, for a package
+  that ships JavaScript; a context is its own provider (`<C value={v}>`),
+  and what is written among its children is made beneath it;
+  `useContext(C)` throws where nothing above provides `C` and
+  `createContext` was given no default — `undefined` is none, `null` is
+  a value; `omit` and `merge` hand back a record that reads nothing
+  until it is asked; a memo computes when it is made unless it is made
+  `lazy`; `sharedConfig.hydrating` is a test of when the code runs, as
+  `isServer` is of where.
+
+  | word | proven when | refused by, for instance |
+  | --- | --- | --- |
+  | `handler` on a prop (and on a callback of a record a fn is given) | MO-8v's rule, followed further: the callback reaches an element's `on…` or `ref` — as an attribute, in `[f, data]`, in a closure written there, through a record spread on the element, through `omit`, `merge`, `{ ...props }`, a rest pattern, through a component of the module it is given to as a prop or by a spread (read as that component reads it), or through `Object.entries`/`values`/`keys` of the record where each value goes to a listener | a call while the component renders (`props.onPress()`, `title={props.label()}`, `{props.render()}`); `children` spread on an element (rendered: called in a computation); a component that is not read (`<Mystery onPress={…}>`, a dynamic tag); a prop that is no event of the element; a field `omit` took off (never called: no word) |
+  | `uses(c)` on a fn, on a component | `useContext(C)` is evaluated on **every** path of the call — a statement of the body that no branch, loop, `try`, `&&`, `?.` or earlier `return` can skip; inside `untrack`, `createRoot`, a memo that is not lazy; through the module's own functions, each read the same way; a component it hands back as its root — and `C` has no default, or has `null` and the code throws on it (`if (!c) throw …`). And a row of the same draft is proven to `provides(c)` | on one path only (a prop decides, an early `return`, a `catch` around it); in a function it hands back or keeps (read when that is called); in an effect; under `runWithOwner(owner, …)` (looked up from that owner: a provider above the call does not answer it); beneath a provider the function renders itself (not from above); a context with a default; a context the code does not show to be the module's (another package's, one looked up by a key) |
+  | `provides(c)` on a component | a provider of `C` is written in the function, and every use of its props that may be of a view — a prop whose type is an element, a component, a function that gives one, a list or a record of those, or is not known; the record whole, unless `omit` took every such field off it first — is written among that provider's children, or in the `value` it is given. A component that gives its props whole to another of the module (`return <Shell {...props} />`, a factory's `render(props)`) provides what that one does | `props.children` read anywhere else: before the provider (`const kids = props.children`), in a destructured parameter, in `children(() => props.children)` made outside, on a branch without the provider, beside it (`<><C value={v}><Header /></C>{props.children}</>`); a view prop rendered outside it; the props given whole to code that is not read |
+
+  **Why the JSX itself is read, not what Solid's compiler makes of
+  it.** `@solidjs/compiler` (Solid 2's Oxc compiler, `transform()`) was
+  tried: it emits two programs for one source — the DOM's and the
+  server's — and they disagree on exactly what is asked here (the
+  server's has no event at all: `onClick` is not in it; its props are
+  hoisted into constructors whose getters read `this`), each in shapes
+  that are that compiler version's (`_$spread`, `_$insert`, `_$ref`,
+  templates). A reading of the output would be a reading of two
+  programs and of a version; the source is one program, the facts above
+  are Solid's documented contract for it, and `rx-declare` then needs no
+  native addon where a draft is made. What runs is still what is held
+  to: `rx-verify` imports the module as an app's bundler would have it
+  (compiled by the project's Solid compiler where it ships JSX) and
+  runs each word against it (below).
+
+  **A value made by a call.** `fnValueOf`: what such a name holds is the
+  function its factory hands back — every `return` of the factory the
+  same function value — with the factory's parameters standing for the
+  expressions it was called with (an environment: parameter → argument,
+  in the module and under the environment the call is written in), to
+  six calls deep; through names bound once, members of records written
+  out, parts taken by a pattern (`const [Provider, useIt] = make(…)`),
+  `Object.assign(fn, { … })`, `export * as`. The made function is then
+  read as any is, with three additions: a call of a parameter of its
+  factory is a call of the argument; a read of what the factory holds is
+  refused unless it is the same at every call (a function, a primitive
+  written out, a constant of the module — a counter, a cache, a table
+  filled when the factory ran, a record the caller wrote out are state
+  the calls share); and a call is read with the arguments it is given —
+  a parameter past the last argument is `undefined`, so a branch that
+  tests it (`if (options?.dirty)`) is not taken. That last is how a
+  module of the app's own is proven where the library's function is
+  not: `sortedBy = (list, cmp) => createSorted(list, cmp)` only
+  computes; `createSorted` itself, which sorts its list in place under
+  `{ dirty: true }`, does not.
+
+  **A context's row, and its name.** A word names a context the draft
+  declares itself (`export context tabs`): one the module exports by its
+  export's name (`RouterContext` → `router`, as `--run` names it), any
+  other by the name the code binds it to, or by the provider or hook
+  that names it first. It is declared only where it is the module's own
+  to declare — made in the package's own files; for a relative module,
+  in the file itself — and where the draft has no context rows already
+  (`known.js`, a module that carries a library's). **`uses(c)` is
+  written only beside a `provides(c)` of the same draft**: a context no
+  row is shown to provide would refuse every program that calls the
+  hook, the correct ones with them, so the question stays instead.
+
+  **Questions answered, yes or no.** As MO-8v: a question the reading
+  answers is not written. "Which context does this hook read?" — none,
+  where every call it makes is read and none asks for one. "Does it
+  provide a context to its children?" — no, where it renders no provider
+  and nothing that is not read. "Does its component provide a context,
+  or nest what it is given?" — no, where the function the fn hands back
+  renders no provider and no parameter is a tree of components. "Where
+  does the library render it?" — where the fn is called, with no word,
+  where the component it is given is called while the fn runs or in a
+  computation it makes there (MO-11s's cautious placement stands).
+  "Is the result a store with fields that wait or throw?" — no, also
+  where a getter of a record written out only reads a signal made
+  there; and a store Solid makes from a *function* (a projection) is no
+  longer taken for a value built there, which it was. `rx-declare
+  --run` adds what running shows: a field of a result seen to wait
+  (Solid's `NotReadyError`) or to throw where it is read is named in
+  the question; **none seen is no proof**, and the question then stays
+  as it was.
+
+  **The audit: every word, whoever wrote it.** `rx-declare --audit
+  <file.d.rx>` asks the same reading about the words a declaration
+  already has — `pure`, `handler`, `draft`, `rejects(E)`, `uses(c)`,
+  `provides(c)`, `nests(…)`, `renders(H)` — and sorts each:
+  - *proven*: the code shows it. It is a word `rx-declare` would write,
+    and is counted and run as one read from the code;
+  - *contradicted*: the code shows the opposite, and the exit is 1. A
+    `pure` fn that changes in place an argument that is data (a list, a
+    record — not an object with methods of its own: a socket whose
+    `close` is wrapped is a person's to judge, as a listener registered
+    on it is); a `handler` called while the fn runs; a `draft` parameter
+    every use of which only reads; a `rejects(E)` beside a `throw` of
+    another class of the module, or where every `throw` is read and
+    none is of `E`; a `uses(c)` on a fn every call of which is read and
+    none of which reads `c`; a `provides(c)` on a component that renders
+    no provider, or reads `children` (an element: made where it is
+    read) outside it — the last two only of a name another row ties to
+    a context Solid makes, since a library that keeps a scope of its
+    own is declared with the same words and the reading does not follow
+    it;
+  - *unproven*: neither, with the first thing the reading stops at —
+    which is what a reviewer should check.
+
+  **No mark in the file.** MO-8v wrote `//@ inferred <export>: <words>`
+  above each row that took a word. It is not written now. Which words
+  the code proves is a function of the row and the code, and both are
+  at hand wherever the answer is used: `rx-verify` reads the code again
+  (the audit) and holds each proven word to what the reading claims;
+  the benchmark counts them the same way; `rx-declare --why` says each,
+  with what shows it. A draft says it once, on one line at its head
+  (`// Read from the code that runs (MO-8v): 5 pure, 2 handler, 1 uses,
+  1 provides — …`), and `--causes` gives the list by export. What a
+  line a row cost — a draft of an event-listener component twice as
+  long as its rows — bought nothing a reader of the file used, and a
+  mark could fall out of step with the code it was read from (the
+  benchmark had a check for that, which is gone with the marks). An
+  `//@ inferred` line a file still has is read as before: it asks for
+  the stricter run of the words it names. A generated declaration (MO-8l)
+  takes the new words as it took MO-8v's, and is drafted again once
+  (draft rule 9).
+
+  **`rx-verify`** therefore reports three things about a file's words:
+  a contradicted word as a mismatch, with what the code does; each
+  proven `pure`, `handler` and `rejects(E)` run as MO-8v says; and a
+  count (`words: 12 read from the code, 0 contradicted by it, 3 it
+  neither shows nor refutes`). `uses(c)` and `provides(c)` are run as
+  they were (MO-12: the hook with no provider must throw; a part
+  mounted alone must fail and inside its provider must not).
+
+  **What it does not reach**, each a refusal in `--why`:
+  - a component whose props go into a proxy or a dynamic tag (`<Tag
+    {...resolved} />` with `Tag = dynamic(() => props.as)`, a `render`
+    prop that takes over): where the element is, and whether the
+    library or the caller makes it, is not in the code that is read;
+  - a context made for a key (`contexts.get(primitive) ??
+    createContext(null)`): which one a part reads is a value, not a name;
+  - a provider that also hands its props to its state (`usePrimitive(p,
+    () => ({ ...options }))` with `options = omit(props, "children")`):
+    a prop of a type parameter may hold a view, and where the state
+    renders it is not read — `provides` is not written, and so neither
+    is `uses` on the parts;
+  - a context a hook of one module reads and a component of another
+    provides (two entries of one package, `export context c from "…"`,
+    MO-12e): which declaration owns it is not the draft's to choose;
+  - a function a context's value holds (`useContext(C).router.push()`):
+    its code is its provider's, and may read another context — the word
+    for `C` is written, and the question stays;
+  - `renders(H)` and `nests(…)` themselves: a component kept in the
+    module's state and rendered by another export (`toast(message)` →
+    an observer's list → `<Toaster>`) goes through a value that other
+    exports hand out too (`useSonner()`, `getHistory()`), so "beneath H
+    alone" is the library's design and not what its code shows;
+  - a value made when the module loads by code that is not a literal
+    (`Object.create(Proto)`), an object the module exports, a loader
+    that fetches: as MO-8v.
+  Executable: `tooling/rx-language-server/test/infer-view.js` — for
+  `handler` 13 components and fns proven and 17 dishonest twins
+  refused; for `uses` 10 and 20; for `provides` 8 and 10; for a value
+  made by a call 6 and 9; the draft, its one line, `--causes`, `--why`;
+  `--run`'s observation of a result's fields; the audit over a module
+  with every class of every word; `rx-verify` over the same file, and
+  over a draft. `bench/tasks/primitives-state` and
+  `bench/coverage/primitives/sortable` hold the word the audit found
+  false (`createSorted`, declared `pure` by hand) as a variant
+  `rx-verify` must report.
 
 ## MO-9 — A signature read in place of its module
 
@@ -3983,6 +4173,17 @@ S-module-37, S-module-38 (MO-14f); the units
   fn's into a namespace. `rx-declare`: `methodsOf` in `declare.js`.
   `rx-verify`: `at` binds a method to its object; the scene's proxy
   records a method with a row.
+- MO-8w: nothing in a parser, a checker or an emitter. In
+  `tooling/rx-language-server/src/infer.js`: `valOf`, `fnValueOf`,
+  `resultOf`, `memberOf` and the environments (`bindEnv`, `calledWith`)
+  — a value made by a call; `callbackUses` followed through records
+  (`listOf`, `omit`, `merge`, spreads, `tagFns`); `ctxOf`, `elementOf`,
+  `ctxReads` (must, may, opaque), `recordUses`, `providesOf`;
+  `plainWhy` (a getter that only reads). `src/declare-infer.js` writes
+  `uses`, `provides` and the context rows, pairs them, and answers the
+  questions; `src/declare-audit.js` is the audit (`rx-declare --audit`),
+  which `bin/verify.js` and `bench/harness.mjs` read in place of the
+  marks; `src/declare-run.js` reads a result's fields under `--run`.
 - MO-8v: nothing in a parser, a checker or an emitter — a row with an
   inferred word is a row, and `//@ inferred` a comment to both. The
   reading is `tooling/rx-language-server/src/infer.js` (modules and

@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+**`rx-declare` reads JSX and contexts; every word of a declaration is audited; drafts carry no marks** (spec/09 MO-8w; spec/rfc-declaration-types-2026-11-22.md, *A fifteenth round*)
+
+- **New: `handler` on a component's prop, read from JSX.** A prop that reaches only an element's event —
+  `onClick={props.onPress}`, a closure written there, `[f, data]`, `<button {...rest}>`, through `omit`, `merge`,
+  `{ ...props }`, through a component of the same module, through `Object.entries(handlers)` given to
+  `addEventListener` — is written `handler`. Called while the component renders, rendered as a child, or handed to
+  a component whose code is not read, it is not. A package is read from the file its `solid` condition names (its
+  JSX), and `createComponent(Tag, { … })` in shipped JavaScript is read as the same thing.
+- **New: `uses(c)` and `provides(c)`, with the `export context` rows they name.** `uses(c)` where `useContext(C)`
+  runs on every path of the call and nothing answers without a provider (no default; a `null` the code throws on);
+  `provides(c)` where the component renders `<C value={…}>` and everything it is given that may be a view is written
+  among that provider's children. A context read on one path only, a provider beside `props.children`, children read
+  before the provider: no word. **`uses(c)` is written only beside a `provides(c)` of the same draft** — a context
+  nothing is shown to provide would refuse every program.
+- **New: a value made by a call is read.** `export const useKeys = createSingletonRoot(() => …)`, a component made
+  by `rootScope(function Toggle(props) { … })`, `export const [Provider, useIt] = make(…)`, `Object.assign(toast, {
+  success })`: the row's words are read from the function the factory hands back, where the code shows which that
+  is. State the made function shares between its calls (a counter, a cache) is refused as a module's variable is.
+  A call is read with the arguments it is given, so a wrapper of your own that never passes an option can be
+  `pure` where the library's function is not.
+- **New: `rx-declare --audit <file.d.rx>`.** Every behaviour word the declaration has — `pure`, `handler`, `draft`,
+  `rejects(E)`, `uses(c)`, `provides(c)`, `nests(…)`, `renders(H)` — whoever wrote it: *proven* by the code,
+  *contradicted* by it (exit 1), or neither, with the first thing the reading stops at. `--json` for a tool.
+- **Changed: a draft has no `//@ inferred` lines.** Its second line counts the words it read; `rx-declare --why`,
+  `--audit` and `rx-verify` say which, from the code. **You can delete the `//@ inferred` lines your declarations
+  have**; one that is left is still read (it asks `rx-verify` for the stricter run of the words it names).
+- **Changed: `rx-verify` reads the code first.** A word the code contradicts is a mismatch — `createSorted: pure is
+  contradicted by the code: it changes its argument `list` in place (.sort())` — whether a tool or a person wrote
+  it; a word the code proves is run against what was read, with no mark needed; the last line counts both and the
+  rest. **If `rx-verify` fails after this on a word you wrote:** the message says what the code does and where.
+  Take the word off, or call the function from a module of your own that does not reach that branch.
+- **Generated declarations take the new words** (`node_modules/.rx-types/`, MO-8l; the draft rule is 9, so they are
+  drafted again once). A kit's part rendered outside its root is refused where the kit's code shows the root to
+  provide what the part reads. **If a program of yours is refused after this** with `CONTEXT_NOT_FOUND` on a
+  package's component or hook: the package's code reads a context on every call, and nothing above the place
+  provides it — render it inside the component the message's context belongs to.
+- **Fewer questions in a draft.** "Which context does this hook read?" is not asked where every call the hook makes
+  is read and none asks for one; "does it provide a context?" where the component renders no provider and nothing
+  that is not read; "where does the library render it?" where the component a function is given is called while the
+  function runs; "is the result a store?" where a getter of the record only reads a signal made there.
+- **`rx-declare --run` names the fields it saw wait or throw.** For a function its draft asks about and that runs
+  with no arguments, each field of the result is read once: one that waits (Solid's `NotReadyError`) or throws is
+  named in the question. None seen is no proof, and the question then stays as it was.
+- **Fixed: a store made from a function was taken for a plain value.** `createStore(fn, …)` is a projection, whose
+  fields may wait; a function that hands one back is asked about again.
+- **Fixed (the benchmark's own declarations): `@solid-primitives/sortable`'s `createSorted` is not `pure`.** Under
+  `{ dirty: true }` it sorts the list it is given in place. It was declared `pure` by hand; the audit found it.
+
 **`rx-declare` reads `pure`, `handler`, `draft` and `rejects(E)` from the code** (spec/09 MO-8v; spec/rfc-declaration-types-2026-11-22.md, *A fourteenth round*)
 
 - **New: a draft writes the words the code proves.** `rx-declare` reads the JavaScript an import resolves to — your

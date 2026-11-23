@@ -557,6 +557,54 @@ Two things a draft said that were not questions are no longer written
 as questions (the count of a function's signatures; whether a result
 built in the function's own body is a store that waits).
 
+## After the fourteenth round (2026-11-27): the mark, and the words written by hand
+
+Three things MO-8v ruled are revised by 09 MO-8w, each for a reason
+found by using it.
+
+- **`//@ inferred` is not written.** MO-8v chose a comment over a word
+  so that the notation stayed closed, and gave the line three readers.
+  All three can read the code instead: `rx-verify` and the benchmark
+  ask the reading again (the audit), and a person asks `rx-declare
+  --why` or `--audit`. The line cost a row a line — the draft of a
+  component with a hundred event props doubled — and could fall behind
+  the code it was read from. What MO-8v wanted of it stands: the words
+  nobody checked by hand can be told from the ones somebody did, and
+  each is run. A file that still has the line is read as before.
+- **A hand-written word is held as a tool's word is.** MO-8v ran only
+  the words it wrote. But every word "written by hand" in the benchmark
+  was written by an earlier run of the same kind of tool, on a judgment
+  made before the code was read: one of them was false
+  (`@solid-primitives/sortable`'s `createSorted`, declared `pure`,
+  sorts its list in place under `{ dirty: true }`), and nothing ran it.
+  The audit sorts every word into proven, contradicted and unproven; a
+  contradicted one fails `--check` whoever wrote it, and the unproven
+  ones are a list with what to check, in the repository. "By hand" is
+  not a kind of evidence.
+- **"Contradicted" means the code shows the opposite.** The first
+  audit called nineteen words false — eight rows, counted in each
+  declaration that has them; one row was (`createSorted`, in two
+  declarations). The others were the
+  reading not following something and saying so too strongly: a
+  library that keeps a scope of its own and is declared `uses`/
+  `provides` (no Solid context to find), a provider whose other props
+  *may* hold a view, a root whose `children` is a function (read
+  outside the provider, called inside it), a socket patched in place.
+  Each is now "unproven", with the thing to check. A tool that calls a
+  true word false is worse than one that says nothing: the class is
+  kept for what the code proves.
+
+One ruling is narrowed, not revised: MO-8v took a store Solid makes
+(`createStore(…)`) for a value built where it is written, whatever it
+was made from. A store made from a function is a projection, whose
+fields may wait; the reading asks about it again.
+
+And one thing was tried and not taken: reading what Solid's compiler
+makes of a package's JSX in place of the JSX. The compiler has two
+outputs, and the server's has no events in it; the source has one
+meaning, which is Solid's to define and is what both outputs are made
+from (MO-8w).
+
 ## Limits that remain, and why they are inside the goal
 
 - **`renders(H)` by itself places a fn's components side by side

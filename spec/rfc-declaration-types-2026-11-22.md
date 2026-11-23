@@ -2730,3 +2730,336 @@ changed.
 - `rx-verify` reads no row whose type parameter's bound has
   parentheses.
 
+## A fifteenth round: JSX, contexts, a call's result, and every word by hand (2026-11-27)
+
+The fourteenth round ended on what it did not read: "a hook's context, a
+component's provider, an event prop in JSX, where a component is
+rendered — the next reading, and JSX's", and "a component or a fn made
+by a factory: 560 rows". And it recorded, without acting on it, a
+hand-written `pure` that its reading contradicted. This round reads the
+first two (09 MO-8w), and turns the third into a rule: every behaviour
+word of a declaration is held against the code, whoever wrote it.
+
+### Seven decisions, with their reasons
+
+1. **The JSX is read as it is written, not as Solid's compiler leaves
+   it.** `@solidjs/compiler`'s `transform()` was run on the fixtures
+   first. It gives two programs for one source, and they differ in the
+   very thing asked: the DOM output spreads `{ get onClick() { return
+   props.onPress } }` on the element and calls `_$ref`; the server
+   output has no `onClick` at all, and hoists a component's props into
+   constructors whose getters read `this`, which the reading refuses.
+   Reading the output is reading two programs in a compiler version's
+   own shapes, with a native addon needed where a draft is made. The
+   source is one program; what it means — a lower-case tag is an
+   element, `on…` is its listener, a context is its own provider, what
+   is among a provider's children is made beneath it — is Solid's
+   contract, and both outputs are made from it. `createComponent(Tag, {
+   … })`, which a package that ships JavaScript writes by hand, is read
+   as the same thing.
+2. **`uses(c)` means every call throws without it.** `rx-verify` has
+   always run the word that way (the hook with no provider must throw),
+   so the reading proves exactly that: `useContext(C)` on every path,
+   and nothing that answers without a provider (`createContext()` with
+   no default; `null` only where the code throws on it). A context read
+   on one path is a question, not a word; one read beneath the
+   function's own provider is not from above; one with a default is no
+   need at all, and its question goes.
+3. **`uses(c)` is written only beside `provides(c)`.** The first
+   reading wrote 248 `uses` over the coverage modules and proved a
+   provider for 19 of 83 contexts: 64 contexts would have refused every
+   program that used them, the correct ones with them — sound, and
+   useless. A word that cannot be satisfied is not written; its
+   question stays, and says why.
+4. **`provides(c)` is lexical.** A view is made where its expression
+   is evaluated, so "everything it is given is rendered beneath the
+   provider" is "every use of a prop that may hold a view is written
+   among the provider's children". That refuses the real traps —
+   `const kids = props.children` before the provider, a destructured
+   parameter, `children(() => props.children)` — because they are traps:
+   the children are made outside, and a part among them does not find
+   the context.
+5. **A value made by a call is the function its factory hands back,**
+   with the factory's parameters standing for the call's arguments. One
+   mechanism serves `named(bezier(0.42, 0, 1, 1), "easeIn")`,
+   `createSingletonRoot(() => …)`, `rootScope(function Toggle(props) {
+   … })`, `const [Provider, useIt] = createContextProvider(…)` and
+   `Object.assign(toast, { success })`. What the made function shares
+   between its calls — a counter, a cache, a table — is state, and is
+   refused as a module's variable is.
+6. **No mark in the file.** `//@ inferred` a row doubled the drafts
+   that gained most (an event-listener component has two hundred event
+   props, each now a `handler`), and said nothing the code does not.
+   Which words are proven is read from the code where it is asked:
+   `rx-verify`, the benchmark, `rx-declare --audit` and `--why`. The
+   draft's second line counts them. The benchmark's check that a mark
+   was the draft's is gone with the marks; in its place, no word of a
+   kept declaration may be contradicted by the code.
+7. **"Contradicted" is kept for what the code proves.** See *The
+   audit*, below: the first pass called nineteen words false, and one
+   row was.
+
+### What is proven, and the dishonest twins
+
+`test/infer-view.js`, 141 checks. As in the fourteenth round, each
+function of the refused side does one thing a word must not cover.
+
+- `handler` on a prop — 13 proven: an element's event; a closure
+  written there; `[f, data]`; a record spread on an element after
+  `omit`; `merge`d defaults; a prop given to a component of the module,
+  by name, by a spread, in a closure; `{ ...props }`; `Object.entries`,
+  `keys` and `values` of a record of listeners; a component made by a
+  factory. 17 refused: called while it renders; called in an attribute;
+  rendered as a child; `children` spread on an element; a component of
+  the module that calls it now; given to, and spread on, a component
+  that is not read; a dynamic tag; a prop that is no event; a field
+  `omit` took off; one a later property replaces; kept in a signal; a
+  record's values called now; its entries handed back; a computed read
+  that is called; a factory's function that calls it now; a factory
+  that is not followed.
+- `uses(c)` — 10 proven: directly; with `if (!c) throw`; through a hook
+  of the module; in an argument; in a component's body; a component
+  that hands back one that reads it; made by a factory; in a memo; in
+  `untrack`. 20 refused or answered "none": on a prop; after a
+  `return`; in a branch; behind `&&`; in a `try`; in a function handed
+  back; in a lazy memo; in an effect; behind `?.`; beneath `Show`; a
+  context with a default; `null` unchecked; `null` checked after a
+  `return`; beneath its own provider; another package's context; a
+  context looked up by a key; a hook that is not read; a method of the
+  context's value; a component that is not read; under `runWithOwner`.
+- `provides(c)` — 8 proven: around `children`, in JSX and in
+  `createComponent`; around markup that holds two view props; a spread
+  among the children; props that go elsewhere after `omit` took the
+  views off; a value made by a function of the module; a component made
+  by a factory; through a component of the module. 10 refused: a
+  provider beside the children; children read before it; a destructured
+  parameter; `children()` made outside; a branch without it; another
+  view prop outside; the props given to code that is not read; a spread
+  outside; an `omit` that leaves a view; a computed read.
+- A value made by a call — 6 proven (`named`, a mirrored easing, a
+  composition, a part of a tuple, a member of a record, a constant of
+  the module by a parameter); 9 refused (a counter, a cache, a table
+  filled when the factory ran, a record the caller wrote out, a local
+  that is assigned again, a clock in the argument, one of two
+  functions, a factory that is not read, spread arguments).
+- A component a fn is given: called while the fn runs, the question is
+  answered (rendered there; no word); kept in the module's state for a
+  host, or rendered outside the host too, it stays.
+
+### The audit: every word, whoever wrote it
+
+Every "hand-written" word of the benchmark was written by an earlier
+run of a tool like this one. `createSorted`'s `pure` came from commit
+`01f5d39`, a judgment made before the code was read; nothing had run
+it. `rx-declare --audit <file.d.rx>` holds each word — `pure`,
+`handler`, `draft`, `rejects(E)`, `uses(c)`, `provides(c)`, `nests(…)`,
+`renders(H)` — against the reading, and sorts it:
+
+| | tasks' declarations | coverage entries' | |
+| --- | --- | --- | --- |
+| proven | 71 | 38 | read from the code: counted as inferred, run by `rx-verify` |
+| contradicted | 0 | 0 | after the fix below; `--check` refuses any |
+| unproven | 91 | 119 | listed, each with what to check: `bench/audit.txt`, `bench/coverage/audit.txt` |
+
+**One word was contradicted, in two declarations:**
+`@solid-primitives/sortable`'s `createSorted`, declared `pure`. Under
+`{ dirty: true }` its memo sorts the list it is given in place (`const
+arr = access(list); arr.sort(…)`, sort.js:28). The reading says so on
+its own now: `access` only hands its argument back or calls it, and
+`list` is declared `ref`, so `arr` is the caller's list for certain.
+The row is `export fn createSorted…` (as the draft writes it), and the
+two programs call it through a module of their own, `sortedBy = (list,
+cmp) => createSorted(list, cmp)` — which the reading proves `pure`,
+because a call is read with the arguments it is given and `options` is
+not one of them. Both entries hold the old row as a variant: with
+`pure` put back, `rx-verify` must say `createSorted: pure is
+contradicted by the code: it changes its argument `list` in place
+(.sort())`. (No rule of the language reads the word there — an
+instantiating fn is bound once whether or not it is `pure` — which is
+why nothing had caught it.)
+
+**The first pass said nineteen.** Eight rows, counted in each
+declaration that has them. Seven were the reading stopping and calling
+it a contradiction:
+
+| row | what the first pass said | what is true | now |
+| --- | --- | --- | --- |
+| `createWSState` `pure` | "it changes its argument `ws` in place" | it wraps the socket's `close`: an object with methods, not data a source holds | unproven: check the change is one its caller expects |
+| solid-use's `ThemeScope` `provides(theme)`, `useTheme` `uses(theme)` | "it renders no provider", "it reads no context" | the library keeps a scope of its own (a module variable set around a callback), not a Solid context | unproven: the reading does not follow it; `rx-verify` runs it |
+| `WardicProvider` `provides(wardic)` (7 declarations) | "`env` is read outside the provider" | `env` is a record of settings whose type has a member that may hold a view | unproven: check that `env` holds no view |
+| `Router` `provides(router)` | "`children` is read outside the provider" | `children` is a function (the root layout), read outside and called inside | unproven: check it is called only among the provider's children |
+| Kobalte's `Toast` `provides(toast)` | "`onKeyDown` is read outside the provider" | an event handler, whose type is a union the reading took for a possible view | unproven |
+| UI SDK's `Dialog` `provides(dialog)` | "its props go outside the provider" | they go into the primitive's options after `omit` | unproven |
+
+So the class was cut to what the code shows the opposite of: a change
+in place of an argument that is *data*; a `uses`/`provides` only of a
+name another row ties to a context Solid makes; a `provides` only where
+a prop that is an element for certain (`children`) is read outside the
+provider. `test/infer-view.js` holds one row of each kind on each side
+of the line.
+
+What a reviewer has left is the unproven list. By kind, over both
+suites: 126 `pure`, 35 `uses`, 21 `provides`, 19 `handler`, 5 `renders`, 3 `rejects`, 1 `nests` — 210 words (an `instantiates` that is not proven is a word a name suggests, and is not listed). The reasons that recur:
+
+- *an object the module exports* (`INTERNAL_OPTIONS`, `EQUALS_FALSE_OPTIONS`, `DEFAULT_MOUSE_POSITION`,
+  `DEFAULT_EMPTY_INPUT`): check that nothing in the app writes to it;
+- *the environment when it is called* (`window`, `navigator`, `document`, `location`, `isServer` with data):
+  check that the answer is the same on the server and in the browser, or that the row is a `client` one —
+  `rx-verify` compares the two sides (10 SV-7c);
+- *state the module keeps* (a router's `cacheMap`, a loader's `seen`, a singleton root's `listeners`): check
+  that asking again is safe, which is what the word claims;
+- *a value made by a call that is not followed* (`getPerson = query(…)`, a class made by `new`, a function of a
+  package with more than one build): check the factory;
+- *a context's value called* (`nearestMatch()`, `client()`), *a context read on a path only*: check that no
+  other context is read, and that the path is the one every call takes;
+- *a provider whose prop is read outside it* (`env`, a function `children`, an event prop): check that it holds
+  no view, or is called only inside;
+- *a callback kept and called by what the fn hands back* (a setter's `onChange`): check that what holds it is
+  only called from a handler.
+
+### The questions a draft asks
+
+Over the coverage suite's 193 modules, drafted whole:
+
+| question | fourteenth round | now | |
+| --- | --- | --- | --- |
+| `pure?` | 430 | 427 | values made by a call are read; most of what is left is UI SDK's controllers (a `Proxy`) and the `effect` library's constants |
+| "is the result a store with fields that wait or throw?" | 154 | 134 | a getter that only reads a signal made there is no store; a store made from a function is asked about again |
+| `handler` (called later?) | 156 | 154 | one line a row: the rows are answered prop by prop (984 `handler` words, 54 before), and a row keeps its line while one prop is open |
+| "N signatures" | 40 | 40 | |
+| `uses(<context>)?` | 70 | 50 | |
+| a `ref` field read or called | 53 | 53 | |
+| `draft`? | 21 | 18 | |
+| `rejects(E)?` | 16 | 16 | |
+| `provides` / `nests` | 17 | 15 | |
+| a class | 11 | 11 | a statement, not a question: the notation has no row for a class |
+| `renders(H)` | 10 | 7 | three answered "where the fn is called"; sonner's seven stay |
+| signal | 1 | 1 | |
+| **total** | **979** | **926** | |
+
+Words read from the code, over the same drafts: 1 431 (984 `handler`, 353 `pure`, 42 `provides`, 25 `uses`, 18 `instantiates`, 9 `draft`); 407
+before (330 `pure`, 54 `handler`, 18 `instantiates`, 5 `draft`).
+
+The count of questions moved less than the count of words, and the
+reason is in the corpus, not in the reading: 229 of the rows made by a
+call are UI SDK's components. Their props go through a proxy the
+library builds (`slotProps`) onto `<Tag {...resolved} />` with `Tag =
+dynamic(() => tag)`, or to a `render` prop the caller gives; their
+contexts are made for a key (`scopes.get(primitive) ??
+createContext(null)`); their roots hand every prop but `children` to a
+state machine. Each of those is a refusal with an example below. What
+the reading does prove there it writes: 18 contexts of `@ui-sdk/solid` have a row, with a `provides` on the root that is a plain provider and a `uses` on each part that reads it on every path (`Calendar` and its ten parts, `Pagination`, `Field`, `Menubar`, `Toolbar`…).
+
+### What it cannot read soundly, with the example for each
+
+- **Props into a proxy, onto a dynamic tag.** UI SDK's `usePart`:
+  `handlers[prop] = event => { callHandler(user[prop], event) … }`,
+  then `new Proxy({}, { get })`, then `<Tag {...resolved} />`. Whether
+  `onPressedChange` is called only from an event is the state machine's
+  to say, and whether the element is the library's or the caller's
+  `render` is a value.
+- **A context made for a key.** `scopeOf(primitive)` keeps one context
+  a primitive in a `WeakMap`; a part reads `useContext(scopeOf(p))`.
+  Which context that is, is not a name.
+- **A provider that also feeds its state.** `Autocomplete`: `options =
+  omit(props, "children", "container")`, `usePrimitive(p, () => ({
+  ...options }))`, then `<AutocompleteContext value={…}>`. Its
+  `children` are among the provider's children; its other props go to
+  the primitive, and one of them has a type parameter's type, which may
+  be a view. `provides` is not written, so its parts' `uses` are not.
+- **`renders(H)`.** Kobalte's `toaster.show(component)` puts the
+  component in a store of the module; the region filters the store into
+  a memo and gives it as its context's value; the list reads that
+  context and calls the component. solid-sonner's `toast(message)`
+  publishes to an observer whose list `useSonner()` and `getHistory()`
+  also hand out. "Beneath H alone" is each library's design, and in
+  sonner's case not what its exports allow. The word stays a person's
+  (and `known.js`'s), and `rx-verify` runs it against a scene.
+- **A context two entries share.** `@pkg` and `@pkg/dialog` both
+  export the root and the parts; each draft declares the context, with
+  its own key. A program that takes the root from one and a part from
+  the other is refused, though it is correct. `export context c from
+  "…"` (MO-12e) says it, and needs a choice of owner the draft does
+  not make.
+- **A function a context's value holds.** `useContext(C).navigate(to)`
+  runs the provider's code, which may read another context where it is
+  called. `uses(c)` is written; the question stays.
+- **A value made when the module loads.** `effect`'s `Option.none` is
+  `Object.create(NoneProto)`; 43 of wardic's rows read it. Showing it
+  never changes is showing a prototype chain of getters does not.
+- **An object the module exports**, a loader that fetches, a primitive
+  that reads the page when it is called: as the fourteenth round.
+
+### Found on the way
+
+- **A flaky entry was a real failure.** `coverage 1/3` failed once on
+  `ui-sdk/selection` with an accessibility warning. The library checks
+  that a listbox and a select's trigger have a name 300 ms after they
+  mount (`setTimeout(…, 300)`, `warnIfUnnamed`); the entry's listbox
+  and trigger had none, and the entry looked at the console before the
+  timer on every run but the slow ones. Every entry now waits for the
+  page's pending timers of up to two seconds before it looks
+  (`harness.mjs` `settled`: the page's `setTimeout` is counted from an
+  init script), so the warning is seen on every run — it then failed
+  three runs in three — and the program names both. No other entry had such a warning waiting: 123 of 123 are green with the wait.
+- **A store made from a function was taken for a value built there.**
+  `plainResult` answered "no store" for any `createStore(…)`. A store
+  made from a function is a projection, and may wait: asked about
+  again.
+- **`vite-hosts` and `vite-watch` were run.** The fourteenth round had
+  no checkout of the plugin fork. CONTRIBUTING's line is right as it
+  is written (`git clone -b frontend-resolve
+  https://github.com/yumemi-thomas/solid-vite-plugin && pnpm install &&
+  npx rolldown -c`, at `27e56ed`): `vite-hosts` 6/6 in every run;
+  `vite-watch` 7/7 in five runs of six, and in one "a `.d.rx` created
+  since is read by the next rebuild" read the rebuild before it — the
+  build that still had the step before's type error. The test waits for
+  a rebuild, not for the one its own write starts; it is recorded here
+  and not changed, since nothing this round touches is under it.
+- **A read under `runWithOwner` is not the call's.**
+  `createSingletonRoot` runs its factory under the owner it was made
+  with: a context read there is looked up from that owner, and a
+  provider above the call does not answer it. Such a read is neither a
+  `uses` nor nothing; the question stays, and says so.
+
+### The numbers
+
+`node bench/run.mjs`, at `7afde53` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | inferred words | run by rx-verify | TODOs in kept rows | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `7afde53` (37 tasks) | 132/132 | 186/186 | 268/268 | 245/245 | 13/13 | 157 | 48 | 43 | 57 | 61 | 0 | 30 |
+| now (37 tasks) | 132/132 | 186/186 | 268/268 | 246/246 | 13/13 | 154 | 71 | 54 | 50 | 61 | 0 | 30 |
+
+"Inferred words" is counted differently, and the two rows are not one
+measure: at `7afde53` it was the marked words of rows kept exactly as
+the draft writes them; now it is every word of a kept declaration that
+the code proves, a row written by hand included (the audit's *proven*).
+No check is red; one was added (`primitives-state`: the false `pure` put back must be reported by
+`rx-verify`). Three tasks have a hand-written word fewer — `formisch-field-array` and `formisch-field-path` (2 to 1
+each), `primitives-state` (3 to 2: the wrapper's `pure` is read) — and fourteen have more words proven; the
+questions in the kept rows went from 57 to 50. Whole drafts of the tasks' modules: 1 351 words read (808), 912
+questions asked (994).
+
+Coverage: 123 programs, all green (as before); 22/22 bad caught (21/21: `primitives/sortable`'s, above);
+193 modules drafted whole, 5 112 rows (5 076: a context a row names is a row of the draft), 1 197 `any`s the libraries' own, none introduced, 1 551 by place; 1 431 words read from the code
+(407) and 926 questions asked (979); in the kept rows 243 hand-written words (245), 38 words the code proves
+(28 marked before; 9 run by `rx-verify`), 119 it neither shows nor refutes, none contradicted, 142 questions
+(149).
+
+Parity is as it was: nothing in a parser, a checker or an emitter
+changed.
+
+### What remains
+
+- `renders(H)` and `nests(…)`: a flow through a module's state and a
+  context's value, which this reading does not follow and the two
+  libraries at hand would not pass if it did.
+- A context shared by two entries of one package (MO-12e's form, and
+  whose it is).
+- The unproven words: 210 in the two audit files, each
+  with what to check. They are the declarations' open review, and the
+  first time it is a list.
+- UI SDK: its `handler`s, and the contexts its primitives make.
+- As before: an object the module exports; a value made when the
+  module loads; a module with no types.

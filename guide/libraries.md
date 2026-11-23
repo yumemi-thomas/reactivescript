@@ -11,18 +11,20 @@ what the package's TypeScript types show, the words the package's code proves (b
 each row only you can decide. For the routers (`@tanstack/solid-router`, `@solidjs/router`) and TanStack Query it also
 writes the rows types cannot show.
 
-**Words read from the code.** Four words are in no type: `pure`, `handler` on a callback, `draft` on a parameter a
-function changes in place, and `rejects(E)`. `rx-declare` reads the JavaScript your import resolves to — your own
-module, a package's shipped ES module, every build its export map has — and writes a word **only where the code proves
-it**:
+**Words read from the code.** Six words are in no type: `pure`, `handler` on a callback, `draft` on a parameter a
+function changes in place, `rejects(E)`, and a context's `uses(c)` and `provides(c)`. `rx-declare` reads the
+JavaScript your import resolves to — your own module, a package's shipped ES module (its JSX source where it has a
+`solid` build), every build its export map has — and writes a word **only where the code proves it**:
 
 ```rx
-//@ inferred fetchPerson: pure, rejects(NotFound)
+// Read from the code that runs (MO-8v): 2 pure, 2 handler, 1 rejects, 1 draft, 1 uses, 1 provides — proven, not guessed. …
+export context tabs
 export pure fn fetchPerson(id: string): Promise<Person> rejects(NotFound)
-//@ inferred onShortcut: handler(run)
 export fn onShortcut(key: string, run: handler () => void): () => void
-//@ inferred moveItem: draft(list)
 export fn moveItem<T>(draft list: T[], from: number, to: number): void
+export component Tabs(props: { initial: string; children?: View }) provides(tabs)
+export component Tab(props: { onSelect?: handler (e: MouseEvent) => void; children?: View }) uses(tabs)
+export pure fn sortedBy<T>(ref list: T[], comparator: (a: T, b: T) => number): ref T[]
 ```
 
 - `pure`: the call only computes — no write outside what it makes, no clock, no randomness, no `window`, no
@@ -32,10 +34,25 @@ export fn moveItem<T>(draft list: T[], from: number, to: number): void
   while the function itself runs, never inside a computation.
 - `draft`: the function changes that argument in place during the call and keeps nothing.
 - `rejects(E)`: every `throw` it reaches is of a class the module exports.
+- `handler` on a component's prop: the prop reaches only an element's event — `onClick={props.onPress}`, a closure
+  written there, `<button {...rest}>`, through `omit` and `merge`, through a component of the same module. Called
+  while the component renders, or handed to a component whose code is not read, it gets no word.
+- `uses(c)`: `useContext(C)` runs on **every** path of the call and `C` has no default (or the code throws on its
+  `null`) — and a component of the same draft is shown to provide it. A context read only when a prop says so, or
+  inside a function the hook hands back, is not one every call needs: no word, and the question stays.
+- `provides(c)`: the component renders `<C value={…}>` and everything it is given that may be a view is written among
+  that provider's children. `props.children` read before the provider, beside it, or on a branch without it: no word.
+- A value made by a call (`export const useKeys = createSingletonRoot(() => …)`, a component made by a factory) is
+  read as the function its factory hands back, where the code shows which that is. And a call is read with the
+  arguments it is given: a wrapper of your own that never passes `{ dirty: true }` can be `pure` where the
+  library's function is not.
 
-The `//@ inferred` line above a row says which of its words came from the code: keep it with the row, and
-`rx-verify` runs each of those words against what was read (a `pure` function that changes its argument or asks the
-clock, a `handler` that is called while the call runs, are reported as mismatches). `npx rx-declare <module> --why`
+Nothing in the file says which words came from the code: the first line of the draft counts them, and the tools
+read the code again when they need to know. `npx rx-declare --audit <file.d.rx>` goes through **every** word a
+declaration has, whoever wrote it, and says of each whether the code proves it, contradicts it (a `pure` function
+that sorts its argument in place, a `handler` that is called while the call runs: exit 1), or neither — with the first
+thing the reading stops at, which is what to check by hand. `rx-verify` does the same before it runs anything: a
+contradicted word is a mismatch, and each proven word is run against what was read. `npx rx-declare <module> --why`
 says, for every row, what proved each word or the first thing in the way, with its file and line:
 
 ```
