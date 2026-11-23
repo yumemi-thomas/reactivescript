@@ -2086,3 +2086,320 @@ task's module. Coverage is as it was, entry for entry: 123 programs, all
 green; 193 modules drafted whole (4904 rows), 1195 `any`s the libraries'
 own, none introduced, 1519 by place; 277 hand-written words; 13/13 bad
 caught.
+
+## A thirteenth round: what was still refused, and what an app still wrote by hand (2026-11-25)
+
+The twelfth round ended with a list of limits, each with a reason. Review
+asked for the list to be read against three principles — the checker
+enforces Solid's rules and no package's (08 CN-8); it refuses no correct
+program it could accept soundly; an app needs as few modules of its own
+and words by hand as it can — and for each item to be decided, built, and
+recorded with what was run. Recorded in 09 MO-8t, MO-8u, MO-11c, MO-14f,
+MO-14g, MO-14h, 11 CP-4d and 13 TY-1c, TY-4b, TY-6a. No word was added to
+a row. One form was: a fn's row named one step from a declared value.
+
+### Three strict rulings, read again
+
+| the ruling | the correct program it refused | decided | what keeps it sound | the counter-examples, kept as tests |
+| --- | --- | --- | --- | --- |
+| a record of components is read in the literal the prop is given (MO-11c, 2026-11-24, its unit `mdname`) | `builtins = { Heading, Paragraph }`, then `<Markdown builtins={builtins}>`: `COMPONENT_AS_VALUE` on the binding | **relaxed.** An equation is never written, so its name is its right side wherever it is read: an equation bound to a record or an array literal of components is read as that literal where it is given, by name, to a prop whose type holds components | every mention of the name in the module is such a prop — counted over the module's whole tree by the name as written, so a second binding of the name counts against it, never for it; it is given to one; it is not exported (a signature says nothing of what a value holds) | `first = tabs[0]`; `plain(tabs)` from a handler; a loop variable named `tabs`; `export tabs = [Plain]`; `wide ? [A, B] : [A]` (no literal). A factory's tree and a fn's arguments keep the literal: the tree is read for its shape, by both checkers and the emitter |
+| a host's own component is read in the view of the component the record names (MO-14f): `Root` applies `<Frame />`, which applies `<Outlet />`, is `NESTED_NOT_RENDERED` on `Root` | a layout whose outlet is in a component the app shares between its layouts; an entry that reaches the router's component through its `Shell` | **relaxed.** A router's outlet renders the pages of the nearest route above it, whatever `.rx` components are in between: in a host's view, an `.rx` component whose view applies a component the host renders through is itself one. The pages are checked under what the frame has around the outlet, what the layout has around the frame, and the elements open above the outlet in both | read off each module's tree before it is walked; a tag a component declared inside the view also names is left out; a module read by its printed signature is not followed (its applier is refused, as before); a component between that also reads its own `props.children` has the pages checked there too — strict, the over-approximation a record's own component already had | a frame with no outlet; `<Card />`, which renders its own children and is given none; the frame beside the layout's region; a hook in the `Shell` above the router's component |
+| under `renders(H)` a fn's components are side by side beneath H (MO-11u): a root layout's regions around its `<Outlet />` hold no page of code-based routes | TanStack's own documented layout, written in `.rx` with `createRoute`: `UNHANDLED_FAILURE` | **accepted, by the way the eleventh round named and did not build.** The nesting is the router's knowledge: `rx-declare --host --routes <module.rx>` compiles the module that exports the router, runs it, and reads the tree off the router object (each route's children its own, its component matched by identity to the modules' exports). And one sentence of how the two declarations meet (MO-14h): a component the view places, given to a fn declared `renders(H)`, is checked where the view places it, when the declaration says the host renders through H | the view says *where* beneath H, so it implies the row's *beneath H*; a component the view does not place, or given to a fn whose H the declaration does not import (a toast), keeps its row; the view is derived and refused when stale, and run by `rx-verify` | `toast(Saved)` with `Saved` also in a router's view; the declaration emptied (the strict error comes back); a route added and the declaration not written again |
+
+Nothing of TanStack is in a checker for the third: the reader of its
+router object is in `rx-declare`, beside the reader of its generated tree.
+Running an app's module to ask its router is what MO-14g already did for a
+`filesystem-routing` router; for an `.rx` module it needs the compiler to
+compile what the checkers have not passed — the declaration being written
+is what the program is checked by — so `rxc app --unchecked` (the Node
+API's eighth argument) exists for that tool, and for no build.
+
+### A method of a library's object (09 MO-8t)
+
+The eleventh round put `export fn toaster.show(…) renders(Toast.List)` to
+the bar as a place for one word and counted one library. Asked again as
+what it is — a fn's row on a member, with every word a fn has — the count
+is of another thing: libraries whose API is an object.
+
+**Surveyed.** TypeScript's checker over every package of the benchmark's
+workspace: each export whose type has function-typed members that the
+library's own types declare (classes, components and what every function,
+array and string has aside).
+
+| library | export | its methods |
+| --- | --- | --- |
+| `@kobalte/core` 2.0.0-alpha.5 (`/toast`) | `toaster` | `show`, `update`, `promise` (each given a component), `dismiss`, `clear` |
+| `solid-sonner` 1.0.0 | `toast` (a function) | `success`, `error`, `info`, `warning`, `message`, `loading`, `custom`, `promise`, `dismiss`, `getToasts`, `getHistory` |
+| `@ui-sdk/solid` 0.1.0-beta.13 | `toast` (a function), `overlays`, `shortcuts` | `toast.success`…, `toast.update`, `toast.dismiss`, `toast.subscribe`; `overlays.mount`, `unmount`; `shortcuts.register`, `setScope` |
+| `@solidjs/router` 2.0.1 | `query` (a function) | `get`, `set`, `delete`, `clear` |
+| `@solid-primitives/storage` 5.0.0 | `cookieStorage` | `getItem`, `setItem`, `removeItem` |
+| `@tanstack/solid-query` 6.0.0-rc.6 | `focusManager`, `onlineManager`, `notifyManager`, `timeoutManager` | `setFocused`, `setOnline`, `subscribe`, `batch`… |
+
+**Run**, on Solid 2.0.2's development build, each method called inside a
+memo that is read by a view and run three times:
+
+| | what happened | what both checkers said before |
+| --- | --- | --- |
+| Kobalte `toaster.show(C)` | throws `REACTIVE_WRITE_IN_OWNED_SCOPE` | (a component in the call: `COMPONENT_AS_VALUE`; with a message, accepted) |
+| sonner `toast.success("saved")` | no error; three toasts | accepted, declared or not |
+| UI SDK `toast.success("saved")` | no error; three toasts | accepted |
+| `@solidjs/router` `query.clear()` | no error; the cache cleared three times | accepted |
+
+So both halves of the bar hold, for six libraries by five authors: a
+mistake Solid programs make that could not be refused (and that three of
+four libraries do not report either), and a correct program that could
+not be written without a module of the app's own. **Taken.** What the
+form is, how the loaders name a method by its row so that no reader has a
+rule of its own, and the three readings found on the way — a declared
+value's type read as a declared result's is; a method written as a
+method read as the field it is; a method of an io import io — are in
+MO-8t. The third changes what an undeclared import is: `notify("x")` in
+a view was refused and `notify.success("x")` accepted, and now both are
+refused. No task and no scenario had relied on it.
+
+What it does not reach is said there too: a method of a value the
+*program* makes (`router.navigate`, a query client's) has no row; it is
+read by its declared type, which a method written as a method now has.
+
+### A route's options in an `.rx` route file (11 CP-4d)
+
+The eleventh round's `.rx` route files gave TanStack's generator a
+component and nothing else; a loader meant a TS route module beside the
+page. Two halves:
+
+- *This side.* What can an `.rx` module export for a host? An exported
+  equation whose right side is a record literal of function literals was
+  already accepted by both checkers, its functions held as any made in
+  reactive scope (pure: a loader that does io is `IO_IN_REACTIVE`). The
+  front end hands it to JavaScript as a plain record, each function
+  calling the module's own in the page's instance of the module (made at
+  the first call, as a library's exports are), and `rx-tsc` types the
+  import by the module's projection. Nothing in the language.
+- *The fork.* `routeComponentOptionsExport: "route"`
+  (`yumemi-thomas/router`, `rx-route-files`, `7ba2912`): where a
+  component route file's text exports the name, the generator imports it
+  beside the component and spreads it into the route it writes. Tests,
+  docs and a changeset are in the fork; the packages are packed again in
+  `bench/tasks/router-rx-routes/vendor`.
+
+Run (`bench/tasks/router-rx-routes`): a loader on the index route, read
+by `useLoaderData({ from: "/" })`; a validated search on the person's.
+The types came through further than was asked: with `validateSearch` in
+the `.rx` file, TypeScript refused the task's own `<Link to="/people/$id">`
+for a missing `search` — the route's type, from an `.rx` record, through
+the generated tree, to a link in another `.rx` file. Three type probes
+and three variants hold it.
+
+Not among them: a route's own components (`errorComponent`,
+`pendingComponent`). A component in a record of an equation is a value
+(MO-11c), and where the host would render it is not said by anything;
+a route's failure and wait are held by regions.
+
+### Every module of the app's own, and every word written by hand
+
+Each of the thirty modules of the app's own in the coverage suite, and
+each in a task, was read for its reason.
+
+| the reason given | modules | removable now? |
+| --- | --- | --- |
+| a method of a library's object (`toaster.show`) | `kobalte-toast/src/toasts.js` | **removed** (MO-8t), with its declaration |
+| a module's default export | `solid-marked/markdown/markdown.js`, `solid-use/online-status/status.js`, `solid-use/page-visibility/status.js`; two lines of `solid-use-primitives/src/use.js`; and one of two reasons in `solid-use/atom`, `fetch`, `server-value`, `string` | **removed** where it was the only reason (MO-8u): it never needed a module — `import { default as x }` with a row named `default` had always parsed, checked, compiled and run. The draft said to write a helper, and so everyone did |
+| the library takes a Solid signal (`makePersisted(createSignal(…))`) | `primitives/storage`, `primitives-state/src/storage.js` | no: an `.rx` program has no signal to pass (a source is not one), by design |
+| a class to construct (`new ReactiveMap()`) | `primitives/map`, `set` | no: `.rx` has no `new` |
+| one function that reads and writes, or is given to `ref` and called for its reading | `solid-use/atom`, `solid-use-state/src/atom.js`, `wardic/gestures` | no: a result's part is a reader or a function |
+| a component written for the DOM, or returned in a tuple, or a token made at a module's top | `primitives/props`, `controlled-props`, `jsx-tokenizer` | no: a component author's tools, in a component written in JavaScript |
+| state made in a callback the library calls (`createContextProvider`, `createSingletonRoot`, `withProvider` + `provide`) | `primitives/context`, `rootless`, `solid-use/provider`, `solid-use-state/src/theme.js` | no: `.rx` has `context` and `provide` of its own |
+| a tagged template | `primitives/graphql`, `solid-use/string` | no: `.rx` has no call for one |
+| a function that is a primitive's whole result, called by the view (`translator`, `createMarker`) | `primitives/i18n`, `marker` | no (MO-10b: such a function is io); the module gives it as a field |
+| a result typed by a mapped type (a field per input, a method per function) | `primitives/destructure`, `workers`, `state-machine` | no: a row lists its parts |
+| a callback two functions deep, or called once while the call is made and impure on purpose | `primitives/flux-store`, `history`, `solid-use/server-value`, `solid-use-primitives/src/use.js` (`useTicket`) | no |
+| a rest parameter of accessors; an accessor that answers a promise; `track()` called for nothing where a value is computed; a mutable written by assignment | `primitives/signal-builders`, `geolocation`, `trigger`, `mutable` | no, each by a rule that is the language's (`ref` is said of one parameter; `MISSING_AWAIT`; MO-10b; a write is `:=`) |
+| a store's fields handed out as accessors (TanStack Query's result) | `query-forward/src/query.js`, `query-mutation/src/query.js` | no (MO-8r, a store's field); its declaration is drafted whole (MO-8s) |
+| the app's own code: a backend, an adapter over a core library with no Solid 2 adapter, a helper that changes a draft, JS for a browser global | `people.js`, `api.js`, `sync.js`, `table.js`, `virtual.js`, `array.js`, `keys.js`, `label.js`, `env.js`, `page.js`, `audit.js`, `primitives/deep/title.js` | not shims: the program's own JavaScript |
+| the router's module and TSX route files (TanStack as released) | `router.tsx`, `routes/*.tsx`, `router.ts`, `boot.ts` | `router-rx-routes` has no TSX route file and no TS route module for a loader (CP-4d); `router-provider` and `start-route` are kept as the record of the released generator |
+
+Twenty-seven of the thirty remain in coverage, each for a reason of the
+language's and none for want of a row.
+
+The words by hand, the same way (`BENCH_WORDS=1`, new: each row written by
+hand beside the draft's). Of 259 in the tasks:
+
+| what was added to the draft's row | words | removable? |
+| --- | --- | --- |
+| `pure` alone | 81 | no: a draft never guesses it (RFC 26), and `rx-verify` cannot show it without a probe ("two calls that answer alike cannot show a fn is pure") |
+| a row the draft has none for | 47 | partly: a module with no types (`start-route`'s backend, 20) is written whole; a context a library does not export (below) |
+| types spelled where the draft names them | 39 | **16 removed**: four app declarations spelled `Person` and `Todo` where the draft's alias row does; the rest are an adapter's own result type (`table.d.rx`, the fields a row reads) and `paths`, a function used as a namespace of builders, kept a value |
+| `pure rejects(E)` on the app's backend | 24 | no: the app's own facts |
+| `handler`, alone or with `pure`, `instantiates` | 33 | no: when a library calls a callback is not in a type; `rx-verify` needs a probe that makes it call |
+| `uses(c)`, `provides(c)`, a context | 27 | **most removed**: each run, then written into `known.js` — `@solidjs/router`'s `useParams`; UI SDK's dialog (the root provides what five parts read) and radio group |
+| `draft`, `client` | 4 | no |
+
+Running the parts to write `known.js` found one word that was false:
+the benchmark's hand-written `DialogTrigger … uses(dialog)`. UI SDK's
+trigger renders outside a `Dialog` (a detached trigger); the row refused
+a correct program. Removed.
+
+One drafter gap was tried and not taken. Wardic's `wardic.div` — a
+component that is a lowercase member of an object, over a mapped type of
+every tag — has no drafted row, and the app writes the one it uses (nine
+words). Drafting the members took four minutes and wrote 210 rows of an
+element's props each (a 1 022-line draft), for a row the app then
+rewrites as `props: WardicProps<"div">`. The cost would be every user's,
+at every draft; the nine words stay.
+
+### Ecosystem, recorded
+
+- **Packages with no Solid 2 release.** Twelve `@solid-primitives`
+  packages (`autofocus`, `composites`, `cookies-store`, `countdown`,
+  `db-store`, `fetch`, `immutable`, `local-store`, `page-visibility`,
+  `reducer`, `resource`, `stream`: listed with their peer range by the
+  coverage suite, and not tested), `@solidjs/start` 2.2.3 (`solid-js
+  ^1.9`; not needed: start is a mode of `@solidjs/vite-plugin` 3),
+  `@tanstack/solid-table` and `@tanstack/solid-virtual` (the tasks have a
+  small adapter over each core). Nothing here is ours to change.
+- **TanStack Router upstream has neither option of the fork.** With the
+  released generator an `.rx` file is not a route file, and a route is a
+  few lines of TSX (`bench/tasks/router-provider`, `start-route`). The
+  proposal is below.
+- **Start mode's default root lookup does not find `src/App.rx`.** The
+  plugin probes `src/App` and `src/app` with a fixed list of extensions,
+  and a front end is not told which module is the app's root: an app
+  names the file twice (`start: { app }`, `rx({ pages: [app] })`). The
+  proposal is below.
+
+### Proposed upstream (drafts, not sent)
+
+**1. To TanStack Router (`TanStack/router`).**
+
+> **router-generator: component route files for other languages, and
+> their route options**
+>
+> *What.* Two generator options (also accepted by `@tanstack/router-plugin`,
+> which passes its config on):
+>
+> - `routeComponentExtensions: Record<string, string>` — maps an
+>   additional file extension to the import query used to load a route
+>   file's default export as its component: `{ ".rx": "?rx-page" }`,
+>   `{ ".view": "" }`. A file of the routes directory with such an
+>   extension is a route. The generator never parses it: it writes the
+>   route object into the generated tree itself,
+>   `createFileRoute("/people/$id")({ component: PeopleIdRouteComponent })`
+>   (`createRootRoute({ component })` for `__root`), with the path it
+>   already derives from the file name. Path and layout conventions apply
+>   as for any route file; route-piece suffixes (`.lazy`, `.component`)
+>   are refused for these files, and so are two root files where one is a
+>   component. The plugin's code splitter leaves these modules to the
+>   bundler.
+> - `routeComponentOptionsExport: string` — the name of an export through
+>   which such a file gives its route options (`loader`, `validateSearch`,
+>   `beforeLoad`, …). When the file's text has an `export` statement that
+>   declares the name, the generator imports it beside the component and
+>   spreads it into the route: `createFileRoute(path)({ ...XRouteOptions,
+>   component: XRouteComponent })`. A file without it is a component-only
+>   route. The file is still not parsed; the language's own tooling
+>   exports a plain record and types it.
+>
+> *Why.* The generator accepts `.ts`, `.tsx`, `.js`, `.jsx` and `.vue`
+> (a fixed list in `getRouteNodes`) and reads each as JavaScript to find
+> and rewrite `export const Route = createFileRoute(…)`. A language that
+> compiles to a Solid or React component through a bundler plugin —
+> ReactiveScript, Marko-style single-file components, MDX pages — cannot
+> be a route file: today each such page needs a TS route file beside it
+> whose only content is `createFileRoute(path)({ component: Page })`. A
+> virtual route config may name any file, but the generator then parses
+> it as JavaScript and throws. The generated tree already knows every
+> route's path, id and parent; with these options it writes the one
+> object it now asks each file to restate. Types are unaffected: the
+> route objects are in the tree, so `Link`, `useParams` and — through the
+> options export — `useLoaderData` and `useSearch` are typed as for any
+> route.
+>
+> *Tests* (in the branch): `packages/router-generator/tests/generator/component-routes`
+> (a tree with component files in two extensions beside a `.tsx` route;
+> a snapshot of the generated tree; a type test that `Link`'s `to`,
+> `useParams` and `useLoaderData` are typed, the last by the exported
+> loader); `tests/utils.test.ts` (which texts export a name);
+> `packages/router-plugin/tests/component-routes.test.ts` (the files reach
+> the frontend's transform untouched, with `autoCodeSplitting` on and
+> off; a file with and without the options export). Docs:
+> `docs/router/api/file-based-routing.md`.
+>
+> *Branch.* `yumemi-thomas/router`, `rx-route-files` (two commits on
+> `f922eb5`: `8688de6`, `7ba2912`).
+
+**2. To Solid's Vite plugin (`solidjs/solid-vite-plugin`, `@solidjs/vite-plugin` 3.0.1, start mode).**
+
+> **start: find an app root that a front end compiles**
+>
+> *What.* In start mode, when `start.app` is not set, the plugin looks
+> for `src/App` or `src/app` with a fixed list of extensions
+> (`APP_EXTENSIONS`: `.tsx`, `.jsx`, `.ts`, `.js`, `.tsrx`) and fails with "the `start` option needs an app
+> root: add src/App.tsx (or set start.app)". Two small changes:
+>
+> 1. Add the extensions of the registered front ends — the keys of
+>    `options.frontends`, and the built-in `.rx` when its package is
+>    installed — to that probe, after the JS and TS ones.
+> 2. Tell the front end which module is the app's root: `context.root:
+>    true` (or `context.role: "app"`) in the `compile` call for the module
+>    `start.app` names, whether it was found by the probe or set by hand.
+>
+> *Why.* A front end's module can be the root — `start: { app:
+> "src/App.rx" }` works today — but (1) the default lookup does not find
+> it, so an app that follows the convention in another language gets the
+> error above, and (2) the plugin imports the root with no query and
+> expects its default export to be a component, while a front end whose
+> modules have more than one way to be compiled (a program, a library, a
+> page) cannot tell that this import is the root's: `compile` is given
+> the module's own id and not its importer. ReactiveScript works around
+> it with an option of its own that repeats the path (`rx({ pages:
+> ["src/App.rx"] })`); with (2) it would need none.
+>
+> *Test.* A fixture with `src/App.x` and a front end for `.x` whose
+> `compile` returns `export default function App() { return "root"; }`
+> when `context.root` is true and throws otherwise: `solid({ start: {},
+> ssr: true, frontends: { ".x": x() } })` finds the root, the server
+> render of `/` contains `root`, and the same with `start: { app:
+> "src/App.x" }`.
+
+### Library defects recorded, not filed
+
+- `solid-sonner` 1.0.0: `toast.custom(fn)` calls `fn` with no owner
+  (recorded in the tenth round; its row has no `renders(…)`).
+- `@ui-sdk/solid` 0.1.0-beta.13 and `solid-sonner` 1.0.0: a toast shown
+  from inside a computation is shown again each time it runs, with no
+  warning in development (Kobalte's throws Solid's owned-write error).
+  The mistake is the app's; the libraries could say so.
+- `@solidjs/router` 2.0.1: `query.clear()` inside a computation runs each
+  time, silently.
+
+### Found on the way
+
+- `rx-declare` applied a library's known words (`known.js`) only to a row
+  that had no question of its own: a row drafted with a `// TODO` on its
+  own element (`Toast`, with its handlers) was skipped, then — once it was
+  found — deleted with its question. It keeps the row and the question.
+- For a JS module with no types of its own, the `.d.ts` a declaration
+  stands for wrote a row named `default` as `export declare function
+  default`, which TypeScript refuses. Found by the types runner on the
+  new scenario; `export default`, in both projectors.
+- `compiler/test/runtime-resolve.mjs` failed three runs in a row on a
+  loaded machine (`fetch failed`): a cold dev server's first request is
+  dropped while Vite optimizes dependencies. It asks again.
+
+### What remains
+
+- A method of a value the program makes has no row (MO-8t, *What it does
+  not reach*): io methods that answer a value (`queryClient.setQueryData`)
+  are read as values, as MO-10b rules.
+- A route's own components in its options (CP-4d).
+- A factory's tree and a fn's arguments by a name (MO-11c): the literal.
+- An `.rx` package's component that applies a host's outlet is not
+  followed (MO-14f: a signature does not print it).
+- Words a person says and no tool can: `pure`, `handler`, `rejects` on
+  the app's own code and on libraries no one has run with a probe.
+- TanStack Router's two options and start mode's root lookup are a
+  fork's and a workaround until they are upstream.
+
+### The numbers
+
+@@NUMBERS@@

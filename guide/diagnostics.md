@@ -966,6 +966,14 @@ export default component App() {
 }
 ```
 
+A method is the same. One whose declaration gives it a row is what the row says (`export fn toast.success(…)` is io,
+`export pure fn toast.history()` is not; spec/09 MO-8t). One with no row is read as far as the declarations go: a
+method of a declared value whose type answers nothing, or a promise, is io (`export const client: { invalidate(key:
+string): void }`), and so is any method of an import that is io itself — one with no declaration, or a declared `fn`.
+So `{toast.success("saved")}` in a view is this code, where it shows a toast each time the view computes; call it from
+a handler, `onClick={() => { toast.success("saved") }}`. If a method only reads, its row says so: `export pure fn
+toast.history(): string[]`.
+
 ### ACTION_CALLED_IN_OWNED_SCOPE
 
 An action is called from a handler or another action, never from an equation or the markup (R-io-3). Solid throws the
@@ -1545,7 +1553,9 @@ export default component App() {
 A component is applied in markup, `<Greeting name="x" />`, not stored or called as a function (RG-4a). The exception is
 JS that takes a component: a factory's arguments (`createRouter({ routes: [{ path: "/", component: Home }] })`), a JS
 component's prop typed `Component` — or one whose type holds components, in the record or the list you write there
-(`<Markdown builtins={{ Heading: Heading }}>`) (MO-11c, MO-11f) — and the arguments of any other JS call, where a
+(`<Markdown builtins={{ Heading: Heading }}>`), or the name of an equation bound to such a record or list, where every
+mention of that name is such a prop (`builtins = { Heading: Heading }`, then `<Markdown builtins={builtins}>`: read
+anywhere else, exported, or given to no such prop, the binding is this code) (MO-11c, MO-11f) — and the arguments of any other JS call, where a
 library may render it anywhere: there it is checked under a root of its own, with nothing above the call credited
 (MO-11s, below), unless the fn's row names the component that renders it (`renders(Toaster)`, MO-11u).
 
@@ -1854,6 +1864,11 @@ export default component App() {
 ### SHADOWED_IMPORT
 
 A local declaration has the name of an import (MO-1d). Rename one: `import { initials as initialsOf } from "./util.rx"`.
+
+For an import whose methods have rows of their own in its declaration (`export fn toaster.show(…)`, spec/09 MO-8t),
+every second binding of the name is this code — a parameter, a local, a loop's variable too (`for toaster in …`): the
+methods' rows are read by the name `toaster.show` as written, and a second `toaster` would have them read off
+something else. It is reported on the import's line.
 
 ```rx before
 -- module: ./util.rx
@@ -2283,7 +2298,10 @@ its pages where it writes `{props.children}`.
 Under a host declaration there is a second way: a layout may render its pages through a component of the host's own —
 TanStack Router's `<Outlet />`, or the router's component in the app's `.rx` entry. The declaration imports that
 component from its JS module (`import { Outlet } from "@tanstack/solid-router"`), and the pages are then checked where
-the layout applies it (MO-14f).
+the layout applies it (MO-14f) — itself, or through `.rx` components of yours: a layout that applies `<Frame />`,
+which applies `<Outlet />`, renders its pages at that outlet, under what the frame has around it and what the layout
+has around the frame. A component that renders *its own* children and is given none (`<Card />`) is no outlet, and a
+frame with no outlet renders none: both are still this code.
 
 ```rx before
 -- module: ./router.d.rx

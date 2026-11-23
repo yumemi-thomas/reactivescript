@@ -48,6 +48,23 @@ library's object (run: of the two libraries named, one renders what it
 is given beneath its list and the other calls it with no owner), a
 layout's regions under `renders(H)`, an `.rx` package naming another
 package's host.
+A form that was not taken is taken when what it is counted over changes,
+and the record keeps both counts: a row for a method of a library's
+object was refused on 2026-11-24 as a place for `renders(H)` alone (true
+of one library) and accepted on 2026-11-25 as the row itself, every word
+a fn has (09 MO-8t: six libraries export an object whose methods do
+something, four run with the method called while a view computes, which
+both checkers accepted).
+A strict ruling is read again for the correct program it refuses: where
+the checker can see what it said it could not, the ruling is revised with
+its unit and the condition that keeps it sound, and the counter-examples
+stay as tests (09 MO-11c, a record of components by a name; MO-14f, the
+host's outlet through `.rx` components; MO-14h, a page under code-based
+routes).
+What looks like a limit of the notation is tried before it is recorded:
+a module's default export was listed as having no row for three rounds,
+and `import { default as x }` with a row named `default` had always
+parsed, checked and run (09 MO-8u) — only the draft said otherwise.
 What a tool can read is not a word's to say: a host declaration's
 nesting is read off the router's own tree (`//@ routes`, 09 MO-14g), and
 a module of the app's own takes the words of the library rows it hands
@@ -56,7 +73,13 @@ are given.
 A library that is not released as the benchmark needs it is used from
 the lockfile all the same, as packed tarballs with the commit they were
 built from (`bench/tasks/router-rx-routes/vendor`): a test that runs
-only beside a clone is green in CI by not running.
+only beside a clone is green in CI by not running. A change to such a
+fork is pushed to the fork's branch, never forced, and the tarballs are
+packed again at the new commit with their integrities in the task's lock
+(the vendor folder's README says the commit and the commands); what the
+fork would need upstream is written as a proposal, with its test, in
+`spec/rfc-declaration-types-2026-11-22.md` (*Proposed upstream*), and
+sent by a person.
 What an app must install is tested as installed: the compiler goes into the
 suites' workspaces with the manifest it is published with
 (`compiler/scripts/published.mjs`: the runtime its dependency, Solid its
@@ -105,6 +128,7 @@ for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/te
 (cd tooling/rx-language-server && npm test)
 node bench/run.mjs --check     # the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
 node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)
+BENCH_WORDS=1 node bench/run.mjs <task>   # each row of the task's declarations written by hand, beside rx-declare's row of the same export
 # a task under a file-based router generates the router's tree before any checker reads the program (its `prepare`: a
 # `vite build`), and its host.d.rx is derived from that tree: `rx-declare --host --sync <host.d.rx>` after a route moves
 ```

@@ -29,6 +29,14 @@ does for `.tsrx`. Nothing here is a second type system.
   written without the row words on its fields (2026-11-22: `query: {
   data: pending fails(Error) T }` is `query: { data: T }` to TypeScript,
   09 MO-10f), each piece between them mapped where it is.
+  A JS host that imports an `.rx` module `?rx-page` or `?rx-lib` is typed
+  by the module's projection: its exported components, the page's default,
+  and — since 2026-11-25 — each exported record of functions (`export
+  route = { loader: …, validateSearch: … }`, 11 CP-4d), as the module's
+  own value (`export declare const route: typeof M.route`). That is how a
+  route file's options type the route a router's generator writes of it,
+  and through the registered router the page that reads them
+  (`useLoaderData({ from })`) and every link to the route.
 - **TY-1d (Types in the build) — proposed 2026-11-19.** A production
   build type-checks: the Vite frontend runs `rx-tsc` over the project's
   `tsconfig.json` once per build, and a type error fails the build on its
@@ -146,6 +154,19 @@ does for `.tsrx`. Nothing here is a second type system.
   a library's own `.d.ts` as it does against the projected one (S-module-13).
   `rx-tsc` uses the projected `.d.ts` where a JS module has a `.d.rx` and no
   types of its own (`tooling/rx-language-server/src/declarations.js`).
+  *A method, and a default export (2026-11-25).* A method's row (09
+  MO-8t) is a member of its object in the `.d.ts`: of a declared value,
+  a field of its type (`export declare const toaster: (T) & { show:
+  (toast: Component<…>) => number; }`); of a declared fn, a function of
+  the namespace TypeScript merges with it (`export declare namespace
+  toast { function success(message: string): number; }`). The row named
+  `default` (MO-8u) is the module's default export (`declare function
+  __default(): (() => boolean); export default __default;` — written
+  `export declare function default`, which TypeScript refuses, until the
+  types runner met one). In the projection of an `.rx` module a method's
+  call is the member call it was written as (`toaster.show(Saved)`),
+  typed by the library's own declaration, and a default export is
+  imported as it is written (`import { default as useOnlineStatus }`).
   Which `.d.rx` declares a module is one list, read in one order by the
   checker and the tooling (09 MO-8a; revised 2026-11-22 after review):
   `./x.js` and `./x.ts` by `x.d.rx`; every other JavaScript or TypeScript
@@ -200,6 +221,10 @@ does for `.tsrx`. Nothing here is a second type system.
   NoInfer<{ … }>`), and each field of the record is held against the
   type's prop of that name (TY-6f). A fn has one row (09 MO-8b): of a
   library's overloads, the row is held by the one that fits it.
+  A method's row (09 MO-8t) is held to the member it names
+  (`toaster.show` to the module's `toaster.show`), and the row named
+  `default` to the module's default export (MO-8u), each as any fn's or
+  component's is.
   A package a row names by a bare specifier (`import("dep").T`) in a
   package's declaration is resolved as the declared library resolves it,
   from the library's location and then from beside the declaration (09

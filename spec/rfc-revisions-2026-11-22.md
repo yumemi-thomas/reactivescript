@@ -503,15 +503,38 @@ library's: each was looked at again for what this side could do.
 | `host.d.rx` under a `filesystem-routing` config with a `toPath` of its own | derived with the package's default convention, in silence: pages nested as the router does not | the router is a module, named as the source and asked for its routes; a directory under such a config is refused |
 | a wrapper that renders a library's provider inside a fragment, or calls its hook through a helper of the same module | its declaration by hand | drafted with the library's words (MO-8s) |
 
+## After the twelfth round (2026-11-25): what was still refused, and what an app still wrote by hand
+
+Recorded in 09 MO-8t, MO-8u, MO-11c, MO-14f, MO-14g, MO-14h, 11 CP-4d and
+13, and `rfc-declaration-types-2026-11-22.md` (*A thirteenth round*).
+Five of the limits listed below until this round were read against the
+goal — refuse no correct program that can be accepted soundly; ask an app
+for no module and no word it does not need — and are gone or smaller.
+
+| what a Solid app writes | was | now |
+| --- | --- | --- |
+| `toaster.show(Saved)`, `toast.success("saved")`, `query.clear()`: a library's object, called as its documentation calls it | a component given to a method was `COMPONENT_AS_VALUE`, so the app handed the method out from a module of its own; and an io method was read as a value — `{toast.success("saved")}` in a view was **accepted**, and shows a toast on every computation | a method has a row (`export fn toaster.show(…) renders(Toast.List)`, 09 MO-8t): the call is a declared fn's. In a view it is `IO_IN_REACTIVE`; so is a method with no row whose type answers nothing or a promise, and a method of an import that is io |
+| `import { default as useOnlineStatus } from "solid-use/online-status"` | "a default export has no row": a JS module of the app's own that re-exports it by name | a row named `default` (MO-8u). It always worked; the draft said otherwise |
+| `builtins = { Heading, Paragraph }`, then `<Markdown builtins={builtins}>` | `COMPONENT_AS_VALUE` on the binding | accepted, where every mention of the name is such a prop (MO-11c) |
+| a layout that applies `<Frame />`, with the router's `<Outlet />` inside it | `NESTED_NOT_RENDERED` on the layout | the pages are checked at the outlet, through the `.rx` components in between (MO-14f) |
+| code-based routes (`createRoute({ component })`) with a root layout whose `errored` and `loading` are around its `<Outlet />` | `UNHANDLED_FAILURE`: pages side by side beneath the provider | accepted under a host declaration read off the router the module exports (MO-14g, MO-14h) |
+| a route's loader and search validation, with `.rx` route files | a TS route module beside the `.rx` page | `export route = { loader, validateSearch }` in the route file (11 CP-4d; TanStack's generator on a fork's second option) |
+
+One thing it made stricter, a mistake that was accepted: an io method
+called while a view computes (the first row). And one hand-written word
+of the benchmark was found *too* strict, by running UI SDK's parts to
+write `known.js`: `DialogTrigger … uses(dialog)` — the trigger renders
+outside a dialog. Removed.
+
 ## Limits that remain, and why they are inside the goal
 
-- **`renders(H)` places a fn's components side by side beneath H**
-  (09 MO-11u). A layout's own regions are not credited to the pages its
-  outlet renders: the word names a place, and a tree's nesting is a
-  factory's or a host declaration's to say. The check errs on the strict
-  side. (Asked again and decided 2026-11-24, with the program run: the
-  nesting of code-based routes is in one library's values, which CN-8
-  keeps out of the checker. A host declaration has it, now derived.)
+- **`renders(H)` by itself places a fn's components side by side
+  beneath H** (09 MO-11u): the word names a place, and a tree's nesting
+  is a factory's or a host declaration's to say. (Since 2026-11-25 a
+  host declaration says it for code-based routes too, read off the
+  router object, and a page its view places is checked there, MO-14h.
+  Without one — a program with no `host.d.rx` — the check errs on the
+  strict side, as before.)
 - **H is one component, of the same declaration.** A library whose fn
   hands its components to one of two components (a toaster per region,
   chosen by an option) is checked at every application of the one the
@@ -522,19 +545,20 @@ library's: each was looked at again for what this side could do.
   `rx-verify` holds `renders(H)`, a factory's placement and a
   component's `Component` props to a scene, and reports a component the
   library calls with no owner; nothing in a build runs the library.
-- **A method of a library's object has no row** (Kobalte's
-  `toaster.show`, sonner's `toast.custom`): a component given to one
-  is `COMPONENT_AS_VALUE`, and the app hands the method out as a
-  function from a module of its own. (Decided 2026-11-24, both run: the
-  word would be true of Kobalte's and false of sonner's, which calls its
-  function with no owner — one library. The module's declaration is
-  drafted whole, MO-8s.)
-- **A record of components is read in the literal the prop is given**
-  (MO-11c): one built elsewhere and passed by name is
-  `COMPONENT_AS_VALUE` where it is written. (Read again 2026-11-24 as a
-  limit a tool might lift: it is the rule, ruled with its unit — a name
-  bound to a record is a value, which `.rx` cannot apply and could hand
-  anywhere — and not a reader's shortfall.)
+- **A method of a value the program makes has no row** (09 MO-8t):
+  `router.navigate(…)`, a query client's `setQueryData(…)`. It is read
+  by its declared type — one that answers nothing or a promise is io —
+  so an io method that answers a value is read as a value, as MO-10b
+  has ruled. (A method of an object a library *exports* has a row since
+  2026-11-25; six libraries write one.)
+- **A record of components by a name is read where every mention of the
+  name is the prop** (MO-11c, relaxed 2026-11-25). Read anywhere else,
+  exported, or computed (`wide ? [A, B] : [A]`), it is a value; a
+  factory's tree and a fn's arguments keep the literal at the call.
+- **The object of a method's row is the import's name alone** in a
+  module (MO-8t): a parameter or a loop's variable of that name is
+  `SHADOWED_IMPORT`, since the loader names a method by the name as
+  written.
 - **A package written in `.rx` cannot name another package's host** in
   its signature (MO-13b, as a context): the app shows the toast, or
   mounts the toaster. (Decided 2026-11-24: no library writes it. A
@@ -556,20 +580,24 @@ library's: each was looked at again for what this side could do.
 - **The checkers read no router** (08 CN-8): `HOST_VIEW_STALE` is the
   tools'. `rxc check` alone, on a declaration that has fallen behind,
   checks what the declaration says.
-- **A component the host renders through is applied in the view of the
-  component its record names** (MO-14f). One applied for it by another
-  `.rx` component in between is refused (`NESTED_NOT_RENDERED`), with the
-  way round in the language: that component takes it as its children.
+- **A component the host renders through is followed through the
+  program's own `.rx` components** (MO-14f, 2026-11-25), not through a
+  package read by its printed signature: a package's frame around the
+  router's outlet renders no pages, to the checker.
 - **A TanStack route file is TSX, with the router as released.** Its
-  generator reads route files as JavaScript; the option that admits an
-  `.rx` file is a fork's (`routeComponentExtensions`), built against and
-  not upstream. A route with a loader or search validation is a TS route
-  file either way.
+  generator reads route files as JavaScript; the options that admit an
+  `.rx` file and its route options are a fork's
+  (`routeComponentExtensions`, `routeComponentOptionsExport`), built
+  against and not upstream: the proposal is written, not sent
+  (`rfc-declaration-types-2026-11-22.md`, *Proposed upstream*). A
+  route's own components (`errorComponent`) are not among the options an
+  `.rx` file exports (11 CP-4d).
 - **Solid's start mode is told its `.rx` root twice in one line of
   config** (`start: { app }`, and `rx({ pages: [app] })`, 11 CP-4d,
   2026-11-24): the plugin writes the import, and a front end is not told
   who imports a module. The file with no option, `src/App.*`, is looked
-  for under five extensions, which is the plugin's.
+  for under five extensions, which is the plugin's (the proposal for
+  both is written, not sent).
 - **The runtime is found by naming one module** (11 CP-4a, 2026-11-24):
   an app lists the compiler and nothing else of this project's. Under a
   package manager that hoists nothing, an app that also installs a

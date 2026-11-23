@@ -111,7 +111,10 @@ The app mounts a program with `createApp` from `@reactivescript/runtime`
   file, so creating it starts no rebuild by itself.
 - **A route file's page.** `import Person from "./routes/people/[id].rx?rx-page"` is `?rx-lib` with the module's
   default component as the default export (spec/11 CP-4d): what a file-based router that takes `.rx` route files
-  imports each as (`bench/tasks/file-routes`). A `host.d.rx` in the folder of a program's modules, or one above
+  imports each as (`bench/tasks/file-routes`). Beside its components, a module imported `?rx-page` or `?rx-lib`
+  exports each of its exported records of functions as a plain record (`export route = { loader: …, validateSearch:
+  … }` is `import { route } from "./routes/index.rx?rx-page"`): a route's options, for a router whose generator takes
+  them from the route file (`bench/tasks/router-rx-routes`). A `host.d.rx` in the folder of a program's modules, or one above
   it, says what the host does with the components it renders (spec/09 MO-14) and which of its own components it
   renders through (MO-14f: the router's component in an `.rx` entry, a layout's `<Outlet />`): the crate reads it
   with the program, and it is watched as every declaration the program read is. `examples/tanstack` is such an app,

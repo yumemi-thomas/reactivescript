@@ -74,7 +74,10 @@ there; write the `rx-types/` file (this command, then its TODOs) to check them. 
 
 What the types show becomes rows: an accessor parameter or result is `ref`, a function of props to a JSX element is a
 component (its JSX props are `View`, its component props `Component`), a tuple keeps its `ref` parts, an `Error`
-subclass is an `error`, a function that hands back a component is a factory. Every fn is drafted io: a `create*`,
+subclass is an `error`, a function that hands back a component is a factory. A method of an exported object, or of
+an exported function, that the library's own types declare is a row of its own after its object's (`export fn
+toaster.show(…)`, 09 MO-8t), and a module's default export the row named `default` (MO-8u: `export fn default(…)`,
+`export component default(…)`). Every fn is drafted io: a `create*`,
 `use*`, `define*` or `*Options` name (Solid's convention for primitives and config helpers) only suggests `pure`, as a
 `// TODO`, as an `on…` callback suggests `handler`; a name is a convention, not a fact, so a person decides. What types
 cannot show is a `// TODO` line above the declaration it concerns: which context a hook reads (`uses(…)`), whether a
@@ -141,7 +144,9 @@ cannot answer — where the library renders it (`renders(<Component>)`, 09 MO-11
 For a few libraries the draft also has what types cannot show (`src/known.js`): a router's context and its factory's
 `nests(…)` (`@tanstack/solid-router`, `@solidjs/router`), where a library renders the components a fn is given
 (`renders(Toaster)` for solid-sonner's `toast`, `renders(RouterProvider)` for TanStack Router's `createRoute`), the
-contexts of Kobalte's toast parts, TanStack Query's context, `handler` on its callbacks, `pure`
+contexts of Kobalte's toast parts and `renders(Toast.List)` on its `toaster.show`, UI SDK's dialog and radio-group
+contexts, the hooks of both routers that read the router (`useParams`; TanStack's `useLoaderData`, `useSearch`),
+TanStack Query's context, `handler` on its callbacks, `pure`
 on those primitives, and `pending` or `fails(…)` before a `ref` part that waits or fails where it is read
 (`@solid-primitives/sse`, `@solid-primitives/geolocation`; 09 MO-10l). Each entry
 is for a version range and was checked by running that release; outside the range, and for every other package, the
@@ -194,11 +199,15 @@ real one, and a component of the view must render inside it (the claim is the im
 asks for a host declaration's record as for any declaration's. `rx-declare --host <module.rx>...` drafts the
 declaration: the imports, the contexts those modules' imports are declared to use, and a view with every component
 at the top — which page is in which layout is the router's knowledge, and is left to write. Or read from the router
-(MO-14g): `rx-declare --host --routes <routeTree.gen.ts | routes directory | routes.json> [<entry.rx>…]` writes the
+(MO-14g): `rx-declare --host --routes <routeTree.gen.ts | routes directory | router module | router.rx | routes.json> [<entry.rx>…]` writes the
 whole declaration from the router's own tree, with `//@ routes …` on its first line; `rx-declare --host --sync
 host.d.rx` writes it again from there, `--check` exits 1 when it has fallen behind, and so do `rx-tsc`
 (`HOST_VIEW_STALE`) and `rx-verify`, which hands the probe the routes (`scene(rx, h, routes)`, `act(rx, h, route)`
-for each page). `src/host-routes.js` is the reader.
+for each page). `src/host-routes.js` is the reader. A router made in `.rx` (code-based routes: `export router =
+createRouter({ routeTree })`) is read by compiling its module (whatever the checkers say of it: the declaration being
+written is what it is checked by), running it in a child process with a browser's globals (happy-dom, from the
+project) and asking the router object for its tree; the outlet, and the entry's router component, are found through
+the `.rx` modules a layout or an entry imports.
 
 `rx-declare ./module.js`, for a module of the app's own, also carries the words of the library rows the module hands
 on (MO-8s, `src/declare-own.js`): a component exported again, one that renders the library's and nothing else, what a

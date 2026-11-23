@@ -445,3 +445,40 @@ names that copy too. `compiler/test/runtime-resolve.mjs` runs the app's
 side of it: the runtime only under the compiler, at the top with only the
 compiler listed, and at the top with nothing listed (the setup the
 runtime's message is kept for).
+
+## Methods, default exports and route options, for a package (2026-11-25)
+
+The thirteenth round (`rfc-declaration-types-2026-11-22.md`) changed what
+a JS declaration can say and what an `.rx` module hands a JS host. For a
+package written in `.rx`:
+
+- **A package's own signature is unchanged.** A method's row (09 MO-8t)
+  and the row named `default` (MO-8u) are rows of a *JS* declaration. An
+  `.rx` module exports names, not an object with methods and not a
+  default value other than its default component; what `rx-lib` prints
+  is what it printed. A `renders … from <fn>:<line>` row of a signature
+  may now name a method (`from toaster.show:7`): both readers took a
+  dotted name already.
+- **A package that calls a library's method.** `toaster.show(Saved)` in a
+  package's module is a call of the declared fn, and is carried as any
+  such call is: the package's signature has the `renders` row, and
+  MO-13b's rule stands — a key that leaves what the package ships is
+  refused, so a package shows a toast through a host the app mounts only
+  where the library is the app's to declare.
+- **An exported record of functions** (11 CP-4d: `export route = { loader:
+  … }`) is handed to JavaScript by a module imported `?rx-page` or
+  `?rx-lib`. A package built by `rx-lib` already exports each equation to
+  JavaScript as an accessor (MO-13e, `library()`), and that is not
+  changed: a JS app reads `pkg.route()`. The plain record is the front
+  end's, for a host that takes a module's exports as they are (a router's
+  generator) and cannot call an accessor. Whether `rx-lib` should write
+  the same for a package — a published `.rx` route module — is not asked
+  by any package yet, and is left.
+- **The host's outlet through an `.rx` component (MO-14f) stops at a
+  package.** A module read by its printed signature is not followed: a
+  package's `<Frame>` that applies the router's `<Outlet />` is, to the
+  app's host declaration, a component that renders no pages, and a
+  layout that relies on it is `NESTED_NOT_RENDERED`, as before. A
+  signature could say it (a word on a component's row, `shape(…)`'s
+  neighbour); no package asks, and the app writes the outlet in a
+  component of its own.

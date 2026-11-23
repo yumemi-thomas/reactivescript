@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+**Methods of a library's object, route options in an `.rx` route file, layouts under code routes, fewer modules of your own** (spec/09 MO-8t, MO-8u, MO-11c, MO-14f, MO-14g, MO-14h; spec/11 CP-4d; spec/rfc-declaration-types-2026-11-22.md, *A thirteenth round*)
+
+- **New: a method of a library's object has a row** (MO-8t). `export fn toaster.show(toast: Component<…>): number
+  renders(Toast.List)` beside `export const toaster`, `export fn toast.success(…)` beside `export fn toast`: a fn's
+  row, with every word a fn has. Call the library as its documentation does — `toaster.show(Saved)`,
+  `toast.success("saved")`, `query.clear()` — with no module of your own in between; `rx-declare` drafts the rows.
+- **Now refused (these were accepted, and are mistakes): an io method called while a view computes.**
+  `{toast.success("saved")}` in a view or an equation showed a toast on every computation. It is `IO_IN_REACTIVE`
+  where the method's row says `fn`; where a method has no row and its declared type answers nothing or a promise (a
+  declared `const`'s methods were never read; a method written as a method, `navigate(to: string): Promise<void>`,
+  was not read at all, in a result's type, a prop's or a context's); and where it is a method of an import that is
+  io itself (undeclared, or a declared `fn`). **If your program is refused by this:** call the method from a handler
+  or an action; if it only reads, give it a row, `export pure fn client.get(key: string): string`, or import the
+  module `pure`.
+- **New: `SHADOWED_IMPORT` for a second binding of an import whose methods have rows** — a parameter, a local or a
+  loop's variable named as the import is. Rename one.
+- **New: a module's default export needs no helper** (MO-8u). `import { default as useOnlineStatus } from
+  "solid-use/online-status"` with a row named `default` (`export pure fn default(): ref boolean`, `export component
+  default(props: …)`). This always parsed and checked; `rx-declare` now drafts the row instead of telling you to
+  write a JS module, and the `.d.ts` a declaration stands for writes it as `export default`.
+- **New: a record or a list of components may have a name** (MO-11c). `builtins = { Heading, Paragraph }`, then
+  `<Markdown builtins={builtins}>`, is read as the literal — provided every mention of the name is such a prop. It
+  was `COMPONENT_AS_VALUE`.
+- **New: a layout may render the router's outlet through components of its own** (MO-14f). `Root` applies `<Frame />`,
+  `Frame` applies `<Outlet />`: the pages are checked at the outlet. It was `NESTED_NOT_RENDERED` on the layout.
+  `rx-declare --host --routes` finds the outlet, and your entry's router component, through the `.rx` modules in
+  between.
+- **New: code-based routes with their layouts' regions** (MO-14g, MO-14h). `rx-declare --host --routes src/main.rx
+  src/main.rx` compiles the module that exports your TanStack router, runs it, and reads the tree off the router
+  object; under that declaration a page given to `createRoute` is checked where its layout renders it, so a root
+  layout's `errored` and `loading` around `<Outlet />` hold its pages. It was refused (`UNHANDLED_FAILURE`). Export
+  the route components and the router; the tool needs `@happy-dom/global-registrator` in the project.
+- **New: an `.rx` route file exports its route options** (CP-4d). `export route = { loader: () => fetchPeople(),
+  validateSearch: … }` reaches JavaScript as a plain record when the module is imported `?rx-page` or `?rx-lib`, and
+  TanStack Router's generator spreads it into the route it writes — with the fork's new option,
+  `routeComponentOptionsExport: "route"` (`github.com/yumemi-thomas/router`, branch `rx-route-files`, `7ba2912`; not
+  upstream). The loader's answer types `useLoaderData({ from })`, and a route's `validateSearch` types its links.
+- **`rx-declare` knows more of three libraries**, each run: `@solidjs/router`'s `useParams`, TanStack Router's
+  `useLoaderData` and `useSearch`, UI SDK's dialog and radio-group contexts, Kobalte's `toaster.show`.
+- `rxc app --unchecked` and an eighth argument of the Node API's `app` compile a program whatever the checkers say:
+  for the tool above, never for a build.
+
 **An app lists the compiler and nothing else, an `.rx` root in start mode, a router's own convention** (spec/11 CP-4a, CP-4d; spec/09 MO-14g, MO-8s; spec/rfc-declaration-types-2026-11-22.md, *A twelfth round*)
 
 - **Fixed: under Solid's start mode's dev server, `provide` failed unless your app listed `@reactivescript/runtime`.**

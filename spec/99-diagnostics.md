@@ -86,19 +86,19 @@ named.
 | Code                              | Bin | Rule  | Scenario |
 | --------------------------------- | --- | ----- | -------- |
 | `DUPLICATE_DECLARATION`           | S   | E-7   | S-check-1 |
-| `SHADOWED_IMPORT` (new)           | S   | MO-1d | S-module-1 |
+| `SHADOWED_IMPORT` (new)           | S   | MO-1d; 09 MO-8t (2026-11-25): any second binding — a parameter, a local, a loop's variable — of an import whose methods have rows of their own, reported on the import's line | S-module-1, S-module-42 |
 | `CYCLE`                           | S   | C-1 (CN-3a: union of branches; only an equation's own `pre` breaks it) | S-check-1, S-core-1 |
 | `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
 | `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a; `props` of a component that declares none, RG-4b) | S-check-1 |
 | `ARGUMENT_COUNT` (new)            | S   | AC-1f: a call of a declared action with another number of arguments than its parameters | S-check-1 |
-| `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories; MO-11q, a tag that begins with a small letter and has a `.` (`<wardic.div>`: no element's name has one, and a member component is applied through a name with a capital) is `UNKNOWN_COMPONENT`; MO-11s, a component given to JS that says nothing of where it renders it, is checked under a root of its own; MO-11c (2026-11-24), a component in a record or an array given to a JS component's prop whose type holds one is a value there, and one in a record built elsewhere is `COMPONENT_AS_VALUE` | S-check-1, S-region-5, S-module-5, S-module-6, S-module-24, S-module-27, S-module-39 |
+| `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories; MO-11q, a tag that begins with a small letter and has a `.` (`<wardic.div>`: no element's name has one, and a member component is applied through a name with a capital) is `UNKNOWN_COMPONENT`; MO-11s, a component given to JS that says nothing of where it renders it, is checked under a root of its own; MO-11c (2026-11-24), a component in a record or an array given to a JS component's prop whose type holds one is a value there, and so is one in a record or an array bound to a name where every mention of the name is such a prop (2026-11-25: read elsewhere, exported or given to none, the binding is `COMPONENT_AS_VALUE`) | S-check-1, S-region-5, S-module-5, S-module-6, S-module-24, S-module-27, S-module-39 |
 | `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k (render props) | S-module-14 |
-| `NESTED_NOT_RENDERED` (new, 2026-11-23) | S | 09 MO-11i, MO-14f: a component a record nests others in (a factory's tree, a host declaration's view) renders none of its children — no `{props.children}`, no component the host renders through | S-module-38 |
+| `NESTED_NOT_RENDERED` (new, 2026-11-23) | S | 09 MO-11i, MO-14f: a component a record nests others in (a factory's tree, a host declaration's view) renders none of its children — no `{props.children}`, no component the host renders through, itself or through the `.rx` components it applies (2026-11-25) | S-module-38, S-module-40 |
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
 | `SNAPSHOT_INITIALIZER`            | S   | E-4 / DV-6 | S-surface-1 |
 | `SNAPSHOT_KEPT`                   | S   | E-5a  | S-surface-6, S-surface-8 |
-| `IO_IN_REACTIVE`                  | S   | IO-2 / R-io-3 | S-surface-1 |
+| `IO_IN_REACTIVE`                  | S   | IO-2 / R-io-3; 09 MO-8t (2026-11-25): a method whose row says `fn`, a method with no row whose declared type answers nothing or a promise (a declared value's too), a method of an io import | S-surface-1, S-module-42 |
 | `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | IO-2 / R-io-3 | S-check-1 |
 | `IO_IN_FN`                        | S   | R-io-2 | S-check-1 |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`   | U/S | W-2 (a statement position) / SC-3 (a statement-bodied closure in reactive scope) | S-core-1, S-check-1 |

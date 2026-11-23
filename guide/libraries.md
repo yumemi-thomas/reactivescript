@@ -220,6 +220,36 @@ What the compiler catches:
   unchecked: the call is then an equation, re-run (and the primitive rebuilt) whenever an argument changes. Declare
   primitives instead.
 
+## Methods, and a default export
+
+A library's API is often an object. A method has a row of its own, written beside its object's (spec/09 MO-8t) — a
+fn's row, with every word a fn has:
+
+```rx
+// rx-types/@kobalte/core/toast.d.rx                 // rx-types/solid-sonner.d.rx
+export const toaster: typeof import("@kobalte/core/toast").toaster
+export fn toaster.show(toast: Component<ToastComponentProps>): number renders(Toast.List)
+export fn toaster.dismiss(id: number): number        export fn toast(message: View | (() => View)): string | number renders(Toaster)
+export fn toaster.clear(): void                      export fn toast.success(message: View | (() => View)): string | number
+```
+
+`rx-declare` drafts them (io, as it drafts any fn: it never guesses `pure`). With the row, `toaster.show(Saved)` is a
+call of that fn: io, so `{toast.success("saved")}` in a view is `IO_IN_REACTIVE` — it would show a toast each time the
+view computes — and a component given to `toaster.show` is checked beneath `<Toast.List>`. A method with no row is read
+by its type where a declaration gives one (`dismiss(id: number): void` answers nothing, so it is io), and a method of
+an import with no declaration at all is io, as the import is. One rule comes with it: the object's name is the
+import's alone in the module — a parameter or a loop's variable called `toaster` is `SHADOWED_IMPORT`.
+
+This is for an object a library *exports*. A value your program makes (`router.navigate(…)`, a query client's
+methods) is read by its declared type.
+
+A module's default export is the export named `default`, and its row is named so (MO-8u):
+
+```rx
+// rx-types/solid-use/online-status.d.rx             // in your module
+export pure fn default(): ref boolean                import { default as useOnlineStatus } from "solid-use/online-status"
+```
+
 ## When no word says what a library does
 
 A declaration has few words on purpose (spec/09 MO-8r): one is there only when more than one library needs it to be
@@ -239,8 +269,6 @@ used correctly. What a single package does, you say without one, in one of three
   import { createSignal } from "solid-js"
   import { makePersisted } from "@solid-primitives/storage"
   export const persisted = (init, options) => makePersisted(createSignal(init), options)
-  // a module's default export: give it a name
-  export { default as useOnlineStatus } from "solid-use/online-status"
   // one function that reads and writes (an "atom"): a reader and a setter
   import atom from "solid-use/atom"
   export const createAtom = (init) => { const a = atom(init); return [() => a(), (v) => { a(v) }] }
@@ -251,7 +279,6 @@ used correctly. What a single package does, you say without one, in one of three
 
   ```rx
   export pure fn persisted(init: string, options?: { name?: string }): [ref string, (v: string) => void]
-  export pure fn useOnlineStatus(): ref boolean
   export pure fn createAtom<T>(init: T): [ref T, (v: T) => void]
   export pure fn useTicket(): string
   ```
@@ -362,7 +389,10 @@ export default component App() {
 - **A component is a value only where JS takes one:** in a factory's arguments (`component: Home`), or on a JS
   component's prop typed `Component` (`<Shell header={Title} />`) — or holding one in a record or a list, in the
   literal you write there (`<Markdown builtins={{ Heading: Heading }}>`, `<Tabs panels={[First, Second]} />`): each is
-  checked as applied beneath that component. Given to any other JS call, it is checked under a root of its own, with
+  checked as applied beneath that component. The record may have a name, at the module's top or in a component
+  (`builtins = { Heading: Heading, Paragraph: Paragraph }`, then `<Markdown builtins={builtins}>`), as long as every
+  mention of that name is such a prop: read anywhere else (`builtins.Heading`), exported, or computed (`wide ? [A, B] :
+  [A]`), it is a value again. Given to any other JS call, it is checked under a root of its own, with
   nothing above the call credited (MO-11s), unless the fn's row says where the library renders it (next); applied
   nowhere else, it is `COMPONENT_AS_VALUE`.
 - **A component a library renders later, beneath one of its own.** A toaster is given a toast in a handler and renders
@@ -392,12 +422,11 @@ export default component App() {
   A `<Toaster />` in a layout that a router renders is where the router's provider is: what you provide above the
   provider is above the layout, and so above the toaster.
   `rx-declare` asks the question of every function that is given a component, and writes the word for the releases it
-  was run against (solid-sonner's `toast`, TanStack Router's `createRoute`). Where the library's function is a method
-  of an object (Kobalte's `toaster.show`), hand it out from a module of your own with the parts it renders with, and
-  the word is said there: `export fn show(toast: Component<{ toastId: number }>): number renders(Toast.List)` —
-  which `rx-declare` drafts for that module, with the parts' contexts (`bench/tasks/kobalte-toast`: no word by hand).
-  A row for the method itself was weighed and not taken (spec/09 MO-11u): of the two libraries with such a method,
-  one renders what it is given beneath its list and the other calls it with no owner. A library that *calls* what it is given with no owner at all (sonner's
+  was run against (solid-sonner's `toast`, TanStack Router's `createRoute`, Kobalte's `toaster.show`). Where the
+  library's function is a method of an object, the method has a row of its own (*Methods*, below): `export fn
+  toaster.show(toast: Component<ToastComponentProps>): number renders(Toast.List)`, and you call the library's
+  `toaster.show(Saved)` as its documentation does (`bench/tasks/kobalte-toast`: no word by hand, and no module of the
+  app's own). A library that *calls* what it is given with no owner at all (sonner's
   `toast.custom(fn)`) is another matter: nothing your component reads from above is there (in development Solid
   throws `NoOwnerError` from `useContext`), and nothing it makes is cleaned up. No row describes that; `rx-verify`
   reports it.
@@ -415,11 +444,23 @@ export default component App() {
   `rx-declare` — so you write the tree with the library's own functions, the route types register your router (a link
   to no route is a type error), and every page is checked beneath the provider: the router's hooks are found, and what
   you provide or catch above `<RouterProvider>` reaches it (`bench/tasks/router-code-routes`). What the word does not
-  say is the tree's nesting: pages are checked side by side beneath the provider, so a layout's own `errored` around
-  its `<Outlet />` is not credited to its pages — a page holds its own failure, or the region goes above the provider.
+  say is the tree's nesting: by itself it has pages checked side by side beneath the provider. Which page is whose
+  child is the router's knowledge, and **`host.d.rx` is read off the router you export** (spec/09 MO-14g, MO-14h):
+
+  ```sh
+  npx rx-declare --host --routes src/main.rx src/main.rx --out src/host.d.rx   # the module that exports the router, then the entry
+  ```
+
+  `rx-declare` compiles that module, runs it, and asks the router object for its tree; the declaration places `Home`
+  and `Person` among `Root`'s children, and they are checked there — so a root layout's `errored` and `loading` around
+  its `<Outlet />` hold its pages, as TanStack's own documentation writes a layout. Export the route components (the
+  declaration imports them by name) and the router; the file is kept true as any derived one is (`HOST_VIEW_STALE`
+  when a route is added and it is not written again). It needs `@happy-dom/global-registrator` in the project, as
+  `rx-verify --dom` does (`bench/tasks/router-code-routes`). Without a host declaration a page holds its own
+  failure, or the region goes above the provider.
   (`renders(later)`, a prop's `renders`, `nests(component under parent)` and `outlet`, which followed the route values
-  to the provider, stay refused by name.) For a tree whose layouts' regions are checked, write it as records and give
-  it to a few lines of JavaScript that build the library's routes from them, in the shape above:
+  to the provider, stay refused by name.) A tree may also be written as records and given
+  to a few lines of JavaScript that build the library's routes from them, in the shape above:
 
   ```js
   // routes.js
@@ -496,6 +537,11 @@ renders them through (the one from the module that imports the tree) and the rou
 What follows is what the file says, for when you read one — or write one for a host no reader knows (a JSON tree,
 `[{ "file": "./pages/home.rx", "children": [...] }]`, is read too).
 
+A layout does not have to write the router's outlet itself. `Root` may apply `<Frame />`, a component of yours in
+another module, with `<Outlet />` inside it: the pages are checked at that outlet, under what the frame has around it
+and what the layout has around the frame (spec/09 MO-14f; `bench/tasks/router-rx-routes`). The same holds for your
+entry and the router's component (`<App>` applies `<Shell />`, which applies `<AppRouter />`).
+
 It imports the components the host renders, as an `.rx` module would, and states the view the host makes of them
 in the words a factory's row has: `provides(router)`, what it provides to all of them, and `nests(children in
 component)`, that a record's `children` are rendered among its `component`'s children. The checker walks that view
@@ -528,8 +574,30 @@ whole-program build, since JavaScript may render that one anywhere.
   The generator writes the route objects itself into `routeTree.gen.ts`, importing each file's default component as
   a page (`?rx-page`), so links and hooks are typed by the tree as ever, and `host.d.rx` is derived from that tree
   (`bench/tasks/router-rx-routes`, which installs the fork's two packages from tarballs: its `vendor/README.md` says
-  which commit and how they were built). A route that needs a loader or search validation is a TS route file
-  beside the `.rx` ones, as the fork's documentation says.
+  which commit and how they were built).
+
+  A route's options — its loader, the search it validates, what runs before it loads — are in the same file, with the
+  fork's second option, `routeComponentOptionsExport: "route"`. The file exports a record of functions, and the
+  generator spreads it into the route it writes (spec/11 CP-4d):
+
+  ```rx
+  // src/routes/index.rx
+  import { useLoaderData } from "@tanstack/solid-router"
+  import { fetchPeople } from "../people.js"
+  export route = {
+    loader: () => fetchPeople()
+  }
+  export default component Home() {
+    people = useLoaderData({ from: "/" })          // typed by the loader above, through the generated tree
+    <ul>{for p in people { <li>{p.name}</li> }}</ul>
+  }
+  ```
+
+  The functions are an equation's value, so they are pure: a loader asks (`fetchPeople` is a `pure` import, or a
+  server fn); one that does something, `() => log("home")`, is `IO_IN_REACTIVE`. `validateSearch: (search:
+  Record<string, unknown>) => ({ tab: … })` types `useSearch({ from })` in the page and the `search` every `<Link>`
+  to the route must give. A route's own components (`errorComponent`, `pendingComponent`) are not part of the
+  record: a failure and a wait are held by regions, in the layout or the page.
 - **TanStack Router and TanStack Start, as released: the fallback.** A route file is a few lines of TSX that hand the
   route a component of yours. (No option of the released generator changes that: a virtual route config may name any
   file, and the generator then parses it as JavaScript.)

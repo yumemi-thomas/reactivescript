@@ -788,7 +788,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   *What no word says, and stays so* (the gaps
   `rfc-declaration-types-2026-11-22.md` lists after three libraries the
   vocabulary had not met): a module's default export (a line of the app's
-  own JavaScript, `export { default as x } from "pkg"`); one function
+  own JavaScript, `export { default as x } from "pkg"` — until
+  2026-11-25: its row is the one named `default`, which both parsers
+  always read and no draft wrote, MO-8u); one function
   that reads and writes (two functions over it, in the same way); a
   callback the library calls once while the call is made (unmarked it is
   pure, which is safe; what must do io there is JavaScript's to write); a
@@ -2763,6 +2765,13 @@ export default component App() {
     against. **Not taken.** What that module cost is gone instead: its
     declaration is drafted whole (MO-8s), no word by hand. Sonner's
     `toast.custom` is a defect of the library's, recorded and not filed.
+    **Taken in its broader form on 2026-11-25 (MO-8t)**: not a row for
+    `renders(H)` on a method, but a method's row — every word a fn has —
+    counted over the six libraries whose API is an object's methods,
+    four of them run with the method called while a view computes. The
+    narrow count above stands as counted: `renders(H)` on a method is
+    still true of one library, and sonner's `toast.custom` has a row
+    without it.
   - **A layout's regions credited to the pages its outlet renders.**
     Built: `bench/tasks/router-code-routes` with the page's `errored`
     and `loading` regions moved into the root layout, around its
@@ -2798,9 +2807,9 @@ export default component App() {
   renders it is not in a type — and writes the word for the releases it
   was run against (`known.js`: `solid-sonner`'s `toast`,
   `@tanstack/solid-router`'s `createRoute` and `createRootRoute`;
-  Kobalte's `toaster.show` is a method of an object, which no row
-  declares, so an app hands it out from a module of its own, with the
-  parts, and says the word there).
+  Kobalte's `toaster.show`, a method of an object, which has a row of its
+  own since 2026-11-25, MO-8t; until then an app handed it out from a
+  module of its own and said the word there).
 
   Executable: S-module-22; the unit
   `renders_names_the_component_a_fns_components_render_beneath` in both;
@@ -3735,6 +3744,9 @@ S-module-37, S-module-38 (MO-14f); the units
 | `MODULE_CYCLE` | S | MO-5 |
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a; MO-8b for a declared JS module |
 | `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
+| `SHADOWED_IMPORT` for a second binding of an import whose methods have rows | S | MO-8t: a parameter, a local, a loop's variable or a declaration named as the import is; reported once, on the import's line |
+| `IO_IN_REACTIVE`, `IO_IN_FN` on a method call | S | MO-8t: a method whose row says `fn`; a method with no row whose declared type answers nothing or a promise (a declared value's, as a declared result's, MO-10b); a method of an io import (an undeclared one, or a declared `fn`) |
+| `COMPONENT_AS_VALUE` on an equation bound to a record or an array of components | S | MO-11c: the name is read elsewhere than as the whole value of a prop that holds components, is given to no such prop, or is exported |
 | `UNKNOWN_COMPONENT` for an undeclared JS component, `COMPONENT_AS_VALUE` outside MO-11c's and MO-11t's places | S | MO-11a, MO-11c, MO-11t, MO-11f |
 | `CONTEXT_NOT_FOUND` for a JS hook with no provider above; `NOT_EXPORTED` for an undeclared JS context | S | MO-12b, MO-12a |
 | `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k |
@@ -3813,6 +3825,37 @@ S-module-37, S-module-38 (MO-14f); the units
   before `verifyHost`, which is handed `sceneRoutes`; `compiler/vite.mjs`
   (`hostInStep`) before a program is read. Neither checker has a line of
   it.
+- MO-8t: both declaration parsers read a dotted fn name (one step; the
+  object a `const` or a `fn` of the file, held at the end of the file).
+  The loaders name each mention (`nameMethods` in `ref/src/modules.ts`,
+  `name_methods` in the crate's `modules.rs`, over the crate's
+  `ast::exprs_mut`): a member chain with no `?.` whose joined name a
+  declaration of the module's imports gives a row becomes that name, and
+  a second binding of the object's name is `SHADOWED_IMPORT`. The
+  checkers bind each method after its object (`bindFn`; the crate's
+  expanded import list) as a declared fn; `declTy` reads an import's
+  `constTy`; `tyMethod` (`ty_method`) reads a method written as one;
+  `ioMember` (`io_member`) is the method of an io import. The emitters
+  bind the name to the member of the import (`withMethods`,
+  `with_methods`: `v$toaster.show`). `declarationFile`
+  (`declaration_file`) writes a value's methods into its type and a
+  fn's into a namespace. `rx-declare`: `methodsOf` in `declare.js`.
+  `rx-verify`: `at` binds a method to its object; the scene's proxy
+  records a method with a row.
+- MO-8u: nothing in a parser, a checker or an emitter; `declarationFile`
+  (`declaration_file`) writes the row named `default` as `export
+  default`, and `declare.js` drafts it.
+- MO-11c (the literal by a name): `litBinding` and `litCheck`
+  (`named_lit_binding`, `named_lit_check`), over `idCounts` (`id_counts`),
+  the count of each name as written in the module's tree.
+- MO-14f (through an `.rx` component): `throughPre` and `isThrough`
+  (`through_pre`, `is_through`); a component's signature carries
+  `through` in memory, not in print.
+- MO-14h: `unplaced` leaves out a component the view places (`placed`)
+  when the fn's H is among the declaration's own (`under`); the loaders
+  set both on the program's set and the host's. MO-14g's reader of a
+  router made in `.rx`: `readRxRouter` in `host-routes.js`, over the
+  compiler's `app(…, unchecked)` (`rxc app --lib --unchecked`).
 - MO-8s: `tooling/rx-language-server/src/declare-own.js` (`carried`: the
   module's text, parsed by TypeScript; `carry`: the draft's lines), called
   by `declare` for a relative module after its readings are settled;
