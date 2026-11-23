@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]`, `rx-declare --audit <file.d.rx>…`: a draft `.d.rx` for a JS module, from its TypeScript types
+// `rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any]`, `rx-declare --audit <file.d.rx>…`: a draft `.d.rx` for a JS module, from its TypeScript types
 // (src/declare.js) and, for a library it knows (src/known.js), the rows types cannot show (--types-only leaves those out),
 // then from running it (src/declare-run.js: which hooks read a context, which provider provides it),
 // only with --run (it executes the package's code). The module is resolved from the current directory, as an import there would be
@@ -72,7 +72,7 @@ if (args.includes("--audit")) {
   if (args.includes("--json")) process.stdout.write(JSON.stringify(all) + "\n");
   process.exit(bad ? 1 : 0);
 }
-const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--context" && args[args.indexOf(a) - 1] !== "--source" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings" && args[args.indexOf(a) - 1] !== "--only");
+const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--context" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings" && args[args.indexOf(a) - 1] !== "--only");
 // `--only <export>[,<export>…]` (MO-8k): the rows an app keeps — those exports' (a component with its members), the
 // contexts their words name, and the types they name, and the types those name. A library's draft has a row for every
 // export; a project's declaration of it holds what its programs import, and this writes that much.
@@ -89,11 +89,10 @@ function only(text, names) {
   const first = lines.findIndex(l => nameOf(l) || /^\/\/(?: TODO |@ inferred )/.test(l));
   return { text: lines.filter((l, i) => keep.has(i) || (i < first && l.trim()) || /^\/\/ (?:Known of|Carried from)/.test(l)).join("\n") + "\n", missing };
 }
-const srcAt = args.indexOf("--source");     // MO-8n: evidence from the library's original source (a checkout, its published src/, its source maps)
 const ctxAt = args.indexOf("--context");   // the name for a context the module reads but does not export (MO-12a)
 const outAt = args.indexOf("--out");
 const causesAt = args.indexOf("--causes");   // MO-8q: each row's `any`s by cause and its parts said by place, as JSON, to a file
-if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]\n"); process.exit(2); }
+if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any]\n"); process.exit(2); }
 (async () => {
   if (args.includes("--dom")) {   // a browser's globals (happy-dom, from the project), so hooks that need a page run here
     let reg;
@@ -132,21 +131,6 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
     const np = Object.values(places).reduce((a, b) => a + b, 0); if (np) process.stderr.write(`rx-declare: ${np} part${np === 1 ? "" : "s"} said by place (Parameters<…>, ReturnType<…>) in ${Object.keys(places).length} row${Object.keys(places).length === 1 ? "" : "s"}\n`);
     for (const n of notes) process.stderr.write(`rx-declare: ${n}\n`);   // what is true of a row and asks nothing
     for (const [n, why] of Object.entries(unheld)) process.stderr.write(`rx-declare: ${n}: written with \`any\` — with the library's types named, TypeScript does not hold the row: ${why}\n`);
-  }
-  // MO-8n: what the library's own source shows of the words types cannot — written as `// SOURCE` comments above the
-  // rows, each with its file and line, never as a row: a word stays a person's to write
-  if (srcAt >= 0) {
-    const ts = require("typescript"); const src = require("../src/declare-source.js");
-    const given = args[srcAt + 1] && !args[srcAt + 1].startsWith("--") && args[srcAt + 1] !== spec ? args[srcAt + 1] : undefined;
-    const at = src.locate(ts, spec, process.cwd(), given, { customConditions: process.execArgv.flatMap(a => /^--conditions=/.test(a) ? [a.slice(13)] : []) });
-    process.stderr.write(`rx-declare: source: ${at.note}\n`);
-    if (at.files.size) {
-      const names = [...text.matchAll(/^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const)\s+([\w$.]+)/gm)].map(m => m[1]);
-      const evidence = src.analyze(ts, at.files, names, at.root);
-      text = src.annotate(text, evidence);
-      const by = {}; for (const e of evidence) by[e.word] = (by[e.word] ?? 0) + 1;
-      process.stderr.write(`rx-declare: source: ${evidence.length} suggestion${evidence.length === 1 ? "" : "s"} for ${new Set(evidence.map(e => e.name)).size} of ${names.length} rows${evidence.length ? ` (${Object.entries(by).map(([w, n]) => `${n} ${w}`).join(", ")})` : ""}: each is a comment above its row, to check at the place it names\n`);
-    }
   }
   // RFC 26: running the package is the user's choice: it executes third-party code
   if (args.includes("--run")) { const r = await runRows(text, spec, process.cwd(), ctxAt >= 0 ? { context: args[ctxAt + 1] } : {}); text = r.draft; for (const n of r.notes) process.stderr.write(`rx-declare: ${n}\n`); }

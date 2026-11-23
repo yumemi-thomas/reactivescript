@@ -8,7 +8,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { published } from "../compiler/scripts/published.mjs";
 
-const { rowsOf } = createRequire(import.meta.url)("../tooling/rx-language-server/src/rows.js");   // a declaration's rows, as the crate reads them
+const require_ = createRequire(import.meta.url);
+const { rowsOf } = require_("../tooling/rx-language-server/src/rows.js");   // a declaration's rows, as the crate reads them
+const { declares } = require_("../tooling/rx-language-server/src/load.js");   // …and the module it declares
 
 export const here = path.dirname(fileURLToPath(import.meta.url));
 export const repo = path.resolve(here, "..");
@@ -72,11 +74,15 @@ function ownInstall(id) {
   return path.join(at, "node_modules");
 }
 
+/** A record as data, one line an entry: what `--check` compares with, and a diff shows entry by entry. */
+export const compact = o => `{\n${Object.entries(o).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(",\n")}\n}\n`;
 /** A task's folder in the workspace: its `src/`, copied fresh. A coverage entry (bench/coverage/<group>/<name>, `from`)
  *  is staged the same way, beside the tasks, under a name of its own. */
 export function stage(id, from) {
   const dir = path.join(ws, "tasks", id);
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
+  // a group's own `rx-types/` is the project's every entry of it is in (09 MO-8k: a declaration is found in a folder above)
+  if (from && existsSync(path.join(from, "../rx-types"))) cpSync(path.join(from, "../rx-types"), path.join(dir, "rx-types"), { recursive: true });
   cpSync(from ?? path.join(here, "tasks", id, "src"), dir, { recursive: true });
   const own = from ? null : ownInstall(id); if (own) symlinkSync(own, path.join(dir, "node_modules"), "dir");
   if (!existsSync(path.join(dir, "tsconfig.json"))) writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2023", "DOM", "DOM.Iterable"], types: [] }, include: ["**/*.rx", "**/*.d.ts"], exclude: ["node_modules", "dist", ".build"] }, null, 2));
@@ -281,14 +287,6 @@ function written(hand, draft) {
 }
 /** The module a `.d.rx` declares, as `rx-declare` is asked for it, and the folder it is asked from: a package under
  *  `rx-types/` by its import name (09 MO-8k), a file beside a JS module by that module. */
-function declares(dir, file) {
-  const rel = path.relative(dir, file).split(path.sep);
-  const at = rel.lastIndexOf("rx-types");
-  if (at >= 0) return { spec: rel.slice(at + 1).join("/").replace(/\.d\.rx$/, ""), from: path.join(dir, ...rel.slice(0, at)) };
-  const stem = file.replace(/\.d\.rx$/, "");
-  const js = [".js", ".mjs", ".jsx", ".ts", ".tsx"].find(x => existsSync(stem + x));
-  return { spec: `./${path.basename(stem)}${js ?? ".js"}`, from: path.dirname(file) };
-}
 /** What `rx-declare` drafts for a module (its lines, comments dropped), with the flags the task says its draft was made
  *  with (`--run`, `--dom`: 09 MO-12, what running the package shows); [] when the module has no types to draft from.
  *  `draftOf(…).vendorAt`: per export, the `any`s of the draft that are the library's own, by place (09 MO-8q). */
@@ -382,7 +380,7 @@ export function declarations(dir, flagsFor = {}) {
   const files = [];
   for (const p of own(dir, n => n.endsWith(".d.rx"))) {
     const text = readFileSync(p, "utf8"); const host = isHost(text); const problems = [];
-    const { spec, from } = host ? { spec: "the JS host", from: path.dirname(p) } : declares(dir, p);
+    const { spec, from } = host ? { spec: "the JS host", from: path.dirname(p) } : declares(p) ?? { spec: `./${path.basename(p, ".d.rx")}.js`, from: path.dirname(p) };
     const draft = host ? hostDraft(p) : draftOf(spec, from, flagsFor[spec] ?? []);
     const whole = new Set(draft);
     // a name the draft has more than one line for: each row is measured against the nearest of them

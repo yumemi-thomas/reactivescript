@@ -24,7 +24,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { runCoverage } from "./coverage.mjs";
-import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, draftOf, onEdit } from "./harness.mjs";
+import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
  *  it, and the habits it names), or a name resolves to nothing. */
@@ -272,7 +272,7 @@ const coverage = flag("--tasks-only") ? { problems: [] } : await runCoverage({ f
 
 const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, inferred: r.decl.inferred ?? 0, claims: r.decl.claims, todos: r.decl.todos ?? 0, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places, draft: r.decl.draft } }]));
 if (flag("--write") && !flag("--coverage-only")) {
-  writeFileSync(path.join(here, "scorecard.json"), JSON.stringify(snapshot, null, 2) + "\n");
+  writeFileSync(path.join(here, "scorecard.json"), compact(snapshot));
   writeFileSync(path.join(here, "scorecard.txt"), (card + inferCard + wholeCard).replaceAll(ws, "bench/.out/ws") + "\n");
   // 09 MO-8w: the audit, word by word — what a reviewer has left to check
   writeFileSync(path.join(here, "audit.txt"), `The tasks' declarations, every behaviour word (pure, handler, draft, rejects, uses, provides, nests, renders) held against what the code shows (09 MO-8w; \`rx-declare --audit <file.d.rx>\`).\n\n${okr.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.\n${contradicted.length} contradicted: the code shows the opposite.${contradicted.length ? `\n${contradicted.map(c => `  ${c}`).join("\n")}` : ""}\n${unproven.length} the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.\n${unproven.map(c => `  ${c}`).join("\n")}\n`.replaceAll(ws, "bench/.out/ws"));

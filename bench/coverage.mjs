@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { here, ws, claimKinds, claimsSaid } from "./harness.mjs";
+import { here, ws, claimKinds, claimsSaid, compact } from "./harness.mjs";
 
 const root = path.join(here, "coverage");
 /** Every entry, `<group>/<name>`: a folder with a `use.mjs`. */
@@ -110,7 +110,7 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   const drafts = Object.fromEntries(extra.filter(m => !m.crash).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places, inferred: m.inferred ?? 0, todos: m.todos ?? 0 }]));
   const snapshot = Object.fromEntries(results.map(r => [r.entry, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), server: r.server === true, hydrates: r.hydrates === true, uses: r.uses, decl: { words: r.decl.words, inferred: r.decl.inferred ?? 0, claims: r.decl.claims, todos: r.decl.todos ?? 0, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places }, modules: Object.fromEntries((r.modules ?? []).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places, inferred: m.inferred ?? 0, todos: m.todos ?? 0 }])) }]));
   if (write && !filters.length && !shard) {
-    writeFileSync(path.join(root, "coverage.json"), JSON.stringify({ entries: snapshot, drafts }, null, 1) + "\n");
+    writeFileSync(path.join(root, "coverage.json"), `{"entries": ${compact(snapshot)}, "drafts": ${compact(drafts)}}\n`);
     writeFileSync(path.join(root, "coverage.txt"), card.replaceAll(ws, "bench/.out/ws") + "\n");
     writeFileSync(path.join(root, "audit.txt"), `The coverage entries' declarations, every behaviour word held against what the code shows (09 MO-8w; \`rx-declare --audit <file.d.rx>\`).\n\n${kept.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.\n${contradicted.length} contradicted: the code shows the opposite.${contradicted.length ? `\n${contradicted.map(c => `  ${c}`).join("\n")}` : ""}\n${unproven.length} the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.\n${unproven.map(c => `  ${c}`).join("\n")}\n`.replaceAll(ws, "bench/.out/ws"));
   }

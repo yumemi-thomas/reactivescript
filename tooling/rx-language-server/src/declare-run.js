@@ -13,56 +13,11 @@
 // What running cannot settle keeps its TODO.
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { resolveModule, compileJsx } = require("./load.js");
 
 /** A placeholder context value: anything a hook asks of it (a field, a call) answers with itself. */
 const ANY = new Proxy(function () {}, { get: (_, k) => k === Symbol.toPrimitive ? () => "" : k === "then" ? undefined : ANY, apply: () => ANY });
 const ident = s => s.replace(/^@[^/]+\//, "").replace(/[^A-Za-z0-9]+(.)/g, (_, c) => c.toUpperCase()).replace(/^[^A-Za-z_$]+/, "").replace(/^./, c => c.toLowerCase()) || "context";
-
-/** Where `spec` resolves from `from`, as a browser bundle would import it: CommonJS resolution first, else the package's
- *  `exports` under the `browser`, `import` and `default` conditions (an ESM-only package has no `require` one), a subpath
- *  pattern (`./*`) included. */
-function resolveModule(spec, from) {
-  try { return require.resolve(spec, { paths: [from] }); } catch {}
-  if (spec.startsWith(".")) return null;
-  const parts = spec.split("/"), name = spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
-  const sub = "." + spec.slice(name.length);
-  const fs = require("node:fs");
-  for (let dir = path.resolve(from); ; dir = path.dirname(dir)) {
-    const pkgDir = path.join(dir, "node_modules", name), pj = path.join(pkgDir, "package.json");
-    if (fs.existsSync(pj)) {
-      const pkg = JSON.parse(fs.readFileSync(pj, "utf8"));
-      const pick = e => typeof e === "string" ? e : Array.isArray(e) ? e.map(pick).find(Boolean) : e && typeof e === "object" ? ["browser", "import", "default"].map(k => k in e ? pick(e[k]) : null).find(Boolean) : null;
-      const ex = pkg.exports;
-      const map = typeof ex === "object" && ex && !Array.isArray(ex) && Object.keys(ex).some(k => k.startsWith(".")) ? ex : null;
-      // a subpath pattern (`"./*": "./dist/*.js"`), as Node resolves it: the longest part before `*` wins, then the longest
-      // key — the crate's and ref/src/modules.ts's `packageDeclaration`
-      const pattern = () => {
-        let best;
-        for (const k of Object.keys(map)) { const star = k.indexOf("*"); if (star < 0 || k.lastIndexOf("*") !== star) continue; const pre = k.slice(0, star), post = k.slice(star + 1); if (sub.startsWith(pre) && sub.endsWith(post) && sub.length >= k.length && (best === undefined || star > best.indexOf("*") || (star === best.indexOf("*") && k.length > best.length))) best = k; }
-        if (best === undefined) return null;
-        const star = best.indexOf("*"), post = best.length - star - 1, t = pick(map[best]);
-        return t ? t.split("*").join(sub.slice(star, sub.length - post)) : null;
-      };
-      const entry = ex === undefined ? (sub === "." ? pkg.module ?? pkg.main ?? "index.js" : sub) : map ? (sub in map ? pick(map[sub]) : pattern()) : sub === "." ? pick(ex) : null;
-      const f = entry && path.join(pkgDir, entry);
-      return f && fs.existsSync(f) ? f : null;
-    }
-    if (path.dirname(dir) === dir) return null;
-  }
-}
-
-/** A package that ships only `.jsx` (its `solid` build) runs once compiled: the project's Solid compiler, through a
- *  module hook (src/jsx-hook.mjs). Without one the package is not run, and the note says why. */
-let jsxHook = null;
-function compileJsx(from) {
-  if (jsxHook !== null) return jsxHook;
-  try {
-    const compiler = require.resolve("@solidjs/compiler", { paths: [from, path.join(from, "node_modules/@solidjs/vite-plugin")] });
-    require("node:module").register(pathToFileURL(path.join(__dirname, "jsx-hook.mjs")).href, { data: { compiler, from: path.join(from, "package.json") } });
-    jsxHook = true;
-  } catch { jsxHook = false; }
-  return jsxHook;
-}
 
 async function runRows(draft, spec, from, opts = {}) {
   let file;
@@ -198,4 +153,4 @@ async function runRows(draft, spec, from, opts = {}) {
   return { draft: text, notes: [`ran ${hooks.length} hook${hooks.length === 1 ? "" : "s"}: ${needs.size} read a context${provided.size ? `; ${[...provided.keys()].join(", ")} provide${provided.size === 1 ? "s" : ""} it` : ""}${partNeeds.size ? `; ${partNeeds.size} compound part${partNeeds.size === 1 ? "" : "s"} read${partNeeds.size === 1 ? "s" : ""} ${[...rootGives.keys()].join(", ")}'s context` : ""}`] };
 }
 
-module.exports = { runRows, resolveModule, compileJsx };
+module.exports = { runRows };

@@ -130,11 +130,11 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
   // other way round
   if (!js) {
     const parts = path.resolve(file).split(path.sep); const at = parts.lastIndexOf("rx-types");
-    if (at > 0) { const spec = parts.slice(at + 1).join("/").slice(0, -".d.rx".length); js = require("../src/declare-run.js").resolveModule(spec, parts.slice(0, at).join(path.sep)) || undefined; }
+    if (at > 0) { const spec = parts.slice(at + 1).join("/").slice(0, -".d.rx".length); js = require("../src/load.js").resolveModule(spec, parts.slice(0, at).join(path.sep)) || undefined; }
   }
   const checked = rows.filter(r => ["fn", "component", "error", "const"].includes(r.kind));
   if (!js) return { results: checked.map(r => ({ line: r.line, ob: "exists", status: "mismatch", what: `${r.name}: no JS module beside ${path.basename(file)}, and it is not a project's declaration of a package that resolves (rx-types/<package>.d.rx)` })) };
-  require("../src/declare-run.js").compileJsx(path.dirname(path.resolve(js)));   // a package that ships .jsx runs compiled (its solid build)
+  require("../src/load.js").compileJsx(path.dirname(path.resolve(js)));   // a package that ships .jsx runs compiled (its solid build)
   // a module node cannot load (one that imports a bundler's virtual module): nothing of it is run, and nothing is said to hold
   let mod; try { mod = await import(pathToFileURL(path.resolve(js)).href); }
   catch (e) { return { unread: `${path.basename(js)} does not load here (${short(e, 90)})`, results: checked.flatMap(r => r.obligations.map(ob => ({ line: r.line, ob, status: "unverified", what: `${r.name}: not run: ${path.basename(js)} does not load here (${short(e, 90)})` }))) }; }

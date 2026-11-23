@@ -7016,44 +7016,7 @@ impl<'a> Checker<'a> {
     /// the JS calls among them — are checked as the most cautious placement allows: applied under a root of their own, at
     /// any time, so nothing above the call (errored, loading, provide) is credited to them.
     fn unplaced(&mut self, args: &'a [Expr], env: EId, f: Option<SId>) {
-        let mut out = vec![];
-        fn walk<'a>(c: &mut Checker<'a>, e: &'a Expr, env: EId, out: &mut Vec<String>) {
-            match &e.k {
-                ExprKind::Id(n) => {
-                    if is_upper_tag(n) && c.lookup(env, n).is_some_and(|t| c.syms[t].kind == SymKind::Comp) && !c.value_ids.contains(&(e as *const Expr)) {
-                        c.value_ids.insert(e as *const Expr);
-                        out.push(n.clone());
-                    }
-                }
-                ExprKind::Rec(fields) => {
-                    for f in fields {
-                        if let Field::Kv { v, .. } = f {
-                            walk(c, v, env, out);
-                        }
-                    }
-                }
-                ExprKind::Arr(items) => {
-                    for x in items {
-                        if !matches!(x.k, ExprKind::Spread(_)) {
-                            walk(c, x, env, out);
-                        }
-                    }
-                }
-                ExprKind::Call { f, args, .. } => {
-                    if let ExprKind::Id(g) = &f.k {
-                        if c.lookup(env, g).is_some_and(|t| c.syms[t].kind == SymKind::Import || (c.syms[t].kind == SymKind::Fn && c.syms[t].foreign.is_some())) {
-                            for a in args {
-                                walk(c, a, env, out);
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        for a in args {
-            walk(self, a, env, &mut out);
-        }
+        let mut out = self.given(args, env, true);
         // MO-14h: a component the host's view places is rendered where the view says (MO-14d). The fn's row says beneath
         // an application of H; where the declaration says the host renders through H, the view says where beneath it —
         // the component is checked there, in the host's view, and not side by side with the others here
@@ -7096,6 +7059,40 @@ impl<'a> Checker<'a> {
         let y = &self.syms[s];
         (y.kind == SymKind::Import || (y.kind == SymKind::Fn && y.foreign.is_some())) && y.foreign != Some(FShape::Comp)
     }
+    /// MO-11r: the components among a call's arguments, each a value there — anywhere inside their record and array
+    /// literals, and the arguments of the JS calls among them: for a factory (MO-11f) those that hand on what they are
+    /// given (MO-11g); for a fn that renders them itself (MO-11s, MO-11u) any, but a component a call inside has taken.
+    fn given(&mut self, args: &'a [Expr], env: EId, any: bool) -> Vec<String> {
+        fn walk<'a>(c: &mut Checker<'a>, e: &'a Expr, env: EId, any: bool, out: &mut Vec<String>) {
+            match &e.k {
+                ExprKind::Id(n) => {
+                    // a value is applied by its tag, so it is capitalised as one
+                    if is_upper_tag(n) && c.lookup(env, n).is_some_and(|t| c.syms[t].kind == SymKind::Comp) && !(any && c.value_ids.contains(&(e as *const Expr))) {
+                        c.value_ids.insert(e as *const Expr);
+                        out.push(n.clone());
+                    }
+                }
+                ExprKind::Rec(fields) => fields.iter().for_each(|f| {
+                    if let Field::Kv { v, .. } = f {
+                        walk(c, v, env, any, out)
+                    }
+                }),
+                ExprKind::Arr(items) => items.iter().filter(|x| !matches!(x.k, ExprKind::Spread(_))).for_each(|x| walk(c, x, env, any, out)),
+                ExprKind::Call { f, args, .. } => {
+                    if let ExprKind::Id(g) = &f.k {
+                        let on = |y: &Sym| if any { y.kind == SymKind::Import || (y.kind == SymKind::Fn && y.foreign.is_some()) } else { y.kind == SymKind::Import && y.pure_fn };
+                        if c.lookup(env, g).is_some_and(|t| on(&c.syms[t])) {
+                            args.iter().for_each(|a| walk(c, a, env, any, out));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = vec![];
+        args.iter().for_each(|a| walk(self, a, env, any, &mut out));
+        out
+    }
     /// MO-11f: the components in a factory call's arguments — anywhere inside its record and array literals, and the
     /// arguments of JS calls among them (MO-11g).
     fn factory_values(&mut self, s: SId) -> Vec<String> {
@@ -7103,46 +7100,7 @@ impl<'a> Checker<'a> {
             return v.clone();
         }
         let (args, fenv) = self.syms[s].factory.unwrap();
-        let mut out = vec![];
-        fn walk<'a>(c: &mut Checker<'a>, e: &'a Expr, fenv: EId, out: &mut Vec<String>) {
-            match &e.k {
-                ExprKind::Id(n) => {
-                    // a value is applied by its tag, so it is capitalised as one
-                    if is_upper_tag(n) && c.lookup(fenv, n).is_some_and(|t| c.syms[t].kind == SymKind::Comp) {
-                        c.value_ids.insert(e as *const Expr);
-                        out.push(n.clone());
-                    }
-                }
-                ExprKind::Rec(fields) => {
-                    for f in fields {
-                        if let Field::Kv { v, .. } = f {
-                            walk(c, v, fenv, out);
-                        }
-                    }
-                }
-                ExprKind::Arr(items) => {
-                    for x in items {
-                        if !matches!(x.k, ExprKind::Spread(_)) {
-                            walk(c, x, fenv, out);
-                        }
-                    }
-                }
-                ExprKind::Call { f, args, .. } => {
-                    // MO-11g: a JS call inside the arguments (`defineRoute({ … })`) hands what it is given on to the factory
-                    if let ExprKind::Id(g) = &f.k {
-                        if c.lookup(fenv, g).is_some_and(|t| c.syms[t].kind == SymKind::Import && c.syms[t].pure_fn) {
-                            for a in args {
-                                walk(c, a, fenv, out);
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        for a in args {
-            walk(self, a, fenv, &mut out);
-        }
+        let out = self.given(args, fenv, false);
         self.factory_values.insert(s, out.clone());
         out
     }

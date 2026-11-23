@@ -2720,30 +2720,29 @@ class Checker {
   private valueIds = new Set<Expr>();
   private factoryValues(s: Sym): string[] {
     const f = s.factory!; if (f.values) return f.values;
-    const out: string[] = [];
-    const walk = (e: Expr) => {
-      if (e.k === "id" && /^[A-Z]/.test(e.name) && f.env.lookup(e.name)?.kind === "comp") { this.valueIds.add(e); out.push(e.name); }   // a value is applied by its tag, so it is capitalised as one
-      else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
-      else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
-      else if (e.k === "call" && e.f.k === "id") { const g = f.env.lookup(e.f.name); if (g && handsOn(g)) e.args.forEach(walk); }   // MO-11g: a JS call inside the arguments (`defineRoute({ … })`) hands what it is given on to the factory
-    };
-    f.args.forEach(walk);
-    return f.values = out;
+    return f.values = this.given(f.args, f.env, handsOn);
   }
 
+  /** MO-11r: the components among a call's arguments, each a value there — anywhere inside their record and array
+   *  literals, and the arguments of the JS calls among them: for a factory (MO-11f) those that hand on what they are
+   *  given (MO-11g); for a fn that renders them itself (MO-11s, MO-11u) any, but a component a call inside has taken. */
+  private given(args: Expr[], env: Env, on: (g: Sym) => boolean, free = false): string[] {
+    const out: string[] = [];
+    const walk = (e: Expr) => {
+      if (e.k === "id" && /^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp" && !(free && this.valueIds.has(e))) { this.valueIds.add(e); out.push(e.name); }   // a value is applied by its tag, so it is capitalised as one
+      else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
+      else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
+      else if (e.k === "call" && e.f.k === "id") { const g = env.lookup(e.f.name); if (g && on(g)) e.args.forEach(walk); }
+    };
+    args.forEach(walk);
+    return out;
+  }
   /** MO-11s: components given to a JS fn that says nothing of where it renders them (no factory, or no declaration
    *  at all) — as values in its arguments, their record and array literals and the
    *  JS calls among them — are checked as the most cautious placement allows: applied under a root of their own, at any
    *  time, so nothing above the call (errored, loading, provide) is credited to them. */
   private unplaced(args: Expr[], env: Env, f?: Sym) {
-    const out: string[] = [];
-    const walk = (e: Expr) => {
-      if (e.k === "id" && /^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp" && !this.valueIds.has(e)) { this.valueIds.add(e); out.push(e.name); }
-      else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
-      else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
-      else if (e.k === "call" && e.f.k === "id") { const g = env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined))) e.args.forEach(walk); }
-    };
-    args.forEach(walk);
+    const out = this.given(args, env, g => g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined), true);
     const h = f?.rendersIn;
     // MO-14h: a component the host's view places is rendered where the view says (MO-14d). The fn's row says beneath an
     // application of H; where the declaration says the host renders through H, the view says where beneath it — the

@@ -35,9 +35,6 @@ const HANDLER_GOOD = {
   BoundWithData: ["export const BoundWithData = props => <li onClick={[props.onPick, props.id]}>{props.label}</li>;", 0, "onPick"],
   SpreadOnElement: ["export const SpreadOnElement = props => { const rest = omit(props, \"label\"); return <button {...rest}>{props.label}</button>; };", 0, "onClick"],
   MergedDefaults: ["export const MergedDefaults = props => { const p = merge({ type: \"button\" }, props); return <button type={p.type} onClick={p.onPress} />; };", 0, "onPress"],
-  ThroughOwnComponent: ["const Inner = p => <button onClick={p.onGo}>{p.children}</button>;\nexport const ThroughOwnComponent = props => <Inner onGo={props.onPress}>x</Inner>;", 0, "onPress"],
-  SpreadThroughOwn: ["const Inner = p => <button onClick={p.onGo}>{p.children}</button>;\nexport const SpreadThroughOwn = props => <Inner {...props} />;", 0, "onGo"],
-  ClosureToOwn: ["const Inner = p => <button onClick={p.onGo}>x</button>;\nexport const ClosureToOwn = props => <Inner onGo={() => props.onPress(1)} />;", 0, "onPress"],
   SpreadCopy: ["export const SpreadCopy = props => { const p = { ...props, role: \"button\" }; return <div onKeyDown={p.onKey} />; };", 0, "onKey"],
   entriesListeners: ["export function entriesListeners(el, handlers) { for (const [name, h] of Object.entries(handlers)) el.addEventListener(name, h); }", 1, "play"],
   keysListeners: ["const keys = Object.keys;\nexport function keysListeners(el, props) { keys(props).forEach(k => { if (k.startsWith(\"on\") && typeof props[k] === \"function\") el.addEventListener(k.slice(2).toLowerCase(), props[k]); }); }", 1, "onResize"],
@@ -49,7 +46,10 @@ const HANDLER_BAD = {
   CalledInAttribute: ["export const CalledInAttribute = props => <div title={props.label()}>x</div>;", 0, "label", /while the call runs/],
   RenderedAsChild: ["export const RenderedAsChild = props => <div>{props.render()}</div>;", 0, "render", /while the call runs/],
   SpreadChildren: ["export const SpreadChildren = props => <div {...props} />;", 0, "children", /renders its children/],
-  OwnComponentCallsNow: ["const Inner = p => { p.onGo(); return <button>x</button>; };\nexport const OwnComponentCallsNow = props => <Inner onGo={props.onPress} />;", 0, "onPress", /while the call runs/],
+  ThroughOwnComponent: ["const Inner = p => <button onClick={p.onGo}>{p.children}</button>;\nexport const ThroughOwnComponent = props => <Inner onGo={props.onPress}>x</Inner>;", 0, "onPress", /given to <Inner>/],
+  SpreadThroughOwn: ["const Inner = p => <button onClick={p.onGo}>{p.children}</button>;\nexport const SpreadThroughOwn = props => <Inner {...props} />;", 0, "onGo", /spread on <Inner>/],
+  ClosureToOwn: ["const Inner = p => <button onClick={p.onGo}>x</button>;\nexport const ClosureToOwn = props => <Inner onGo={() => props.onPress(1)} />;", 0, "onPress", /handed back or kept/],
+  OwnComponentCallsNow: ["const Inner = p => { p.onGo(); return <button>x</button>; };\nexport const OwnComponentCallsNow = props => <Inner onGo={props.onPress} />;", 0, "onPress", /given to <Inner>/],
   GivenToForeign: ["export const GivenToForeign = props => <Mystery onPress={props.onPress} />;", 0, "onPress", /given to <Mystery>/],
   SpreadOnForeign: ["export const SpreadOnForeign = props => <Mystery {...props} />;", 0, "onPress", /spread on <Mystery>, which is not read/],
   DynamicTag: ["export const DynamicTag = props => { const Tag = dynamic(() => props.as); const rest = omit(props, \"as\"); return <Tag {...rest} />; };", 0, "onClick", /not read/],
@@ -63,7 +63,7 @@ const HANDLER_BAD = {
   FactoryCallsNow: ["const scoped = render => props => createMemo(() => untrack(() => render(props)));\nexport const FactoryCallsNow = scoped(function Made(props) { props.onPress(); return <button onClick={props.onPress}>x</button>; });", 0, "onPress", /in a computation|while the call runs/],
   FactoryNotFollowed: ["export const FactoryNotFollowed = mystery(function Made(props) { return <button onClick={props.onPress}>x</button>; });", 0, "onPress", /UNREAD/],
 };
-console.log("handler: a prop that reaches only an element's event — through spreads, omit, merge, the module's own components, a factory");
+console.log("handler: a prop that reaches only an element's event — through spreads, omit, merge, a factory");
 for (const [name, [code, index, field]] of Object.entries(HANDLER_GOOD)) { const f = facts(name, code); const h = f.unread ? undefined : f.handler(index, field); ok(`${name}: handler(${field})`, !!h && h.ok === true, h ? (h.never ? "never called" : h.uses.map(u => `${u.how}: ${u.why}`).join(" | ")) : f.unread); }
 console.log("handler: the dishonest twins — called while it renders, rendered, given where the code is not read");
 for (const [name, [code, index, field, says]] of Object.entries(HANDLER_BAD)) { const f = facts(name, code); const h = f.unread ? undefined : f.handler(index, field); const said = h ? (h.never ? "never called" : h.uses.filter(u => u.how !== "later").map(u => `${u.how}: ${u.why}`).join(" | ")) : `UNREAD ${f.unread}`; ok(`${name}: no handler`, (!h || h.ok === false) && says.test(said), h?.ok ? "PROVEN A HANDLER" : said); }

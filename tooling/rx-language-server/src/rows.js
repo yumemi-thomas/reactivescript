@@ -42,16 +42,6 @@ function rowsOf(file, text) {
   const lines = (text ?? fs.readFileSync(file, "utf8")).split("\n");
   return r.rows.map(x => ({ ...x, text: collapse(lines.slice(x.line - 1, x.end).map(codeOf).join(" ")).trim() }));
 }
-/** The file's text with each row on one line, at the line the row starts on (its other lines blank), comments dropped:
- *  what a tool that edits rows as text is given (the draft's own readers), so a word is found wherever the row's layout
- *  puts it. */
-function rowText(file) {
-  const lines = fs.readFileSync(file, "utf8").split("\n");
-  let rows; try { rows = rowsOf(file); } catch { return lines.join("\n"); }
-  const out = lines.slice();
-  for (const x of rows) { for (let i = x.line - 1; i < x.end && i < out.length; i++) out[i] = ""; out[x.line - 1] = x.text; }
-  return out.join("\n");
-}
 const hashOf = text => crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 
 /** A claim's name for a word as it is written in a row (`handler(onDone)`, `uses(theme)`): the obligation it is checked
@@ -74,4 +64,4 @@ function describe(ob) {
   return at ? (AT[kind] ?? (x => `${kind} ${x}`))(at) : WHAT[ob] ?? ob;
 }
 
-module.exports = { rowsOf, rowText, hashOf, claimOf, describe };
+module.exports = { rowsOf, hashOf, claimOf, describe };

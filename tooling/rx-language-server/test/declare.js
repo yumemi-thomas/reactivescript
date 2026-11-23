@@ -236,63 +236,6 @@ check("the draft that names the library's types passes rx-tsc against them (TY-6
   check("that draft passes rx-tsc against the package's own types: the props type, the record after it, each signature (TY-6)", tw.status === 0 && tw.stdout.trim() === "", { status: tw.status, out: tw.stdout + tw.stderr });
 }
 
-// MO-8n: `--source` — what the library's own source shows of the words its types cannot, as comments above the rows
-// (never as rows), each with the file and line that is the reason
-fs.writeFileSync(path.join(ws, "evid.js"), [
-  "import { createMemo, createEffect, onCleanup, createContext, useContext } from \"solid-js\";",
-  "const Theme = createContext(\"light\");",
-  "export function useShade() { return useContext(Theme); }",
-  "export function listen(target, run) { target.addEventListener(\"click\", run); return () => target.removeEventListener(\"click\", run); }",
-  "const wrap = pick => createMemo(() => pick(1));",
-  "export function derive(pick) { return wrap(pick); }",
-  "export function later(opts) { setTimeout(() => opts.onDone(1), 0); }",
-  "export function each(items, visit) { for (const x of items) visit(x); }",
-  "export function hand(run) { elsewhere(run); }",
-  "",
-].join("\n"));
-fs.writeFileSync(path.join(ws, "evid.d.ts"), [
-  "export declare function useShade(): string;",
-  "export declare function listen(target: EventTarget, run: (e: Event) => void): () => void;",
-  "export declare function derive(pick: (n: number) => number): () => number;",
-  "export declare function later(opts: { onDone: (n: number) => void }): void;",
-  "export declare function each(items: number[], visit: (n: number) => void): void;",
-  "export declare function hand(run: (n: number) => void): void;",
-  "",
-].join("\n"));
-const rs = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./evid.js", "--source"], { cwd: ws, encoding: "utf8" });
-const evid = rs.stdout; if (process.env.VERBOSE) console.log(evid, rs.stderr);
-const note = (name, re) => evid.split("\n").some(l => l.startsWith(`// SOURCE ${name}: `) && re.test(l));
-check("--source: a callback given to addEventListener is suggested `handler`, with the file and line", note("listen", /`run`: called from addEventListener.*`handler`\? \(MO-10g\) \[evid\.js:4\]$/), evid + rs.stderr);
-check("--source: a result that removes what the call added is said to undo it (EF-5a)", note("listen", /its result calls removeEventListener.*\[evid\.js:4\]$/), evid);
-check("--source: a callback called inside createMemo, through the library's own helper, is said to need no word (pure, MO-10g)", note("derive", /`pick`: called inside createMemo, a computation — no word: a function type without `handler` is a pure function.* \(MO-10g\) \[evid\.js:5\]$/), evid);
-check("--source: a field of an options object called from a timer is suggested `handler`", note("later", /`opts\.onDone`: called from setTimeout.*`handler`\?/), evid);
-check("--source: a context the hook reads is suggested as uses(…); state it reaches as `instantiates`", note("useShade", /it reads this context \(useContext\): Theme — uses\(<its name>\)\? \(MO-12b\) \[evid\.js:3\]$/) && note("derive", /it reaches createMemo.*`instantiates`\?/), evid);
-check("--source: a callback called while the call runs needs no word, and one handed to code it cannot read is not guessed", note("each", /`visit`: called while the call runs — no word/) && !evid.split("\n").some(l => l.startsWith("// SOURCE hand: ")), evid);
-const plainRows = t => t.split("\n").filter(l => !l.startsWith("// SOURCE"));
-const re0 = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./evid.js"], { cwd: ws, encoding: "utf8" });
-check("--source changes no row: the evidence is comments, and a word stays a person's to write", JSON.stringify(plainRows(evid)) === JSON.stringify(re0.stdout.split("\n")) && /source: the module itself \(evid\.js\)/.test(rs.stderr) && /source: \d+ suggestions? for 5 of 6 rows/.test(rs.stderr), rs.stderr);
-// where the source is: the `src/` a package publishes, the text its source maps carry, or neither (then the note says what to check out)
-{
-  const { locate } = require("../src/declare-source.js"); const ts = require("typescript");
-  const app = path.join(ws, "srcapp"); const pkg = path.join(app, "node_modules/kit");
-  fs.mkdirSync(path.join(pkg, "dist"), { recursive: true });
-  fs.writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "kit", version: "1.2.3", main: "dist/index.js", types: "dist/index.d.ts", repository: { url: "git+https://example.test/kit.git", directory: "packages/kit" } }));
-  fs.writeFileSync(path.join(pkg, "dist/index.js"), "export const make = () => 1;\n");
-  fs.writeFileSync(path.join(pkg, "dist/index.d.ts"), "export declare function make(): number;\n");
-  const none = locate(ts, "kit", app);
-  check("--source: a package that ships built files only is said so, with its repository and the version to check out", none.kind === "none" && /publishes built files only/.test(none.note) && /https:\/\/example\.test\/kit \(packages\/kit\) at 1\.2\.3/.test(none.note), none);
-  fs.writeFileSync(path.join(pkg, "dist/index.js.map"), JSON.stringify({ version: 3, sources: ["../src/index.ts"], sourcesContent: ["export const make = (): number => 1;\n"], mappings: "" }));
-  const carried = locate(ts, "kit", app);
-  check("--source: sources a source map carries (sourcesContent) are read from it", carried.kind === "sourcemap" && carried.files.size === 1 && [...carried.files.values()][0].includes("(): number => 1"), { kind: carried.kind, note: carried.note });
-  fs.mkdirSync(path.join(pkg, "src")); fs.writeFileSync(path.join(pkg, "src/index.ts"), "export { make } from \"./make\";\n"); fs.writeFileSync(path.join(pkg, "src/make.ts"), "export const make = (): number => 1;\n");
-  const shipped = locate(ts, "kit", app);
-  check("--source: a package that publishes its src/ is read from there, every file of it", shipped.kind === "published" && shipped.files.size === 2, { kind: shipped.kind, note: shipped.note });
-  const co = path.join(ws, "checkout/packages/kit"); fs.mkdirSync(path.join(co, "src"), { recursive: true });
-  fs.writeFileSync(path.join(co, "package.json"), JSON.stringify({ name: "kit", version: "1.3.0" })); fs.writeFileSync(path.join(co, "src/index.ts"), "export const make = (): number => 1;\n");
-  const given = locate(ts, "kit", app, path.join(ws, "checkout"));
-  check("--source <checkout>: the package is found in the checkout by its name, and a version that differs from the installed one is said", given.kind === "checkout" && given.files.size === 1 && /the checkout is 1\.3\.0 and 1\.2\.3 is installed/.test(given.note), { kind: given.kind, note: given.note });
-}
-
 // the run pass (src/declare-run.js): which hook reads which context, which provider provides it
 fs.writeFileSync(path.join(ws, "ctx.mjs"), [
   "import { createContext, useContext, createComponent, createMemo } from \"solid-js\";",
@@ -401,7 +344,7 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   const pkg = path.join(ws, "node_modules-pat/node_modules/kit"); fs.mkdirSync(path.join(pkg, "dist/menu"), { recursive: true });
   fs.writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "kit", type: "module", exports: { ".": { import: "./dist/index.mjs" }, "./*": { import: "./dist/*.mjs" }, "./menu/*": { import: "./dist/menu/*.mjs" } } }));
   for (const f of ["dist/index.mjs", "dist/button.mjs", "dist/menu/item.mjs"]) fs.writeFileSync(path.join(pkg, f), "export const x = 1;\n");
-  const { resolveModule } = require("../src/declare-run.js");
+  const { resolveModule } = require("../src/load.js");
   const from = path.join(ws, "node_modules-pat");
   check("an exports pattern resolves (./* and the longer ./menu/*), as the crate's packageDeclaration does", resolveModule("kit/button", from) === path.join(pkg, "dist/button.mjs") && resolveModule("kit/menu/item", from) === path.join(pkg, "dist/menu/item.mjs") && resolveModule("kit", from) === path.join(pkg, "dist/index.mjs") && resolveModule("kit/nope", from) === null, [resolveModule("kit/button", from), resolveModule("kit/menu/item", from), resolveModule("kit", from)]);
 }
