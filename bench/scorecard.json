@@ -329,6 +329,47 @@
       }
     }
   },
+  "kobalte-toast": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 9,
+      "total": 9,
+      "fails": []
+    },
+    "bad": {
+      "pass": 8,
+      "total": 8,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 0,
+      "total": 0,
+      "fails": []
+    },
+    "decl": {
+      "words": 24,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0,
+      "draft": {
+        "rows": 11,
+        "any": 0,
+        "vendor": 0,
+        "introduced": 0,
+        "places": 0
+      }
+    }
+  },
   "listener-cleanup": {
     "good": {
       "pass": 3,
@@ -698,6 +739,47 @@
       }
     }
   },
+  "router-code-routes": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "bad": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 1,
+      "total": 1,
+      "fails": []
+    },
+    "decl": {
+      "words": 7,
+      "any": 19,
+      "inherited": 19,
+      "introduced": 0,
+      "places": 14,
+      "draft": {
+        "rows": 299,
+        "any": 57,
+        "vendor": 57,
+        "introduced": 0,
+        "places": 52
+      }
+    }
+  },
   "router-data": {
     "good": {
       "pass": 3,
@@ -773,10 +855,10 @@
       "places": 1,
       "draft": {
         "rows": 305,
-        "any": 63,
-        "vendor": 63,
+        "any": 57,
+        "vendor": 57,
         "introduced": 0,
-        "places": 26
+        "places": 52
       }
     }
   },
@@ -1062,10 +1144,10 @@
       "places": 1,
       "draft": {
         "rows": 302,
-        "any": 65,
-        "vendor": 65,
+        "any": 59,
+        "vendor": 59,
         "introduced": 0,
-        "places": 25
+        "places": 51
       }
     }
   },
@@ -1168,8 +1250,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 2,
-      "total": 2,
+      "pass": 3,
+      "total": 3,
       "fails": []
     },
     "unrep": {
@@ -1178,17 +1260,17 @@
       "fails": []
     },
     "decl": {
-      "words": 43,
+      "words": 44,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 1,
+      "places": 0,
       "draft": {
         "rows": 7,
         "any": 0,
         "vendor": 0,
         "introduced": 0,
-        "places": 1
+        "places": 0
       }
     }
   },

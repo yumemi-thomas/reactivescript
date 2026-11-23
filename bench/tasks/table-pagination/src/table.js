@@ -19,6 +19,12 @@ export function createTable(options) {
   return table;
 }
 /** Renders a column's cell or header: a component is applied with the cell's context, anything else is shown. */
-export function flexRender(Comp, props) {
+function flexRender(Comp, props) {
   return typeof Comp === "function" ? createComponent(Comp, props) : Comp;
+}
+/** `<FlexRender cell={cell} />`, `<FlexRender header={header} />`: the component @tanstack/solid-table 9 has for it.
+ *  What a column was given for its cell or its header is rendered here, beneath this component. */
+export function FlexRender(props) {
+  return createMemo(() => props.cell ? flexRender(props.cell.column.columnDef.cell, props.cell.getContext())
+    : props.header ? (props.header.isPlaceholder ? null : flexRender(props.header.column.columnDef.header, props.header.getContext())) : null);
 }

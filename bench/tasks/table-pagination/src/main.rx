@@ -1,14 +1,16 @@
 // A paginated people table on TanStack Table: cell components, pagination buttons, a pager that is a component of its
 // own, given the page numbers and the handlers, and — as shadcn's data table has it — a pagination component given the
 // table itself.
-import { createTable, flexRender, getCoreRowModel, getPaginationRowModel, CellContext, Table } from "./table.js"
+import { createTable, FlexRender, getCoreRowModel, getPaginationRowModel, CellContext, Table } from "./table.js"
 
 type Person = { name: string; age: number }
 context accent: string
 
-// a cell is given its context by the table and stands by itself: the table's row says nothing of where it renders it
+// a cell is given its context by the table, and renders beneath the adapter's <FlexRender> (the table's row says so,
+// 09 MO-11u): what the app provides above the table reaches it
 component NameCell(props: CellContext<Person, unknown>) {
-  <strong>{props.row.original.name}</strong>
+  tone = use accent
+  <strong class={tone}>{props.row.original.name}</strong>
 }
 component AgeCell(props: CellContext<Person, unknown>) {
   <em>{props.row.original.age} years</em>
@@ -34,12 +36,12 @@ component People(props: { onPick: (id: string) => void }) {
     getPaginationRowModel: getPaginationRowModel(),
     initialState: { pagination: { pageIndex: 0, pageSize: 2 } },
   })
-  <table class={use accent}>
+  <table>
     <thead>{for group in table.getHeaderGroups() {
-      <tr>{for header in group.headers { <th>{flexRender(header.column.columnDef.header, header.getContext())}</th> }}</tr>
+      <tr>{for header in group.headers { <th><FlexRender header={header} /></th> }}</tr>
     }}</thead>
     <tbody>{for row in table.getRowModel().rows {
-      <tr class="row" onClick={() => { props.onPick(row.id) }}>{for cell in row.getVisibleCells() { <td>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td> }}</tr>
+      <tr class="row" onClick={() => { props.onPick(row.id) }}>{for cell in row.getVisibleCells() { <td><FlexRender cell={cell} /></td> }}</tr>
     }}</tbody>
   </table>
   <Pager page={table.getState().pagination.pageIndex + 1} pages={table.getPageCount()} canNext={table.getCanNextPage()}

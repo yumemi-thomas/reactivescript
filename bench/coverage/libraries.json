@@ -810,5 +810,31 @@
     ]
    }
   }
+ },
+ "solid-sonner": {
+  "about": "solid-sonner (wobsoriano): toasts. One of the three libraries whose row says where the library renders a component it is given, `renders(Toaster)` (spec/09 MO-11u; with Kobalte's toaster, bench/tasks/kobalte-toast, and TanStack Router's code-based routes, bench/tasks/router-code-routes).",
+  "packages": {
+   "solid-sonner": {
+    "version": "1.0.0",
+    "modules": [
+     "solid-sonner"
+    ]
+   }
+  }
+ },
+ "solid-marked": {
+  "about": "solid-marked (lxsmnsyc): Markdown through components the app gives in a record (spec/09 MO-11c). `solid-marked/compiler` is its build-time compiler, run by a bundler's plugin in Node, and `solid-marked/env` its ambient types: neither is a module an app's program imports, and neither is drafted.",
+  "packages": {
+   "solid-marked": {
+    "version": "1.0.0",
+    "modules": [
+     "solid-marked",
+     "solid-marked/component"
+    ],
+    "use": [
+     "solid-marked/component"
+    ]
+   }
+  }
  }
 }

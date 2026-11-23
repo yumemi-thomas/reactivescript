@@ -1,0 +1,2 @@
+export error Offline
+export pure fn pushChanges(n: number): Promise<number> rejects(Offline)

@@ -1,0 +1,7 @@
+//@ for solid-sonner ^1.0.0
+// The rows the program uses of rx-declare's draft: `toast` is given a message or a component of the app's, and
+// <Toaster> renders it (09 MO-11u; the word is the draft's, from known.js).
+export type ExternalToast = import("solid-sonner").ExternalToast
+export type ToasterProps = import("solid-sonner").ToasterProps
+export component Toaster(props: ToasterProps)
+export fn toast(message: View | (() => View), data?: ExternalToast): string | number renders(Toaster)

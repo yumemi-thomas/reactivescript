@@ -39,7 +39,7 @@ A folder under `tasks/`: `src/` is the app, `task.mjs` says how it is judged.
 
 - **The good program** (`src/`) is a realistic job: the libraries are the
   ones npm has (Solid 2.0, Formisch, TanStack Query, Router, Start and Table,
-  UI SDK, Wardic, solid-use), imported by their own names, declared in `rx-types/` as a project
+  UI SDK, Wardic, solid-use, Kobalte), imported by their own names, declared in `rx-types/` as a project
   declares a package that ships no `.d.rx` (09 MO-8k), and typed by the
   library's own TypeScript types. Solid itself is declared by the shared
   declaration this repository ships (`declarations/solid-js`, copied into the
@@ -102,7 +102,8 @@ A task is one job with its mistakes; it samples a library. The coverage suite (`
 `cover.mjs`) is the other measure: *every* package of the libraries `coverage/libraries.json` lists, so that "the
 ecosystem" is a list that is held. Today: every `@solid-primitives` package whose latest release accepts `solid-js ^2`
 (98; the 12 that do not are listed there with their peer range, and not tested), every module of `solid-use`, and each
-family of `@wardic/solid` and `@ui-sdk/solid`. For each module two things are held:
+family of `@wardic/solid` and `@ui-sdk/solid`, and — since 2026-11-24, for the two forms of 09 MO-11u and MO-11c —
+`solid-sonner` and `solid-marked`. For each module two things are held:
 
 - **it is drafted whole** by `rx-declare`, with no `any` of the draft's own (09 MO-8q) — the same count the tasks make
   of the modules they declare, here over every module the library exports;
@@ -144,7 +145,9 @@ page) => { … } })` is all an entry's `use.mjs` is.
 | `file-routes` | file-system routes over `.rx` route files (`filesystem-routing`, SolidStart's conventions as a package, with `@solidjs/router`): a layout `(app).rx` whose region holds the pages of `(app)/`, each route file's default component its page, and an `.rx` entry that provides a context a page reads and holds the router's component in a `loading` region; `host.d.rx` says what the manifest's router does with them, and that it renders through the router's component (MO-14f) | the same mistakes, and: a client-only build with no `loading` region around the router, that region beside the router, the app's provision removed, a hook in the app's component above the router, a layout that forgets its pages, a declaration that does not import the router's component, a router's component not declared to provide the router |
 | `store-updater` | a Solid store updater written once and used by two handlers; a snapshot read out of the draft | the store written outside its setter, the updater called by hand, an `await` in the updater, a closure that writes the draft later |
 | `store-helper` | a Solid store's draft changed in place by a helper written in JS (`moveItem(d.columns, from, to)`) | the helper given the store itself, called while the view computes, the draft kept by a closure |
-| `table-pagination` | a TanStack Table: cell components, pagination buttons, a pager given page numbers and handlers, and — shadcn/ui's `DataTablePagination` — a component given the table itself | a page turned while the view computes, the table made from data read once |
+| `table-pagination` | a TanStack Table: cell components rendered by the adapter's `<FlexRender>` (as `@tanstack/solid-table` 9 has it; the table's row says `renders(FlexRender)`, 09 MO-11u), a cell that reads the app's context, pagination buttons, a pager given page numbers and handlers, and — shadcn/ui's `DataTablePagination` — a component given the table itself | a cell's context provided nowhere above the table, a page turned while the view computes, the table made from data read once |
+| `kobalte-toast` | Kobalte 2 (`@kobalte/core` 2.0.0-alpha.5) toasts: a toast component shown from a handler and rendered by the library's list, reading the app's context and the library's region; a toast that asks before it says. The toaster is behind a module of the app's own (`toaster.show` is a method of an object), its row `renders(Toast.List)` (09 MO-11u); `rx-verify` holds each hand-written word against Kobalte in the task's run | a toast written in the view outside any region, the list outside its region, a close button beside its toast, the app's context beside the list, a toast that can fail with no `errored` region above the list, the row without the word, a toast shown while the view computes, the toast's component called where it is handed over |
+| `router-code-routes` | TanStack Router's code-based routes written in `.rx` with the library's own `createRoute` (its row says `renders(RouterProvider)`, 09 MO-11u; the declaration is the draft's, no word by hand): pages rendered beneath the provider in the app's `Shell`, a module away, under a context the app provides; the route tree registers the router, so links and hooks are typed by the routes | a page that can fail with no `errored` region of its own nor above the provider, a client-only build with no `loading` region for a page that waits, the app's context provided nowhere above the provider, a hook outside the provider, a page applied by hand beside the router, the row without the word; *(unrepresentable)* a rendered element where a component is given |
 | `ui-sdk-dialog` | UI SDK for Solid (`@ui-sdk/solid`): a controlled dialog whose parts are flat exports, a change the app's callback cancels through the library's details, a toggle whose child is a function of its state | a part outside its root, the open state written while the view computes or from the function of state, a handler called where it is passed, a stale read of an own write, the controlled state copied by an effect; *(unrepresentable)* a part the library has not |
 | `ui-sdk-forms` | UI SDK's form controls: a checkbox and a radio group whose values the app holds, a button its state enables | a radio beside its group, the change handler called where it is passed, a stale read of an own write, the controlled value copied by an effect; *(unrepresentable)* a function the program has not, a part the library has not |
 | `wardic-values` | Wardic's values: a number derived from a prop, a size that cycles, an element that animates to them, under the provider | the meter beside the provider, a value made in a handler, the cycle turned while the view computes, a transform that writes, the derived value written or kept in a source by an effect |
@@ -196,7 +199,8 @@ Kobalte's two tasks (`kobalte-dialog`, `kobalte-select`) left the suite on 2026-
 words counted; `spec/rfc-declaration-types-2026-11-22.md` (*A fourth round*) lists what their declarations could not
 say. The one run check that was red with a reason, Kobalte's own read of a store row in an effect's callback, went
 with `kobalte-select`. `baseline-rebased.txt` and the two older scorecards are records of their runs and still list the
-Kobalte tasks.
+Kobalte tasks. (Kobalte is back since 2026-11-24, with `kobalte-toast`: its toaster is one of the three libraries
+`renders(H)` was taken on, and the bar counts a pre-release as it counts a stable one.)
 
 The totals moved with the tasks, not with any check. Before (25 tasks): good 75/75, types 115/115, runtime 154/155,
 bad 113/115, unrepresentable 8/8, 135 hand-written words, 23 `any` inherited, 0 introduced, 4 by place. The two Kobalte
@@ -323,6 +327,43 @@ each `host.d.rx`'s imports from JavaScript and its entry's record, and the route
 programs, all green; 190 modules drafted whole (4877 rows), 1195 `any`s the libraries' own, none introduced, 1519 by
 place; 277 hand-written words; bad caught 8/8. A host declaration is measured against `rx-declare --host`'s draft of
 the `.rx` modules it imports; what it imports from JavaScript is by hand.
+
+On 2026-11-24 `renders(H)` was taken (09 MO-11u: a component a fn is given is rendered later beneath a component of
+the same declaration), on three libraries of Solid 2 run for it, and a `Component` inside a record or an array in a
+JS component's prop is read as a direct one is (MO-11c). The bar counts the ecosystem's releases, pre-releases
+included (MO-8r), and Kobalte is back.
+
+**Back, of the three `table-pagination` variants given up on 2026-11-23:**
+
+| task | the variant | how it is back |
+| --- | --- | --- |
+| `table-pagination` | a cell component's context provided nowhere above the table (`CONTEXT_NOT_FOUND`) | the adapter exports a `<FlexRender>` component, as `@tanstack/solid-table` 9 has, and `createTable`'s row says `renders(FlexRender)`: a cell is checked among its children, wherever the view applies it, so `NameCell` reads the app's context again |
+
+**Still given up:**
+
+| task | the variant | was | why |
+| --- | --- | --- | --- |
+| `table-pagination` | a row of the table handed up through a prop's callback | `RENDERS_ESCAPES` | `renders(H)` names a place and confines no value: the table is a plain value, and handing a row up is no mistake |
+| `table-pagination` | the table kept in app state | `RENDERS_ESCAPES` | the same |
+| `router-provider` | the type of a router passed as a prop; the router built and never rendered | `TS2322`; `COMPONENT_AS_VALUE` | as before (the first is back in `router-code-routes`, where the router is a value of the program's: "the Shell's router prop is the library's router type") |
+
+**In:** two tasks and two coverage entries. `kobalte-toast` (8 variants: a toast outside any region, the list outside
+its region, a close button beside its toast, the app's context beside the list, a toast that can fail with no
+`errored` region above the list, the row without the word, a toast shown while the view computes, the component
+called where it is handed over; and `rx-verify` holding every hand-written word against Kobalte).
+`router-code-routes` (6 variants and one that cannot be written, 4 type probes — the two registered-route probes among
+them, from a tree written in `.rx`). `solid-sonner/toaster` (3: the context beside the toaster, no toaster, the row
+without the word; `rx-verify` holds the row) and `solid-marked/markdown` (2: the context beside `<Markdown>`, the
+record of components built outside the prop). **Out:** none.
+
+The totals, before (at `cb68950`) and now, both from a fresh `npm ci`. Tasks (33, then 35): good 105/105 and 111/111,
+types 161/161 and 172/172, runtime 214/214 and 228/228, bad 184/186 and 199/201 (the same two red, with their reasons),
+unrepresentable 11/11 and 12/12, hand-written words 308 and 340 (`table-pagination` 43 to 44; `kobalte-toast` 24;
+`router-code-routes` 7, none of them in the router's declaration), `any` inherited 41 and 60 (the router's own, in the
+rows `router-code-routes` keeps whole), introduced 0 and 0, by place 28 and 41 (the same rows; `table-pagination` 1 to
+0). Coverage: 121 programs and 123, all green; 190 modules drafted whole and 193 (4877 rows and 4904), 1195 `any`s the
+libraries' own, none introduced, 1519 by place, as before; 277 hand-written words, as before (the two new entries
+write none); bad caught 8/8 and 13/13. No other entry's record moved.
 
 **New, in the coverage suite:** an entry may hold bad variants of its own (`bad` in its `use.mjs`, judged as a
 task's are; the record has a `bad caught` column). Four do, two each — the accessor read with no `errored` region,

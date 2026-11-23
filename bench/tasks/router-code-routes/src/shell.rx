@@ -1,0 +1,7 @@
+// The app's frame, a plain .rx component in a module of its own: it is given a router and renders it under its header.
+import { RouterProvider, AnyRouter } from "@tanstack/solid-router"
+
+export component Shell(props: { router: AnyRouter; title: string }) {
+  <header>{props.title}</header>
+  <RouterProvider router={props.router} />
+}

@@ -1,0 +1,43 @@
+// Toasts on Kobalte 2: the app shows one from a handler, and the library renders it later, in its list. A toast is a
+// component of the app's: it reads the app's theme, and Kobalte's parts in it read the region the list is in.
+import { Toast, show } from "./toasts.js"
+import { pushChanges, Offline } from "./sync.js"
+
+context accent: string
+source shown := 0
+
+component Saved(props: { toastId: number }) {
+  <Toast toastId={props.toastId} class="toast">
+    <Toast.Title><b class={use accent}>saved</b></Toast.Title>
+    <Toast.CloseButton class="close">dismiss</Toast.CloseButton>
+  </Toast>
+}
+// a toast that asks before it says: its question can fail, and it waits behind a region of its own
+component Synced(props: { toastId: number }) {
+  <Toast toastId={props.toastId} class="toast">
+    {loading fallback { <Toast.Title>syncing…</Toast.Title> } {
+      sent = await pushChanges(3)
+      <Toast.Title><i>{sent} changes synced</i></Toast.Title>
+    }}
+  </Toast>
+}
+component Editor() {
+  <button class="save" onClick={() => { shown := show(Saved) }}>save</button>
+  <button class="sync" onClick={() => { shown := show(Synced) }}>sync</button>
+  <p class="last">last toast {shown}</p>
+}
+component Themed(props: { children: View }) {
+  provide accent = "dark"
+  {props.children}
+}
+
+component Toasts() {
+  errored fallback(e: Offline) { <p class="lost">offline</p> } { <Toast.Region><Toast.List class="toasts" /></Toast.Region> }
+}
+
+export default component App() {
+  <Themed>
+    <Editor />
+    <Toasts />
+  </Themed>
+}

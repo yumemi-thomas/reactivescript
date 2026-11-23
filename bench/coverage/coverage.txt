@@ -1,4 +1,4 @@
-Coverage: 121 programs, 121 green; 190 modules drafted whole (4877 rows): 1195 `any` the libraries' own, 0 introduced, 1519 by place; 277 hand-written words, 109 `any` inherited and 0 introduced in the kept rows, 196 by place
+Coverage: 123 programs, 123 green; 193 modules drafted whole (4904 rows): 1195 `any` the libraries' own, 0 introduced, 1519 by place; 277 hand-written words, 109 `any` inherited and 0 introduced in the kept rows, 196 by place
 
 primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 introduced, 264 by place); 98 programs, 98 green; 162 hand-written words
   module                                        version  rows drafted  `any` library's  introduced  by place  used by                           hand words  accepted  types  runs  bad caught  server  hydrated
@@ -111,6 +111,17 @@ primitives: 107 modules drafted (1237 rows, 127 `any` the libraries' own, 0 intr
   @solid-primitives/workers                     2.0.1    12            0                0           3         primitives/workers                1           3/3       2/2    2/2   —           no      no      
   @solid-primitives/workers/worker              2.0.1    2             0                0           0         — (primitives/workers)                                                                           
 
+solid-marked: 2 modules drafted (18 rows, 0 `any` the libraries' own, 0 introduced, 0 by place); 1 programs, 1 green; 0 hand-written words
+  module                  version  rows drafted  `any` library's  introduced  by place  used by                    hand words  accepted  types  runs  bad caught  server  hydrated
+  ----------------------  -------  ------------  ---------------  ----------  --------  -------------------------  ----------  --------  -----  ----  ----------  ------  --------
+  solid-marked            1.0.0    17            0                0           0         — (solid-marked/markdown)                                                                 
+  solid-marked/component  1.0.0    1             0                0           0         solid-marked/markdown      0           3/3       2/2    5/5   2/2         yes     yes     
+
+solid-sonner: 1 modules drafted (9 rows, 0 `any` the libraries' own, 0 introduced, 0 by place); 1 programs, 1 green; 0 hand-written words
+  module        version  rows drafted  `any` library's  introduced  by place  used by               hand words  accepted  types  runs  bad caught  server  hydrated
+  ------------  -------  ------------  ---------------  ----------  --------  --------------------  ----------  --------  -----  ----  ----------  ------  --------
+  solid-sonner  1.0.0    9             0                0           0         solid-sonner/toaster  0           3/3       2/2    5/5   3/3         no      no      
+
 solid-use: 10 modules drafted (28 rows, 6 `any` the libraries' own, 0 introduced, 0 by place); 10 programs, 10 green; 21 hand-written words
   module                     version  rows drafted  `any` library's  introduced  by place  used by                    hand words  accepted  types  runs  bad caught  server  hydrated
   -------------------------  -------  ------------  ---------------  ----------  --------  -------------------------  ----------  --------  -----  ----  ----------  ------  --------
@@ -208,7 +219,7 @@ wardic: 4 modules drafted (751 rows, 10 `any` the libraries' own, 0 introduced, 
 
 All green.
 
-What the entries say of their packages (50):
+What the entries say of their packages (52):
   primitives/context: A JS module of the app's own: the factory given to createContextProvider makes state (a component's body, in a callback), and `.rx` has `context` and `provide` of its own.
   primitives/controlled-props: not rendered on the server — the control is the library's JSX, compiled for the DOM alone (one build): it calls a client-only API of @solidjs/web on the server, in any app. A JS module of the app's own: createControlledProp hands back a component as a part of a tuple, and a component is rendered by its own name.
   primitives/date: CreateTimeAgo and createTimeDifferenceFromNow are not used: their effect reads `diff`, a const declared after it, and Solid 2 computes an effect where it is made — `Cannot access 'diff' before initialization`, in any app.
@@ -239,6 +250,8 @@ What the entries say of their packages (50):
   primitives/virtual: not rendered on the server — the package ships one build, its JSX compiled for the DOM: <VirtualList> calls a client-only API of @solidjs/web on the server, in any app.
   primitives/websocket: not rendered on the server — createWS opens a WebSocket where it is called: on the server it would connect from the server, and the package has no server path.
   primitives/workers: not rendered on the server — a worker is the browser's (`new Worker`). A JS module of the app's own: createWorker is given functions (their source is sent to the worker) and hands back a tuple whose first part has a method for each: a mapped type.
+  solid-marked/markdown: The runtime component is its module's default export, handed out by name from a module of the app's own (markdown.js); its row is the draft's. A component in a record given to a prop is read as a direct one is (09 MO-11c, 2026-11-24): it was `COMPONENT_AS_VALUE`. `solid-marked/compiler` is the build-time compiler (a bundler plugin's, run in Node), not a module an app imports, and is not drafted.
+  solid-sonner/toaster: not rendered on the server — the package's default build is compiled for the DOM (its `solid` condition is the source an app's bundler compiles); the benchmark imports a package as Node resolves it. One of the three libraries whose row says `renders(<Component>)` (09 MO-11u, MO-8r). the row is the draft's (the word from known.js). A component that declares no props is the function of nothing the library's type asks for (13 TY-3d). `toast.custom(fn)` is not declared: it calls `fn` with no owner at all (found by running it: `getOwner()` is null there, and in Solid's development build `useContext` throws NoOwnerError), which no row describes (MO-11s).
   solid-use/atom: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and an atom is one function that reads and writes, where a result's part is a reader or a function.
   solid-use/fetch: not rendered on the server — the request is made where the primitive is made, from the browser. A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports; and what it answers is an object whose method makes the accessor (a method that instantiates).
   solid-use/online-status: A JS module of the app's own: the utility is the module's default export, and a `.d.rx` declares named exports.

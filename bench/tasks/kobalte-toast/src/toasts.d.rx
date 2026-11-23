@@ -1,0 +1,12 @@
+// The app's toaster (toasts.js) over @kobalte/core's toast: the rows are rx-declare's draft of the module, and the words
+// a person adds — the region's context, which the list and a toast read; the toast's own, which its title and its
+// close button read; and where `show` renders the component it is given: beneath the list (09 MO-11u). Kobalte's own
+// `toaster.show` is a method of an object, which no row declares.
+export context toastRegion
+export context toast
+export fn show(toast: Component<{ toastId: number; }>): number renders(Toast.List)
+export component Toast<T extends import("@solidjs/web").ValidComponent = "li">(props: import("@kobalte/core/polymorphic").PolymorphicProps<T, import("@kobalte/core/toast").ToastRootProps<T>> & { onPause?: () => void; onResume?: () => void; onSwipeStart?: (event: { currentTarget: EventTarget & HTMLLIElement } & Omit<CustomEvent<{ originalEvent: PointerEvent; delta: { x: number; y: number } }>, "currentTarget">) => void; onSwipeMove?: (event: { currentTarget: EventTarget & HTMLLIElement } & Omit<CustomEvent<{ originalEvent: PointerEvent; delta: { x: number; y: number } }>, "currentTarget">) => void; onSwipeCancel?: (event: { currentTarget: EventTarget & HTMLLIElement } & Omit<CustomEvent<{ originalEvent: PointerEvent; delta: { x: number; y: number } }>, "currentTarget">) => void; onSwipeEnd?: (event: { currentTarget: EventTarget & HTMLLIElement } & Omit<CustomEvent<{ originalEvent: PointerEvent; delta: { x: number; y: number } }>, "currentTarget">) => void; onEscapeKeyDown?: (event: KeyboardEvent) => void }) uses(toastRegion) provides(toast)
+export component Toast.List<T extends import("@solidjs/web").ValidComponent = "ol">(props: import("@kobalte/core/polymorphic").PolymorphicProps<T, import("@kobalte/core/toast").ToastListProps<T>>) uses(toastRegion)
+export component Toast.Region<T extends import("@solidjs/web").ValidComponent = "div">(props: import("@kobalte/core/polymorphic").PolymorphicProps<T, import("@kobalte/core/toast").ToastRegionProps<T>>) provides(toastRegion)
+export component Toast.Title<T extends import("@solidjs/web").ValidComponent = "div">(props: import("@kobalte/core/polymorphic").PolymorphicProps<T, import("@kobalte/core/toast").ToastTitleProps<T>>) uses(toast)
+export component Toast.CloseButton<T extends import("@solidjs/web").ValidComponent = "button">(props: import("@kobalte/core/polymorphic").PolymorphicProps<T, import("@kobalte/core/toast").ToastCloseButtonProps<T>>) uses(toast)

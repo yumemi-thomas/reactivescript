@@ -2,7 +2,7 @@
   "name": "rx-bench-workspace",
   "private": true,
   "type": "module",
-  "description": "The libraries bench/run.mjs runs its tasks against, installed once into bench/.out/ws: Solid 2.0 and the ecosystem's Solid 2 releases. (@tanstack/virtual-core has no Solid 2 adapter yet: tasks/primitives-virtual/src/virtual.js is a small one, as tasks/table-pagination/src/table.js is for table-core. @happy-dom/global-registrator is what `rx-declare --run --dom` runs a package's hooks in.)",
+  "description": "The libraries bench/run.mjs runs its tasks against, installed once into bench/.out/ws: Solid 2.0 and the ecosystem's Solid 2 releases (pre-releases included: Kobalte 2 is an alpha, TanStack's adapters release candidates). (@tanstack/virtual-core has no Solid 2 adapter yet: tasks/primitives-virtual/src/virtual.js is a small one, as tasks/table-pagination/src/table.js is for table-core. @happy-dom/global-registrator is what `rx-declare --run --dom` runs a package's hooks in.)",
   "dependencies": {
     "solid-js": "2.0.2",
     "@solidjs/web": "2.0.2",
@@ -19,6 +19,9 @@
     "@wardic/dom": "1.2.0",
     "effect": "4.1.5",
     "solid-use": "1.0.0",
+    "@kobalte/core": "2.0.0-alpha.5",
+    "solid-sonner": "1.0.0",
+    "solid-marked": "1.0.0",
     "vite": "8.1.5",
     "@solidjs/vite-plugin": "3.0.1",
     "esbuild": "^0.28.2",

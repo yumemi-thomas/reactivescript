@@ -4170,6 +4170,96 @@
     }
    }
   },
+  "solid-marked/markdown": {
+   "good": {
+    "pass": 3,
+    "total": 3,
+    "fails": []
+   },
+   "types": {
+    "pass": 2,
+    "total": 2,
+    "fails": []
+   },
+   "runtime": {
+    "pass": 5,
+    "total": 5,
+    "fails": []
+   },
+   "bad": {
+    "pass": 2,
+    "total": 2,
+    "fails": []
+   },
+   "server": true,
+   "hydrates": true,
+   "uses": [
+    "solid-marked/component"
+   ],
+   "decl": {
+    "words": 0,
+    "any": 0,
+    "inherited": 0,
+    "introduced": 0,
+    "places": 0
+   },
+   "modules": {
+    "solid-marked": {
+     "rows": 17,
+     "vendor": 0,
+     "introduced": 0,
+     "places": 0
+    },
+    "solid-marked/component": {
+     "rows": 1,
+     "vendor": 0,
+     "introduced": 0,
+     "places": 0
+    }
+   }
+  },
+  "solid-sonner/toaster": {
+   "good": {
+    "pass": 3,
+    "total": 3,
+    "fails": []
+   },
+   "types": {
+    "pass": 2,
+    "total": 2,
+    "fails": []
+   },
+   "runtime": {
+    "pass": 5,
+    "total": 5,
+    "fails": []
+   },
+   "bad": {
+    "pass": 3,
+    "total": 3,
+    "fails": []
+   },
+   "server": false,
+   "hydrates": false,
+   "uses": [
+    "solid-sonner"
+   ],
+   "decl": {
+    "words": 0,
+    "any": 0,
+    "inherited": 0,
+    "introduced": 0,
+    "places": 0
+   },
+   "modules": {
+    "solid-sonner": {
+     "rows": 9,
+     "vendor": 0,
+     "introduced": 0,
+     "places": 0
+    }
+   }
+  },
   "solid-use/atom": {
    "good": {
     "pass": 3,
