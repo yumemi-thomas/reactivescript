@@ -3063,3 +3063,45 @@ changed.
 - UI SDK: its `handler`s, and the contexts its primitives make.
 - As before: an object the module exports; a value made when the
   module loads; a module with no types.
+
+## A sixteenth round: an independent review (2026-11-24)
+
+A reviewer who had no part in the fifteen rounds read `871611b` for
+over-engineering. Each finding was reproduced before it was acted on.
+
+| finding | reproduced | what was done |
+| --- | --- | --- |
+| strict certifies what nothing tested (`uses(theme)` on an unrelated warning; a `pure … instantiates` row answered by the audit's summary on line 1; `rejects(Error)` with no obligation) | yes, all three | each claim has a name and a result of its own; `uses:c` needs a failure without `c` and a run with it; a summary is no record; record version 8 (MO-8j) |
+| 0 introduced `any` where an author erased a type | yes | counted place by place, a function type's parameter and a type argument included. **The true number is 0**: no declaration and no draft had used the hole |
+| the harness read prose, and a failed audit was an empty one | yes | structured results; what could not be measured fails `--check` |
+| three cells a good entry; 8 of 123 coverage entries with a bad case | yes | one cell; the 8 are said |
+| named component records by spelling; `"ref label"`; `SHADOWED_IMPORT` twice | yes, in both checkers | read by scope; a fourth of the kind found beside them (a named draft callback: `DRAFT_ESCAPES` on a sibling's function) |
+| dead code | yes | gone; the retired words' messages are one table a side |
+| each tool reconstructs a row from text | yes, but for one | verifier, placement checks, strict record, audit and bench read the crate's rows. The draft keeps its own offsets: it edits text it has just written |
+| `--source` overlaps the reading of the code | yes | deleted (DECLARATIONS.md's table) |
+| `renders(H)`, the host tree and outlets are three representations of one placement | in part | they are one judgment already: each applies a component in a region, and what it lets out is read off one application tree. What was double was the walk that finds the components, now one. `renders(H)` is judged from signatures because H may be applied in another module, and a host's view is a program of its own; merging those would put the host's tree into every signature, and is not simpler |
+| the eight type readings are all built | yes | made when asked for |
+| chapter 09 is four times too long | yes | 1,110 lines; this archive |
+| declaration copies | 26 in 20 groups | five gone (Wardic's, a group's own `rx-types/`); the rest are the copies of separate installs, or a task's beside a coverage entry's, which vary apart |
+
+**What earlier rounds reported, corrected.**
+
+| number | reported | now |
+| --- | --- | --- |
+| introduced `any`, tasks / coverage | 0 / 0, by export | 0 / 0, by place |
+| tasks, good accepted | 132/132 | 44/44 (the same entries, once each) |
+| coverage, cells for a good program | 369 | 123 |
+| coverage entries with a mistake of their own | not said | 8 of 123 |
+| words run by rx-verify (tasks / coverage) | 54 of 71 / 9 of 38, of the words the code proves | not a measure of the declarations: below |
+| claims of kept rows, tasks | not counted | 194: 49 held by running, 46 by the code's proof alone, 99 unverified |
+| claims of kept rows, coverage | not counted | 225: 44 by running, 34 by the code's proof alone, 147 unverified |
+| contradicted claims | 0 / 0 | 4 / 4 as first counted. Two declarations were false (`uses(theme)` of a hook with a default, in `solid-use-state` and `solid-use/provider`: their module now needs its scope); one row lacked a word (`uses(wardic)`); the rest were the verifier's: a loader's data changing, a hook failing for want of something else. 0 / 0 now |
+| host tasks' router modules | counted as having nothing to say | rx-verify died on four tasks (`virtual:file-routes`, a Vite-only import); their claims are unverified |
+| `handler` words the reading drafted | 984 | 932 of them are three packages' maps of DOM events, one word an event |
+
+Verdicts changed: a loop's variable, a parameter or a local named as an
+import whose methods have rows is accepted (S-module-42, the unit
+`mdshadow`, one variant of `kobalte-toast`, whose edit is a shadowing
+declaration now); a declaration that shadows it is refused once. A
+record of components, and a named draft callback, beside a sibling's
+local of the same name are accepted. No other.

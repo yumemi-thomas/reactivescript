@@ -1,6 +1,6 @@
 The tasks' declarations, every behaviour word (pure, handler, draft, rejects, uses, provides, nests, renders) held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-71 proven: read from the code, counted as inferred, run by rx-verify.
+71 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: the code shows the opposite.
 91 the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.
   file-routes/rx-types/@solidjs/router.d.rx: useParams: pure — it calls useRoute, which is not proven: it reads TempRoute, a value the module takes apart from a call [@solidjs/router/dist/routing.js:55]

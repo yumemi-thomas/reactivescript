@@ -1,8 +1,8 @@
 The coverage entries' declarations, every behaviour word held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-38 proven: read from the code, counted as inferred, run by rx-verify.
+38 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: the code shows the opposite.
-119 the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.
+120 the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.
   primitives/a11y/rx-types/@solid-primitives/a11y.d.rx: createReducedMotion: pure — it reads window: the environment [@solid-primitives/a11y/dist/reduced-motion.js:34]
   primitives/a11y/rx-types/@solid-primitives/a11y.d.rx: createAnnounce: pure — it calls makeAnnounce, which is not proven: it calls createLiveRegionEl, which is not proven: it reads document: the environment [@solid-primitives/a11y/dist/announce.js:6]
   primitives/active-element/rx-types/@solid-primitives/active-element.d.rx: createActiveElement: pure — it calls makeActiveElementListener, which is not proven: it calls makeEventListener, which is not proven: addEventListener: it registers with the platform [@solid-primitives/event-listener/dist/eventListener.js:7]
@@ -122,3 +122,4 @@ The coverage entries' declarations, every behaviour word held against what the c
   wardic/values/rx-types/@wardic/solid.d.rx: WardicProvider: provides(wardic) — env is read outside the provider: contextOf: env is read [@wardic/solid/dist/solid/provider.jsx:94] — check that env holds no view, or (a function) is called only among the provider's children
   wardic/values/rx-types/@wardic/solid.d.rx: createTransform: pure — it calls atomOf, which is not proven: it calls isAtom, which is not proven: it calls hasProperty: a value made by a call, or one the module assigns again [effect/dist/reactivity/Atom.js:55]
   wardic/values/rx-types/@wardic/solid.d.rx: createReducedMotion: pure — it calls useWardicRuntime, which is not proven: it calls contextValue, which is not proven: it calls fromNullishOr, which is not proven: it calls none, which is not proven: it reads option.none, a value made by code that runs when the module loads: not known to be a constant [effect/dist/Option.js:55]
+  wardic/values/rx-types/@wardic/solid.d.rx: createReducedMotion: uses(wardic) — it calls more functions, each made by another, than are followed [@wardic/solid/dist/solid/sensors.jsx:84]

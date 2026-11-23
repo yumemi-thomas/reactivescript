@@ -288,9 +288,9 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
             if (st.notAccessor) bad.push(`${label(f)} is declared ref, but is not an accessor (a function)`);
             if (st.failed && !f.ref) bad.push(`${key(f)} fails (${short(st.failed, 40)}) where it is read: a plain field that does has no row — hand it out as a function, declared \`fails(…) ref\` (MO-10l)`);
           }
-          // (a failure of a hook run with nothing around it and nothing given says that something is missing — a provider
+          // (a failure of a hook given nothing, with nothing around it but a provider given nothing, says that something is missing — a provider
           // its row does not name, a device this page has not — and not what its parts do)
-          const bare = ran.boundary && !fails.length && !notReady(ran.boundary) && !own && !probe?.args && !probe?.provide && !probeMod?.provide;
+          const bare = ran.boundary && !fails.length && !notReady(ran.boundary) && !probe?.args && !probe?.provide && !probeMod?.provide && (!own || !checked.some(p => p.kind === "component" && p.facts.provides.some(c => x.uses.includes(c)) && probes[p.name]) && !x.uses.some(c => probeMod?.providers?.[c]));
           if (bare) { push("fields", "unverified", `its fields are not read: run alone it fails (${short(ran.boundary, 60)}) — if it wants a provider, its row says uses(…); else give what it needs in the probe`); continue; }
           if (ran.boundary && !fails.length && !notReady(ran.boundary)) bad.push(`it fails into the errored boundary (${short(ran.boundary, 40)}), and no field is declared fails(…)`);
           const heldSeen = x.parts.filter(f => f.pending && ran.seen.get(key(f)).pending).map(label);
