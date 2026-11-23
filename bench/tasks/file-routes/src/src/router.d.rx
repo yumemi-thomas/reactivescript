@@ -1,0 +1,2 @@
+// router.ts in rows: the typed path builder the router makes of the route files.
+export const paths: typeof import("./router.ts").paths

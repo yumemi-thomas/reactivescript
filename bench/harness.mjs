@@ -216,7 +216,22 @@ export function anysWritten(dir) {
 // ---- the declarations a task's checker reasons with (its `.d.rx` files) ----
 const tokens = line => line.match(/[A-Za-z_$][\w$]*|\d+|[^\s\w]/g) ?? [];
 const isWord = t => /^[\w$]/.test(t);
-const exported = line => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(line.trim())?.[1];
+const exported = line => /^export\s+default\s+component\b/.test(line.trim()) ? "default" : /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(line.trim())?.[1];   // default: a host declaration's view (09 MO-14)
+/** 09 MO-14: whether a `.d.rx` is a host declaration (it states the view a JS host makes), and its rows a line each: the
+ *  view may be written over several lines, and is measured as one row. */
+const isHost = text => /^\s*export\s+default\s+component\b/m.test(text);
+const hostRows = text => { const ls = code(text).map(l => l.trim()).filter(Boolean); const at = ls.findIndex(l => /^export\s+default\s+component\b/.test(l)); return at < 0 ? ls : [...ls.slice(0, at), ls.slice(at).join(" ").replace(/([\[{(])\s+/g, "$1 ").replace(/\s+/g, " ").replace(/\[ /g, "[").replace(/ \]/g, "]")]; };
+/** What `rx-declare --host` drafts for the modules a host declaration imports (its lines, comments dropped): the
+ *  imports, the contexts those modules use, and every component placed at the top. */
+function hostDraft(file) {
+  const text = readFileSync(file, "utf8");
+  const modules = [...text.matchAll(/^\s*import\s*\{[^}]*\}\s*from\s*(["'])(.*?)\1/gm)].map(m => path.resolve(path.dirname(file), m[2]));
+  const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--host", ...modules], { cwd: path.dirname(file), encoding: "utf8", env: { ...process.env, RXC: rxc } });
+  const lines = r.status === 0 ? hostRows(r.stdout) : [];
+  lines.inherited = new Map();
+  lines.whole = { rows: lines.length, any: 0, vendor: 0, introduced: 0, places: 0, introducedRows: [], drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
+  return lines;
+}
 /** The words of `hand` that are not `draft`'s: the tokens of `hand` outside a longest common subsequence of the two. */
 function written(hand, draft) {
   const a = tokens(hand), b = tokens(draft);
@@ -277,13 +292,14 @@ const anysIn = line => { const ts = tokens(line); const at = ts.findIndex((t, i)
 export function declarations(dir, flagsFor = {}) {
   const files = [];
   for (const p of own(dir, n => n.endsWith(".d.rx"))) {
-    const { spec, from } = declares(dir, p);
-    const draft = draftOf(spec, from, flagsFor[spec] ?? []);
+    const host = isHost(readFileSync(p, "utf8"));
+    const { spec, from } = host ? { spec: "the JS host", from: path.dirname(p) } : declares(dir, p);
+    const draft = host ? hostDraft(p) : draftOf(spec, from, flagsFor[spec] ?? []);
     const whole = new Set(draft), byName = new Map(draft.map(l => [exported(l), l]).filter(([n]) => n));
     // a name the draft has more than one line for: each row is measured against the nearest of them
     const allByName = new Map(); for (const l of draft) { const n = exported(l); if (n) allByName.set(n, [...(allByName.get(n) ?? []), l]); }
     let words = 0, places = 0; const anyBy = new Map();
-    for (const line of code(readFileSync(p, "utf8")).map(l => l.trim()).filter(Boolean)) {
+    for (const line of host ? hostRows(readFileSync(p, "utf8")) : code(readFileSync(p, "utf8")).map(l => l.trim()).filter(Boolean)) {
       const k = anysIn(line);
       if (k) anyBy.set(exported(line) ?? line, (anyBy.get(exported(line) ?? line) ?? 0) + k);
       places += tokens(line).filter(t => PLACE.has(t)).length;

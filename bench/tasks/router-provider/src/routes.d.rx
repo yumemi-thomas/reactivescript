@@ -1,6 +1,0 @@
-// routes.js in rows. By hand: every word (the module is the app's own). The context is the library's, named from here
-// (MO-12e): the factory's component provides the router to every component of the tree (MO-12c), and nests each
-// record's `children` in its `component` (MO-11i), so a page is checked among its layout's children.
-export context router from "@tanstack/solid-router"
-export type RouteRecord = import("./routes.js").RouteRecord
-export pure fn createAppRouter(tree: RouteRecord): Component provides(router) nests(children in component)

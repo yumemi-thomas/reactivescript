@@ -1,0 +1,4 @@
+// people.js in rows, from rx-declare's draft: the query is a loader (`pure`) that answers a Person and rejects with NotFound.
+export type Person = import("./people.js").Person
+export error NotFound
+export pure fn getPerson(id: string): Promise<Person> rejects(NotFound)

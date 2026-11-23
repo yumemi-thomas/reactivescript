@@ -1,28 +1,20 @@
-// Routes on @tanstack/solid-router, written as records for the app's own factory (routes.js), with the router wrapped in
-// the app's Shell.
+// The root layout and the pages, which TanStack Router's file routes render (src/routes: its generator reads
+// TypeScript, so a route file is a few lines of TSX that hand one of these to the route, 11 CP-4d).
 import { Link, useParams } from "@tanstack/solid-router"
-import { createAppRouter } from "./routes.js"
 import { fetchPerson, NotFound } from "./people.js"
-import { Shell } from "./shell.rx"
 
-component Root(props: { children?: View }) {
+export component Root(props: { children?: View }) {
   <nav><Link to="/">Home</Link> <Link to="/people/$id" params={{ id: "1" }}>Ann</Link> <Link to="/people/$id" params={{ id: "9" }}>Nobody</Link></nav>
   errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
     loading fallback { <p>loading…</p> } { <main>{props.children}</main> }
   }
 }
-component Home() {
+export component Home() {
   <h1>People</h1>
 }
-component Person() {
+export component Person() {
   params = useParams({ from: "/people/$id" })
   person = await fetchPerson(params.id)
   <h1>{person.name}</h1>
   <p>{person.role}, #{params.id}</p>
-}
-
-AppRouter = createAppRouter({ component: Root, children: [{ path: "/", component: Home }, { path: "/people/$id", component: Person }] })
-
-export default component App() {
-  <Shell title="Directory"><AppRouter /></Shell>
 }

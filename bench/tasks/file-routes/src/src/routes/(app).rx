@@ -1,0 +1,9 @@
+// The layout of every page: its regions hold what a page asks.
+import { NotFound } from "../people.js"
+import { paths } from "../router.ts"
+export default component Layout(props: { children?: View }) {
+  <nav><a href={paths()}>Home</a> <a href={paths.people("1")}>Ann</a> <a href={paths.people("9")}>Nobody</a></nav>
+  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
+    loading fallback { <p class="wait">loading…</p> } { <main>{props.children}</main> }
+  }
+}

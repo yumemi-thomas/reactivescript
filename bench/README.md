@@ -138,9 +138,10 @@ page) => { … } })` is all an entry's `use.mjs` is.
 | `formisch-field-array` | a Formisch array field: rows inserted, removed and moved by the library's methods | a method called while the view computes or given to a button called, the form made in the view, the row ids changed in place |
 | `query-forward` | a TanStack Query result passed down: its data to a list, a flag to a badge, the data and the status to a panel; a refetch; a failing query. The query's hook is a module of the app's own over the library's, its `data` an accessor that waits and fails (09 MO-10l, MO-8r, MO-12e) | the data read with no `errored` region, or no `loading` one in a client-only build, the result stored in a record or given whole to a child, the query made in the view, its hook beside the provider, a refetch while the view computes or called where the handler is given, the data written |
 | `query-mutation` | a TanStack Query mutation that invalidates its query; the cache sent from the server and taken up in the browser (dehydrate / hydrate) | the query read with no `errored` region, the mutation run or the cache invalidated while the view computes, the mutation made in a handler, a hook outside the provider, a callback that writes where the library may call it in a computation |
-| `router-provider` | a TanStack Router app whose route tree is given, as records, to a factory of the app's own (`routes.js`, 09 MO-11f, MO-11i), the made router inside the app's own `Shell` component, in a module of its own | a page that fails with no boundary around its layout's children, a hook or a link outside the router, a page applied by hand beside it, the made router used as a value |
+| `router-provider` | a TanStack Router app on the router's file-based routing (its Vite plugin writes `routeTree.gen.ts`), its layout and pages `.rx` components the TSX route files render, where `host.d.rx` says (09 MO-14); the router's component inside the app's own `Shell`, the app's entry `.rx` | a page that fails with no region around its layout's children, or waits with no `loading` one in a client-only build, a hook or a link outside the router, a page applied by hand beside it, the router's component used as a value; *(unrepresentable)* a route given a rendered element |
 | `router-data` | `@solidjs/router` 2.0's data layer: a `query()` a page reads, a form action, `useSubmissions`, `revalidate` (2.0 has no `createAsync` nor `useSubmission`: a query is read by an equation that awaits it) | an async read with no boundary, `revalidate` called while the view computes, a submission's input or a query's answer kept in state |
-| `start-route` | a TanStack Start file route rendering `.rx` components, served and hydrated at `/people/2?tab=role` | the page's data with no boundary, a param copied into state; *(unrepresentable)* state written while a page renders |
+| `start-route` | a TanStack Start app whose file routes render an `.rx` layout and `.rx` pages, served and hydrated at `/people/2?tab=role`; `host.d.rx` says what the router does with them (09 MO-14) | a page that fails with no `errored` region in its layout, the layout's pages beside its regions, a router hook in a component the declaration does not place, a declaration that puts a page beside its layout or provides no router, a param copied into state; *(unrepresentable)* state written while a page renders |
+| `file-routes` | file-system routes over `.rx` route files (`filesystem-routing`, SolidStart's conventions as a package, with `@solidjs/router`): a layout `(app).rx` whose regions hold the pages of `(app)/`, each route file's default component its page; `host.d.rx` says what the manifest's router does with them | the same mistakes, and a client-only build with no `loading` region above a page that waits |
 | `store-updater` | a Solid store updater written once and used by two handlers; a snapshot read out of the draft | the store written outside its setter, the updater called by hand, an `await` in the updater, a closure that writes the draft later |
 | `store-helper` | a Solid store's draft changed in place by a helper written in JS (`moveItem(d.columns, from, to)`) | the helper given the store itself, called while the view computes, the draft kept by a closure |
 | `table-pagination` | a TanStack Table: cell components, pagination buttons, a pager given page numbers and handlers, and — shadcn/ui's `DataTablePagination` — a component given the table itself | a page turned while the view computes, the table made from data read once |
@@ -271,6 +272,36 @@ whole result given to a child; `query-mutation`: no `errored` region). They are 
 `data: pending fails(Error) ref T` (MO-10l), which costs three hand-written words in each task. The three of
 `table-pagination` stay given up: `renders` alone was one library's, and a table cell that reads the app's context
 was decided to get no form.
+
+On 2026-11-23, later again, a host declaration was taken (09 MO-14): what a file-based router does with the `.rx`
+components it renders, said once in `host.d.rx`. `router-provider` moves from the factory to TanStack Router's file
+routes (the generated route tree in TypeScript, TSX route files that hand `.rx` components to their routes),
+`start-route` gets an `.rx` layout whose regions hold its pages, and `file-routes` is new (`filesystem-routing` with
+`@solidjs/router`, the route files themselves `.rx`). **Back, of the four given up with the route-tree words:**
+
+| task | the check | how it is back |
+| --- | --- | --- |
+| `router-provider` | type probe: a link to no route (`<Link to="/home">`) | the route tree is the generator's, in TypeScript, and registers the router: `TS2322` in `pages.rx` |
+| `router-provider` | type probe: `useParams({ from })` names a route of the tree | the same |
+
+**Still given up:** the type of a router passed as a prop (the router is a TSX module's now, and its component is
+what `.rx` applies: there is no such prop), and the router built and never rendered (the same reason as before).
+**Out with the factory:** `router-provider`'s probes that a route record has its component and that a link's `to` is
+not a number (the first is the route file's TypeScript now, the second is subsumed by the link to no route), and its
+variant of a rendered element in a route record as a `PARSE` (it is a `ts` variant now: TypeScript refuses it in the
+route file). **In:** nine variants and five probes over the three tasks — a declaration that puts a page beside its
+layout, a declaration that provides no router, a hook in a component the view does not name, a layout that renders
+its pages beside its regions (`start-route`, `file-routes`); a link to no route and a route's missing param through
+the manifest's types (`file-routes`); and, as a run-time check of two tasks, `rx-verify` holding each `host.d.rx` to
+the scene its probe gives. The totals, before (at `8212c58`)
+and now, both from a fresh `npm ci`. Tasks (32, then 33): good 96/96 and 102/102, types 155/155 and 161/161, runtime
+207/207 and 214/214, bad 164/166 and 175/177 (the same two red, with their reasons), unrepresentable 11/11 and 11/11,
+hand-written words 269 and 277 (`router-provider` 21 to 8: the factory's row is gone, and its `host.d.rx` is the
+draft's but for the nesting, one word; `start-route` 20 to 28, its `host.d.rx`; `file-routes` 13), `any` inherited 41
+and 41, introduced 0 and 0, by place 27 and 28 (`start-route` declares `<Link>`, whose `params` is said by place).
+Coverage: unchanged — 121 programs, all green; 190 modules drafted whole (4877 rows), 1195 `any`s the libraries'
+own, none introduced, 1519 by place; 277 hand-written words; bad caught 8/8. A host declaration is measured against
+`rx-declare --host`'s draft of the modules it imports, as every `.d.rx` is against the draft of its module.
 
 **New, in the coverage suite:** an entry may hold bad variants of its own (`bad` in its `use.mjs`, judged as a
 task's are; the record has a `bad caught` column). Four do, two each — the accessor read with no `errored` region,

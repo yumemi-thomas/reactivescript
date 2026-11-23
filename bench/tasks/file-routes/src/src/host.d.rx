@@ -1,0 +1,8 @@
+// What the file router does with the route files (09 MO-14) — filesystem-routing's manifest, given to @solidjs/router:
+// every page under the router's provider, among its layout's children ((app).rx is the layout of (app)/). From
+// rx-declare --host's draft; by hand: the nesting.
+import { Layout } from "./routes/(app).rx"
+import { Home } from "./routes/(app)/index.rx"
+import { Person } from "./routes/(app)/people/[id].rx"
+export context router from "@solidjs/router"
+export default component provides(router) nests(children in component) = [{ component: Layout, children: [{ component: Home }, { component: Person }] }]

@@ -1,0 +1,2 @@
+// router.tsx in rows, from rx-declare's draft: the component that renders the app's routes.
+export component AppRouter(props: {})

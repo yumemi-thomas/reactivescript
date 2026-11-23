@@ -124,6 +124,47 @@
       }
     }
   },
+  "file-routes": {
+    "good": {
+      "pass": 3,
+      "total": 3,
+      "fails": []
+    },
+    "types": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 5,
+      "total": 5,
+      "fails": []
+    },
+    "bad": {
+      "pass": 7,
+      "total": 7,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 0,
+      "total": 0,
+      "fails": []
+    },
+    "decl": {
+      "words": 13,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0,
+      "draft": {
+        "rows": 99,
+        "any": 20,
+        "vendor": 20,
+        "introduced": 0,
+        "places": 18
+      }
+    }
+  },
   "formisch-field-array": {
     "good": {
       "pass": 3,
@@ -700,8 +741,8 @@
   },
   "router-provider": {
     "good": {
-      "pass": 3,
-      "total": 3,
+      "pass": 6,
+      "total": 6,
       "fails": []
     },
     "types": {
@@ -710,8 +751,8 @@
       "fails": []
     },
     "runtime": {
-      "pass": 4,
-      "total": 4,
+      "pass": 5,
+      "total": 5,
       "fails": []
     },
     "bad": {
@@ -725,13 +766,13 @@
       "fails": []
     },
     "decl": {
-      "words": 21,
+      "words": 8,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 1,
       "draft": {
-        "rows": 301,
+        "rows": 304,
         "any": 63,
         "vendor": 63,
         "introduced": 0,
@@ -994,18 +1035,18 @@
       "fails": []
     },
     "types": {
-      "pass": 5,
-      "total": 5,
+      "pass": 6,
+      "total": 6,
       "fails": []
     },
     "runtime": {
-      "pass": 8,
-      "total": 8,
+      "pass": 9,
+      "total": 9,
       "fails": []
     },
     "bad": {
-      "pass": 2,
-      "total": 2,
+      "pass": 6,
+      "total": 6,
       "fails": []
     },
     "unrep": {
@@ -1014,17 +1055,17 @@
       "fails": []
     },
     "decl": {
-      "words": 20,
+      "words": 28,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
-      "places": 0,
+      "places": 1,
       "draft": {
-        "rows": 0,
-        "any": 0,
-        "vendor": 0,
+        "rows": 302,
+        "any": 65,
+        "vendor": 65,
         "introduced": 0,
-        "places": 0
+        "places": 25
       }
     }
   },

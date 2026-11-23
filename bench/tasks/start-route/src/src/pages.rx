@@ -1,4 +1,7 @@
-// The app's .rx components, imported by the TSX file routes with ?rx-lib (Start's route generator reads TypeScript).
+// The app's .rx components: the root layout and the pages TanStack Start's file routes render. Start's generator reads
+// TypeScript, so each route file is a few lines of TSX that hand one of these to the route (11 CP-4d); what the router
+// does with them — every one under its provider, the pages among the layout's children — is host.d.rx's (09 MO-14).
+import { Link, useParams } from "@tanstack/solid-router"
 import { fetchPerson, NotFound } from "./people.js"
 
 source clicks := 0
@@ -6,13 +9,21 @@ source clicks := 0
 export component Counter(props: { label: string }) {
   <button class="counter" onClick={() => { clicks := clicks + 1 }}>{props.label}: {clicks}</button>
 }
-// a person's card for the route's params: the id from the path, the tab from the search
-export component PersonCard(props: { id: string; tab: "role" | "name" }) {
-  person = await fetchPerson(props.id)
+// the root layout: its regions hold what every page asks
+export component Layout(props: { children?: View }) {
+  <nav><Link to="/">Home</Link> <Link to="/people/$id" params={{ id: "1" }}>Ann</Link> <Link to="/people/$id" params={{ id: "2" }}>Bo</Link> <Link to="/people/$id" params={{ id: "9" }}>Nobody</Link></nav>
+  <Counter label="clicks" />
   errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
-    loading fallback { <p>loading…</p> } {
-      <h2>{person.name}</h2>
-      if (props.tab == "role") { <p class="role">{person.role}</p> } else { <p class="plain">no details</p> }
-    }
+    loading fallback { <p>loading…</p> } { <main>{props.children}</main> }
   }
+}
+export component Home() {
+  <h1>People</h1>
+}
+// a person's page: the id from the router's params, the tab a prop the route gives from its validated search
+export component Person(props: { tab: "role" | "name" }) {
+  params = useParams({ from: "/people/$id" })
+  person = await fetchPerson(params.id)
+  <h2>{person.name}</h2>
+  if (props.tab == "role") { <p class="role">{person.role}</p> } else { <p class="plain">no details</p> }
 }
