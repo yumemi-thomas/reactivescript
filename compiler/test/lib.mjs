@@ -61,6 +61,13 @@ writeFileSync(path.join(pkg, "src/extra.rx"), "export component Tag() {\n  <b cl
 r = build(pkg, { types: false, entries: ["src/index.rx", "src/theme.rx", "src/extra.rx"], write: true });
 check("a module's stylesheet is written, and imported by the browser's entry alone (07 CSS-4)", r.ok && existsSync(dist("extra.css")) && /^import "\.\/extra\.css";$/m.test(read("extra.js")) && !/extra\.css/.test(read("extra.server.js")) && !/\.css/.test(read("index.js")), r.ok ? read("extra.js") : r.problems);
 check("a signature that names a context through node_modules is found (MO-13b): another package's, by where it was installed", JSON.stringify(foreignKeys("//@ signature a.rx\nexport component A() uses(./theme.rx#theme, ../node_modules/b/dist/index.rx#mode)\nexport component B() provides(../../node_modules/@s/c/dist/x.rx#c)")) === JSON.stringify(["../node_modules/b/dist/index.rx#mode", "../../node_modules/@s/c/dist/x.rx#c"]) && foreignKeys(read("index.d.rx")).length === 0, foreignKeys(read("index.d.rx")));
+// MO-13b, MO-11u: a key that leaves what the package ships — its own declaration of another library, beside its sources
+{
+  const { leavingKeys } = await import("../lib.mjs");
+  const sig = "//@ signature index.rx\nexport action save\nexport renders ../rx-types/solid-sonner.d.rx#Toaster from toast:7\nexport component A() uses(./theme.rx#theme) hosts(../rx-types/kit.d.rx#Host catches(./errors.rx#Lost))";
+  check("a signature that names a host or a context outside the package's root is found: an app has another declaration of that library, under another key", JSON.stringify(leavingKeys(sig, "/pkg/src/index.rx", "/pkg/src")) === JSON.stringify(["../rx-types/solid-sonner.d.rx#Toaster", "../rx-types/kit.d.rx#Host"]), JSON.stringify(leavingKeys(sig, "/pkg/src/index.rx", "/pkg/src")));
+  check("...and one under the root is the package's own", leavingKeys(sig, "/pkg/src/index.rx", "/pkg").length === 0);
+}
 writeFileSync(path.join(pkg, "package.json"), JSON.stringify(written));
 rmSync(path.join(pkg, "src/extra.rx"));
 check("the package builds again", build(pkg, { types: false }).ok, "third build");

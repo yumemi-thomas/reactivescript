@@ -79,6 +79,17 @@ export function foreignKeys(signature) {
   for (const m of signature.matchAll(/(?:\bhosts\(|;\s*|^export renders\s+)((?:\.{1,2}\/)?[^\s();,]*node_modules\/[^\s();,]*#[\w$.]+)/gm)) out.add(m[1]);
   return [...out];
 }
+/** The keys of a printed signature — a context's, a host's (MO-11u) — that name a file outside what the package ships:
+ *  a path from the signature's module (`moduleFile`) that leaves `root`. A package's own declaration of another package
+ *  (`rx-types/` beside its sources) is such a file: an app that installs the package has another declaration of that
+ *  library, under another key, and the two never meet (MO-13b). */
+export function leavingKeys(signature, moduleFile, root) {
+  const out = new Set(); const keys = [];
+  for (const m of signature.matchAll(/\b(?:uses|provides|retains|catches)\(([^)]*)\)/g)) keys.push(...m[1].split(",").map(x => x.trim()).filter(Boolean));
+  for (const m of signature.matchAll(/(?:\bhosts\(|;\s*|^export renders\s+)((?:\.{1,2}\/)[^\s();,]*#[\w$.]+)/gm)) keys.push(m[1]);
+  for (const k of keys) { const file = k.split("#")[0]; if (!/^\.{1,2}\//.test(file) || !k.includes("#")) continue; if (path.relative(root, path.resolve(path.dirname(moduleFile), file)).startsWith("..")) out.add(k); }
+  return [...out];
+}
 const VALUES = new Set(["accessor", "action", "error", "component", "primitive", "fn"]);
 /** x.js / x.server.js: the factory, and each export bound to the page's app (the runtime's `library`, MO-13g); `id`
  *  names the module (`<package>/<module>`), for the root it is instantiated in (MO-13h). */
@@ -161,6 +172,10 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
     const id = pkg.name ? `${pkg.name}/${name}` : name;   // the module's name: its root's id, the same on both sides (MO-13h)
     put(`${name}.js`, wrapper(base, `./${base}.dom.js`, exports, id, m.dom.css ? `./${base}.css` : undefined));
     for (const key of foreignKeys(m.signature)) problems.push(`${path.relative(dir, p)}: its signature names a context of another package (${key}): a context's key is a path from this module, right only where that package is installed as it was when this one was built (hoisted or not, linked, in a store) — take the context's value as a prop or provide it from a component of this package (MO-13b; the same of a component a fn renders its arguments beneath, MO-11u: show the toast, or mount the toaster, from the app)`);
+    // (found 2026-11-24, built: a package that calls solid-sonner's toast, declared in its own rx-types/, was built "ok"
+    // with `export renders ../rx-types/solid-sonner.d.rx#Toaster` in its signature — a file it does not ship, and a key no
+    // application of the app's <Toaster /> has: in the app its toast was held to nothing above it, in silence)
+    for (const key of leavingKeys(m.signature, p, root)) if (!foreignKeys(m.signature).includes(key)) problems.push(`${path.relative(dir, p)}: its signature names ${key}, which is outside what the package ships (${path.relative(dir, root) || "."}): a key is a path from this module, and an app that installs the package declares that library itself, under another key — so what this module provides, reads or renders beneath it would meet nothing of the app's. Take the value as a prop, or leave the call to the app: export the component and let the app show it, or mount the toaster (MO-13b, MO-11u)`);
     put(`${name}.server.js`, wrapper(base, `./${base}.ssr.js`, exports, id));
     put(`${name}.d.rx`, m.signature);
     put(`${name}.d.ts`, declaration(base, exports));
