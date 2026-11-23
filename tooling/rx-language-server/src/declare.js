@@ -916,8 +916,10 @@ function declare(ts, spec, from, options = {}, how = {}) {
   OWN = new Set(checker.getExportsOfModule(mod).map(s0 => [s0.name, s0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s0) : s0]).filter(([, y]) => y.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(y.flags & ts.SymbolFlags.Value) && !(y.declarations?.[0]?.typeParameters ?? []).length).map(([n]) => n));
   // MO-8t: an export's own methods — `toaster.show`, `toast.success` — each drafted as a fn is, after its object. A
   // method is a property the library's own types declare (not what every function, array or string has) whose type is
-  // called and is no component; one step down, and no further
-  const methodsOf = (base, bt) => bt.getProperties().filter(q => /^[a-z_$][\w$]*$/.test(q.name) && !/^(toString|toJSON|valueOf|toLocaleString)$/.test(q.name) && (q.declarations ?? []).length && (q.declarations ?? []).every(d => !program.isSourceFileDefaultLibrary(d.getSourceFile()))).map(q => ({ member: true, name: `${base}.${q.name}`, sym: q, t: checker.getTypeOfSymbolAtLocation(q, imp) })).filter(m => { const u = checker.getNonNullableType(m.t); return u.getCallSignatures().length > 0 && !u.getConstructSignatures().length && !isComponent(ts, checker, m.t); });
+  // called and is no component; one step down, and no further. A property that may be absent (`_refreshRoute?: () => …`,
+  // `F | undefined`) is no method: a row would say it can be called as it stands, and TypeScript does not hold that row
+  // (it was drafted, not held, and written with `any` for every type: 33 for TanStack Router's `_replaceRouteChunk`)
+  const methodsOf = (base, bt) => bt.getProperties().filter(q => /^[a-z_$][\w$]*$/.test(q.name) && !/^(toString|toJSON|valueOf|toLocaleString)$/.test(q.name) && (q.declarations ?? []).length && (q.declarations ?? []).every(d => !program.isSourceFileDefaultLibrary(d.getSourceFile()))).map(q => ({ member: true, name: `${base}.${q.name}`, sym: q, t: checker.getTypeOfSymbolAtLocation(q, imp) })).filter(m => m.t.getCallSignatures().length > 0 && !m.t.getConstructSignatures().length && !isComponent(ts, checker, m.t));
   const work = checker.getExportsOfModule(mod).map(sym0 => ({ sym0 }));
   for (let wi = 0; wi < work.length; wi++) {
     const item = work[wi]; const sym0 = item.sym0;
