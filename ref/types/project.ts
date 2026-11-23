@@ -151,6 +151,12 @@ function declarationFile(decls: JsDecl[]): string {
   const methodsOf = (h: string) => decls.filter((d): d is FnRow => d.kind === "fn" && d.name.includes(".") && d.name.slice(0, d.name.indexOf(".")) === h);
   return [...head, ...objects, ...decls.filter(d => d.kind !== "context" && !((d.kind === "comp" || d.kind === "fn") && d.name.includes("."))).map(d => {   // MO-12a: a JS context has no TypeScript of its own
     if (d.kind === "type") return `export ${d.text ?? `type ${d.name} = any`}`;
+    // MO-8u: the row named `default` is the module's default export — a word TypeScript does not take as a name
+    if (d.name === "default") {
+      if (d.kind === "comp") return `declare function __default${d.tparams ?? ""}(props: ${propsOf(d)}): View;\nexport default __default;`;
+      if (d.kind === "value") return `declare const __default: ${d.type ?? "any"};\nexport default __default;`;
+      if (d.kind === "fn") { const [tp, ps, ret] = sigOf(d); return `declare function __default${tp}(${ps}): ${ret};\nexport default __default;`; }
+    }
     if (d.kind === "comp") return members.has(d.name) ? `export declare const ${d.name}: (${fnOf(d)}) & ${objectOf(d.name)};` : `export declare function ${d.name}${d.tparams ?? ""}(props: ${propsOf(d)}): View;`;
     if (d.kind === "value") {   // MO-8g; MO-8t: with the methods its declaration gives rows
       const ms = methodsOf(d.name); if (!ms.length) return `export declare const ${d.name}: ${d.type ?? "any"};`;

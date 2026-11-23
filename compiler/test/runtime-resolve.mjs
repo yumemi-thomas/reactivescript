@@ -86,7 +86,9 @@ async function dev(dir, { hydrate = true } = {}) {
   const child = spawn(process.execPath, ["dev.mjs"], { cwd: dir, env: { ...process.env, RX_TYPECHECK: "0" } });
   try {
     const base = `http://127.0.0.1:${await listening(child, /listening (\d+)/)}`;
-    const raw = await (await fetch(base + "/", { headers: { accept: "text/html" } })).text();
+    // (the first request of a cold dev server may be dropped while Vite optimizes the app's dependencies and restarts:
+    // seen as `fetch failed` on a loaded machine. Asked again, as a browser's reload would)
+    let raw; for (let i = 0; ; i++) { try { raw = await (await fetch(base + "/", { headers: { accept: "text/html" } })).text(); break; } catch (e) { if (i >= 4) throw e; await new Promise(r => setTimeout(r, 1000)); } }
     const r = { raw, served: bodyText(raw), text: "", problems: [] };
     if (!hydrate) return r;
     const page = await browser.newPage();

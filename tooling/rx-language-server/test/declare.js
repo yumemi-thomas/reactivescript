@@ -505,6 +505,7 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   check("...which an `.rx` module imports as JavaScript does, `import { default as x }`: checked by the row", !got.error && (got.diagnostics ?? []).length === 0, JSON.stringify(got).slice(0, 400));
   fs.writeFileSync(path.join(app, "main.rx"), "import { default as useOnline } from \"./status.js\"\nexport default component App() {\n  <p>{useOnline() ? \"on\" : \"off\"}</p>\n}\n");
   const bad = require("../src/rxc").checkProgram(path.join(app, "main.rx"));
+  check("...and projects to a `.d.ts` as the module's default export (13 TY-4b)", /declare function __default\(\): \(\(\) => boolean\);\nexport default __default;/.test(require("../src/rxc").declaration(path.join(app, "status.d.rx")).code) && /declare function __default\(props: \{ title: string; children\?: View; \}\): View;\nexport default __default;/.test(require("../src/rxc").declaration(path.join(app, "card.d.rx")).code), JSON.stringify([require("../src/rxc").declaration(path.join(app, "status.d.rx")), require("../src/rxc").declaration(path.join(app, "card.d.rx"))]));
   check("...its words the row's: a primitive made where the view reads it is refused", (bad.diagnostics ?? []).some(d => d.code === "INSTANTIATION_NOT_BOUND"), JSON.stringify(bad).slice(0, 400));
 }
 // 09 MO-14g: `rx-declare --host --routes`, the whole declaration derived from the router's own tree — and held to it

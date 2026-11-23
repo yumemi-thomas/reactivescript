@@ -283,6 +283,13 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
     head.into_iter()
         .chain(objects)
         .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. }) && !matches!(d, JsDecl::Comp { name, .. } | JsDecl::Fn { name, .. } if name.contains('.'))).map(|d| match d {
+            // MO-8u: the row named `default` is the module's default export — a word TypeScript does not take as a name
+            JsDecl::Comp { name, props, tparams, props_type, .. } if name == "default" => format!("declare function __default{}(props: {}): View;\nexport default __default;", tparams.as_deref().unwrap_or(""), props_text(props, props_type, false)),
+            JsDecl::Value { name, ty, .. } if name == "default" => format!("declare const __default: {};\nexport default __default;", ty.as_deref().unwrap_or("any")),
+            JsDecl::Fn { name, .. } if name == "default" => {
+                let (tp, ps, ret) = sig_of(d);
+                format!("declare function __default{tp}({ps}): {ret};\nexport default __default;")
+            }
             JsDecl::Comp { name, props, tparams, props_type, .. } if members.contains_key(name) => format!("export declare const {name}: ({}) & {};", fn_of(props, tparams, props_type), object_of(name)),
             JsDecl::Comp { name, props, tparams, props_type, .. } => format!("export declare function {name}{}(props: {}): View;", tparams.as_deref().unwrap_or(""), props_text(props, props_type, false)),
             JsDecl::Type { text, .. } => format!("export {text}"),
