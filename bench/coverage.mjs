@@ -5,11 +5,9 @@
 // by the library's own types and run (rendered on the server where the package is server-safe, and in Chromium).
 // bench/run.mjs runs it after the tasks; `--check` holds bench/coverage/coverage.json as it holds the scorecard.
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
-import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { here, ws, claimKinds, claimsSaid, compact } from "./harness.mjs";
+import { here, ws, claimKinds, claimsSaid, compact, pool, alone } from "./harness.mjs";
 
 const root = path.join(here, "coverage");
 /** Every entry, `<group>/<name>`: a folder with a `use.mjs`. */
@@ -18,21 +16,10 @@ export function entries() {
   for (const g of readdirSync(root, { withFileTypes: true })) if (g.isDirectory()) for (const n of readdirSync(path.join(root, g.name), { withFileTypes: true })) if (n.isDirectory() && existsSync(path.join(root, g.name, n.name, "use.mjs"))) out.push(`${g.name}/${n.name}`);
   return out.sort();
 }
-const one = entry => new Promise(res => {
-  const id = `cover-${entry.replaceAll("/", "-")}`;
-  const c = spawn(process.execPath, [path.join(here, "run.mjs"), "--cover", entry], { stdio: ["ignore", "ignore", "pipe"] });
-  let err = ""; c.stderr.on("data", d => { err += d; });
-  const timer = setTimeout(() => c.kill("SIGKILL"), 600000);
-  c.on("close", (code, signal) => { clearTimeout(timer); try { res(JSON.parse(readFileSync(path.join(ws, "tasks", `${id}.result.json`), "utf8"))); } catch { res({ id, entry, crash: `no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}` }); } });
-});
+const idOf = entry => `cover-${entry.replaceAll("/", "-")}`;
+const one = entry => alone(["--cover", entry], idOf(entry), crash => ({ id: idOf(entry), entry, crash })).then(([r]) => r);
 /** A module drafted whole in a process of its own (`run.mjs --draft`): one no entry's program imports. */
-const draft = spec => new Promise(res => {
-  const id = `draft-${spec.replace(/[^\w.-]+/g, "_")}`;
-  const c = spawn(process.execPath, [path.join(here, "run.mjs"), "--draft", spec], { stdio: ["ignore", "ignore", "pipe"] });
-  let err = ""; c.stderr.on("data", d => { err += d; });
-  const timer = setTimeout(() => c.kill("SIGKILL"), 900000);
-  c.on("close", (code, signal) => { clearTimeout(timer); try { res(JSON.parse(readFileSync(path.join(ws, "tasks", `${id}.result.json`), "utf8"))); } catch { res({ spec, crash: `no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-2).join(" | ").slice(0, 300)}` }); } });
-});
+const draft = spec => alone(["--draft", spec], `draft-${spec.replace(/[^\w.-]+/g, "_")}`, crash => ({ spec, crash }), 900000).then(([r]) => r);
 const cols = [["good", "accepted"], ["types", "types"], ["runtime", "runs"], ["bad", "bad caught"]];   // bad: an entry's own one-line mistakes (`bad` in its use.mjs), judged as a task's are
 
 export async function runCoverage({ filters = [], check = false, strict = false, write = false, shard = null } = {}) {
@@ -43,9 +30,7 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   const ids = all.filter((id, k) => filters.length ? filters.some(f => id.includes(f) || `cover-${id.replaceAll("/", "-")}`.includes(f)) : mine(k));
   if (!ids.length) return { problems: [] };
   // entries are independent programs in folders of their own: several at once
-  const results = new Array(ids.length); let next = 0;
-  const workers = Math.max(1, Math.min(Number(process.env.BENCH_JOBS) || Math.min(8, os.cpus().length - 1), ids.length));
-  await Promise.all(Array.from({ length: workers }, async () => { while (next < ids.length) { const i = next++; results[i] = await one(ids[i]); if (process.env.VERBOSE) console.error(`  coverage ${ids[i]}: ${results[i].crash ? "CRASHED" : cols.map(([k]) => `${results[i][k].pass}/${results[i][k].total}`).join(" ")}`); } }));
+  const results = await pool(ids, async id => { const r = await one(id); if (process.env.VERBOSE) console.error(`  coverage ${id}: ${r.crash ? "CRASHED" : cols.map(([k]) => `${r[k].pass}/${r[k].total}`).join(" ")}`); return r; });
 
   const libs = JSON.parse(readFileSync(path.join(root, "libraries.json"), "utf8"));
   // every module the libraries list is drafted whole: the ones no entry drafted (a large library's entries draft none
@@ -55,8 +40,7 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   const had = new Set(stated.flatMap(e => e.modules));
   const unowned = listed.filter(x => !had.has(x.spec));
   const todo = filters.length ? [] : unowned.filter((x, k) => mine(k));
-  const extra = new Array(todo.length); next = 0;
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(workers, todo.length)) }, async () => { while (next < todo.length) { const i = next++; extra[i] = { ...(await draft(todo[i].spec)), lib: todo[i].lib }; } }));
+  const extra = await pool(todo, async x => ({ ...(await draft(x.spec)), lib: x.lib }));
   const groupOf = lib => results.find(r => !r.crash && r.pkgs?.some(p => Object.keys(libs[lib].packages).includes(p)))?.entry.split("/")[0] ?? lib;
   const version = pkg => { try { return JSON.parse(readFileSync(path.join(ws, "node_modules", pkg, "package.json"), "utf8")).version; } catch { return "?"; } };
   const ok = r => !r.crash && cols.every(([k]) => r[k].pass === r[k].total);

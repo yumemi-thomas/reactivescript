@@ -4,8 +4,7 @@
 # red, and a check that is red is one its task's `known` gives the reason for. And the coverage suite: every package of
 # the libraries bench/coverage/libraries.json lists, drafted whole and used once, compared with bench/coverage/coverage.json.
 #
-# Two jobs, the second over three machines: in one job the run took 31 minutes (7 for the tasks, the rest the 120
-# programs and 190 drafts of the coverage suite; measured at b9fe0d4). `--shard i/3` is every third entry and every
+# The tasks on one machine, several at once (BENCH_JOBS), and the coverage suite over three. `--shard i/3` is every third entry and every
 # third module no entry drafts; each shard holds the whole list (bench/coverage.mjs).
 name: bench
 
@@ -56,4 +55,6 @@ jobs:
       - name: The benchmark's own counting
         run: RXC=$GITHUB_WORKSPACE/compiler/target/release/rxc node bench/measure.test.mjs
       - name: The benchmark, against bench/scorecard.json and bench/coverage/coverage.json
+        env:
+          BENCH_JOBS: 4   # the machine is this job's alone: every core (by default, half)
         run: node bench/run.mjs ${{ matrix.run }} --check --strict

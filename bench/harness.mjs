@@ -1,7 +1,8 @@
 // What bench/run.mjs runs a task with: the workspace (the libraries from npm, once), both checkers, rx-tsc, the compiled
 // program on the server and in Chromium. See bench/README.md.
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import os from "node:os";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -73,6 +74,35 @@ function ownInstall(id) {
   linkOwn(path.join(at, "node_modules"));
   return path.join(at, "node_modules");
 }
+
+/** How many processes a run uses: BENCH_JOBS, else half the cores (the machine is someone's). What a run says does not
+ *  depend on it: each result is kept at its place in the list. */
+export const jobs = Math.max(1, Number(process.env.BENCH_JOBS) || Math.floor(os.availableParallelism() / 2));
+/** `fn` of each item, `jobs` at a time; of the items `few` picks (a dev server, a production build) at most two at a
+ *  time: they wait on their own timers and on a whole toolchain. Answers the results in the items' order. */
+export async function pool(items, fn, few = () => false) {
+  const out = new Array(items.length), waiting = items.map((x, i) => i); let running = 0, heavy = 0, ended;
+  const done = new Promise(res => { ended = res; }); if (!items.length) return out;
+  const next = () => {
+    while (running < jobs) {
+      const k = waiting.findIndex(i => heavy < 2 || !few(items[i])); if (k < 0) break;
+      const i = waiting.splice(k, 1)[0], h = few(items[i]); running++; if (h) heavy++;
+      fn(items[i], i).then(r => { out[i] = r; }, e => { out[i] = { crash: e.stack ?? String(e) }; }).finally(() => { running--; if (h) heavy--; if (!waiting.length && !running) ended(); else next(); });
+    }
+  };
+  next(); await done;
+  return out;
+}
+/** `run.mjs` again, for one task, entry or draft (`args`), in a process of its own; its result is read from
+ *  `tasks/<id>.result.json` (one left by an earlier run is not taken for it). What it says on stderr is said when it
+ *  ends. `crash`: what stands for a result that is not there. */
+export const alone = (args, id, crash, timeout = 600000) => new Promise(res => {
+  const at = path.join(ws, "tasks", `${id}.result.json`); rmSync(at, { force: true });
+  const c = spawn(process.execPath, [path.join(here, "run.mjs"), ...args], { stdio: ["ignore", "ignore", "pipe"] });
+  let err = ""; c.stderr.on("data", d => { err += d; });
+  const timer = setTimeout(() => c.kill("SIGKILL"), timeout);
+  c.on("close", (code, signal) => { clearTimeout(timer); let r; try { r = JSON.parse(readFileSync(at, "utf8")); } catch { r = crash(`no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`); } res([r, err]); });
+});
 
 /** A record as data, one line an entry: what `--check` compares with, and a diff shows entry by entry. */
 export const compact = o => `{\n${Object.entries(o).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(",\n")}\n}\n`;

@@ -24,7 +24,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { runCoverage } from "./coverage.mjs";
-import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit } from "./harness.mjs";
+import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
  *  it, and the habits it names), or a name resolves to nothing. */
@@ -196,13 +196,11 @@ if (cover) {
 workspace();
 const filters = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard");
 const ids = readdirSync(path.join(here, "tasks"), { withFileTypes: true }).filter(e => e.isDirectory() && existsSync(path.join(here, "tasks", e.name, "task.mjs"))).map(e => e.name).sort().filter(id => !filters.length || filters.some(f => id.includes(f)));
-const results = [];
-for (const id of flag("--coverage-only") ? [] : ids) {
-  const out = path.join(ws, "tasks", `${id}.result.json`);
-  const r = spawnSync(process.execPath, [path.join(here, "run.mjs"), "--task", id], { stdio: ["ignore", "inherit", "inherit"], timeout: 600000 });
-  let res; try { res = JSON.parse(readFileSync(out, "utf8")); } catch { res = { id, crash: `no result (exit ${r.status}${r.signal ? `, ${r.signal}` : ""})` }; }
-  results.push(res);
-}
+// tasks are independent programs in folders of their own: several at once (harness.mjs `jobs`), reported in their order
+const mine = flag("--coverage-only") ? [] : ids;
+const tasksOf = new Map(await Promise.all(mine.map(async id => [id, (await import(pathToFileURL(path.join(here, "tasks", id, "task.mjs")).href)).default])));
+const ran = await pool(mine, id => alone(["--task", id], id, crash => ({ id, crash })), id => !!tasksOf.get(id).prepare || (tasksOf.get(id).bad ?? []).some(b => b.build));
+const results = ran.map(([r, err]) => { if (err) process.stderr.write(err); return r; });
 
 // ---- the scorecard ----
 const cols = [["good", "good accepted"], ["types", "types kept"], ["runtime", "runtime ok"], ["bad", "bad caught"], ["unrep", "unrepresentable"]];

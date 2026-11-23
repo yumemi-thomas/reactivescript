@@ -1,0 +1,22 @@
+# Solid 2 at ref/SOLID_NEXT, built beside the repository (ref/scripts/solid-next.sh) — once per pin, then from the cache.
+# A cache's path may not hold `..`: the one written so was never kept, and every run built Solid again (four minutes).
+# Needs a Rust toolchain, Node and pnpm.
+name: Solid next
+description: Solid at ref/SOLID_NEXT, built or restored at ../solid-next
+runs:
+  using: composite
+  steps:
+    - id: at
+      shell: bash
+      run: echo "dir=$(dirname "$GITHUB_WORKSPACE")/solid-next" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.at.outputs.dir }}
+        key: solid-next-v2-${{ runner.os }}-${{ hashFiles('ref/SOLID_NEXT', 'ref/scripts/solid-next.sh') }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sh ref/scripts/solid-next.sh
+        # what built the native compiler is not kept, only what it built
+        find "${{ steps.at.outputs.dir }}" -type d -name target -not -path "*/node_modules/*" -prune -exec rm -rf {} +

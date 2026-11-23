@@ -158,10 +158,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
     const ob = claimOf(w.word);
     if (w.verdict === "proven" && ob) { if (!proven.has(row.name)) proven.set(row.name, new Map()); proven.get(row.name).set(ob, w.why); }
   }
-  // (An `//@ inferred <export>: <words>` line, as drafts wrote one a row until 2026-11-27, still asks for the stricter
-  // run of the words it names — what a reading would claim of them. It proves nothing: only the reading does.)
   const reading = new Map([...proven].map(([n, m]) => [n, new Set(m.keys())]));
-  for (const m of fs.readFileSync(file, "utf8").matchAll(/^\/\/@ inferred ([\w$.]+): (.*)$/gm)) for (const w of m[2].split(/,\s*(?![^()]*\))/)) { const ob = claimOf(w.trim()); if (ob) reading.set(m[1], (reading.get(m[1]) ?? new Set()).add(ob)); }
   const probes = probeMod?.probes ?? {};
   const propsOf = n => probes[n]?.props?.() ?? {};
   const classOf = c => c === "Error" ? Error : typeof mod[c] === "function" ? mod[c] : typeof globalThis[c] === "function" ? globalThis[c] : null;

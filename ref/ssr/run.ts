@@ -6,12 +6,16 @@
 // message redacted (SV-5). SV-3: the same modules bundled over ref/compile/rt-web.ts then take the page over — after the
 // last landing, and right after the shell — and every remaining row runs in the browser.
 // node --experimental-strip-types ssr/run.ts [filter]      (default conditions: solid-js resolves to its server build)
+// The scenarios are run by several processes, each with its browser (RX_JOBS: default 4, at most half the cores — a run is
+// nearly all waiting for frames), and reported in their order whatever the number.
 // env: RX_CRATE=1 serves and hydrates the Rust crate's output (compiler/, compile/lowered.ts); CSR=1 also mounts each table in the browser with no server; NO_HYDRATE=1 serves only; SV_SCOPE=1 renders in
 // Solid's server-component scope (DV-9); DEBUG=1, DEBUG_NAMES=a,b and WAIT=ms help when a table disagrees.
 import { SOLID } from "../solid-version.ts";
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { createRequire } from "node:module";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseStmts } from "../src/parse.ts";
@@ -39,6 +43,23 @@ async function serverFunction(req: import("node:http").IncomingMessage, res: imp
   res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
   if (response.body) for await (const c of response.body as unknown as AsyncIterable<Uint8Array>) res.write(c);
   res.end();
+}
+
+const filter = process.argv[2];
+const scenarios = new URL("../../scenarios/", import.meta.url);
+const names = readdirSync(scenarios).filter(f => f.endsWith(".md") && f !== "TEMPLATE.md" && !f.startsWith("OPEN-") && (!filter || f.includes(filter))).sort();
+type Result = { name: string; verdict: string; lines: string[] };
+const report = (rs: Result[]) => { for (const r of rs) { console.log(`${r.verdict} ${r.name}`); for (const l of r.lines) console.log(l); } };
+const counted = (rs: Result[]) => { const n = (v: string) => rs.filter(r => r.verdict === v).length; console.log(`\n${n("PASS")} pass, ${n("FAIL")} fail, ${n("SKIP")} skip (server render → ${SOLID}, streamed to Chromium)`); process.exit(n("FAIL") ? 1 : 0); };
+const shard = process.env.RX_SHARD?.split("/").map(Number);   // `i/n`, a worker's: every n-th scenario
+const jobs = Math.min(Number(process.env.RX_JOBS) || Math.min(4, Math.ceil(availableParallelism() / 2)), names.length);
+if (!shard && jobs > 1) {
+  const all = (await Promise.all(Array.from({ length: jobs }, (_, i) => new Promise<(Result & { at: number })[]>(res => {
+    const c = spawn(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { env: { ...process.env, RX_SHARD: `${i}/${jobs}` }, stdio: ["ignore", "ignore", "inherit", "ipc"] });
+    const got: (Result & { at: number })[] = []; c.on("message", m => got.push(m as Result & { at: number }));
+    c.on("close", code => { for (let at = i; at < names.length; at += jobs) if (!got.some(r => r.at === at)) got.push({ at, name: names[at].replace(/\.md$/, ""), verdict: "FAIL", lines: [`  ✗ no result (its process ended: ${code})`] }); res(got); });
+  })))).flat().sort((a, b) => a.at - b.at);
+  report(all); counted(all);
 }
 
 process.on("unhandledRejection", () => {});
@@ -380,20 +401,19 @@ function redactedMatch(client: string, server: string): boolean {
   return client.startsWith(pre) && client.endsWith(post) && client.length > pre.length + post.length - 1;
 }
 
-const filter = process.argv[2];
-const dir = new URL("../../scenarios/", import.meta.url);
-let pass = 0, fail = 0, skip = 0;
-for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLATE.md" && !f.startsWith("OPEN-") && (!filter || f.includes(filter))).sort()) {
-  const sc = parseScenario(f.replace(/\.md$/, ""), readFileSync(new URL(f, dir), "utf8"), fileURLToPath(dir));
+const results: Result[] = [];
+for (const [at, f] of names.entries()) {
+  if (shard && at % shard[1] !== shard[0]) continue;
+  const sc = parseScenario(f.replace(/\.md$/, ""), readFileSync(new URL(f, scenarios), "utf8"), fileURLToPath(scenarios));
   const lines: string[] = []; let ok = true;
   const base = sc.tables.find(t => t.title === "Frames");
   for (const t of sc.tables) { try { ok = (await runTable(sc, t, base, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ ${t.title}: ${(e as Error).stack}`); } }
   if (sc.server.length) { try { ok = (await runServerTable(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Server frames: ${(e as Error).stack}`); } }
   if (sc.before.length) { try { ok = (await runBeforeHydration(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Before hydration: ${(e as Error).stack}`); } }
   const skipped = lines.some(l => l.includes("~ ")) && !lines.some(l => l.includes("✗"));
-  console.log(`${ok ? (skipped ? "SKIP" : "PASS") : "FAIL"} ${sc.name}`); for (const l of lines) console.log(l);
-  if (!ok) fail++; else if (skipped) skip++; else pass++;
+  const r = { name: sc.name, verdict: ok ? (skipped ? "SKIP" : "PASS") : "FAIL", lines };
+  if (shard) await new Promise<void>(done => process.send!({ at, ...r }, () => done())); else { report([r]); results.push(r); }
 }
-console.log(`\n${pass} pass, ${fail} fail, ${skip} skip (server render → ${SOLID}, streamed to Chromium)`);
 await browser.close(); http.close();
-process.exit(fail ? 1 : 0);
+if (shard) process.disconnect(), process.exit(0);
+counted(results);

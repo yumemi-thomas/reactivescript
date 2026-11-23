@@ -10,7 +10,7 @@
 //                 made outside the provider;
 //   unproven      neither: the reading stops at something it cannot see through, and says what (the thing a reviewer
 //                 should check).
-// Which words were read from the code is therefore not written in the file (it was, a line a row: `//@ inferred`):
+// Which words were read from the code is not written in the file:
 // it is what this answers, from the code as it is installed now.
 const path = require("node:path");
 const di = require("./declare-infer.js");

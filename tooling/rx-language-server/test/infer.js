@@ -313,47 +313,51 @@ const badHandler = both("bad2.rx", ["  source n := 0", "  source nums: number[] 
 ok("a closure that writes, given to a callback that was not proven a handler, is refused by both", /REACTIVE_WRITE_IN_OWNED_SCOPE/.test(badHandler.crate) && /REACTIVE_WRITE_IN_OWNED_SCOPE/.test(badHandler.ref), JSON.stringify(badHandler));
 
 // ---- rx-verify: a word read from the code is run against what the reading claims ----
-console.log("rx-verify runs each inferred word: an observation against it is a mismatch, whoever wrote the mark");
+console.log("rx-verify runs each word the code proves: an observation against it is a mismatch");
 {
   const app = path.join(ws, "verify"); fs.mkdirSync(app, { recursive: true });
   fs.symlinkSync(path.join(ws, "node_modules"), path.join(app, "node_modules"), "dir");
   fs.writeFileSync(path.join(app, "package.json"), JSON.stringify({ type: "module" }));
-  // a module whose rows claim, as if read from the code, what its code does not do: the marks are forged here, since
-  // the reading itself refuses every one of them (above)
+  // the reading refuses a function that does what its word must not cover (above), so what the run observes is made here by
+  // the world: the code proves each word of the platform it is written for, and the probe's platform is another one
   fs.writeFileSync(path.join(app, "lies.js"), [
     "export class NotFound extends Error {}", "export class Other extends Error {}",
-    "export const stamps = s => `${s}@${Date.now()}`;",
-    "export const rolls = n => Math.floor(Math.random() * n);",
-    "export const pushes = (list, x) => { list.push(x); return list.length; };",
-    "export const leaks = n => { globalThis.__leaked = n; return n; };",
+    "export const stamps = s => s.trim();",
+    "export const rolls = n => n.toFixed(1);",
+    "export const pushes = (list, x) => list.slice(0, x).length;",
+    "export const leaks = n => n.toString();",
     "export const honest = (list, x) => [...list, x].length;",
-    "export const callsNow = (el, cb) => { cb(1); el.addEventListener(\"x\", cb); };",
+    "export const callsNow = (el, cb) => { el.addEventListener(\"x\", cb); };",
     "export const callsLater = (el, cb) => { el.addEventListener(\"x\", cb); };",
-    "export const rejectsOther = async id => { if (!id) throw new Other(\"no\"); return id; };",
+    "export const rejectsOther = async id => { if (!id.trim()) throw new NotFound(\"no\"); return id; };",
     "export const rejectsRight = async id => { if (!id) throw new NotFound(\"no\"); return id; };",
     "",
   ].join("\n"));
   fs.writeFileSync(path.join(app, "lies.d.rx"), [
     "export error NotFound", "export error Other",
-    "//@ inferred stamps: pure", "export pure fn stamps(s: string): string",
-    "//@ inferred rolls: pure", "export pure fn rolls(n: number): number",
-    "//@ inferred pushes: pure", "export pure fn pushes(list: number[], x: number): number",
-    "//@ inferred leaks: pure", "export pure fn leaks(n: number): number",
-    "//@ inferred honest: pure", "export pure fn honest(list: number[], x: number): number",
-    "//@ inferred callsNow: handler(cb)", "export fn callsNow(el: EventTarget, cb: handler (n: number) => void): void",
-    "//@ inferred callsLater: handler(cb)", "export fn callsLater(el: EventTarget, cb: handler (n: number) => void): void",
-    "//@ inferred rejectsOther: pure, rejects(NotFound)", "export pure fn rejectsOther(id: string): Promise<string> rejects(NotFound)",
-    "//@ inferred rejectsRight: pure, rejects(NotFound)", "export pure fn rejectsRight(id: string): Promise<string> rejects(NotFound)",
+    "export pure fn stamps(s: string): string",
+    "export pure fn rolls(n: number): string",
+    "export pure fn pushes(list: number[], x: number): number",
+    "export pure fn leaks(n: bigint): string",
+    "export pure fn honest(list: number[], x: number): number",
+    "export fn callsNow(el: EventTarget, cb: handler (n: number) => void): void",
+    "export fn callsLater(el: EventTarget, cb: handler (n: number) => void): void",
+    "export pure fn rejectsOther(id: string): Promise<string> rejects(NotFound)",
+    "export pure fn rejectsRight(id: string): Promise<string> rejects(NotFound)",
     "",
   ].join("\n"));
   fs.writeFileSync(path.join(app, "lies.probe.mjs"), [
     "const target = () => { const t = new EventTarget(); return t; };",
-    "let last;",
+    "const now = () => ({ addEventListener(_, f) { f(new Event(\"x\")); } });",
+    "const patch = (proto, name, f) => { const real = proto[name]; proto[name] = function (...a) { f(this); return real.apply(this, a); }; };",
+    "patch(String.prototype, \"trim\", () => Date.now()); patch(Number.prototype, \"toFixed\", () => Math.random());",
+    "patch(Array.prototype, \"slice\", me => { if (me.mine) me.push(0); }); patch(BigInt.prototype, \"toString\", me => { globalThis.__leaked = me; });",
+    "import { Other } from \"./lies.js\";", "let last;",
     "export const probes = {",
-    "  stamps: { args: () => [\"a\"] }, rolls: { args: () => [1000000] }, pushes: { args: () => [[1, 2], 3] }, leaks: { args: () => [7] }, honest: { args: () => [[1, 2], 3] },",
-    "  callsNow: { args: () => [(last = target()), () => {}], act: () => last.dispatchEvent(new Event(\"x\")) },",
+    "  stamps: { args: () => [\"a\"] }, rolls: { args: () => [1000000] }, pushes: { args: () => [Object.assign([1, 2], { mine: true }), 3] }, leaks: { args: () => [7n] }, honest: { args: () => [[1, 2], 3] },",
+    "  callsNow: { args: () => [now(), () => {}], act: () => {} },",
     "  callsLater: { args: () => [(last = target()), () => {}], act: () => last.dispatchEvent(new Event(\"x\")) },",
-    "  rejectsOther: { args: () => [\"1\"], fail: () => [\"\"] }, rejectsRight: { args: () => [\"1\"], fail: () => [\"\"] },",
+    "  rejectsOther: { args: () => [\"1\"], fail: () => [{ trim() { throw new Other(\"no\"); } }] }, rejectsRight: { args: () => [\"1\"], fail: () => [\"\"] },",
     "};", "",
   ].join("\n"));
   const v = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "lies.d.rx"], { cwd: app, encoding: "utf8" });

@@ -45,33 +45,35 @@ writeFileSync(path.join(dir, "index.html"), "<!doctype html><html><body><script 
 
 const saved = { RX_TYPECHECK: process.env.RX_TYPECHECK, RX_GENERATE: process.env.RX_GENERATE };
 Object.assign(process.env, { RX_TYPECHECK: "1", RX_GENERATE: "0" });
+let starts = 0;   // the builds begun
 const watcher = await vite.build({
   root: dir, configFile: false, logLevel: "silent", clearScreen: false,
-  plugins: [solid({ frontends: { ".rx": rx() } })],
+  plugins: [{ name: "builds", enforce: "pre", buildStart() { starts++; } }, solid({ frontends: { ".rx": rx() } })],
   // the watcher polls: what is tested is a rebuild reading what changed, not the platform's file events. On macOS they
   // report a project written just before the watcher started late, as one burst, and an edit made meanwhile is merged
   // into it or never reported (compiler/test/vite.mjs met the same under the dev server): no rebuild started, and each
-  // check here waited its minute out
-  build: { outDir: "dist", emptyOutDir: true, watch: { watcher: { usePolling: true, pollInterval: 50, compareContentsForPolling: true } } },
+  // check here waited its minute out. (Vite takes the watcher's options from `chokidar` and writes over `watcher`: given
+  // there, nothing polled)
+  build: { outDir: "dist", emptyOutDir: true, watch: { chokidar: { usePolling: true, interval: 50 } } },
 });
 // each build's outcome, in order: "ok", or its error's text
-const rounds = []; let error = null; let starts = 0; let building = false;
+const rounds = []; let error = null;
 watcher.on("event", e => {
-  if (e.code === "START") { starts++; building = true; }
   if (e.code === "ERROR") error = String(e.error?.message ?? e.error);
   if (e.code === "BUNDLE_END") e.result?.close?.();
-  if (e.code === "END") { rounds.push(error ?? "ok"); error = null; building = false; }
+  if (e.code === "END") { rounds.push(error ?? "ok"); error = null; }
 });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-/** The outcome of the rebuild the edits made since the last call start. The watcher takes a file's state when it begins
- *  to watch it, which is some time after the build that named it has ended, and an edit made before that is one it
- *  never sees (on macOS, most runs: every check then waited its minute out and failed). So an edit no rebuild has
- *  started for is made again, each second, until one starts; the outcome is that of the last rebuild once the watcher
- *  is quiet (an edit made twice may be built twice, to the same end). */
+/** The outcome of a build that read the edits made since the last call. A build's `buildStart` is called before it reads
+ *  any module, so one called after the edits were written reads them; the watcher's own START does not say that (it is
+ *  reported late, and a rebuild under way when the edits are written reports it after them: its outcome was taken for
+ *  theirs, one run in six). The watcher takes a file's state when it begins to watch it, some time after the build that
+ *  named it has ended, and never sees an edit made before that: one no build has started for is made again, each second.
+ *  The outcome is the last build's once the watcher is quiet (an edit made twice may be built twice, to the same end). */
 const next = async (ms = 90000) => {
-  const until = Date.now() + ms, from = starts, files = edited; edited = [];
-  for (let at = Date.now(); files.length && starts === from && Date.now() < until; await sleep(100)) if (Date.now() - at > 1000) { for (const [p, text] of files) touch(p, text); at = Date.now(); }
-  for (let quiet = 0; quiet < 8 && Date.now() < until; await sleep(100)) quiet = building || !rounds.length || (files.length && starts === from) ? 0 : quiet + 1;
+  const until = Date.now() + ms, from = edited.length ? starts : 0, files = edited; edited = [];
+  for (let at = Date.now(); starts === from && Date.now() < until; await sleep(100)) if (files.length && Date.now() - at > 1000) { for (const [p, text] of files) touch(p, text); at = Date.now(); }
+  for (let quiet = 0; quiet < 8 && Date.now() < until; await sleep(100)) quiet = rounds.length < starts ? 0 : quiet + 1;
   return rounds.at(-1);
 };
 

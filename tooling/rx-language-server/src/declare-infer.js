@@ -3,8 +3,7 @@
 // component), `draft` before a parameter the fn changes in place, `rejects(A | B)` after the signature, and
 // `instantiates` where a proven `pure` fn makes Solid nodes; the question the draft asked about each is not written
 // (a question that is answered "no" — a callback called while the call runs, a parameter never changed, a promise
-// that rejects with no class of the module's — goes too). Each row that took a word has a line above it,
-// `//@ inferred <export>: <words>`, so a word read off the code is told from one a person wrote: the row itself is
+// that rejects with no class of the module's — goes too). The row is
 // the notation's, with no new word and no new form (MO-8r), and both checkers read it as any row (08 CN-8).
 // MO-8w: `uses(c)` and `provides(c)` are written too, with the `export context` rows they name (a `uses` only beside
 // a `provides` of the same draft), and no row has a line above it: the draft's head says once how many words were

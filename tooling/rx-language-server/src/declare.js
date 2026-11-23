@@ -456,6 +456,8 @@ function print(ts, checker, node, open = false, given) {
   } catch (e) { if (e !== FAIL) throw e; return { why }; }
 }
 let OWN_ALL = new Map();
+/** The most props a component's row writes out where their type has no name. */
+const FIELDS = 24;
 /** The annotation a parameter, a prop or a field is declared with, in the library's declaration. */
 const annotation = (ts, sym) => { const d = sym?.valueDeclaration ?? sym?.declarations?.[0]; return d && (ts.isParameter(d) || ts.isPropertySignature(d) || ts.isPropertyDeclaration(d)) ? d.type : undefined; };
 /** MO-8d, MO-8m: a signature's type parameters as the library declares them — `<const S extends string, T = S>` — each
@@ -644,6 +646,13 @@ function heldComponents(ts, checker, t, at, depth = 0) {
   const only = ps.filter(q => comp(of(q))).map(q => `${q.name}${o(q)}: Component`);
   const all = ps.map(q => comp(of(q)) ? `${q.name}${o(q)}: Component` : propText(ts, checker, q, at));
   return { all: `{ ${all.join("; ")} }`, only: `{ ${only.join("; ")} }` };
+}
+/** Whether the checker may read something of a prop: it holds a function, a view or a component, and nothing beside it. */
+function readsOf(ts, checker, p, at) {
+  const as = checker.getTypeOfSymbolAtLocation(p, at), t = checker.getNonNullableType(as);
+  if (isElement(ts, checker, as)) return true;
+  const all = t.flags & ts.TypeFlags.Union ? t.types : [t];
+  return all.every(x => x.getCallSignatures().length) || all.some(x => isElement(ts, checker, x) || isComponent(ts, checker, x)) || !!heldComponents(ts, checker, t, at);
 }
 /** The records `heldComponents` wrote whole, by their text: the same with the component fields alone. */
 const HELD_ONLY = new Map();
@@ -879,7 +888,8 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const entry = path.join(from, "__rx_declare__.ts");
   const code = `import * as __m from ${JSON.stringify(spec)};\nexport { __m };\n`;
   const { getSourceFile, fileExists } = host;
-  host.getSourceFile = (f, ...rest) => path.resolve(f) === entry ? ts.createSourceFile(f, code, ts.ScriptTarget.ES2022) : getSourceFile.call(host, f, ...rest);
+  const parsed = new Map();   // a file is parsed once for the draft: its program, the packages', each check's
+  host.getSourceFile = (f, ...rest) => path.resolve(f) === entry ? ts.createSourceFile(f, code, ts.ScriptTarget.ES2022) : parsed.get(f) ?? (parsed.set(f, getSourceFile.call(host, f, ...rest)), parsed.get(f));
   host.fileExists = f => path.resolve(f) === entry || fileExists.call(host, f);
   const program = ts.createProgram([entry], { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options }, host);
   CTX = { refs: false, scope: new Set() };
@@ -898,11 +908,13 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const opts = { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options };
   const real = JSON.stringify(spec);
   /** The rows, with the library's types named where it declares them (`refs`, MO-8m) or left `any` (as every draft was). */
-  const rows = mode => {
+  const rows = (mode, roots) => {   // `roots`: of these exports alone
   const refs = !!mode;
   const out = [];
   const contexts = [];
   const lines = [];
+  const placed = new Set();   // the components whose props are their place
+  const wide = new Set();   // the components whose props are written out though they are more than a row should hold
   CTX = { refs, cache: require("./library-resolve.js").resolutions(ts, opts, host), decl: !!mode.decl, whole: !!mode.whole, named: !!mode.named, spec, entry, lib, options: opts, host, program, mod, scope: new Set(), exports: new Map() };
   // the module's own types, each with how many type arguments its alias row takes (at least, at most): a row names one
   // bare where what it writes fits. As the library declares them, until a row's bounds turn out not to be nameable
@@ -934,6 +946,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const work = checker.getExportsOfModule(mod).map(sym0 => ({ sym0 }));
   for (let wi = 0; wi < work.length; wi++) {
     const item = work[wi]; const sym0 = item.sym0;
+    if (roots && !item.member && !roots.has(sym0.name) && !aliases.has(sym0.name)) continue;
     const sym = item.member ? item.sym : sym0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym0) : sym0;
     const name = item.member ? item.name : sym0.name;
     const leafName = name.split(".").pop();
@@ -976,16 +989,24 @@ function declare(ts, spec, from, options = {}, how = {}) {
       // written (`value?: Option`); where a bound cannot be named the row has none, as a generic fn's
       const ctps = mode.generics && single && csig.getTypeParameters()?.length ? typeParams(ts, checker, csig.getTypeParameters().map(q => q.symbol)) : "";
       const [root, ...rest] = as.split(".");
-      const here = mode.paths && pt && single ? present(checker, pt, `Parameters<typeof import(${real}).${root}${rest.map(m => `[${JSON.stringify(m)}]`).join("")}>[0]`) : undefined;
-      let props = pt ? checker.getNonNullableType(pt).getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)).map(q => propText(ts, checker, q, imp, false, here)) : [];
+      const at = args => present(checker, pt, `Parameters<typeof import(${real}).${root}${rest.map(m => `[${JSON.stringify(m)}]`).join("")}${args}>[0]`);
+      const here = mode.paths && pt && single ? at("") : undefined;
+      const fields = pt ? checker.getNonNullableType(pt).getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)) : [];
       // MO-8o: the props by the type the library declares them with, and after it only the fields the checker reads
       // something of — a function type (a callback, a render prop), a `Component`, a `View`: any other prop is the type's
       // (props the library writes as a record in place are that record: there is no type to name)
       const pn = p && annotation(ts, p);
       let named = mode.decl && pn && !ts.isTypeLiteralNode(pn) && single ? declared(ts, checker, pn, undefined, true) : undefined;
+      // props no module has a name for, of more fields than a reader can use (a part's own beside every attribute of its
+      // element), are the library's by their place — at the row's type parameters — with the same fields after it. (The
+      // readings that do not take the declaration's annotations write the record whole still, for a component TypeScript
+      // does not hold at its place: `anys` ranks it after.)
+      if (mode.decl && pt && single && !named && fields.length > FIELDS) { named = at(ctps ? `<${csig.getTypeParameters().map(q => tpName(q.symbol)).join(", ")}>` : ""); placed.add(as); }
+      let props = fields.filter(q => !named || readsOf(ts, checker, q, imp)).map(q => propText(ts, checker, q, imp, false, here));
       // the last reading (MO-8q): props with a field that has no text are the library's own, by their place, and the
       // record after them holds the fields that do
       if (mode.whole && here && !named && introduced(props.join("; "))) { named = here; props = props.filter(x => !introduced(x)); }
+      if (!named && props.length > FIELDS) wide.add(as);
       // a type that itself ends in a record (`RangeProps & { fallback?: T }`) is written in parentheses: a record that
       // closes the props is the row's own, the fields that carry words (MO-8o), and this one is the library's text
       if (named && /\}\s*$/.test(named.replace(MARK, ""))) named = `(${named})`;
@@ -1121,60 +1142,83 @@ function declare(ts, spec, from, options = {}, how = {}) {
       }
     }
   }
-  return { out, lines, contexts };
+  return { out, lines, contexts, wide, placed };
   };
   const overloaded = new Set();   // the fns with several signatures: a row is one of them (the shortest), and has no one place
   const exportedIn = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/m.exec(l)?.[1] ?? /^\/\/ TODO ([\w$.]+):/.exec(l)?.[1];
-  let { out: head, lines, contexts } = rows(false);
+  let head, lines, contexts, plainRows;
+  const plain = () => plainRows ??= rows(false);   // the rows every draft had
   if (how.refs !== false) {
     // MO-8m: a row that names the library's types is kept where TypeScript holds it against the module (TY-6, checked
-    // here as rx-tsc will); one it does not hold is the row every draft had, with its `any`s
-    // four readings of a row: its type parameters carried or not, a part with no name said by its place in the library's
-    // declaration or not. Each reading is checked whole; a row takes, of the readings TypeScript holds, the one that
-    // leaves the fewest `any`s (the earlier of two alike), and the row every draft had where it holds none
+    // here as rx-tsc will); one it does not hold is the row every draft had, with its `any`s.
+    // A row has several readings: its type parameters carried or not, a part with no name said by its place in the
+    // library's declaration or not. It takes, of the readings TypeScript holds, the one that leaves the fewest `any`s
+    // (the earlier of two alike), and the row every draft had where it holds none
     const strip = ls => ls.map(l => l.replace(MARK, ""));
     const group = ls => { const by = new Map(); for (const l of ls) { const n = exportedIn(l); if (n) by.set(n, [...(by.get(n) ?? []), l]); } return by; };
     const { resolutions } = require("./library-resolve.js"); const cache = resolutions(ts, opts, host);   // one reading of the disk: every candidate's
-    const check = r => require("./declare-check.js").failing(ts, [...out, ...r.out, ...strip(r.lines)].join("\n") + "\n", out.length + r.out.length, strip(r.lines), spec, from, opts, program, lib, cache);
-    const fall = (r, bad, to) => { const by = group(to); const kept = [], done = new Set(); for (const l of r.lines) { const n = exportedIn(l); if (!n || !bad.has(n)) kept.push(l); else if (!done.has(n)) { done.add(n); kept.push(...(by.get(n) ?? [])); } } return { ...r, lines: kept }; };
-    // fewest `any`s of the draft's own (MO-8q: the library's are not the draft's), then fewest parts said by their place
-    const anys = (ls, mode) => introduced(ls.join("\n")) * 1000 + (ls.join("\n").match(/\b(?:Parameters|ReturnType)</g) ?? []).length + (mode?.whole ? 500 : 0);   // the last reading says least: only before an `any`
+    const check = r => require("./declare-check.js").failing(ts, [...out, ...r.out, ...strip(r.lines)].join("\n") + "\n", out.length + r.out.length, strip(r.lines), spec, from, opts, program, lib, cache, host);
+    // fewest `any`s of the draft's own (MO-8q: the library's are not the draft's), then fewest parts said by their place;
+    // the last reading says least (only before an `any`), and props written out past `FIELDS` come after their place
+    const anys = (n, ls, i) => introduced(ls.join("\n")) * 1000 + (ls.join("\n").match(/\b(?:Parameters|ReturnType)</g) ?? []).length + (MODES[i].whole ? 500 : 0) + (cands[i].wide.has(n) ? 400 : 0);
     // MO-8o: first as the library's declaration writes its types (`decl`), then as MO-8m read them
     // and last (MO-8q) the reading that names nothing it cannot: no type parameters, every part without a name by its
     // place as it stands — a row TypeScript holds wherever the fn has a signature to read, so no `any` is the draft's
     const MODES = [{ generics: true, paths: true, decl: true, named: true }, { generics: true, paths: true, decl: true }, { generics: true, paths: false, decl: true }, { generics: true, paths: true }, { generics: true, paths: false }, { generics: false, paths: true }, { generics: false, paths: false }, { generics: false, paths: true, decl: true, whole: true }];
-    // (a reading is made when it is asked for: where the first holds whole — most modules — the other seven are not)
-    const cands = [], bads = [];
-    for (const mode of MODES) { const r = rows(mode); cands.push(r); const b = check(r); if (!b) break; bads.push(b); if (!b.size && bads.length === 1) break; }   // the first reading held whole: it says the most
-    if (how.readings) while (cands.length < MODES.length) cands.push(rows(MODES[cands.length]));
-    // --readings <export>: each reading of that export's row, and what TypeScript says of it
-    if (how.readings) cands.forEach((r, i) => { for (const [n, ls] of group(r.lines)) if (how.readings.names.includes(n)) how.readings.out.push({ name: n, reading: JSON.stringify(MODES[i]), rows: ls, bad: bads[i] ? bads[i].get(n) ?? null : "not checked" }); });
-    if (bads.length === 1 && !bads[0].size) { lines = cands[0].lines; head = cands[0].out; contexts = cands[0].contexts; }
-    else if (bads.length === MODES.length) {
-      const groups = cands.map(r => group(r.lines)), plain = group(lines);
-      const picked = { ...cands[0], lines: [] }, done = new Set(), why = new Map();
-      for (const l of cands[0].lines) {
-        const n = exportedIn(l);
-        if (!n) { picked.lines.push(l); continue; }
-        if (done.has(n)) continue; done.add(n);
-        let best;
-        for (let i = 0; i < cands.length; i++) { const ls = groups[i].get(n); if (!ls || bads[i].has(n)) continue; const k = anys(ls, MODES[i]); if (!best || k < best.k) best = { k, ls }; }
-        if (!best) why.set(n, bads[bads.length - 1].get(n));
-        picked.lines.push(...(best ? best.ls : plain.get(n) ?? []));
-      }
-      // the rows together, once more: a row that holds beside one reading's rows holds beside another's, and this says so
-      const bad = check(picked) ?? new Map();
-      for (const [n, w] of [...why, ...bad]) if (how.unheld) how.unheld[n] = w;
-      const kept = bad.size ? fall(picked, bad, lines) : picked;
-      lines = kept.lines; head = kept.out; contexts = kept.contexts;
+    const cands = [rows(MODES[0])], first = cands[0];
+    let bad = check(first);
+    // the first reading, where it holds whole — most modules — says the most, and no other is made
+    // (and where it does not, of the rows it left something to say of)
+    const groups = [group(first.lines)];
+    const least = n => first.placed.has(n) ? 1 : 0;
+    if (bad && (bad.size || how.readings)) {
+      const roots = how.readings ? undefined : new Set([...groups[0]].filter(([n, ls]) => bad.has(n) || anys(n, ls, 0) > least(n)).map(([n]) => n.split(".")[0]));
+      for (const mode of MODES.slice(1)) { const r = rows(mode, roots); cands.push(r); groups.push(group(r.lines)); }
     }
-    else if (how.unheld) how.unheld["*"] = "the draft could not be checked against the module (no crate to read it with): written as every draft was";
-  }
+    // --readings <export>: each reading of that export's row, and what TypeScript says of it
+    if (bad && how.readings) cands.forEach((r, i) => { const b = i ? check(r) : bad; for (const [n, ls] of groups[i]) if (how.readings.names.includes(n)) how.readings.out.push({ name: n, reading: JSON.stringify(MODES[i]), rows: ls, bad: b ? b.get(n) ?? null : "not checked" }); });
+    if (bad && bad.size) {
+      // each row is checked in the readings that would say more than one TypeScript holds already, the best of them first,
+      // and beside the rows of the first reading its text stands on (the types it names, the object a method is of, the component a word names)
+      const took = new Map(), why = new Map(bad), open = new Map();
+      for (const [n, ls] of groups[0]) {
+        const held = !bad.has(n), k0 = held ? anys(n, ls, 0) : Infinity;
+        if (held) took.set(n, ls);
+        const seen = new Set([ls.join("\n")]), next = [];
+        for (let i = 1; i < cands.length; i++) { const r = groups[i].get(n), k = r && anys(n, r, i); if (!r || k >= k0 || seen.has(r.join("\n"))) continue; seen.add(r.join("\n")); next.push({ ls: r, k, i }); }
+        if (next.length) open.set(n, next.sort((a, b) => a.k - b.k || a.i - b.i));
+      }
+      let plainBy; const bare = n => (plainBy ??= group(plain().lines)).get(n);
+      while (open.size) {
+        const kept = new Set([...groups[0].keys()].filter(n => open.has(n) || /^export (?:type|context|error)\b/m.test(groups[0].get(n).join("\n"))));
+        const of = n => open.has(n) ? open.get(n)[0].ls : took.get(n) ?? bare(n) ?? groups[0].get(n);
+        for (const n of kept) for (const m of `${n} ${of(n).join(" ")}`.match(/[\w$]+/g)) if (groups[0].has(m)) kept.add(m);   // (a set is walked as it grows)
+        const r = { ...first, lines: [...groups[0].keys()].filter(n => kept.has(n)).flatMap(of) };
+        bad = check(r); if (!bad) break;
+        for (const [n, next] of [...open]) {
+          if (!bad.has(n)) { took.set(n, next[0].ls); why.delete(n); open.delete(n); continue; }
+          if (!took.has(n)) why.set(n, bad.get(n));
+          next.shift(); if (!next.length) open.delete(n);
+        }
+      }
+      if (bad) {
+        if (how.unheld) for (const [n, w] of why) how.unheld[n] = w;
+        const picked = () => { const done = new Set(); return first.lines.flatMap(l => { const n = exportedIn(l); if (!n) return [l]; if (done.has(n)) return []; done.add(n); return took.get(n) ?? bare(n) ?? []; }); };
+        lines = picked();
+        // a type the module exports, written otherwise than the rows that name it were checked beside: the rows once more
+        if ([...groups[0]].some(([n, ls]) => /^export type\b/m.test(ls.join("\n")) && took.get(n) !== ls)) { for (const [n, w] of check({ ...first, lines }) ?? []) { took.delete(n); if (how.unheld) how.unheld[n] = w; } lines = picked(); }
+        head = first.out; contexts = first.contexts;
+      }
+    }
+    else if (bad) { lines = first.lines; head = first.out; contexts = first.contexts; }
+    if (!bad) ({ out: head, lines, contexts } = plain());
+    if (!bad && how.unheld) how.unheld["*"] = "the draft could not be checked against the module (no crate to read it with): written as every draft was";
+  } else ({ out: head, lines, contexts } = plain());
   out.push(...head);
   // MO-8s: a module of the app's own takes the words of the library rows it hands on (declare-own.js)
   if (spec.startsWith(".") && how.known !== false) { const c = require("./declare-own.js").carry(ts, spec, from, lines, withWaits); lines = c.lines; out.push(...c.head); }
-  // MO-8v: the words the code that runs proves — `pure`, `handler`, `draft`, `rejects(E)` — written into the rows, each
-  // row marked `//@ inferred`; the question each answers is not asked (declare-infer.js, infer.js)
+  // MO-8v: the words the code that runs proves — `pure`, `handler`, `draft`, `rejects(E)` — written into the rows;
+  // the question each answers is not asked (declare-infer.js, infer.js)
   if (how.infer !== false) {
     const di = require("./declare-infer.js");
     const r = di.apply(ts, spec, from, lines, name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } }, how.why, { contexts, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } }, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
