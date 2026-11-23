@@ -2,6 +2,9 @@
 // modules, completion while typing, TypeScript's type errors and the crate's diagnostics, each placed on the .rx.
 // Needs compiler/ built (cargo build --release) and Solid's types (ref/node_modules, via ref/scripts/solid-next.sh).
 //   node test/run.js            VERBOSE=1 prints each answer
+// (MO-8v) The modules these tests draft are stand-ins for their types: a body of one line that does nothing. What the code
+// proves is test/infer.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
+process.env.RX_DECLARE_INFER = "0";
 const { startLanguageServer } = require("@volar/test-utils");
 const { URI } = require("vscode-uri");
 const fs = require("node:fs");

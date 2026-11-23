@@ -282,15 +282,18 @@ async function verifyComponentUses({ comps, at, probeMod, resolve }) {
  *  mutation's mutate). A callback the library calls inside a computation (Solid's `getObserver()` is set) is a mismatch:
  *  its reads would track and its writes land in owned scope. One it calls outside one holds; one it never calls is not
  *  verified. */
-async function verifyCallbacks({ fns, at, probeMod, resolve, mount }) {
+async function verifyCallbacks({ fns, at, probeMod, resolve, mount, inferred }) {
   const out = [];
   const s = await import(resolve);
   for (const f of fns) {
     const fn = at(f.name); const probe = probeMod?.probes?.[f.name];
     if (typeof fn !== "function") continue;
     if (!probe?.args) { out.push({ line: f.line, ob: f.cbs.map(c => `callbacks:${c.name}`), status: "unverified", what: `${f.name}: callback${f.cbs.length > 1 ? "s" : ""} ${f.cbs.map(c => c.name).join(", ")} not run: give its arguments in a probe` }); continue; }
-    const seen = new Map(f.cbs.map(c => [c.name, { calls: 0, tracked: 0 }]));
-    const spy = (c, g) => typeof g !== "function" ? g : (...a) => { const st = seen.get(c.name); st.calls++; if (s.getObserver?.()) st.tracked++; return g(...a); };
+    const seen = new Map(f.cbs.map(c => [c.name, { calls: 0, tracked: 0, during: 0 }]));
+    // MO-8v: `during` — called while the fn's own call is still running: what a `handler` read from the code is never
+    let inCall = 0;
+    const called = (...a) => { inCall++; try { return fn(...a); } finally { inCall--; } };
+    const spy = (c, g) => typeof g !== "function" ? g : (...a) => { const st = seen.get(c.name); st.calls++; if (s.getObserver?.()) st.tracked++; if (inCall) st.during++; return g(...a); };
     const wrapRec = (cs, v) => { if (!v || typeof v !== "object") return v; const o = { ...v }; for (const c of cs) if (c.field in o) o[c.field] = spy(c, o[c.field]); return o; };
     const args = probe.args().slice();
     const byIndex = new Map(); for (const c of f.cbs) byIndex.set(c.index, [...byIndex.get(c.index) ?? [], c]);
@@ -302,7 +305,9 @@ async function verifyCallbacks({ fns, at, probeMod, resolve, mount }) {
     // under the probe's providers and an errored boundary, as a hook is mounted; then its run and act, and time for what
     // the library schedules (a fetch's callback, a debounce)
     const settle = async () => { for (let i = 0; i < 10; i++) { s.flush?.(); await new Promise(r => setTimeout(r, 20)); } };
-    const m = await mount(fn, args, async r => { await settle(); if (probe.run) await probe.run(r); if (probe.act) await probe.act(r); await settle(); });
+    let m;
+    try { m = await mount(called, args, async r => { await settle(); if (probe.run) await probe.run(r); if (probe.act) await probe.act(r); await settle(); }); }
+    catch (e) { if (e?.code !== "MODULE_NOT_FOUND" || !/@solidjs\/universal/.test(String(e.message))) throw e; out.push({ line: f.line, ob: f.cbs.map(c => `callbacks:${c.name}`), status: "unverified", what: `${f.name}: callback${f.cbs.length > 1 ? "s" : ""} ${f.cbs.map(c => c.name).join(", ")} not run: the fn is mounted with @solidjs/universal, which is not installed here (npm i -D @solidjs/universal)` }); continue; }
     const err = m.renderError ?? m.boundary ?? m.runError;
     for (const c of f.cbs) {
       const st = seen.get(c.name);
@@ -310,6 +315,7 @@ async function verifyCallbacks({ fns, at, probeMod, resolve, mount }) {
       const push = r => out.push({ ob, ...r });
       const never = { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe${err ? ` (it threw: ${String(err.message ?? err).slice(0, 40)})` : ""}: give an act that makes the library call it` };
       const field = c.field ?? c.name.split(".").pop();
+      if (c.handler && st.during && inferred?.get(f.name)?.has(`handler(${c.name})`)) { push({ line: f.line, status: "fail", what: `${f.name}: ${c.name} was read from the code as a handler (//@ inferred), but the library calls it while the call itself runs: the reading is wrong — remove the word, and report it (MO-8v)` }); continue; }
       if (c.handler) { push(st.tracked ? { line: f.line, status: "fail", what: `${f.name}: ${c.name} is declared handler, but the library calls it inside a computation (tracked): a closure there would have its reads tracked by the library and its writes refused by Solid: drop \`handler\` — a function type without it is pure, which is right for a callback called inside a computation (MO-10g)` }
         : st.calls ? { line: f.line, status: "ok", what: `${f.name}: callback ${c.name} holds: the library calls it outside tracking, as a handler` } : never); continue; }
       // MO-10g (revised): an unmarked function type is pure, which holds however the library calls it

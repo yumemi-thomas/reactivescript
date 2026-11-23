@@ -76,8 +76,9 @@ const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: 
  *  each claim the crate reads must be answered; 3: each context provided and each callback position is a claim of its
  *  own, a component's function-typed props included; 4: provides(c) only through a hook or part that uses c alone and
  *  fails without it, and a component's function-typed props are run; 6: `renders(H)` is a placement claim, and so is a
- *  component's prop that takes components — DV-24 was taken on the declaration's word) does not count. */
-const RECORD_VERSION = 6;
+ *  component's prop that takes components — DV-24 was taken on the declaration's word; 7: a word read from the code,
+ *  `//@ inferred`, is run against what that reading claims, MO-8v) does not count. */
+const RECORD_VERSION = 7;
 /** What a record was verified against: the library (an installed package's version, or the JS module's own text beside
  *  the declaration) and the probe file. A record made against other inputs does not count (the library moved under it). */
 function inputsOf(file) {

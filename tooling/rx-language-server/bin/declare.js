@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]`: a draft `.d.rx` for a JS module, from its TypeScript types
+// `rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]`: a draft `.d.rx` for a JS module, from its TypeScript types
 // (src/declare.js) and, for a library it knows (src/known.js), the rows types cannot show (--types-only leaves those out),
 // then from running it (src/declare-run.js: which hooks read a context, which provider provides it),
 // only with --run (it executes the package's code). The module is resolved from the current directory, as an import there would be
@@ -60,20 +60,20 @@ const onlyAt = args.indexOf("--only");
 function only(text, names) {
   const nameOf = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
   const lines = text.split("\n"); const keep = new Set(); const want = n => names.includes(n) || names.some(x => n.startsWith(`${x}.`));
-  lines.forEach((l, i) => { const n = nameOf(l); if (n && !/^export\s+(?:type|context)\b/.test(l) && want(n)) keep.add(i); const t = /^\/\/ TODO ([\w$.]+):/.exec(l)?.[1]; if (t && want(t)) keep.add(i); });
+  lines.forEach((l, i) => { const n = nameOf(l); if (n && !/^export\s+(?:type|context)\b/.test(l) && want(n)) keep.add(i); const t = /^\/\/(?: TODO|@ inferred) ([\w$.]+):/.exec(l)?.[1]; if (t && want(t)) keep.add(i); });
   const missing = names.filter(x => !lines.some((l, i) => keep.has(i) && (nameOf(l) === x || nameOf(l)?.startsWith(`${x}.`))));
   for (let grew = true; grew;) {   // the types and contexts the kept rows name, to a fixed point
     grew = false; const said = new Set(lines.filter((l, i) => keep.has(i) && !l.startsWith("//")).flatMap(l => l.match(/[A-Za-z_$][\w$]*/g) ?? []));
     lines.forEach((l, i) => { if (keep.has(i) || !/^export\s+(?:type|context)\b/.test(l)) return; if (said.has(nameOf(l))) { keep.add(i); grew = true; } });
   }
-  const first = lines.findIndex(l => nameOf(l) || /^\/\/ TODO /.test(l));
+  const first = lines.findIndex(l => nameOf(l) || /^\/\/(?: TODO |@ inferred )/.test(l));
   return { text: lines.filter((l, i) => keep.has(i) || (i < first && l.trim()) || /^\/\/ (?:Known of|Carried from)/.test(l)).join("\n") + "\n", missing };
 }
 const srcAt = args.indexOf("--source");     // MO-8n: evidence from the library's original source (a checkout, its published src/, its source maps)
 const ctxAt = args.indexOf("--context");   // the name for a context the module reads but does not export (MO-12a)
 const outAt = args.indexOf("--out");
 const causesAt = args.indexOf("--causes");   // MO-8q: each row's `any`s by cause and its parts said by place, as JSON, to a file
-if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]\n"); process.exit(2); }
+if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]\n"); process.exit(2); }
 (async () => {
   if (args.includes("--dom")) {   // a browser's globals (happy-dom, from the project), so hooks that need a page run here
     let reg;
@@ -83,12 +83,12 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   }
   // --explain: why each `any` the draft holds is one (its cause, by export), and each row TypeScript did not hold with
   // the library's types named (MO-8m), on stderr; --any: the draft as it was before MO-8m, every unnamed type `any`
-  const causes = [], unheld = {}, places = {};
+  const causes = [], unheld = {}, places = {}, why = [], inferred = {}, notes = [];
   // --readings <export>[,<export>]: each reading of a row the draft tried (MO-8m, MO-8o) and TypeScript's answer to it, on stderr
   const readAt = args.indexOf("--readings");
   const readings = readAt >= 0 ? { names: (args[readAt + 1] ?? "").split(","), out: [] } : undefined;
   let text;
-  try { text = declare(require("typescript"), spec, process.cwd(), {}, { known: !args.includes("--types-only"), refs: !args.includes("--any"), causes, unheld, places, readings }); }
+  try { text = declare(require("typescript"), spec, process.cwd(), {}, { known: !args.includes("--types-only"), refs: !args.includes("--any"), causes, unheld, places, readings, infer: !args.includes("--no-infer") && process.env.RX_DECLARE_INFER !== "0", why: args.includes("--why") ? why : undefined, inferred, notes }); }
   catch (e) {
     // a draft the crate cannot read: nothing is written, and the line and the parser's reason are the message (it was a
     // silent fall back to `any` for every row)
@@ -98,12 +98,19 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   if (onlyAt >= 0) { const r = only(text, (args[onlyAt + 1] ?? "").split(",").map(x => x.trim()).filter(Boolean)); text = r.text; for (const n of r.missing) process.stderr.write(`rx-declare: --only ${n}: ${spec} has no such export to declare\n`); }
   if (readings) for (const r of readings.out) process.stderr.write(`rx-declare: ${r.name} read ${r.reading}: ${r.bad === null ? "held" : `not held — ${r.bad}`}\n${r.rows.map(l => `    ${l}`).join("\n")}\n`);
   if (causesAt >= 0) fs.writeFileSync(args[causesAt + 1], JSON.stringify({ causes, places, unheld }, null, 1) + "\n");
+  // --why (MO-8v): each word read from the code that runs — proven, with what shows it, or refused, with the first
+  // thing that stands in the way and its place — on stderr; --no-infer drafts from the types alone
+  if (args.includes("--why")) {
+    if (inferred.unread) process.stderr.write(`rx-declare: the code was not read: ${inferred.unread}\n`);
+    for (const w of why) if (w.word !== "*") process.stderr.write(`rx-declare: ${w.name}: ${w.word} ${w.ok ? "proven" : "not proven"} — ${w.why}\n`); else process.stderr.write(`rx-declare: ${w.name}: not read — ${w.why}\n`);
+  }
   if (args.includes("--explain")) {
     const by = {}; for (const c of causes) by[c.cause] = (by[c.cause] ?? 0) + 1;
     // MO-8q: the library's own `any`s (vendor-any) are written as they are; every other is the draft's
     const own = causes.filter(c => c.cause !== "vendor-any").length;
     process.stderr.write(`rx-declare: ${causes.length} \`any\` drafted (${causes.length - own} the library's own, ${own} the draft's)${causes.length ? ` — ${Object.entries(by).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${n} ${c}`).join(", ")}` : ""}\n`);
     const np = Object.values(places).reduce((a, b) => a + b, 0); if (np) process.stderr.write(`rx-declare: ${np} part${np === 1 ? "" : "s"} said by place (Parameters<…>, ReturnType<…>) in ${Object.keys(places).length} row${Object.keys(places).length === 1 ? "" : "s"}\n`);
+    for (const n of notes) process.stderr.write(`rx-declare: ${n}\n`);   // what is true of a row and asks nothing
     for (const [n, why] of Object.entries(unheld)) process.stderr.write(`rx-declare: ${n}: written with \`any\` — with the library's types named, TypeScript does not hold the row: ${why}\n`);
   }
   // MO-8n: what the library's own source shows of the words types cannot — written as `// SOURCE` comments above the

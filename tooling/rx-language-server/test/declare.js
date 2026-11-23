@@ -1,6 +1,9 @@
 // `rx-declare` (bin/declare.js) on a small module with TypeScript types: each kind of export becomes the row it
 // should, the hook gets its TODO, and the draft is a declaration rx-tsc accepts against the same types (TY-6).
 //   node test/declare.js            VERBOSE=1 prints the draft
+// (MO-8v) The modules these tests draft are stand-ins for their types: a body of one line that does nothing. What the code
+// proves is test/infer.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
+process.env.RX_DECLARE_INFER = "0";
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -222,7 +225,7 @@ check("the draft that names the library's types passes rx-tsc against them (TY-6
   const rw = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "wide", "--explain", "--causes", path.join(app, "causes.json")], { cwd: app, encoding: "utf8" });
   const wide = rw.stdout.split("\n"); if (process.env.VERBOSE) console.log(rw.stdout, rw.stderr);
   check("a type the entry does not export is named by the subpath that does, under its name there; a bundle's `$1` names are not the row's (MO-8o)", wide.includes("export fn insert<TItem extends Row>(store: import(\"wide/internals\").BaseStore<TItem>, item: TItem): void"), rw.stdout + rw.stderr);
-  check("a fn with several signatures has one row, the shortest, and the draft says how many the library has (MO-8b)", wide.includes("export fn on(target: Window, cb: (e: Event) => void): () => void") && !wide.includes("export fn on(target: Document") && /\/\/ TODO on: 2 signatures in the library's types/.test(wide), rw.stdout);
+  check("a fn with several signatures has one row, the shortest; how many the library has is a note, said with --explain and not among the questions (MO-8b)", wide.includes("export fn on(target: Window, cb: (e: Event) => void): () => void") && !wide.includes("export fn on(target: Document") && /rx-declare: on: 2 signatures in the library's types/.test(rw.stderr) && !/TODO on: 2 signatures/.test(rw.stdout), rw.stdout + rw.stderr);
   check("a component's props are the type the library declares them with, and after it the fields the checker reads (MO-8o)", wide.includes("export component Picker<O>(props: PickerProps<O> & { onPick?: (v: O) => void; render?: Component })"), rw.stdout);
   const causes = JSON.parse(fs.readFileSync(path.join(app, "causes.json"), "utf8")).causes;
   check("the library's own `any` is written as it is, and counted as the library's; its `unknown` stays `unknown` (MO-8q)", wide.includes("export fn loosely(x: any, y: unknown): Record<string, any>") && causes.length === 2 && causes.every(c => c.cause === "vendor-any" && c.name === "loosely") && /2 `any` drafted \(2 the library's own, 0 the draft's\)/.test(rw.stderr), rw.stdout + rw.stderr);

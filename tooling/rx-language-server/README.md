@@ -59,12 +59,30 @@ TypeScript's errors are reported.
 
 ## Drafting a declaration
 
-`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
+`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
 types, resolved from the current directory as an import there would be. A package's declaration goes in the project's
 `rx-types/` folder, named by the import (spec/09 MO-8k); the import in `.rx` stays as written:
 
 ```sh
 npx rx-declare @tanstack/solid-query --out rx-types/@tanstack/solid-query.d.rx
+```
+
+**Words read from the code** (spec/09 MO-8v, `src/infer.js`, `src/declare-infer.js`). Beside the types, the draft
+reads the JavaScript the import resolves to — the module itself, a package's shipped ES module, every build its export
+map can hand an `import` — with TypeScript's parser, to a fixed point over the calls between its functions, and writes
+four words only where the code proves them: `pure` (the call only computes), `handler` on a callback (every call of
+it is behind a listener, a timer, an observer, a promise or an `await`), `draft` on a parameter (changed in place
+during the call, kept nowhere) and `rejects(A | B)` (every `throw` reached is of a class the module exports). A row
+that took one has `//@ inferred <export>: <words>` on the line above it; the question each word answers is not
+asked, and nor is one answered "no". `--why` prints, for every row, what proved each word or the first thing in the
+way with its file and line; `--no-infer` (or `RX_DECLARE_INFER=0`) drafts from the types alone.
+
+```sh
+npx rx-declare ./api.js --why
+# rx-declare: fetchPerson: pure proven — it only computes
+# rx-declare: fetchPerson: rejects proven — every throw the code reaches is of NotFound
+# rx-declare: savePerson: pure not proven — it assigns saves, a variable of the module [api.js:5]
+# rx-declare: onKey: handler(run) proven — called later [api.js:6]
 ```
 
 You may not need to run it: for a package nothing declares, the language server, rx-tsc and the Vite plugin draft one
@@ -177,6 +195,13 @@ not have). `rx-tsc` checks what types can (TY-6); this checks what running can.
 
 A parameter declared as a function (a callback, MO-10g) is wrapped in a spy: the row holds if the library calls it
 outside tracking, as a handler, and is a mismatch if it calls it inside a computation.
+
+A row marked `//@ inferred` (a word `rx-declare` read from the code, MO-8v) is held to what that reading claims: a
+`pure` fn is called and must change nothing it was given, leave no new global and ask neither `Date.now()`,
+`performance.now()` nor `Math.random()` while it is called; a `handler` must not be called while the fn's own call
+is still running; a `rejects(E)`, under the probe's arguments and its failing ones, must reject with a class of its
+row. An observation the other way is a mismatch that says the reading is wrong, to report. A row that is mounted to
+be read needs `@solidjs/universal` in the project; without it that row is not run, and the others are.
 
 Where a library renders the components it is given is run against a scene (spec/09 MO-11r): the probe exports
 `scene(lib, h)`, a small app built of the module's exports with `h.component(name)` for the program's components (and
@@ -307,6 +332,7 @@ cargo build --release --manifest-path ../../compiler/Cargo.toml
 npm install && node test/run.js      # VERBOSE=1 prints each answer
 node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, a .d.rx that disagrees with its types
 node test/declare.js                 # rx-declare: each kind of export drafted as its row, the run pass, and the draft passes rx-tsc
+node test/infer.js                   # the words read from the code (MO-8v): every function that does what a word must not cover is refused it, its honest twin is given it; the draft, --why; both checkers; rx-verify against a false mark
 node test/generate.js                # generated declarations: drafted, found by the crate, kept, redrafted, and in the Vite plugin
 node test/verify.js                  # rx-verify: uses(…) rows, missing exports, errors, probes, callbacks, --record and strict mode
 ```

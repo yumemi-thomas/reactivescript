@@ -179,11 +179,15 @@ async function verifyModule(file, base, js) {
   // each row as one line, at the line it starts on, as the crate's parser spans it: a claim on a row's later line (a props
   // record broken over lines, then `provides(theme)`) is read as the row's
   const text = require("../src/strict.js").rowText(file);
+  const inferredRows = inferredOf(fs.readFileSync(file, "utf8"));   // MO-8v: the rows whose words the draft read from the code
   const usesHeld = new Set();   // hooks whose uses(…) row held: with no provider they throw or warn (provides(c) needs one)
   // a provider last, so every hook's uses(…) is known when its provides(c) is checked; the results stay in line order
   const rows = exportsOf(text), isProv = x => x.kind === "component" && x.providesNames.length;
   const first = out.length;
   for (const x of [...rows.filter(x => !isProv(x)), ...rows.filter(isProv)]) { if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${x.name}\n`);
+    // a row that is mounted needs a renderer; where the project has none installed, that row is not run, and the
+    // others are (it was the end of the whole run)
+    try {
     const v = at(x.name);
     if (v === undefined) { out.push({ line: x.line, ob: "exists", status: "fail", what: `${x.name}: ${path.basename(js)} exports nothing by that name` }); continue; }
     if (x.kind === "value") { out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: a value, exported` }); continue; }
@@ -191,6 +195,27 @@ async function verifyModule(file, base, js) {
     if (typeof v !== "function") { out.push({ line: x.line, ob: "exists", status: "fail", what: `${x.name}: declared a ${x.kind}, but is a ${typeof v}` }); continue; }
     out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: exported, a function`, quiet: true });   // what the record needs; the line printed is the check below
     const probe = probeMod?.probes?.[x.name];
+    // MO-8v: a word the draft read from the code (`//@ inferred`) is held to what that reading claims, by running it:
+    // a `pure` fn changes none of its arguments, leaves no new global, and asks neither the clock nor for a random
+    // number while it is called; what it rejects with, under the probe's failing arguments, is a class its row names.
+    // One observation the other way and the reading was wrong — a defect of rx-declare, reported as a mismatch
+    const marked = inferredRows.get(x.name);
+    if (x.kind === "fn" && marked?.has("pure") && (probe?.args || !x.required)) {
+      const seen = watched(createRoot, v, probe?.args?.() ?? []);
+      try { await seen.result; } catch { /* what it rejects with is the row's rejects(…) */ }
+      const bad = seen.done();
+      if (bad.length) { out.push({ line: x.line, ob: "pure", status: "fail", what: `${x.name}: read from its code as pure (//@ inferred), but when it is called ${bad.join("; ")}: the reading is wrong — remove the word, and report it` }); continue; }
+      out.push({ line: x.line, status: "ok", what: `${x.name}: the pure read from its code is not contradicted: called, it changed no argument, left no global and asked neither the clock nor for a random number` });
+    }
+    const classes = marked && [...marked].map(w => /^rejects\((.*)\)$/.exec(w)?.[1]).find(Boolean)?.split("|").map(c => c.trim());
+    if (x.kind === "fn" && classes) {
+      for (const [which, args] of [["the probe's arguments", probe?.args], ["the probe's failing arguments", probe?.fail]]) {
+        if (!args) continue;
+        let got = null; try { await v(...args()); } catch (e) { got = e ?? new Error("undefined"); }
+        if (got && !classes.some(c => typeof mod[c] === "function" && got instanceof mod[c])) out.push({ line: x.line, status: "fail", what: `${x.name}: read from its code to reject with ${classes.join(" | ")} alone (//@ inferred), but under ${which} it rejects with ${got?.constructor?.name ?? typeof got}${got?.message ? ` (${String(got.message).slice(0, 40)})` : ""}: the reading is wrong — remove the word, and report it` });
+        else if (got) out.push({ line: x.line, status: "ok", what: `${x.name}: under ${which} it rejects with ${got.constructor.name}, as its row says` });
+      }
+    }
     if (x.kind === "fn" && x.uses) {
       if (x.required && !probe?.args) out.push({ line: x.line, ob: "uses", status: "unverified", what: `${x.name}: uses(…) not run, it needs ${x.required} argument${x.required > 1 ? "s" : ""} (give them in a probe)` });
       else {
@@ -320,10 +345,11 @@ async function verifyModule(file, base, js) {
     if (!left.length && x.pure && x.inst) { out.push({ line: x.line, ob: "pure", status: "na", what: `${x.name}: a fn that makes something each call: two calls are not alike by design` }); continue; }
     out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: a ${x.kind}` });
     for (const o of left) out.push({ line: x.line, ob: o === "pending/fails" ? "fields" : o, status: "unverified", what: `${x.name}: ${o} not run (it needs what the app passes: give it in a probe)` });
+    } catch (e) { if (e?.code !== "MODULE_NOT_FOUND" || !/@solidjs\/universal/.test(String(e.message))) throw e; out.push({ line: x.line, status: "unverified", what: `${x.name}: not run: it is mounted to be read, with @solidjs/universal, which is not installed here (npm i -D @solidjs/universal)` }); }
   }
   out.splice(first, out.length - first, ...out.slice(first).map((r, i) => [r, i]).sort((a, b) => a[0].line - b[0].line || a[1] - b[1]).map(([r]) => r));
   // MO-10g: callbacks, by running: a closure at a declared function-typed parameter is checked as a handler
-  out.push(...(await require("../src/verify-place.js").verifyCallbacks({ fns: exportsOf(text).filter(x => x.kind === "fn" && x.cbs?.length), at, probeMod, resolve: pathToFileURL(require.resolve("solid-js", { paths: [dir, __dirname] })).href, mount: (fn, args, run) => mount(dir, mod, probeMod, fn, args, [], run) })));   // each tagged with its position, `callbacks:<name>` (RFC 29)
+  out.push(...(await require("../src/verify-place.js").verifyCallbacks({ inferred: inferredRows, fns: exportsOf(text).filter(x => x.kind === "fn" && x.cbs?.length), at, probeMod, resolve: pathToFileURL(require.resolve("solid-js", { paths: [dir, __dirname] })).href, mount: (fn, args, run) => mount(dir, mod, probeMod, fn, args, [], run) })));   // each tagged with its position, `callbacks:<name>` (RFC 29)
   // RFC 29: a component's function-typed props, by rendering it (the crate names them: each row's `callbacks:<prop>`)
   const cbComps = require("../src/strict.js").rowsOf(file).filter(r => r.kind === "component").flatMap(r => {
     const cbs = (r.obligations ?? []).filter(o => o.startsWith("callbacks:")).map(o => o.slice("callbacks:".length)).map(name => {
@@ -344,6 +370,32 @@ async function verifyModule(file, base, js) {
 }
 
 /** Plain data: what two machines can be compared on (no function, no class instance, no accessor). */
+/** The rows a draft read words for from the code (09 MO-8v): export → the words of its `//@ inferred` line. */
+function inferredOf(text) {
+  const out = new Map();
+  for (const m of text.matchAll(/^\/\/@ inferred ([\w$.]+): (.*)$/gm)) out.set(m[1], new Set(m[2].split(/,\s*(?![^()]*\))/).map(w => w.trim()).filter(Boolean)));
+  return out;
+}
+/** Calls `fn(...args)` under a root, watching what a `pure` read from the code says it does not do: `done()` lists what
+ *  was seen — an argument changed, a global left behind, the clock or a random number asked for while it was called. */
+function watched(createRoot, fn, args) {
+  const snap = () => { try { return JSON.stringify(args, (k, v) => typeof v === "function" ? undefined : v); } catch { return undefined; } };
+  const before = snap(); const globals = new Set(Reflect.ownKeys(globalThis)); const asked = new Set();
+  const saved = [Date.now, Math.random, globalThis.performance?.now];
+  Date.now = function () { asked.add("Date.now()"); return saved[0].call(Date); };
+  Math.random = function () { asked.add("Math.random()"); return saved[1].call(Math); };
+  if (saved[2]) performance.now = function () { asked.add("performance.now()"); return saved[2].call(performance); };
+  let result, threw = null;
+  try { createRoot(d => { try { result = fn(...args); } catch (e) { threw = e; } d(); }); }
+  finally { Date.now = saved[0]; Math.random = saved[1]; if (saved[2]) performance.now = saved[2]; }
+  return { result, threw, done: () => {
+    const out = []; const after = snap();
+    if (before !== undefined && after !== undefined && before !== after) out.push(`it changed what it was given (${String(before).slice(0, 30)} to ${String(after).slice(0, 30)})`);
+    const left = Reflect.ownKeys(globalThis).filter(k => !globals.has(k)); if (left.length) out.push(`it left ${left.map(String).slice(0, 3).join(", ")} on the global object`);
+    if (asked.size) out.push(`it asked ${[...asked].join(" and ")}`);
+    return out;
+  } };
+}
 function plain(v, seen = new Set()) {
   if (v === null || ["string", "number", "boolean", "undefined"].includes(typeof v)) return true;
   if (typeof v !== "object" || seen.has(v)) return false; seen.add(v);

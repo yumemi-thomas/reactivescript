@@ -1,6 +1,9 @@
 // `rx-verify` (bin/verify.js) on a small module: a hook that really reads a context passes, one that does not is a
 // mismatch, as are an export the module lacks and an "error" that is not an Error subclass.
 //   node test/verify.js
+// (MO-8v) The modules these tests draft are stand-ins for their types: a body of one line that does nothing. What the code
+// proves is test/infer.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
+process.env.RX_DECLARE_INFER = "0";
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -381,7 +384,7 @@ check("provides(a, b): a hook that uses only a answers provides(a) alone; b is u
 check("...and strict refuses the row (no `ok` record for provides(a, b))", bothStrict.some(u => u.name === "Both" && /could not check it/.test(u.message)), bothStrict);
 check("a component's handler prop it never calls: unverified, and strict refuses it", /both\.d\.rx:5 unverified Lone: prop ref never called/.test(both.stdout) && bothStrict.some(u => u.name === "Lone" && /could not check it/.test(u.message)), { out: both.stdout, bothStrict });
 const bothRec = JSON.parse(fs.readFileSync(path.join(ws, "both.verified.json"), "utf8"));
-check("...in a version-6 record", bothRec.version === 6 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
+check("...in a version-7 record", bothRec.version === 7 && !Object.values(bothRec.rows).some(r => r.line === 5 && r.status === "ok"), bothRec);
 
 // RFC 28 (revised after review): provides(b) is not shown by a hook declared uses(a, b) that reads only a, nor by a part
 // that still fails under the provider; only actual provision verifies it

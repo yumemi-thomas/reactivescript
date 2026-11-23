@@ -861,6 +861,15 @@ function withWaits(row, waits) {
   else if (ret.startsWith("{") && ret.endsWith("}")) out = `{${split(ret.slice(1, -1), ";").map(f => { const c = f.indexOf(":"); if (c < 0) return f; const key = f.slice(0, c).trim().replace(/^readonly\s+/, "").replace(/\?$/, ""); return `${f.slice(0, c + 1)}${mark(f.slice(c + 1), waits[key])}`; }).join(";")}}`;
   return row.slice(0, at) + out + rest;
 }
+/** What the checker reads of a fn's row, without its types: which parameters carry a word or are a function or a
+ *  record of functions, and what kind of thing the result is. Two signatures with one shape are one row to the checker. */
+function shapeOf(row) {
+  const di = require("./declare-infer.js"); const r = di.parseRow(row); if (!r) return row;
+  const ps = r.params.map((part, i) => { const p = di.named(row, part); if (!p) return `${i}:?`; const k = p.rest ? "rest" : di.fnTypeAt(row, p.type, p.end) ? "fn" : di.records(row, p.type, p.end).some(fs => fs.some(fp => { const q = di.named(row, fp); return q && (di.fnTypeAt(row, q.type, q.end) || /^(?:handler|ref)\b/.test(row.slice(q.type))); })) ? "record" : /^Component\b/.test(row.slice(p.type)) ? "component" : ""; return k || p.words.trim() ? `${i}:${p.words.trim()}${k}` : ""; }).filter(Boolean);
+  const tail = row.slice(r.close + 1).replace(/^\s*:\s*/, "");
+  const ret = /^ref\b/.test(tail) ? "ref" : /^Promise</.test(tail) ? "promise" : /^void\b/.test(tail) ? "void" : /^Component\b/.test(tail) ? "component" : /^\(/.test(tail) ? "fn" : /^[[{]/.test(tail) ? (/\bref\b/.test(tail) ? "parts-ref" : "parts") : "value";
+  return `${ps.join(",")}|${ret}|${/\binstantiates\b/.test(tail) ? "i" : ""}`;
+}
 /** @returns {string} the draft `.d.rx` for `spec`, imported from `from` (a directory). `how.known: false`: from the types
  *  alone, without what known.js says of the library (a generated declaration, MO-8l: nothing a person reviewed). */
 function declare(ts, spec, from, options = {}, how = {}) {
@@ -1057,7 +1066,15 @@ function declare(ts, spec, from, options = {}, how = {}) {
     // words, which are the fn's, and TypeScript types a call from the library's own overloads (13 TY-4b)
     let todos = [];
     let fnRows = [rowOf(shortest, todos)];
-    if (sigs.length > 1) todos.push(`${sigs.length} signatures in the library's types: this row is one of them (an export has one row, MO-8b); a call is typed by the library's own`);
+    // a note, not a question: said among the questions only where the signatures differ in what the checker reads (a
+    // parameter that is a callback or an accessor in one and not in another, a result that is a reader in one); where
+    // they agree, the row says all the checker reads of every one of them, and the note is --explain's
+    if (sigs.length > 1) {
+      const note = `${sigs.length} signatures in the library's types: this row is one of them (an export has one row, MO-8b); a call is typed by the library's own`;
+      const shapes = new Set(sigs.map(g => { try { return shapeOf(rowOf(g, []).replace(MARK, "")); } catch { return "?"; } }));
+      CTX.scope = new Set();
+      if (shapes.size > 1) todos.push(note); else if (how.notes) how.notes.push(`${name}: ${note}`);
+    }
     // MO-8q: where the signatures' rows would hold an `any` of the draft's (a bound with no name, so nothing to range
     // over), the fn is the one signature that can be said without: the shortest alone, else its last signature, each
     // part by its place — the signature `Parameters<typeof f>` is TypeScript's reading of
@@ -1152,6 +1169,14 @@ function declare(ts, spec, from, options = {}, how = {}) {
   out.push(...head);
   // MO-8s: a module of the app's own takes the words of the library rows it hands on (declare-own.js)
   if (spec.startsWith(".") && how.known !== false) { const c = require("./declare-own.js").carry(ts, spec, from, lines, withWaits); lines = c.lines; out.push(...c.head); }
+  // MO-8v: the words the code that runs proves — `pure`, `handler`, `draft`, `rejects(E)` — written into the rows, each
+  // row marked `//@ inferred`; the question each answers is not asked (declare-infer.js, infer.js)
+  if (how.infer !== false) {
+    const di = require("./declare-infer.js");
+    const r = di.apply(ts, spec, from, lines, name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } }, how.why);
+    lines = r.lines; out.push(...r.head);
+    if (how.inferred) Object.assign(how.inferred, r.count, { unread: r.unread });
+  }
   // why each `any` left is one (--explain): what the type holds that the row cannot say; in a row of an overloaded fn,
   // where a type with no name would else be said by its place, that the fn has no one signature to take it from
   if (how.causes) for (const l of lines) { const n = exportedIn(l); for (const m of l.matchAll(/any\u00ab([^\u00bb]*)\u00bb/g)) how.causes.push({ name: n, cause: how.refs !== false && overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(m[1]) ? "overload" : m[1] }); }
