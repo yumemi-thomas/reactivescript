@@ -359,6 +359,34 @@ if (!filter || "styles".includes(filter)) {   // CSS-4 under the dev server: a d
   });
   await server.close();
 }
+if (!filter || "context".includes(filter)) {   // CP-4b under the dev server: a module the entry and a JS-hosted page share stays one module after an edit
+  // The entry provides a context declared in team.rx; a page JavaScript renders (imported ?rx-page) reads it. An edit of
+  // the page has the dev server serve team.rx again, and Vite 8 names it by two URLs (`?t=…&import&rx-dep` in the entry's
+  // patched code, `?import&t=…&rx-dep` in the page's new code): two factories, which were two contexts — the page read
+  // `RG-7b: no provision for team`, after a full reload too. The plugin names the module and the runtime keys it by name.
+  const dir = project("context-dev", "held/main.rx");
+  mkdirSync(path.join(dir, "src/held"));
+  const w = (f, text) => writeFileSync(path.join(dir, "src/held", f), text);
+  w("team.rx", `export context team: { name: string }\n`);
+  w("main.rx", `import { Slot } from "./slot.js"\nimport { team } from "./team.rx"\n\nexport default component App() {\n  provide team = { name: "Directory" }\n  <main><Slot /></main>\n}\n`);
+  const page = to => `import { team } from "./team.rx"\n\nexport default component Page() {\n  t = use team\n  <h1>People ${to} {t.name}</h1>\n}\n`;
+  w("page.rx", page("of"));
+  w("slot.js", `import Page from "./page.rx?rx-page";\nexport const Slot = () => Page({});\n`);
+  w("slot.d.rx", `export component Slot(props: {})\n`);
+  w("host.d.rx", `import { App } from "./main.rx"\nimport { Page } from "./page.rx"\nimport { Slot } from "./slot.js"\nexport default component nests(children in component) = [{ component: App, children: [{ component: Page }] }]\n`);
+  const server = await vite.createServer(config(dir, "held/main.rx")); await server.listen(0);
+  const until = async (pg, want, what) => {
+    for (let i = 0; i < 80 && !want.test(await pg.textContent("#app").catch(() => "") ?? ""); i++) await pg.waitForTimeout(100);
+    const got = await pg.textContent("#app").catch(e => e.message.split("\n")[0]); if (!want.test(got ?? "")) throw new Error(`${what}: ${JSON.stringify(got)}`);
+  };
+  await drive("context (dev)", server.resolvedUrls.local[0], async pg => {
+    await until(pg, /People of Directory/, "first load");
+    w("page.rx", page("in"));
+    await until(pg, /People in Directory/, "after the page's edit (the entry's provision is the page's context)");
+    await pg.reload(); await until(pg, /People in Directory/, "after a reload");
+  });
+  await server.close();
+}
 if (!filter || "cold".includes(filter)) {   // a dependency asked for before its entry, as Vitest's `fsModuleCache` leaves it
   const { default: rx } = await import(pathToFileURL(path.join(pkg, "vite.mjs")).href);
   const root = project("cold", "shop/main.rx"), catalog = path.join(root, "src/shop/catalog.rx");

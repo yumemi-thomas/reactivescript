@@ -35,6 +35,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -385,6 +386,13 @@ export default function rx(options = {}) {
       // MO-13h: the module's name — its path from the project's root, the same in the browser's build and the server's —
       // is given to `components`, and left on the module for a host that calls `components(pages)` itself: the module is
       // then rooted as a package's is (state that lasts as the page or the request does, ids that are the server's)
+      // CP-4b: under the dev server a module is named — its path from the root and its text's hash — and the runtime keys
+      // its instance by the name (`__rt.module`), not by the factory: the dev server serves one module under several URLs
+      // (a timestamp per hot update, and Vite 8 spells the query of a `?import` module in two orders), the browser
+      // evaluates each, and two factories were two instances of the module's state and contexts. A build bundles a module
+      // once and names nothing.
+      const keyed = (code, fn) => solid.dev && /^export (?:default )?function (?:module|__rxModule)\(/m.test(code)
+        ? `${code}\n${fn}.__rxKey = ${JSON.stringify(`${path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/")}#${createHash("sha1").update(m.code).digest("hex").slice(0, 12)}`)};\n` : code;
       const libName = JSON.stringify(path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/"));
       const named = lib && file === entry
         ? `\nmodule.__rxName = ${libName};` + (out.components?.length ? `\nimport { components as __rxComponents } from "@reactivescript/runtime";\nconst __rx = __rxComponents(module, undefined, ${libName});\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n` : "\n")
@@ -395,8 +403,8 @@ export default function rx(options = {}) {
       if (page && file === entry) {
         if (!out.page) throw new Error(`${path.relative(process.cwd(), file)} is imported as a route file's page (?rx-page) and has no default component: write \`export default component Page() { … }\` (11 CP-4d)`);
         const code = tagDeps(m.code).replace(/^export default function module\(/m, "export function __rxModule(");
-        return { code: code + named.replace("__rxComponents(module,", "__rxComponents(__rxModule,").replace("\nmodule.__rxName = ", "\n__rxModule.__rxName = ") + `export default __rx.${out.page};\n`, map: m.map, css: m.css ?? "" };
+        return { code: keyed(code + named.replace("__rxComponents(module,", "__rxComponents(__rxModule,").replace("\nmodule.__rxName = ", "\n__rxModule.__rxName = ") + `export default __rx.${out.page};\n`, "__rxModule"), map: m.map, css: m.css ?? "" };
       }
-      return { code: tagDeps(m.code) + named, map: m.map, css: m.css ?? "" };
+      return { code: keyed(tagDeps(m.code) + named, "module"), map: m.map, css: m.css ?? "" };
   }
 }

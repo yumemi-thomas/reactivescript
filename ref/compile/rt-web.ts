@@ -352,7 +352,13 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
     // ---- modules (09 MO-1): a dependency's factory runs once per app; its exports are shared by every importer ----
-    module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
+    // CP-4b (2026-11-24): a factory the dev server's plugin named (`__rxKey`: the module's path and its text's hash) is
+    // keyed by that name. A dev server serves one module under several URLs — a timestamp for each hot update, and Vite 8
+    // writes the query of a module it marks `?import` in two orders (`?t=…&import&rx-dep` from an importer whose cached
+    // code it patches, `?import&t=…&rx-dep` from one it compiles again) — so the browser evaluates the file twice, and two
+    // factories are two instances: a context declared in the module was two contexts, and a page read `no provision`
+    // for one the app's entry provides (RG-7b). The same file with the same text is one module; an edited one is another.
+    module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { const k = (typeof key === "function" && (key as { __rxKey?: string }).__rxKey) || key; let m = modules.get(k); if (!m) { m = factory(app); modules.set(k, m); } return m; },
     // ---- context (RG-7) ----
     owner: () => getOwner(),
     /** `context x: T = d` (RG-7): the declaration is the identity; `d`, if any, is evaluated once, owned where it is declared. */

@@ -52,6 +52,11 @@ try {
   const host = JSON.parse(execFileSync(process.execPath, ["host.mjs"], { cwd: tmp }).toString());
   check("a ?rx-lib component used on the server outside a render and outside a request throws, and says what to do (CP-4d)", /outside a render and outside a request/.test(host.threw) && /renderToString/.test(host.threw) && /provideRequestEvent/.test(host.threw) && /components\(pages, createApp/.test(host.threw), host.threw);
   check("the same with the app passed renders", host.ok === true, String(host.ok));
+  // CP-4b: a factory the dev server's plugin named is keyed by its name — the same file with the same text, evaluated
+  // twice (a dev server serves one module under several URLs), is one instance; an edited one, or one with no name, its own
+  writeFileSync(path.join(tmp, "keyed.mjs"), `import { createApp } from "@reactivescript/runtime";\nconst app = createApp({ root: null });\nconst f = () => () => ({});\nconst a = f(), b = f(), c = f(), d = f(); a.__rxKey = b.__rxKey = "src/team.rx#1"; c.__rxKey = "src/team.rx#2";\nconsole.log(JSON.stringify({ same: app.module(a, a) === app.module(b, b), edited: app.module(c, c) !== app.module(a, a), unnamed: app.module(d, d) !== app.module(a, a) && app.module(d, d) === app.module(d, d) }));\n`);
+  const keyedOut = execFileSync(process.execPath, ["--conditions=browser", "keyed.mjs"], { cwd: tmp }).toString().trim();
+  check("a module the dev server served twice is one instance: keyed by its name, not by its factory (CP-4b)", keyedOut === JSON.stringify({ same: true, edited: true, unnamed: true }), keyedOut);
   writeFileSync(path.join(tmp, "host2.mjs"), `import pages from "./lib.mjs";\nimport { components, library } from "@reactivescript/runtime";\nimport { renderToString } from "@solidjs/web";\nconst out = {};\ntry { out.components = renderToString(() => components(pages).Hello({})); out.library = renderToString(() => library(pages, "t/lib").Hello({})); } catch (e) { out.threw = String(e.message); }\nconsole.log(JSON.stringify(out));\n`);
   const host2 = spawnSync(process.execPath, ["host2.mjs"], { cwd: tmp, encoding: "utf8" });
   const plainRender = JSON.parse(host2.stdout.trim().split("\n").pop() || "{}");
