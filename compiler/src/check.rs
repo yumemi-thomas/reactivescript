@@ -299,6 +299,8 @@ struct Sym<'a> {
     /// MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or
     /// of a part of it, that part's: the closed set of what the value answers (`ty_step`)
     ret_ty: Option<String>,
+    /// MO-8t: a declared JS value's type (`export const client: { … }`), read a step at a time as a declared result's is
+    const_ty: Option<String>,
     /// MO-8k: a JS import with no declaration in any of the four places: its specifier
     undeclared: Option<String>,
     /// MO-11g: a JS fn declared or imported `pure` that makes nothing: it keeps nothing, and what it is given comes back
@@ -394,6 +396,7 @@ impl<'a> Sym<'a> {
             updater: None,
             disposer: None,
             ret_ty: None,
+            const_ty: None,
             undeclared: None,
             pure_fn: false,
             generated: None,
@@ -3045,7 +3048,21 @@ impl<'a> Checker<'a> {
                 s.through = c.opts.through.contains(&format!("{declared}#{xname}"));
                 c.bind(env, alias, s);
         };
+        // MO-8t: `export fn toaster.show(…)`, `export fn toast.success(…)` — the methods a declaration gives rows, each a fn
+        // named as it is written, bound after its object
+        let mut items: Vec<(String, String, bool)> = vec![];
         for ImportName { name, alias } in names {
+            items.push((name.clone(), alias.clone(), true));
+            let prefix = format!("{name}.");
+            if decls.iter().any(|y| y.name() == name.as_str() && matches!(y, JsDecl::Value { .. } | JsDecl::Fn { .. })) {
+                for m in decls.iter().filter(|y| matches!(y, JsDecl::Fn { name: n, .. } if n.starts_with(&prefix))) {
+                    items.push((m.name().to_string(), format!("{}{}", alias, &m.name()[name.len()..]), false));
+                }
+            }
+        }
+        for (name, alias, base) in &items {
+            let (name, alias) = (name, alias.as_str());
+            let (pure, side) = (&(*pure && *base), if *base { side } else { &None });
             // MO-11q: `export component Dialog.Root(…)`: the import's members, each a component named as it is written
             let prefix = format!("{}.", name);
             let members: Vec<&JsDecl> = decls.iter().filter(|y| matches!(y, JsDecl::Comp { name: n, .. } if n.starts_with(&prefix))).collect();
@@ -3071,9 +3088,10 @@ impl<'a> Checker<'a> {
             };
             match x {
                 JsDecl::Type { .. } | JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => continue, // MO-12a: a JS context is named only by its declaration file's rows; MO-14: a host's rows are the loader's
-                JsDecl::Value { .. } => {
+                JsDecl::Value { ty, .. } => {
                     // MO-8g: a value, read as any import, never io
                     let mut s = Sym::new(SymKind::Import, alias, region, line);
+                    s.const_ty = ty.clone(); // MO-8t: its type says what its function fields answer
                     s.io = false;
                     s.rejects = Some(["Error".to_string()].into_iter().collect());
                     self.bind(env, alias, s);
@@ -4970,6 +4988,10 @@ impl<'a> Checker<'a> {
                 if sy.kind == SymKind::Props {
                     return self.props_ty.get(&sy.region).cloned();
                 }
+                // MO-8t: a declared value's type says what its function fields answer, as a declared result's does
+                if sy.kind == SymKind::Import && sy.const_ty.is_some() {
+                    return sy.const_ty.clone();
+                }
                 if !matches!(sy.kind, SymKind::Eq | SymKind::Value) {
                     return None;
                 }
@@ -5352,6 +5374,15 @@ impl<'a> Checker<'a> {
     }
     /// MO-10b: a function field whose declared type answers nothing — `() => void`, or a promise of nothing — read off
     /// a declared JS result, a component's props or what a context provides: it is called for what it does.
+    /// MO-8t (2026-11-25): a method, one step from an import that is io — an undeclared one (R-io-4), or a declared `fn` —
+    /// with no row of its own: it is io as its object is. (A declared value's method is read by its type; a `pure`
+    /// import's is pure; one with a row is that row's fn, by the name the loader gave it.)
+    fn io_member(&self, f: &Expr, env: EId) -> Option<String> {
+        let ExprKind::Member { o, .. } = &f.k else { return None };
+        let ExprKind::Id(n) = &o.k else { return None };
+        let s = self.lookup(env, n)?;
+        (self.syms[s].kind == SymKind::Import && self.syms[s].io).then(|| n.clone())
+    }
     fn void_method(&self, f: &Expr, env: EId) -> bool {
         matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| matches!(ty_clean(&r), "void" | "Promise<void>"))
     }
@@ -5408,6 +5439,7 @@ impl<'a> Checker<'a> {
                     },
                     _ if self.void_method(f, env) => Some(if self.provided_action(f, env) { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" }),
                     _ if self.promise_method(f, env) => Some("IO_IN_REACTIVE"),
+                    _ if self.io_member(f, env).is_some() => Some("IO_IN_REACTIVE"),
                     _ => None,
                 };
                 if let Some(code) = code {
@@ -5686,6 +5718,16 @@ impl<'a> Checker<'a> {
                         self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io (its declaration says it answers a promise: calling it starts work); a fn is pure by definition", show(f)));
                     } else {
                         self.err("IO_IN_REACTIVE", "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers a promise, so calling it starts work, here on every computation, with nothing waiting for it — call it from a handler or an action; if it only asks, `await` it", show(f)));
+                    }
+                }
+                // MO-8t: a method of an io import, with no row of its own, is io as its object is
+                if !ctx.imperative && !self.void_method(f, env) && !self.promise_method(f, env) {
+                    if let Some(of) = self.io_member(f, env) {
+                        if ctx.in_fn {
+                            self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io (a method of {of}, which is io, with no row of its own); a fn is pure by definition", show(f)));
+                        } else {
+                            self.err("IO_IN_REACTIVE", "IO-2", format!("{0}(…) is io and is called in reactive scope (R-io-3): it is a method of {of}, which is io (an import with no declaration, or a declared `fn`), and has no row of its own — call it from a handler or an action; if it only reads, its declaration says so, `export pure fn {0}(…)` (MO-8t)", show(f)));
+                        }
                     }
                 }
                 if let ExprKind::Id(fname) = &f.k {
@@ -9113,6 +9155,76 @@ fn ty_members(t: &str, present: bool) -> Vec<String> {
     split_top(ty_clean(t), "|").into_iter().map(|m| ty_clean(&m).to_string()).filter(|m| !(present && (m == "null" || m == "undefined"))).collect()
 }
 /// A record type's fields, as written: `{ a: T; b?: (x: U) => V }`.
+/// MO-8t (2026-11-25): a member of a record type written as a method, `navigate(to: string): Promise<void>` — the field
+/// it is, `navigate: (to: string) => Promise<void>`. It was read as a field named `navigate(to` and told nothing.
+fn ty_method(f: &str) -> Option<(String, String)> {
+    let b = f.as_bytes();
+    let mut i = 0;
+    while i < b.len() && b[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if f[i..].starts_with("readonly") && b.get(i + 8).is_some_and(|c| c.is_ascii_whitespace()) {
+        i += 8;
+        while i < b.len() && b[i].is_ascii_whitespace() {
+            i += 1;
+        }
+    }
+    let start = i;
+    let name = if i < b.len() && (b[i] == b'"' || b[i] == b'\'') {
+        let q = b[i];
+        i += 1;
+        while i < b.len() && b[i] != q {
+            i += 1;
+        }
+        if i >= b.len() {
+            return None;
+        }
+        i += 1;
+        f[start + 1..i - 1].to_string()
+    } else {
+        if !(i < b.len() && (b[i].is_ascii_alphabetic() || b[i] == b'_' || b[i] == b'$')) {
+            return None;
+        }
+        while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$') {
+            i += 1;
+        }
+        f[start..i].to_string()
+    };
+    if i < b.len() && b[i] == b'?' {
+        i += 1;
+    }
+    while i < b.len() && b[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if !(i < b.len() && (b[i] == b'(' || b[i] == b'<')) {
+        return None;
+    }
+    if b[i] == b'<' {
+        let mut depth = 0;
+        while i < b.len() {
+            if b[i] == b'<' {
+                depth += 1;
+            } else if b[i] == b'>' && b[i - 1] != b'=' {
+                depth -= 1;
+                if depth == 0 {
+                    i += 1;
+                    break;
+                }
+            }
+            i += 1;
+        }
+        while i < b.len() && b[i] == b' ' {
+            i += 1;
+        }
+    }
+    if !(i < b.len() && b[i] == b'(') {
+        return None;
+    }
+    let end = closes_at(f, i)?;
+    let rest = js_trim(&f[end + 1..]);
+    let rest = rest.strip_prefix(':')?;
+    Some((name, format!("{} => {}", &f[i..=end], js_trim(rest))))
+}
 pub fn ty_fields(t: &str) -> Option<Vec<(String, String)>> {
     let ms = ty_members(t, true);
     let [t] = ms.as_slice() else { return None };
@@ -9123,6 +9235,9 @@ pub fn ty_fields(t: &str) -> Option<Vec<(String, String)>> {
         split_top(&t[1..t.len() - 1], ",;")
             .iter()
             .filter_map(|f| {
+                if let Some(m) = ty_method(f) {
+                    return Some(m);
+                }
                 let i = f.find(':')?;
                 let k = js_trim(&f[..i]);
                 let k = k.strip_prefix("readonly ").map(js_trim).unwrap_or(k);

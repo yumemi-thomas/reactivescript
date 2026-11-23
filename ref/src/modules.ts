@@ -225,10 +225,49 @@ function loadProgram(entry: string, read: (path: string) => string | undefined):
       if (state.get(to) !== "done" && read(to) === undefined) { diags.push({ code: "MODULE_NOT_FOUND", rule: "MO-6", line: d.line, file: path, msg: `no module ${d.from} (from ${path})` }); continue; }
       visit(to, [...stack, path]);
     }
+    nameMethods(p, declarations, path, diags);
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
   return { entry, programs, order, diags, declarations, signatures, declarationIds, printed };
+}
+
+/** MO-8t (2026-11-25): a method a declaration gives a row of its own — `export fn toaster.show(…)` beside `export const
+ *  toaster` — is named by that row wherever the module writes it: `toaster.show` (no `?.`) becomes the name
+ *  `toaster.show`, which the checkers, the emitters and the projection then read as they read any declared fn's (io or
+ *  pure, its callbacks, the components it is given, what it rejects with). Done once, as the module is loaded, so every
+ *  reader has the same tree. A module that binds the object's name again (a parameter, a local, a loop's variable) would
+ *  have its methods' rows applied to something else: refused, by the name as written. */
+const BINDERS = new Set(["source", "eq", "fn", "component", "action", "server", "error", "context", "typedecl", "let", "for", "mfor"]);
+export function nameMethods(p: Program, declarations: Map<string, JsDecl[]>, file: string, diags: Diagnostic[]): void {
+  const names = new Set<string>(); const lines = new Map<string, number>();
+  for (const d of p.decls) if (d.k === "import" && d.declared) for (const { name, alias } of d.names) for (const x of declarations.get(d.declared) ?? []) if (x.kind === "fn" && x.name.startsWith(name + ".")) { names.add(alias + x.name.slice(name.length)); if (!lines.has(alias)) lines.set(alias, d.line); }
+  if (!names.size) return;
+  const again = new Set<string>();
+  const binds = (v: unknown, top: boolean) => {
+    if (Array.isArray(v)) { for (const x of v) binds(x, top); return; }
+    if (!v || typeof v !== "object") return;
+    const o = v as { k?: string; name?: unknown; params?: unknown; props?: unknown; errName?: unknown; catchName?: unknown };
+    for (const b of lines.keys()) {
+      if (o.k !== undefined && BINDERS.has(o.k) && o.name === b) again.add(b);
+      if (Array.isArray(o.params) && o.params.some(x => x === b || (x && typeof x === "object" && (x as { name?: unknown }).name === b))) again.add(b);
+      if (o.k === "component" && o.props === b) again.add(b);
+      if (o.errName === b || o.catchName === b) again.add(b);
+      if (o.k === "draft" && b === "d") again.add(b);
+    }
+    for (const x of Object.values(v)) binds(x, false);
+  };
+  binds(p, true);
+  for (const b of [...again].sort()) diags.push({ code: "SHADOWED_IMPORT", rule: "MO-8t", line: lines.get(b)!, file, msg: `${b} is bound again in this module (a declaration, a parameter, a local or a loop's variable of that name), and ${b}'s declaration gives its methods rows of their own (${[...names].find(n => n.startsWith(b + "."))}): a second ${b} would have them read off something else — rename one (\`import { ${b} as … }\`)` });
+  const chain = (e: { k?: string; o?: unknown; p?: string; opt?: boolean; name?: string }): string | undefined => e.k === "id" ? e.name : e.k === "member" && !e.opt ? (() => { const o = chain(e.o as never); return o === undefined ? undefined : `${o}.${e.p}`; })() : undefined;
+  const walk = (v: unknown) => {
+    if (Array.isArray(v)) { for (const x of v) walk(x); return; }
+    if (!v || typeof v !== "object") return;
+    const o = v as { k?: string; o?: unknown; p?: string; opt?: boolean; name?: string };
+    if (o.k === "member") { const n = chain(o); if (n !== undefined && names.has(n) && !again.has(n.split(".")[0])) { delete o.o; delete o.p; delete o.opt; o.k = "id"; o.name = n; return; } }
+    for (const x of Object.values(v)) walk(x);
+  };
+  walk(p);
 }
 
 /** One program with no `.rx` imports — the common case, and every scenario before 09. */

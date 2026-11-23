@@ -2803,6 +2803,10 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "method_name",
+            "named": true
           }
         ]
       },
@@ -4806,6 +4810,32 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "method_name",
+    "named": true,
+    "fields": {
+      "object": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "property": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "property_identifier",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {

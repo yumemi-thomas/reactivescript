@@ -1691,3 +1691,66 @@ export renders ./tsr.d.rx#RouterProvider from createRootRoute:12 hosts(./kit.d.r
           (context_key)
           (signature_provides
             (context_key)))))))
+
+================================================================================
+A declaration file's row: a method of a value the file declares (09 MO-8t)
+================================================================================
+
+export const toaster: { dismiss(id: number): void }
+export fn toaster.show(toast: Component): number renders(Toast.List)
+export fn toast(message: string): number
+export pure fn toast.history(): string[]
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (const_signature
+      (identifier)
+      (type_annotation
+        (object_type
+          (method_signature
+            (property_identifier)
+            (formal_parameters
+              (required_parameter
+                (identifier)
+                (type_annotation
+                  (predefined_type))))
+            (type_annotation
+              (predefined_type)))))))
+  (export_statement
+    (fn_signature
+      (method_name
+        (identifier)
+        (property_identifier))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (type_identifier))))
+      (type_annotation
+        (predefined_type))
+      (renders_clause
+        (member_component_name
+          (identifier)
+          (property_identifier)))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (method_name
+        (identifier)
+        (property_identifier))
+      (formal_parameters)
+      (type_annotation
+        (array_type
+          (predefined_type))))))

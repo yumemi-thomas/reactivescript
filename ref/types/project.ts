@@ -144,13 +144,23 @@ function declarationFile(decls: JsDecl[]): string {
   for (const d of decls) if (d.kind === "comp" && d.name.includes(".")) { const h = d.name.slice(0, d.name.indexOf(".")); members.set(h, [...members.get(h) ?? [], d]); }
   const objectOf = (h: string) => `{ ${members.get(h)!.map(m => `${m.name.slice(h.length + 1)}: ${fnOf(m)};`).join(" ")} }`;
   const objects = [...members.keys()].filter(h => !decls.some(d => d.kind === "comp" && d.name === h)).map(h => `export declare const ${h}: ${objectOf(h)};`);
-  return [...head, ...objects, ...decls.filter(d => d.kind !== "context" && !(d.kind === "comp" && d.name.includes("."))).map(d => {   // MO-12a: a JS context has no TypeScript of its own
+  // MO-8t: `export fn toaster.show(…)` — a method of a declared value, a member of that value's type; of a declared fn, a
+  // function of the namespace TypeScript merges with it
+  type FnRow = Extract<JsDecl, { kind: "fn" }>;
+  const sigOf = (d: FnRow): [string, string, string] => [d.tparams ?? "", d.params.map((n, i) => { const o = d.opts?.[i] ? "?" : ""; return d.refs?.[i] ? `${n}${o}: (() => ${d.ptypes?.[i] ?? "any"})` : d.ptypes?.[i] ? `${n}${o}: ${d.ptypes[i]}` : o ? `${n}?: any` : n; }).join(", "), accessorResult(d.ret, d.shape)];   // MO-8e: an optional parameter   // MO-10a: a `ref` parameter is an accessor in JS
+  const methodsOf = (h: string) => decls.filter((d): d is FnRow => d.kind === "fn" && d.name.includes(".") && d.name.slice(0, d.name.indexOf(".")) === h);
+  return [...head, ...objects, ...decls.filter(d => d.kind !== "context" && !((d.kind === "comp" || d.kind === "fn") && d.name.includes("."))).map(d => {   // MO-12a: a JS context has no TypeScript of its own
     if (d.kind === "type") return `export ${d.text ?? `type ${d.name} = any`}`;
     if (d.kind === "comp") return members.has(d.name) ? `export declare const ${d.name}: (${fnOf(d)}) & ${objectOf(d.name)};` : `export declare function ${d.name}${d.tparams ?? ""}(props: ${propsOf(d)}): View;`;
-    if (d.kind === "value") return `export declare const ${d.name}: ${d.type ?? "any"};`;   // MO-8g
+    if (d.kind === "value") {   // MO-8g; MO-8t: with the methods its declaration gives rows
+      const ms = methodsOf(d.name); if (!ms.length) return `export declare const ${d.name}: ${d.type ?? "any"};`;
+      const obj = ms.map(m => { const [tp, ps, ret] = sigOf(m); return `${m.name.slice(d.name.length + 1)}: ${tp}(${ps}) => ${ret};`; }).join(" ");
+      return d.type !== undefined ? `export declare const ${d.name}: (${d.type}) & { ${obj} };` : `export declare const ${d.name}: { ${obj} };`;
+    }
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
-    const ps = d.params.map((n, i) => { const o = d.opts?.[i] ? "?" : ""; return d.refs?.[i] ? `${n}${o}: (() => ${d.ptypes?.[i] ?? "any"})` : d.ptypes?.[i] ? `${n}${o}: ${d.ptypes[i]}` : o ? `${n}?: any` : n; }).join(", ");   // MO-8e: an optional parameter   // MO-10a: a `ref` parameter is an accessor in JS
-    return `export declare function ${d.name}${d.tparams ?? ""}(${ps}): ${accessorResult(d.ret, d.shape)};`;
+    const [tp, ps, ret] = sigOf(d as FnRow); const ms = methodsOf(d.name);
+    const ns = ms.length ? `\nexport declare namespace ${d.name} { ${ms.map(m => { const [tp, ps, ret] = sigOf(m); return `function ${m.name.slice(d.name.length + 1)}${tp}(${ps}): ${ret};`; }).join(" ")} }` : "";
+    return `export declare function ${d.name}${tp}(${ps}): ${ret};${ns}`;
   })].join("\n") + "\n";
 }
 

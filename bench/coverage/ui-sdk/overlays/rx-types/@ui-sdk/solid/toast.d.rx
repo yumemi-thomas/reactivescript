@@ -4,3 +4,6 @@ export type ToastCancel<Content = unknown> = import("@ui-sdk/solid/toast").Toast
 export type ToastDismissDetails = import("@ui-sdk/solid/toast").ToastDismissDetails
 export type ToastType = import("@ui-sdk/solid/toast").ToastType
 export fn toast(message: Parameters<typeof import("@ui-sdk/solid/toast").toast>[0], options?: { id?: string; title?: View; description?: View; type?: ToastType; duration?: number; priority?: "polite" | "assertive"; action?: ToastActionData<View> | undefined; cancel?: ToastCancel<View> | undefined; dismissible?: boolean; data?: unknown; onDismiss?: (details: ToastDismissDetails) => void }): string
+// the toaster's own methods, each a row of its own (09 MO-8t): io, as the draft writes them
+export fn toast.success(message: Parameters<typeof import("@ui-sdk/solid/toast").toast.success>[0], options?: { id?: string; title?: View; description?: View; type?: ToastType; duration?: number; priority?: "polite" | "assertive"; action?: ToastActionData<View> | undefined; cancel?: ToastCancel<View> | undefined; dismissible?: boolean; data?: unknown; onDismiss?: (details: ToastDismissDetails) => void }): string
+export fn toast.dismiss(id?: string): void

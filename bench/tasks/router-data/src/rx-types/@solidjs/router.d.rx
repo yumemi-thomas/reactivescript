@@ -8,3 +8,9 @@ export pure fn createRouter(config: { routes: RouteDefinition[] }): Component pr
 export pure fn defineRoute<const S extends string | readonly string[]>(route: { path: S; component?: Component<{ params: RouteParams<S>; children?: View }>; children?: RouteDefinition[] }): RouteDefinition
 export pure fn useSubmissions<T extends unknown[], U, V>(fn_: import("@solidjs/router").FormAction<T, U, V>, filter?: (input: V) => boolean): { input: V; result?: unknown; error: unknown }[] uses(router)
 export fn revalidate(key?: string | string[], force?: boolean): void
+// the cache `query()` keeps is the function's own to change: `query.clear()`, `query.delete(key)` — methods, each a row
+// of its own (09 MO-8t), io as the draft writes them
+export type CachedFunction<T extends (...args: any) => any> = import("@solidjs/router").CachedFunction<T>
+export fn query<T extends (...args: any) => any>(fn_: T, name: string): CachedFunction<T>
+export fn query.clear(): void
+export fn query.delete(key: string): boolean

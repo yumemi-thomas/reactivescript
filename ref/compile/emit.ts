@@ -137,11 +137,18 @@ class Gen {
     this.top.push(`const ${f} = ${chain(e)};`);
     return f;
   }
+  /** MO-8t: an import's names, and after each the methods its declaration gives rows of their own (`export fn
+   *  toaster.show(…)`): each is bound as a declared fn is, under the name the loader gave its mentions (`toaster.show`),
+   *  and written as that member of the import (`v$toaster.show`). */
+  private withMethods(d: Extract<Decl, { k: "import" }>): { name: string; alias: string }[] {
+    const ds = d.declared ? this.mods?.set.declarations?.get(d.declared) ?? [] : [];
+    return d.names.flatMap(n => [n, ...ds.flatMap(m => m.kind === "fn" && m.name.startsWith(n.name + ".") ? [{ name: m.name, alias: n.alias + m.name.slice(n.name.length) }] : [])]);
+  }
   private serverHoist(d: { name: string; params: string[]; body: Stmt[] }, expression = false): string {
     const f = this.serverNames.get(d.name) && !expression && !this.top.some(t => t.includes(`function ${this.serverNames.get(d.name)}(`)) ? this.serverNames.get(d.name)! : `sf$${d.name}$${this.sfSeq++}`;
     const env = new Env(null); const pre: string[] = [];
     for (const x of this.modDecls) {
-      if (x.k === "import" && !x.resolved) for (const { name, alias } of x.names) {
+      if (x.k === "import" && !x.resolved) for (const { name, alias } of this.withMethods(x)) {
         if (name === "log" || BUILTINS.has(name)) continue;
         if (!x.from.startsWith(".")) { env.vars.set(alias, { kind: "val", js: `w$${alias}` }); continue; }   // a package's: module level
         env.vars.set(alias, { kind: "val", js: mg(alias) });
@@ -245,7 +252,7 @@ class Gen {
     // names first: hoisted functions and components; every other declaration is a const
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
-      if (d.k === "import") for (const { name, alias } of d.names) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; const dr = { ...(x?.kind === "fn" ? { ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.draftArgs ? { draftArgs: x.draftArgs } : {}) } : {}), ...(d.resolved ? {} : { jsFn: true }) };   /* MO-10i; jsFn: a JS module's name — a draft it is called with is lent, not given */ env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value", ...dr } : x?.kind === "comp" ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client", ...dr }); }   // MO-10a; MO-11a: a JS component is a JSX tag
+      if (d.k === "import") for (const { name, alias } of this.withMethods(d)) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; const dr = { ...(x?.kind === "fn" ? { ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.draftArgs ? { draftArgs: x.draftArgs } : {}) } : {}), ...(d.resolved ? {} : { jsFn: true }) };   /* MO-10i; jsFn: a JS module's name — a draft it is called with is lent, not given */ env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value", ...dr } : x?.kind === "comp" ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client", ...dr }); }   // MO-10a; MO-11a: a JS component is a JSX tag
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });

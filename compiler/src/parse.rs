@@ -1774,6 +1774,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
     let mut out = vec![];
     let mut starts = vec![];
     let mut hosts: Vec<(String, String, usize)> = vec![]; // MO-11u: each `renders(H)` — the fn, H, and where the word's `(` is
+    let mut members: Vec<(String, usize)> = vec![]; // MO-8t: each fn named as a method (`toaster.show`), and where its name ends
     loop {
         c.ws(true);
         if c.eof() {
@@ -1782,6 +1783,14 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 if !out.iter().any(|d| matches!(d, JsDecl::Comp { name, .. } if name == h)) {
                     c.i = *at;
                     return c.fail(&format!("renders({h}) on fn {f}: this file declares no component {h} — the word names the component beneath which the library renders what the fn is given, declared here as `export component {h}(props: {{ … }})` (MO-11u)"));
+                }
+            }
+            // MO-8t: a method's row is written beside its object's — a `const`, or a fn that has methods of its own
+            for (f, at) in &members {
+                let base = f.split('.').next().unwrap_or_default();
+                if !out.iter().any(|d| matches!(d, JsDecl::Value { name, .. } | JsDecl::Fn { name, .. } if name == base)) {
+                    c.i = *at;
+                    return c.fail(&format!("fn {f}: this file declares no const or fn {base} — a method's row is written beside its object's, `export const {base}: …` (MO-8t)"));
                 }
             }
             return Ok((out, starts));
@@ -1990,7 +1999,22 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             return c.fail("fn");
         }
         c.ws(true);
-        let name = c.ident_or("fn name")?;
+        let mut name = c.ident_or("fn name")?;
+        // MO-8t (2026-11-25): a method of a value this file declares — `export fn toaster.show(…)`, `export fn toast.success(…)`
+        {
+            let at = c.i;
+            while c.peek() == '.' {
+                c.i += 1;
+                name.push('.');
+                name.push_str(&c.ident_or("a method's name: `fn toaster.show(…)` (MO-8t)")?);
+            }
+            if name.matches('.').count() > 1 {
+                return c.fail("a method is named by one step from the value this file declares: `fn toaster.show(…)` (MO-8t)");
+            }
+            if name.contains('.') {
+                members.push((name.clone(), at));
+            }
+        }
         c.ws(true);
         let tparams = type_params(&mut c); // MO-8d: `fn f<const S extends string>(…)`, TypeScript's, for TY
         c.ws(true);

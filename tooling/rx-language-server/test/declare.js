@@ -463,6 +463,29 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   const read = require("../src/rxc").rows(path.join(app, "src/host.d.rx"));
   check("...which the crate reads as a host declaration (its view claims placement and each provision)", !read.error && JSON.stringify(read.rows.filter(r => r.kind === "host").map(r => r.obligations)) === JSON.stringify([["placement", "provides:router"]]), JSON.stringify(read));
 }
+// 09 MO-8t: the methods of an exported object, and of an exported function, each drafted as a fn is, after its object
+{
+  const app = path.join(ws, "methods"); fs.mkdirSync(app, { recursive: true });
+  fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(app, "node_modules"), "dir");
+  fs.writeFileSync(path.join(app, "kit.js"), "const list = [];\nexport const toaster = { show(c) { list.push(c); return list.length; }, dismiss(id) {}, getCount() { return list.length; }, words: [\"a\"] };\nexport const toast = Object.assign(m => 1, { success: m => 2, Region: () => null });\nexport const sizes = [1, 2];\n");
+  fs.writeFileSync(path.join(app, "kit.d.ts"), [
+    "import type { JSX } from \"@solidjs/web\";",
+    "export declare const toaster: { show(toast: (props: { id: number }) => JSX.Element): number; dismiss(id: number): void; getCount(): number; words: string[] };",
+    "export declare function toast(message: string): number;",
+    "export declare namespace toast { function success(message: string, options?: { onDismiss?: () => void }): number; function Region(props: {}): JSX.Element; }",
+    "export declare const sizes: number[];", "",
+  ].join("\n"));
+  const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./kit.js"], { cwd: app, encoding: "utf8" });
+  const text = r.stdout + r.stderr; const rows = text.split("\n").filter(l => /^export /.test(l));
+  check("rx-declare drafts a row for each method of an exported object, after the object's (09 MO-8t): io as drafted, a component it is given asked about", JSON.stringify(rows.filter(l => /toaster/.test(l))) === JSON.stringify(["export const toaster: typeof import(\"./kit.js\").toaster", "export fn toaster.show(toast: Component<{ id: number; }>): number", "export fn toaster.dismiss(id: number): void", "export fn toaster.getCount(): number"]) && /TODO toaster\.show: `toast` is given a component/.test(text), text);
+  check("...asks where a method's name reads as one (never `pure` by a guess)", /TODO toaster\.getCount: pure\? its name is a read's/.test(text) && !/pure fn toaster/.test(text), text);
+  check("...and for each method of an exported function, after the function's; a member that is a component is no method, and an array's own are not the library's", JSON.stringify(rows.filter(l => /\btoast\b/.test(l) && !/toaster/.test(l))) === JSON.stringify(["export fn toast(message: string): number", "export fn toast.success(message: string, options?: { onDismiss?: () => void }): number"]) && !/sizes\./.test(text) && !/toaster\.words/.test(text), text);
+  fs.writeFileSync(path.join(app, "kit.d.rx"), rows.join("\n") + "\n");
+  const read = require("../src/rxc").rows(path.join(app, "kit.d.rx"));
+  check("...rows the crate reads back, each by its dotted name", !read.error && read.rows.filter(x => x.kind === "fn").map(x => x.name).join() === "toast,toast.success,toaster.show,toaster.dismiss,toaster.getCount", JSON.stringify(read).slice(0, 400));
+  const decl = require("../src/rxc").declaration(path.join(app, "kit.d.rx"));
+  check("...and projects to a `.d.ts`: a value's methods in its type, a fn's in the namespace merged with it (13 TY-4b)", /export declare const toaster: \(typeof import\("\.\/kit\.js"\)\.toaster\) & \{ show: \(toast: Component<\{ id: number; \}>\) => number; dismiss: \(id: number\) => void; getCount: \(\) => number; \};/.test(decl.code) && /export declare namespace toast \{ function success\(message: string, options\?: \{ onDismiss\?: \(\) => void \}\): number; \}/.test(decl.code), JSON.stringify(decl).slice(0, 600));
+}
 // 09 MO-14g: `rx-declare --host --routes`, the whole declaration derived from the router's own tree — and held to it
 {
   const app = path.join(ws, "routesapp"); fs.mkdirSync(path.join(app, "src/routes"), { recursive: true }); fs.mkdirSync(path.join(app, "src/pages"), { recursive: true });

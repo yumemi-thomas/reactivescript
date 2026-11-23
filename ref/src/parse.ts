@@ -152,10 +152,13 @@ export type JsProp = { name: string; optional: boolean; type?: string; catches?:
 export function parseDeclarations(src: string): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
   const hosts: [string, string, number][] = [];   // MO-11u: each `renders(H)` — the fn, H, and where the word's `(` is
+  const members: [string, number][] = [];   // MO-8t: each fn named as a method (`toaster.show`), and where its name ends
   for (;;) {
     c.ws();
     if (c.eof()) {   // MO-11u: H is a component this file declares — the place is said in the library's own rows, and named by no path
       for (const [fn, h, at] of hosts) if (!out.some(d => d.kind === "comp" && d.name === h)) { c.i = at; c.fail(`renders(${h}) on fn ${fn}: this file declares no component ${h} — the word names the component beneath which the library renders what the fn is given, declared here as \`export component ${h}(props: { … })\` (MO-11u)`); }
+      // MO-8t: a method's row is written beside its object's — a `const`, or a fn that has methods of its own
+      for (const [fn, at] of members) { const base = fn.slice(0, fn.indexOf(".")); if (!out.some(d => (d.kind === "value" || d.kind === "fn") && d.name === base)) { c.i = at; c.fail(`fn ${fn}: this file declares no const or fn ${base} — a method's row is written beside its object's, \`export const ${base}: …\` (MO-8t)`); } }
       return out;
     }
     const line = c.line;
@@ -205,7 +208,10 @@ export function parseDeclarations(src: string): JsDecl[] {
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();
     if (!c.keyword("fn")) c.fail("fn");
-    c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); const tparams = typeParams(c); c.ws(); c.expect("("); c.ws();   // MO-8d: `fn f<const S extends string>(…)`, TypeScript's, for TY
+    c.ws(); let name = c.ident() ?? c.fail("fn name");
+    // MO-8t (2026-11-25): a method of a value this file declares — `export fn toaster.show(…)`, `export fn toast.success(…)`
+    { const at = c.i; while (c.peek() === ".") { c.i++; name += "." + (c.ident() ?? c.fail("a method's name: `fn toaster.show(…)` (MO-8t)")); } if (name.split(".").length > 2) c.fail("a method is named by one step from the value this file declares: `fn toaster.show(…)` (MO-8t)"); if (name.includes(".")) members.push([name, at]); }
+    c.ws(); const tparams = typeParams(c); c.ws(); c.expect("("); c.ws();   // MO-8d: `fn f<const S extends string>(…)`, TypeScript's, for TY
     const params: string[] = []; const ptypes: (string | undefined)[] = []; const refs: boolean[] = [];
     const opts: boolean[] = [];
     const draftArgs: number[] = [];   // MO-10i (2026-11-22): `draft list: T[]` — a parameter the fn changes in place, now, and does not keep: a draft is given to it as it is

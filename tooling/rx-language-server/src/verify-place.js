@@ -28,7 +28,7 @@ function rowsOf(text) {
   const rowAt = i => { let j = i + 1; while (j < lines.length && !/^\s*(export|import)\b/.test(lines[j])) j++; return lines.slice(i, j).join("\n"); };
   lines.forEach((l, i) => {
     let m;
-    if ((m = /^\s*export\s+(?:server\s+|client\s+)?(?:pure\s+)?fn\s+([A-Za-z_$][\w$]*)/.exec(l))) {
+    if ((m = /^\s*export\s+(?:server\s+|client\s+)?(?:pure\s+)?fn\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)/.exec(l))) {
       const row = rowAt(i);
       const nestsIn = /\bnests\(\s*([\w$]+)\s+in\s+([\w$]+)\s*\)/.exec(row);
       const rendersIn = /\)\s*(?::[\s\S]*?)?\brenders\(\s*([A-Z][\w$.]*)\s*\)/.exec(row)?.[1] ?? null;   // MO-11u
@@ -146,15 +146,19 @@ async function verifyPlacement({ text, mod, probeMod, dir, resolve }) {
   const lib = new Proxy(mod, { get(t, k) {
     const v = t[k]; if (typeof k !== "string") return v;
     if (tracked(k) || [...hostNames, ...propComps.map(c => c.name)].some(n => n.startsWith(k + "."))) return wrapped(k, v);
-    if (typeof v !== "function") return v;
-    const f = watched.find(x => x.name === k);
-    if (!f) return v;
-    return Object.assign((...args) => {
-      const rec = { fn: k, row: f, args, caller: [...above()] };
-      let result = v(...args);
-      if (f.mode === "factory" && typeof result === "function") { const id = `${k}#made${++seq}`; const made = result; rec.made = id; result = mark(id, props => s.createComponent(made, props)); }
+    // MO-8t: a method with a row of its own (`toaster.show`, `toast.success`) is recorded as a fn is, called on its object
+    const methods = watched.filter(x => x.name.startsWith(k + "."));
+    const recorded = (name, row, call) => (...args) => {
+      const rec = { fn: name, row, args, caller: [...above()] };
+      let result = call(args);
+      if (row.mode === "factory" && typeof result === "function") { const id = `${name}#made${++seq}`; const made = result; rec.made = id; result = mark(id, props => s.createComponent(made, props)); }
       rec.result = result; calls.push(rec); return result;
-    }, v);   // with the fn's own members (`toast.custom`): the scene may call them, as an app does
+    };
+    const withMethods = target => !methods.length ? target : new Proxy(target, { get(o, m) { const x = o[m]; const row = typeof m === "string" && typeof x === "function" ? methods.find(y => y.name === `${k}.${m}`) : undefined; return row ? recorded(row.name, row, args => x.apply(v, args)) : x; } });
+    if (typeof v !== "function") return v && typeof v === "object" ? withMethods(v) : v;
+    const f = watched.find(x => x.name === k);
+    if (!f) return withMethods(v);
+    return withMethods(Object.assign(recorded(k, f, args => v(...args)), v));   // with the fn's own members (`toast.custom`): the scene may call them, as an app does
   } });
   let dispose = () => {}, renderError = null;
   try {

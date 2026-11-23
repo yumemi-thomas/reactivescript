@@ -13396,8 +13396,17 @@
           "type": "FIELD",
           "name": "name",
           "content": {
-            "type": "SYMBOL",
-            "name": "_binding_name"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "_binding_name"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "method_name"
+              }
+            ]
           }
         },
         {
@@ -13459,6 +13468,36 @@
               "name": "_function_signature_automatic_semicolon"
             }
           ]
+        }
+      ]
+    },
+    "method_name": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "object",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "."
+        },
+        {
+          "type": "FIELD",
+          "name": "property",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "identifier"
+            },
+            "named": true,
+            "value": "property_identifier"
+          }
         }
       ]
     },

@@ -1,5 +1,5 @@
-// UI SDK's overlays: `toast()` and `confirm()` open from anywhere in the app into a registry, and <OverlayHost>, mounted
-// once, renders what they open. Nothing the program writes is rendered there: a toast's message is a value, a
+// UI SDK's overlays: `toast()` — and its methods, `toast.success()`, `toast.dismiss()` — and `confirm()` open from
+// anywhere in the app into a registry, and <OverlayHost>, mounted once, renders what they open. Nothing the program writes is rendered there: a toast's message is a value, a
 // confirmation's answer a promise.
 import { OverlayHost } from "@ui-sdk/solid/overlays"
 import { toast } from "@ui-sdk/solid/toast"
@@ -16,6 +16,8 @@ export default component App() {
     }
   }
   <button class="save" onClick={() => { toast("Saved") }}>save</button>
+  <button class="done" onClick={() => { toast.success("Exported") }}>export</button>
+  <button class="clear" onClick={() => { toast.dismiss() }}>clear</button>
   <button class="ask" onClick={ask}>delete</button>
   <p class="answer">{answer}</p>
   <OverlayHost />

@@ -1,6 +1,7 @@
 // Toasts on Kobalte 2: the app shows one from a handler, and the library renders it later, in its list. A toast is a
-// component of the app's: it reads the app's theme, and Kobalte's parts in it read the region the list is in.
-import { Toast, show } from "./toasts.js"
+// component of the app's: it reads the app's theme, and Kobalte's parts in it read the region the list is in. The
+// toaster is the library's own object, `toaster.show(…)`, as its documentation writes it: no module of the app's between.
+import { Toast, toaster } from "@kobalte/core/toast"
 import { pushChanges, Offline } from "./sync.js"
 
 context accent: string
@@ -22,8 +23,9 @@ component Synced(props: { toastId: number }) {
   </Toast>
 }
 component Editor() {
-  <button class="save" onClick={() => { shown := show(Saved) }}>save</button>
-  <button class="sync" onClick={() => { shown := show(Synced) }}>sync</button>
+  <button class="save" onClick={() => { shown := toaster.show(Saved) }}>save</button>
+  <button class="sync" onClick={() => { shown := toaster.show(Synced) }}>sync</button>
+  <button class="clear" onClick={() => { toaster.clear() }}>clear</button>
   <p class="last">last toast {shown}</p>
 }
 component Themed(props: { children: View }) {

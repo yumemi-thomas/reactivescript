@@ -846,7 +846,7 @@ function resultText(ts, checker, t, todos, generic = false, here, node) {
 /** MO-10l: a drafted fn row with `pending` or `fails(…)` written before the `ref` parts `waits` names — `""` the whole
  *  result, else a tuple's index or a record's field. A part the row does not draft as `ref` is left as it is. */
 function withWaits(row, waits) {
-  const open = row.indexOf("(", row.search(/\bfn\s+[\w$]+/)); if (open < 0) return row;
+  const open = row.indexOf("(", row.search(/\bfn\s+[\w$.]+/)); if (open < 0) return row;
   let d = 0, close = -1;
   for (let j = open; j < row.length; j++) { const c = row[j]; if ("([{<".includes(c)) d++; else if (")]}>".includes(c) && !(c === ">" && row[j - 1] === "=")) { if (--d === 0) { close = j; break; } } }
   const m = close < 0 ? null : /^\s*:\s*/.exec(row.slice(close + 1)); if (!m) return row;
@@ -914,9 +914,17 @@ function declare(ts, spec, from, options = {}, how = {}) {
 
   }
   OWN = new Set(checker.getExportsOfModule(mod).map(s0 => [s0.name, s0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s0) : s0]).filter(([, y]) => y.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(y.flags & ts.SymbolFlags.Value) && !(y.declarations?.[0]?.typeParameters ?? []).length).map(([n]) => n));
-  for (const sym0 of checker.getExportsOfModule(mod)) {
-    const sym = sym0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym0) : sym0;
-    const name = sym0.name;
+  // MO-8t: an export's own methods — `toaster.show`, `toast.success` — each drafted as a fn is, after its object. A
+  // method is a property the library's own types declare (not what every function, array or string has) whose type is
+  // called and is no component; one step down, and no further
+  const methodsOf = (base, bt) => bt.getProperties().filter(q => /^[a-z_$][\w$]*$/.test(q.name) && (q.declarations ?? []).length && (q.declarations ?? []).every(d => !program.isSourceFileDefaultLibrary(d.getSourceFile()))).map(q => ({ member: true, name: `${base}.${q.name}`, sym: q, t: checker.getTypeOfSymbolAtLocation(q, imp) })).filter(m => { const u = checker.getNonNullableType(m.t); return u.getCallSignatures().length > 0 && !u.getConstructSignatures().length && !isComponent(ts, checker, m.t); });
+  const work = checker.getExportsOfModule(mod).map(sym0 => ({ sym0 }));
+  for (let wi = 0; wi < work.length; wi++) {
+    const item = work[wi]; const sym0 = item.sym0;
+    const sym = item.member ? item.sym : sym0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym0) : sym0;
+    const name = item.member ? item.name : sym0.name;
+    const leafName = name.split(".").pop();
+    if (!item.member) {
     if (name === "default") { lines.push(`// TODO: the module's default export: import it by name in a JS helper (\`export { default as x } from …\`) and declare that`); continue; }
     if (sym.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(sym.flags & ts.SymbolFlags.Value)) {
       const tp = sym.declarations?.[0]?.typeParameters ?? [];
@@ -926,15 +934,16 @@ function declare(ts, spec, from, options = {}, how = {}) {
       continue;
     }
     if (!(sym.flags & ts.SymbolFlags.Value)) continue;
-    const t = checker.getTypeOfSymbolAtLocation(sym, imp);
-    if (sym.flags & ts.SymbolFlags.Class) {
+    }
+    const t = item.member ? item.t : checker.getTypeOfSymbolAtLocation(sym, imp);
+    if (!item.member && sym.flags & ts.SymbolFlags.Class) {
       const inst = checker.getDeclaredTypeOfSymbol(sym);
       if (checker.getBaseTypes(inst)?.some(b => /\bError\b/.test(checker.typeToString(b)))) lines.push(`export error ${name}`);
       else lines.push(`// TODO: ${name} is a class: construct it in a JS helper and declare that fn`);
       continue;
     }
-    if (/^Context</.test(checker.typeToString(t))) { contexts.push(name); continue; }
-    const sigs = t.getCallSignatures();
+    if (!item.member && /^Context</.test(checker.typeToString(t))) { contexts.push(name); continue; }
+    const sigs = (item.member ? checker.getNonNullableType(t) : t).getCallSignatures();
     // a component's declaration: its props, those a .d.rx can name (an `aria-label` is passed as any undeclared prop is, MO-11b)
     const componentOf = (as, ct) => {
       const all = ct.getCallSignatures();
@@ -982,9 +991,11 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const memberLines = () => { for (const [m, mt] of members) lines.push(componentOf(`${name}.${m}`, mt)); };
     if (!sigs.length) {
       if (members.length) { memberLines(); continue; }
-      lines.push(`export const ${name}: typeof import(${JSON.stringify(spec)}).${name}`); continue;   // MO-8g: a value
+      lines.push(`export const ${name}: typeof import(${JSON.stringify(spec)}).${name}`);   // MO-8g: a value
+      if (!item.member && !checker.isArrayType(t)) work.splice(wi + 1, 0, ...methodsOf(name, t));   // MO-8t: and its methods, each a row
+      continue;
     }
-    if (/^[A-Z]/.test(name) && isComponent(ts, checker, t)) {
+    if (!item.member && /^[A-Z]/.test(name) && isComponent(ts, checker, t)) {
       if (/Provider$/.test(name)) lines.push(`// TODO ${name}: does it provide a context to its children? add provides(<context>) (MO-12c)`);
       lines.push(componentOf(name, t));
       if (members.length) { lines.push(`// TODO ${name}: its parts likely read a context it provides: add provides(<context>) to it and uses(<context>) to them (MO-12)`); memberLines(); }
@@ -1016,9 +1027,9 @@ function declare(ts, spec, from, options = {}, how = {}) {
     if (events.length) todos.push(`${[...new Set(events)].join(", ")}: called later, outside any computation? mark ${events.length > 1 ? "each" : "it"} \`handler (…) => …\`, so a closure there may write sources (MO-10g)`);
     const ret = resultText(ts, checker, sig.getReturnType(), todos, generic, place && `ReturnType<${place}>`, sig.declaration?.type);
     CTX.scope = new Set();
-    const primitive = /^(create|use)[A-Z]/.test(name);
-    const config = /^define[A-Z]|[a-z]Options$/.test(name);   // a config helper (`defineRoute`, `queryOptions`): pure by convention
-    if (/^use[A-Z]/.test(name)) todos.unshift("which context does this hook read? add uses(<context>) (MO-12b)");
+    const primitive = /^(create|use)[A-Z]/.test(leafName);
+    const config = /^define[A-Z]|[a-z]Options$/.test(leafName);   // a config helper (`defineRoute`, `queryOptions`): pure by convention
+    if (/^use[A-Z]/.test(leafName)) todos.unshift("which context does this hook read? add uses(<context>) (MO-12b)");
     const factory = ret === "Component";
     // MO-11u: a fn that is given a component (as a parameter, or in a record it takes) renders it somewhere: types do
     // not say where, so it is asked
@@ -1052,8 +1063,12 @@ function declare(ts, spec, from, options = {}, how = {}) {
       if (!introduced(alone) && !mode.whole) { fnRows = [alone]; todos = t1; }
       else if (lastRow && !introduced(lastRow)) { fnRows = [lastRow]; todos = t2; }
     }
+    // MO-8t: a method that answers a value is read as one unless its row says `fn`, and a draft never guesses `pure`:
+    // the row is io as drafted, and the question is asked where the name suggests a read
+    if (item.member && /^(get|is|has|peek|read|list|count|find)([A-Z]|$)/.test(leafName) && !(sigs[0].getReturnType().flags & ts.TypeFlags.Void)) todos.push("pure? its name is a read's (get…/is…/has…): if calling it writes nothing, write `pure fn` — as drafted it is io, called from a handler or an action (MO-8t)");
     for (const t of todos) lines.push(`// TODO ${name}: ${t}`);   // on lines of their own: a declaration's line is read to its end
     lines.push(...fnRows);
+    if (!item.member) work.splice(wi + 1, 0, ...methodsOf(name, t));   // MO-8t: a fn's own methods (`toast.success`), each a row
   }
   // what types cannot show, for a library rx-declare has been checked against (known.js): its rows for the exports
   // the installed version has, in place of the drafted ones
@@ -1062,7 +1077,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
     const v = require("./versions.js").installed(pkg, from);
     if (v && require("./versions.js").satisfies(v, known.range)) {
-      const exportedAs = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
+      const exportedAs = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/m.exec(l)?.[1];   // (a row may have its question on the line before it)
       const has = new Set(checker.getExportsOfModule(mod).map(s0 => s0.name));
       const took = [];
       for (const [name, row] of Object.entries(known.rows ?? {})) {
@@ -1072,9 +1087,9 @@ function declare(ts, spec, from, options = {}, how = {}) {
       }
       for (const [name, w] of Object.entries(known.words ?? {})) {
         const i = lines.findIndex(l => exportedAs(l) === name); if (i < 0) continue;
-        let l = lines[i]; if (w.drop) l = l.replace(new RegExp(`\\s+${w.drop}$`), ""); if (w.pure) l = l.replace(/^export fn /, "export pure fn "); if (w.waits) l = withWaits(l, w.waits); if (w.after) l = `${l} ${w.after}`;
+        let l = lines[i]; if (w.drop) l = l.replace(new RegExp(`\\s+${w.drop}$`), ""); if (w.pure) l = l.replace(/^export fn /m, "export pure fn "); if (w.waits) l = withWaits(l, w.waits); if (w.after) l = `${l} ${w.after}`;
         lines[i] = l; took.push(name);
-        for (let j = lines.length - 1; j >= 0; j--) if (lines[j].startsWith(`// TODO ${name}:`)) lines.splice(j, 1);
+        for (let j = lines.length - 1; j >= 0; j--) if (lines[j].startsWith(`// TODO ${name}:`) && !lines[j].includes("\n")) lines.splice(j, 1);   // (a question written on its row's own element stays with the row: it asks something else)
       }
       if (took.length) {
         out.push(`// Known of ${pkg} ${known.range} (what its types cannot show, checked by running it): ${took.join(", ")}.`);

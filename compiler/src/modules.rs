@@ -469,12 +469,99 @@ impl Loader<'_> {
             st.push(path.to_string());
             self.visit(&to, &st)?;
         }
+        name_methods(&mut p, &self.declarations, path, &mut self.diags);
         self.programs.insert(path.to_string(), p);
         self.sources.insert(path.to_string(), src);
         self.state.insert(path.to_string(), State::Done);
         self.order.push(path.to_string());
         Ok(())
     }
+}
+
+/// MO-8t (2026-11-25): a method a declaration gives a row of its own — `export fn toaster.show(…)` beside `export const
+/// toaster` — is named by that row wherever the module writes it: `toaster.show` (no `?.`) becomes the name
+/// `toaster.show`, which the checker, the emitter and the projection then read as they read any declared fn's. Done once,
+/// as the module is loaded, so every reader has the same tree. A module that binds the object's name again (a parameter,
+/// a local, a loop's variable) would have its methods' rows applied to something else: refused, by the name as written.
+pub fn name_methods(p: &mut Program, declarations: &IndexMap<String, Vec<JsDecl>>, file: &str, diags: &mut Vec<Diagnostic>) {
+    let mut names: indexmap::IndexSet<String> = indexmap::IndexSet::new();
+    let mut lines: IndexMap<String, usize> = IndexMap::new();
+    for d in &p.decls {
+        let Decl::Import { names: ns, declared: Some(dts), line, .. } = d else { continue };
+        for crate::ast::ImportName { name, alias } in ns {
+            let prefix = format!("{name}.");
+            for x in declarations.get(dts).map(|v| v.as_slice()).unwrap_or(&[]) {
+                if let JsDecl::Fn { name: n, .. } = x {
+                    if n.starts_with(&prefix) {
+                        names.insert(format!("{}{}", alias, &n[name.len()..]));
+                        lines.entry(alias.clone()).or_insert(*line);
+                    }
+                }
+            }
+        }
+    }
+    if names.is_empty() {
+        return;
+    }
+    const BINDERS: [&str; 12] = ["source", "eq", "fn", "component", "action", "server", "error", "context", "typedecl", "let", "for", "mfor"];
+    fn binds(v: &serde_json::Value, bases: &IndexMap<String, usize>, again: &mut std::collections::BTreeSet<String>) {
+        match v {
+            serde_json::Value::Array(xs) => xs.iter().for_each(|x| binds(x, bases, again)),
+            serde_json::Value::Object(o) => {
+                let k = o.get("k").and_then(|k| k.as_str());
+                for b in bases.keys() {
+                    let is = |key: &str| o.get(key).and_then(|x| x.as_str()) == Some(b.as_str());
+                    if k.is_some_and(|k| BINDERS.contains(&k)) && is("name") {
+                        again.insert(b.clone());
+                    }
+                    if o.get("params").and_then(|x| x.as_array()).is_some_and(|ps| ps.iter().any(|x| x.as_str() == Some(b.as_str()) || x.get("name").and_then(|n| n.as_str()) == Some(b.as_str()))) {
+                        again.insert(b.clone());
+                    }
+                    if k == Some("component") && is("props") {
+                        again.insert(b.clone());
+                    }
+                    if is("errName") || is("catchName") {
+                        again.insert(b.clone());
+                    }
+                    if k == Some("draft") && b == "d" {
+                        again.insert(b.clone());
+                    }
+                }
+                o.values().for_each(|x| binds(x, bases, again));
+            }
+            _ => {}
+        }
+    }
+    let mut again = std::collections::BTreeSet::new();
+    binds(&p.to_json(), &lines, &mut again);
+    for b in &again {
+        let prefix = format!("{b}.");
+        let m = names.iter().find(|n| n.starts_with(&prefix)).cloned().unwrap_or_default();
+        diags.push(Diagnostic {
+            code: "SHADOWED_IMPORT".into(),
+            rule: "MO-8t".into(),
+            line: lines[b] as i64,
+            file: Some(file.to_string()),
+            msg: format!("{b} is bound again in this module (a declaration, a parameter, a local or a loop's variable of that name), and {b}'s declaration gives its methods rows of their own ({m}): a second {b} would have them read off something else — rename one (`import {{ {b} as … }}`)"),
+        });
+    }
+    fn chain(e: &Expr) -> Option<String> {
+        match &e.k {
+            ExprKind::Id(n) => Some(n.clone()),
+            ExprKind::Member { o, p, opt: false } => chain(o).map(|o| format!("{o}.{p}")),
+            _ => None,
+        }
+    }
+    crate::ast::exprs_mut(p, &mut |e: &mut Expr| {
+        if !matches!(e.k, ExprKind::Member { .. }) {
+            return;
+        }
+        if let Some(n) = chain(e) {
+            if names.contains(&n) && !again.contains(n.split('.').next().unwrap_or_default()) {
+                e.k = ExprKind::Id(n);
+            }
+        }
+    });
 }
 
 /// Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or `None` when there is none.
@@ -956,6 +1043,72 @@ mod tests {
         let words: Vec<(Option<String>, bool)> = ds.iter().filter_map(|d| if let crate::parse::JsDecl::Fn { renders, instantiates, .. } = d { Some((renders.clone(), *instantiates)) } else { None }).collect();
         assert_eq!(words, [(Some("Toast.List".to_string()), false), (Some("Toast.List".to_string()), true)]);
     }
+    /// MO-8t (2026-11-25): `export fn toaster.show(…)` beside `export const toaster` (or beside `export fn toast`): a fn's
+    /// row, word for word; the call `toaster.show(x)` is a call of that fn. A method with no row is read by its type (a
+    /// declared value's, as a declared result's), and a method of an io import is io.
+    #[test]
+    fn a_method_of_a_declared_value_has_a_row_of_its_own() {
+        const KIT: &str = "export context region\nexport error Refused\nexport component Toaster(props: {}) uses(region)\nexport component Region(props: { children?: View }) provides(region)\nexport const toaster: { show(c: Component): number; dismiss(id: number): void; count(): number; flush(): Promise<void>; \"odd-name\"?(): void; get<T>(k: string): T }\nexport fn toaster.show(c: Component): number renders(Toaster)\nexport fn toast(m: string): number\nexport fn toast.success(m: string): number\nexport pure fn toast.history(): string[]\nexport pure fn toast.load(id: string): Promise<string> rejects(Refused)\n";
+        let load = |main: &str| {
+            let fs = vec![("/app/kit.d.rx".to_string(), KIT.to_string()), ("/app/main.rx".to_string(), format!("import {{ toaster, toast, Toaster, Region }} from \"./kit.js\"\n{main}"))];
+            let read = move |p: &str| fs.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+            load_modules("/app/main.rx", &read).unwrap()
+        };
+        let diags = |main: &str| -> Vec<String> { crate::check::check_modules_hosts(&load(main), false, false, &[]).diags.iter().map(|d| format!("{}@{}", d.code, d.line)).collect() };
+        let app = |body: &str| format!("export default component App() {{\n{body}}}\n");
+        let none: [&str; 0] = [];
+        // a pure method anywhere, an io one from a handler; a method with no row that answers a value is a read
+        assert_eq!(diags(&app("  past = toast.history()\n  <button onClick={() => { toast.success(\"a\") }}>{past.length}{toaster.count()}{toaster.get(\"k\")}</button>\n")), none);
+        // the row says `fn`: io
+        assert_eq!(diags(&app("  <p>{toast.success(\"a\")}</p>\n")), ["IO_IN_REACTIVE@3"]);
+        // called where the handler is given
+        assert_eq!(diags(&app("  <button onClick={toast.success(\"a\")}>x</button>\n")), ["IO_IN_REACTIVE@3"]);
+        // no row: its type answers nothing (a method written `m(): void`, as a field `m: () => void` is)
+        assert_eq!(diags(&app("  <p>{toaster.dismiss(1)}</p>\n")), ["IO_IN_REACTIVE@3"]);
+        // … or a promise
+        assert_eq!(diags(&app("  <p>{toaster.flush()}</p>\n")), ["IO_IN_REACTIVE@3"]);
+        // no row, of a declared `fn`: io as its object is
+        assert_eq!(diags(&app("  <p>{toast.dismiss(1)}</p>\n")), ["IO_IN_REACTIVE@3"]);
+        // a method's `rejects(E)`
+        assert_eq!(diags(&app("  v = await toast.load(\"1\")\n  <p>{v}</p>\n")), ["UNHANDLED_FAILURE@4"]);
+        // `renders(Toaster)` on the method: the component is checked beneath <Toaster>
+        const SAVED: &str = "context accent: string\ncomponent Saved() {\n  <i class={use accent}>s</i>\n}\n";
+        assert_eq!(diags(&format!("{SAVED}{}", app("  provide accent = \"x\"\n  <button onClick={() => { toaster.show(Saved) }}>x</button>\n  <Region><Toaster /></Region>\n"))), none);
+        assert_eq!(diags(&format!("{SAVED}{}", app("  <button onClick={() => { toaster.show(Saved) }}>x</button>\n  <Region><Toaster /></Region>\n"))), ["CONTEXT_NOT_FOUND@7"]);
+        // the object's name bound again
+        assert_eq!(diags(&app("  <ul>{for toast in [\"a\"] { <li>{toast}</li> }}</ul>\n")), ["SHADOWED_IMPORT@1"]);
+        // a method of an import with no declaration is io as the import is; of a `pure` import, pure
+        {
+            let read = |p: &str| (p == "/app/main.rx").then(|| "import { notify } from \"./undeclared.js\"\nimport pure { read } from \"./undeclared.js\"\nexport default component App() {\n  <p>{notify.success(\"a\")}{read.all()}</p>\n}\n".to_string());
+            let d: Vec<String> = crate::check::check_modules_hosts(&load_modules("/app/main.rx", &read).unwrap(), false, false, &[]).diags.iter().map(|d| format!("{}@{}", d.code, d.line)).collect();
+            assert_eq!(d, ["IO_IN_REACTIVE@4"]);
+        }
+        // the loader names each mention by its row: the callee is the name `toaster.show`; a method with no row stays a member
+        {
+            let set = load(&app("  <button onClick={() => { toaster.show(Toaster); toaster.dismiss(1) }}>x</button>\n"));
+            let text = set.programs["/app/main.rx"].to_json().to_string();
+            assert_eq!([text.contains("{\"k\":\"id\",\"name\":\"toaster.show\"}"), text.contains("\"p\":\"dismiss\""), text.contains("\"p\":\"show\"")], [true, true, false]);
+        }
+        // the rows: one step from a `const` or a `fn` the same file declares
+        for (bad, why) in [
+            ("export fn toaster.show(c: Component): number\n", "declares no const or fn toaster"),
+            ("export component Toast(props: {})\nexport fn Toast.show(): void\n", "declares no const or fn Toast"),
+            ("export const a: {}\nexport fn a.b.c(): void\n", "one step"),
+            ("export const a: {}\nexport fn a.b(): void\nexport fn a.b(): void\n", "declared again"),
+            ("export const a: {}\nexport pure fn a.b(draft xs: number[]): void\n", "not `pure`"),
+        ] {
+            let msg = parse_declarations(bad).err().map(|e| e.0).unwrap_or_default();
+            assert!(msg.contains(why), "{bad}: {msg}");
+        }
+        let rows: Vec<(String, bool, Option<String>, Option<Vec<String>>)> = parse_declarations(KIT).unwrap().iter().filter_map(|d| if let JsDecl::Fn { name, pure, renders, rejects, .. } = d { Some((name.clone(), *pure, renders.clone(), rejects.clone())) } else { None }).collect();
+        assert_eq!(rows, [("toaster.show".to_string(), false, Some("Toaster".to_string()), None), ("toast".to_string(), false, None, None), ("toast.success".to_string(), false, None, None), ("toast.history".to_string(), true, None, None), ("toast.load".to_string(), true, None, Some(vec!["Refused".to_string()]))]);
+        // a method in a record type is the field it is
+        let t = "{ go(to: string): void; get<T>(k: string): T; plain: number; \"q\"?(): Promise<void>; readonly ro(a: { x: (n: number) => void }): string }";
+        let step = |f: &str| crate::check::ty_step(t, &crate::check::TStep::Field(f.to_string()));
+        assert_eq!([step("go"), step("get"), step("plain"), step("q"), step("ro"), step("none")], [Some("(to: string) => void".to_string()), Some("(k: string) => T".to_string()), Some("number".to_string()), Some("() => Promise<void>".to_string()), Some("(a: { x: (n: number) => void }) => string".to_string()), None]);
+    }
+
+
     /// MO-11c (2026-11-24): a JS component's prop whose declared type holds a `Component` inside a record or an array takes
     /// the components written in the literal it is given, each applied among the application's children.
     #[test]

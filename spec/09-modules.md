@@ -1019,6 +1019,126 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   (`ReturnType<Parameters<typeof f<TData>>[0]>`); TypeScript holds the
   reading, or the row is the one it was.
 
+- **MO-8t (A method of a declared value) — accepted 2026-11-25 (MO-8r).**
+  `export fn toaster.show(toast: Component<…>): number renders(Toast.List)`,
+  written beside `export const toaster: …` — or beside `export fn
+  toast(…)`, for a function that has methods of its own (`export fn
+  toast.success(message: string): number`). It is a fn's row, word for
+  word: `fn` or `pure fn`, `server`/`client`, `ref`, `draft` and
+  `handler` on its parameters, `rejects(E)`, `instantiates`, `uses(c)`,
+  `renders(H)`. **No word is added**: the form is a fn's row whose name
+  takes one step from a value the same file declares.
+  - *What it is to the checker.* The call `toaster.show(x)` is a call of
+    the declared fn `toaster.show`, and everything a declared fn's call
+    is: io or pure where it is written (R-io-3, 02 SC-4), its callbacks
+    (MO-10g), a draft given to it (MO-10i), the components it is given
+    (MO-11s, MO-11u), what it rejects with (R-f-8), a disposer it hands
+    back (EF-5a). Nothing is a rule of its own. The module's loader names
+    each mention by its row — the member `toaster.show` (written with
+    `.`, not `?.`) becomes the name `toaster.show` — once, as the module
+    is read, so the two checkers, the two emitters and the projection
+    read one tree; a compiled call is the method called on its object
+    (`toaster.show(…)`, `this` kept), and TypeScript types it from the
+    library's own declaration.
+  - *The object's name is the import's alone.* A module that binds the
+    name again — a parameter, a local, a loop's variable, a declaration
+    in a nested block — would have the methods' rows read off something
+    else: `SHADOWED_IMPORT`, by the name as written (MO-1d refuses a
+    declaration that shadows an import; this is the same refusal for
+    every binder, and only for an import whose methods have rows).
+  - *One step.* `fn a.b.c(…)` is refused: an object's own methods, not a
+    path into a library. A row whose object the file does not declare a
+    `const` or a `fn` is refused, and so is a second row for one method
+    (an export has one row, MO-8b; a method too).
+  - *A method with no row* is read as far as the declarations say, with
+    two readings that were missing (each found on the way, each a
+    mistake accepted in silence until 2026-11-25):
+    1. **A declared value's type is read as a declared result's is**
+       (MO-10b's evidence, "wherever a type is declared"): `export const
+       client: { invalidate(key: string): void }` — `client.invalidate()`
+       answers nothing and is io; one that answers a promise starts
+       work; one that answers a value is a read. A `const`'s methods
+       were never io, whatever its type said. And **a method written as
+       a method** (`navigate(to: string): Promise<void>`, the form
+       TypeScript prints for an interface's) is the field it is: it was
+       read as a field named `navigate(to` and told nothing, for a
+       declared result, a component's props and a context's type alike.
+    2. **A method of an io import is io**: an import with no declaration
+       is io (R-io-4), a declared `fn` is io, and so is what is called on
+       it — `notify.success("saved")` in a view was accepted, where
+       `notify("saved")` was `IO_IN_REACTIVE`. A `pure` import's method
+       is pure; a declared value's is read by its type.
+  - *Why a row, when a type is read.* The type says what a method
+    answers, not what it does: `toaster.show(…)` answers the toast's id,
+    `toast.success(…)` too, `query.delete(key)` a boolean,
+    `overlays.mount(…)` a string — each is io and answers a value, which
+    by its type alone is a read. And no type says where a component
+    given to a method is rendered, that a callback is called later, or
+    what a promise rejects with. Those are a fn's words, and the method
+    is a fn.
+
+  *The bar (MO-8r), applied (2026-11-25).* The narrow form — a method
+  row for `renders(H)` alone — was put to it on 2026-11-24 and not
+  taken: of the two libraries named, the word was true of one. The form
+  judged here is the row itself, with every word a fn has, and the
+  count is of the libraries whose API is an object's methods. Surveyed
+  with TypeScript's checker over every package of the benchmark's
+  workspace (each export whose type has function-typed members of the
+  library's own, classes and components aside), then run:
+
+  | library (its release) | the export | methods, and what each answers | run on Solid 2.0.2's development build, the method called while a view computes |
+  | --- | --- | --- | --- |
+  | `@kobalte/core` 2.0.0-alpha.5 (`/toast`) | `toaster`, an object | `show` → the toast's id, given a component; `update`, `promise`; `dismiss`, `clear` | throws Solid's `REACTIVE_WRITE_IN_OWNED_SCOPE` |
+  | `solid-sonner` 1.0.0 | `toast`, a function | `success`, `error`, `info`, `warning`, `message`, `loading`, `custom` → an id; `promise`; `dismiss`; `getToasts`, `getHistory` | no error: one more toast each time the computation runs (three after two changes) |
+  | `@ui-sdk/solid` 0.1.0-beta.13 | `toast`, a function; `overlays`; `shortcuts` | `toast.success`… → a string; `overlays.mount` → a string; `shortcuts.register` → a disposer | no error: one more toast each time |
+  | `@solidjs/router` 2.0.1 | `query`, a function | `get`; `set`, `clear` → nothing; `delete` → a boolean | no error: the cache cleared on every computation |
+  | `@solid-primitives/storage` 2.x | `cookieStorage`, an object | `getItem`; `setItem`, `removeItem` → nothing | (not run) |
+  | `@tanstack/solid-query` 6.0.0-rc.6 | `focusManager`, `onlineManager`, `notifyManager`, `timeoutManager` | `setFocused`, `setOnline` → nothing; `subscribe` → a disposer | (not run) |
+
+  Six libraries by five authors export such an object; four were run.
+  *Necessary*, on both counts of the bar. A mistake Solid programs make
+  could not be refused: a toast shown, a cache cleared, while a view
+  computes — both checkers accepted each of the four, declared or not,
+  and in three of them nothing at run time says so either. And a
+  correct program could not be written: a component given to
+  `toaster.show` was `COMPONENT_AS_VALUE`, with no row to say where it
+  renders. The way out the bar names — a module of the app's own that
+  hands the method out as a function — is what every app then wrote
+  (`bench/tasks/kobalte-toast` had one, three lines and a declaration),
+  and it is not what the libraries' documentation writes: the shim
+  existed for the notation, not for the program. It is gone from the
+  benchmark. *More than one library*: six.
+  It carries no package's rule (08 CN-8): the checker reads a fn's row.
+  `solid-sonner`'s `toast.custom(fn)` keeps no `renders(…)`: it calls
+  `fn` with no owner at all (MO-11s), and its row says `fn` and nothing
+  more — true of it, and enough to refuse it in a view.
+
+  *What it does not reach.* A method of a value the *program* makes —
+  `router.navigate(…)`, a query client's `invalidateQueries(…)`, a
+  table's `nextPage()`, `Route.useLoaderData()` — is no export, and has
+  no row: it is read by its declared type (the first reading above,
+  which a method written as a method now has). One that is io and
+  answers a value (`queryClient.setQueryData(…)`) is therefore read as
+  a value still, as MO-10b has ruled since 2026-11-22; a row for a
+  result's method would be a second form (a name is not enough to say
+  which result), asked of no program here, and is not taken.
+
+  `rx-declare` drafts a row for each method of an exported object or
+  function that the library's own types declare (not what every
+  function, array or string has), after its object's row, io as drafted
+  — a draft never guesses `pure`, and asks where the name reads as one
+  (`get…`, `is…`, `has…`). `known.js` says `renders(Toast.List)` of
+  Kobalte's `toaster.show`. `rx-verify` runs a method's row as a fn's,
+  called on its object. The projection to a `.d.ts` (TY-4b) writes a
+  value's methods into its type and a fn's into the namespace TypeScript
+  merges with it; TY-6 holds each row to the library's member.
+  Executable: S-module-42; the unit
+  `a_method_of_a_declared_value_has_a_row_of_its_own` in both; the
+  tree-sitter corpus's *a method of a value the file declares*;
+  `bench/tasks/kobalte-toast` (the library's own `toaster`, twelve
+  variants), `bench/coverage/solid-sonner/toaster`,
+  `bench/coverage/ui-sdk/toast`, `bench/tasks/router-data`.
+
 ## MO-9 — A signature read in place of its module
 
 - **MO-9a.** `import … from "./x.rx"` where there is no `x.rx` but there is

@@ -369,6 +369,215 @@ pub struct Program {
     pub legacy_view: Option<bool>,
 }
 
+// ---------------------------------------------------------------- every expression of a program, to change in place
+
+/// Calls `f` on every expression of the program, each before the expressions inside it (as `f` left it). What the
+/// loader uses to name a method by its declaration's row (09 MO-8t).
+pub fn exprs_mut(p: &mut Program, f: &mut dyn FnMut(&mut Expr)) {
+    decls_mut(&mut p.decls, f);
+    markups_mut(&mut p.view, f);
+}
+fn expr_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
+    f(e);
+    match &mut e.k {
+        ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } => {}
+        ExprKind::Bin { l, r, .. } => {
+            expr_mut(l, f);
+            expr_mut(r, f);
+        }
+        ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => expr_mut(e, f),
+        ExprKind::Pre { init, .. } => {
+            if let Some(i) = init {
+                expr_mut(i, f);
+            }
+        }
+        ExprKind::Await { e, init, .. } => {
+            expr_mut(e, f);
+            if let Some(i) = init {
+                expr_mut(i, f);
+            }
+        }
+        ExprKind::If { c, t, f: g } => {
+            expr_mut(c, f);
+            expr_mut(t, f);
+            expr_mut(g, f);
+        }
+        ExprKind::Tpl(parts) => {
+            for p in parts {
+                if let TplPart::Expr(e) = p {
+                    expr_mut(e, f);
+                }
+            }
+        }
+        ExprKind::Member { o, .. } => expr_mut(o, f),
+        ExprKind::Index { o, i, .. } => {
+            expr_mut(o, f);
+            expr_mut(i, f);
+        }
+        ExprKind::Call { f: g, args, .. } => {
+            expr_mut(g, f);
+            for a in args {
+                expr_mut(a, f);
+            }
+        }
+        ExprKind::Arr(items) => {
+            for x in items {
+                expr_mut(x, f);
+            }
+        }
+        ExprKind::Rec(fields) => {
+            for x in fields {
+                match x {
+                    Field::Kv { v, .. } => expr_mut(v, f),
+                    Field::Spread(e) => expr_mut(e, f),
+                }
+            }
+        }
+        ExprKind::Fn { body, stmts, .. } => {
+            expr_mut(body, f);
+            if let Some(ss) = stmts {
+                stmts_mut(ss, f);
+            }
+        }
+        ExprKind::Draft { seed, body } => {
+            expr_mut(seed, f);
+            stmts_mut(body, f);
+        }
+        ExprKind::Catch { e, alt, .. } => {
+            expr_mut(e, f);
+            expr_mut(alt, f);
+        }
+        ExprKind::ServerFn { body, .. } => stmts_mut(body, f),
+    }
+}
+fn target_mut(t: &mut Target, f: &mut dyn FnMut(&mut Expr)) {
+    for s in &mut t.path {
+        if let PathSeg::Expr(e) = s {
+            expr_mut(e, f);
+        }
+    }
+}
+fn stmts_mut(ss: &mut [Stmt], f: &mut dyn FnMut(&mut Expr)) {
+    for s in ss {
+        match &mut s.k {
+            StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                target_mut(target, f);
+                expr_mut(e, f);
+            }
+            StmtKind::Let { e, .. } | StmtKind::Expr(e) | StmtKind::Throw(e) => expr_mut(e, f),
+            StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
+            StmtKind::Action(body) => stmts_mut(body, f),
+            StmtKind::Sif { c, t, f: g } => {
+                expr_mut(c, f);
+                stmts_mut(t, f);
+                stmts_mut(g, f);
+            }
+            StmtKind::For { e, body, .. } => {
+                expr_mut(e, f);
+                stmts_mut(body, f);
+            }
+            StmtKind::Return(e) => {
+                if let Some(e) = e {
+                    expr_mut(e, f);
+                }
+            }
+            StmtKind::Try { body, handler, fin, .. } => {
+                stmts_mut(body, f);
+                if let Some(h) = handler {
+                    stmts_mut(h, f);
+                }
+                if let Some(h) = fin {
+                    stmts_mut(h, f);
+                }
+            }
+        }
+    }
+}
+fn decls_mut(ds: &mut [Decl], f: &mut dyn FnMut(&mut Expr)) {
+    for d in ds {
+        match d {
+            Decl::Source { init, .. } => expr_mut(init, f),
+            Decl::Eq { e, .. } | Decl::Provide { e, .. } => expr_mut(e, f),
+            Decl::Import { .. } | Decl::TypeDecl { .. } => {}
+            Decl::Error { msg, .. } => {
+                if let Some(m) = msg {
+                    expr_mut(m, f);
+                }
+            }
+            Decl::Effect { inputs, body, .. } => {
+                for i in inputs {
+                    expr_mut(i, f);
+                }
+                stmts_mut(body, f);
+            }
+            Decl::Fn { decls, tail, .. } => {
+                decls_mut(decls, f);
+                expr_mut(tail, f);
+            }
+            Decl::Component { decls, view, .. } => {
+                decls_mut(decls, f);
+                markups_mut(view, f);
+            }
+            Decl::Action { body, .. } | Decl::Server { body, .. } => stmts_mut(body, f),
+            Decl::Context { dflt, .. } => {
+                if let Some(e) = dflt {
+                    expr_mut(e, f);
+                }
+            }
+        }
+    }
+}
+fn markups_mut(ms: &mut [Markup], f: &mut dyn FnMut(&mut Expr)) {
+    for m in ms {
+        match &mut m.kind {
+            MarkupKind::El { attrs, children, .. } => {
+                for a in attrs {
+                    expr_mut(&mut a.e, f);
+                }
+                markups_mut(children, f);
+            }
+            MarkupKind::Read(e) => expr_mut(e, f),
+            MarkupKind::Text(_) | MarkupKind::Style(_) => {}
+            MarkupKind::Mif { c, t, t_decls, f: g, f_decls } => {
+                expr_mut(c, f);
+                decls_mut(t_decls, f);
+                markups_mut(t, f);
+                decls_mut(f_decls, f);
+                markups_mut(g, f);
+            }
+            MarkupKind::Mfor { xs, decls, body, .. } => {
+                expr_mut(xs, f);
+                decls_mut(decls, f);
+                markups_mut(body, f);
+            }
+            MarkupKind::Mview { decls, body, .. } => {
+                decls_mut(decls, f);
+                markups_mut(body, f);
+            }
+            MarkupKind::Loading { on, fallback, decls, body } => {
+                if let Some(e) = on {
+                    expr_mut(e, f);
+                }
+                markups_mut(fallback, f);
+                decls_mut(decls, f);
+                markups_mut(body, f);
+            }
+            MarkupKind::Errored { fallback, decls, body, .. } => {
+                markups_mut(fallback, f);
+                decls_mut(decls, f);
+                markups_mut(body, f);
+            }
+            MarkupKind::Portal { to, decls, body } => {
+                if let Some(e) = to {
+                    expr_mut(e, f);
+                }
+                decls_mut(decls, f);
+                markups_mut(body, f);
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------- JSON, as JSON.stringify writes the reference's AST
 
 fn obj(pairs: Vec<(&str, Option<Value>)>) -> Value {

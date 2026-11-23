@@ -337,6 +337,11 @@
 (fn_signature
   name: (identifier) @function)
 
+; `export fn toaster.show(…)` (09 MO-8t): a method of a value the file declares
+(fn_signature
+  name: (method_name
+    property: (property_identifier) @function))
+
 (server_function_declaration
   name: (identifier) @function)
 

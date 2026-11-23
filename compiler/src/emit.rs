@@ -30,6 +30,24 @@ const VOID_TAGS: &[&str] = &["area", "base", "br", "col", "embed", "hr", "img", 
 fn mg(n: &str) -> String {
     format!("v${n}")
 }
+/// MO-8t: an import's names, and after each the methods its declaration gives rows of their own (`export fn
+/// toaster.show(…)`): each is bound as a declared fn is, under the name the loader gave its mentions (`toaster.show`),
+/// and written as that member of the import (`v$toaster.show`)
+fn with_methods(names: &[crate::ast::ImportName], ds: Option<&Vec<JsDecl>>) -> Vec<crate::ast::ImportName> {
+    let mut out = vec![];
+    for n in names {
+        out.push(n.clone());
+        let prefix = format!("{}.", n.name);
+        for m in ds.map(|v| v.as_slice()).unwrap_or(&[]) {
+            if let JsDecl::Fn { name, .. } = m {
+                if name.starts_with(&prefix) {
+                    out.push(crate::ast::ImportName { name: name.clone(), alias: format!("{}{}", n.alias, &name[n.name.len()..]) });
+                }
+            }
+        }
+    }
+    out
+}
 /// a component: an uppercase JSX tag
 fn cm(n: &str) -> String {
     format!("V${n}")
@@ -493,8 +511,8 @@ impl<'p> Gen<'p> {
         let decls = self.mod_decls;
         for x in decls {
             match x {
-                Decl::Import { resolved: None, names, from, declared_errors, .. } => {
-                    for n in names {
+                Decl::Import { resolved: None, names, from, declared_errors, declared, .. } => {
+                    for n in &with_methods(names, declared.as_ref().and_then(|dp| self.set.declarations.get(dp))) {
                         if n.name == "log" || builtin(&n.name) {
                             continue;
                         }
@@ -700,7 +718,7 @@ impl<'p> Gen<'p> {
             match d {
                 Decl::Import { resolved: Some(_), .. } => {}
                 Decl::Import { names, side, declared_side, declared, .. } => {
-                    for n in names {
+                    for n in &with_methods(names, declared.as_ref().and_then(|dp| self.set.declarations.get(dp))) {
                         // MO-10a: a declared primitive
                         let x = declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).and_then(|ds| ds.iter().find(|y| y.name() == n.name));
                         if let Some(JsDecl::Fn { params, refs, shape, instantiates: true, drafts, part_drafts, .. }) = x {

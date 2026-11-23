@@ -37,7 +37,7 @@ function exportsOf(text) {
   text.split("\n").forEach((l0, i) => {
     const l = l0.replace(/\/\/.*$/, "");
     let m;
-    if ((m = /^\s*export\s+(?:server\s+|client\s+)?(pure\s+)?fn\s+([A-Za-z_$][\w$]*)(?:<[^(]*>)?\s*\(/.exec(l))) {
+    if ((m = /^\s*export\s+(?:server\s+|client\s+)?(pure\s+)?fn\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)(?:<[^(]*>)?\s*\(/.exec(l))) {
       const close = matching(l, m.index + m[0].length - 1);
       const params = splitTop(l.slice(m.index + m[0].length, close)).map(p => p.trim()).filter(Boolean);
       const after = l.slice(close + 1).replace(/^\s*:\s*/, "");
@@ -174,7 +174,8 @@ async function verifyModule(file, base, js) {
   const dir = path.dirname(path.resolve(js));
   const { createRoot } = await import(pathToFileURL(require.resolve("solid-js", { paths: [path.dirname(path.resolve(js))] })).href);
   const out = [];
-  const at = n => n.split(".").reduce((o, k) => o?.[k], mod);   // MO-11q: `Dialog.Trigger` is a member of `Dialog`
+  // MO-11q: `Dialog.Trigger` is a member of `Dialog`. MO-8t: and `toaster.show` a method of `toaster`, called on it
+  const at = n => { const ks = n.split("."); let o = mod, of; for (const k of ks) { of = o; o = o?.[k]; } return ks.length > 1 && typeof o === "function" && !/^[A-Z]/.test(ks[ks.length - 1]) ? o.bind(of) : o; };
   // each row as one line, at the line it starts on, as the crate's parser spans it: a claim on a row's later line (a props
   // record broken over lines, then `provides(theme)`) is read as the row's
   const text = require("../src/strict.js").rowText(file);

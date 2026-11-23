@@ -307,12 +307,19 @@ module.exports = grammar(tsx, {
       optional(field('side', $.side)),
       optional($.pure),
       'fn',
-      field('name', $._binding_name),
+      field('name', choice($._binding_name, $.method_name)),   // MO-8t: `fn toaster.show(…)`, a method of a value the file declares
       optional(field('type_parameters', $.type_parameters)),
       field('parameters', $.formal_parameters),
       optional(field('return_type', $.type_annotation)),
       repeat($._signature_row),
       choice($._semicolon, $._function_signature_automatic_semicolon),
+    ),
+
+    // `toaster.show`, `toast.success` (MO-8t): one step from a `const` or a `fn` the same file declares
+    method_name: $ => seq(
+      field('object', $.identifier),
+      '.',
+      field('property', alias($.identifier, $.property_identifier)),
     ),
 
     _signature_row: $ => choice(

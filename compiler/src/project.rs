@@ -263,28 +263,50 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
         format!("{{ {} }}", ms.join(" "))
     };
     let objects: Vec<String> = members.keys().filter(|h| !decls.iter().any(|d| matches!(d, JsDecl::Comp { name, .. } if name == *h))).map(|h| format!("export declare const {h}: {};", object_of(h))).collect();
+    // MO-8t: `export fn toaster.show(…)` — a method of a declared value, a member of that value's type; of a declared fn,
+    // a function of the namespace TypeScript merges with it
+    let sig_of = |d: &JsDecl| -> (String, String, String) {
+        let JsDecl::Fn { params, ptypes, ret, tparams, refs, shape, opts, .. } = d else { unreachable!() };
+        // MO-10a: a `ref` parameter is an accessor in JS; MO-8e: an optional one is `?`
+        let ps = params.iter().enumerate().map(|(i, n)| {
+            let o = if opts.get(i).copied().unwrap_or(false) { "?" } else { "" };
+            match (refs.get(i).copied().unwrap_or(false), ptypes.get(i).and_then(|t| t.as_ref())) {
+                (true, t) => format!("{n}{o}: (() => {})", t.map(String::as_str).unwrap_or("any")),
+                (false, Some(t)) => format!("{n}{o}: {t}"),
+                (false, None) if !o.is_empty() => format!("{n}?: any"),
+                (false, None) => n.clone(),
+            }
+        });
+        (tparams.clone().unwrap_or_default(), ps.collect::<Vec<_>>().join(", "), accessor_result(ret.as_ref(), shape))
+    };
+    let methods_of = |h: &str| -> Vec<&JsDecl> { decls.iter().filter(|d| matches!(d, JsDecl::Fn { name, .. } if name.split_once('.').is_some_and(|(b, _)| b == h))).collect() };
     head.into_iter()
         .chain(objects)
-        .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. }) && !matches!(d, JsDecl::Comp { name, .. } if name.contains('.'))).map(|d| match d {
+        .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. }) && !matches!(d, JsDecl::Comp { name, .. } | JsDecl::Fn { name, .. } if name.contains('.'))).map(|d| match d {
             JsDecl::Comp { name, props, tparams, props_type, .. } if members.contains_key(name) => format!("export declare const {name}: ({}) & {};", fn_of(props, tparams, props_type), object_of(name)),
             JsDecl::Comp { name, props, tparams, props_type, .. } => format!("export declare function {name}{}(props: {}): View;", tparams.as_deref().unwrap_or(""), props_text(props, props_type, false)),
             JsDecl::Type { text, .. } => format!("export {text}"),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
-            JsDecl::Fn { name, params, ptypes, ret, tparams, refs, shape, opts, .. } => {
-                // MO-10a: a `ref` parameter is an accessor in JS; MO-8e: an optional one is `?`
-                let ps = params.iter().enumerate().map(|(i, n)| {
-                    let o = if opts.get(i).copied().unwrap_or(false) { "?" } else { "" };
-                    match (refs.get(i).copied().unwrap_or(false), ptypes.get(i).and_then(|t| t.as_ref())) {
-                        (true, t) => format!("{n}{o}: (() => {})", t.map(String::as_str).unwrap_or("any")),
-                        (false, Some(t)) => format!("{n}{o}: {t}"),
-                        (false, None) if !o.is_empty() => format!("{n}?: any"),
-                        (false, None) => n.clone(),
-                    }
-                });
-                format!("export declare function {name}{}({}): {};", tparams.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), accessor_result(ret.as_ref(), shape))
+            JsDecl::Fn { name, .. } => {
+                let (tp, ps, ret) = sig_of(d);
+                let ms = methods_of(name);
+                let ns = if ms.is_empty() { String::new() } else { format!("\nexport declare namespace {name} {{ {} }}", ms.iter().map(|m| { let (tp, ps, ret) = sig_of(m); format!("function {}{tp}({ps}): {ret};", &m.name()[name.len() + 1..]) }).collect::<Vec<_>>().join(" ")) };
+                format!("export declare function {name}{tp}({ps}): {ret};{ns}")
             }
             JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => unreachable!(), // MO-12a, MO-14: filtered above
-            JsDecl::Value { name, ty, .. } => format!("export declare const {name}: {};", ty.as_deref().unwrap_or("any")), // MO-8g
+            JsDecl::Value { name, ty, .. } => {
+                // MO-8g; MO-8t: with the methods its declaration gives rows
+                let ms = methods_of(name);
+                if ms.is_empty() {
+                    format!("export declare const {name}: {};", ty.as_deref().unwrap_or("any"))
+                } else {
+                    let obj = ms.iter().map(|m| { let (tp, ps, ret) = sig_of(m); format!("{}: {tp}({ps}) => {ret};", &m.name()[name.len() + 1..]) }).collect::<Vec<_>>().join(" ");
+                    match ty.as_deref() {
+                        Some(t) => format!("export declare const {name}: ({t}) & {{ {obj} }};"),
+                        None => format!("export declare const {name}: {{ {obj} }};"),
+                    }
+                }
+            }
         }))
         .collect::<Vec<_>>()
         .join("\n")

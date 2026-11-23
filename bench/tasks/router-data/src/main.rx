@@ -1,9 +1,10 @@
 // A person's page on @solidjs/router 2.0's data layer: the person is a `query()` the page reads (cached per id, asked
 // again after a mutation), promoting them is a form action, its settled submissions are read with `useSubmissions`,
-// and a button asks the query again by its key (`revalidate`).
+// a button asks the query again by its key (`revalidate`), and another empties the cache (`query.clear()`, a method of
+// the library's `query`): the next visit asks.
 // (Router 2.0 has no `createAsync` and no `useSubmission`: a query is read with Solid's own primitives — here, an
 // equation that awaits it — and submissions are the settled history, `useSubmissions`.)
-import { createRouter, defineRoute, useSubmissions, revalidate } from "@solidjs/router"
+import { createRouter, defineRoute, useSubmissions, revalidate, query } from "@solidjs/router"
 import { getPerson, promoteForm, NotFound } from "./people.js"
 
 component Layout(props: { children?: View }) {
@@ -25,6 +26,7 @@ component Person(props: { params: { id: string } }) {
   </form>
   <p class="result">{last != null && last.result != null ? last.result : ""}</p>
   <button class="again" onClick={() => { revalidate("person") }}>ask again</button>
+  <button class="forget" onClick={() => { query.clear() }}>forget</button>
 }
 
 Router = createRouter({ routes: [

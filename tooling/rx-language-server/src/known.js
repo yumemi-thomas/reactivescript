@@ -43,13 +43,14 @@ module.exports = {
       useSubmissions: "export pure fn useSubmissions<T extends unknown[], U, V>(fn_: import(\"@solidjs/router\").FormAction<T, U, V>, filter?: (input: V) => boolean): { input: V; result?: unknown; error: unknown }[] uses(router)",
     },
   },
-  // a toaster: `toast()` is given a message or a component, and <Toaster> renders it (MO-11u). `toast.custom(fn)` is a
-  // member, and no row: it calls `fn` with no owner at all (run: `getOwner()` is null in it; in Solid's development build
-  // `useContext` throws NoOwnerError there, MO-11s)
+  // a toaster: `toast()` is given a message or a component, and <Toaster> renders it (MO-11u). Its methods have rows of
+  // their own (MO-8t), each io as drafted; `toast.custom(fn)` keeps no word: it calls `fn` with no owner at all (run:
+  // `getOwner()` is null in it; in Solid's development build `useContext` throws NoOwnerError there, MO-11s)
   "solid-sonner": { range: ">=1.0.0 <2.0.0", words: { toast: { after: "renders(Toaster)" } } },
   // Kobalte's toast: the region provides what the list and a toast read, a toast what its parts read (each part throws
-  // rendered alone, and renders inside: run). Its `toaster.show(component)` is a method of an object, which no row
-  // declares: an app hands it out from a module of its own, with the parts, and says `renders(Toast.List)` there
+  // rendered alone, and renders inside: run). Its `toaster.show(component)` is a method of an object, with a row of its
+  // own since 2026-11-25 (09 MO-8t): the list renders the component it is given (run: getOwner() is the list's, and a
+  // context provided above the list is read; bench/tasks/kobalte-toast)
   "@kobalte/core/toast": {
     range: ">=2.0.0-alpha.0 <3.0.0",
     contexts: ["toastRegion", "toast"],
@@ -58,9 +59,9 @@ module.exports = {
       Title: { after: "uses(toast)" }, Description: { after: "uses(toast)" }, CloseButton: { after: "uses(toast)" }, ProgressTrack: { after: "uses(toast)" }, ProgressFill: { after: "uses(toast)" },
       "Toast.Region": { after: "provides(toastRegion)" }, "Toast.List": { after: "uses(toastRegion)" },
       "Toast.Title": { after: "uses(toast)" }, "Toast.Description": { after: "uses(toast)" }, "Toast.CloseButton": { after: "uses(toast)" }, "Toast.ProgressTrack": { after: "uses(toast)" }, "Toast.ProgressFill": { after: "uses(toast)" },
+      "toaster.show": { after: "renders(Toast.List)" },
     },
-    // the method no row declares: a fn of the app's own that hands its argument straight to it renders it beneath the
-    // list (run: getOwner() is the list's, and a context provided above the list is read; bench/tasks/kobalte-toast)
+    // …and a fn of the app's own that hands its argument straight to it carries the same word (MO-8s)
     wraps: { "toaster.show": { renders: "Toast.List" } },
   },
   // accessors that wait for a first value, read off the release's own source: `data` throws Solid's NotReadyError until

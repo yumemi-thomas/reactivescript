@@ -102,6 +102,7 @@ type Sym = {
   eqDecl?: Extract<Decl, { k: "eq" }>;  // a declared equation: a guess may sit over it (AC-3, ST-5c)
   lit?: { ids: Extract<Expr, { k: "id" }>[]; env: Env; line: number; sites: Set<Expr>; exported: boolean };   // MO-11c: bound to a literal of components, read as the literal where it is given to a prop that holds components
   io?: boolean;                        // calling it is io (R-io)
+  constTy?: string;                    // MO-8t: a declared JS value's type (`export const client: { … }`), read a step at a time as a declared result's is
   param?: boolean;                     // a fn's parameter: never a write target (O-4)
   instantiating?: boolean;             // fn with ref params or declarations (E-9)
   params?: { name: string; ref: boolean }[];
@@ -1081,6 +1082,14 @@ class Checker {
         { const vp = x.props.filter(p => p.view).map(p => p.name); if (vp.length) this.viewProps.set(r, new Set(vp)); }   // MO-11t: the props that take a view
         this.bind(env, alias, { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r, ...(this.opts.through?.has(`${d.declared}#${x.name}`) ? { through: true } : {}) });
     };
+    const bindFn = (x: Extract<JsDecl, { kind: "fn" }>, alias: string, name: string, base: boolean) => {
+      // MO-11u: `renders(H)` — H is a component of the same declaration; what H itself uses and provides is above everything it renders
+      const rendersIn = (): Pick<Sym, "rendersIn"> => { if (x.kind !== "fn" || x.renders === undefined) return {}; const h = decls.find(y => y.kind === "comp" && y.name === x.renders); return { rendersIn: { key: `${d.declared}#${x.renders}`, name: x.renders, credit: h?.kind === "comp" ? [...new Set([...jsKeys(h.uses), ...jsKeys(h.provides)])] : [] } }; };
+      if (base && d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
+      if (base && d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.waits ? { waits: x.waits } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.ret } : {}), ...rendersIn() }); return; }   // MO-10a: a primitive is an instantiation (RG-6)
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.pure ? { pureFn: true } : {}), ...(x.kind === "fn" && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...rendersIn(),  ...(generated ? { generated } : {}) });
+    };
     for (const { name, alias } of d.names) {
       const x = decls.find(y => y.name === name);
       // MO-11q: `export component Dialog.Root(…)`: the import's members, each a component named as it is written (`<Dialog.Root>`)
@@ -1089,15 +1098,14 @@ class Checker {
       if (!x && members.length) { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // the object itself: a value
       if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)${generated ? `; ${file} was drafted from ${d.from}'s types (MO-8l): a build redrafts it when they change, or declare ${d.from} in rx-types/${d.from}.d.rx` : ""}`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
       if (x.kind === "type" || x.kind === "context") continue;   // MO-12a: a JS context is named only by its declaration file's rows
-      if (x.kind === "value") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // MO-8g: a value, read as any import, never io
+      if (x.kind === "value") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]), ...(x.type !== undefined ? { constTy: x.type } : {}) });   // MO-8g: a value, read as any import, never io
+        for (const m of decls) if (m.kind === "fn" && m.name.startsWith(name + ".")) bindFn(m, alias + m.name.slice(name.length), m.name, false);   // MO-8t: `export fn toaster.show(…)`, a method of the value, a fn named as it is written
+        continue; }
       if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
       if (x.kind === "comp") { bindComp(x, alias); continue; }   // MO-11a
-      // MO-11u: `renders(H)` — H is a component of the same declaration; what H itself uses and provides is above everything it renders
-      const rendersIn = (): Pick<Sym, "rendersIn"> => { if (x.kind !== "fn" || x.renders === undefined) return {}; const h = decls.find(y => y.kind === "comp" && y.name === x.renders); return { rendersIn: { key: `${d.declared}#${x.renders}`, name: x.renders, credit: h?.kind === "comp" ? [...new Set([...jsKeys(h.uses), ...jsKeys(h.provides)])] : [] } }; };
-      if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
-      if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.waits ? { waits: x.waits } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.ret } : {}), ...rendersIn() }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.pure ? { pureFn: true } : {}), ...(x.kind === "fn" && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...rendersIn(),  ...(generated ? { generated } : {}) });
+      bindFn(x, alias, name, true);
+      // MO-8t: `export fn toast.success(…)` — the fn's own methods, each a fn named as it is written
+      for (const m of decls) if (m.kind === "fn" && m.name.startsWith(name + ".")) bindFn(m, alias + m.name.slice(name.length), m.name, false);
     }
   }
   /** CN-3d: `e` can have no value on the first load: it awaits without a first paint, here or in an equation it reads,
@@ -1875,6 +1883,7 @@ class Checker {
       case "id": {
         const sy = env.lookup(e.name);
         if (sy?.kind === "props") return this.propsTy.get(sy.region);                          // a component's props are what its props type says (2026-11-22)
+        if (sy?.kind === "import" && sy.constTy !== undefined) return sy.constTy;                // MO-8t: a declared value's type says what its function fields answer, as a declared result's does
         if (!sy || (sy.kind !== "eq" && sy.kind !== "value")) return undefined;
         if (sy.retTy !== undefined) return sy.retTy;
         if (sy.rowOf) return step(this.declTy(sy.rowOf.e, sy.rowOf.env, depth + 1), "elem");
@@ -2085,6 +2094,14 @@ class Checker {
   }
   /** MO-10b: a function field whose declared type answers nothing — `() => void`, or a promise of nothing — read off a
    *  declared JS result, a component's props or what a context provides: it is called for what it does. */
+  /** MO-8t (2026-11-25): a method, one step from an import that is io — an undeclared one (R-io-4), or a declared `fn` —
+   *  with no row of its own: it is io as its object is. (A declared value's method is read by its type; a `pure` import's
+   *  is pure; one with a row is that row's fn, by the name the loader gave it.) */
+  private ioMember(f: Expr, env: Env): string | undefined {
+    if (f.k !== "member" || f.o.k !== "id") return undefined;
+    const s = env.lookup(f.o.name);
+    return s?.kind === "import" && s.io ? f.o.name : undefined;
+  }
   private voidMethod(f: Expr, env: Env): boolean {
     if (f.k !== "member" && f.k !== "index") return false;
     const t = this.declTy(f, env); const r = t === undefined ? undefined : tyStep(t, "call");
@@ -2122,6 +2139,7 @@ class Checker {
       if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io ? "IO_IN_REACTIVE" : !s && e.f.name === "log" ? "IO_IN_REACTIVE" : undefined; }
       else if (this.voidMethod(e.f, env)) code = this.providedAction(e.f, env) ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE";
       else if (this.promiseMethod(e.f, env)) code = "IO_IN_REACTIVE";
+      else if (this.ioMember(e.f, env) !== undefined) code = "IO_IN_REACTIVE";
       if (code) this.err(code, "SC-4", `${attr}={${show(e)}} calls ${show(e.f)}(…) while the view computes, and gives the handler what it answers: a handler is a function, called when its event happens — \`${attr}={() => { ${show(e)} }}\``);
     } else if (e.k === "if") { this.handlerCalled(e.t, env, attr); this.handlerCalled(e.f, env, attr); }
     else if (e.k === "bin" && (e.op === "&&" || e.op === "||" || e.op === "??")) { if (e.op !== "&&") this.handlerCalled(e.l, env, attr); this.handlerCalled(e.r, env, attr); }
@@ -2228,6 +2246,12 @@ class Checker {
           if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (its declaration says it answers a promise: calling it starts work); a fn is pure by definition`);
           else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers a promise, so calling it starts work, here on every computation, with nothing waiting for it — call it from a handler or an action; if it only asks, \`await\` it`);
         }
+        // MO-8t: a method of an io import, with no row of its own, is io as its object is
+        { const of = ctx.scope !== "imperative" && !this.voidMethod(e.f, env) && !this.promiseMethod(e.f, env) ? this.ioMember(e.f, env) : undefined;
+          if (of !== undefined) {
+            if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (a method of ${of}, which is io, with no row of its own); a fn is pure by definition`);
+            else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): it is a method of ${of}, which is io (an import with no declaration, or a declared \`fn\`), and has no row of its own — call it from a handler or an action; if it only reads, its declaration says so, \`export pure fn ${show(e.f)}(…)\` (MO-8t)`);
+          } }
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
           if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited");
           const p = e.args[0];
@@ -3181,7 +3205,18 @@ function tyMembers(t: string, present: boolean): string[] { return splitTop(tyCl
 export function tyFields(t: string): [string, string][] | undefined {
   const ms = tyMembers(t, true); if (ms.length !== 1) return undefined; t = ms[0];
   if (!(t.startsWith("{") && t.endsWith("}") && t.length >= 2)) return undefined;
-  return splitTop(t.slice(1, -1), ",;").flatMap(f => { const i = f.indexOf(":"); if (i < 0) return []; const k = f.slice(0, i).trim().replace(/^readonly\s+/, "").replace(/\?$/, "").replace(/^["']|["']$/g, ""); return [[k, f.slice(i + 1).trim()] as [string, string]]; });
+  return splitTop(t.slice(1, -1), ",;").flatMap(f => { const m = tyMethod(f); if (m) return [m]; const i = f.indexOf(":"); if (i < 0) return []; const k = f.slice(0, i).trim().replace(/^readonly\s+/, "").replace(/\?$/, "").replace(/^["']|["']$/g, ""); return [[k, f.slice(i + 1).trim()] as [string, string]]; });
+}
+/** MO-8t (2026-11-25): a member of a record type written as a method, `navigate(to: string): Promise<void>` — the field it
+ *  is, `navigate: (to: string) => Promise<void>`. It was read as a field named `navigate(to` and told nothing. */
+function tyMethod(f: string): [string, string] | undefined {
+  const m = /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*|"[^"]*"|'[^']*')\??\s*(?=[(<])/.exec(f); if (!m) return undefined;
+  let at = m[0].length;
+  if (f[at] === "<") { let depth = 0; for (; at < f.length; at++) { if (f[at] === "<") depth++; else if (f[at] === ">" && f[at - 1] !== "=") { if (--depth === 0) { at++; break; } } } while (f[at] === " ") at++; }
+  if (f[at] !== "(") return undefined;
+  const end = closesAt(f, at); if (end === undefined) return undefined;
+  const rest = f.slice(end + 1).trim(); if (!rest.startsWith(":")) return undefined;
+  return [m[1].replace(/^["']|["']$/g, ""), `${f.slice(at, end + 1)} => ${rest.slice(1).trim()}`];
 }
 /** The declared type one step down, where the text says it: a field of a record type, the result of a function type, the
  *  element of an array type. Undefined: the declaration does not say (`any`, a named type, a union of several). */
