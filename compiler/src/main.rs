@@ -332,7 +332,8 @@ fn main() {
             let target = app::target(opt("--target").as_deref().unwrap_or("dom"));
             let module_name = opt("--module-name").unwrap_or_else(|| "@solidjs/web".into());
             let library = args.iter().any(|a| a == "--lib");   // CP-4d: the entry's exports, for a JS host
-            println!("{}", serde_json::to_string(&app::app_as(&abs(file), target, &module_name, spa, library)).unwrap());
+            let unchecked = args.iter().any(|a| a == "--unchecked");   // MO-14g: for the tool that asks a router's module for its routes
+            println!("{}", serde_json::to_string(&app::app_with(&abs(file), target, &module_name, spa, library, false, &[], unchecked)).unwrap());
         }
         "check" | "model" => {
             let mut bad = 0;

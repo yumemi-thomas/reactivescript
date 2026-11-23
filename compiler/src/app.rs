@@ -37,6 +37,13 @@ pub fn app_as(entry: &str, target: Target, module_name: &str, spa: bool, library
 /// E-5a: `whole`, the program's modules checked as the whole program, with `hosts` the modules a JS host imports with
 /// `?rx-lib` (their exported components are applied by JS).
 pub fn app_whole(entry: &str, target: Target, module_name: &str, spa: bool, library: bool, whole: bool, hosts: &[String]) -> Value {
+    app_with(entry, target, module_name, spa, library, whole, hosts, false)
+}
+/// MO-14g: `unchecked`, the program compiled whatever the checkers say of it (a parse error still refuses) — for the
+/// tool that runs a router's module to ask it for its routes (`rx-declare --host --routes <module.rx>`): the
+/// declaration it writes is what the program is checked by, so it cannot wait for the check. Never a build's.
+#[allow(clippy::too_many_arguments)]
+pub fn app_with(entry: &str, target: Target, module_name: &str, spa: bool, library: bool, whole: bool, hosts: &[String], unchecked: bool) -> Value {
     // module keys are POSIX paths (`modules::join_path`); Windows takes `D:/a/b.rx` as it takes `D:\a\b.rx`
     let entry = &entry.replace('\\', "/");
     // every file the program was read from or looked for (its modules, each declaration and package.json, and where a
@@ -60,7 +67,7 @@ pub fn app_whole(entry: &str, target: Target, module_name: &str, spa: bool, libr
         let hosts: Vec<String> = hosts.iter().map(|h| h.replace('\\', "/")).collect();
         let hosts = crate::modules::hosts_as_keys(&set, &hosts); // E-5a: a host is the module whose real path is its own
         let checked = if whole { crate::check::check_modules_hosts(&set, spa, true, &hosts) } else { check_modules(&set, spa) };
-        if !checked.diags.is_empty() {
+        if !checked.diags.is_empty() && !unchecked {
             return Err(json!({ "diagnostics": checked.diags.iter().map(|d| { let mut j = d.to_json(); if j["file"].is_null() { j["file"] = json!(set.entry); } j }).collect::<Vec<_>>() }));
         }
         let out = compile_linked_as(&set, &[], true, library).map_err(|e| json!({ "error": format!("{entry}: not compiled: {}", e.0) }))?;

@@ -31,6 +31,9 @@ pub struct ModuleSet {
     pub host: Option<Box<HostView>>,
     /// MO-14f: in the host's own set — the JS components the host renders through, `declaration#Name`
     pub through: HashSet<String>,
+    /// MO-14h: in the program's set and the host's — the JS components the declaration says the host renders through,
+    /// for a fn's `renders(H)`
+    pub under: HashSet<String>,
     /// MO-14: the modules the host's declaration imports
     pub hosted: HashSet<String>,
     /// MO-14: the components it places, `path#Name`
@@ -539,6 +542,8 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Re
     }
     hs.hosted = hosted.clone();
     hs.placed = placed.clone();
+    hs.under = through.clone();
+    set.under = through.clone();
     hs.through = through;
     set.host = Some(Box::new(HostView { file, entry: host_entry, set: hs }));
     set.hosted = hosted;
@@ -548,7 +553,7 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Re
 fn load_program(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
     let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), wire_ids: HashMap::new(), signatures: IndexMap::new(), printed: Default::default(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors, host: None, through: HashSet::new(), hosted: HashSet::new(), placed: HashSet::new() })
+    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors, host: None, through: HashSet::new(), under: HashSet::new(), hosted: HashSet::new(), placed: HashSet::new() })
 }
 
 /// E-5a: the module keys that name the hosts (`?rx-lib` imports, CP-4d). A key is the path the program reached the module

@@ -1803,6 +1803,10 @@ pub struct Opts<'a> {
     pub dependency: bool,
     /// MO-14f: in a host's view — the JS components the host renders through (`declaration#Name`)
     pub through: &'a HashSet<String>,
+    /// MO-14h: the components a host's view places (`module#Name`), and the JS components its declaration says the host
+    /// renders through: a component given to a fn that `renders(H)`, H among them, is checked where the view places it
+    pub placed: &'a HashSet<String>,
+    pub under: &'a HashSet<String>,
 }
 
 pub struct Checker<'a> {
@@ -1993,7 +1997,7 @@ fn check_modules_judged(set: &ModuleSet, spa: bool, whole: bool, hosts: &[String
     let mut facts = vec![];
     let mut advice = vec![];
     for path in &set.order {
-        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path), dependency: *path != set.entry, through: &set.through });
+        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path), dependency: *path != set.entry, through: &set.through, placed: &set.placed, under: &set.under });
         diags.extend(r.diags);
         advice.extend(r.advice);
         sigs.insert(path.clone(), r.sig);
@@ -6903,6 +6907,14 @@ impl<'a> Checker<'a> {
         }
         for a in args {
             walk(self, a, env, &mut out);
+        }
+        // MO-14h: a component the host's view places is rendered where the view says (MO-14d). The fn's row says beneath
+        // an application of H; where the declaration says the host renders through H, the view says where beneath it —
+        // the component is checked there, in the host's view, and not side by side with the others here
+        if let Some((key, _, _)) = f.and_then(|f| self.syms[f].renders_in.as_ref()) {
+            if self.opts.under.contains(key) {
+                out.retain(|n| !self.lookup(env, n).and_then(|s| self.syms[s].comp_region).and_then(|r| self.regions[r].key.as_ref()).is_some_and(|k| self.opts.placed.contains(k)));
+            }
         }
         if out.is_empty() {
             return;

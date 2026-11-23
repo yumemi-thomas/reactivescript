@@ -1,0 +1,7 @@
+//@ routes ./main.rx ./main.rx
+// Derived (rx-declare --host --routes): what the router does with the app's components (09 MO-14), read from the
+// router's own tree. Not edited by hand — `rx-declare --host --sync` writes it again, the dev server does on its own,
+// and a build, rx-tsc and rx-verify refuse it once the tree has moved (HOST_VIEW_STALE).
+import { App, Root, Home, Person } from "./main.rx"
+import { RouterProvider, Outlet } from "@tanstack/solid-router"
+export default component nests(children in component) = [{ component: App, children: [{ component: Root, children: [{ component: Home }, { component: Person }] }] }]

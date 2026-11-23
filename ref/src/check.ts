@@ -597,7 +597,7 @@ export type ExportSig =
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig>; hosted?: Hosted[]; hosts?: Record<string, HostSite[]> };   // MO-11u: hosted, the calls of `renders(H)` fns that were given components; hosts, the applications of such an H the module itself roots (its mounted view, a root of a library's own)
-type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string> };   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string>; placed?: Set<string>; under?: Set<string> };   // placed, under: MO-14h — the components a host's view places (`module#Name`), and the JS components its declaration says the host renders through: a component given to a fn that `renders(H)`, H among them, is checked where the view places it   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return [...c.diags, ...judgeHosted([c.signature(p)], [], !!opts.spa)]; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; advice: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, advice: c.advice, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
@@ -607,7 +607,7 @@ export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: 
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
   const hostSigs: ModSig[] = [];   // MO-11u: the modules of a host's view (MO-14), judged with this program
   const facts: [string, PeekFacts][] = []; const advice: Diagnostic[] = [];   // advice: 99, the advisory rows — about a correct program, never an error
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path), dependency: path !== set.entry, through: set.through }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path), dependency: path !== set.entry, through: set.through, placed: set.placed, under: set.under }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
   // MO-14d: a module the host's declaration imports is one a JS host renders (CP-4d), whatever the build found
   if (whole) { const all = [...new Set([...hosts, ...(set.hosted ?? [])])]; diags.push(...resolvePeeks(facts, set, all)); diags.push(...hostExports(sigs, all, spa, set.placed)); }
   if (set.host) {   // MO-14c: the host's view, checked as a program of its own; what it says is the declaration's
@@ -2736,8 +2736,12 @@ class Checker {
       else if (e.k === "call" && e.f.k === "id") { const g = env.lookup(e.f.name); if (g && (g.kind === "import" || (g.kind === "fn" && g.foreign !== undefined))) e.args.forEach(walk); }
     };
     args.forEach(walk);
-    if (!out.length) return;
     const h = f?.rendersIn;
+    // MO-14h: a component the host's view places is rendered where the view says (MO-14d). The fn's row says beneath an
+    // application of H; where the declaration says the host renders through H, the view says where beneath it — the
+    // component is checked there, in the host's view, and not side by side with the others here
+    if (h && this.opts.under?.has(h.key) && this.opts.placed) { const placed = this.opts.placed; const keyOf = (n: string) => env.lookup(n)?.compRegion?.key; for (let i = out.length - 1; i >= 0; i--) { const k = keyOf(out[i]); if (k !== undefined && placed.has(k)) out.splice(i, 1); } }
+    if (!out.length) return;
     if (!h) { this.markup(this.applied(out, this.line), new Env(env, this.rootOf())); return; }
     // MO-11u: `renders(H)` — the components are rendered later, beneath an application of H. They are applied under a root
     // that stands for H's children; what they let out of it is judged at every application of H in the program

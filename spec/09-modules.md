@@ -2633,7 +2633,13 @@ export default component App() {
     derived from the router's own with no word by hand (MO-14g), and a
     factory declared `nests(…)`. The strict error refuses nothing wrong
     in silence, and its ways round are in the language (the region
-    above the provider, or in the page). **Not taken.**
+    above the provider, or in the page). **Not taken** as a word or as
+    a reading of those values — and **given by another way on
+    2026-11-25**: the nesting is asked of the router object itself by
+    the tool that derives a host declaration (MO-14g, *a router made in
+    `.rx`*), and a page the view places is checked where it places it
+    (MO-14h). The program above is accepted, with no word and no
+    package's shape in a checker.
   - **An `.rx` package naming another package's host** in its
     signature: MO-13b. **Not taken** — no library writes it — and the
     silent acceptance found on the way is refused.
@@ -3353,7 +3359,26 @@ says what the host does, once, in the words a factory's row already has.
     no import to find one by.) A directory named under a Vite config that
     gives the plugin `toPath`, `router` or `routers` is refused, with
     this source to name instead: it had been answered with the default
-    tree, in silence. **A JSON
+    tree, in silence. **A router made in `.rx`** (2026-11-25): code-based
+    routes — `rootRoute = createRootRoute({ component: Root })`, `export
+    router = createRouter({ routeTree })` — in a module of the program.
+    The tool compiles that module (as a library, and whatever the
+    checkers say of it: the declaration it writes is what the program is
+    checked by, so it cannot wait for the check; a parse error still
+    refuses), runs it in a child process with a browser's globals
+    (happy-dom, from the project, as `rx-verify --dom` runs a library)
+    and asks the one router it exports: each route's children are the
+    router object's own, and its component is the `.rx` component whose
+    compiled function the route was given, found by identity among the
+    exports of the program's modules. Nothing of the calls that built
+    the tree is read — not `getParentRoute`, not `addChildren`: what the
+    router has is what it renders. A route's component must be exported
+    (the declaration imports it by name; one that is not is said, with
+    the route). The app's entry is named as for any source, and what it
+    renders the tree through is the library's own provider
+    (`<RouterProvider>`, applied by the entry or by an `.rx` component
+    it applies), with what the project's declaration of the package says
+    it provides. **A JSON
     tree** (`[{ file, component?, path?, children? }]`), for a host no
     reader is written for. A route with no `.rx` component is left out,
     its children its parent's.
@@ -3403,6 +3428,57 @@ says what the host does, once, in the words a factory's row already has.
   tasks is under one: `router-provider`, `router-rx-routes`,
   `start-route`, `file-routes`, `start-mode` — five declarations, no
   word by hand in any (the three there were had 13, 8 and 7).
+
+- **MO-14h (A page given to a fn that `renders(H)`, under a host
+  declaration) — 2026-11-25.** MO-11u places every component a
+  `renders(H)` fn is given side by side beneath H: a fn's row cannot say
+  which is whose child. So code-based routes written in `.rx`
+  (`createRoute({ component: Person })`, `renders(RouterProvider)`) had
+  their pages checked beneath the provider and nowhere more exact, and a
+  root layout's `errored` and `loading` around its `<Outlet />` — the
+  program TanStack's documentation writes — held no page: refused,
+  `UNHANDLED_FAILURE`, strict (MO-11u, *Three things asked*, the second).
+  The nesting is the router's own knowledge, and a host declaration
+  states it (MO-14); since MO-14g it is read off the router object
+  itself. What was missing is one sentence of how the two declarations
+  meet:
+  **where a program is under a host declaration, a component its view
+  places, given to a fn declared `renders(H)`, is checked where the view
+  places it — and not again side by side beneath H — when the
+  declaration says the host renders through H** (it imports H from
+  JavaScript, MO-14f). The fn's row says *beneath an application of H*;
+  the view says *where* beneath it, with H's application on the way (the
+  entry applies it, itself or through an `.rx` component, and the
+  records are rendered there). The second statement implies the first,
+  so nothing the row promised is dropped: the page is checked under
+  everything above H's application, H's own `provides`, and what its
+  layouts have around their outlets.
+  - *What keeps its row.* A component the view does not place (a route
+    added and the declaration not written again is `HOST_VIEW_STALE`
+    before it is anything else); a component given to a fn whose H the
+    declaration does not import (a toast: `renders(Toaster)`); a
+    component given to a fn with no word (MO-11s, a root of its own).
+    And a placed component applied by hand somewhere else is checked
+    there too, as ever.
+  - *Soundness.* It rests on what a host declaration already claims
+    (MO-14d): a component the view names is rendered where the view
+    says. That claim is derived from the router's tree and refused when
+    it falls behind (MO-14g), and run by `rx-verify` (`placement`,
+    `through:H`). A view that places a page under a layout the router
+    does not render it in is a false declaration, as one that names a
+    provision the host does not make is — and is found the same way.
+    Counter-example to the rule without its condition: `toast(Saved)`
+    with `Saved` also named in a router's view would lose its check
+    beneath `<Toaster>`; with the condition it keeps it, since the
+    declaration does not say the host renders through `Toaster`.
+  - *No word, and no package's rule in a checker (CN-8).* The checker
+    reads a set of placed components and a set of components the
+    declaration imports from JavaScript, as it did. What knows TanStack's
+    router object is the tool's reader, beside the one that knows its
+    generated tree.
+  Executable: S-module-41; `bench/tasks/router-code-routes` (the root
+  layout's regions around its outlet; eleven variants, two of them a
+  declaration fallen behind its router).
 
 *The native shape (2026-11-24).* A route file that is its component, in
 `.rx`, with the router's own tooling writing the tree:
