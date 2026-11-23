@@ -1,15 +1,18 @@
 // A TanStack Router app on the router's file-based routing (its Vite plugin writes routeTree.gen.ts from src/routes), the
-// router wrapped in the app's Shell. The layout and the pages are .rx components the route files render; host.d.rx says
-// where (09 MO-14): every one under the router's provider, the pages among the root layout's children. So a page is
-// checked under its layout's regions and the router, and the generated tree types every link and hook of the .rx pages.
+// router wrapped in the app's Shell and under a context the app's `.rx` entry provides. The layout and the pages are .rx
+// components the route files render; the layout renders its pages with the router's <Outlet />, as TanStack's own
+// documentation writes one. host.d.rx says where each is (09 MO-14): the root layout where the app's component applies
+// the router's, the pages where the layout applies the outlet (MO-14f). So a page is checked under its layout's regions,
+// the app's provision and the router, and the generated tree types every link and hook of the .rx pages.
 // Until 2026-11-23 the tree was records given to a factory of the app's own (09 MO-8r), which kept the checks and gave up
-// the registered route types: the two type probes given up then (a link to no route, a `from` that is no route) are back.
+// the registered route types; then file routes whose layout took the outlet as `props.children` from its route file, with
+// nothing the entry had above the router credited to a page.
 // (TanStack's generator takes .ts, .tsx, .js, .jsx and .vue files and reads a route file as JavaScript: an .rx file is
 // not picked up, so each route file is TSX that imports its component.)
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 
-const REGIONS = "errored fallback(e: NotFound) { <p class=\"missing\">{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main>{props.children}</main> }\n  }";
+const REGIONS = "errored fallback(e: NotFound) { <p class=\"missing\">{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main><Outlet /></main> }\n  }";
 const FRAME = '<Shell title="Directory"><AppRouter /></Shell>';
 export default {
   title: "TanStack Router: file routes around an .rx layout and .rx pages, the router wrapped in the app's component",
@@ -24,12 +27,16 @@ export default {
     { name: "the answer keeps the backend's type in the page", file: "src/pages.rx", edit: ["<p>{person.role}, #{params.id}</p>", "<p>{person.rank}, #{params.id}</p>"], expect: /TS2339/ },
   ],
   bad: [
-    { name: "a page that can fail, with no errored region around the layout's children", file: "src/pages.rx", entry: "src/pages.rx", edit: [REGIONS, "loading fallback { <p>loading…</p> } { <main>{props.children}</main> }"], expect: "UNHANDLED_FAILURE" },
+    { name: "a page that can fail, with no errored region around the layout's children", file: "src/pages.rx", entry: "src/pages.rx", edit: [REGIONS, "loading fallback { <p>loading…</p> } { <main><Outlet /></main> }"], expect: "UNHANDLED_FAILURE" },
     { name: "a router hook called outside the provider (in the app, above the Shell)", edit: ["export default component App() {\n", "export default component App() {\n  where = useParams({ from: \"/people/$id\" })\n"], edit2: ['import { AppRouter } from "./router.tsx"', 'import { AppRouter } from "./router.tsx"\nimport { useParams } from "@tanstack/solid-router"'], expect: "CONTEXT_NOT_FOUND" },
     { name: "a link beside the router, in the app's frame (it reads the router's context)", edit: [FRAME, '<Shell title="Directory"><Link to="/">Home</Link><AppRouter /></Shell>'], edit2: ['import { AppRouter } from "./router.tsx"', 'import { AppRouter } from "./router.tsx"\nimport { Link } from "@tanstack/solid-router"'], expect: "CONTEXT_NOT_FOUND" },
     { name: "a page component applied by hand as well as routed, outside the router", edit: [FRAME, `${FRAME}\n  <Person />`], edit2: ['import { AppRouter } from "./router.tsx"', 'import { AppRouter } from "./router.tsx"\nimport { Person } from "./pages.rx"'], expect: "CONTEXT_NOT_FOUND" },
     { name: "the router's component used as a value, not applied", edit: [FRAME, '<Shell title="Directory">{AppRouter}</Shell>'], expect: "COMPONENT_AS_VALUE" },
-    { name: "a client-only build with no loading above a page that waits", file: "src/pages.rx", entry: "src/pages.rx", edit: ["loading fallback { <p>loading…</p> } { <main>{props.children}</main> }", "<main>{props.children}</main>"], expect: "ASYNC_OUTSIDE_LOADING_BOUNDARY" },
+    { name: "a client-only build with no loading above a page that waits", file: "src/pages.rx", entry: "src/pages.rx", edit: ["loading fallback { <p>loading…</p> } { <main><Outlet /></main> }", "<main><Outlet /></main>"], expect: "ASYNC_OUTSIDE_LOADING_BOUNDARY" },
+    { name: "the app's provision removed: a page under the router reads it", edit: ['  provide team = { name: "Directory" }\n', ""], expect: "CONTEXT_NOT_FOUND" },
+    { name: "the layout's outlet beside its regions, not in them", file: "src/pages.rx", entry: "src/pages.rx", edit: [REGIONS, 'errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <p>ready</p> }\n  }\n  <main><Outlet /></main>'], expect: "UNHANDLED_FAILURE" },
+    { name: "the host's declaration does not say the layout renders its pages through the outlet", file: "src/host.d.rx", edit: ['import { Outlet } from "@tanstack/solid-router"\n', ""], expect: "NESTED_NOT_RENDERED" },
+    { name: "the layout renders no outlet: its pages would never show", file: "src/pages.rx", entry: "src/pages.rx", edit: ["<main><Outlet /></main>", "<main>no pages</main>"], expect: "NESTED_NOT_RENDERED" },
     { name: "a route file giving its route a rendered element, not the component", file: "src/routes/index.tsx", ts: /TS2322|TS2769/, edit: ["component: Home", "component: <Home />"] },
   ],
   async run(h) {
@@ -42,11 +49,11 @@ export default {
       await page.click("a[href='/people/9']");
       h.check("a route's NotFound shows at the root layout's typed region", await h.until(async () => /no person 9/.test(await h.text(page))), await h.text(page));
       await page.click("a[href='/']");
-      h.check("navigation on the client", await h.until(async () => /People/.test(await h.text(page)) && !/no person/.test(await h.text(page))), await h.text(page));
+      h.check("navigation on the client, to a page that reads what the app's entry provides above the router", await h.until(async () => /People of Directory/.test(await h.text(page)) && !/no person/.test(await h.text(page))), await h.text(page));
       h.check("no console errors or warnings", h.problems.length === 0, h.problems);
       // the declaration itself, run: rx-verify renders the probe's scene (host.probe.mjs) and holds the view to it
       const v = spawnSync(process.execPath, ["--conditions=browser", path.join(h.dir, "../../node_modules/@reactivescript/language-server/bin/verify.js"), "--dom", "src/host.d.rx"], { cwd: h.dir, encoding: "utf8" });
-      h.check("rx-verify: the host's declaration holds where it is run (each page inside its layout, the router provided)", (v.stdout.match(/ ok /g) ?? []).length === 2 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
+      h.check("rx-verify: the host's declaration holds where it is run (each page inside its layout, rendered through the router's component and the outlet)", (v.stdout.match(/ ok /g) ?? []).length === 3 && !/MISMATCH|unverified/.test(v.stdout), v.stdout + v.stderr);
     } finally { server.kill(); }
   },
 };

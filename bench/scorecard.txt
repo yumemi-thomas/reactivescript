@@ -3,7 +3,7 @@ task                  good accepted  types kept     runtime ok     bad caught   
 context-provider      3/3 ✓          5/5 ✓          4/4 ✓          7/7 ✓          —                —                   —                —                 —            
 duplicate-keys        3/3 ✓          3/3 ✓          3/3 ✓          1/2 ✗          —                —                   —                —                 —            
 effect-derived        3/3 ✓          3/3 ✓          4/4 ✓          5/5 ✓          —                0                   0                0                 0            
-file-routes           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                13                  0                0                 0            
+file-routes           6/6 ✓          5/5 ✓          5/5 ✓          12/12 ✓        —                26                  0                0                 0            
 formisch-field-array  3/3 ✓          6/6 ✓          7/7 ✓          5/5 ✓          —                7                   11               0                 0            
 formisch-field-path   3/3 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            7                   11               0                 0            
 frozen-read           3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                2                   0                0                 0            
@@ -18,7 +18,7 @@ projection-selection  3/3 ✓          4/4 ✓          4/4 ✓          4/4 ✓
 query-forward         3/3 ✓          6/6 ✓          6/6 ✓          9/9 ✓          —                25                  0                0                 0            
 query-mutation        3/3 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                25                  0                0                 0            
 router-data           3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓          —                4                   0                0                 0            
-router-provider       6/6 ✓          5/5 ✓          5/5 ✓          6/6 ✓          1/1 ✓            8                   0                0                 1            
+router-provider       6/6 ✓          5/5 ✓          5/5 ✓          10/10 ✓        1/1 ✓            26                  0                0                 1            
 rx-package            3/3 ✓          8/8 ✓          34/34 ✓        9/9 ✓          —                —                   —                —                 —            
 sequential-awaits     3/3 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                   0                0                 0            
 solid-use-primitives  3/3 ✓          6/6 ✓          10/10 ✓        7/7 ✓          1/1 ✓            6                   0                0                 0            
@@ -34,7 +34,7 @@ ui-sdk-forms          3/3 ✓          5/5 ✓          5/5 ✓          4/4 ✓
 wardic-motion         3/3 ✓          6/6 ✓          10/10 ✓        6/6 ✓          1/1 ✓            14                  0                0                 0            
 wardic-values         3/3 ✓          5/5 ✓          4/4 ✓          6/6 ✓          —                16                  0                0                 0            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-total                 102/102        161/161        214/214        175/177        11/11            277                 41               0                 28           
+total                 105/105        161/161        214/214        184/186        11/11            308                 41               0                 28           
 
 Not green (2):
   ✗ duplicate-keys · bad caught · rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY) — ran silently
@@ -45,9 +45,9 @@ Not green (2):
 Declarations (words written by hand over rx-declare's draft; `any`s the library's own declaration has, and `any`s written where it has a type; parts said by place):
   effect-derived/page.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   file-routes/rx-types/@solidjs/router.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  file-routes/src/host.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
+  file-routes/src/host.d.rx: 7 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   file-routes/src/people.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  file-routes/src/router.d.rx: 6 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  file-routes/src/router.d.rx: 13 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   formisch-field-array/rx-types/valibot.d.rx: 5 words by hand, 11 `any` inherited, 0 introduced, 0 by place
   formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
@@ -79,9 +79,9 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   router-data/people.d.rx: 4 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-data/rx-types/@solidjs/router.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-provider/rx-types/@tanstack/solid-router.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 1 by place
-  router-provider/src/host.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-provider/src/host.d.rx: 13 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-provider/src/people.d.rx: 7 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  router-provider/src/router.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-provider/src/router.d.rx: 6 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   sequential-awaits/api.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   solid-use-primitives/rx-types/solid-use/client-only.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
   solid-use-primitives/rx-types/solid-use/media-query.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
@@ -107,10 +107,10 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
 
 Introduced `any`s (09 MO-8q: none, or on bench/any-allowlist.json): none
 
-Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 60 drafts, 3791 rows): 447 `any` the libraries' own, 0 introduced, 302 by place
+Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 60 drafts, 3793 rows): 447 `any` the libraries' own, 0 introduced, 302 by place
   effect-derived · ./page.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
   file-routes · @solidjs/router: 89 rows, 20 `any` the library's own, 0 introduced, 18 by place
-  file-routes · the JS host: 5 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  file-routes · the JS host: 6 rows, 0 `any` the library's own, 0 introduced, 0 by place
   file-routes · ./people.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   file-routes · ./router.ts: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
   formisch-field-array · @formisch/solid/v2: 93 rows, 0 `any` the library's own, 0 introduced, 0 by place
@@ -144,7 +144,7 @@ Whole drafts (09 MO-8q: every export of each module a task declares, drafted by 
   router-data · ./people.js: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
   router-data · @solidjs/router: 89 rows, 20 `any` the library's own, 0 introduced, 18 by place
   router-provider · @tanstack/solid-router: 296 rows, 63 `any` the library's own, 0 introduced, 26 by place
-  router-provider · the JS host: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
+  router-provider · the JS host: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
   router-provider · ./people.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   router-provider · ./router.tsx: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
   sequential-awaits · ./api.js: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place

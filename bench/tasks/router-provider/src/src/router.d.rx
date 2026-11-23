@@ -1,2 +1,4 @@
-// router.tsx in rows, from rx-declare's draft: the component that renders the app's routes.
-export component AppRouter(props: {})
+// router.tsx in rows, from rx-declare's draft: the component that renders the app's routes. By hand: it provides the
+// router to what it renders (it is the library's <RouterProvider> with the app's router).
+export context router from "@tanstack/solid-router"
+export component AppRouter(props: {}) provides(router)

@@ -1,0 +1,2 @@
+// What the whole app shares: a context of the app's own, provided by the app's component above the router.
+export context team: { name: string }

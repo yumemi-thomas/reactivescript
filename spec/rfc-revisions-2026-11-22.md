@@ -428,12 +428,38 @@ Recorded in 09 MO-14, 11 CP-4d and `rfc-declaration-types-2026-11-22.md`
 | a router hook in an exported component the host's view does not name | `CONTEXT_NOT_FOUND` in a whole-program build | the same: only what the view names is credited |
 | a region or a provision an `.rx` entry puts around a JS router's component | not credited to the pages | the same, and said: the view is the host's own |
 
+(The last row was decided the other way in the next round: below.)
+
+## After the eighth round (2026-11-23): the limits it left
+
+Recorded in 09 MO-14f, MO-14e, MO-11i and MO-1c, and
+`rfc-declaration-types-2026-11-22.md` (*A ninth round*). What changed for
+a program:
+
+| what a Solid app writes | was | now |
+| --- | --- | --- |
+| an `.rx` entry that provides a context (or holds a region) around a JS router's component, read by a page | `CONTEXT_NOT_FOUND` (`ASYNC_OUTSIDE_LOADING_BOUNDARY`, `UNHANDLED_FAILURE`) on a correct program: nothing the entry has was credited | accepted: `host.d.rx` names the entry's component, with the host's records as its children, and imports the router's component from its JS module (MO-14f) |
+| a TanStack layout that renders `<Outlet />` | accepted, its pages checked under nothing — with every region removed too | its pages are checked where it applies the outlet, once `host.d.rx` imports it; without the import, `NESTED_NOT_RENDERED` |
+| a layout that forgets `{props.children}` (a factory's tree, a host's view) | accepted: its routes never show | `NESTED_NOT_RENDERED` |
+| a router hook in the `.rx` entry, above the router's component | `CONTEXT_NOT_FOUND` | the same: the router's context is the applied component's to provide, by its own row |
+| `rx-tsc --rx-strict` on a project under a `host.d.rx` | the declaration passed over | its view and its imports from JavaScript are `UNVERIFIED_ROW` until `rx-verify --record` holds them |
+| a module imported for a function, whose default component relies on its caller's region | refused where no one renders it | accepted; the default component is checked where it is applied (MO-1c) |
+| an `.rx` file as a TanStack route file | not picked up | the same: the generator has no option for it (recorded, not filed) |
+
 ## Limits that remain, and why they are inside the goal
 
 - **A host declaration is trusted** (09 MO-14e), as every `.d.rx` is: it
-  says which layout a page is rendered in, and nothing in the build reads
-  the router's own tree. `rx-verify` runs it against a scene; a generator
-  that reads `.rx` route files is where it should come from.
+  says which layout a page is rendered in and which of the host's
+  components it renders through, and nothing in the build reads the
+  router's own tree. `rx-verify` runs it against a scene, and strict mode
+  asks for the record; a generator that reads `.rx` route files is where
+  it should come from.
+- **A component the host renders through is applied in the view of the
+  component its record names** (MO-14f). One applied for it by another
+  `.rx` component in between is refused (`NESTED_NOT_RENDERED`), with the
+  way round in the language: that component takes it as its children.
+- **A TanStack route file is TSX.** Its generator reads route files as
+  JavaScript and has no option that admits another kind of file.
 
 - **Declarations are trusted** (CN-5): `pure`, `draft`, `handler`,
   `uses(…)`. `rx-verify` checks them by running.

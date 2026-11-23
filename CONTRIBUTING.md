@@ -23,7 +23,13 @@ write instead, and the benchmark lists each check given up with it
 The evidence is programs built and run against the libraries npm has, not
 types read: 09 MO-14 (a host declaration, 2026-11-23) records what was
 built for two routers before the form was taken, and what each fallback
-did.
+did; MO-14f, what the checker before it said of the same programs. A
+library's component is counted for what it is: where one rule serves two
+libraries at one place and a single library at another (a layout's
+outlet), the record says so.
+A mistake the checkers accept in silence is a defect whatever the bar
+says of the word that would have named it: it is refused (09 MO-11i's
+`NESTED_NOT_RENDERED`), and the word is decided apart.
 
 Decisions recorded in the spec as *ruled* with a date are settled; please
 open an issue rather than a PR to revisit one. Decisions marked *taken by
@@ -58,9 +64,9 @@ The crate, the plugin, the runtime and the tooling, from the repository's root:
 
 ```sh
 (cd compiler && cargo test --release)
-for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined lib; do node compiler/test/$t.mjs; done   # SOLID_NEXT=<checkout> for vite.mjs when Solid is not at ../solid-next (a nested worktree)
+for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined lib; do node compiler/test/$t.mjs; done   # SOLID_NEXT=<checkout> for vite.mjs when Solid is not at ../solid-next (a nested worktree); vite.mjs installs TanStack Router's Vite plugin once into compiler/test/.out (examples/tanstack is built with it)
 # with a Solid plugin that has context.resolve and Frontend.buildStart (compiler/README.md):
-for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done
+for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done   # git clone -b frontend-resolve https://github.com/yumemi-thomas/solid-vite-plugin && pnpm install && npx rolldown -c
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar
 (cd runtime && node test.mjs)
 (cd tooling/rx-language-server && npm test)

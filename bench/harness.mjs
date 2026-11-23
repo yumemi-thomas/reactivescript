@@ -225,7 +225,8 @@ const hostRows = text => { const ls = code(text).map(l => l.trim()).filter(Boole
  *  imports, the contexts those modules use, and every component placed at the top. */
 function hostDraft(file) {
   const text = readFileSync(file, "utf8");
-  const modules = [...text.matchAll(/^\s*import\s*\{[^}]*\}\s*from\s*(["'])(.*?)\1/gm)].map(m => path.resolve(path.dirname(file), m[2]));
+  // (the `.rx` modules: what it imports from JavaScript, MO-14f, is not the draft's to know — those rows are by hand)
+  const modules = [...text.matchAll(/^\s*import\s*\{[^}]*\}\s*from\s*(["'])(.*?)\1/gm)].filter(m => m[2].endsWith(".rx")).map(m => path.resolve(path.dirname(file), m[2]));
   const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--host", ...modules], { cwd: path.dirname(file), encoding: "utf8", env: { ...process.env, RXC: rxc } });
   const lines = r.status === 0 ? hostRows(r.stdout) : [];
   lines.inherited = new Map();

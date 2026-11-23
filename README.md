@@ -39,9 +39,10 @@ the contracts a declaration states in words any library can write — and
 never one package's own rules, which stay that package's tooling's
 ([spec/08](spec/08-constraints.md) CN-8). Where JavaScript renders the
 `.rx` components — a file-based router's route tree — one declaration says
-what it does with them, and a page is checked under its layout and the
-router, with the router's own generated types
-([spec/09](spec/09-modules.md) MO-14).
+what it does with them, and a page is checked under its layout, the
+router and what the app's own component has around the router, with the
+router's own generated types ([spec/09](spec/09-modules.md) MO-14;
+`examples/tanstack`).
 
 The other way works too: a library written in `.rx` is built once
 (`rx-lib`) and published as a package that an `.rx` app is checked against —

@@ -1,16 +1,19 @@
 // The root layout and the pages, which TanStack Router's file routes render (src/routes: its generator reads
-// TypeScript, so a route file is a few lines of TSX that hand one of these to the route, 11 CP-4d).
-import { Link, useParams } from "@tanstack/solid-router"
+// TypeScript, so a route file is a few lines of TSX that hand one of these to the route, 11 CP-4d). The layout is
+// written as the router's documentation writes one: it renders its pages with <Outlet />.
+import { Link, Outlet, useParams } from "@tanstack/solid-router"
 import { fetchPerson, NotFound } from "./people.js"
+import { team } from "./team.rx"
 
-export component Root(props: { children?: View }) {
+export component Root() {
   <nav><Link to="/">Home</Link> <Link to="/people/$id" params={{ id: "1" }}>Ann</Link> <Link to="/people/$id" params={{ id: "9" }}>Nobody</Link></nav>
   errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
-    loading fallback { <p>loading…</p> } { <main>{props.children}</main> }
+    loading fallback { <p>loading…</p> } { <main><Outlet /></main> }
   }
 }
 export component Home() {
-  <h1>People</h1>
+  t = use team
+  <h1>People of {t.name}</h1>
 }
 export component Person() {
   params = useParams({ from: "/people/$id" })

@@ -126,8 +126,8 @@
   },
   "file-routes": {
     "good": {
-      "pass": 3,
-      "total": 3,
+      "pass": 6,
+      "total": 6,
       "fails": []
     },
     "types": {
@@ -141,8 +141,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 7,
-      "total": 7,
+      "pass": 12,
+      "total": 12,
       "fails": []
     },
     "unrep": {
@@ -151,13 +151,13 @@
       "fails": []
     },
     "decl": {
-      "words": 13,
+      "words": 26,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 99,
+        "rows": 100,
         "any": 20,
         "vendor": 20,
         "introduced": 0,
@@ -756,8 +756,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 6,
-      "total": 6,
+      "pass": 10,
+      "total": 10,
       "fails": []
     },
     "unrep": {
@@ -766,13 +766,13 @@
       "fails": []
     },
     "decl": {
-      "words": 8,
+      "words": 26,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 1,
       "draft": {
-        "rows": 304,
+        "rows": 305,
         "any": 63,
         "vendor": 63,
         "introduced": 0,

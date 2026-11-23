@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+**File-based routers: the app around the router, and a layout's outlet** (spec/09 MO-14f, MO-11i, MO-1c; spec/rfc-declaration-types-2026-11-22.md, *A ninth round*)
+
+- **New: a host declaration says what the host renders *through*.** `host.d.rx` may import a component from a JS
+  module — `import { AppRouter } from "./router.tsx"`, `import { Outlet } from "@tanstack/solid-router"` — and an
+  `.rx` component that applies it then renders its record's children there, as `{props.children}` would. So:
+  - **an `.rx` entry around the router is credited to the pages.** Name your app's component in the view, with the
+    host's records as its children (`[{ component: App, children: [{ component: Root, … }] }]`): a context `App`
+    provides and a region it has around `<AppRouter />` hold every page. It was `CONTEXT_NOT_FOUND` on a correct
+    program, with no way to say it. The router's own context comes from the applied component's row
+    (`export component AppRouter(props: {}) provides(router)`), so a hook in `App` above the router is still
+    refused.
+  - **a layout may render the router's `<Outlet />` itself**, as TanStack Router's documentation writes one. Its
+    pages are checked where it applies the outlet.
+  No word is added: an import row takes a second kind of module. Two routers write it (`examples/tanstack`,
+  `bench/tasks/router-provider`; `bench/tasks/file-routes` on `@solidjs/router`).
+- **New diagnostic: `NESTED_NOT_RENDERED`.** A component that a router's records (or a host declaration's view) give
+  pages to, and that renders none of its children: a layout that forgot `{props.children}`, or an outlet `host.d.rx`
+  does not import. **This closes a hole:** such a layout was accepted and its pages checked under nothing — a
+  TanStack layout written with `<Outlet />` passed with every region removed. If your layout renders an outlet,
+  add the import to `host.d.rx` (the message says which component).
+- **Changed: strict mode asks for a host declaration's record.** `rx-tsc --rx-strict` refuses the view of every
+  `host.d.rx` a module of the project is under, and each of its imports from JavaScript, until `rx-verify --record
+  host.d.rx` has recorded them (`UNVERIFIED_ROW`). The declarations it imports from are held to their pins, records
+  and types as any the program imports. `rx-verify` runs the new claim: the probe gives the real component as
+  `through.Outlet`, the scene applies `rx.Outlet`, and a page must render inside it.
+- **Fixed: a dependency's default component was checked as a mounted view** (spec/09 MO-1c). A module imported for
+  a function or another component, whose default component relies on its caller's region, was refused where no one
+  renders it. Only the entry's default component is mounted; any other is checked where it is applied.
+- **Fixed: the reference parser did not end on a `}` that closes nothing** at a module's top level (the crate
+  refused it; `ref/` read it again and again).
+- **`examples/tanstack` is file-routed**, with a `host.d.rx`: TanStack's generated route tree types every `<Link>`
+  and hook of the `.rx` pages, the layout renders `<Outlet />`, the entry provides a context above the router. The
+  factory (a route tree written in `.rx`, given to a module of your own) is `examples/tanstack-factory`, unchanged.
+- **Recorded, not filed:** TanStack's router generator has no option that admits an `.rx` route file (its physical
+  scan keeps a fixed list of extensions; a virtual route config names any file, which it then parses as
+  JavaScript). A TanStack route file stays a few lines of TSX.
+
 **File-based routers: typed routes and the checks, together** (spec/09 MO-14, spec/11 CP-4d; spec/rfc-declaration-types-2026-11-22.md, *An eighth round*)
 
 - **New: a host declaration, `host.d.rx`.** A file-based router renders your `.rx` pages from JavaScript — a generated
@@ -17,7 +54,7 @@
 - **Typed routes are back for TanStack Router.** With the route tree the generator's, `<Link to>` and `useParams({
   from })` in an `.rx` page are typed by the registered router again; `bench/tasks/router-provider` moved from the
   factory to file routes, and the two type probes given up last round hold. The factory (a tree written in `.rx`,
-  given to a module of your own) is unchanged, and still what `examples/tanstack` is.
+  given to a module of your own) is unchanged (`examples/tanstack-factory`).
 - **New: `?rx-page`** — `import Person from "./routes/people/[id].rx?rx-page"` is `?rx-lib` with the module's default
   component as the default export: what a router whose route files are `.rx` imports a route file as
   (`filesystem-routing`'s `extensions: ["rx"]` and `toRoute`). `rx-tsc` types it; `@reactivescript/runtime/rx-lib`
@@ -39,7 +76,7 @@
   `.d.rx`, with what to write. **What you write instead:** the route tree as records, given to a factory of your own
   — a few lines of JavaScript that build the library's routes from them and hand back the component that renders
   them, declared `Component provides(router) nests(children in component)`, the words `@solidjs/router`'s factory
-  has (guide/libraries.md has the module; `examples/tanstack`, `bench/tasks/router-provider`). A layout renders its
+  has (guide/libraries.md has the module; `examples/tanstack-factory`). A layout renders its
   pages as `props.children`. Every check the words gave still holds: a page's failure needs its layout's `errored`
   region, a router hook outside the made component is `CONTEXT_NOT_FOUND`. **What you lose:** TanStack's registered
   route types for a tree written in `.rx` (a link to no route is no longer a type error), and

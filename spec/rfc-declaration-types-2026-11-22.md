@@ -1251,3 +1251,172 @@ Every `@solid-primitives` package, every module of solid-use and the
 families of Wardic and UI SDK are as they were: no row of theirs is
 touched by the form.
 
+## A ninth round: what the eighth left as limits (2026-11-23)
+
+The eighth round recorded five limits and one library fact. Each is
+decided here by the bar, and implemented or recorded with its reason.
+
+### A layout that renders the outlet, and an `.rx` entry around the router: one rule (09 MO-14f)
+
+The two were listed apart. Built, they are one thing: an `.rx` component
+that renders the host's next records not at `{props.children}` but at a
+component of the host's own which it applies — the router's component in
+the app's entry (`<AppRouter />`, `<Router />`), the router's
+`<Outlet />` in a layout.
+
+What the checker of `e30ca84` said of the programs, each built and run:
+
+| program | router | before |
+| --- | --- | --- |
+| an `.rx` entry that provides a context of the app's own above the router's component; a page reads it | TanStack Router's file routes | refused from every entry: `CONTEXT_NOT_FOUND` on the host's view |
+| the same, the entry also holding the router in a `loading` region | `filesystem-routing` with `@solidjs/router` | refused: `CONTEXT_NOT_FOUND`, `ASYNC_OUTSIDE_LOADING_BOUNDARY` |
+| the host's view claiming the app's context instead (`export context team from "./team.rx"`, `provides(router, team)`) | TanStack | `NOT_EXPORTED`: a declaration names a declared JS context (MO-12e), and an `.rx` context is the app's to provide |
+| a root layout that renders `<Outlet />` inside its regions (the route file gives the route the layout itself) | TanStack | **accepted, and accepted with every region removed**: the record's children were given to a component that renders none, and dropped from the check |
+
+The last row is not a missing feature but a hole: the layout TanStack's
+documentation writes had its pages checked under nothing, in silence.
+It is closed whatever is decided of the outlet: a component a record
+nests others in which renders none is `NESTED_NOT_RENDERED` (MO-11i), in
+a host's view and in a factory's tree alike — where it is also the
+mistake of a layout that forgot `{props.children}`, which both routers'
+apps make.
+
+**The decision.** `host.d.rx` imports the host's own components from
+their JS modules, and a component the view names renders its record's
+children where it applies one (MO-14f). No word; the import row takes a
+second kind of module. The entry's component is named in the view with
+the host's records as its children, and the router's context comes from
+the applied component's row (`provides(router)`), so the entry itself
+stays outside the router.
+
+**The bar.** Necessary: the app's own component around its router,
+providing what the pages share, is the common shape of both routers'
+apps, and it was refused with no undeclared, wrapped or vendor-typed
+way round — only another program (the provision moved into a layout).
+More than one library: two routers write the import, for the
+component an `.rx` entry applies. The outlet is one router's component,
+and is said to be: taken alone it fails the count and its fallback works
+(a TanStack route file is TSX in any case, and can pass
+`<Outlet />` as the layout's children — `bench/tasks/start-route` still
+does). It is credited because the rule that credits the entry credits
+it: the same row, the same sentence one record further down. Keeping it
+out would need a rule of its own, there for one library's component.
+`outlet`, the word (MO-11p), stays withdrawn: nothing is said of the
+component but that the host renders through it.
+
+Considered and not taken: a named view (`export component AppRouter … =
+<tree>`, the eighth round's note) — it puts the view where the module is
+declared, and a route file checked alone would not find it; the outlet
+named in the tree (`{ component: Outlet, children: […] }` under the
+layout) — it reads as "the layout is given the outlet", which is the
+fallback, not this; an inference with no declaration (the pages are
+wherever the layout applies some JS component) — it has to guess which,
+and a layout's `<Link>`s are JS components outside its regions; crediting
+the entry by checking the host's view where the entry applies the
+router's component — a route file checked alone is then checked under
+nothing the entry has, or not at all.
+
+### Strict mode asks for a host declaration's record
+
+The eighth round let `--rx-strict` pass `host.d.rx` over "because no
+module imports it". That is how the file is found, not what strict mode
+is for: it asks that running showed each assertion the program is
+checked by, and a host declaration is one — every page is credited what
+it says. `rx-tsc --rx-strict` now refuses its view, and each import from
+JavaScript, until `rx-verify --record` holds them; the declarations it
+imports from are held to their pins, records and types with the
+program's own.
+
+### A dependency's default component (09 MO-1c)
+
+Both checkers walked every loaded module's default component as a
+mounted view. MO-1c says the entry's is mounted and any other is a
+component like any other, so a module imported for a function whose
+default component relies on its caller's region was refused where no one
+renders it. Fixed on both sides, with a unit on both
+(`a_dependencys_default_component_is_mounted_by_no_one`); no scenario's
+result changed.
+
+### The two Vite tests
+
+`compiler/test/vite-hosts.mjs` and `vite-watch.mjs` need front ends given
+Vite's resolver and called at each build's start, which npm's
+`@solidjs/vite-plugin` 3.0.1 does not have: the `frontend-resolve` branch
+of `github.com/yumemi-thomas/solid-vite-plugin` (`27e56ed`), cloned and
+built (`pnpm install && npx rolldown -c`). Run with it: `vite-hosts` 6/6,
+`vite-watch` 7/7. Nothing to fix.
+
+### TanStack's generator and `.rx` route files
+
+Run on `@tanstack/router-generator` 1.168.0 (the plugin 1.169.0's), an
+`index.rx` in the routes directory:
+
+| | result |
+| --- | --- |
+| the physical scan (`routesDirectory`) | the file is skipped: `/\.(tsx|ts|jsx|js|vue)$/`, a fixed list no option changes (`routeFilePrefix`, `routeFileIgnorePattern` narrow it) |
+| a virtual route config (`@tanstack/virtual-file-routes`: `index("index.rx")`) | the file is named, then parsed as JavaScript: "Error transforming route file …/index.rx: SyntaxError" |
+| the generator's plugins (`init`, `onRouteTreeChanged`, `afterTransform`) | run after that parse |
+
+The generator reads `export const Route = createFileRoute(…)` out of a
+route file's text and rewrites the file; `.vue` is the one extension it
+does not parse, by name, in its source. No supported option admits
+another language. A limit of the library, recorded and not filed: it is
+the generator's design, not a defect. A TanStack route file is a few
+lines of TSX that hand its route a component of `pages.rx`.
+
+### `examples/tanstack`
+
+Moved to file routes with a host declaration: the user-facing example of
+the router has its generated route types, a layout written with
+`<Outlet />`, an `.rx` entry that provides a context above the router,
+and is the one example with a `host.d.rx`. `compiler/test/vite.mjs`
+builds it with TanStack's Vite plugin (installed once into `.out`),
+navigates it, and holds a link to no route (TypeScript, in `pages.rx`)
+and a page's failure with no region around the outlet (`host.d.rx`).
+The factory is `examples/tanstack-factory`, built and run as before.
+
+### Found on the way
+
+- `ref/`'s parser did not end on a `}` that closes nothing at a module's
+  top level (the crate refuses it): a variant written with one brace too
+  many hung the unit run. Fixed, with a unit.
+- A host declaration's draft is measured against `rx-declare --host` of
+  the `.rx` modules it imports; what it imports from JavaScript is by
+  hand, and counted so.
+
+### The numbers
+
+`node bench/run.mjs`, at `e30ca84` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `e30ca84` (33 tasks) | 102/102 | 161/161 | 214/214 | 175/177 | 11/11 | 277 | 41 | 0 | 28 |
+| now (33 tasks) | 105/105 | 161/161 | 214/214 | 184/186 | 11/11 | 308 | 41 | 0 | 28 |
+
+The two red checks are the two each task's `known` gives a reason for,
+unchanged. By task:
+
+| task | good | types | runtime | bad caught | unrepresentable | words |
+| --- | --- | --- | --- | --- | --- | --- |
+| `router-provider`, was (the outlet handed over as `props.children`) | 6/6 | 5/5 | 5/5 | 6/6 | 1/1 | 8 |
+| `router-provider`, now (a layout with `<Outlet />`, the entry's provision) | 6/6 | 5/5 | 5/5 | 10/10 | 1/1 | 26 |
+| `file-routes`, was (a TSX entry) | 3/3 | 5/5 | 5/5 | 7/7 | — | 13 |
+| `file-routes`, now (an `.rx` entry around the router) | 6/6 | 5/5 | 5/5 | 12/12 | — | 26 |
+| `start-route` (unchanged) | 3/3 | 6/6 | 9/9 | 6/6 | 1/1 | 28 |
+
+The words are the cost of saying it: a `host.d.rx` went from 1 word over
+its draft to 13 (`router-provider`: two imports from JavaScript, the
+entry's record, and no `provides`) and to 7 (`file-routes`), and each
+router's component has a row of the app's own with `provides(router)` by
+hand. `rx-declare --host` drafts the `.rx` imports and the contexts; what
+the host renders through is the router's knowledge, as the nesting is.
+
+| coverage | programs | green | modules drafted | rows | library's `any` | introduced | by place | hand-written words | bad caught |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `e30ca84` | 121 | 121 | 190 | 4877 | 1195 | 0 | 1519 | 277 | 8/8 |
+| now | 121 | 121 | 190 | 4877 | 1195 | 0 | 1519 | 277 | 8/8 |
+
+Every `@solid-primitives` package, every module of solid-use and the
+families of Wardic and UI SDK are as they were: no row of theirs is
+touched.
+
