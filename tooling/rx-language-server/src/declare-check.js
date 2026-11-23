@@ -33,7 +33,7 @@ function failing(text, first, rows, spec, from, options, lib) {
     const c = checks.find(x => x.at >= line);
     const n = alias && !alias.startsWith("__decl_") ? alias : c && rowAt(c.line);
     if (!n) return null;                                             // an error no row answers for: nothing is known
-    if (!bad.has(n)) bad.set(n, dg.message.replace(/\n\s*/g, " ").slice(0, 1500));
+    if (!bad.has(n)) bad.set(n, dg.message.replace(/\n/g, " ").slice(0, 1500));
   }
   return bad;
 }
