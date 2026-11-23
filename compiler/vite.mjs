@@ -413,9 +413,10 @@ export default function rx(options = {}) {
       // its instance by the name (`__rt.module`), not by the factory: the dev server serves one module under several URLs
       // (a timestamp per hot update, and Vite 8 spells the query of a `?import` module in two orders), the browser
       // evaluates each, and two factories were two instances of the module's state and contexts. A build bundles a module
-      // once and names nothing.
+      // once and names nothing. The name has the way the module is imported in it (a dependency, `?rx-lib`, `?rx-page`):
+      // those are three modules to a bundler, with an instance each (CP-4d), and the dev server keeps to that.
       const keyed = (code, fn) => solid.dev && /^export (?:default )?function (?:module|__rxModule)\(/m.test(code)
-        ? `${code}\n${fn}.__rxKey = ${JSON.stringify(`${path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/")}#${createHash("sha1").update(m.code).digest("hex").slice(0, 12)}`)};\n` : code;
+        ? `${code}\n${fn}.__rxKey = ${JSON.stringify(`${path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/")}?${page ? PAGE : lib ? LIB : DEP}#${createHash("sha1").update(m.code).digest("hex").slice(0, 12)}`)};\n` : code;
       const libName = JSON.stringify(path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/"));
       const named = lib && file === entry
         ? `\nmodule.__rxName = ${libName};` + (out.components?.length ? `\nimport { components as __rxComponents } from "@reactivescript/runtime";\nconst __rx = __rxComponents(module, undefined, ${libName});\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n` : "\n")

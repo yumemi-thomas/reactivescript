@@ -176,7 +176,9 @@ record argued each way; this is the decision.
   provides (met 2026-11-23, on TanStack Router with `.rx` route files:
   editing the index route's file). So under the dev server the front end
   names each compiled module — `module.__rxKey`, its path from the
-  project's root and a hash of its compiled text — and `module` keys an
+  project's root, the way it is imported (a dependency, `?rx-lib`,
+  `?rx-page`: three modules to a bundler, CP-4d, and so here) and a hash
+  of its compiled text — and `module` keys an
   instance by the name where the factory has one: the same file with the
   same text is one instance however often it is evaluated, and an edited
   module, whose text differs, is another. A build names nothing (a module
