@@ -274,7 +274,11 @@ export default component App() {
 A keyed list (`rows key id = …`, ST-4) gives each row its identity by its key: a row's own state, and its place in the
 DOM, follow the key across a reorder or a new answer. Two rows with one key are one row to Solid: the second takes the
 first's state, or is dropped. Rows written out in the program with the same key are refused (ST-4d); rows that come
-from data are the data's to keep distinct (nothing checks them at run time, as nothing does in Solid).
+from data — an answer, a key a click computes — are the data's to keep distinct, and the checker cannot read them. In
+a development build the runtime does: when a keyed list is given two rows with one key it names the list and the key
+on the console (`DUPLICATE_KEY [ST-4d] rows is keyed by id, and two of the rows it was given have id: 1 …`), once for
+a list and a key, and the program goes on as its production build does. Solid's own development build says nothing
+there. Give each row its own key where the rows are made.
 
 ```rx before
 export default component App() {
@@ -2315,6 +2319,41 @@ export default component App() {
   <Router />
 }
 ```
+
+### HOST_VIEW_STALE
+
+Reported by the tools, not by a checker: `rx-tsc`, `rx-verify` and a build (`vite build`); the dev server fixes it
+instead (MO-14g). A `host.d.rx` whose first line names the router's tree it was derived from (`//@ routes
+./routeTree.gen.ts ./main.rx`, or a routes directory) is that tree's, and it has fallen behind: a route file was
+added, removed, or moved to another layout since the file was written, or the file was edited by hand. A page would
+be checked under a layout the router no longer renders it in — or under nothing. The message says which route and
+where. Write the file again from the tree: `rx-declare --host --sync src/host.d.rx` (`--check` only asks). Generate
+the tree first where it is not there (`vite build`, or the router's own CLI): the router's plugin writes it, and the
+declaration is read off it.
+
+```d.rx before
+//@ routes ./routeTree.gen.ts ./main.rx
+import { App } from "./main.rx"
+import { Root } from "./routes/__root.rx"
+import { Home } from "./routes/index.rx"
+import { AppRouter } from "./router.tsx"
+import { Outlet } from "@tanstack/solid-router"
+export default component nests(children in component) = [{ component: App, children: [{ component: Root, children: [{ component: Home }] }] }]
+```
+
+```d.rx after
+//@ routes ./routeTree.gen.ts ./main.rx
+import { App } from "./main.rx"
+import { Root } from "./routes/__root.rx"
+import { About } from "./routes/about.rx"
+import { Home } from "./routes/index.rx"
+import { AppRouter } from "./router.tsx"
+import { Outlet } from "@tanstack/solid-router"
+export default component nests(children in component) = [{ component: App, children: [{ component: Root, children: [{ component: About }, { component: Home }] }] }]
+```
+
+A declaration with no `//@ routes` line is written by hand and is never stale in this sense: `rx-verify`'s probe is
+what holds it.
 
 ### DECLARATION_VERSION
 

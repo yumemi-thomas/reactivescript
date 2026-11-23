@@ -90,9 +90,20 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   know, like any key that is computed. Rows that
   come from data (an answer, a write computed at run time) are the
   data's to keep distinct: the key's value is not known before the
-  program runs, so that half is bin R, and neither Solid nor this
-  language's runtime reports it (08 CN-2: a static check does not become
-  a run-time one).
+  program runs, so that half is bin R (08 CN-2: a static check does not
+  become a run-time one), and Solid's own development build says nothing
+  of it. Since 2026-11-24 the runtime does, in a development build
+  (Solid's `DEV`, as `__rt.lend`'s refusal is, 09 MO-10i): the rows a
+  keyed list is given — the seed, a write, what an updater answers or
+  leaves in its draft, a keyed answer, a keyed projection — are read for
+  two with one key, and the list is named on the console with the key
+  (`DUPLICATE_KEY [ST-4d] rows is keyed by id, and two of the rows it was
+  given have id: 1 …`), once for a list and a key. It is a report, not a
+  refusal: the program goes on as its production build does, where a row
+  from a backend is not the program's to make unique and Solid shows what
+  it shows. A production build reads nothing. (Until then the benchmark's
+  variant, rows added by a click with a key the list has, "ran silently":
+  `bench/tasks/duplicate-keys`.)
 
 ## ST-5 — A source with a standing question
 

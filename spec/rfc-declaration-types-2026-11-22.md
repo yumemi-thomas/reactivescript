@@ -1144,7 +1144,9 @@ SolidStart was asked for and is not one of them: `@solidjs/start` 2.2.3,
 its latest, has `solid-js ^1.9.15` and `@solidjs/router <2` as peers, and
 `.rx` compiles to Solid 2. `filesystem-routing` is SolidStart's file
 routes taken out as a package (its README says so), on Solid 2, which is
-what was built.
+what was built. (Corrected 2026-11-24, *An eleventh round*: SolidStart is
+not needed on Solid 2. Start is a mode of `@solidjs/vite-plugin` 3, and an
+`.rx` app is built on it with these file routes.)
 
 ### The decision: a host declaration (09 MO-14)
 
@@ -1643,3 +1645,287 @@ variants. No other entry's record moved: every `@solid-primitives`
 package, every module of solid-use and the families of Wardic and UI SDK
 are as they were, through the changes to what a draft writes, to the
 projection of a component with no props, and to the runtime.
+
+## An eleventh round: what the router already knows, and what a wrapper already says (2026-11-24)
+
+The tenth round left the suite with two red checks, 340 hand-written
+words (from 308) and 41 parts said by place (from 28), and with three
+things written down as limits: a host declaration that restated the
+route tree by hand, TanStack route files that had to be TSX, and no
+SolidStart on Solid 2. This round took each of them, with seven items
+set by review. Recorded in 09 MO-14g, MO-8s, MO-11u, MO-13b and MO-14
+(*The native shape*), 11 CP-4b and CP-4d, 06 ST-4d and 10 SV-7c. No word
+was added to a row.
+
+### `.rx` route files on TanStack Router (09 MO-14, *The native shape*)
+
+A fork of the router adds one generator option, `routeComponentExtensions:
+{ ".rx": "?rx-page" }` (`github.com/yumemi-thomas/router`, branch
+`rx-route-files`, commit `8688de6`, one commit on the release of
+`@tanstack/solid-router` 2.0.0-rc.11): a file of the routes directory
+with such an extension is a route whose component is the file's default
+export, and the generator writes the route object into
+`routeTree.gen.ts` itself. It names no language; `?rx-page` (11 CP-4d,
+taken on `filesystem-routing`) is what it imports here.
+
+How a fork is consumed was a decision, since the benchmark installs from
+lockfiles (`npm ci`) and CI must run what is claimed:
+
+| | |
+| --- | --- |
+| a git dependency | does not install: the fork is a pnpm workspace, npm installs no package out of a repository's subfolder, and the packages ship a `dist/` a clone has not got |
+| a test that runs only beside a clone | green in CI by not running: no evidence |
+| **the two changed packages, packed and committed** (`bench/tasks/router-rx-routes/vendor`, 350 kB, each with its integrity in the task's lock) | installs offline, runs wherever the suite does — and is said as what it is: this build of a fork, no release, no part of MO-8r's count |
+
+`bench/tasks/router-rx-routes` is `router-provider`'s program with the
+route files themselves in `.rx`: 12/12 good (four entries), 6/6 types
+(a link to no route, a `from` that is no route, a link without its
+route's param, the backend's type), 14/14 runtime, 11/11 bad. The
+tarballs are the fork's `dist/` at that commit, byte for byte (compared);
+`vendor/README.md` has the commands that remake them. `router-provider`
+stays, as the record of the fallback: TSX route files that hand a route
+its component, for the generator as released.
+
+### One module, served twice (11 CP-4b)
+
+Testing the fork, an edit of the index route's `.rx` file left the page
+with `RG-7b: no provision for team` — the context the app's entry
+provides — and a full reload did not clear it. Reproduced from the
+proof's scratch app, the requests told the story:
+
+```
+/src/team.rx?t=1795404310024&import&rx-dep      ← main.rx's import
+/src/team.rx?import&t=1795404310024&rx-dep      ← the route file's
+```
+
+One module under two URLs. Vite 8.1.5 injects the timestamp of a module
+it has invalidated in two places — where it patches the cached code of an
+importer whose own text did not change (`handleModuleSoftInvalidation`:
+the timestamp goes before the query it finds) and where it compiles an
+importer again (`normalizeUrl`: the timestamp, then `?import`) — and for a
+module it marks `?import`, which is every module whose extension it does
+not know, the two orders are two URLs. The browser evaluated `team.rx`
+twice: two factories, two instances in the app, two contexts. The entry
+provided one and the route file read the other. (Why `team.rx` was
+invalidated at all: a dependency watches every module of its program,
+because a whole-program check may change what it compiles to.) It is not
+the router's, not `?rx-page`'s and not the app binding's (MO-13g): a page
+JavaScript renders beside an `.rx` entry, with no router at all, does the
+same (`compiler/test/vite.mjs`, *context*).
+
+The two spellings are Vite's, and not this project's to fix; that a
+module is one module is. Under the dev server the front end names each
+compiled module (`__rxKey`: its path from the root and a hash of its
+compiled text) and the runtime keys the instance by the name. A build
+names nothing. With Solid's refresh on, as `npx vite` runs it, the task
+drives an edit of a route file, a reload, navigation, an edit of a second
+route file, and a route file added while the server runs; without the
+name the first three fail as the proof's did.
+
+### A declaration read off the router (09 MO-14g)
+
+`host.d.rx` restated the tree and its probe restated it again, so a new
+route file went unchecked and a moved one stayed credited to its old
+layout. Weighed: have the checker read the router's file (no: CN-8, and
+two checkers would each grow a parser for each router); generate the
+file at build time into `node_modules` (it is then nowhere the editor
+and `rx-tsc` read it from without the build); or derive it with the
+tool that already drafts it, say in the file where it came from, and
+refuse it when it falls behind. The last.
+
+- `//@ routes <source> [<entry.rx>…]` on the first line; `rx-declare
+  --host --routes` writes the file whole. Three sources: TanStack's
+  generated tree (through `.rx` route files or the TSX files that hand a
+  route its component), a routes directory scanned by the project's own
+  `filesystem-routing`, a JSON tree.
+- Derived with the nesting: the entry around the router, the component
+  of the app's own it renders the routes through (found as the one from
+  the JS module that imports the tree), the router's outlet where a
+  layout uses it, and what is left for the view to provide. The three
+  declarations the suite had by hand come out row for row.
+- `HOST_VIEW_STALE` from `rx-tsc`, `rx-verify` and a build; the dev
+  server writes the file again. `rx-verify` hands the probe the routes,
+  so the probe names none.
+- The order: the router's plugin writes its tree before a module is
+  compiled, so in a build and under the dev server the check reads the
+  tree as it is; a task's `prepare` builds once before any checker reads
+  the program, as it did for the types.
+
+Five declarations in the suite are derived, with no word by hand; they
+were 13, 8 and 7 words, and two are new. Variants: a route file added
+and the declaration not written again (refused by `rx-tsc`, and by the
+build), a page moved by hand in the declaration, a TSX route file handing
+its route another component.
+
+### Solid's start mode (11 CP-4d)
+
+SolidStart was recorded as not buildable on Solid 2 (`@solidjs/start`
+2.2.3 asks for `solid-js ^1.9`). It is not needed: `@solidjs/vite-plugin`
+3.0.1 has Start as a mode of the plugin, `solid({ start: true, ssr: true
+})`, which owns the entries, the dev server's render and the build
+(`start.nodeServer` emits a Node server). It has no file routes of its
+own; `filesystem-routing` is those. `bench/tasks/start-mode` is
+`file-routes`' program on it — an `.rx` root, `.rx` route files, each
+request rendered on the server, streamed and hydrated: 9/9 good, 6/6
+types, 15/15 runtime (the built server and the dev server, an edited
+route file shown and rendered again on the server), 11/11 bad, 1/1
+unrepresentable. Two things met on the way:
+
+- Start mode's root is a file with one of five extensions, so `src/App.ts`
+  is one line that hands the `.rx` root over as a page.
+- Under its dev server `provide` threw `Cannot read properties of null`:
+  the app's modules ran on Vite's copy of Solid and the runtime, which
+  Vite left to Node, on Node's. Solid's plugin loads every package that
+  runs on Solid with the app, and finds them from the app's
+  `package.json`; the benchmark's workspace did not list the runtime
+  (it is linked in). The task's app lists it, as an app does, and the
+  runtime says the cause in words.
+
+### The two red checks
+
+Each was a mistake only a run can see. The question was whether a
+development build could say it, as `__rt.lend` refuses a changed copy.
+
+- **A duplicate key computed at run time** (06 ST-4d): yes. The rows a
+  keyed list is given are read, in a development build, for two with one
+  key, and the list is named on the console. A report, not a refusal:
+  rows from a backend are not the program's to make unique, and the
+  program goes on as its production build does. `duplicate-keys` is
+  green by it.
+- **A `pure` JS call that answers differently on the server** (10
+  SV-7c): not at run time. The comparison belongs where the server's
+  node meets the client's value, and that is Solid's `insert`, which
+  returns the client's value without reading the node; the compiled
+  program never has the node. Comparing calls instead is not sound:
+  `pure` is not "a function of its arguments", and a streamed render and
+  its hydration do not call in one order. What can be run is the word:
+  `rx-verify` runs a `pure` fn with a window and without one, and a
+  plain answer that is steady on each side and differs between them is a
+  mismatch. `ssr-divergence`'s variant — what only the browser knows
+  declared `pure`, and read by the view — is caught by it, and counted
+  as that (`verify`: the checkers accept the program, and running the
+  declaration refuses the row). The lying row is the variant's own now;
+  it sat unused in the good program's declaration before.
+
+### What `renders(H)` was asked for and did not get (09 MO-11u, MO-13b)
+
+| asked | run | decided |
+| --- | --- | --- |
+| a row for a method of a library's object (`toaster.show`, `toast.custom`) | under a provider, both toasters mounted: Kobalte's `toaster.show(C)` renders `C` with an owner, and the context above the list is read; sonner's `toast.custom(fn)` calls `fn` with no owner, `useContext` throws `NoOwnerError` | not taken: the word would be true of one library, and a three-line module of the app's does the job (`kobalte-toast`), whose declaration is now drafted whole |
+| a layout's regions credited to the pages its outlet renders | `router-code-routes` with the page's regions moved into the root layout: `UNHANDLED_FAILURE` and `ASYNC_OUTSIDE_LOADING_BOUNDARY` on a correct program | not taken: the nesting is in one library's values (`getParentRoute`), which CN-8 keeps out of the checker; a host declaration has it, derived, and a factory has it |
+| an `.rx` package naming another package's host | a package calling sonner's `toast(Saved)` built "ok", its signature naming `../rx-types/solid-sonner.d.rx#Toaster`: a file it does not ship | not taken: no library writes it. The silent acceptance is refused by `rx-lib` |
+
+### What a wrapper already says (09 MO-8s)
+
+Most of the words written by hand were in declarations of the app's own
+small modules over a library — the ways round the vocabulary sends an app
+to. Each says what the library's rows say, so `rx-declare` carries the
+words over, where the module's text shows it does that and no more:
+exported again, rendered alone, made by a factory, called at the top of a
+hook, read by a field, handed straight on. And three things beside it:
+
+- one reading more of a row: an accessor's options record under the fn's
+  own type parameters is written, where it was said by its place;
+- `--only <exports>`: the rows an app keeps, with the contexts and the
+  types they name — a project's declaration of a router is 28 rows of the
+  library's 296;
+- a prop that is an object with functions of its own is no "record of
+  components" (MO-11c). The router's `notFoundRoute` — a route, with a
+  `Link` among its members — had been written `{ Link: Component }`,
+  which TypeScript refused, and with it the whole named reading of
+  `<RouterProvider>`: the row fell to its props' place, thirteen parts.
+
+### Found on the way
+
+- A dev server serves one module under two URLs, and the runtime keyed
+  an instance by its factory: 11 CP-4b, above.
+- `rx-lib` built a package whose signature named a host through a
+  declaration it does not ship: 09 MO-13b.
+- A runtime Node loads on its own, beside an app Vite bundles: `provide`
+  failed with a `TypeError`. It says what happened now.
+- `rx-declare` read a route object as a record of components: above.
+- A row drafted with a TODO above it is one entry of two lines; a pass
+  that looked rows up by their first line missed it (the carry pass,
+  before it was first run on Kobalte's `Toast`).
+
+### Library defects recorded, not filed
+
+- Vite 8.1.5: the timestamp query of a module marked `?import` is written
+  in two orders (`?t=…&import&x` by `handleModuleSoftInvalidation`,
+  `?import&t=…&x` by `normalizeUrl`), so one module is fetched and
+  evaluated twice after an edit, and after a reload of the page.
+- `@solidjs/vite-plugin` 3.0.1: start mode's `app` is a file with one of
+  `.tsx`, `.jsx`, `.ts`, `.js`, `.tsrx` — no front end's extension, though
+  `.rx` modules are compiled by the same plugin — and a path with a query
+  "does not exist".
+- `@solidjs/web` 2.0.2: while hydrating, a text the client computes
+  differently is adopted without a word (its development build checks
+  tags, not text).
+- `solid-sonner` 1.0.0: `toast.custom(fn)` calls `fn` with no owner (as
+  recorded in the tenth round; run again here beside Kobalte's).
+- `@tanstack/router-generator` 1.168.0, as released: no option admits a
+  route file in another language. (The fork's option is the proposal.)
+
+### The numbers
+
+`node bench/run.mjs`, at `29f9106` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `29f9106` (35 tasks) | 111/111 | 172/172 | 228/228 | 199/201 | 12/12 | 340 | 60 | 0 | 41 |
+| now (37 tasks) | 132/132 | 184/184 | 258/258 | 228/228 | 13/13 | 259 | 57 | 0 | 29 |
+
+No check is red. By task, where a number moved:
+
+| task | good | types | runtime | bad caught | unrepresentable | words | `any` inherited | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `duplicate-keys`, was | 3/3 | 3/3 | 3/3 | 1/2 | — | 0 | 0 | 0 |
+| `duplicate-keys`, now | 3/3 | 3/3 | 3/3 | 2/2 | — | 0 | 0 | 0 |
+| `file-routes`, was | 6/6 | 5/5 | 5/5 | 12/12 | — | 26 | 0 | 0 |
+| `file-routes`, now | 6/6 | 5/5 | 5/5 | 14/14 | — | 12 | 0 | 0 |
+| `kobalte-toast`, was | 3/3 | 5/5 | 9/9 | 8/8 | — | 24 | 0 | 0 |
+| `kobalte-toast`, now | 3/3 | 5/5 | 9/9 | 8/8 | — | 3 | 0 | 0 |
+| `query-forward`, was | 3/3 | 6/6 | 6/6 | 9/9 | — | 25 | 0 | 0 |
+| `query-forward`, now | 3/3 | 6/6 | 6/6 | 9/9 | — | 5 | 0 | 0 |
+| `query-mutation`, was | 3/3 | 5/5 | 5/5 | 6/6 | — | 25 | 0 | 0 |
+| `query-mutation`, now | 3/3 | 5/5 | 5/5 | 6/6 | — | 5 | 0 | 0 |
+| `router-code-routes`, was | 3/3 | 6/6 | 5/5 | 6/6 | 1/1 | 7 | 19 | 14 |
+| `router-code-routes`, now | 3/3 | 6/6 | 5/5 | 6/6 | 1/1 | 7 | 16 | 1 |
+| `router-provider`, was | 6/6 | 5/5 | 5/5 | 10/10 | 1/1 | 26 | 0 | 1 |
+| `router-provider`, now | 6/6 | 5/5 | 5/5 | 12/12 | 1/1 | 7 | 0 | 1 |
+| `router-rx-routes` (new) | 12/12 | 6/6 | 14/14 | 11/11 | — | 10 | 0 | 1 |
+| `ssr-divergence`, was | 3/3 | 3/3 | 3/3 | 2/3 | — | 3 | 0 | 0 |
+| `ssr-divergence`, now | 3/3 | 3/3 | 4/4 | 3/3 | — | 2 | 0 | 0 |
+| `start-mode` (new) | 9/9 | 6/6 | 15/15 | 11/11 | 1/1 | 12 | 0 | 0 |
+| `start-route`, was | 3/3 | 6/6 | 9/9 | 6/6 | 1/1 | 28 | 0 | 1 |
+| `start-route`, now | 3/3 | 6/6 | 9/9 | 7/7 | 1/1 | 20 | 0 | 1 |
+
+The two checks that were red are green, each by the means its mistake
+has (above), and no task has a `known` left. The words: the five host
+declarations cost none (they were 13, 8 and 7, and two are new); the
+routers' `router.d.rx` none in two tasks and 6 in two (`paths`, a
+function with a member for each route, kept as a value); `query.d.rx`
+none, twice, from 20; Kobalte's toaster none, from 21. What is left by
+hand, 259 words over 37 tasks, is mostly an app's fake backend (`pure`,
+`rejects(…)`: nine tasks), a JS adapter with no library row to take from
+(`table-pagination`, 44; `start-route`'s untyped module, 20), and the
+words of UI SDK's and Wardic's parts, which `known.js` does not hold.
+The inherited `any`s fell by the rows `router-code-routes` no longer
+keeps (19 to 16: its 28 rows still name the router's own `any`s), and
+the parts by place by `<RouterProvider>`'s thirteen. The 29 that remain
+are types the libraries compute and give no name: a state-dependent
+`class`, `style` and `children` (UI SDK, 19), a rest tuple and an
+overloaded setter (`@solid-primitives`, 6), a link's `params` (4).
+
+| coverage | programs | green | modules drafted | rows | library's `any` | introduced | by place | hand-written words | bad caught |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `29f9106` | 123 | 123 | 193 | 4904 | 1195 | 0 | 1519 | 277 | 13/13 |
+| now | 123 | 123 | 193 | 4904 | 1195 | 0 | 1519 | 277 | 13/13 |
+
+No entry's record moved, and no whole draft's: every `@solid-primitives`
+package, every module of solid-use, the families of Wardic and UI SDK,
+`solid-sonner` and `solid-marked` are as they were, through the changes
+to what a draft writes (one reading more, the record-of-components rule
+— whose first form took `solid-marked`'s `Break?: () => JSX.Element` out
+of its record and cost that entry 45 words until it was read as the
+component it is), to the runtime and to `rx-verify`.

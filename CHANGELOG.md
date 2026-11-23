@@ -2,6 +2,66 @@
 
 ## Unreleased
 
+**The router's own tree, a dev server that keeps one module one, Solid's start mode** (spec/09 MO-14g, MO-8s, MO-11u, MO-13b; spec/11 CP-4b, CP-4d; spec/06 ST-4d; spec/10 SV-7c; spec/rfc-declaration-types-2026-11-22.md, *An eleventh round*)
+
+- **Fixed: after an edit under the dev server, a page could read `RG-7b: no provision` for a context your entry
+  provides** — until the server was restarted; a reload did not help. A dev server serves a module again under a new
+  URL after an edit, and Vite 8 writes that URL in two spellings for one module (`?t=…&import&rx-dep`,
+  `?import&t=…&rx-dep`), so the browser evaluated the file twice and a context declared in it existed twice. The
+  plugin now names each compiled module under the dev server and the runtime keys a module's instance by the name:
+  the same file with the same text is one module however often it is loaded. **Update `@reactivescript/compiler` and
+  `@reactivescript/runtime` together.** A build is unchanged.
+- **New: `host.d.rx` is read off the router** (MO-14g). `rx-declare --host --routes <source> [<entry.rx>…]` writes the
+  whole declaration — the route components, the nesting, your entry around the router and the component it renders
+  the routes through, the router's outlet — from TanStack Router's generated `routeTree.gen.ts`, from a routes
+  directory `filesystem-routing` scans, or from a JSON tree. Its first line records the source (`//@ routes …`), and
+  from then on the file is that tree's: the dev server writes it again when a route file is added or moved, and
+  `rx-tsc`, `rx-verify` and `vite build` refuse one that has fallen behind (**new diagnostic `HOST_VIEW_STALE`**, the
+  tools'; `rx-declare --host --sync` fixes it, `--check` asks). `rx-verify` hands the probe the routes
+  (`scene(rx, h, routes)`, `act(rx, h, route)` for each page), so a probe restates none either. A declaration with no
+  `//@ routes` line is written by hand and behaves as before. To move an existing one: generate the router's tree
+  (`vite build`), run the command over your `host.d.rx`, and change the probe to build its routes from the third
+  argument (guide/libraries.md has one).
+- **New: `.rx` route files on TanStack Router**, with a generator option that is a fork's and not yet upstream
+  (`routeComponentExtensions: { ".rx": "?rx-page" }`, github.com/yumemi-thomas/router, branch `rx-route-files`): a
+  route file is its component, and the generator writes the route objects. With the router as released a route file
+  stays a few lines of TSX that hand the route an `.rx` component; both are in guide/libraries.md.
+- **New: Solid's start mode** — `solid({ start: true, ssr: true })` in `@solidjs/vite-plugin` 3 — builds, serves and
+  hydrates an `.rx` app with no `index.html`, no mount file and no server file; SolidStart is not needed on Solid 2.
+  The root is `src/App.ts`, one line: `export { default } from "./App.rx?rx-page"`. The routes are
+  `filesystem-routing`'s. **List `@reactivescript/runtime` in your app's `package.json` dependencies**: Solid's plugin
+  finds there the packages to load with your app's copy of Solid under the dev server; without it the runtime now
+  says so (`provide …: no owner. A component is rendered by one copy of Solid and @reactivescript/runtime runs on
+  another`) where it threw `Cannot read properties of null`.
+- **New: `rx-declare` drafts the declaration of a small module over a library whole** (MO-8s). A module that exports
+  a library's component again, renders it and nothing else, binds what a factory makes, calls a library's hook at
+  the top of its own, or hands its argument straight to a library method takes the words of the library's rows:
+  `provides(router)` on the component that renders `<RouterProvider>`, `pure` and `uses(queryClient)` on a hook over
+  TanStack Query's `useQuery`, `pending fails(Error)` on the field that reads its `data`, `renders(Toast.List)` on a
+  function over Kobalte's `toaster.show`. Nothing is guessed: a word is copied from the row it was written on, in
+  the shapes where the text shows the module does that and no more. `--types-only` leaves them out.
+- **New: `rx-declare <package> --only <export>,…`** writes the rows an app keeps: those exports', the contexts their
+  words name and the types they name (TanStack Router: 28 rows of 296).
+- **Changed: fewer parts of a draft are said by their place.** An accessor's options record on a fn with type
+  parameters of its own is written with them (`ref options: { queryKey: QueryKey; queryFn: () => Promise<TData> }`),
+  and a prop that is an object with functions of its own is no longer taken for a record of components — which had
+  cost `<RouterProvider>` its named props (`RouterProps<TRouter, TDehydrated>` now, thirteen by-place parts fewer).
+  A drafted row may differ from the one an earlier version wrote; `rx-tsc` holds either.
+- **New in development builds: a keyed list given two rows with one key is named on the console** (`DUPLICATE_KEY
+  [ST-4d] …`), once for a list and a key. Rows written out with one key were already refused by the checker; a key
+  a click or an answer computes was not reported by anything, Solid's development build included. The program goes
+  on as its production build does. Production builds read nothing.
+- **Changed: `rx-verify` runs a `pure` fn on both sides** — with a browser's globals and without (a second
+  process) — and a plain answer that is steady on each side and differs between them is a MISMATCH: a page would be
+  served with one answer and hydrated with the other, and neither the checkers, the build nor Solid's hydration says
+  so (10 SV-7c). The fix is the one the language has: what only the browser knows is `client` JS.
+- **Changed: `rx-lib` refuses a package whose signature names a file it does not ship** — a library declared in the
+  package's own `rx-types/` and named by a `renders`, `hosts`, `uses` or `provides` key. It was built without a word,
+  and in the app that installed it the key met nothing. Leave the call to the app, or take the value as a prop.
+- **Decided, and not added** (MO-11u, MO-13b; each with the program that was run): a row for a method of a library's
+  object (`toaster.show`), a layout's regions credited to its pages under `renders(H)`, and a package naming another
+  package's host.
+
 **A component a library renders later; components in a record** (spec/09 MO-11u, MO-11c, MO-11s, MO-8r; spec/13 TY-3d; spec/rfc-declaration-types-2026-11-22.md, *A tenth round*)
 
 - **New word: `renders(H)` after a declared fn's signature.** It names a component the same `.d.rx` declares: the

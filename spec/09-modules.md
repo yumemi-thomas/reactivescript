@@ -962,6 +962,58 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   the benchmark write it over three libraries (TanStack Query in two
   tasks, Wardic's sensor). S-module-35.
 
+- **MO-8s (What a module of the app's own takes from the library it
+  stands over) — 2026-11-24.** The ways round above — a hook's store
+  handed out field by field, a method of an object handed out as a
+  function, the router's provider in a component of the app's — are each
+  a small JS module the app writes, and until now each came with a
+  declaration written by hand: every word of it, though the module says
+  nothing the library's own rows do not. `rx-declare` now reads the
+  module's own text and carries those words over, in the shapes where
+  they hold for every run:
+
+  | the module writes | its row takes |
+  | --- | --- |
+  | `export { Toast }` of a library's component (or `export { Toast } from …`, or under another name), with its members | that row's `uses(…)` and `provides(…)`, member for member |
+  | a component whose body is one `return` of one library component and nothing around it (`return <RouterProvider router={router} />`) | that component's `uses(…)` and `provides(…)` |
+  | `export const Router = createRouter(…)`, of a fn whose row hands back a `Component` with words | the component's words (`provides(router)`) |
+  | a fn that calls a library's hook at the top of its body — not behind a condition, not in a nested function | the hook's `uses(…)`; and `pure`, where the hook is `pure` and the body does nothing else but return a record of functions and names |
+  | a field of that record that only reads the hook's result, `data: () => q.data` | `ref` (an accessor, read as a value); and `pending fails(E)` where rx-declare knows the result's field to wait or throw |
+  | a fn that hands its own parameters straight to a library call known to render them (`toast => toaster.show(toast)`) | `renders(H)`, where the module exports H too |
+
+  The library's rows are the project's declaration of the package where
+  it has one (found as the checker finds it), else what `known.js` says
+  of the installed release; two facts no row of the library's own can
+  say are kept there for this (`wraps`): that `@tanstack/solid-query`'s
+  `useQuery` is pure, reads the client, and has a `data` that waits and
+  throws (a store's field: MO-8r), and that Kobalte's `toaster.show`
+  renders beneath `Toast.List`. A context a carried word names is
+  declared with it — `export context router from "@solidjs/router"`
+  (MO-12e) where the project declares the package, the bare name
+  otherwise. The TODO a word answers is removed; any other stays. The
+  draft says, in a comment, which rows took what and from where.
+
+  **It adds no word and no form**: the rows are the ones a person wrote.
+  And it is not the guess RFC 26 forbids: `pure` is still never read off
+  a name. A word is copied from the row it was written on, only where
+  the text shows the module does what that row describes and nothing
+  more — a component that renders the provider inside markup of its own,
+  a hook called behind a condition, a body that also logs, take nothing
+  (or `uses` without `pure`), and their questions stay. As any row, a
+  carried one is `rx-verify`'s to run. `--types-only` leaves them out.
+  What it cut, measured on the benchmark's own modules: `query.d.rx` in
+  two tasks 20 words each to none, the routers' `router.d.rx` 6 and 13 to
+  none and 6 (what is left is `paths`, a function with a member for each
+  route, kept as a value), the Kobalte toaster's 21 to none
+  (`tooling/rx-language-server/src/declare-own.js`, `test/declare.js`).
+
+  With it, one reading of a row more (MO-8q): an accessor's options
+  record where the fn has type parameters of its own (`ref options: {
+  queryKey: QueryKey; queryFn: () => Promise<TData> }`) is written with
+  those parameters by name, where it was said by its place
+  (`ReturnType<Parameters<typeof f<TData>>[0]>`); TypeScript holds the
+  reading, or the row is the one it was.
+
 ## MO-9 — A signature read in place of its module
 
 - **MO-9a.** `import … from "./x.rx"` where there is no `x.rx` but there is
@@ -2509,6 +2561,43 @@ export default component App() {
   prop's `renders T`, `nests(component under parent)`, `outlet` and
   `renders(root, ctx…)` stay refused by name (MO-8r).
 
+  *Three things asked of it, each put to the bar (decided 2026-11-24;
+  programs built and run).*
+  - **A row for a method of a library's object** (`export fn
+    toaster.show(…) renders(Toast.List)`; components have dotted names,
+    MO-11q, fns have not: `PARSE` today). Two libraries were named for
+    it, and run: under a provider, with the library's toaster mounted,
+    `@kobalte/core` 2.0.0-alpha.5's `toaster.show(C)` renders `C` with
+    an owner, and a context provided above the list is read;
+    `solid-sonner` 1.0.0's `toast.custom(fn)` calls `fn` with no owner
+    at all (`useContext` throws `NoOwnerError`), so `renders(Toaster)`
+    would be false of it. One library the word would be true of, where
+    the bar asks for more than one; and it is not necessary — the app
+    hands the method out from a module of its own, three lines, which
+    `bench/tasks/kobalte-toast` builds, runs and holds eight mistakes
+    against. **Not taken.** What that module cost is gone instead: its
+    declaration is drafted whole (MO-8s), no word by hand. Sonner's
+    `toast.custom` is a defect of the library's, recorded and not filed.
+  - **A layout's regions credited to the pages its outlet renders.**
+    Built: `bench/tasks/router-code-routes` with the page's `errored`
+    and `loading` regions moved into the root layout, around its
+    `<Outlet />` — a correct program, refused with two errors
+    (`UNHANDLED_FAILURE`, `ASYNC_OUTSIDE_LOADING_BOUNDARY`, each "no …
+    above an application of `<RouterProvider>`"). To credit them the
+    checker would read which route is whose child out of the values
+    code-based routes are built from (`getParentRoute`, `addChildren`):
+    one library's own shape, which CN-8 keeps out of the checker and
+    MO-8r withdrew as a word (`nests(component under parent)`). The
+    nesting has its two forms already, and each keeps the registered
+    route types: a host declaration, which for a file-based tree is now
+    derived from the router's own with no word by hand (MO-14g), and a
+    factory declared `nests(…)`. The strict error refuses nothing wrong
+    in silence, and its ways round are in the language (the region
+    above the provider, or in the page). **Not taken.**
+  - **An `.rx` package naming another package's host** in its
+    signature: MO-13b. **Not taken** — no library writes it — and the
+    silent acceptance found on the way is refused.
+
   *Checked by running.* `rx-verify` holds the row to a scene (MO-11r):
   every application of H in the scene is recorded, and a component the fn
   was given must render beneath one. A library that mounts it under a
@@ -2742,7 +2831,28 @@ package's `.d.rx` is the signature the compiler printed (MO-3).
   `rx-lib` (2026-11-23), with the module and the key: it is right in one
   layout of an install and wrong in the others (hoisted or not, linked,
   in a store). Such a package takes the context's value as a prop, or
-  provides it from a component of its own.
+  provides it from a component of its own. A key leaves the package by
+  another way too, found 2026-11-24 by building one: a package's own
+  declaration of another library, in `rx-types/` beside its sources. A
+  package that calls `solid-sonner`'s `toast(Saved)` was built "ok" with
+  `export renders ../rx-types/solid-sonner.d.rx#Toaster from toast:7` in
+  its signature — a file it does not ship, and a key no application of
+  the app's `<Toaster />` has, since the app declares that library itself
+  under another key. In the app the package's toast was then held to
+  nothing above it, in silence. `rx-lib` refuses every key (a context's,
+  a host's) that names a file outside what the package ships, with the
+  module and the key.
+
+  *Naming another package's host (decided 2026-11-24: not taken).* What
+  would let such a package be written is a key that names a library by
+  its specifier (`solid-sonner#Toaster`) in place of a path. By MO-8r:
+  no library writes it — no package of the Solid 2 ecosystem is written
+  in `.rx` but this repository's own — so the count is none, where the
+  bar asks for more than one; and it is not necessary: the package
+  exports the component and the app shows it (`toast(Saved)` in the
+  app), or the package takes the function that shows a toast as a prop.
+  The refusal above is what was missing: the silent acceptance, a defect
+  whatever the bar says of the form.
 - **MO-13c (The compiled module).** The import stays an ES import of the
   specifier the program wrote (MO-8c), and what it imports is the module's
   factory, exported as `__rx`: `import { __rx as __m0 } from
@@ -3061,8 +3171,8 @@ says what the host does, once, in the words a factory's row already has.
   are declared to use (the host must provide them), and a view with every
   component at the top; which page is among which layout's children is
   the router's own knowledge (its file names, its generated tree), and is
-  left to write. A generator that reads `.rx` route files is where the
-  whole file should come from.
+  left to write — or read from the router itself, which writes the whole
+  file and keeps it true (MO-14g).
 
 - **MO-14f (What the host renders through) — proposed 2026-11-23; veto
   here.** A record's children are rendered among its component's children
@@ -3140,6 +3250,108 @@ says what the host does, once, in the words a factory's row already has.
   `props.children`. `bench/tasks/router-provider` and `file-routes`;
   `examples/tanstack`.
 
+- **MO-14g (A declaration derived from the router's own tree) —
+  2026-11-24.** A host declaration restated the route tree by hand, and
+  `rx-verify` held it to a probe that restated it again: a route file
+  added, or moved to another layout, changed neither, and the pages went
+  on being credited what the router no longer did. The router has the
+  tree; the declaration is now read off it.
+  - *The pragma.* `//@ routes <source> [<entry.rx>…]` before the file's
+    first row says where the nesting comes from, and that the file is
+    that source's: `rx-declare --host --routes <source> [<entry.rx>…]`
+    writes it whole. To the checkers it is a comment — they read no
+    router's file (CN-8) and check the rows they are given, as before.
+    A declaration without it is written by hand, as before, and held by
+    its probe.
+  - *The sources.* **TanStack Router's generated tree**
+    (`routeTree.gen.ts`): each route's parent is its `getParentRoute`,
+    its component the `.rx` file the tree imports as a page (`?rx-page`)
+    or the one `.rx` component its TS route file hands the route. **A
+    routes directory**, scanned by the project's own
+    `filesystem-routing` (its `toPath`, its `buildRouteTree`): every
+    `.rx` file a page, nested as that package nests them. **A JSON
+    tree** (`[{ file, component?, path?, children? }]`), for a host no
+    reader is written for. A route with no `.rx` component is left out,
+    its children its parent's.
+  - *What is derived.* The imports of the route components (a module's
+    default component by its own name; two of one name told apart, `Page
+    as Page2`); the view, nested as the tree is; around it, each entry
+    named, with the component of the app's own it renders the routes
+    through — the one it applies from the JS module that imports the
+    tree (`./routeTree.gen`, `virtual:file-routes`), declared a
+    component beside that module (MO-14f); the router's outlet, where a
+    layout that does not read `props.children` applies it; and
+    `provides(c)` on the view for each context the routes' imports are
+    declared to use and nothing they are rendered through provides.
+    Where it cannot tell — an entry that applies two such components, or
+    none — it says so and writes nothing.
+  - *Kept true.* `HOST_VIEW_STALE`: the file's rows are not the ones its
+    source gives now, with which route and where (`About is a route of
+    ./routes and is not in the view`; `Person is among Root's children
+    in ./routeTree.gen.ts, and at the top in the view`). `rx-tsc`
+    refuses it for every host declaration its program is under;
+    `rx-verify` reports each claim of it a mismatch before running
+    anything; a build refuses it before the program is read (the
+    router's plugin has written its tree by then); the dev server writes
+    the file again and says so, since it is the tool running while route
+    files are added. `rx-declare --host --check` and `--sync` do each by
+    hand. It is the tools' diagnostic, not a checker's.
+  - *The probe restates nothing either.* `rx-verify` hands the scene the
+    routes as its third argument — each with its path and the recording
+    component that stands for its `.rx` one — and calls `act(rx, h,
+    route)` for each page in turn. A probe builds the router's objects
+    from them and names no route: a file added is in the scene the next
+    run.
+  - *The order.* The tree is the router's plugin's to write: it does at
+    the start of a build and of the dev server, before a module is
+    compiled, so the check reads the tree as it is. Outside a build
+    (`rx-tsc` in CI on a fresh checkout that ignores the generated file)
+    the tree is generated first — `vite build`, or the router's own CLI —
+    as it must be for TypeScript to type a link at all; a tree that is
+    not there is said in those words.
+
+  *The bar.* It adds no word to a row and no rule to a checker; the
+  pragma is a line the tools read. What it removes is a mistake that was
+  accepted in silence — a page credited a layout the router no longer
+  renders it in — which is a defect whatever the bar says. Three
+  libraries write the tree it reads (`@tanstack/router-plugin`, TanStack
+  Start's, `filesystem-routing`), and each of the benchmark's router
+  tasks is under one: `router-provider`, `router-rx-routes`,
+  `start-route`, `file-routes`, `start-mode` — five declarations, no
+  word by hand in any (the three there were had 13, 8 and 7).
+
+*The native shape (2026-11-24).* A route file that is its component, in
+`.rx`, with the router's own tooling writing the tree:
+  - **`filesystem-routing`** takes `.rx` route files as released
+    (`extensions: ["rx"]`, each imported `?rx-page`), under
+    `@solidjs/router`: a client-only build (`bench/tasks/file-routes`),
+    or served and hydrated in **Solid's start mode** (11 CP-4d;
+    `bench/tasks/start-mode`), which is the same program without the
+    page, the mount file and the server.
+  - **TanStack Router**'s generator takes them with one option, which
+    is a fork's and not yet upstream: `routeComponentExtensions: { ".rx":
+    "?rx-page" }` (`github.com/yumemi-thomas/router`, branch
+    `rx-route-files`, `8688de6`, on `@tanstack/solid-router`
+    2.0.0-rc.11). A file of the routes directory with such an extension
+    is a route whose component is the file's default export; the
+    generator writes the route object into `routeTree.gen.ts` itself and
+    never reads the file as JavaScript. The option names no language.
+    Built and run with the fork's two packages
+    (`bench/tasks/router-rx-routes`: typed links and hooks from the
+    generated tree, the router in the app's component, the dev server
+    through an edit, a reload and a route file added). The packages are
+    committed as tarballs and installed from the task's lock — the fork
+    is a pnpm workspace no git dependency installs, and a test that ran
+    only beside a clone would be green in CI by not running
+    (`bench/tasks/router-rx-routes/vendor/README.md`). It is counted as
+    what it is: a fork's build, not a release, and no part of MO-8r's
+    count (it adds no word).
+  - **The fallback**, for TanStack Router and Start as released: a route
+    file is a few lines of TSX that hand the route a component of an
+    `.rx` module (`?rx-lib`; `bench/tasks/router-provider`,
+    `start-route`). The declaration is derived all the same, through the
+    route files.
+
 *The bar (MO-8r), applied (2026-11-23).* Programs built and run, not
 types read:
 
@@ -3162,8 +3374,11 @@ More than one library: two routers by different authors, three packages
 with `@solidjs/router/fs`), each with its declaration, its probe and its
 task (`bench/tasks/router-provider`, `start-route`, `file-routes`). And it
 adds no word. (SolidStart itself is not among them: `@solidjs/start` 2.2.3
-asks for `solid-js ^1.9`; `filesystem-routing` is its file routes for
-Solid 2.) What MO-8r withdrew stays withdrawn: those words described one
+asks for `solid-js ^1.9`. It is not needed for Solid 2: Start is a mode of
+`@solidjs/vite-plugin` 3 — `solid({ start: true, ssr: true })`, the
+entries, the dev server's render and the build — and `filesystem-routing`
+is its file routes. An `.rx` app is built on the two since 2026-11-24:
+`bench/tasks/start-mode`, 11 CP-4d.) What MO-8r withdrew stays withdrawn: those words described one
 library's values; this describes what any host does with components.
 
 *What it does not say.* No word marks a component as an outlet: `outlet`
@@ -3171,8 +3386,9 @@ library's values; this describes what any host does with components.
 is credited by the host declaration's import of it (MO-14f), which says
 nothing of the component beyond "the host renders through it". A route
 file may still hand a layout its `<Outlet />` as `props.children`
-(`bench/tasks/start-route` does). TanStack's route files stay TSX: its
-generator has no option that admits another kind of file. The physical
+(`bench/tasks/start-route` does). TanStack's route files, with the
+generator as released, stay TSX: it has no option that admits another
+kind of file (a fork adds one: *The native shape*, above). The physical
 scan keeps a fixed list of extensions (`.ts`, `.tsx`, `.js`, `.jsx`,
 `.vue`); a virtual route config (`@tanstack/virtual-file-routes`) may
 name any file, and the generator then parses it as JavaScript and reads
@@ -3207,6 +3423,7 @@ S-module-37, S-module-38 (MO-14f); the units
 | `UNHANDLED_FAILURE`, `ASYNC_OUTSIDE_LOADING_BOUNDARY`, `CONTEXT_NOT_FOUND` on a host declaration's view | S | MO-14c: what a component the host renders lets out of the view the declaration states |
 | `NESTED_NOT_RENDERED` | S | MO-11i, MO-14f: a component a record nests others in renders none of its children |
 | `NOT_EXPORTED` for a host declaration's import from JavaScript | S | MO-14f: the module's declaration declares no such component |
+| `HOST_VIEW_STALE` | tools | MO-14g: a host declaration derived from the router's tree (`//@ routes`) that has fallen behind it — `rx-tsc`, `rx-verify`, a build; not a checker's |
 | `CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`, `CLIENT_QUESTION_UNHELD`, `ASYNC_OUTSIDE_LOADING_BOUNDARY` on a call of a fn declared `renders(H)` | S | MO-11u: what a component the fn is given lets out of H's children, at a place the program applies H (or, with none, under a root of its own) |
 | `PARSE` for `renders(H)` where the file declares no component H, or on a fn that hands back a `Component` | U | MO-11u |
 
@@ -3268,6 +3485,18 @@ S-module-37, S-module-38 (MO-14f); the units
   nesting are the ones `{props.children}` has. `NESTED_NOT_RENDERED` is
   asked after the application tree is resolved: a component a factory's
   record nested others in whose `children` reach no place they render.
+- MO-14g: `tooling/rx-language-server/src/host-routes.js` — `pragmaOf`,
+  `readRoutes` (the three sources), `derive` (the file), `drift` (the
+  comparison, row for row, comments and layout aside), `sync`. `rx-declare
+  --host --routes | --sync | --check` (`bin/declare.js`); `bin/tsc.js`
+  asks `drift` of each host declaration an analysis names; `bin/verify.js`
+  before `verifyHost`, which is handed `sceneRoutes`; `compiler/vite.mjs`
+  (`hostInStep`) before a program is read. Neither checker has a line of
+  it.
+- MO-8s: `tooling/rx-language-server/src/declare-own.js` (`carried`: the
+  module's text, parsed by TypeScript; `carry`: the draft's lines), called
+  by `declare` for a relative module after its readings are settled;
+  `known.js`'s `wraps`.
 - MO-11u: `parseDeclarations` keeps `renders` on a fn's row and holds, at
   the end of the file, that it names a declared component. `importDeclared`
   binds the fn with `rendersIn` (H's key, `declaration#H`, and the keys H

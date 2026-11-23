@@ -24,7 +24,9 @@ later, and the network once: `bench/package.json` is installed into
 repository's compiler, runtime and language server linked in as an app would
 install them (a task with a `package.json` of its own beside its `task.mjs`
 has an install of its own, from the lock beside it, for a library that pins
-another version: TanStack Start pins its router). The lockfiles are what make
+another version: TanStack Start pins its router; a `vendor/` folder beside it
+holds packages the lock names by file — a library's fork, packed, each with
+its integrity in the lock). The lockfiles are what make
 a run the same on every machine: an install npm resolves on its own hoists what
 it likes, and a number once moved with it (a draft named a dependency's type
 where npm had hoisted that package, and wrote it out where it had not; 09
@@ -39,7 +41,7 @@ A folder under `tasks/`: `src/` is the app, `task.mjs` says how it is judged.
 
 - **The good program** (`src/`) is a realistic job: the libraries are the
   ones npm has (Solid 2.0, Formisch, TanStack Query, Router, Start and Table,
-  UI SDK, Wardic, solid-use, Kobalte), imported by their own names, declared in `rx-types/` as a project
+  UI SDK, Wardic, solid-use, Kobalte — and, in one task, TanStack Router's generator from a fork, packed: `tasks/router-rx-routes/vendor`), imported by their own names, declared in `rx-types/` as a project
   declares a package that ships no `.d.rx` (09 MO-8k), and typed by the
   library's own TypeScript types. Solid itself is declared by the shared
   declaration this repository ships (`declarations/solid-js`, copied into the
@@ -57,7 +59,7 @@ and five columns score it, with two numbers beside them:
 | **types kept** | `rx-tsc` is clean with the library's own types; the `.rx` writes no `any`; and each *type probe* — a mistake only the library's real type can refuse (a field path the schema has not, a link to no route) — is refused by TypeScript **on the line the probe wrote** (an error elsewhere is not the type refusing the edit). A probe that passes means the type was lost on the way |
 | **runtime ok** | the compiled program does the job: rendered on the server and/or driven in Chromium on Solid's development build, with no console error or warning |
 | **unrepresentable** | the variants the language has no way to write: refused by the parser, by name resolution or by TypeScript alone (`PARSE`, `ASSIGNMENT`, `UNBOUND`, `UNKNOWN_COMPONENT`, a JS habit's code, a `ts` variant). They show that a mistake cannot be spelled, not that a check of the program's meaning caught it, so they are counted apart from the next column |
-| **bad caught** | each variant is refused by both checkers, with the diagnostic named, by a diagnostic the good program does not have. Where only the run can know (a duplicate key computed at run time, a `pure` JS function that answers differently on the server), the variant must compile and then fail loudly in development (`dev`); where the language makes the mistake harmless instead of refusing it (a draft's row kept by a callback is a copy), the variant may compile and must then behave (`orSafe`); advice that never fails a build is `advise` |
+| **bad caught** | each variant is refused by both checkers, with the diagnostic named, by a diagnostic the good program does not have. Where only the run can know (a duplicate key computed at run time), the variant must compile and then fail loudly in development (`dev`); where only running a declaration can know (a `pure` JS function that answers differently on the server, 10 SV-7c), the checkers must accept the program and `rx-verify` refuse the row (`verify`); a declaration that has fallen behind what it was derived from (09 MO-14g) is refused by `rx-tsc`'s own gate (`gate`) or by the build (`build`), and a variant may add a file (`add`: a route file a router finds); where the language makes the mistake harmless instead of refusing it (a draft's row kept by a callback is a copy), the variant may compile and must then behave (`orSafe`); advice that never fails a build is `advise` |
 
 | number | what it counts (lower is better) |
 | --- | --- |
@@ -141,8 +143,10 @@ page) => { … } })` is all an entry's `use.mjs` is.
 | `query-mutation` | a TanStack Query mutation that invalidates its query; the cache sent from the server and taken up in the browser (dehydrate / hydrate) | the query read with no `errored` region, the mutation run or the cache invalidated while the view computes, the mutation made in a handler, a hook outside the provider, a callback that writes where the library may call it in a computation |
 | `router-provider` | a TanStack Router app on the router's file-based routing (its Vite plugin writes `routeTree.gen.ts`), its layout and pages `.rx` components the TSX route files render, where `host.d.rx` says (09 MO-14); the app's entry is `.rx`: it provides a context a page reads and frames the router's component in the app's own `Shell`, and the layout renders its pages with the router's `<Outlet />` (MO-14f) | a page that fails with no region around its layout's outlet, or waits with no `loading` one in a client-only build, the outlet beside the regions, a layout with no outlet, a declaration that does not import the outlet, the app's provision removed, a hook or a link outside the router, a page applied by hand beside it, the router's component used as a value; *(unrepresentable)* a route given a rendered element |
 | `router-data` | `@solidjs/router` 2.0's data layer: a `query()` a page reads, a form action, `useSubmissions`, `revalidate` (2.0 has no `createAsync` nor `useSubmission`: a query is read by an equation that awaits it) | an async read with no boundary, `revalidate` called while the view computes, a submission's input or a query's answer kept in state |
+| `router-rx-routes` | TanStack Router with **`.rx` route files**: each file of `src/routes` is its route's component, and the generator writes the route objects into `routeTree.gen.ts` (its `routeComponentExtensions`, a fork's option: the two packages are installed from `vendor/`'s tarballs, whose README says which commit and why tarballs). Typed by the generated tree; the router in the app's component; `host.d.rx` derived from the tree (09 MO-14g); the dev server driven through an edit of a route file, a reload, and a route file added (11 CP-4b) | a page that fails with no region around the root route's outlet, or waits with none in a client-only build, the outlet beside the regions, a root with no outlet, the app's provision removed, a hook or a link outside the provider, a route file applied by hand, a page's failure of a class the layout's region does not take, a route file added and the declaration not written again (refused by the build), the declaration edited by hand (refused by `rx-tsc`) |
 | `start-route` | a TanStack Start app whose file routes render an `.rx` layout and `.rx` pages, served and hydrated at `/people/2?tab=role`; `host.d.rx` says what the router does with them (09 MO-14) | a page that fails with no `errored` region in its layout, the layout's pages beside its regions, a router hook in a component the declaration does not place, a declaration that puts a page beside its layout or provides no router, a param copied into state; *(unrepresentable)* state written while a page renders |
 | `file-routes` | file-system routes over `.rx` route files (`filesystem-routing`, SolidStart's conventions as a package, with `@solidjs/router`): a layout `(app).rx` whose region holds the pages of `(app)/`, each route file's default component its page, and an `.rx` entry that provides a context a page reads and holds the router's component in a `loading` region; `host.d.rx` says what the manifest's router does with them, and that it renders through the router's component (MO-14f) | the same mistakes, and: a client-only build with no `loading` region around the router, that region beside the router, the app's provision removed, a hook in the app's component above the router, a layout that forgets its pages, a declaration that does not import the router's component, a router's component not declared to provide the router |
+| `start-mode` | **Solid's own start mode** (`solid({ start, ssr: true })` in `@solidjs/vite-plugin` 3: the plugin owns the entries, the dev server's render and the build; SolidStart is not needed) with `filesystem-routing` and `@solidjs/router`: an `.rx` root (handed over by one line of `App.ts`), `.rx` route files, each request rendered on the server, streamed and hydrated — by the Node server start mode emits, and by its dev server, where an edited route file is shown and rendered again. `host.d.rx` derived from the routes directory. It is `file-routes`' program, served | a page that fails with no region in its layout, the pages beside the region, a layout that forgets them, the root's provision removed, a hook above the router or in a component the declaration does not place, a param copied into state, a declaration that puts a page beside its layout, a router component not declared to provide the router, a route file added and the declaration not written again (refused by `rx-tsc`, and by the build); *(unrepresentable)* state written while the root renders |
 | `store-updater` | a Solid store updater written once and used by two handlers; a snapshot read out of the draft | the store written outside its setter, the updater called by hand, an `await` in the updater, a closure that writes the draft later |
 | `store-helper` | a Solid store's draft changed in place by a helper written in JS (`moveItem(d.columns, from, to)`) | the helper given the store itself, called while the view computes, the draft kept by a closure |
 | `table-pagination` | a TanStack Table: cell components rendered by the adapter's `<FlexRender>` (as `@tanstack/solid-table` 9 has it; the table's row says `renders(FlexRender)`, 09 MO-11u), a cell that reads the app's context, pagination buttons, a pager given page numbers and handlers, and — shadcn/ui's `DataTablePagination` — a component given the table itself | a cell's context provided nowhere above the table, a page turned while the view computes, the table made from data read once |
@@ -162,14 +166,14 @@ page) => { … } })` is all an entry's `use.mjs` is.
 | `source-mutation` | a list in a source, added to by a write and sorted for display | `rows.push(…)`, a prop sorted in place, a row written through a local alias, the value a functional write is given reversed in place |
 | `keyed-edits` | a keyed list edited every way: insert, remove, move, rename in place, reset | rows written out with one key in a handler, rows keyed by their index, a row written through the loop's name |
 | `listener-cleanup` | a JS listener whose disposer the mount effect returns | the disposer dropped: in the effect, in a handler, in a local never used |
-| `duplicate-keys` | a keyed list whose rows keep their state across a reorder | two literal rows with one key; a row added at run time with a key the list has |
+| `duplicate-keys` | a keyed list whose rows keep their state across a reorder | two literal rows with one key; a row added at run time with a key the list has (named on the console by the runtime, in a development build) |
 | `effect-derived` | a total that is an equation, a history the clicks write, an effect for what leaves the program | the total kept in a source by an effect (with and without inputs), a history appended by an effect, a mount effect that reads what it never hears of again |
 | `projection-selection` | a selection as a projection (`draft(…)`, Solid's `createProjection`): picking a row tells two rows | the selection kept in a store by an effect, the projection written from a handler |
 | `optimistic-todo` | an optimistic add: a guess, the server asked, the list asked again, a refusal taken back | a guess where nothing is awaited, an `await` before the guess, the answer written to, a failure let out |
 | `context-provider` | a context of the app's own, a provider component holding the state, readers under it | a reader beside or above the provider, the provided state written or changed in place, the provided action called while the view computes |
 | `sequential-awaits` | an action whose second load needs the first's answer, the independent one asked beside them (asserted: two calls in flight at once) | two independent loads awaited one after the other (advice) |
 | `rx-package` | a library written in `.rx`, built by `rx-lib` and installed as a package (its `dist/` only): used by an `.rx` app, checked against the shipped `.d.rx`, and by a `.tsx` Solid 2 app type-checked by plain `tsc` against the shipped `.d.ts`; both served, hydrated and driven in Chromium. The run also holds that each verdict against the shipped `.d.rx` is the verdict against the package's source, and that no word of that `.d.rx` is written by hand (it is the text both checkers print); that the `.tsx` app's server render is a plain `renderToStream` (and the same inside a request event), that two renders at once each have their own instance of the package's state, and that an `.rx` program and JavaScript in one page share one (09 MO-13g) | the package's component outside its provider, its context provided beside the reader, its rate read where one failure gets out, its failing component under no boundary, its source written, a plain source asked again, its action called while the view computes, its primitive called in a handler, its rows restated at the import |
-| `ssr-divergence` | a value only the browser knows, asked as a client question | the question read with nothing to hold it, client JS called for its value, a `pure` JS call that answers differently on each side |
+| `ssr-divergence` | a value only the browser knows, asked as a client question | the question read with nothing to hold it, client JS called for its value, what only the browser knows declared `pure` and read by the view (refused by `rx-verify`, which runs the fn with a window and without one) |
 
 Two libraries have no Solid 2 build yet, and each has a small adapter in its task, as `@tanstack/solid-table` and
 `@tanstack/solid-virtual` are for Solid 1: `table-pagination/src/table.js` over `@tanstack/table-core`, and
@@ -191,8 +195,11 @@ Three earlier runs are kept beside it:
 - `baseline-rebased.txt`: the suite as it is now — the probes moved out, the unwritable variants counted apart, the
   declarations measured, eleven tasks added — run on the checker of `2f9baf7`, before any change to it.
 
-Two checks are red in `scorecard.txt`, each with its reason in its task's `known`: a duplicate key computed at run
-time (`duplicate-keys`) and a `pure` JS call that answers differently on the server (`ssr-divergence`).
+No check is red in `scorecard.txt` since 2026-11-24. Two were until then, each with its reason in its task's `known`:
+a duplicate key computed at run time (`duplicate-keys`: reported by the runtime in a development build now, 06 ST-4d)
+and a `pure` JS call that answers differently on the server (`ssr-divergence`: refused by `rx-verify` now, which runs
+the word on both sides, 10 SV-7c — hydration itself still says nothing, and the variant is counted as caught by
+running the declaration, not by a build).
 
 Kobalte's two tasks (`kobalte-dialog`, `kobalte-select`) left the suite on 2026-11-22, and three libraries came in
 (`ui-sdk-dialog`, `wardic-motion`, `solid-use-primitives`), each declared by `rx-declare`'s draft with the hand-written
@@ -381,4 +388,42 @@ declare their accessor in a module of the app's own, +3 each; `primitives/sse` h
 caught, a column the record did not have, 8/8. The whole draft of `@tanstack/solid-router` reproduces eleven more of
 the library's own `any`s (52 to 63, counted and not held): `createRoute`, `createRootRoute` and `createRouter` are the
 types' rows now, where `known.js` had written three short ones.
+
+On 2026-11-24, later, seven items set by review were taken (`spec/rfc-declaration-types-2026-11-22.md`, *An eleventh
+round*), and the suite follows each.
+
+**In:** `router-rx-routes` (TanStack Router with `.rx` route files, on a fork's generator option; the two packages are
+tarballs under its `vendor/`, installed from the task's lock, and its README says which commit, how they are remade and
+why not a git dependency or a test that runs only beside a clone) and `start-mode` (Solid's own start mode with
+`filesystem-routing`: `file-routes`' program served, streamed and hydrated). Both drive a dev server: an edit of a
+route file is shown, and in `router-rx-routes` a reload and a route file added while the server runs — the first
+three checks of that fail without 11 CP-4b's fix (a module the dev server serves twice is one module).
+
+**Changed:** every `host.d.rx` (five) is derived from its router's own tree (`//@ routes`, 09 MO-14g) and its probe
+takes the routes from `rx-verify`; the declarations of the apps' own modules over a library are `rx-declare`'s drafts
+(MO-8s: `query.d.rx` in two tasks, four `router.d.rx`, Kobalte's `toasts.d.rx`); `router-code-routes` declares the 28
+rows of the router it imports (`rx-declare --only`), where it kept the library's draft whole. `ssr-divergence`'s good
+declaration no longer holds the lying row: it is the variant's own.
+
+**New kinds of variant** (`run.mjs`): `gate` (refused by `rx-tsc`'s own gate: `HOST_VIEW_STALE`), `build` (refused by
+`vite build`), `verify` (the checkers accept the program and `rx-verify` refuses the row: a word only running the
+declaration can test), and `add` (a file added: a route file a router finds). Ten variants use them: a route file
+added and the declaration not written again, a declaration edited by hand, a TSX route file handing its route another
+component, what only the browser knows declared `pure`.
+
+**The two red checks are green**, each by the means its mistake has: `duplicate-keys` by the runtime's report in a
+development build (06 ST-4d), `ssr-divergence` by `rx-verify` (10 SV-7c). Neither `known` remains.
+
+**Asked for and not added** (09 MO-11u, MO-13b; each with what was run): a row for a method of a library's object, a
+layout's regions credited to its pages under `renders(H)`, an `.rx` package naming another package's host. No variant
+is given up or comes back with them.
+
+The totals, before (at `29f9106`) and now, both from a fresh `npm ci`. Tasks (35, then 37): good 111/111 and 132/132,
+types 172/172 and 184/184, runtime 228/228 and 258/258, bad 199/201 and 228/228 (no red check), unrepresentable 12/12
+and 13/13, hand-written words 340 and 259 (the five host declarations none; `query.d.rx` 20 to none in two tasks;
+`router.d.rx` 6 to none and 13 to 6; Kobalte's `toasts.d.rx` 21 to none; the two new tasks 10 and 12), `any` inherited
+60 and 57 (`router-code-routes` 19 to 16), introduced 0 and 0, by place 41 and 29 (`router-code-routes` 14 to 1:
+`<RouterProvider>`'s props are the library's named type now). Coverage: 123 programs, all green; 193 modules drafted
+whole (4904 rows), 1195 `any`s the libraries' own, none introduced, 1519 by place; 277 hand-written words; bad caught
+13/13 — as before, entry for entry: no record moved.
 

@@ -42,7 +42,11 @@ never one package's own rules, which stay that package's tooling's
 what it does with them, and a page is checked under its layout, the
 router and what the app's own component has around the router, with the
 router's own generated types ([spec/09](spec/09-modules.md) MO-14;
-`examples/tanstack`).
+`examples/tanstack`). That declaration is read off the router's own tree
+and refused when it falls behind (MO-14g); the route files themselves are
+`.rx` with `filesystem-routing`, and an app is served and hydrated by
+Solid's own start mode ([spec/11](spec/11-compiler.md) CP-4d;
+`bench/tasks/start-mode`).
 
 The other way works too: a library written in `.rx` is built once
 (`rx-lib`) and published as a package that an `.rx` app is checked against —

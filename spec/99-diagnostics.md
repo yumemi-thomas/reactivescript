@@ -130,7 +130,8 @@ named.
 | `MODULE_CYCLE`                    | S   | MO-5  | S-module-1 |
 | `MUTATION_IN_PLACE` (new)         | S   | 02 W-1a: an Array's mutating method on the value of a source, an equation, a prop, a provision or a row (Solid: a signal's array pushed to, a store written outside its setter — silent, or a dev warning) | guide/diagnostics.md, `bench/tasks/source-mutation` |
 | `DISPOSER_DROPPED` (new)          | S   | 02 EF-5a: a declared JS call whose result is `() => void`, dropped | guide/diagnostics.md, `bench/tasks/listener-cleanup` |
-| `DUPLICATE_KEY` (new)             | S/R | 06 ST-4d: two rows of a keyed list written with one key (S); keys computed at run time are the data's (R, unreported) | guide/diagnostics.md, `bench/tasks/duplicate-keys` |
+| `DUPLICATE_KEY` (new)             | S/R | 06 ST-4d: two rows of a keyed list written with one key (S); keys computed at run time are the data's (R: named on the console by the runtime in a development build, since 2026-11-24; unreported in production, as in Solid) | guide/diagnostics.md, `bench/tasks/duplicate-keys` |
+| `HOST_VIEW_STALE` (new)           | tools | 09 MO-14g: a host declaration derived from the router's tree (`//@ routes`) that has fallen behind it — refused by `rx-tsc`, `rx-verify` and a build; the dev server writes it again. Not a checker's diagnostic: the checkers read no router's file (08 CN-8) | guide/diagnostics.md, `bench/tasks/router-rx-routes`, `file-routes`, `start-mode` |
 | `DUPLICATE_WIRE_ID` (new)         | S   | 10 SV-5a: two declared error classes, in packages with no name, that would cross to the client under one identity (refused where the declarations are loaded) | `a_wire_id_does_not_depend_on_the_entry_and_two_classes_never_share_one` (crate, `ref/units.ts`) |
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a; MO-12a for an undeclared JS context | S-module-1, S-module-7 |
 | `NOT_A_CONTEXT`, `CONTEXT_AS_VALUE` | S | RG-7a | S-context-1 |

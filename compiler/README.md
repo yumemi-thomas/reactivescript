@@ -116,13 +116,28 @@ The app mounts a program with `createApp` from `@reactivescript/runtime`
   renders through (MO-14f: the router's component in an `.rx` entry, a layout's `<Outlet />`): the crate reads it
   with the program, and it is watched as every declaration the program read is. `examples/tanstack` is such an app,
   built here with TanStack Router's Vite plugin (`test/vite.mjs` installs it once into `test/.out`).
+- **A host declaration derived from the router's tree** (`//@ routes <source>` on its first line, spec/09 MO-14g) is
+  held to the tree before a program is read: the dev server writes one that has fallen behind again and says so (a
+  route file was added while it runs), a build refuses it (`HOST_VIEW_STALE`). The reader is the language server's
+  (`@reactivescript/language-server/src/host-routes.js`): the project's, else this checkout's.
+- **Under the dev server a module is named** (`module.__rxKey`: its path from the root and a hash of its compiled
+  text), and the runtime keys its instance by the name (spec/11 CP-4b). A dev server serves one module under several
+  URLs — a timestamp after each edit, and Vite 8 spells the query of a `?import` module in two orders — and the
+  browser evaluates each: without the name a module's state and its contexts were made twice, and an edited route
+  file read `no provision` for what the app's entry provides. A build names nothing. `test/vite.mjs` (*context*).
+- **Solid's start mode** (`solid({ start: true, ssr: true })`): the root is `src/App.ts`, one line that hands an
+  `.rx` root over as a page (`export { default } from "./App.rx?rx-page"`); `bench/tasks/start-mode`. List
+  `@reactivescript/runtime` in the app's `package.json`: Solid's plugin then loads it with the app's copy of Solid
+  under the dev server.
 - **Whole program (opt-in).** `rx({ wholeProgram: true })` counts the JS
   under the Vite root that imports a module with `?rx-lib` as its hosts
   (02 E-5a); `hostRoots: ["../site"]` names folders or files beyond the
   root that hold more.
 
-Not yet: hot updates of `.rx` modules are untested; server rendering in Vite
-needs a request-scoped app for server functions to run in.
+Not yet: Solid's refresh of a single `.rx` component in place is untested (an edit of an `.rx` module reloads the
+page, or re-runs the module that hosts it, and what the page shows after it is tested: `test/vite.mjs`,
+`bench/tasks/router-rx-routes`, `start-mode`); server rendering in Vite needs a request-scoped app for server
+functions to run in.
 
 ### A library: `rx-lib`
 

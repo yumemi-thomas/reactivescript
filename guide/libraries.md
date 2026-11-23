@@ -295,6 +295,17 @@ used correctly. What a single package does, you say without one, in one of three
   `data` says what the library's field does — it waits for the first answer and throws the query's error — so a read
   of `todos.data` with no `errored` region above it is refused, as a read of an `await` would be.
 
+  **You do not write those rows.** `rx-declare ./query.js` drafts them whole (spec/09 MO-8s): the module only hands
+  the library's hook on, so its row takes the library's words — `pure` and `uses(queryClient)`, because the body
+  calls the hook at its top and does nothing else; `ref` for each field that only reads the result; `pending
+  fails(Error)` on `data`, which rx-declare knows of the release. The same goes for the other small modules an app
+  writes over a library: a component that renders the library's provider and nothing else takes its
+  `provides(router)`, `export const Router = createRouter(…)` takes the factory's, a component exported again keeps
+  its row's words, and a function that hands its argument straight to Kobalte's `toaster.show` takes
+  `renders(Toast.List)`. Nothing is guessed: a word is copied from the row it was written on, only in the shapes
+  where the text shows the module does that and no more (a hook called behind a condition takes nothing, and its
+  TODO stays). `--types-only` leaves them out.
+
   **Your wrapper still needs the library's provider, and says so.** `export context queryClient from
   "@tanstack/solid-query"` names the context that package's declaration declares, so `uses(queryClient)` on your hook
   is the library's context: the hook outside `<QueryClientProvider>` is `CONTEXT_NOT_FOUND`, as the library's own is.
@@ -383,8 +394,10 @@ export default component App() {
   `rx-declare` asks the question of every function that is given a component, and writes the word for the releases it
   was run against (solid-sonner's `toast`, TanStack Router's `createRoute`). Where the library's function is a method
   of an object (Kobalte's `toaster.show`), hand it out from a module of your own with the parts it renders with, and
-  say the word there: `export fn show(toast: Component<{ toastId: number }>): number renders(Toast.List)`
-  (`bench/tasks/kobalte-toast`). A library that *calls* what it is given with no owner at all (sonner's
+  the word is said there: `export fn show(toast: Component<{ toastId: number }>): number renders(Toast.List)` —
+  which `rx-declare` drafts for that module, with the parts' contexts (`bench/tasks/kobalte-toast`: no word by hand).
+  A row for the method itself was weighed and not taken (spec/09 MO-11u): of the two libraries with such a method,
+  one renders what it is given beneath its list and the other calls it with no owner. A library that *calls* what it is given with no owner at all (sonner's
   `toast.custom(fn)`) is another matter: nothing your component reads from above is there (in development Solid
   throws `NoOwnerError` from `useContext`), and nothing it makes is cleaned up. No row describes that; `rx-verify`
   reports it.
@@ -465,6 +478,24 @@ export default component provides(router) nests(children in component) = [
 ]
 ```
 
+**You do not write this file either: it is read off the router** (spec/09 MO-14g). The router has the tree — the
+file it generates, or the directory it scans — and `rx-declare` writes the declaration from it:
+
+```sh
+npx vite build                                                        # the router's plugin writes its tree first
+npx rx-declare --host --routes src/routeTree.gen.ts src/main.rx --out src/host.d.rx   # TanStack Router, TanStack Start
+npx rx-declare --host --routes src/routes src/App.rx --out src/host.d.rx              # filesystem-routing: the routes directory
+```
+
+The first line of the file it writes records where it came from (`//@ routes ./routeTree.gen.ts ./main.rx`), and
+from then on the file is that tree's: the dev server writes it again when a route file is added or moved; `rx-tsc`,
+`rx-verify` and a build refuse it once it has fallen behind (`HOST_VIEW_STALE`, saying which route and where;
+`rx-declare --host --sync src/host.d.rx` writes it again, `--check` only asks). The `.rx` module named after the
+source is your entry, where it is `.rx`: its component goes around the routes, with the component of your own it
+renders them through (the one from the module that imports the tree) and the router's outlet where a layout uses it.
+What follows is what the file says, for when you read one — or write one for a host no reader knows (a JSON tree,
+`[{ "file": "./pages/home.rx", "children": [...] }]`, is read too).
+
 It imports the components the host renders, as an `.rx` module would, and states the view the host makes of them
 in the words a factory's row has: `provides(router)`, what it provides to all of them, and `nests(children in
 component)`, that a record's `children` are rendered among its `component`'s children. The checker walks that view
@@ -473,10 +504,35 @@ around `{props.children}` is then `UNHANDLED_FAILURE` — reported on `host.d.rx
 (`person.name at pages.rx:23`) — and a hook in a component the view does not name is still `CONTEXT_NOT_FOUND` in a
 whole-program build, since JavaScript may render that one anywhere.
 
-- **TanStack Router and TanStack Start.** The generator takes `.ts`, `.tsx`, `.js`, `.jsx` and `.vue` files and reads
-  a route file as JavaScript, so a route file is a few lines of TSX that hand the route a component of yours. (No
-  option of the generator changes that: a virtual route config may name any file, and the generator then parses it
-  as JavaScript.)
+- **TanStack Router, with `.rx` route files** — the native shape, on a fork for now. The generator as released takes
+  `.ts`, `.tsx`, `.js`, `.jsx` and `.vue` files and reads a route file as JavaScript. One option changes that:
+  `routeComponentExtensions`, which is not upstream yet (`github.com/yumemi-thomas/router`, branch `rx-route-files`).
+  With it a route file is its component:
+
+  ```ts
+  // vite.config.ts
+  tanstackRouter({ target: "solid", routeComponentExtensions: { ".rx": "?rx-page" } })
+  ```
+
+  ```rx
+  // src/routes/people.$id.rx
+  import { useParams } from "@tanstack/solid-router"
+  import { fetchPerson } from "../people.js"
+  export default component Person() {
+    params = useParams({ from: "/people/$id" })
+    person = await fetchPerson(params.id)
+    <h1>{person.name}</h1>
+  }
+  ```
+
+  The generator writes the route objects itself into `routeTree.gen.ts`, importing each file's default component as
+  a page (`?rx-page`), so links and hooks are typed by the tree as ever, and `host.d.rx` is derived from that tree
+  (`bench/tasks/router-rx-routes`, which installs the fork's two packages from tarballs: its `vendor/README.md` says
+  which commit and how they were built). A route that needs a loader or search validation is a TS route file
+  beside the `.rx` ones, as the fork's documentation says.
+- **TanStack Router and TanStack Start, as released: the fallback.** A route file is a few lines of TSX that hand the
+  route a component of yours. (No option of the released generator changes that: a virtual route config may name any
+  file, and the generator then parses it as JavaScript.)
 
   ```tsx
   // src/routes/__root.tsx
@@ -524,12 +580,61 @@ whole-program build, since JavaScript may render that one anywhere.
   With the declaration there, a route file's default component is not a mounted view: it is the host's to render.
   The plugin's `types` option writes the manifest as a literal tuple, which types the router's `paths`:
   `paths.person("9")` in a layout is a type error (`bench/tasks/file-routes`).
+- **Solid's start mode** — server rendering and hydration with nothing but Solid's Vite plugin. SolidStart is not
+  needed on Solid 2 (and `@solidjs/start` 2 still asks for Solid 1.9): `@solidjs/vite-plugin` 3 has Start as a mode,
+  which owns the entries, the dev server's render and the build. An app is its root component and its routes — no
+  `index.html`, no mount file, no server file:
 
-Draft the file with `rx-declare --host src/pages.rx` (or the route files): it writes the imports, the contexts those
-modules' imports are declared to use, and a view with every component at the top. Which page is in which layout is
-the router's knowledge, and yours to write. Run it with `rx-verify --dom src/host.d.rx`: a probe beside it
-(`host.probe.mjs`) builds the routes the route files make out of recording components (`scene(rx, h)`), and each
-page must render inside its declared layout, with the router's hook working in each (`uses`).
+  ```ts
+  // vite.config.ts
+  export default defineConfig({ plugins: [
+    fileRoutes({ extensions: ["rx"], types: "src/file-routes.d.ts", toRoute: /* as above */ }),
+    solid({ ssr: true, start: { nodeServer: true } }),      // `vite` renders each request; `vite build`, then `node dist/server/node.js`
+  ] })
+  ```
+
+  ```ts
+  // src/App.ts — start mode's root is a TS or JSX file: hand it the .rx root as a page
+  export { default } from "./App.rx?rx-page";
+  ```
+
+  ```rx
+  // src/App.rx
+  import { Router } from "./router.ts"
+  export default component App() {
+    provide team = { name: "Directory" }
+    loading fallback { <p>loading…</p> } { <Router /> }
+  }
+  ```
+
+  The routes are the `.rx` files of `src/routes`, as above, and `host.d.rx` is derived from that directory
+  (`rx-declare --host --routes src/routes src/App.rx`). Each request is rendered on the server, streamed, and
+  hydrated (`bench/tasks/start-mode`). List `@reactivescript/runtime` in your `package.json` dependencies: Solid's
+  plugin finds the packages that run on Solid there, and under the dev server loads them with your app's copy of
+  Solid — a runtime Node loads on its own has another, and the first `provide` then says so.
+
+For a host with no tree to read, `rx-declare --host src/pages.rx` (or the route files) drafts what it can: the
+imports, the contexts those modules' imports are declared to use, and a view with every component at the top; which
+page is in which layout is then yours to write. Either way, run it with `rx-verify --dom src/host.d.rx`: a probe
+beside it (`host.probe.mjs`) builds the host's view out of recording components, and each page must render inside
+its declared layout, with the router's hook working in each (`uses`). For a derived declaration the probe is handed
+the routes — `scene(rx, h, routes)`, each with its path and its recording component, and `act(rx, h, route)` called
+for each page — so it makes the router's objects from them and names no route itself:
+
+```js
+// src/host.probe.mjs (TanStack Router)
+export const scene = (rx, h, routes) => {
+  const shown = node => node.children.length ? () => h.s.createComponent(node.component, { get children() { return h.s.createComponent(rx.Outlet, {}); } }) : node.component;
+  const make = (node, parent) => {
+    const route = parent ? createRoute({ getParentRoute: () => parent, path: node.path, component: shown(node) }) : createRootRoute({ component: shown(node) });
+    if (node.children.length) route.addChildren(node.children.map(child => make(child, route)));
+    return route;
+  };
+  router = createRouter({ routeTree: make(routes[0]), history: createMemoryHistory({ initialEntries: ["/"] }) });
+  return () => h.s.createComponent(rx.App, { get children() { return h.s.createComponent(rx.AppRouter, {}); } });
+};
+export const act = (rx, h, route) => router.navigate({ to: route.path.replace(/\$\w+/g, "1") });
+```
 
 **What the router renders through** (spec/09 MO-14f). A component renders the records nested in it *among its
 children*, and an `.rx` component has two ways to say where those are. One is `{props.children}`. The other is a
@@ -557,7 +662,8 @@ export component Root() {
 ```
 
 ```rx
-// src/router.d.rx, beside router.tsx: the library's <RouterProvider> with your router
+// src/router.d.rx, beside router.tsx: the library's <RouterProvider> with your router — rx-declare ./router.tsx
+// drafts both rows (the component renders the provider and nothing else, so it takes its word)
 export context router from "@tanstack/solid-router"
 export component AppRouter(props: {}) provides(router)
 ```

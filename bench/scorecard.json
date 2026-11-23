@@ -57,11 +57,9 @@
       "fails": []
     },
     "bad": {
-      "pass": 1,
+      "pass": 2,
       "total": 2,
-      "fails": [
-        "rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 0,
@@ -141,8 +139,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 12,
-      "total": 12,
+      "pass": 14,
+      "total": 14,
       "fails": []
     },
     "unrep": {
@@ -151,13 +149,13 @@
       "fails": []
     },
     "decl": {
-      "words": 26,
+      "words": 12,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 100,
+        "rows": 101,
         "any": 20,
         "vendor": 20,
         "introduced": 0,
@@ -356,13 +354,13 @@
       "fails": []
     },
     "decl": {
-      "words": 24,
+      "words": 3,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 11,
+        "rows": 13,
         "any": 0,
         "vendor": 0,
         "introduced": 0,
@@ -684,17 +682,17 @@
       "fails": []
     },
     "decl": {
-      "words": 25,
+      "words": 5,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 178,
+        "rows": 179,
         "any": 37,
         "vendor": 37,
         "introduced": 0,
-        "places": 14
+        "places": 10
       }
     }
   },
@@ -725,17 +723,17 @@
       "fails": []
     },
     "decl": {
-      "words": 25,
+      "words": 5,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 0,
       "draft": {
-        "rows": 180,
+        "rows": 181,
         "any": 56,
         "vendor": 56,
         "introduced": 0,
-        "places": 14
+        "places": 10
       }
     }
   },
@@ -767,16 +765,16 @@
     },
     "decl": {
       "words": 7,
-      "any": 19,
-      "inherited": 19,
+      "any": 16,
+      "inherited": 16,
       "introduced": 0,
-      "places": 14,
+      "places": 1,
       "draft": {
         "rows": 299,
-        "any": 57,
-        "vendor": 57,
+        "any": 63,
+        "vendor": 63,
         "introduced": 0,
-        "places": 52
+        "places": 26
       }
     }
   },
@@ -838,8 +836,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 10,
-      "total": 10,
+      "pass": 12,
+      "total": 12,
       "fails": []
     },
     "unrep": {
@@ -848,17 +846,58 @@
       "fails": []
     },
     "decl": {
-      "words": 26,
+      "words": 7,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 1,
       "draft": {
-        "rows": 305,
-        "any": 57,
-        "vendor": 57,
+        "rows": 307,
+        "any": 63,
+        "vendor": 63,
         "introduced": 0,
-        "places": 52
+        "places": 26
+      }
+    }
+  },
+  "router-rx-routes": {
+    "good": {
+      "pass": 12,
+      "total": 12,
+      "fails": []
+    },
+    "types": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 14,
+      "total": 14,
+      "fails": []
+    },
+    "bad": {
+      "pass": 11,
+      "total": 11,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 0,
+      "total": 0,
+      "fails": []
+    },
+    "decl": {
+      "words": 10,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 1,
+      "draft": {
+        "rows": 311,
+        "any": 63,
+        "vendor": 63,
+        "introduced": 0,
+        "places": 26
       }
     }
   },
@@ -1079,16 +1118,14 @@
       "fails": []
     },
     "runtime": {
-      "pass": 3,
-      "total": 3,
+      "pass": 4,
+      "total": 4,
       "fails": []
     },
     "bad": {
-      "pass": 2,
+      "pass": 3,
       "total": 3,
-      "fails": [
-        "a `pure` JS call that answers differently on each side, read by the view (the declaration's assertion: reported when it runs) (dev: HYDRATION_MISMATCH|mismatch)"
-      ]
+      "fails": []
     },
     "unrep": {
       "pass": 0,
@@ -1096,7 +1133,7 @@
       "fails": []
     },
     "decl": {
-      "words": 3,
+      "words": 2,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
@@ -1107,6 +1144,47 @@
         "vendor": 0,
         "introduced": 0,
         "places": 0
+      }
+    }
+  },
+  "start-mode": {
+    "good": {
+      "pass": 9,
+      "total": 9,
+      "fails": []
+    },
+    "types": {
+      "pass": 6,
+      "total": 6,
+      "fails": []
+    },
+    "runtime": {
+      "pass": 15,
+      "total": 15,
+      "fails": []
+    },
+    "bad": {
+      "pass": 11,
+      "total": 11,
+      "fails": []
+    },
+    "unrep": {
+      "pass": 1,
+      "total": 1,
+      "fails": []
+    },
+    "decl": {
+      "words": 12,
+      "any": 0,
+      "inherited": 0,
+      "introduced": 0,
+      "places": 0,
+      "draft": {
+        "rows": 101,
+        "any": 20,
+        "vendor": 20,
+        "introduced": 0,
+        "places": 18
       }
     }
   },
@@ -1127,8 +1205,8 @@
       "fails": []
     },
     "bad": {
-      "pass": 6,
-      "total": 6,
+      "pass": 7,
+      "total": 7,
       "fails": []
     },
     "unrep": {
@@ -1137,17 +1215,17 @@
       "fails": []
     },
     "decl": {
-      "words": 28,
+      "words": 20,
       "any": 0,
       "inherited": 0,
       "introduced": 0,
       "places": 1,
       "draft": {
         "rows": 302,
-        "any": 59,
-        "vendor": 59,
+        "any": 65,
+        "vendor": 65,
         "introduced": 0,
-        "places": 51
+        "places": 25
       }
     }
   },

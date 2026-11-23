@@ -345,11 +345,41 @@ author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
   the usual case for a formatted value — Solid 2.0's development build
   adopts the server's node and says nothing, so that mismatch is silent.
   The ruling stands: `pure` is the one unchecked word, and a run-time
-  comparison of every text would be a check the language does not add;
-  the benchmark records the variant as a known limit.) The language's remedies are the ones it
+  comparison of every text would be a check the language does not add.)
+  The language's remedies are the ones it
   already has: what depends on the browser is `client` JS (a client
   question, SV-7b), and a locale or a time zone can be an argument the
   server receives.
+
+  *Where it is caught (2026-11-24).* Whether a development build could
+  report it was looked at again, with the two places a comparison could
+  live. (1) Hydration, where the server's node and the client's value
+  meet: that is Solid's `insert`, which while hydrating returns the
+  client's value without reading the node (`@solidjs/web` 2.0.2,
+  `insertExpression`; its development build checks the structure — a tag
+  that is not the expected one — and no text), and the compiled program
+  hands `insert` a value, never the node: a comparison there is Solid's
+  to add. (2) The calls: record each `pure` JS call's answer on the
+  server and compare it in the browser. That is not sound. `pure` says a
+  call writes nothing but its own state (09 MO-8a), not that it is a
+  function of its arguments — a primitive answers an accessor, an id
+  maker a fresh id — so answers are comparable only call for call, and a
+  streamed render and its hydration do not make their calls in one
+  order. So no run-time comparison is added, as ruled. What can be run is
+  the word itself: `rx-verify` calls a `pure` fn with the probe's
+  arguments on both sides — its own process has a browser's globals
+  (`--dom`) or has not, and a second one is started the other way — and a
+  plain answer that is steady on each side (two calls alike) and differs
+  between them refutes the row: `whereNow: declared pure, but it answers
+  differently on the server and in the browser ("the server" with no
+  window, "the browser" with one)`. A row so refuted is not recorded as
+  verified, and strict declarations (09 MO-8j) refuse it. It is a test,
+  with the reach of one: a value both sides compute alike under the
+  machine it is run on (a locale that happens to match) is not
+  contradicted. `server` and `client` fns run on one side and are not
+  asked. `bench/tasks/ssr-divergence` counts its variant — what only the
+  browser knows declared `pure`, and read by the view — as caught by
+  `rx-verify`; the checkers accept it, and hydration says nothing.
   *Where more could be done (not adopted):* the server could record each
   such call's result during the mount and the browser adopt it — one
   serialized value per call, so a long list of formatted cells doubles

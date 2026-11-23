@@ -382,3 +382,43 @@ What 09 MO-11u changes for a package written in `.rx`:
   reason, as a context of another package.
 - **Nothing at run time.** The word is a check's; a compiled call of a
   fn that says it is the call it was.
+
+## A key that leaves the package, and one module under the dev server (2026-11-24)
+
+Three things of this round touch a package written in `.rx` (09 MO-13b,
+MO-11u; 11 CP-4b):
+
+- **`rx-lib` refuses a key that names a file the package does not
+  ship.** It refused a key through `node_modules` (another package, by
+  where it was installed). A key can leave the package another way: the
+  package's own declaration of a library, in `rx-types/` beside its
+  sources. Built: a package that calls `solid-sonner`'s `toast(Saved)`
+  came out "ok", its signature saying `export renders
+  ../rx-types/solid-sonner.d.rx#Toaster from toast:7` — a path out of
+  `dist/`, to a file that is not in the tarball. An app that installs it
+  declares sonner itself, under another key, so no application of its
+  `<Toaster />` met the package's row and the toast was held to nothing
+  above it, with nothing said. Every key of a signature — a context's
+  (`uses`, `provides`, `retains`, `catches`), a host's (`hosts(…)`,
+  `export renders …`) — is now held to the package's root, and the build
+  names the module and the key. `compiler/test/lib.mjs`.
+- **A package still cannot name another package's host, and that is
+  decided.** What would let it is a key by specifier
+  (`solid-sonner#Toaster`). No package of the Solid 2 ecosystem is
+  written in `.rx` but this repository's, so no library writes the form
+  (MO-8r asks for more than one); and the package can export the
+  component and leave the call to the app, or take the function that
+  shows it as a prop. Not taken.
+- **A package's module is one module under a dev server too.** An app's
+  own `.rx` modules are named by the front end there, and keyed by the
+  name (11 CP-4b). A package's are compiled once, by `rx-lib`, and
+  imported by the package's specifier, which the dev server pre-bundles
+  and serves under one URL: its factory is one, and `library` and `__rx`
+  key by it as before. Nothing changes for a package.
+
+Start mode (11 CP-4d) is where a package's peer on the runtime matters
+in development: Solid's plugin loads with the app every package whose
+`package.json` names Solid as a dependency or a peer, found from the
+app's own dependencies. A package built by `rx-lib` lists
+`@reactivescript/runtime`, `solid-js` and `@solidjs/web` as peers
+(`rx-lib` holds that), so it is found; the app lists the runtime itself.

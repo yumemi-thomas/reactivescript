@@ -39,8 +39,24 @@ each with the release that was run and what the run showed, and the
 benchmark holds a program for each (`bench/tasks/kobalte-toast`,
 `router-code-routes`, `bench/coverage/solid-sonner/toaster`). A claim a
 row makes that running can test is `rx-verify`'s to test: where a
-component renders what it is given (a scene), and that a library does
-not call a component it is given with no owner at all.
+component renders what it is given (a scene), that a library does
+not call a component it is given with no owner at all, and that a `pure`
+fn answers alike with a window and without one (10 SV-7c).
+A form that is asked for and not taken is recorded the same way, with
+what was run: 09 MO-11u's three (2026-11-24) — a row for a method of a
+library's object (run: of the two libraries named, one renders what it
+is given beneath its list and the other calls it with no owner), a
+layout's regions under `renders(H)`, an `.rx` package naming another
+package's host.
+What a tool can read is not a word's to say: a host declaration's
+nesting is read off the router's own tree (`//@ routes`, 09 MO-14g), and
+a module of the app's own takes the words of the library rows it hands
+on (MO-8s). Neither is the checkers' (08 CN-8): they check the rows they
+are given.
+A library that is not released as the benchmark needs it is used from
+the lockfile all the same, as packed tarballs with the commit they were
+built from (`bench/tasks/router-rx-routes/vendor`): a test that runs
+only beside a clone is green in CI by not running.
 
 Decisions recorded in the spec as *ruled* with a date are settled; please
 open an issue rather than a PR to revisit one. Decisions marked *taken by
@@ -75,7 +91,7 @@ The crate, the plugin, the runtime and the tooling, from the repository's root:
 
 ```sh
 (cd compiler && cargo test --release)
-for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined lib; do node compiler/test/$t.mjs; done   # SOLID_NEXT=<checkout> for vite.mjs when Solid is not at ../solid-next (a nested worktree); vite.mjs installs TanStack Router's Vite plugin once into compiler/test/.out (examples/tanstack is built with it)
+for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined lib; do node compiler/test/$t.mjs; done   # SOLID_NEXT=<checkout> for vite.mjs when Solid is not at ../solid-next (a nested worktree); vite.mjs installs TanStack Router's Vite plugin once into compiler/test/.out (examples/tanstack is built with it); `node compiler/test/vite.mjs context` is the dev server after an edit (11 CP-4b)
 # with a Solid plugin that has context.resolve and Frontend.buildStart (compiler/README.md):
 for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done   # git clone -b frontend-resolve https://github.com/yumemi-thomas/solid-vite-plugin && pnpm install && npx rolldown -c
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar
@@ -83,6 +99,8 @@ for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/te
 (cd tooling/rx-language-server && npm test)
 node bench/run.mjs --check     # the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
 node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)
+# a task under a file-based router generates the router's tree before any checker reads the program (its `prepare`: a
+# `vite build`), and its host.d.rx is derived from that tree: `rx-declare --host --sync <host.d.rx>` after a route moves
 ```
 
 `ref/README.md` describes each runner. Please run the suite before opening a

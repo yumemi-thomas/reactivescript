@@ -159,6 +159,31 @@ record argued each way; this is the decision.
 
   The app itself: `mount(view, hydrating)` in the client build, `stream(view,
   sink)` in the server's.
+
+  *A module is one module, whatever URL serves it (2026-11-24).* `module`'s
+  key is the factory where modules are imported by source, which is one
+  factory for one module in a bundle. A dev server is not a bundle: it
+  serves a module again, under a new URL, after an edit of a file its
+  program holds, and the browser evaluates each URL — a second factory for
+  the same text. Vite 8 goes further: it writes the query of a module it
+  marks `?import` (every module whose extension it does not know: `.rx`)
+  in two orders, `?t=…&import&rx-dep` where it patches an importer's cached
+  code and `?import&t=…&rx-dep` where it compiles an importer again, so one
+  edit leaves one file loaded twice *in the same page*, after a full reload
+  too. Two factories were two instances: a context declared in a module
+  the app's entry and a route file both import was two contexts, and the
+  route file read `RG-7b: no provision for team` for what the entry
+  provides (met 2026-11-23, on TanStack Router with `.rx` route files:
+  editing the index route's file). So under the dev server the front end
+  names each compiled module — `module.__rxKey`, its path from the
+  project's root and a hash of its compiled text — and `module` keys an
+  instance by the name where the factory has one: the same file with the
+  same text is one instance however often it is evaluated, and an edited
+  module, whose text differs, is another. A build names nothing (a module
+  is bundled once). `compiler/test/vite.mjs` (*context*) holds it without
+  a router — the cause is the dev server's — and
+  `bench/tasks/router-rx-routes` with one; `runtime/test.mjs` the keying.
+  The two spellings are a defect of Vite's, recorded and not filed.
 - **CP-4c (The harness's, not the package's).** `reg`, `lookup`, `dget`,
   `dset` (a scenario's `handler` rows reach any live binding by name),
   `api` and `jsError` (`./api` and its declared errors as test flights,
@@ -224,9 +249,37 @@ record argued each way; this is the decision.
   own that an `.rx` component applies — the router's component in the
   app's entry, a layout's `<Outlet />` — is imported by that declaration
   from its JS module, and the host's records are then checked where it is
-  applied (09 MO-14f). TanStack's generator has no option that admits an
-  `.rx` route file (09 MO-14, *What it does not say*): its route files
-  stay the few lines of TSX above.
+  applied (09 MO-14f). TanStack's generator, as released, has no option
+  that admits an `.rx` route file, and its route files are the few lines
+  of TSX above; with the option a fork adds (`routeComponentExtensions: {
+  ".rx": "?rx-page" }`: 09 MO-14, *The native shape*) the generator imports
+  each `.rx` route file as its page and writes the route object itself,
+  which is `?rx-page` used as it is with `filesystem-routing`
+  (`bench/tasks/router-rx-routes`).
+
+  *Solid's start mode (2026-11-24).* `@solidjs/vite-plugin` 3 has Start as
+  a mode of the plugin — `solid({ start: true, ssr: true })` — which owns
+  the entries, the dev server's render and the build: an app is its root
+  component (`src/App.*`) and whatever it renders, with no `index.html`, no
+  mount file and no server file, and SolidStart is not needed for it. The
+  root is a Solid component, so an `.rx` root is handed over as a page:
+  `src/App.ts` is one line, `export { default } from "./App.rx?rx-page"`.
+  (Start mode's `app` — the conventional file or `start.app` — is a file
+  with one of `.tsx`, `.jsx`, `.ts`, `.js`, `.tsrx`: an `.rx` file is not
+  looked for, a path with a query "does not exist", and a plain import of
+  an `.rx` module is a program's entry, not a component. A limit of the
+  plugin, recorded and not filed.) The routes are `filesystem-routing`'s,
+  over `.rx` route files, as in a client-only build. Built and run:
+  `bench/tasks/start-mode` — each request rendered on the server, streamed
+  and hydrated, by the Node server start mode emits and by its dev server.
+  Under the dev server the app's modules run on Vite's copy of Solid, and
+  a package Vite leaves to Node runs on Node's: the runtime must be the
+  app's. Solid's plugin has Vite load every package that runs on Solid
+  with the app — it finds them from the app's `package.json` — so
+  `@reactivescript/runtime` is listed there, as any dependency the
+  compiled modules import is. Left out, a `provide` has no owner; the
+  server runtime says so in those words (it was `Cannot read properties of
+  null`).
 - **CP-4e (A package's `.rx` modules) — proposed 2026-11-22.** A library
   written in `.rx` is built once for every app (09 MO-13e): `rx-lib`
   (`compiler/lib.mjs`, the bin of `@reactivescript/compiler`) compiles each
