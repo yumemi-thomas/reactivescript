@@ -1,12 +1,9 @@
-// What TanStack Router's file routes do with the app's components (spec/09 MO-14). The host's view names each `.rx`
-// component and where it is rendered: the root layout inside the app's component, the pages inside the layout. Neither
-// takes `children`: each applies a component of the router's own — <AppRouter /> in main.rx, <Outlet /> in the layout —
-// and the router renders through it, so the declaration imports those two from JavaScript (MO-14f). The pages are then
-// checked under the layout's `errored` region, the app's provision and the router.
+//@ routes ./routeTree.gen.ts ./main.rx
+// Derived (rx-declare --host --routes): what the router does with the app's components (09 MO-14), read from the
+// router's own tree. Not edited by hand — `rx-declare --host --sync` writes it again, the dev server does on its own,
+// and a build, rx-tsc and rx-verify refuse it once the tree has moved (HOST_VIEW_STALE).
 import { App } from "./main.rx"
 import { Root, Home, Person } from "./pages.rx"
 import { AppRouter } from "./router.tsx"
 import { Outlet } from "@tanstack/solid-router"
-export default component nests(children in component) = [
-  { component: App, children: [{ component: Root, children: [{ component: Home }, { component: Person }] }] }
-]
+export default component nests(children in component) = [{ component: App, children: [{ component: Root, children: [{ component: Home }, { component: Person }] }] }]

@@ -1,9 +1,9 @@
-// rx-verify's probe for host.d.rx (`rx-verify --dom src/host.d.rx`): the host's view, run. The declaration is derived
-// from the generated tree (`//@ routes ./routeTree.gen.ts`), so the scene is too: rx-verify hands it the routes as the
-// tree nests them (`routes`: each with its path and the recording component that stands for its `.rx` component: the one its TSX route file hands the route), and
-// the probe makes TanStack's route objects of them. It names no route: one added is in the scene the next run.
-// `rx.AppRouter` and `rx.Outlet` are applied where the app's components apply the real ones (`through`); `act` is
-// called for each page, and goes to it.
+// rx-verify's probe for host.d.rx (`rx-verify --dom src/host.d.rx`): the host's view, run. The declaration is derived from the
+// generated tree (`//@ routes ./routeTree.gen.ts`), so the scene is too: rx-verify hands it the routes as the tree
+// nests them (`routes`: each with its path and the recording component that stands for its `.rx` component — the one
+// its TSX route file hands the route), and the probe makes TanStack's route objects of them. It names no route: one
+// added is in the scene the next run. `rx.AppRouter` and `rx.Outlet` are applied where the app's components apply the
+// real ones (`through`); `act` is called for each page, and goes to it.
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from "@tanstack/solid-router";
 import { createComponent } from "solid-js";
 let router;
