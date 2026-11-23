@@ -1,5 +1,6 @@
-// router.ts in rows, from rx-declare's draft: the component that renders the route files' pages, and the typed path
-// builder the router makes of them. By hand: the component provides the router to what it renders.
+// router.ts in rows, from rx-declare's draft. The router is what the library's factory makes, so its row takes the
+// factory's word (09 MO-8s): it provides the router to what it renders. By hand: `paths` as a value (the typed path
+// builder the router makes of the route files: a function with a member for each route, which a fn's row cannot say).
 export context router from "@solidjs/router"
-export component Router(props: {}) provides(router)
+export component Router(props: import("@solidjs/router").RouterProps & { children?: (props: import("@solidjs/router").RouteSectionProps) => View }) provides(router)
 export const paths: typeof import("./router.ts").paths

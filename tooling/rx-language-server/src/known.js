@@ -11,6 +11,8 @@
 //
 // (and where a library renders the components a fn is given: `renders(<Component>)`, MO-11u)
 //
+// `wraps`: export name → what a module of the app's own that calls it carries (MO-8s), where the library's own row
+// cannot say it: `pure`, the contexts it `uses`, and the words of the result's `fields` that wait or throw where read.
 // `rows`: export name → its row. `contexts`: the contexts the rows name. `words`: export name → words added to the
 // drafted row as it is (`pure` before `fn`, `after` after the row, `waits` before a `ref` part of its result: `""` the
 // whole result, else a tuple's index or a record's field), for an export whose drafted types are right.
@@ -57,6 +59,9 @@ module.exports = {
       "Toast.Region": { after: "provides(toastRegion)" }, "Toast.List": { after: "uses(toastRegion)" },
       "Toast.Title": { after: "uses(toast)" }, "Toast.Description": { after: "uses(toast)" }, "Toast.CloseButton": { after: "uses(toast)" }, "Toast.ProgressTrack": { after: "uses(toast)" }, "Toast.ProgressFill": { after: "uses(toast)" },
     },
+    // the method no row declares: a fn of the app's own that hands its argument straight to it renders it beneath the
+    // list (run: getOwner() is the list's, and a context provided above the list is read; bench/tasks/kobalte-toast)
+    wraps: { "toaster.show": { renders: "Toast.List" } },
   },
   // accessors that wait for a first value, read off the release's own source: `data` throws Solid's NotReadyError until
   // the first message and the stream's error after one; `location` until the first fix (its errors are `error`'s)
@@ -70,5 +75,10 @@ module.exports = {
       useMutation: "export pure fn useMutation<TData = unknown, TVariables = void>(ref options: { mutationFn: (v: TVariables) => Promise<TData>; onSuccess?: handler () => void }): { mutate: (v: TVariables) => Promise<TData>; isPending: boolean; status: string; reset: () => void } uses(queryClient)",
     },
     words: { useQueryClient: { pure: true, after: "uses(queryClient)", drop: "instantiates" } },
+    // its query hook reads the client and writes nothing but its own state; its result is a store, and a row cannot say
+    // that a store's field waits (MO-8r) — so these are not words of the library's own draft. They are what a module of
+    // the app's own that calls the hook, and hands each field out as a function, is drafted with (MO-8s, declare-own.js):
+    // `data` waits for the first answer and throws the query's error where it is read (run: bench/tasks/query-forward)
+    wraps: { useQuery: { pure: true, uses: ["queryClient"], fields: { data: "pending fails(Error)" } } },
   },
 };

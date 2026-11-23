@@ -519,6 +519,47 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   w("hand.d.rx", "import { Root } from \"./routes/__root.rx\"\nexport default component nests(children in component) = [{ component: Root }]\n");
   check("a declaration that names no routes is written by hand: not derived, never stale", H.drift(path.join(app, "src/hand.d.rx")) === null);
 }
+// 09 MO-8s: a module of the app's own takes the words of the library rows it hands on
+{
+  const app = path.join(ws, "ownapp"); const nm = path.join(app, "node_modules");
+  fs.mkdirSync(path.join(nm, "kit"), { recursive: true }); fs.mkdirSync(path.join(app, "rx-types"), { recursive: true });
+  for (const d of fs.readdirSync(path.join(repo, "ref/node_modules"))) if (!d.startsWith(".")) fs.symlinkSync(path.join(repo, "ref/node_modules", d), path.join(nm, d));
+  fs.writeFileSync(path.join(nm, "kit/package.json"), JSON.stringify({ name: "kit", version: "1.0.0", type: "module", main: "index.js", types: "index.d.ts" }));
+  fs.writeFileSync(path.join(nm, "kit/index.js"), "export const Provider = p => p.children;\nexport const Part = () => null;\nexport const useThing = o => ({ data: \"\", busy: false });\nexport const createFrame = () => Provider;\n");
+  fs.writeFileSync(path.join(nm, "kit/index.d.ts"), "import type { JSX } from \"@solidjs/web\";\nexport declare function Provider(props: { children?: JSX.Element }): JSX.Element;\nexport declare function Part(props: {}): JSX.Element;\nexport declare function useThing(opts: () => { key: string }): { data: string; busy: boolean };\nexport declare function createFrame(): (props: {}) => JSX.Element;\n");
+  fs.writeFileSync(path.join(app, "rx-types/kit.d.rx"), "export context kit\nexport component Provider(props: { children?: View }) provides(kit)\nexport component Part(props: {}) uses(kit)\nexport pure fn useThing(ref opts: { key: string }): { data: ref string; busy: ref boolean } uses(kit)\nexport pure fn createFrame(): Component provides(kit)\n");
+  fs.writeFileSync(path.join(app, "own.jsx"), [
+    "import { Provider, Part, useThing, createFrame } from \"kit\";",
+    "export const Frame = () => <Provider />;",
+    "export function Mixed() { return <div><Provider /></div>; }",
+    "export const Made = createFrame();",
+    "export function useData(opts) { const q = useThing(opts); return { data: () => q.data }; }",
+    "export function useMaybe(opts) { if (opts) return useThing(opts); return null; }",
+    "export function useNoisy(opts) { const q = useThing(opts); console.log(q); return { data: () => q.data }; }",
+    "export { Part };", "",
+  ].join("\n"));
+  fs.writeFileSync(path.join(app, "own.d.ts"), "import type { JSX } from \"@solidjs/web\";\nexport declare function Frame(): JSX.Element;\nexport declare function Mixed(): JSX.Element;\nexport declare const Made: (props: {}) => JSX.Element;\nexport declare function useData(opts: () => { key: string }): { data: () => string };\nexport declare function useMaybe(opts?: () => { key: string }): unknown;\nexport declare function useNoisy(opts: () => { key: string }): { data: () => string };\nexport declare function Part(props: {}): JSX.Element;\n");
+  const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./own.jsx"], { cwd: app, encoding: "utf8" });
+  const text = r.stdout + r.stderr; const row = n => text.split("\n").find(l => new RegExp(`^export (?:pure )?(?:fn|component) ${n}\\b`).test(l)) ?? "";
+  check("a component that renders a library's and nothing else takes its words; the context is the library's, named from there (MO-12e)", /provides\(kit\)$/.test(row("Frame")) && text.includes("export context kit from \"kit\""), text);
+  check("...one that renders it inside something of its own does not (the row would say more than the text shows)", row("Mixed") && !/provides|uses/.test(row("Mixed")), text);
+  check("...what a factory declared to make a component makes is that component", /provides\(kit\)$/.test(row("Made")), text);
+  check("...a component exported again is the library's row", /uses\(kit\)$/.test(row("Part")), text);
+  check("a hook that calls the library's at the top of its body uses what it uses, and is pure where it does nothing else", /^export pure fn useData\b.*uses\(kit\)$/.test(row("useData")) && !/TODO useData: which context/.test(text) && !/TODO useData: pure\?/.test(text), text);
+  check("...one that calls it behind a condition takes nothing: its questions stay", row("useMaybe") && !/uses\(|pure/.test(row("useMaybe")) && /TODO useMaybe: which context/.test(text), text);
+  check("...one that does something else uses the context, and is not drafted pure", /^export fn useNoisy\b.*uses\(kit\)$/.test(row("useNoisy")), text);
+  const rt = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./own.jsx", "--types-only"], { cwd: app, encoding: "utf8" });
+  check("--types-only leaves the carried words out", !/provides\(kit\)|uses\(kit\)/.test(rt.stdout), rt.stdout);
+}
+// MO-8k: `--only`, the rows an app keeps — those exports', the contexts their words name, the types they name
+{
+  const app = path.join(ws, "ownapp");   // the kit of the test above: rx-types/kit.d.rx declares it; here its own draft is cut
+  const all = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "kit"], { cwd: app, encoding: "utf8" });
+  const some = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "kit", "--only", "useThing,Nope"], { cwd: app, encoding: "utf8" });
+  const rows = t => t.split("\n").filter(l => /^export /.test(l)).map(l => /^export\s+(?:pure\s+)?(?:fn|component|type|context|const)\s+([\w$.]+)/.exec(l)?.[1]);
+  check("--only keeps the rows of the exports named, with their TODOs, and nothing else of the module", JSON.stringify(rows(some.stdout)) === JSON.stringify(["useThing"]) && rows(all.stdout).length === 4 && /TODO useThing:/.test(some.stdout) && !/TODO Provider:/.test(some.stdout), some.stdout);
+  check("...and says which name is no export", /--only Nope: kit has no such export/.test(some.stderr), some.stderr);
+}
 // MO-11u, MO-11c (2026-11-24): what a library is given to render. A parameter that is a component is a `Component<P>`,
 // one that is a view or a function giving one is that (not an accessor: the call is a call), and each gets the question
 // types cannot answer — where the library renders it. A prop that holds components in a record or a list is written so

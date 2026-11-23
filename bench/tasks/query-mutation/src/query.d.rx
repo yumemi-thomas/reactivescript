@@ -1,5 +1,6 @@
-// query.js in rows. By hand: every word (the module is the app's own). The context is the library's, named from here
-// (MO-12e): the hook reads the client the library's provider provides. Its `data` waits for the first answer and throws
-// the query's error where it is read, and says so (MO-10l).
+// query.js in rows: rx-declare's draft, as it is — no word by hand. The module only hands the library's hook on, so its
+// rows take the library's words (09 MO-8s): the hook calls the library's and nothing else (`pure`, `uses(queryClient)`,
+// the context the library's own, MO-12e), and each field reads the result's (`ref`); `data` waits for the first answer
+// and throws the query's error where it is read (MO-10l: what rx-declare knows of the release).
 export context queryClient from "@tanstack/solid-query"
 export pure fn useQuery<TData = unknown>(ref options: { queryKey: import("@tanstack/solid-query").QueryKey; queryFn: () => Promise<TData> }): { data: pending fails(Error) ref TData; isFetching: ref boolean; status: ref string; refetch: (options?: import("@tanstack/solid-query").RefetchOptions) => Promise<unknown> } uses(queryClient)

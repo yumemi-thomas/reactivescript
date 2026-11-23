@@ -1,220 +1,36 @@
 //@ for @tanstack/solid-router ^2.0.0-rc.10
-// @tanstack/solid-router 2.0 (rc), code-based routes: rx-declare's draft, as it is — the types' rows, and what known.js
-// says of this release: the router's context, which its provider provides and its hooks, link and outlet read, and
-// that the components `createRoute` and `createRootRoute` are given are rendered beneath <RouterProvider> (09 MO-11u).
-// The types are the package's own, so the route tree registers the router (register.d.ts).
+// @tanstack/solid-router 2.0 (rc), code-based routes: rx-declare's draft of what the app imports, as it is —
+// `rx-declare @tanstack/solid-router --only Link,Outlet,createRoute,createRootRoute,createRouter,RouterProvider,useParams`:
+// those exports' rows, the context their words name and the types they name (the library's whole draft has a row for
+// every export, 296 of them). The types' rows, and what known.js says of this release: the router's context, which its
+// provider provides and its hooks, link and outlet read, and that the components `createRoute` and `createRootRoute`
+// are given are rendered beneath <RouterProvider> (09 MO-11u). The types are the package's own, so the route tree
+// registers the router (register.d.ts). No word by hand.
 export context router
-export type DeferredPromiseState<T> = import("@tanstack/solid-router").DeferredPromiseState<T>
-export type DeferredPromise<T> = import("@tanstack/solid-router").DeferredPromise<T>
 export type ParsedLocation<TSearchObj extends AnySchema = {  }> = import("@tanstack/solid-router").ParsedLocation<TSearchObj>
-export type RemoveTrailingSlashes<T> = import("@tanstack/solid-router").RemoveTrailingSlashes<T>
-export type RemoveLeadingSlashes<T> = import("@tanstack/solid-router").RemoveLeadingSlashes<T>
-export type ActiveOptions = import("@tanstack/solid-router").ActiveOptions
-export type ResolveRelativePath<TFrom, TTo = "."> = import("@tanstack/solid-router").ResolveRelativePath<TFrom, TTo>
-export type RootRouteId = import("@tanstack/solid-router").RootRouteId
 export type AnyPathParams = import("@tanstack/solid-router").AnyPathParams
 export type ResolveParams<TPath extends string, T = string> = import("@tanstack/solid-router").ResolveParams<TPath, T>
-export type ResolveOptionalParams<TPath extends string, T> = import("@tanstack/solid-router").ResolveOptionalParams<TPath, T>
-export type ResolveRequiredParams<TPath extends string, T> = import("@tanstack/solid-router").ResolveRequiredParams<TPath, T>
-export type SearchSchemaInput = import("@tanstack/solid-router").SearchSchemaInput
 export type AnyContext = import("@tanstack/solid-router").AnyContext
-export type RouteContext = import("@tanstack/solid-router").RouteContext
-export type PreloadableObj = import("@tanstack/solid-router").PreloadableObj
-export type RoutePathOptions<TCustomId, TPath> = import("@tanstack/solid-router").RoutePathOptions<TCustomId, TPath>
-export type StaticDataRouteOption = import("@tanstack/solid-router").StaticDataRouteOption
-export type RoutePathOptionsIntersection<TCustomId, TPath> = import("@tanstack/solid-router").RoutePathOptionsIntersection<TCustomId, TPath>
-export type UpdatableStaticRouteOption = import("@tanstack/solid-router").UpdatableStaticRouteOption
-export type MetaDescriptor = import("@tanstack/solid-router").MetaDescriptor
-export type RouteLinkEntry = import("@tanstack/solid-router").RouteLinkEntry
-export type ParseParamsFn<TPath extends string, TParams> = import("@tanstack/solid-router").ParseParamsFn<TPath, TParams>
-export type SearchFilter<TInput, TResult = TInput> = import("@tanstack/solid-router").SearchFilter<TInput, TResult>
 export type ResolveId<TParentRoute, TCustomId extends string, TPath extends string> = import("@tanstack/solid-router").ResolveId<TParentRoute, TCustomId, TPath>
-export type InferFullSearchSchema<TRoute> = import("@tanstack/solid-router").InferFullSearchSchema<TRoute>
-export type InferFullSearchSchemaInput<TRoute> = import("@tanstack/solid-router").InferFullSearchSchemaInput<TRoute>
-export type ErrorRouteProps = import("@tanstack/solid-router").ErrorRouteProps
-export type ErrorComponentProps<TError = import("@tanstack/router-core").ErrorBoundaryTypes["error"]> = import("@tanstack/solid-router").ErrorComponentProps<TError>
-export type NotFoundRouteProps = import("@tanstack/solid-router").NotFoundRouteProps
-export type TrimPath<T extends string> = import("@tanstack/solid-router").TrimPath<T>
-export type TrimPathLeft<T extends string> = import("@tanstack/solid-router").TrimPathLeft<T>
-export type TrimPathRight<T extends string> = import("@tanstack/solid-router").TrimPathRight<T>
-export type StringifyParamsFn<TPath extends string, TParams> = import("@tanstack/solid-router").StringifyParamsFn<TPath, TParams>
-export type ParamsOptions<TPath extends string, TParams> = import("@tanstack/solid-router").ParamsOptions<TPath, TParams>
-export type InferAllParams<TRoute> = import("@tanstack/solid-router").InferAllParams<TRoute>
-export type InferAllContext<TRoute> = import("@tanstack/solid-router").InferAllContext<TRoute>
-export type LooseReturnType<T> = import("@tanstack/solid-router").LooseReturnType<T>
-export type LooseAsyncReturnType<T> = import("@tanstack/solid-router").LooseAsyncReturnType<T>
-export type ContextReturnType<TContextFn> = import("@tanstack/solid-router").ContextReturnType<TContextFn>
-export type ContextAsyncReturnType<TContextFn> = import("@tanstack/solid-router").ContextAsyncReturnType<TContextFn>
-export type ResolveLoaderData<TLoaderFn> = import("@tanstack/solid-router").ResolveLoaderData<TLoaderFn>
-export type ResolveRouteContext<TRouteContextFn, TBeforeLoadFn> = import("@tanstack/solid-router").ResolveRouteContext<TRouteContextFn, TBeforeLoadFn>
-export type SearchSerializer = import("@tanstack/solid-router").SearchSerializer
-export type SearchParser = import("@tanstack/solid-router").SearchParser
 export type TrailingSlashOption = import("@tanstack/solid-router").TrailingSlashOption
-export type Manifest = import("@tanstack/solid-router").Manifest
-export type RouterManagedTag = import("@tanstack/solid-router").RouterManagedTag
-export type ControlledPromise<T> = import("@tanstack/solid-router").ControlledPromise<T>
 export type Constrain<T, TConstraint, TDefault = TConstraint> = import("@tanstack/solid-router").Constrain<T, TConstraint, TDefault>
-export type Expand<T> = import("@tanstack/solid-router").Expand<T>
-export type MergeAll<TUnion> = import("@tanstack/solid-router").MergeAll<TUnion>
-export type Assign<TLeft, TRight> = import("@tanstack/solid-router").Assign<TLeft, TRight>
-export type IntersectAssign<TLeft, TRight> = import("@tanstack/solid-router").IntersectAssign<TLeft, TRight>
-export type ResolveValidatorInput<TValidator> = import("@tanstack/solid-router").ResolveValidatorInput<TValidator>
-export type ResolveValidatorOutput<TValidator> = import("@tanstack/solid-router").ResolveValidatorOutput<TValidator>
-export type AnyValidator = import("@tanstack/solid-router").AnyValidator
-export type DefaultValidator = import("@tanstack/solid-router").DefaultValidator
-export type ValidatorFn<TInput, TOutput> = import("@tanstack/solid-router").ValidatorFn<TInput, TOutput>
 export type AnySchema = import("@tanstack/solid-router").AnySchema
-export type AnyValidatorAdapter = import("@tanstack/solid-router").AnyValidatorAdapter
-export type AnyValidatorFn = import("@tanstack/solid-router").AnyValidatorFn
-export type AnyValidatorObj = import("@tanstack/solid-router").AnyValidatorObj
-export type ResolveValidatorInputFn<TValidator> = import("@tanstack/solid-router").ResolveValidatorInputFn<TValidator>
-export type ResolveValidatorOutputFn<TValidator> = import("@tanstack/solid-router").ResolveValidatorOutputFn<TValidator>
-export type ResolveSearchValidatorInput<TValidator> = import("@tanstack/solid-router").ResolveSearchValidatorInput<TValidator>
-export type ResolveSearchValidatorInputFn<TValidator> = import("@tanstack/solid-router").ResolveSearchValidatorInputFn<TValidator>
-export type Validator<TInput, TOutput> = import("@tanstack/solid-router").Validator<TInput, TOutput>
-export type ValidatorAdapter<TInput, TOutput> = import("@tanstack/solid-router").ValidatorAdapter<TInput, TOutput>
-export type ValidatorObj<TInput, TOutput> = import("@tanstack/solid-router").ValidatorObj<TInput, TOutput>
-export type NavigateFn = import("@tanstack/solid-router").NavigateFn
-export type BuildLocationFn = import("@tanstack/solid-router").BuildLocationFn
-export type InferDescendantToPaths<TRouter extends AnyRouter, TPrefix extends string, TPaths = import("@tanstack/router-core").FindDescendantToPaths<TRouter, TPrefix>> = import("@tanstack/solid-router").InferDescendantToPaths<TRouter, TPrefix, TPaths>
-export type RelativeToPath<TRouter extends AnyRouter, TTo extends string, TResolvedPath extends string> = import("@tanstack/solid-router").RelativeToPath<TRouter, TTo, TResolvedPath>
-export type RelativeToParentPath<TRouter extends AnyRouter, TFrom extends string, TTo extends string, TResolvedPath extends string = ResolveRelativePath<TFrom, TTo>> = import("@tanstack/solid-router").RelativeToParentPath<TRouter, TFrom, TTo, TResolvedPath>
-export type RelativeToCurrentPath<TRouter extends AnyRouter, TFrom extends string, TTo extends string, TResolvedPath extends string = ResolveRelativePath<TFrom, TTo>> = import("@tanstack/solid-router").RelativeToCurrentPath<TRouter, TFrom, TTo, TResolvedPath>
 export type Register = import("@tanstack/solid-router").Register
-export type AbsoluteToPath<TRouter extends AnyRouter, TFrom extends string> = import("@tanstack/solid-router").AbsoluteToPath<TRouter, TFrom>
-export type RelativeToPathAutoComplete<TRouter extends AnyRouter, TFrom extends string, TTo extends string> = import("@tanstack/solid-router").RelativeToPathAutoComplete<TRouter, TFrom, TTo>
-export type NavigateOptions<TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = ".", TMaskFrom extends string = TFrom, TMaskTo extends string = "."> = import("@tanstack/solid-router").NavigateOptions<TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type ToOptions<TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = ".", TMaskFrom extends string = TFrom, TMaskTo extends string = "."> = import("@tanstack/solid-router").ToOptions<TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type ToMaskOptions<TRouter extends AnyRouter = RegisteredRouter, TMaskFrom extends string = string, TMaskTo extends string = "."> = import("@tanstack/solid-router").ToMaskOptions<TRouter, TMaskFrom, TMaskTo>
-export type ToSubOptions<TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = "."> = import("@tanstack/solid-router").ToSubOptions<TRouter, TFrom, TTo>
-export type ResolveRoute<TRouter extends AnyRouter, TFrom, TTo, TPath = ResolveRelativePath<TFrom, TTo>> = import("@tanstack/solid-router").ResolveRoute<TRouter, TFrom, TTo, TPath>
-export type SearchParamOptions<TRouter extends AnyRouter, TFrom, TTo> = import("@tanstack/solid-router").SearchParamOptions<TRouter, TFrom, TTo>
-export type PathParamOptions<TRouter extends AnyRouter, TFrom, TTo> = import("@tanstack/solid-router").PathParamOptions<TRouter, TFrom, TTo>
-export type ToPathOption<TRouter extends AnyRouter = AnyRouter, TFrom extends string = string, TTo extends string | undefined = string> = import("@tanstack/solid-router").ToPathOption<TRouter, TFrom, TTo>
-export type LinkOptions<TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = ".", TMaskFrom extends string = TFrom, TMaskTo extends string = "."> = import("@tanstack/solid-router").LinkOptions<TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type MakeOptionalPathParams<TRouter extends AnyRouter, TFrom, TTo> = import("@tanstack/solid-router").MakeOptionalPathParams<TRouter, TFrom, TTo>
-export type AnyRouterWithContext<TContext> = import("@tanstack/solid-router").AnyRouterWithContext<TContext>
-export type ParseRoute<TRouteTree, TAcc = TRouteTree> = import("@tanstack/solid-router").ParseRoute<TRouteTree, TAcc>
-export type RoutesById<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").RoutesById<TRouteTree>
-export type RouteById<TRouteTree extends AnyRoute, TId> = import("@tanstack/solid-router").RouteById<TRouteTree, TId>
-export type RouteIds<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").RouteIds<TRouteTree>
-export type RoutesByPath<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").RoutesByPath<TRouteTree>
-export type RouteByPath<TRouteTree extends AnyRoute, TPath> = import("@tanstack/solid-router").RouteByPath<TRouteTree, TPath>
-export type RoutePaths<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").RoutePaths<TRouteTree>
-export type FullSearchSchema<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").FullSearchSchema<TRouteTree>
-export type AllParams<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").AllParams<TRouteTree>
-export type AllLoaderData<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").AllLoaderData<TRouteTree>
-export type FullSearchSchemaInput<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").FullSearchSchemaInput<TRouteTree>
-export type AllContext<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").AllContext<TRouteTree>
-export type CommitLocationOptions = import("@tanstack/solid-router").CommitLocationOptions
-export type MatchLocation = import("@tanstack/solid-router").MatchLocation
-export type ResolveFullSearchSchema<TParentRoute extends AnyRoute, TSearchValidator> = import("@tanstack/solid-router").ResolveFullSearchSchema<TParentRoute, TSearchValidator>
-export type ResolveFullSearchSchemaInput<TParentRoute extends AnyRoute, TSearchValidator> = import("@tanstack/solid-router").ResolveFullSearchSchemaInput<TParentRoute, TSearchValidator>
-export type ResolveAllParamsFromParent<TParentRoute extends AnyRoute, TParams> = import("@tanstack/solid-router").ResolveAllParamsFromParent<TParentRoute, TParams>
-export type RouteContextParameter<TParentRoute extends AnyRoute, TRouterContext> = import("@tanstack/solid-router").RouteContextParameter<TParentRoute, TRouterContext>
-export type BeforeLoadContextParameter<TParentRoute extends AnyRoute, TRouterContext, TRouteContextFn> = import("@tanstack/solid-router").BeforeLoadContextParameter<TParentRoute, TRouterContext, TRouteContextFn>
-export type ResolveAllContext<TParentRoute extends AnyRoute, TRouterContext, TRouteContextFn, TBeforeLoadFn> = import("@tanstack/solid-router").ResolveAllContext<TParentRoute, TRouterContext, TRouteContextFn, TBeforeLoadFn>
-export type FullSearchSchemaOption<TParentRoute extends AnyRoute, TSearchValidator> = import("@tanstack/solid-router").FullSearchSchemaOption<TParentRoute, TSearchValidator>
 export type MakeRemountDepsOptionsUnion<TRouteTree extends AnyRoute = RegisteredRouter["routeTree"]> = import("@tanstack/solid-router").MakeRemountDepsOptionsUnion<TRouteTree>
-export type RemountDepsOptions<TRouteId, TFullSearchSchema, TAllParams, TLoaderDeps> = import("@tanstack/solid-router").RemountDepsOptions<TRouteId, TFullSearchSchema, TAllParams, TLoaderDeps>
-export type FileRouteTypes = import("@tanstack/solid-router").FileRouteTypes
-export type FileRoutesByPath = import("@tanstack/solid-router").FileRoutesByPath
-export type UseNavigateResult<TDefaultFrom extends string> = import("@tanstack/solid-router").UseNavigateResult<TDefaultFrom>
-export type AnyRedirect = import("@tanstack/solid-router").AnyRedirect
-export type Redirect<TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = undefined, TMaskFrom extends string = TFrom, TMaskTo extends string = "."> = import("@tanstack/solid-router").Redirect<TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type RedirectOptions<TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = undefined, TMaskFrom extends string = TFrom, TMaskTo extends string = "."> = import("@tanstack/solid-router").RedirectOptions<TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type ResolvedRedirect<TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string = "", TMaskFrom extends string = TFrom, TMaskTo extends string = ""> = import("@tanstack/solid-router").ResolvedRedirect<TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
 export type RouteOptions<TRegister, TParentRoute extends AnyRoute = AnyRoute, TId extends string = string, TCustomId extends string = string, TFullPath extends string = string, TPath extends string = string, TSearchValidator = undefined, TParams = AnyPathParams, TLoaderDeps extends Record<string, any> = {  }, TLoaderFn = undefined, TRouterContext = {  }, TRouteContextFn = AnyContext, TBeforeLoadFn = AnyContext, TSSR = unknown, TServerMiddlewares = unknown, THandlers = undefined> = import("@tanstack/solid-router").RouteOptions<TRegister, TParentRoute, TId, TCustomId, TFullPath, TPath, TSearchValidator, TParams, TLoaderDeps, TLoaderFn, TRouterContext, TRouteContextFn, TBeforeLoadFn, TSSR, TServerMiddlewares, THandlers>
-export type FileBaseRouteOptions<TRegister, TParentRoute extends AnyRoute = AnyRoute, TId extends string = string, TPath extends string = string, TSearchValidator = undefined, TParams = {  }, TLoaderDeps extends Record<string, any> = {  }, TLoaderFn = undefined, TRouterContext = {  }, TRouteContextFn = AnyContext, TBeforeLoadFn = AnyContext, TRemountDepsFn = AnyContext, TSSR = unknown, TServerMiddlewares = unknown, THandlers = undefined> = import("@tanstack/solid-router").FileBaseRouteOptions<TRegister, TParentRoute, TId, TPath, TSearchValidator, TParams, TLoaderDeps, TLoaderFn, TRouterContext, TRouteContextFn, TBeforeLoadFn, TRemountDepsFn, TSSR, TServerMiddlewares, THandlers>
-export type BaseRouteOptions<TRegister, TParentRoute extends AnyRoute = AnyRoute, TId extends string = string, TCustomId extends string = string, TPath extends string = string, TSearchValidator = undefined, TParams = {  }, TLoaderDeps extends Record<string, any> = {  }, TLoaderFn = undefined, TRouterContext = {  }, TRouteContextFn = AnyContext, TBeforeLoadFn = AnyContext, TSSR = unknown, TServerMiddlewares = unknown, THandlers = undefined> = import("@tanstack/solid-router").BaseRouteOptions<TRegister, TParentRoute, TId, TCustomId, TPath, TSearchValidator, TParams, TLoaderDeps, TLoaderFn, TRouterContext, TRouteContextFn, TBeforeLoadFn, TSSR, TServerMiddlewares, THandlers>
-export type UpdatableRouteOptions<TParentRoute extends AnyRoute, TRouteId, TFullPath, TParams, TSearchValidator, TLoaderFn, TLoaderDeps, TRouterContext, TRouteContextFn, TBeforeLoadFn> = import("@tanstack/solid-router").UpdatableRouteOptions<TParentRoute, TRouteId, TFullPath, TParams, TSearchValidator, TLoaderFn, TLoaderDeps, TRouterContext, TRouteContextFn, TBeforeLoadFn>
-export type RouteLoaderFn<TRegister, TParentRoute extends AnyRoute = AnyRoute, TId extends string = string, TParams = {  }, TLoaderDeps = {  }, TRouterContext = {  }, TRouteContextFn = AnyContext, TBeforeLoadFn = AnyContext, TServerMiddlewares = unknown, THandlers = undefined> = import("@tanstack/solid-router").RouteLoaderFn<TRegister, TParentRoute, TId, TParams, TLoaderDeps, TRouterContext, TRouteContextFn, TBeforeLoadFn, TServerMiddlewares, THandlers>
-export type LoaderFnContext<TRegister = unknown, TParentRoute extends AnyRoute = AnyRoute, TId extends string = string, TParams = {  }, TLoaderDeps = {  }, TRouterContext = {  }, TRouteContextFn = AnyContext, TBeforeLoadFn = AnyContext, TServerMiddlewares = unknown, THandlers = undefined> = import("@tanstack/solid-router").LoaderFnContext<TRegister, TParentRoute, TId, TParams, TLoaderDeps, TRouterContext, TRouteContextFn, TBeforeLoadFn, TServerMiddlewares, THandlers>
-export type MakeRouteMatch<TRouteTree extends AnyRoute = RegisteredRouter["routeTree"], TRouteId = RouteIds<TRouteTree>, TStrict extends boolean = true> = import("@tanstack/solid-router").MakeRouteMatch<TRouteTree, TRouteId, TStrict>
-export type MakeRouteMatchUnion<TRouter extends AnyRouter = RegisteredRouter, TRoute extends AnyRoute = ParseRoute<TRouter["routeTree"]>> = import("@tanstack/solid-router").MakeRouteMatchUnion<TRouter, TRoute>
-export type RouteMatch<TRouteId, TFullPath, TAllParams, TFullSearchSchema, TLoaderData, TAllContext, TLoaderDeps> = import("@tanstack/solid-router").RouteMatch<TRouteId, TFullPath, TAllParams, TFullSearchSchema, TLoaderData, TAllContext, TLoaderDeps>
-export type AnyRouteMatch = import("@tanstack/solid-router").AnyRouteMatch
-export type RouteContextFn<TParentRoute extends AnyRoute, TSearchValidator, TParams, TRouterContext, TRouteId> = import("@tanstack/solid-router").RouteContextFn<TParentRoute, TSearchValidator, TParams, TRouterContext, TRouteId>
-export type RouteContextOptions<TParentRoute extends AnyRoute, TParams, TRouterContext, TLoaderDeps, TRouteId> = import("@tanstack/solid-router").RouteContextOptions<TParentRoute, TParams, TRouterContext, TLoaderDeps, TRouteId>
-export type BeforeLoadContextOptions<TRegister, TParentRoute extends AnyRoute, TSearchValidator, TParams, TRouterContext, TRouteContextFn, TRouteId, TServerMiddlewares, THandlers> = import("@tanstack/solid-router").BeforeLoadContextOptions<TRegister, TParentRoute, TSearchValidator, TParams, TRouterContext, TRouteContextFn, TRouteId, TServerMiddlewares, THandlers>
-export type ContextOptions<TParentRoute extends AnyRoute, TParams, TRouteId> = import("@tanstack/solid-router").ContextOptions<TParentRoute, TParams, TRouteId>
 export type RootRouteOptions<TRegister = unknown, TSearchValidator = undefined, TRouterContext = {  }, TRouteContextFn = AnyContext, TBeforeLoadFn = AnyContext, TLoaderDeps extends Record<string, any> = {  }, TLoaderFn = undefined, TSSR = unknown, TServerMiddlewares = unknown, THandlers = undefined> = import("@tanstack/solid-router").RootRouteOptions<TRegister, TSearchValidator, TRouterContext, TRouteContextFn, TBeforeLoadFn, TLoaderDeps, TLoaderFn, TSSR, TServerMiddlewares, THandlers>
-export type AnyRouteWithContext<TContext> = import("@tanstack/solid-router").AnyRouteWithContext<TContext>
-export type LazyRouteOptions = import("@tanstack/solid-router").LazyRouteOptions
 export type AnyRoute = import("@tanstack/solid-router").AnyRoute
 export type ResolveFullPath<TParentRoute extends AnyRoute, TPath extends string, TPrefixed = import("@tanstack/router-core").RoutePrefix<TParentRoute["fullPath"], TPath>> = import("@tanstack/solid-router").ResolveFullPath<TParentRoute, TPath, TPrefixed>
 export type RouteConstraints = import("@tanstack/solid-router").RouteConstraints
-export type RouterState<TRouteTree extends AnyRoute = AnyRoute, TRouteMatch = MakeRouteMatchUnion> = import("@tanstack/solid-router").RouterState<TRouteTree, TRouteMatch>
-export type ListenerFn<TEvent extends RouterEvent> = import("@tanstack/solid-router").ListenerFn<TEvent>
-export type BuildNextOptions = import("@tanstack/solid-router").BuildNextOptions
 export type AnyRouter = import("@tanstack/solid-router").AnyRouter
 export type RegisteredRouter<TRegister = Register> = import("@tanstack/solid-router").RegisteredRouter<TRegister>
-export type RouterEvents = import("@tanstack/solid-router").RouterEvents
-export type RouterEvent = import("@tanstack/solid-router").RouterEvent
-export type RouterListener<TRouterEvent extends RouterEvent> = import("@tanstack/solid-router").RouterListener<TRouterEvent>
-export type MatchRouteOptions = import("@tanstack/solid-router").MatchRouteOptions
-export type RouteMask<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").RouteMask<TRouteTree>
-export type RouterContextOptions<TRouteTree extends AnyRoute> = import("@tanstack/solid-router").RouterContextOptions<TRouteTree>
-export type RouterOptions<TRouteTree extends AnyRoute, TTrailingSlashOption extends TrailingSlashOption, TDefaultStructuralSharingOption extends boolean = false, TRouterHistory extends RouterHistory = RouterHistory, TDehydrated = undefined> = import("@tanstack/solid-router").RouterOptions<TRouteTree, TTrailingSlashOption, TDefaultStructuralSharingOption, TRouterHistory, TDehydrated>
 export type RouterConstructorOptions<TRouteTree extends AnyRoute, TTrailingSlashOption extends TrailingSlashOption, TDefaultStructuralSharingOption extends boolean, TRouterHistory extends RouterHistory, TDehydrated extends Record<string, any>> = import("@tanstack/solid-router").RouterConstructorOptions<TRouteTree, TTrailingSlashOption, TDefaultStructuralSharingOption, TRouterHistory, TDehydrated>
-export type ControllablePromise<T = any> = import("@tanstack/solid-router").ControllablePromise<T>
-export type CreateFileRoute<TFilePath extends string, TParentRoute extends AnyRoute, TId extends RouteConstraints["TId"], TPath extends RouteConstraints["TPath"], TFullPath extends RouteConstraints["TFullPath"]> = import("@tanstack/solid-router").CreateFileRoute<TFilePath, TParentRoute, TId, TPath, TFullPath>
-export type CreateLazyFileRoute<TRoute extends AnyRoute> = import("@tanstack/solid-router").CreateLazyFileRoute<TRoute>
-export type AnySerializationAdapter = import("@tanstack/solid-router").AnySerializationAdapter
-export type SerializationAdapter<TInput, TOutput, TExtendsAdapters extends ReadonlyArray<AnySerializationAdapter>> = import("@tanstack/solid-router").SerializationAdapter<TInput, TOutput, TExtendsAdapters>
-export type SerializableExtensions = import("@tanstack/solid-router").SerializableExtensions
-export type BlockerFn = import("@tanstack/solid-router").BlockerFn
-export type HistoryLocation = import("@tanstack/solid-router").HistoryLocation
 export type RouterHistory = import("@tanstack/solid-router").RouterHistory
-export type ParsedPath = import("@tanstack/solid-router").ParsedPath
-export type HistoryState = import("@tanstack/solid-router").HistoryState
-export type AwaitOptions<T> = import("@tanstack/solid-router").AwaitOptions<T>
-export type UseLinkPropsOptions<TRouter extends AnyRouter = RegisteredRouter, TFrom extends RoutePaths<TRouter["routeTree"]> | string = string, TTo extends string | undefined = ".", TMaskFrom extends RoutePaths<TRouter["routeTree"]> | string = TFrom, TMaskTo extends string = "."> = import("@tanstack/solid-router").UseLinkPropsOptions<TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type ActiveLinkOptions<TComp = "a", TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = ".", TMaskFrom extends string = TFrom, TMaskTo extends string = "."> = import("@tanstack/solid-router").ActiveLinkOptions<TComp, TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type LinkProps<TComp = "a", TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = ".", TMaskFrom extends string = TFrom, TMaskTo extends string = "."> = import("@tanstack/solid-router").LinkProps<TComp, TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type LinkComponent<TComp, TDefaultFrom extends string = string> = import("@tanstack/solid-router").LinkComponent<TComp, TDefaultFrom>
-export type LinkComponentProps<TComp = "a", TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = ".", TMaskFrom extends string = TFrom, TMaskTo extends string = "."> = import("@tanstack/solid-router").LinkComponentProps<TComp, TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type CreateLinkProps = import("@tanstack/solid-router").CreateLinkProps
-export type UseMatchRouteOptions<TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = undefined, TMaskFrom extends string = TFrom, TMaskTo extends string = ""> = import("@tanstack/solid-router").UseMatchRouteOptions<TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
-export type MakeMatchRouteOptions<TRouter extends AnyRouter = RegisteredRouter, TFrom extends string = string, TTo extends string | undefined = undefined, TMaskFrom extends string = TFrom, TMaskTo extends string = ""> = import("@tanstack/solid-router").MakeMatchRouteOptions<TRouter, TFrom, TTo, TMaskFrom, TMaskTo>
 export component Outlet(props: {  }) uses(router)
 export pure fn createRoute<TRegister = unknown, TParentRoute extends RouteConstraints["TParentRoute"] = AnyRoute, TPath extends RouteConstraints["TPath"] = "/", TFullPath extends RouteConstraints["TFullPath"] = ResolveFullPath<TParentRoute, TPath>, TCustomId extends RouteConstraints["TCustomId"] = string, TId extends RouteConstraints["TId"] = ResolveId<TParentRoute, TCustomId, TPath>, TSearchValidator = undefined, TParams = ResolveParams<TPath>, TRouteContextFn = AnyContext, TBeforeLoadFn = AnyContext, TLoaderDeps extends Record<string, any> = {  }, TLoaderFn = undefined, TChildren = unknown, TSSR = unknown, THandlers = undefined>(options: RouteOptions<TRegister, TParentRoute, TId, TCustomId, TFullPath, TPath, TSearchValidator, TParams, TLoaderDeps, TLoaderFn, AnyContext, TRouteContextFn, TBeforeLoadFn, TSSR, THandlers>): import("@tanstack/solid-router").Route<TRegister, TParentRoute, TPath, TFullPath, TCustomId, TId, TSearchValidator, TParams, AnyContext, TRouteContextFn, TBeforeLoadFn, TLoaderDeps, TLoaderFn, TChildren, unknown, TSSR, THandlers> instantiates renders(RouterProvider)
 export pure fn createRootRoute<TRegister = Register, TSearchValidator = undefined, TRouterContext = {  }, TRouteContextFn = AnyContext, TBeforeLoadFn = AnyContext, TLoaderDeps extends Record<string, any> = {  }, TLoaderFn = undefined, TSSR = unknown, THandlers = undefined>(options?: RootRouteOptions<TRegister, TSearchValidator, TRouterContext, TRouteContextFn, TBeforeLoadFn, TLoaderDeps, TLoaderFn, TSSR, THandlers>): import("@tanstack/solid-router").RootRoute<TRegister, TSearchValidator, TRouterContext, TRouteContextFn, TBeforeLoadFn, TLoaderDeps, TLoaderFn, unknown, unknown, TSSR, THandlers> instantiates renders(RouterProvider)
-export type AnyRootRoute = import("@tanstack/solid-router").AnyRootRoute
-export type SolidNode = import("@tanstack/solid-router").SolidNode
-export type AsyncRouteComponent<TProps> = import("@tanstack/solid-router").AsyncRouteComponent<TProps>
-export type RouteComponent = import("@tanstack/solid-router").RouteComponent
-export type ErrorRouteComponent = import("@tanstack/solid-router").ErrorRouteComponent
-export type NotFoundRouteComponent = import("@tanstack/solid-router").NotFoundRouteComponent
 export fn createRouter<TRouteTree extends AnyRoute, TTrailingSlashOption extends TrailingSlashOption = "never", TDefaultStructuralSharingOption extends boolean = false, TRouterHistory extends RouterHistory = RouterHistory, TDehydrated extends Record<string, any> = Record<string, any>>(options: undefined extends number ? "strictNullChecks must be enabled in tsconfig.json" : RouterConstructorOptions<TRouteTree, TTrailingSlashOption, TDefaultStructuralSharingOption, TRouterHistory, TDehydrated>): import("@tanstack/router-core").RouterCore<TRouteTree, TTrailingSlashOption, TDefaultStructuralSharingOption, TRouterHistory, TDehydrated> instantiates
-export component RouterProvider(props: Parameters<typeof import("@tanstack/solid-router").RouterProvider>[0] & { stringifySearch?: (searchObj: Record<string, any>) => string; parseSearch?: (searchStr: string) => Record<string, any>; dehydrate?: (...args: Parameters<NonNullable<Parameters<typeof import("@tanstack/solid-router").RouterProvider>[0]["dehydrate"]>>) => ReturnType<NonNullable<Parameters<typeof import("@tanstack/solid-router").RouterProvider>[0]["dehydrate"]>>; hydrate?: (...args: Parameters<NonNullable<Parameters<typeof import("@tanstack/solid-router").RouterProvider>[0]["hydrate"]>>) => ReturnType<NonNullable<Parameters<typeof import("@tanstack/solid-router").RouterProvider>[0]["hydrate"]>>; defaultRemountDeps?: (...args: Parameters<NonNullable<Parameters<typeof import("@tanstack/solid-router").RouterProvider>[0]["defaultRemountDeps"]>>) => ReturnType<NonNullable<Parameters<typeof import("@tanstack/solid-router").RouterProvider>[0]["defaultRemountDeps"]>>; getScrollRestorationKey?: (location: ParsedLocation) => string; defaultNotFoundComponent?: (props: { data?: unknown; isNotFound: boolean; routeId: any; }) => any; Wrap?: Component; InnerWrap?: Component; defaultOnCatch?: (error_: Error) => void }) provides(router)
+export component RouterProvider<TRouter extends AnyRouter = RegisteredRouter, TDehydrated extends Record<string, any> = Record<string, any>>(props: RouterProps<TRouter, TDehydrated> & { stringifySearch?: (searchObj: Record<string, any>) => string; parseSearch?: (searchStr: string) => Record<string, any>; dehydrate?: () => import("@tanstack/router-core").Awaitable<Constrain<TDehydrated, import("@tanstack/router-core").ValidateSerializable<TDehydrated, import("@tanstack/router-core").RegisteredSerializableInput<Register>>>>; hydrate?: (dehydrated: TDehydrated) => import("@tanstack/router-core").Awaitable<void>; defaultRemountDeps?: (opts: MakeRemountDepsOptionsUnion<TRouter["routeTree"]>) => any; getScrollRestorationKey?: (location: ParsedLocation) => string; defaultNotFoundComponent?: (props: { data?: unknown; isNotFound: boolean; routeId: any; }) => any; Wrap?: Component; InnerWrap?: Component; defaultOnCatch?: (error_: Error) => void }) provides(router)
 export type RouterProps<TRouter extends AnyRouter = RegisteredRouter, TDehydrated extends Record<string, any> = Record<string, any>> = import("@tanstack/solid-router").RouterProps<TRouter, TDehydrated>
-export type UseBlockerOpts<TRouter extends AnyRouter = RegisteredRouter, TWithResolver extends boolean = boolean> = import("@tanstack/solid-router").UseBlockerOpts<TRouter, TWithResolver>
-export type ShouldBlockFn<TRouter extends AnyRouter = RegisteredRouter> = import("@tanstack/solid-router").ShouldBlockFn<TRouter>
 export pure fn useParams<TRouter extends AnyRouter = RegisteredRouter, const TFrom extends string | undefined = undefined, TStrict extends boolean = true, TThrow extends boolean = true, TSelected = unknown>(opts: import("@tanstack/router-core").StrictOrFrom<TRouter, TFrom, TStrict> & { select?: (params: import("@tanstack/router-core").ResolveUseParams<TRouter, TFrom, TStrict>) => TSelected; shouldThrow?: import("@tanstack/router-core").ThrowConstraint<TStrict, TThrow> }): ref import("@tanstack/router-core").ThrowOrOptional<import("@tanstack/router-core").UseParamsResult<TRouter, TFrom, TStrict, TSelected>, TThrow> uses(router)
-export type NotFoundError = import("@tanstack/solid-router").NotFoundError
-export type ValidateLinkOptions<TRouter extends AnyRouter = RegisteredRouter, TOptions = unknown, TDefaultFrom extends string = string, TComp = "a"> = import("@tanstack/solid-router").ValidateLinkOptions<TRouter, TOptions, TDefaultFrom, TComp>
-export type ValidateUseSearchOptions<TOptions, TRouter extends AnyRouter = RegisteredRouter> = import("@tanstack/solid-router").ValidateUseSearchOptions<TOptions, TRouter>
-export type ValidateUseParamsOptions<TOptions, TRouter extends AnyRouter = RegisteredRouter> = import("@tanstack/solid-router").ValidateUseParamsOptions<TOptions, TRouter>
-export type ValidateLinkOptionsArray<TRouter extends AnyRouter = RegisteredRouter, TOptions extends ReadonlyArray<any> = ReadonlyArray<unknown>, TDefaultFrom extends string = string, TComp = "a"> = import("@tanstack/solid-router").ValidateLinkOptionsArray<TRouter, TOptions, TDefaultFrom, TComp>
-export type ValidateFromPath<TRouter extends AnyRouter = RegisteredRouter, TFrom = string> = import("@tanstack/solid-router").ValidateFromPath<TRouter, TFrom>
-export type ValidateToPath<TRouter extends AnyRouter = RegisteredRouter, TTo extends string | undefined = undefined, TFrom extends string = string> = import("@tanstack/solid-router").ValidateToPath<TRouter, TTo, TFrom>
-export type ValidateSearch<TRouter extends AnyRouter = RegisteredRouter, TTo extends string | undefined = undefined, TFrom extends string = string> = import("@tanstack/solid-router").ValidateSearch<TRouter, TTo, TFrom>
-export type ValidateParams<TRouter extends AnyRouter = RegisteredRouter, TTo extends string | undefined = undefined, TFrom extends string = string> = import("@tanstack/solid-router").ValidateParams<TRouter, TTo, TFrom>
-export type InferFrom<TOptions, TDefaultFrom extends string = string> = import("@tanstack/solid-router").InferFrom<TOptions, TDefaultFrom>
-export type InferTo<TOptions> = import("@tanstack/solid-router").InferTo<TOptions>
-export type InferMaskTo<TOptions> = import("@tanstack/solid-router").InferMaskTo<TOptions>
-export type InferMaskFrom<TOptions> = import("@tanstack/solid-router").InferMaskFrom<TOptions>
-export type ValidateNavigateOptions<TRouter extends AnyRouter = RegisteredRouter, TOptions = unknown, TDefaultFrom extends string = string> = import("@tanstack/solid-router").ValidateNavigateOptions<TRouter, TOptions, TDefaultFrom>
-export type ValidateNavigateOptionsArray<TRouter extends AnyRouter = RegisteredRouter, TOptions extends ReadonlyArray<any> = ReadonlyArray<unknown>, TDefaultFrom extends string = string> = import("@tanstack/solid-router").ValidateNavigateOptionsArray<TRouter, TOptions, TDefaultFrom>
-export type ValidateRedirectOptions<TRouter extends AnyRouter = RegisteredRouter, TOptions = unknown, TDefaultFrom extends string = string> = import("@tanstack/solid-router").ValidateRedirectOptions<TRouter, TOptions, TDefaultFrom>
-export type ValidateRedirectOptionsArray<TRouter extends AnyRouter = RegisteredRouter, TOptions extends ReadonlyArray<any> = ReadonlyArray<unknown>, TDefaultFrom extends string = string> = import("@tanstack/solid-router").ValidateRedirectOptionsArray<TRouter, TOptions, TDefaultFrom>
-export type ValidateId<TRouter extends AnyRouter = RegisteredRouter, TId extends string = string> = import("@tanstack/solid-router").ValidateId<TRouter, TId>
-export type InferStrict<TOptions> = import("@tanstack/solid-router").InferStrict<TOptions>
-export type InferShouldThrow<TOptions> = import("@tanstack/solid-router").InferShouldThrow<TOptions>
-export type InferSelected<TOptions> = import("@tanstack/solid-router").InferSelected<TOptions>
-export type ValidateUseSearchResult<TOptions, TRouter extends AnyRouter = RegisteredRouter> = import("@tanstack/solid-router").ValidateUseSearchResult<TOptions, TRouter>
-export type ValidateUseParamsResult<TOptions, TRouter extends AnyRouter = RegisteredRouter> = import("@tanstack/solid-router").ValidateUseParamsResult<TOptions, TRouter>
-export type LocationRewrite = import("@tanstack/solid-router").LocationRewrite
-export type LocationRewriteFunction = import("@tanstack/solid-router").LocationRewriteFunction
 export component Link(props: { to: string; params?: Parameters<typeof import("@tanstack/solid-router").Link>[0]["params"]; children?: View }) uses(router)

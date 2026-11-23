@@ -630,6 +630,14 @@ function heldComponents(ts, checker, t, at, depth = 0) {
   const file = u.symbol?.declarations?.[0]?.getSourceFile().fileName ?? ""; if (/\/typescript\/lib\/lib\./.test(file)) return undefined;
   const of = q => checker.getTypeOfSymbolAtLocation(q, at);
   if (!ps.some(q => comp(of(q)))) return undefined;
+  // a record of components is data: an object that also has functions of its own — a route (`notFoundRoute`, with
+  // `update`, `addChildren`, its hooks, and a `Link` among them) — is an instance of something, and written `{ Link:
+  // Component }` it is no type the library accepts (2026-11-24: that one prop had TypeScript refuse the whole named
+  // reading of <RouterProvider>, whose row then fell to its props' place, thirteen parts)
+  // (a function of nothing that gives an element is a component with no props, written as the library types it:
+  // solid-marked's `Break?: () => JSX.Element` beside its `Heading?: Component<…>`)
+  const view = x => { const r = accessorOf(ts, checker, x); return !!r && isElement(ts, checker, r); };
+  if (ps.some(q => { const x = of(q); return !comp(x) && !view(x) && isFn(checker, x); })) return undefined;
   const o = q => q.flags & ts.SymbolFlags.Optional ? "?" : "";
   const only = ps.filter(q => comp(of(q))).map(q => `${q.name}${o(q)}: Component`);
   const all = ps.map(q => comp(of(q)) ? `${q.name}${o(q)}: Component` : propText(ts, checker, q, at));
@@ -653,6 +661,13 @@ function paramText(ts, checker, p, at, generic = false, here) {
     const ro = checker.getNonNullableType(read);
     if (!generic && ownObject(ts, ro, checker) && sayable(ts, ro) && ro.getProperties().length <= 24 && ro.getProperties().some(q => isFn(checker, checker.getTypeOfSymbolAtLocation(q, at))))
       return `ref ${name}${opt}: { ${ro.getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)).map(q => propText(ts, checker, q, at, true)).join("; ")} }`;
+    // MO-8q (2026-11-24): the same record where the fn has type parameters of its own, in the reading that carries them
+    // (`named`): its fields range over them by name (`queryFn: () => Promise<TData>`), so the record is written, and
+    // said by its place only where a field has no text. TypeScript holds the reading or the next one is taken.
+    if (generic && CTX.named && CTX.decl && ownObject(ts, ro, checker) && sayable(ts, ro) && ro.getProperties().length <= 24 && ro.getProperties().some(q => isFn(checker, checker.getTypeOfSymbolAtLocation(q, at)))) {
+      const rec = `ref ${name}${opt}: { ${ro.getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)).map(q => propText(ts, checker, q, at, true)).join("; ")} }`;
+      if (!introduced(rec) && !byPlace(rec)) return rec;
+    }
     // what the accessor reads, by its place where it has no name: what the parameter answers when called
     const fnAt = here && CTX.decl ? (checker.getNonNullableType(t).flags & ts.TypeFlags.Union ? `Extract<${present(checker, t, here)}, () => unknown>` : present(checker, t, here)) : undefined;
     return `ref ${name}${opt}: ${text(ts, checker, read, fnAt && `ReturnType<${fnAt}>`, innerNode(ts, checker, node, read))}`;
@@ -877,7 +892,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const out = [];
   const contexts = [];
   const lines = [];
-  CTX = { refs, decl: !!mode.decl, whole: !!mode.whole, spec, entry, lib, options: opts, host, program, mod, scope: new Set(), exports: new Map() };
+  CTX = { refs, decl: !!mode.decl, whole: !!mode.whole, named: !!mode.named, spec, entry, lib, options: opts, host, program, mod, scope: new Set(), exports: new Map() };
   // the module's own types, each with how many type arguments its alias row takes (at least, at most): a row names one
   // bare where what it writes fits. As the library declares them, until a row's bounds turn out not to be nameable
   OWN_ALL = new Map(checker.getExportsOfModule(mod).map(s0 => [s0.name, s0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s0) : s0]).filter(([, y]) => y.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(y.flags & ts.SymbolFlags.Value)).map(([n, y]) => { const tp = y.declarations?.[0]?.typeParameters ?? []; return [n, refs ? [tp.filter(q => !q.default).length, tp.length] : tp.some(q => !q.default) ? [tp.length, tp.length] : [0, 0]]; }));
@@ -1088,7 +1103,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     // MO-8o: first as the library's declaration writes its types (`decl`), then as MO-8m read them
     // and last (MO-8q) the reading that names nothing it cannot: no type parameters, every part without a name by its
     // place as it stands — a row TypeScript holds wherever the fn has a signature to read, so no `any` is the draft's
-    const MODES = [{ generics: true, paths: true, decl: true }, { generics: true, paths: false, decl: true }, { generics: true, paths: true }, { generics: true, paths: false }, { generics: false, paths: true }, { generics: false, paths: false }, { generics: false, paths: true, decl: true, whole: true }];
+    const MODES = [{ generics: true, paths: true, decl: true, named: true }, { generics: true, paths: true, decl: true }, { generics: true, paths: false, decl: true }, { generics: true, paths: true }, { generics: true, paths: false }, { generics: false, paths: true }, { generics: false, paths: false }, { generics: false, paths: true, decl: true, whole: true }];
     const cands = MODES.map(mode => rows(mode));
     const bads = [];
     for (const r of cands) { const b = check(r); if (!b) break; bads.push(b); if (!b.size && bads.length === 1) break; }   // the first reading held whole: it says the most
@@ -1116,6 +1131,8 @@ function declare(ts, spec, from, options = {}, how = {}) {
     else if (how.unheld) how.unheld["*"] = "the draft could not be checked against the module (no crate to read it with): written as every draft was";
   }
   out.push(...head);
+  // MO-8s: a module of the app's own takes the words of the library rows it hands on (declare-own.js)
+  if (spec.startsWith(".") && how.known !== false) { const c = require("./declare-own.js").carry(ts, spec, from, lines, withWaits); lines = c.lines; out.push(...c.head); }
   // why each `any` left is one (--explain): what the type holds that the row cannot say; in a row of an overloaded fn,
   // where a type with no name would else be said by its place, that the fn has no one signature to take it from
   if (how.causes) for (const l of lines) { const n = exportedIn(l); for (const m of l.matchAll(/any\u00ab([^\u00bb]*)\u00bb/g)) how.causes.push({ name: n, cause: how.refs !== false && overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(m[1]) ? "overload" : m[1] }); }

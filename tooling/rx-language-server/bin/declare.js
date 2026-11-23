@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `rx-declare <module> [--out file.d.rx] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]`: a draft `.d.rx` for a JS module, from its TypeScript types
+// `rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]`: a draft `.d.rx` for a JS module, from its TypeScript types
 // (src/declare.js) and, for a library it knows (src/known.js), the rows types cannot show (--types-only leaves those out),
 // then from running it (src/declare-run.js: which hooks read a context, which provider provides it),
 // only with --run (it executes the package's code). The module is resolved from the current directory, as an import there would be
@@ -51,12 +51,28 @@ if (args.includes("--host")) {
   if (out) fs.writeFileSync(out, text); else process.stdout.write(text);
   process.exit(0);
 }
-const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--context" && args[args.indexOf(a) - 1] !== "--source" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings");
+const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--context" && args[args.indexOf(a) - 1] !== "--source" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings" && args[args.indexOf(a) - 1] !== "--only");
+// `--only <export>[,<export>…]` (MO-8k): the rows an app keeps — those exports' (a component with its members), the
+// contexts their words name, and the types they name, and the types those name. A library's draft has a row for every
+// export; a project's declaration of it holds what its programs import, and this writes that much.
+const onlyAt = args.indexOf("--only");
+function only(text, names) {
+  const nameOf = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
+  const lines = text.split("\n"); const keep = new Set(); const want = n => names.includes(n) || names.some(x => n.startsWith(`${x}.`));
+  lines.forEach((l, i) => { const n = nameOf(l); if (n && !/^export\s+(?:type|context)\b/.test(l) && want(n)) keep.add(i); const t = /^\/\/ TODO ([\w$.]+):/.exec(l)?.[1]; if (t && want(t)) keep.add(i); });
+  const missing = names.filter(x => !lines.some((l, i) => keep.has(i) && (nameOf(l) === x || nameOf(l)?.startsWith(`${x}.`))));
+  for (let grew = true; grew;) {   // the types and contexts the kept rows name, to a fixed point
+    grew = false; const said = new Set(lines.filter((l, i) => keep.has(i) && !l.startsWith("//")).flatMap(l => l.match(/[A-Za-z_$][\w$]*/g) ?? []));
+    lines.forEach((l, i) => { if (keep.has(i) || !/^export\s+(?:type|context)\b/.test(l)) return; if (said.has(nameOf(l))) { keep.add(i); grew = true; } });
+  }
+  const first = lines.findIndex(l => nameOf(l) || /^\/\/ TODO /.test(l));
+  return { text: lines.filter((l, i) => keep.has(i) || (i < first && l.trim()) || /^\/\/ (?:Known of|Carried from)/.test(l)).join("\n") + "\n", missing };
+}
 const srcAt = args.indexOf("--source");     // MO-8n: evidence from the library's original source (a checkout, its published src/, its source maps)
 const ctxAt = args.indexOf("--context");   // the name for a context the module reads but does not export (MO-12a)
 const outAt = args.indexOf("--out");
 const causesAt = args.indexOf("--causes");   // MO-8q: each row's `any`s by cause and its parts said by place, as JSON, to a file
-if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]\n"); process.exit(2); }
+if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]\n"); process.exit(2); }
 (async () => {
   if (args.includes("--dom")) {   // a browser's globals (happy-dom, from the project), so hooks that need a page run here
     let reg;
@@ -78,6 +94,7 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
     if (e?.code !== "RX_DRAFT_UNREADABLE") throw e;
     process.stderr.write(`rx-declare: ${e.message}\n`); process.exit(1);
   }
+  if (onlyAt >= 0) { const r = only(text, (args[onlyAt + 1] ?? "").split(",").map(x => x.trim()).filter(Boolean)); text = r.text; for (const n of r.missing) process.stderr.write(`rx-declare: --only ${n}: ${spec} has no such export to declare\n`); }
   if (readings) for (const r of readings.out) process.stderr.write(`rx-declare: ${r.name} read ${r.reading}: ${r.bad === null ? "held" : `not held — ${r.bad}`}\n${r.rows.map(l => `    ${l}`).join("\n")}\n`);
   if (causesAt >= 0) fs.writeFileSync(args[causesAt + 1], JSON.stringify({ causes, places, unheld }, null, 1) + "\n");
   if (args.includes("--explain")) {

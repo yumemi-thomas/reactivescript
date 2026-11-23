@@ -1,7 +1,8 @@
-// The app's toaster (toasts.js) over @kobalte/core's toast: the rows are rx-declare's draft of the module, and the words
-// a person adds — the region's context, which the list and a toast read; the toast's own, which its title and its
-// close button read; and where `show` renders the component it is given: beneath the list (09 MO-11u). Kobalte's own
-// `toaster.show` is a method of an object, which no row declares.
+// The app's toaster (toasts.js) over @kobalte/core's toast: rx-declare's draft of the module — no word by hand. The
+// module exports Kobalte's parts again and hands its argument straight to `toaster.show`, so its rows take what
+// rx-declare knows of the release (09 MO-8s): the region's context, which the list and a toast read; the toast's own,
+// which its title and its close button read; and where `show` renders the component it is given: beneath the list
+// (MO-11u). Kobalte's own `toaster.show` is a method of an object, which no row declares.
 export context toastRegion
 export context toast
 export fn show(toast: Component<{ toastId: number; }>): number renders(Toast.List)

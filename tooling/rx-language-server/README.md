@@ -193,7 +193,19 @@ entry) is given by the probe as `through.Outlet`; the scene applies `rx.Outlet` 
 real one, and a component of the view must render inside it (the claim is the import's own row). `rx-tsc --rx-strict`
 asks for a host declaration's record as for any declaration's. `rx-declare --host <module.rx>...` drafts the
 declaration: the imports, the contexts those modules' imports are declared to use, and a view with every component
-at the top — which page is in which layout is the router's knowledge, and is left to write.
+at the top — which page is in which layout is the router's knowledge, and is left to write. Or read from the router
+(MO-14g): `rx-declare --host --routes <routeTree.gen.ts | routes directory | routes.json> [<entry.rx>…]` writes the
+whole declaration from the router's own tree, with `//@ routes …` on its first line; `rx-declare --host --sync
+host.d.rx` writes it again from there, `--check` exits 1 when it has fallen behind, and so do `rx-tsc`
+(`HOST_VIEW_STALE`) and `rx-verify`, which hands the probe the routes (`scene(rx, h, routes)`, `act(rx, h, route)`
+for each page). `src/host-routes.js` is the reader.
+
+`rx-declare ./module.js`, for a module of the app's own, also carries the words of the library rows the module hands
+on (MO-8s, `src/declare-own.js`): a component exported again, one that renders the library's and nothing else, what a
+factory makes, a hook over the library's. `--types-only` leaves them out.
+
+`rx-verify` runs a `pure` fn on the other side too (10 SV-7c): a second process, with a browser's globals when the
+first has none; a plain answer that is steady on each side and differs between them is a MISMATCH.
 
 `rx-verify --record lib.d.rx` also writes `lib.verified.json`: each row's result, by a hash of its text. `rx-tsc
 --rx-strict` (or `"reactivescript": { "strict": true }` in the tsconfig) then refuses every row of an imported
