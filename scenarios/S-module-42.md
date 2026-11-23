@@ -167,13 +167,32 @@ export default component App() {
 A method's `rejects(E)` is its row's, as a fn's.
 
 ```rx
--- reject: SHADOWED_IMPORT
+-- accept
 import { toast } from "./kit.js"
 export default component App() {
-  <ul>{for toast in ["a", "b"] { <li>{toast}</li> }}</ul>
+  <ul>{for toast in ["a", "b"] { <li>{toast}{toast.length}</li> }}</ul>
   <button onClick={() => { toast.success("saved") }}>say</button>
 }
 ```
 
-A second `toast` in the module would have the methods' rows read off
-something else: the name is the import's alone.
+The object of a method's row is the import by its scope (2026-11-26).
+Inside the loop `toast` is the loop's variable, and `toast.length` is a
+member of a string; outside it, `toast.success` is the declared method.
+Until then any second `toast` in the module was `SHADOWED_IMPORT`, since
+the rows were applied to the name wherever it was written.
+
+```rx
+-- reject: SHADOWED_IMPORT
+import { toast } from "./kit.js"
+component Row() {
+  toast = { success: (m) => m }
+  <li>{toast.success("a")}</li>
+}
+export default component App() {
+  <ul><Row /></ul>
+}
+```
+
+A declaration that shadows an import is MO-1d's refusal, as for any
+import, and it is said once (it was said twice: once for the methods'
+rows, once for the declaration).

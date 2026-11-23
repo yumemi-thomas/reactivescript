@@ -242,7 +242,10 @@ fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
     Ok(t)
 }
 pub fn js_trim(s: &str) -> &str {
-    s.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+    s.trim_matches(js_ws)
+}
+fn js_ws(c: char) -> bool {
+    c.is_whitespace() || c == '\u{feff}'
 }
 /// `x: T key k = …` (ST-4): the type ends where the key begins.
 fn split_key(ty: Option<String>) -> (Option<String>, Option<String>) {
@@ -444,32 +447,55 @@ impl Shape {
         }
     }
 }
-pub(crate) fn split_top(s: &str, seps: &str) -> Vec<String> {
-    let cs: Vec<char> = s.chars().collect();
+/// The pieces of a type's text between separators written at its top level: not inside brackets, and not inside a
+/// string literal (`"a, b"` is one piece). Each as the byte range of the piece, trimmed; empty pieces are left out.
+pub(crate) fn top_ranges(s: &str, seps: &str) -> Vec<(usize, usize)> {
+    let b = s.as_bytes();
     let mut out = vec![];
     let mut depth: i64 = 0;
     let mut from = 0;
-    for i in 0..cs.len() {
-        let ch = cs[i];
-        if "([{<".contains(ch) {
+    let mut quote: Option<u8> = None;
+    let mut push = |from: usize, to: usize| {
+        let piece = &s[from..to];
+        let t = js_trim(piece);
+        if !t.is_empty() {
+            let a = from + (piece.len() - piece.trim_start_matches(js_ws).len());
+            out.push((a, a + t.len()));
+        }
+    };
+    let mut i = 0;
+    while i < b.len() {
+        let ch = b[i];
+        if let Some(q) = quote {
+            if ch == b'\\' {
+                i += 1;
+            } else if ch == q {
+                quote = None;
+            }
+        } else if ch == b'"' || ch == b'\'' || ch == b'`' {
+            quote = Some(ch);
+        } else if b"([{<".contains(&ch) {
             depth += 1;
-        } else if ")]}>".contains(ch) && !(ch == '>' && i > 0 && cs[i - 1] == '=') {
+        } else if b")]}>".contains(&ch) && !(ch == b'>' && i > 0 && b[i - 1] == b'=') {
             depth -= 1;
-        } else if depth == 0 && seps.contains(ch) {
-            out.push(cs[from..i].iter().collect::<String>());
+        } else if depth == 0 && ch.is_ascii() && seps.as_bytes().contains(&ch) {
+            push(from, i);
             from = i + 1;
         }
+        i += 1;
     }
-    out.push(cs[from..].iter().collect::<String>());
-    out.into_iter().map(|x| js_trim(&x).to_string()).filter(|x| !x.is_empty()).collect()
+    push(from, b.len());
+    out
+}
+pub(crate) fn split_top(s: &str, seps: &str) -> Vec<String> {
+    top_ranges(s, seps).into_iter().map(|(a, b)| s[a..b].to_string()).collect()
 }
 re!(REF_PART, r"^ref\s");
 re!(FN_PART, r"\)\s*=>");
-re!(REF_WORD, r"\bref\s+");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
 re!(ROW_WORD, r"^(pending\b|fails\(([^)]*)\))\s*");
-re!(ANY_ROW_WORD, r"\b(pending|fails\()");
 re!(READONLY_TUPLE, r"^readonly\s+\[");
+re!(REF_AT, r"^ref\s+");
 // MO-10f: a row word written before a type where no record field took it (a tuple's part, a member of a union, a type argument)
 re!(STRAY_ROW_WORD, r#"\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']"#);
 re!(OLD_HOLDS, r"(^|[:,\[{]\s*)holds\b");
@@ -583,12 +609,55 @@ impl JsDecl {
     }
 }
 
+/// MO-10g: a callback position of a declared fn — a function-typed parameter, or a function-typed field of a record
+/// parameter (`ref` too). `name`: `onChange`, `options.onSuccess`; `handler`: the word is written before its type.
+pub struct Callback {
+    pub index: usize,
+    pub name: String,
+    pub field: Option<String>,
+    pub handler: bool,
+}
+/// A type's text as a function type: `Some(handler)` for `(…) => R` and `handler (…) => R` (a `ref` before it is the
+/// parameter's), `None` for anything else.
+fn fn_typed(t: &str) -> Option<bool> {
+    let word = |t: &'_ str, w: &str| -> Option<String> { t.strip_prefix(w).filter(|r| r.starts_with(char::is_whitespace)).map(|r| js_trim(r).to_string()) };
+    let t = js_trim(t).to_string();
+    let t = word(&t, "ref").unwrap_or(t);
+    let (t, handler) = match word(&t, "handler") {
+        Some(r) => (r, true),
+        None => (t, false),
+    };
+    fn_params_text(&t).map(|_| handler)
+}
+pub fn callbacks_of(params: &[String], ptypes: &[Option<String>]) -> Vec<Callback> {
+    let mut out = vec![];
+    for (index, t) in ptypes.iter().enumerate() {
+        let Some(t) = t else { continue };
+        let t = js_trim(t);
+        let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
+        let name = params.get(index).map(|n| n.trim_start_matches("...").to_string()).unwrap_or_else(|| index.to_string());
+        if let Some(handler) = fn_typed(t) {
+            out.push(Callback { index, name, field: None, handler });
+        } else if t.starts_with('{') && t.ends_with('}') {
+            for f in split_top(&t[1..t.len() - 1], ",;") {
+                let Some(at) = f.find(':') else { continue };
+                if let Some(handler) = fn_typed(&f[at + 1..]) {
+                    let field = js_trim(&f[..at]).trim_end_matches('?').trim().to_string();
+                    out.push(Callback { index, name: format!("{name}.{field}"), field: Some(field), handler });
+                }
+            }
+        }
+    }
+    out
+}
 /// MO-8j, TY-7: what running must show before a row counts as verified, each a claim the row makes as this parser read
-/// it, however it is laid out: `exists` (the export is there, of its kind), `pure`, `uses`, `provides`, `fields` (a result
-/// part that is `ref`, `pending` or `fails(…)`), `fails` (a field, or a component, that fails with a class), `callbacks`
-/// (a function-typed parameter or record field: handler or pure), `draft`, `placement` (`nests(…)`, a fn that hands back
-/// a component, `renders(H)`, a component's prop that takes components). rx-verify tags each result with the claim it
-/// ran; a claim no result answers is not verified.
+/// it, however it is laid out, under a name of its own: `exists` (the export is there, of its kind), `pure`, `uses:c`
+/// and `provides:c` (each context apart: one that is shown says nothing of another), `rejects` (what its promise
+/// rejects with), `fields` (a result part that is `ref`, `pending` or `fails(…)`), `fails` (a part, or a component, that
+/// fails with a class), `callbacks:p` (a function-typed parameter, record field or prop: handler or pure), `draft`,
+/// `placement` (`nests(…)`, a fn that hands back a component, `renders(H)`, a component's prop that takes components),
+/// `through:C` (a host's import from JavaScript). rx-verify answers each by its name; a claim with no answer is not
+/// verified.
 pub fn obligations(d: &JsDecl) -> Vec<String> {
     // MO-14: a host declaration's rows — an import of `.rx` components is no claim of its own; the view claims where each
     // component renders
@@ -599,23 +668,18 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
         _ => {}
     }
     let mut out: Vec<String> = vec!["exists".into()];
-    let fn_typed = |t: &str| {
-        let t = js_trim(t);
-        let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
-        let t = ["handler"].iter().find_map(|w| t.strip_prefix(w).filter(|r| r.starts_with(char::is_whitespace)).map(js_trim)).unwrap_or(t);
-        fn_params_text(t).is_some()
+    let contexts = |out: &mut Vec<String>, uses: &[String], provides: &[String]| {
+        out.extend(uses.iter().map(|c| format!("uses:{c}")));
+        out.extend(provides.iter().map(|c| format!("provides:{c}")));
     };
     match d {
-        JsDecl::Fn { params, pure, instantiates, uses, provides, held, waits, shape, ptypes, nests, drafts, part_drafts, renders, .. } => {
+        JsDecl::Fn { params, pure, instantiates, uses, provides, held, waits, shape, ptypes, nests, drafts, part_drafts, draft_args, renders, rejects, .. } => {
             if *pure && !*instantiates {
                 out.push("pure".into());
             }
-            if !uses.is_empty() {
-                out.push("uses".into());
-            }
-            // RFC 28: each context it provides is a claim of its own: one hook that uses `a` says nothing of `b`
-            for c in provides {
-                out.push(format!("provides:{c}"));
+            contexts(&mut out, uses, provides);
+            if rejects.is_some() {
+                out.push("rejects".into());
             }
             if !held.is_empty() || shape.has_ref() {
                 out.push("fields".into());
@@ -623,25 +687,8 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
             if held.iter().any(|h| !h.2.is_empty()) || waits.as_ref().is_some_and(|w| !w.1.is_empty()) {
                 out.push("fails".into());
             }
-            // RFC 29: each callback position is a claim of its own (`callbacks:onChange`, `callbacks:options.onSuccess`), as
-            // rx-verify names what it ran
-            for (i, t) in ptypes.iter().enumerate() {
-                let Some(t) = t else { continue };
-                let t = js_trim(t);
-                let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
-                let name = params.get(i).map(|n| n.trim_start_matches("...").to_string()).unwrap_or_else(|| i.to_string());
-                if fn_typed(t) {
-                    out.push(format!("callbacks:{name}"));
-                } else if t.starts_with('{') && t.ends_with('}') {
-                    for f in split_top(&t[1..t.len() - 1], ",;") {
-                        let Some(at) = f.find(':') else { continue };
-                        if fn_typed(&f[at + 1..]) {
-                            out.push(format!("callbacks:{name}.{}", js_trim(&f[..at]).trim_end_matches('?').trim()));
-                        }
-                    }
-                }
-            }
-            if !drafts.is_empty() || !part_drafts.is_empty() {
+            out.extend(callbacks_of(params, ptypes).into_iter().map(|c| format!("callbacks:{}", c.name)));
+            if !drafts.is_empty() || !part_drafts.is_empty() || !draft_args.is_empty() {
                 out.push("draft".into());
             }
             if nests.is_some() || matches!(shape, Shape::Comp) || renders.is_some() {
@@ -649,12 +696,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
             }
         }
         JsDecl::Comp { props, fails, uses, provides, .. } => {
-            if !uses.is_empty() {
-                out.push("uses".into());
-            }
-            for c in provides {
-                out.push(format!("provides:{c}"));
-            }
+            contexts(&mut out, uses, provides);
             // RFC 29: a function-typed prop (`ref: handler (el) => void`, `onPick: (id) => void`) is a callback claim, each
             // prop its own: that the export is a function says nothing of how it calls them
             for p in props.iter().filter(|p| p.callback || p.pure) {
@@ -741,13 +783,14 @@ fn draft_parts(ret: Option<&str>) -> Vec<(String, Vec<(usize, Vec<usize>)>)> {
 }
 /// MO-10g: `handler` not followed by a function type (`(`).
 fn handler_misplaced(t: &str) -> bool {
-    HANDLER_WORD.find_iter(t).any(|m| !t[m.end()..].starts_with('('))
+    HANDLER_WORD.find_iter(&masked_strings(t)).any(|m| !t[m.end()..].starts_with('('))
 }
 /// MO-10g: the type without the `.d.rx`'s `handler` word.
+/// A word of the type's own text — in a string literal (`"handler (x)"`) — is not the `.d.rx`'s.
 fn strip_handler(t: &str) -> String {
     let mut out = String::new();
     let mut at = 0;
-    for m in HANDLER_WORD.find_iter(t) {
+    for m in HANDLER_WORD.find_iter(&masked_strings(t)) {
         if t[m.end()..].starts_with('(') {
             out.push_str(&t[at..m.start()]);
             at = m.end();
@@ -783,7 +826,13 @@ const GONE_WORDS: [(&str, &str); 4] = [
 ];
 const GONE_ROOT: &str = "`renders(root, …)` is not a word of a declaration: a component given to a fn that says nothing of where it renders it is already checked under a root of its own (MO-11s) — leave the word out";
 fn strip_draft(t: &str) -> String {
-    DRAFT_WORD.replace_all(t, "$1").to_string()
+    let mut out = String::new();
+    let mut at = 0;
+    for m in DRAFT_WORD.captures_iter(&masked_strings(t)) {
+        out.push_str(&t[at..m.get(0).unwrap().start()]);
+        at = m.get(1).unwrap().start();
+    }
+    out + &t[at..]
 }
 /// 07 §3: a balanced `<…>` at the start of `s` followed by `(`: its text and the byte length up to the `(`.
 /// 07 §3: whether `text`, between a call's `<` and `>`, is TypeScript type arguments: a comma-separated list of types
@@ -2093,14 +2142,13 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             let head = js_trim(head).to_string();
             // MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r
             // 2026-11-23) they are refused by name, wherever in the result they are written
-            let Some((head, h, w)) = ref_rows(&head) else { return c.fail(FIELD_ROWS_GONE) };
-            held = h;
-            waits = w;
-            if !head.is_empty() {
-                shape = Some(shape_of(&head)); // MO-10b: `ref T` is an accessor, read as T
+            let Some(w) = type_words(&head, Words::Result) else { return c.fail(FIELD_ROWS_GONE) };
+            held = w.held;
+            waits = w.whole;
+            if !w.parts.is_empty() {
+                shape = Some(shape_of(&w.parts)); // MO-10b: `ref T` is an accessor, read as T
             }
-            let stripped = REF_WORD.replace_all(&head, "").to_string();
-            ret = if stripped.is_empty() { None } else { Some(stripped) };
+            ret = if w.text.is_empty() { None } else { Some(w.text) };
             c.i += r.unwrap_or(line0.len());
         } else {
             c.i = save;
@@ -2365,109 +2413,118 @@ fn callbacks(ptypes: &[Option<String>]) -> Vec<Option<(bool, Vec<String>)>> {
         vec![]
     }
 }
-/// MO-10l: the rows of a declared result's `ref` parts, `pending fails(Error) ref T` — the whole result, an item of its
-/// tuple or a field of its record, the places MO-10b reads a part at — taken out of the type text. The parts, by tuple
-/// index or field name, and the result itself. `None` where a row word stands before anything else.
-pub(crate) fn ref_rows(t: &str) -> Option<(String, Vec<(String, bool, Vec<String>)>, Option<(bool, Vec<String>)>)> {
-    if !STRAY_ROW_WORD.is_match(&masked_strings(t)) {
-        return Some((t.to_string(), vec![], None)); // no rows: the type text is kept as written
-    }
-    let mut held = vec![];
-    let mut whole = None;
-    let mut bad = false;
-    let mut part = |x: &str, path: Option<String>| -> String {
-        let mut rest = js_trim(x).to_string();
-        let (mut holds, mut fails, mut any) = (false, vec![], false);
-        while let Some(m) = ROW_WORD.captures(&rest) {
-            any = true;
-            if &m[1] == "pending" {
-                holds = true;
-            } else {
-                fails = m[2].split('|').map(|y| y.trim().to_string()).filter(|y| !y.is_empty()).collect();
-            }
-            rest = rest[m[0].len()..].to_string();
-        }
-        if !any {
-            return js_trim(x).to_string();
-        }
-        if !rest.strip_prefix("ref").is_some_and(|r| r.starts_with(char::is_whitespace)) {
-            bad = true;
-            return rest;
-        }
-        match path {
-            None => whole = Some((holds, fails)),
-            Some(p) => held.push((p, holds, fails)),
-        }
-        rest
-    };
-    let mut text = part(t, None);
-    let rows_on_whole = text != js_trim(t);
-    if !rows_on_whole {
-        let ro = READONLY_TUPLE.find(&text).map(|m| m.end() - 1).unwrap_or(0);
-        let (pre, body) = (text[..ro].to_string(), text[ro..].to_string());
-        if body.starts_with('[') && body.ends_with(']') && body.len() >= 2 {
-            let items: Vec<String> = split_top(&body[1..body.len() - 1], ",").iter().enumerate().map(|(i, it)| part(it, Some(i.to_string()))).collect();
-            text = format!("{}[{}]", pre, items.join(", "));
-        } else if pre.is_empty() && body.starts_with('{') && body.ends_with('}') && body.len() >= 2 {
-            let fs: Vec<String> = split_top(&body[1..body.len() - 1], ",;")
-                .iter()
-                .map(|f| {
-                    let Some(i) = f.find(':') else { return f.clone() };
-                    let key = js_trim(&f[..i]).to_string();
-                    format!("{}: {}", key, part(&f[i + 1..], Some(field_name(&key))))
-                })
-                .collect();
-            text = format!("{{ {} }}", fs.join("; "));
-        }
-    }
-    if bad || STRAY_ROW_WORD.is_match(&masked_strings(&text)) {
-        return None;
-    }
-    Some((text, held, whole))
+/// Where a type's text is read for the words `.rx` writes before a type (`type_words`).
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Words {
+    /// MO-10b, MO-10l: a declared result — `ref T` at the whole result, an item of its tuple or a field of its record,
+    /// with `pending` and `fails(…)` before a `ref` and nowhere else
+    Result,
+    /// MO-10f: a native prop's type — `pending` and `fails(…)` before a field's type, in a record at any depth
+    Props,
 }
-/// MO-10f: a prop's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
-/// are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i).
-pub(crate) fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
-    // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
-    fn walk(x: &str, prefix: &str, held: &mut Vec<(String, bool, Vec<String>)>) -> String {
-        if !(x.starts_with('{') && x.ends_with('}') && x.len() >= 2) {
-            return x.to_string();
+/// What `type_words` read: `text`, the type as TypeScript reads it (the words taken out, the rest as written);
+/// `parts`, the same with each `ref` left where it stood (what MO-10b reads a result's shape off); `held`, the rows by
+/// tuple index or field path (`data`, `result.data`); `whole`, the rows of a result that is itself a `ref`.
+pub(crate) struct TypeWords {
+    pub text: String,
+    pub parts: String,
+    pub held: Vec<(String, bool, Vec<String>)>,
+    pub whole: Option<(bool, Vec<String>)>,
+}
+/// The one reader of the words written before a type — `pending`, `fails(E)`, `ref` — by the type's structure: the
+/// whole type, the items of a tuple, the fields of a record. A word is one only at the head of such a part: inside a
+/// string literal (`"ref label"`), a type argument or a parameter list it is the type's own text. `None` (a result):
+/// a row word that stands before no `ref` part.
+pub(crate) fn type_words(t: &str, at: Words) -> Option<TypeWords> {
+    struct W<'t> {
+        t: &'t str,
+        at: Words,
+        rows: Vec<(usize, usize)>,
+        refs: Vec<(usize, usize)>,
+        held: Vec<(String, bool, Vec<String>)>,
+        whole: Option<(bool, Vec<String>)>,
+        bad: bool,
+    }
+    impl W<'_> {
+        fn fields(&mut self, a: usize, b: usize, prefix: &str, depth: usize) {
+            for (x, y) in top_ranges(&self.t[a + 1..b - 1], ",;").into_iter().map(|(x, y)| (x + a + 1, y + a + 1)) {
+                let Some(i) = self.t[x..y].find(':') else { continue };
+                let path = format!("{}{}", prefix, field_name(&self.t[x..x + i]));
+                let v = &self.t[x + i + 1..y];
+                let va = y - v.trim_start_matches(js_ws).len();
+                self.part(va, y, Some(path), depth + 1);
+            }
         }
-        let fs: Vec<String> = split_top(&x[1..x.len() - 1], ",;")
-            .iter()
-            .map(|f| {
-                let Some(i) = f.find(':') else { return f.clone() };
-                let key = js_trim(&f[..i]).to_string();
-                let mut rest = js_trim(&f[i + 1..]).to_string();
-                let (mut holds, mut fails, mut any) = (false, vec![], false);
-                while let Some(m) = ROW_WORD.captures(&rest) {
+        fn part(&mut self, a: usize, b: usize, path: Option<String>, depth: usize) {
+            let (mut i, mut holds, mut fails, mut any) = (a, false, vec![], false);
+            if self.at == Words::Result || depth > 0 {
+                while let Some(m) = ROW_WORD.captures(&self.t[i..b]) {
                     any = true;
                     if &m[1] == "pending" {
                         holds = true;
                     } else {
                         fails = m[2].split('|').map(|y| y.trim().to_string()).filter(|y| !y.is_empty()).collect();
                     }
-                    rest = rest[m[0].len()..].to_string();
+                    i += m[0].len();
                 }
-                let path = format!("{}{}", prefix, field_name(&key));
-                if any {
-                    held.push((path.clone(), holds, fails));
+            }
+            if any {
+                self.rows.push((a, i));
+            }
+            let rest = &self.t[i..b];
+            let record = rest.len() >= 2 && rest.starts_with('{') && rest.ends_with('}');
+            match self.at {
+                Words::Props => {
+                    if any {
+                        self.held.push((path.clone().unwrap_or_default(), holds, fails));
+                    }
+                    if record {
+                        self.fields(i, b, &path.map(|p| format!("{p}.")).unwrap_or_default(), depth);
+                    }
                 }
-                format!("{}: {}", key, walk(&rest, &format!("{}.", path), held))
-            })
-            .collect();
-        format!("{{ {} }}", fs.join("; "))
+                Words::Result => {
+                    if let Some(m) = REF_AT.find(rest) {
+                        self.refs.push((i, i + m.end()));
+                        match path {
+                            _ if !any => {}
+                            None => self.whole = Some((holds, fails)),
+                            Some(p) => self.held.push((p, holds, fails)),
+                        }
+                    } else if any {
+                        self.bad = true;
+                    } else if depth == 0 {
+                        let ro = READONLY_TUPLE.find(rest).map(|m| m.end() - 1).unwrap_or(0);
+                        let body = &rest[ro..];
+                        if body.len() >= 2 && body.starts_with('[') && body.ends_with(']') {
+                            for (k, (x, y)) in top_ranges(&body[1..body.len() - 1], ",").into_iter().enumerate() {
+                                self.part(i + ro + 1 + x, i + ro + 1 + y, Some(k.to_string()), 1);
+                            }
+                        } else if ro == 0 && record {
+                            self.fields(i, b, "", 0);
+                        }
+                    }
+                }
+            }
+        }
+        fn without(&self, cuts: &[&[(usize, usize)]]) -> String {
+            let mut cs: Vec<(usize, usize)> = cuts.iter().flat_map(|c| c.iter().copied()).collect();
+            cs.sort();
+            let (mut out, mut from) = (String::new(), 0);
+            for (a, b) in cs {
+                out.push_str(&self.t[from..a]);
+                from = b;
+            }
+            out + &self.t[from..]
+        }
     }
-    if !ANY_ROW_WORD.is_match(t) {
-        return (t.to_string(), vec![]); // no rows: the type text is kept as written
+    let t = js_trim(t);
+    let mut w = W { t, at, rows: vec![], refs: vec![], held: vec![], whole: None, bad: false };
+    w.part(0, t.len(), None, 0);
+    let parts = w.without(&[&w.rows]);
+    if at == Words::Result && (w.bad || STRAY_ROW_WORD.is_match(&masked_strings(&parts))) {
+        return None;
     }
-    let mut held = vec![];
-    let text = walk(t, "", &mut held);
-    if held.is_empty() {
-        (t.to_string(), held)
-    } else {
-        (text, held)
-    }
+    Some(TypeWords { text: w.without(&[&w.rows, &w.refs]), parts, held: w.held, whole: w.whole })
 }
 /// MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it).
 fn type_params(c: &mut Cursor) -> Option<String> {
@@ -4407,6 +4464,22 @@ mod recovering {
         assert_eq!(ret.as_deref(), Some("{ data: string[]; error: unknown; readonly isFetching?: boolean; refetch: () => void }"));
         let (waits, held, ret, ..) = one("export pure fn createSignal(): [ref number, (v: number) => void]\n");
         assert_eq!((waits, held.len(), ret.as_deref()), (None, 0, Some("[number, (v: number) => void]")));
+        // a word is one only at the head of a part (2026-11-26; `ref ` was taken out of the text wherever it stood): a string
+        // literal, a type argument and a parameter keep theirs
+        let (_, _, ret, shape, _) = one("export pure fn label(): \"ref label\"\n");
+        assert_eq!((ret.as_deref(), shape == Shape::Part(Part::Value)), (Some("\"ref label\""), true));
+        let (_, _, ret, shape, _) = one("export pure fn kinds(): [ref \"ref a\" | \"pending ref b\", \"a, ref b\", Map<\"ref k\", number>]\n");
+        assert_eq!((ret.as_deref(), shape == Shape::Items(vec![Part::Ref, Part::Value, Part::Value])), (Some("[\"ref a\" | \"pending ref b\", \"a, ref b\", Map<\"ref k\", number>]"), true));
+        let (_, held, ret, ..) = one("export pure fn useQ(): { data: pending ref string, n: number }\n");
+        assert_eq!((ret.as_deref(), held), (Some("{ data: string, n: number }"), vec![("data".to_string(), true, vec![])]));
+        // … and so do `handler` and `draft`, the words before a function type and before a callback's parameter
+        match &parse_declarations("export fn on(kind: \"handler (x)\" | \"draft s: T\", run: handler (e: \"handler (y)\") => void, set: (draft s: { n: number }) => void): void\n").unwrap()[0] {
+            JsDecl::Fn { ptypes, cbs, .. } => assert_eq!((ptypes.clone(), cbs.clone()), (vec![Some("\"handler (x)\" | \"draft s: T\"".to_string()), Some("(e: \"handler (y)\") => void".to_string()), Some("(s: { n: number }) => void".to_string())], vec![None, Some((true, vec![])), None])),
+            _ => panic!("a fn"),
+        }
+        assert!(parse_declarations("export fn on(kind: \"handler x\"): void\n").is_ok());
+        let w = type_words("{ q: { data: pending fails(E) string; note: \"pending x\" }; n: number }", Words::Props).unwrap();
+        assert_eq!((w.text.as_str(), w.held), ("{ q: { data: string; note: \"pending x\" }; n: number }", vec![("q.data".to_string(), true, s(&["E"]))]));
     }
 
     #[test]

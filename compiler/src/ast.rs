@@ -369,216 +369,208 @@ pub struct Program {
     pub legacy_view: Option<bool>,
 }
 
-// ---------------------------------------------------------------- every expression of a program, to change in place
+// ---------------------------------------------------------------- every expression of a program, with its scope, to change in place
 
-/// Calls `f` on every expression of the program, each before the expressions inside it (as `f` left it). What the
-/// loader uses to name a method by its declaration's row (09 MO-8t).
-pub fn exprs_mut(p: &mut Program, f: &mut dyn FnMut(&mut Expr)) {
-    decls_mut(&mut p.decls, f);
-    markups_mut(&mut p.view, f);
+/// Calls `f` on every expression of the program, each before the expressions inside it (as `f` left it), with the names
+/// bound around it: a block's declarations (for the whole block), parameters, props, a loop's variable, a caught error,
+/// a draft's `d`, a statement list's `let`s. An import binds nothing here: `bound` holds what stands between a mention
+/// and the module's imports. What the loader uses to name a method by its declaration's row (09 MO-8t).
+pub fn exprs_mut(p: &mut Program, f: &mut dyn FnMut(&mut Expr, &[String])) {
+    let mut w = Scoped { f, bound: vec![] };
+    w.block(&mut p.decls, |w| w.markups(&mut p.view));
 }
-fn expr_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
-    f(e);
-    match &mut e.k {
-        ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } => {}
-        ExprKind::Bin { l, r, .. } => {
-            expr_mut(l, f);
-            expr_mut(r, f);
+struct Scoped<'f> {
+    f: &'f mut dyn FnMut(&mut Expr, &[String]),
+    bound: Vec<String>,
+}
+impl Scoped<'_> {
+    fn with<'n>(&mut self, names: impl IntoIterator<Item = &'n String>, go: impl FnOnce(&mut Self)) {
+        let n = self.bound.len();
+        self.bound.extend(names.into_iter().map(|x| x.trim_start_matches("...").to_string()));
+        go(self);
+        self.bound.truncate(n);
+    }
+    /// A block: its declarations' names are bound in all of it (a component may be applied above its declaration).
+    fn block(&mut self, ds: &mut [Decl], rest: impl FnOnce(&mut Self)) {
+        let names: Vec<String> = ds.iter().filter(|d| !matches!(d, Decl::Import { .. } | Decl::Provide { .. })).filter_map(|d| d.name().map(str::to_string)).collect();
+        self.with(&names, |w| {
+            w.decls(ds);
+            rest(w);
+        });
+    }
+    fn opt(&mut self, e: &mut Option<Box<Expr>>) {
+        if let Some(e) = e {
+            self.expr(e);
         }
-        ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => expr_mut(e, f),
-        ExprKind::Pre { init, .. } => {
-            if let Some(i) = init {
-                expr_mut(i, f);
+    }
+    fn expr(&mut self, e: &mut Expr) {
+        (self.f)(e, &self.bound);
+        match &mut e.k {
+            ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } => {}
+            ExprKind::Bin { l, r, .. } => {
+                self.expr(l);
+                self.expr(r);
             }
-        }
-        ExprKind::Await { e, init, .. } => {
-            expr_mut(e, f);
-            if let Some(i) = init {
-                expr_mut(i, f);
+            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) | ExprKind::Member { o: e, .. } => self.expr(e),
+            ExprKind::Pre { init, .. } => self.opt(init),
+            ExprKind::Await { e, init, .. } => {
+                self.expr(e);
+                self.opt(init);
             }
-        }
-        ExprKind::If { c, t, f: g } => {
-            expr_mut(c, f);
-            expr_mut(t, f);
-            expr_mut(g, f);
-        }
-        ExprKind::Tpl(parts) => {
-            for p in parts {
+            ExprKind::If { c, t, f } => {
+                self.expr(c);
+                self.expr(t);
+                self.expr(f);
+            }
+            ExprKind::Tpl(parts) => parts.iter_mut().for_each(|p| {
                 if let TplPart::Expr(e) = p {
-                    expr_mut(e, f);
+                    self.expr(e);
                 }
+            }),
+            ExprKind::Index { o, i, .. } => {
+                self.expr(o);
+                self.expr(i);
             }
-        }
-        ExprKind::Member { o, .. } => expr_mut(o, f),
-        ExprKind::Index { o, i, .. } => {
-            expr_mut(o, f);
-            expr_mut(i, f);
-        }
-        ExprKind::Call { f: g, args, .. } => {
-            expr_mut(g, f);
-            for a in args {
-                expr_mut(a, f);
+            ExprKind::Call { f, args, .. } => {
+                self.expr(f);
+                args.iter_mut().for_each(|a| self.expr(a));
             }
-        }
-        ExprKind::Arr(items) => {
-            for x in items {
-                expr_mut(x, f);
-            }
-        }
-        ExprKind::Rec(fields) => {
-            for x in fields {
-                match x {
-                    Field::Kv { v, .. } => expr_mut(v, f),
-                    Field::Spread(e) => expr_mut(e, f),
+            ExprKind::Arr(items) => items.iter_mut().for_each(|x| self.expr(x)),
+            ExprKind::Rec(fields) => fields.iter_mut().for_each(|x| match x {
+                Field::Kv { v, .. } => self.expr(v),
+                Field::Spread(e) => self.expr(e),
+            }),
+            ExprKind::Fn { params, body, stmts, .. } => self.with(&*params, |w| {
+                w.expr(body);
+                if let Some(ss) = stmts {
+                    w.stmts(ss);
                 }
+            }),
+            ExprKind::Draft { seed, body } => {
+                self.expr(seed);
+                self.with(&["d".to_string()], |w| w.stmts(body));
             }
-        }
-        ExprKind::Fn { body, stmts, .. } => {
-            expr_mut(body, f);
-            if let Some(ss) = stmts {
-                stmts_mut(ss, f);
+            ExprKind::Catch { e, name, alt, .. } => {
+                self.expr(e);
+                self.with(name.iter(), |w| w.expr(alt));
             }
-        }
-        ExprKind::Draft { seed, body } => {
-            expr_mut(seed, f);
-            stmts_mut(body, f);
-        }
-        ExprKind::Catch { e, alt, .. } => {
-            expr_mut(e, f);
-            expr_mut(alt, f);
-        }
-        ExprKind::ServerFn { body, .. } => stmts_mut(body, f),
-    }
-}
-fn target_mut(t: &mut Target, f: &mut dyn FnMut(&mut Expr)) {
-    for s in &mut t.path {
-        if let PathSeg::Expr(e) = s {
-            expr_mut(e, f);
+            ExprKind::ServerFn { params, body, .. } => self.with(&*params, |w| w.stmts(body)),
         }
     }
-}
-fn stmts_mut(ss: &mut [Stmt], f: &mut dyn FnMut(&mut Expr)) {
-    for s in ss {
-        match &mut s.k {
-            StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
-                target_mut(target, f);
-                expr_mut(e, f);
-            }
-            StmtKind::Let { e, .. } | StmtKind::Expr(e) | StmtKind::Throw(e) => expr_mut(e, f),
-            StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
-            StmtKind::Action(body) => stmts_mut(body, f),
-            StmtKind::Sif { c, t, f: g } => {
-                expr_mut(c, f);
-                stmts_mut(t, f);
-                stmts_mut(g, f);
-            }
-            StmtKind::For { e, body, .. } => {
-                expr_mut(e, f);
-                stmts_mut(body, f);
-            }
-            StmtKind::Return(e) => {
-                if let Some(e) = e {
-                    expr_mut(e, f);
-                }
-            }
-            StmtKind::Try { body, handler, fin, .. } => {
-                stmts_mut(body, f);
-                if let Some(h) = handler {
-                    stmts_mut(h, f);
-                }
-                if let Some(h) = fin {
-                    stmts_mut(h, f);
-                }
+    fn target(&mut self, t: &mut Target) {
+        for s in &mut t.path {
+            if let PathSeg::Expr(e) = s {
+                self.expr(e);
             }
         }
     }
-}
-fn decls_mut(ds: &mut [Decl], f: &mut dyn FnMut(&mut Expr)) {
-    for d in ds {
-        match d {
-            Decl::Source { init, .. } => expr_mut(init, f),
-            Decl::Eq { e, .. } | Decl::Provide { e, .. } => expr_mut(e, f),
-            Decl::Import { .. } | Decl::TypeDecl { .. } => {}
-            Decl::Error { msg, .. } => {
-                if let Some(m) = msg {
-                    expr_mut(m, f);
+    fn stmts(&mut self, ss: &mut [Stmt]) {
+        let lets: Vec<String> = ss.iter().filter_map(|s| if let StmtKind::Let { name, .. } = &s.k { Some(name.clone()) } else { None }).collect();
+        self.with(&lets, |w| {
+            for s in ss {
+                match &mut s.k {
+                    StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                        w.target(target);
+                        w.expr(e);
+                    }
+                    StmtKind::Let { e, .. } | StmtKind::Expr(e) | StmtKind::Throw(e) => w.expr(e),
+                    StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
+                    StmtKind::Action(body) => w.stmts(body),
+                    StmtKind::Sif { c, t, f } => {
+                        w.expr(c);
+                        w.stmts(t);
+                        w.stmts(f);
+                    }
+                    StmtKind::For { name, e, body } => {
+                        w.expr(e);
+                        w.with([&*name], |w| w.stmts(body));
+                    }
+                    StmtKind::Return(e) => {
+                        if let Some(e) = e {
+                            w.expr(e);
+                        }
+                    }
+                    StmtKind::Try { body, catch_name, handler, fin, .. } => {
+                        w.stmts(body);
+                        if let Some(h) = handler {
+                            w.with(catch_name.iter(), |w| w.stmts(h));
+                        }
+                        if let Some(h) = fin {
+                            w.stmts(h);
+                        }
+                    }
                 }
             }
-            Decl::Effect { inputs, body, .. } => {
-                for i in inputs {
-                    expr_mut(i, f);
+        });
+    }
+    fn decls(&mut self, ds: &mut [Decl]) {
+        for d in ds {
+            match d {
+                Decl::Source { init: e, .. } | Decl::Eq { e, .. } | Decl::Provide { e, .. } => self.expr(e),
+                Decl::Import { .. } | Decl::TypeDecl { .. } => {}
+                Decl::Error { params, msg, .. } => {
+                    if let Some(m) = msg {
+                        self.with(&*params, |w| w.expr(m));
+                    }
                 }
-                stmts_mut(body, f);
-            }
-            Decl::Fn { decls, tail, .. } => {
-                decls_mut(decls, f);
-                expr_mut(tail, f);
-            }
-            Decl::Component { decls, view, .. } => {
-                decls_mut(decls, f);
-                markups_mut(view, f);
-            }
-            Decl::Action { body, .. } | Decl::Server { body, .. } => stmts_mut(body, f),
-            Decl::Context { dflt, .. } => {
-                if let Some(e) = dflt {
-                    expr_mut(e, f);
+                Decl::Effect { inputs, body, .. } => {
+                    inputs.iter_mut().for_each(|i| self.expr(i));
+                    self.stmts(body);
+                }
+                Decl::Fn { params, decls, tail, .. } => {
+                    let ps: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+                    self.with(&ps, |w| w.block(decls, |w| w.expr(tail)));
+                }
+                Decl::Component { props, decls, view, .. } => self.with([&*props], |w| w.block(decls, |w| w.markups(view))),
+                Decl::Action { params, body, .. } | Decl::Server { params, body, .. } => self.with(&*params, |w| w.stmts(body)),
+                Decl::Context { dflt, .. } => {
+                    if let Some(e) = dflt {
+                        self.expr(e);
+                    }
                 }
             }
         }
     }
-}
-fn markups_mut(ms: &mut [Markup], f: &mut dyn FnMut(&mut Expr)) {
-    for m in ms {
-        match &mut m.kind {
-            MarkupKind::El { attrs, children, .. } => {
-                for a in attrs {
-                    expr_mut(&mut a.e, f);
+    fn markups(&mut self, ms: &mut [Markup]) {
+        for m in ms {
+            match &mut m.kind {
+                MarkupKind::El { attrs, children, .. } => {
+                    attrs.iter_mut().for_each(|a| self.expr(&mut a.e));
+                    self.markups(children);
                 }
-                markups_mut(children, f);
-            }
-            MarkupKind::Read(e) => expr_mut(e, f),
-            MarkupKind::Text(_) | MarkupKind::Style(_) => {}
-            MarkupKind::Mif { c, t, t_decls, f: g, f_decls } => {
-                expr_mut(c, f);
-                decls_mut(t_decls, f);
-                markups_mut(t, f);
-                decls_mut(f_decls, f);
-                markups_mut(g, f);
-            }
-            MarkupKind::Mfor { xs, decls, body, .. } => {
-                expr_mut(xs, f);
-                decls_mut(decls, f);
-                markups_mut(body, f);
-            }
-            MarkupKind::Mview { decls, body, .. } => {
-                decls_mut(decls, f);
-                markups_mut(body, f);
-            }
-            MarkupKind::Loading { on, fallback, decls, body } => {
-                if let Some(e) = on {
-                    expr_mut(e, f);
+                MarkupKind::Read(e) => self.expr(e),
+                MarkupKind::Text(_) | MarkupKind::Style(_) => {}
+                MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
+                    self.expr(c);
+                    self.block(t_decls, |w| w.markups(t));
+                    self.block(f_decls, |w| w.markups(f));
                 }
-                markups_mut(fallback, f);
-                decls_mut(decls, f);
-                markups_mut(body, f);
-            }
-            MarkupKind::Errored { fallback, decls, body, .. } => {
-                markups_mut(fallback, f);
-                decls_mut(decls, f);
-                markups_mut(body, f);
-            }
-            MarkupKind::Portal { to, decls, body } => {
-                if let Some(e) = to {
-                    expr_mut(e, f);
+                MarkupKind::Mfor { name, xs, decls, body } => {
+                    self.expr(xs);
+                    self.with([&*name], |w| w.block(decls, |w| w.markups(body)));
                 }
-                decls_mut(decls, f);
-                markups_mut(body, f);
+                MarkupKind::Mview { params, decls, body, .. } => self.with(&*params, |w| w.block(decls, |w| w.markups(body))),
+                MarkupKind::Loading { on, fallback, decls, body } => {
+                    if let Some(e) = on {
+                        self.expr(e);
+                    }
+                    self.markups(fallback);
+                    self.block(decls, |w| w.markups(body));
+                }
+                MarkupKind::Errored { fallback, decls, body, err_name, .. } => {
+                    self.with(err_name.iter(), |w| w.markups(fallback));
+                    self.block(decls, |w| w.markups(body));
+                }
+                MarkupKind::Portal { to, decls, body } => {
+                    if let Some(e) = to {
+                        self.expr(e);
+                    }
+                    self.block(decls, |w| w.markups(body));
+                }
             }
         }
     }
 }
-
-// ---------------------------------------------------------------- JSON, as JSON.stringify writes the reference's AST
 
 fn obj(pairs: Vec<(&str, Option<Value>)>) -> Value {
     let mut m = Map::new();

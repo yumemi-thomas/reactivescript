@@ -8,6 +8,7 @@ import type { ModuleSet } from "./modules.ts";
 import { splitTop, fieldRows, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
+import { scopeFacts } from "./scope.ts";
 import { guessFacts, inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 /** MO-10i (closed 2026-11-22): what is called on a draft is a method of plain data, by name — an Array's, a Map's, a Set's,
@@ -241,24 +242,6 @@ const SCALAR_BUILTINS = new Set(["len", "str", "sum", "every", "indexOf"]);
  *  parameters give nothing by themselves: the call that hands them a value is where they are named). Names bound inside
  *  (`bound`) give nothing; a closure's own locals (`locals`) give what their values do. `use c` is written `use:c`, for
  *  the checks that must know a value came from where they cannot look. */
-/** Where a name is written as a call's whole argument: `f(x)` gives `x → (f, 0)`. Read off the module's tree as data, so it
- *  sees every call, in every view, handler and statement. */
-export function argCalls(v: unknown, out: Map<string, [string, number][]>): void {
-  if (Array.isArray(v)) { for (const x of v) argCalls(x, out); return; }
-  if (!v || typeof v !== "object") return;
-  const o = v as { k?: string; f?: { k?: string; name?: string }; args?: { k?: string; name?: string }[] };
-  if (o.k === "call" && o.f?.k === "id" && typeof o.f.name === "string" && Array.isArray(o.args)) o.args.forEach((a, i) => { if (a?.k === "id" && typeof a.name === "string") { let xs = out.get(a.name); if (!xs) { xs = []; out.set(a.name, xs); } xs.push([o.f!.name!, i]); } });
-  for (const x of Object.values(v)) argCalls(x, out);
-}
-/** MO-11c (2026-11-25): how many times each name is written as an expression of its own in the module's tree (an `id`, a
- *  `pre`), whatever it resolves to — read off the tree as data, so no mention is missed and shadowing only counts more. */
-export function idCounts(v: unknown, out: Map<string, number>): void {
-  if (Array.isArray(v)) { for (const x of v) idCounts(x, out); return; }
-  if (!v || typeof v !== "object") return;
-  const o = v as { k?: string; name?: string };
-  if ((o.k === "id" || o.k === "pre") && typeof o.name === "string") out.set(o.name, (out.get(o.name) ?? 0) + 1);
-  for (const x of Object.values(v)) idCounts(x, out);
-}
 /** ST-4d: a key two rows of a list literal share — `[{ id: 1, … }, { id: 1, … }]` keyed by `id` — as written. */
 function duplicateKey(e: Expr, key: string): string | undefined {
   if (e.k !== "arr") return undefined;
@@ -725,7 +708,7 @@ class Checker {
   private bind(env: Env, name: string, sym: Sym) { env.vars.set(name, sym); this.model.sym(sym); }
 
   run(p: Program) {
-    argCalls(p, this.argCalls); idCounts(p, this.idCounts); this.throughPre(p);
+    { const f = scopeFacts(p); this.argCalls = f.argCalls; this.idCounts = f.mentions; } this.throughPre(p);
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     // MO-1c: the runtime mounts the entry's default component, and no other module's — a dependency's is applied where an
@@ -1317,7 +1300,7 @@ class Checker {
         }
         if (made && !made.factory && (d.e.k === "rec" || d.e.k === "arr")) this.litBinding(made, d, env);   // MO-11c: a literal of components bound to a name
         if (d.e.k === "id" || d.e.k === "member" || d.e.k === "index") this.wholeOk.add(d.e);   // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
-        { const ps = this.updaterPositions(d.name, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
+        { const ps = this.updaterPositions(d.name, d.line, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
           if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env, f);   /* MO-11s, MO-11u */ this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
@@ -2038,19 +2021,19 @@ class Checker {
       this.err("DRAFT_ESCAPES", "MO-10i", `${what} hands its callback a library's draft: it is called here, with the callback written in the call (\`${what}((d) => { … })\`), and not passed or stored — a function that travels would be given a callback the checker cannot see; share the change as an action`);
     }
   }
-  /** MO-10i (2026-11-22): where a name is written as a call's whole argument, in this module: name → (callee's name,
-   *  argument index); and the arguments so written that a draft-handing call took as its callback. */
+  /** MO-10i (2026-11-22): where a binding is written as a call's whole argument, in this module: `name@line` → (callee's
+   *  name, argument index); and the arguments so written that a draft-handing call took as its callback. */
   private argCalls = new Map<string, [string, number][]>();
   private updaterOk = new Set<Expr>();
   /** MO-10i (2026-11-22): a closure bound to `name` — an equation's or a local's — is a draft callback when the name is
-   *  written, somewhere in the module, as the argument of a call that hands that position a draft (`setTodos(up)`): its
+   *  written, somewhere in its scope, as the argument of a call that hands that position a draft (`setTodos(up)`): its
    *  body is then checked as that callback's, its parameters at those positions the draft's. Read from what is written
    *  (`argCalls`), before the body is walked; the walk holds the name to it — `callMarks` takes the name at such a
    *  position, and any other use of it is refused where it is written. */
-  private updaterPositions(name: string, e: Expr, env: Env): number[] | undefined {
+  private updaterPositions(name: string, line: number, e: Expr, env: Env): number[] | undefined {
     if (e.k !== "fn" || !e.params.length) return undefined;
     let found: number[] | undefined;
-    for (const [callee, i] of this.argCalls.get(name) ?? []) {
+    for (const [callee, i] of this.argCalls.get(`${name}@${line}`) ?? []) {
       const ps = env.lookup(callee)?.drafts?.find(([j]) => j === i)?.[1]; if (!ps) continue;
       if (!found) found = ps; else if (JSON.stringify(found) !== JSON.stringify(ps)) return undefined;   // two kinds of callback: neither is assumed
     }
@@ -2374,7 +2357,7 @@ class Checker {
       if (s.k === "let" || s.k === "expr") { const t = s.e.k === "catch" ? s.e.e : s.e; if (t.k === "await") this.stmtAwaits.add(t); }
       switch (s.k) {
         case "let": {
-          const updater = this.updaterPositions(s.name, s.e, env);                           // MO-10i: a named draft callback
+          const updater = this.updaterPositions(s.name, s.line ?? -1, s.e, env);                           // MO-10i: a named draft callback
           this.expr(s.e, env, ctx);
           const sym: Sym = { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env), retCaptures: this.stored(s.e, env, new Set(), true), val: { e: s.e, env }, ...(updater ? { updater } : {}) };   // MO-10k
           env.vars.set(s.name, sym);
@@ -2693,11 +2676,12 @@ class Checker {
     made.lit = { ids, env, line: d.line, sites: new Set(), exported: !!d.exported };
     this.lits.push(made);
   }
-  /** Every mention of the name is such a prop (counted over the module's whole tree, so a mention the walk does not
-   *  resolve — a callee, a path, a name shadowed in between — counts against it), it is given to one, and it is not exported. */
+  /** Every mention of the name is such a prop, it is given to one, and it is not exported. A mention is the name's by its
+   *  scope (`scopeFacts`: counted over the module's tree, so one the walk does not resolve — a callee, a path — counts
+   *  against it; a sibling component's local of the same name is another binding, and does not). */
   private litCheck() {
     for (const s of this.lits) {
-      const t = s.lit!; const n = this.idCounts.get(s.name) ?? 0;
+      const t = s.lit!; const n = this.idCounts.get(`${s.name}@${t.line}`) ?? 0;
       if (!t.exported && t.sites.size > 0 && n === t.sites.size) continue;
       this.line = t.line;
       const why = t.exported ? "it is exported, and a signature says nothing of the components a value holds" : t.sites.size === 0 ? "it is given to no such prop" : "it is also read elsewhere";

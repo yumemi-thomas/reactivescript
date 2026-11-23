@@ -165,9 +165,10 @@ pub fn boundary(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value 
 
 /// `declaration` (`{file, text?}`): the `.d.ts` a `.d.rx` stands for (TY-4b), for a JS module that has no TypeScript types
 /// of its own: what `rx-tsc` gives TypeScript in its place.
-/// MO-8j, TY-7: a declaration file's rows as the parser reads them, for strict declarations: each row's name and kind,
-/// the lines it spans (to the next row), and what running must show for it to be verified
-/// (`obligations`, `parse::obligations`): rx-verify reads the same rows, and a record needs a result for each.
+/// MO-8j, TY-7: a declaration file's rows as the parser reads them: each row's name and kind, the lines it spans (to
+/// the next row), what running must show for it to be verified (`obligations`, `parse::obligations`), and what the row
+/// says (`facts`). Every tool that asks what a row means — rx-verify, the strict record, the audit, the benchmark —
+/// reads these, so none reads the row's text for itself.
 pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     use crate::parse::JsDecl;
     let file = params["file"].as_str().unwrap_or_default();
@@ -195,12 +196,90 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
                         JsDecl::Import { .. } => "import",
                         JsDecl::Host { .. } => "host",
                     };
-                    json!({ "name": d.name(), "kind": kind, "line": line, "end": end, "obligations": crate::parse::obligations(d) })
+                    json!({ "name": d.name(), "kind": kind, "line": line, "end": end, "obligations": crate::parse::obligations(d), "facts": facts(d) })
                 })
                 .collect();
             json!({ "rows": rows })
         }
         Err(e) => json!({ "error": e.0 }),
+    }
+}
+
+/// What a row says, as the parser read it. A fn: its words (`pure`, `side`, `instantiates`, `rejects`, `uses`,
+/// `provides`, `nests`, `renders`), its parameters (`name`, `type`, `ref`, `draft`, `optional`, `rest`), its callback
+/// positions (`callbacks`: `index`, `name`, `field`, `handler`), its result (`result`, TypeScript's text; `shape`; and
+/// `parts`, every place a read of the result may be asked about — the whole result when it is a `ref`, a tuple's items,
+/// a record's fields, a plain record below a field too — each with `ref`, `pending`, `fails`, `draft`). A component: its
+/// props (`name`, `type`, `optional`, `function`, `handler`, `render`, `component`, `components`, `view`) and its words.
+fn facts(d: &crate::parse::JsDecl) -> Value {
+    use crate::parse::{split_top, JsDecl, Part, Shape};
+    match d {
+        JsDecl::Fn { pure, params, rejects, side, ptypes, ret, refs, shape, instantiates, uses, provides, nests, held, opts, waits, part_drafts, draft_args, renders, .. } => {
+            let ps: Vec<Value> = params
+                .iter()
+                .enumerate()
+                .map(|(i, n)| json!({ "name": n.trim_start_matches("..."), "type": ptypes.get(i).cloned().flatten(), "ref": refs.get(i).copied().unwrap_or(false), "draft": draft_args.contains(&i), "optional": opts.get(i).copied().unwrap_or(false), "rest": n.starts_with("...") }))
+                .collect();
+            let cbs: Vec<Value> = crate::parse::callbacks_of(params, ptypes).into_iter().map(|c| json!({ "index": c.index, "name": c.name, "field": c.field, "handler": c.handler })).collect();
+            let rows = |key: &str| held.iter().find(|h| h.0 == key).map(|h| (h.1, h.2.clone())).unwrap_or_default();
+            let part = |path: Vec<String>, kind: Part, rows: (bool, Vec<String>)| json!({ "path": path, "ref": kind == Part::Ref, "fn": kind == Part::Fn, "pending": rows.0, "fails": rows.1, "draft": path.len() == 1 && part_drafts.iter().any(|p| p.0 == path[0]) });
+            // a plain record below a field is read field by field as well: a read that waits or fails there has no row
+            fn below(t: &str, path: &[String], out: &mut Vec<Value>) -> bool {
+                let t = t.trim();
+                if !(t.len() >= 2 && t.starts_with('{') && t.ends_with('}')) {
+                    return false;
+                }
+                for f in split_top(&t[1..t.len() - 1], ",;") {
+                    let Some(i) = f.find(':') else { continue };
+                    let k = f[..i].trim().trim_start_matches("readonly ").trim().trim_end_matches('?').to_string();
+                    if k.is_empty() || !k.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+                        continue;
+                    }
+                    let p: Vec<String> = path.iter().cloned().chain([k]).collect();
+                    if !below(&f[i + 1..], &p, out) {
+                        out.push(json!({ "path": p, "ref": false, "fn": false, "pending": false, "fails": [], "draft": false }));
+                    }
+                }
+                true
+            }
+            let ret_text = ret.as_deref().unwrap_or("");
+            let body = ret_text.trim().strip_prefix("readonly").map(str::trim).filter(|r| r.starts_with('[')).unwrap_or(ret_text.trim());
+            let mut parts: Vec<Value> = vec![];
+            let kind = match shape {
+                Shape::Comp => "comp",
+                Shape::Part(Part::Ref) => {
+                    parts.push(part(vec![], Part::Ref, waits.clone().unwrap_or_default()));
+                    "ref"
+                }
+                Shape::Part(Part::Fn) => "fn",
+                Shape::Part(Part::Value) => "value",
+                Shape::Items(items) => {
+                    parts.extend(items.iter().enumerate().map(|(i, k)| part(vec![i.to_string()], *k, rows(&i.to_string()))));
+                    "items"
+                }
+                Shape::Fields(fields) => {
+                    let texts = if body.len() >= 2 { split_top(&body[1..body.len() - 1], ",;") } else { vec![] };
+                    for (i, (name, k)) in fields.iter().enumerate() {
+                        let ty = texts.get(i).and_then(|f| f.find(':').map(|at| f[at + 1..].to_string())).unwrap_or_default();
+                        if *k != Part::Value || !below(&ty, std::slice::from_ref(name), &mut parts) {
+                            parts.push(part(vec![name.clone()], *k, rows(name)));
+                        }
+                    }
+                    "fields"
+                }
+            };
+            json!({ "pure": pure, "side": side.map(|s| s.as_str()), "instantiates": instantiates, "rejects": rejects, "uses": uses, "provides": provides, "nests": nests.as_ref().map(|(kids, inside)| json!({ "kids": kids, "inside": inside })), "renders": renders, "params": ps, "callbacks": cbs, "result": ret, "shape": kind, "parts": parts })
+        }
+        JsDecl::Comp { props, fails, uses, provides, props_type, .. } => {
+            let ps: Vec<Value> = props.iter().map(|p| json!({ "name": p.name, "type": p.ty, "optional": p.optional, "function": p.callback || p.pure, "handler": p.callback, "render": p.render, "component": p.component, "components": p.components, "view": p.view })).collect();
+            json!({ "props": ps, "propsType": props_type, "fails": fails, "uses": uses, "provides": provides })
+        }
+        JsDecl::Error { fields, .. } => json!({ "fields": fields }),
+        JsDecl::Type { text, .. } => json!({ "type": text }),
+        JsDecl::Value { ty, .. } => json!({ "type": ty }),
+        JsDecl::Context { from, .. } => json!({ "from": from }),
+        JsDecl::Import { names, from, .. } => json!({ "names": names.iter().map(|(n, a)| json!([n, a])).collect::<Vec<_>>(), "from": from }),
+        JsDecl::Host { provides, nests, .. } => json!({ "provides": provides, "nests": nests.as_ref().map(|(kids, inside)| json!({ "kids": kids, "inside": inside })) }),
     }
 }
 

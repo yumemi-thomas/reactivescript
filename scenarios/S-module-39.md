@@ -138,6 +138,28 @@ export default component App() {
 A record given by name is checked where it is given, as the literal is.
 
 ```rx
+-- accept
+import { Tabs } from "./markdown.js"
+component First() {
+  <p>one</p>
+}
+component Legend() {
+  panels = 3
+  <p>{panels} panels</p>
+}
+export default component App() {
+  panels = [First]
+  <Tabs panels={panels} labels={["one"]} />
+  <Legend />
+}
+```
+
+A mention is the name's by its scope: `Legend`'s own `panels` is another
+binding, and reading it is no reading of `App`'s list (2026-11-26; the
+mentions were counted by spelling over the module, and this was
+`COMPONENT_AS_VALUE`).
+
+```rx
 -- reject: COMPONENT_AS_VALUE
 import { Tabs } from "./markdown.js"
 component First() {

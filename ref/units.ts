@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readDisk } from "./disk.ts";
 import { packageRelative, besideDeclaration, isPrintedSignature, relativeModule } from "./src/modules.ts";
-import { looksLikeTypes, parseProgram, parseDeclarations, holdsComponent } from "./src/parse.ts";
+import { looksLikeTypes, parseProgram, parseDeclarations, holdsComponent, fieldRows } from "./src/parse.ts";
 import { printSignature, parseSignature } from "./src/signature.ts";
 import { loadModules, hostProgram } from "./src/modules.ts";
 import { checkModules, tyStep, tyScalar } from "./src/check.ts";
@@ -292,6 +292,18 @@ export const units: [string, () => void][] = [
     deepStrictEqual(rec.ret, "{ data: string[]; error: unknown; readonly isFetching?: boolean; refetch: () => void }");
     const plain = fn("export pure fn createSignal(): [ref number, (v: number) => void]\n");
     deepStrictEqual([plain.waits, plain.held, plain.ret], [undefined, undefined, "[number, (v: number) => void]"]);
+    // a word is one only at the head of a part (2026-11-26; `ref ` was taken out of the text wherever it stood): a string literal, a type argument and a parameter keep theirs
+    const lit = fn("export pure fn label(): \"ref label\"\n");
+    deepStrictEqual([lit.ret, lit.shape ?? "value"], ["\"ref label\"", "value"]);
+    const kinds = fn("export pure fn kinds(): [ref \"ref a\" | \"pending ref b\", \"a, ref b\", Map<\"ref k\", number>]\n");
+    deepStrictEqual([kinds.ret, kinds.shape], ["[\"ref a\" | \"pending ref b\", \"a, ref b\", Map<\"ref k\", number>]", { items: ["ref", "value", "value"] }]);
+    const spaced = fn("export pure fn useQ(): { data: pending ref string, n: number }\n");
+    deepStrictEqual([spaced.ret, spaced.held], ["{ data: string, n: number }", [["data", true, []]]]);
+    // … and so do `handler` and `draft`, the words before a function type and before a callback's parameter
+    const on = fn("export fn on(kind: \"handler (x)\" | \"draft s: T\", run: handler (e: \"handler (y)\") => void, set: (draft s: { n: number }) => void): void\n");
+    deepStrictEqual([on.ptypes, on.cbs], [["\"handler (x)\" | \"draft s: T\"", "(e: \"handler (y)\") => void", "(s: { n: number }) => void"], [null, [true, []], null]]);
+    parseDeclarations("export fn on(kind: \"handler x\"): void\n");
+    deepStrictEqual(fieldRows("{ q: { data: pending fails(E) string; note: \"pending x\" }; n: number }"), { text: "{ q: { data: string; note: \"pending x\" }; n: number }", held: [["q.data", true, ["E"]]] });
   }],
   ["a_declaration_names_another_modules_context", () => {   // MO-12e: `export context c from "<module>"` names the context that module's declaration declares, under that declaration's key: found as an import from the declaration's own file would find it, and through a module that takes it from another
     const fs = files({
@@ -513,7 +525,7 @@ export const units: [string, () => void][] = [
     deepStrictEqual(diags("mdnamedbad"), ["CONTEXT_NOT_FOUND@mdnamedbad.rx:4"]);   // … checked as applied where it is given
     deepStrictEqual(diags("mdelse"), ["COMPONENT_AS_VALUE@mdelse.rx:10"]);   // … read elsewhere too (`tabs[0]`): a value
     deepStrictEqual(diags("mdcall"), ["COMPONENT_AS_VALUE@mdcall.rx:10"]);   // … given to a fn too
-    deepStrictEqual(diags("mdshadow"), ["COMPONENT_AS_VALUE@mdshadow.rx:10"]);   // … a second binding of the name: the count is of the name as written, and errs on that side
+    deepStrictEqual(diags("mdshadow"), []);   // … a second binding of the name (a loop's variable) is another name: a mention is the name's by its scope (2026-11-26; it was counted as written)
     deepStrictEqual(diags("mdexport"), ["COMPONENT_AS_VALUE@mdexport.rx:9"]);   // … exported: a signature says nothing of what a value holds
     deepStrictEqual(diags("mdundeclared"), ["COMPONENT_AS_VALUE@mdundeclared.rx:10"]);   // an undeclared prop
     deepStrictEqual(["{ Heading?: Component<{ depth: number }> }", "Component[]", "Record<string, Component>", "Partial<{ a: Component }> | undefined", "readonly [Component, string]", "Component", "string | Component", "(c: Component) => void", "{ render: (c: Component) => View }", "{ title: string }", "Array<{ view: Component; path: string }>"].map(t => holdsComponent(t)), [true, true, true, true, true, false, false, false, false, false, true]);
@@ -532,7 +544,11 @@ export const units: [string, () => void][] = [
     deepStrictEqual(diags(app("  v = await toast.load(\"1\")\n  <p>{v}</p>\n")), ["UNHANDLED_FAILURE@4"]);   // a method's `rejects(E)`
     const SAVED = "context accent: string\ncomponent Saved() {\n  <i class={use accent}>s</i>\n}\n";
     deepStrictEqual([diags(SAVED + app("  provide accent = \"x\"\n  <button onClick={() => { toaster.show(Saved) }}>x</button>\n  <Region><Toaster /></Region>\n")), diags(SAVED + app("  <button onClick={() => { toaster.show(Saved) }}>x</button>\n  <Region><Toaster /></Region>\n"))], [[], ["CONTEXT_NOT_FOUND@7"]]);   // `renders(Toaster)` on the method: the component is checked beneath <Toaster>
-    deepStrictEqual(diags(app("  <ul>{for toast in [\"a\"] { <li>{toast}</li> }}</ul>\n")), ["SHADOWED_IMPORT@1"]);   // the object's name bound again
+    // the object is the import by its scope: under another binding of the name the member is that binding's (a loop's variable, a parameter, a local), and a declaration that shadows the import is MO-1d's refusal, said once
+    deepStrictEqual(diags(app("  <ul>{for toast in [\"a\"] { <li>{toast}{toast.success(\"a\")}</li> }}</ul>\n")), []);
+    deepStrictEqual(diags(app("  <ul>{for t in [\"a\"] { <li>{toast.success(t)}</li> }}</ul>\n")), ["IO_IN_REACTIVE@3"]);
+    deepStrictEqual(diags(app("  <button onClick={(toast) => { toast.success(\"a\") }}>{[1].map((toast) => toast.success)}</button>\n")), []);
+    deepStrictEqual(diags(`component Inner() {\n  toast = { success: (m) => m }\n  <p>{toast.success("a")}</p>\n}\n${app("  <Inner />\n")}`), ["SHADOWED_IMPORT@3"]);
     deepStrictEqual(checkModules(loadModules("/app/main.rx", files({ "/app/main.rx": "import { notify } from \"./undeclared.js\"\nimport pure { read } from \"./undeclared.js\"\nexport default component App() {\n  <p>{notify.success(\"a\")}{read.all()}</p>\n}\n" }))).diags.map(x => `${x.code}@${x.line}`), ["IO_IN_REACTIVE@4"]);   // a method of an import with no declaration is io as the import is; of a `pure` import, pure
     // the loader names each mention by its row: the callee is the name `toaster.show`, and a method with no row stays a member
     { const set = loadModules("/app/main.rx", fs(app("  <button onClick={() => { toaster.show(Toaster); toaster.dismiss(1) }}>x</button>\n"))); const text = JSON.stringify(set.programs.get("/app/main.rx")); deepStrictEqual([text.includes('{"k":"id","name":"toaster.show"}'), text.includes('"p":"dismiss"'), text.includes('"p":"show"')], [true, true, false]); }

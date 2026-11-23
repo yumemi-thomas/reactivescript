@@ -224,6 +224,31 @@ export default component App() {
 }
 ```
 
+The name is the closure's by its scope (2026-11-26): another binding of
+the same spelling — a sibling component's own `bump` — is another name,
+and is called as any function is. Until then the uses were read by
+spelling over the module, and `Total`'s `bump(2)` below was
+`DRAFT_ESCAPES`.
+
+```rx
+-- accept
+import { createStore } from "./store.js"
+[todos, setTodos] = createStore<{ done: number }>({ done: 0 })
+component Counter() {
+  bump = (d) => { d.done := d.done + 1 }
+  <button onClick={() => { setTodos(bump) }}>{todos.done}</button>
+}
+component Total() {
+  bump = (x) => x + 1
+  <p>{bump(2)}</p>
+  <button onClick={() => { let twice = (n) => n * 2; log(twice(todos.done)) }}>log</button>
+  <button onClick={() => { let twice = (d) => { d.done := d.done * 2 }; setTodos(twice) }}>double</button>
+}
+export default component App() {
+  <Counter /><Total />
+}
+```
+
 Any other use of the name is refused where it is written: called by hand
 it would be given something that is no draft, and passed on or stored it
 could be called with a draft the checker does not see.

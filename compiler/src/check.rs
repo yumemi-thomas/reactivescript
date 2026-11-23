@@ -11,7 +11,7 @@ use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
-use crate::parse::{field_rows, js_trim, split_top, JsDecl, Part, Shape as FShape};
+use crate::parse::{js_trim, split_top, type_words, JsDecl, Part, Shape as FShape, Words};
 use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, HOLD};
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
@@ -981,23 +981,149 @@ fn strip_pre(n: &str) -> &str {
 /// returns (its parameters give nothing by themselves: the call that hands them a value is where they are named). Names
 /// bound inside (`bound`) give nothing; a closure's own locals (`locals`) give what their values do. `use c` is written
 /// `use:c`, for the checks that must know a value came from where they cannot look.
-/// Where a name is written as a call's whole argument: `f(x)` gives `x → (f, 0)`. Read off the module's tree as data, so
-/// it sees every call, in every view, handler and statement.
-/// MO-11c (2026-11-25): how many times each name is written as an expression of its own in the module's tree (an `id`, a
-/// `pre`), whatever it resolves to — read off the tree as data, so no mention is missed and shadowing only counts more.
-pub(crate) fn id_counts(v: &serde_json::Value, out: &mut HashMap<String, usize>) {
-    match v {
-        serde_json::Value::Array(xs) => xs.iter().for_each(|x| id_counts(x, out)),
-        serde_json::Value::Object(o) => {
-            if matches!(o.get("k").and_then(|k| k.as_str()), Some("id" | "pre")) {
-                if let Some(n) = o.get("name").and_then(|n| n.as_str()) {
-                    *out.entry(n.to_string()).or_default() += 1;
+/// A name bound around a node of a module's tree (`scoped`): the line of the declaration or the `let` that binds it; -1
+/// for a parameter, props, a loop's variable, a caught error, a draft's `d`. An import binds nothing here.
+type Bound = (String, i64);
+/// The scopes of a program's tree, read off the tree as data (as `ref/src/scope.ts` reads them): calls `visit` on every
+/// node with the names bound around it, innermost last. A block's declarations are bound in all of it (a component may be
+/// applied above its declaration), a statement list's `let`s in all of the list.
+fn scoped(v: &serde_json::Value, bound: &mut Vec<Bound>, visit: &mut dyn FnMut(&serde_json::Map<String, serde_json::Value>, &[Bound])) {
+    use serde_json::Value;
+    type Obj = serde_json::Map<String, Value>;
+    fn list<'v>(o: &'v Obj, key: &str) -> &'v [Value] {
+        o.get(key).and_then(|x| x.as_array()).map(|x| x.as_slice()).unwrap_or(&[])
+    }
+    fn line(d: &Value) -> i64 {
+        d.get("line").and_then(|l| l.as_i64()).unwrap_or(-1)
+    }
+    fn declared(o: &Obj, key: &str) -> Vec<Bound> {
+        list(o, key).iter().filter(|d| !matches!(d.get("k").and_then(|k| k.as_str()), Some("import" | "provide"))).filter_map(|d| Some((d.get("name")?.as_str()?.to_string(), line(d)))).collect()
+    }
+    fn lets(o: &Obj, key: &str) -> Vec<Bound> {
+        list(o, key).iter().filter(|d| d.get("k").and_then(|k| k.as_str()) == Some("let")).filter_map(|d| Some((d.get("name")?.as_str()?.to_string(), line(d)))).collect()
+    }
+    fn names(ps: &[Value]) -> Vec<Bound> {
+        ps.iter().filter_map(|x| x.as_str().or_else(|| x.get("name").and_then(|n| n.as_str()))).map(|n| (n.trim_start_matches("...").to_string(), -1)).collect()
+    }
+    fn one(o: &Obj, key: &str) -> Vec<Bound> {
+        names(o.get(key).map(std::slice::from_ref).unwrap_or(&[]))
+    }
+    let o = match v {
+        Value::Array(xs) => return xs.iter().for_each(|x| scoped(x, bound, visit)),
+        Value::Object(o) => o,
+        _ => return,
+    };
+    visit(o, bound);
+    let mut each = |keys: &[&str], more: Vec<Bound>| {
+        let n = bound.len();
+        bound.extend(more);
+        for k in keys {
+            if let Some(x) = o.get(*k) {
+                scoped(x, bound, visit);
+            }
+        }
+        bound.truncate(n);
+    };
+    let with = |mut a: Vec<Bound>, b: Vec<Bound>| {
+        a.extend(b);
+        a
+    };
+    let k = o.get("k").and_then(|k| k.as_str());
+    if k.is_none() && o.contains_key("decls") && o.contains_key("view") {
+        return each(&["decls", "view"], declared(o, "decls")); // the program
+    }
+    let params = names(list(o, "params"));
+    match k {
+        Some("fn") if o.contains_key("decls") => each(&["decls", "tail"], with(params, declared(o, "decls"))),
+        Some("fn") => {
+            each(&["body"], params.clone());
+            each(&["stmts"], with(params, lets(o, "stmts")));
+        }
+        Some("component") => each(&["decls", "view"], with(one(o, "props"), declared(o, "decls"))),
+        Some("action" | "server" | "serverfn") => each(&["body"], with(params, lets(o, "body"))),
+        Some("error") => each(&["msg"], params),
+        Some("effect") => {
+            each(&["inputs"], vec![]);
+            each(&["body"], lets(o, "body"));
+        }
+        Some("draft") => {
+            each(&["seed"], vec![]);
+            each(&["body"], with(vec![("d".to_string(), -1)], lets(o, "body")));
+        }
+        Some("catch") => {
+            each(&["e"], vec![]);
+            each(&["alt"], one(o, "name"));
+        }
+        Some("sif") => {
+            each(&["c"], vec![]);
+            each(&["t"], lets(o, "t"));
+            each(&["f"], lets(o, "f"));
+        }
+        Some("for") => {
+            each(&["e"], vec![]);
+            each(&["body"], with(one(o, "name"), lets(o, "body")));
+        }
+        Some("try") => {
+            each(&["body"], lets(o, "body"));
+            each(&["handler"], with(one(o, "catchName"), lets(o, "handler")));
+            each(&["fin"], lets(o, "fin"));
+        }
+        Some("mif") => {
+            each(&["c"], vec![]);
+            each(&["tDecls", "t"], declared(o, "tDecls"));
+            each(&["fDecls", "f"], declared(o, "fDecls"));
+        }
+        Some("mfor") => {
+            each(&["xs"], vec![]);
+            each(&["decls", "body"], with(one(o, "name"), declared(o, "decls")));
+        }
+        Some("mview") => each(&["decls", "body"], with(params, declared(o, "decls"))),
+        Some("loading") => {
+            each(&["on", "fallback"], vec![]);
+            each(&["decls", "body"], declared(o, "decls"));
+        }
+        Some("errored") => {
+            each(&["fallback"], one(o, "errName"));
+            each(&["decls", "body"], declared(o, "decls"));
+        }
+        Some("portal") => {
+            each(&["to"], vec![]);
+            each(&["decls", "body"], declared(o, "decls"));
+        }
+        _ => o.values().for_each(|x| scoped(x, bound, visit)),
+    }
+}
+/// MO-11c, MO-10i: how many times each binding is mentioned as an expression of its own (an `id`, a `pre`), and where it
+/// is written as a call's whole argument — `f(x)` gives `x → (f, 0)`. By binding (`name@line`: a declaration or a
+/// `let`), not by spelling: a sibling component's local of the same name is another binding. Read off the tree as data,
+/// so no mention is missed: a callee, a path, a handler's statement.
+#[derive(Default)]
+pub(crate) struct ScopeFacts {
+    pub(crate) mentions: HashMap<String, usize>,
+    pub(crate) arg_calls: HashMap<String, Vec<(String, usize)>>,
+}
+pub(crate) fn scope_facts(tree: &serde_json::Value) -> ScopeFacts {
+    let mut out = ScopeFacts::default();
+    let binding = |name: &str, bound: &[Bound]| bound.iter().rev().find(|b| b.0 == name).filter(|b| b.1 >= 0).map(|b| format!("{name}@{}", b.1));
+    scoped(tree, &mut vec![], &mut |o, bound| {
+        let k = o.get("k").and_then(|k| k.as_str());
+        let id = |v: &serde_json::Value| v.get("name").and_then(|n| n.as_str()).filter(|_| v.get("k").and_then(|k| k.as_str()) == Some("id")).map(str::to_string);
+        if matches!(k, Some("id" | "pre")) {
+            if let Some(b) = o.get("name").and_then(|n| n.as_str()).and_then(|n| binding(n, bound)) {
+                *out.mentions.entry(b).or_default() += 1;
+            }
+        }
+        if k == Some("call") {
+            if let (Some(f), Some(args)) = (o.get("f").and_then(id), o.get("args").and_then(|a| a.as_array())) {
+                for (i, a) in args.iter().enumerate() {
+                    if let Some(b) = id(a).and_then(|n| binding(&n, bound)) {
+                        out.arg_calls.entry(b).or_default().push((f.clone(), i));
+                    }
                 }
             }
-            o.values().for_each(|x| id_counts(x, out));
         }
-        _ => {}
-    }
+    });
+    out
 }
 /// MO-11c (2026-11-25): an equation bound to a record or array literal with components in it, read as that literal where
 /// it is given, by name, to a JS component's prop whose type holds components.
@@ -1008,26 +1134,6 @@ struct NamedLit {
     line: i64,
     sites: HashSet<*const Expr>,
     exported: bool,
-}
-pub(crate) fn arg_calls(v: &serde_json::Value, out: &mut HashMap<String, Vec<(String, usize)>>) {
-    match v {
-        serde_json::Value::Array(xs) => xs.iter().for_each(|x| arg_calls(x, out)),
-        serde_json::Value::Object(o) => {
-            if o.get("k").and_then(|k| k.as_str()) == Some("call") {
-                if let (Some(f), Some(args)) = (o.get("f").filter(|f| f.get("k").and_then(|k| k.as_str()) == Some("id")).and_then(|f| f.get("name")).and_then(|n| n.as_str()), o.get("args").and_then(|a| a.as_array())) {
-                    for (i, a) in args.iter().enumerate() {
-                        if a.get("k").and_then(|k| k.as_str()) == Some("id") {
-                            if let Some(n) = a.get("name").and_then(|n| n.as_str()) {
-                                out.entry(n.to_string()).or_default().push((f.to_string(), i));
-                            }
-                        }
-                    }
-                }
-            }
-            o.values().for_each(|x| arg_calls(x, out));
-        }
-        _ => {}
-    }
 }
 /// ST-4d: a key two rows of a list literal share — `[{ id: 1, … }, { id: 1, … }]` keyed by `id` — as written.
 fn duplicate_key(e: &Expr, key: &str) -> Option<String> {
@@ -1884,11 +1990,10 @@ pub struct Checker<'a> {
     /// MO-10f (2026-11-22): per component, the fields of its props that its type says hold or fail where they are
     /// read (`query.data`, holds, classes): the interface a JS result with held fields may be given whole through
     prop_held: HashMap<RId, Vec<(String, bool, Vec<String>)>>,
-    /// MO-10i (2026-11-22): where a name is written as a call's whole argument, in this module: name → (callee's name,
-    /// argument index). What `updater_positions` reads to find a named closure's uses before it walks its body
-    arg_calls: HashMap<String, Vec<(String, usize)>>,
-    /// MO-11c (2026-11-25): each name's mentions in the module's tree, and the equations bound to a literal of components
-    id_counts: HashMap<String, usize>,
+    /// MO-10i (2026-11-22), MO-11c (2026-11-25): where each binding of this module is written as a call's whole argument
+    /// (what `updater_positions` reads to find a named closure's uses before it walks its body), and how many times it
+    /// is mentioned — by binding, `name@line`
+    scope: ScopeFacts,
     /// MO-14f (2026-11-25): the components declared at this module's top whose view applies a component the host renders
     /// through — the host's own, or an `.rx` component that applies one
     through_names: HashSet<String>,
@@ -2259,8 +2364,7 @@ impl<'a> Checker<'a> {
             nested: IndexMap::new(),
             nesting_word: None,
             view_props: HashMap::new(),
-            arg_calls: HashMap::new(),
-            id_counts: HashMap::new(),
+            scope: ScopeFacts::default(),
             through_names: HashSet::new(),
             named_lits: IndexMap::new(),
             updater_ok: HashSet::new(),
@@ -2389,8 +2493,7 @@ impl<'a> Checker<'a> {
 
     pub fn run(&mut self, p: &'a Program) {
         let tree = p.to_json();
-        arg_calls(&tree, &mut self.arg_calls);
-        id_counts(&tree, &mut self.id_counts);
+        self.scope = scope_facts(&tree);
         self.through_pre(p, &tree);
         let r = self.region(None, "program", false, None);
         let root = self.env(None, r);
@@ -2420,12 +2523,13 @@ impl<'a> Checker<'a> {
         self.named_lit_check();
     }
     /// MO-11c (2026-11-25): the components in a literal bound to a name are values on a condition — every mention of the
-    /// name is the whole value of a prop that holds components (counted over the module's whole tree, so a mention the walk
-    /// does not resolve counts against it), it is given to one, and it is not exported.
+    /// name is the whole value of a prop that holds components, it is given to one, and it is not exported. A mention is
+    /// the name's by its scope (`scope_facts`: counted over the module's tree, so one the walk does not resolve counts
+    /// against it; a sibling component's local of the same name is another binding, and does not).
     fn named_lit_check(&mut self) {
         let ts: Vec<(String, Vec<String>, i64, bool, usize)> = self.named_lits.values().map(|t| (t.name.clone(), t.ids.iter().map(|x| x.1.clone()).collect(), t.line, t.exported, t.sites.len())).collect();
         for (name, ids, line, exported, sites) in ts {
-            let n = self.id_counts.get(&name).copied().unwrap_or(0);
+            let n = self.scope.mentions.get(&format!("{name}@{line}")).copied().unwrap_or(0);
             if !exported && sites > 0 && n == sites {
                 continue;
             }
@@ -3686,7 +3790,7 @@ impl<'a> Checker<'a> {
                     self.whole_ok.insert(e as *const Expr);
                 }
                 // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
-                if let Some(ps) = self.updater_positions(name, e, env) {
+                if let Some(ps) = self.updater_positions(name, d.line() as i64, e, env) {
                     if let Some(&made) = self.envs[env].vars.get(name.as_str()) {
                         self.syms[made].updater = Some(ps);
                     }
@@ -5278,17 +5382,17 @@ impl<'a> Checker<'a> {
         }
     }
     /// MO-10i (2026-11-22): a closure bound to `name` — an equation's or a local's — is a draft callback when the name
-    /// is written, somewhere in the module, as the argument of a call that hands that position a draft (`setTodos(up)`):
+    /// is written, somewhere in its scope, as the argument of a call that hands that position a draft (`setTodos(up)`):
     /// its body is then checked as that callback's, its parameters at those positions the draft's. Read from what is
-    /// written (`arg_calls`), before the body is walked; the walk holds the name to it — `call_marks` takes the name at
+    /// written (`scope_facts`), before the body is walked; the walk holds the name to it — `call_marks` takes the name at
     /// such a position, and any other use of it is refused where it is written.
-    fn updater_positions(&mut self, name: &str, e: &'a Expr, env: EId) -> Option<Vec<usize>> {
+    fn updater_positions(&mut self, name: &str, line: i64, e: &'a Expr, env: EId) -> Option<Vec<usize>> {
         let ExprKind::Fn { params, .. } = &e.k else { return None };
         if params.is_empty() {
             return None;
         }
         let mut found: Option<Vec<usize>> = None;
-        for (callee, i) in self.arg_calls.get(name).cloned().unwrap_or_default() {
+        for (callee, i) in self.scope.arg_calls.get(&format!("{name}@{line}")).cloned().unwrap_or_default() {
             let Some(ps) = self.lookup(env, &callee).and_then(|t| self.syms[t].drafts.iter().find(|(j, _)| *j == i).map(|(_, ps)| ps.clone())) else { continue };
             match &found {
                 None => found = Some(ps),
@@ -6005,7 +6109,7 @@ impl<'a> Checker<'a> {
             }
             match &s.k {
                 StmtKind::Let { name, e, .. } => {
-                    let updater = self.updater_positions(name, e, env); // MO-10i: a named draft callback
+                    let updater = self.updater_positions(name, s.line as i64, e, env); // MO-10i: a named draft callback
                     self.expr(e, env, ctx, None);
                     let captures = self.stored(e, env, &mut HashSet::new(), false);
                     let ret = self.stored(e, env, &mut HashSet::new(), true);
@@ -9337,6 +9441,12 @@ struct DisposerPaths {
     left: bool,
     named: bool,
     ends: bool,
+}
+/// MO-10f: a native prop's field rows, `{ data: pending fails(Error) T }` — the type as TypeScript reads it, and the
+/// rows by field path.
+fn field_rows(t: &str) -> (String, Vec<(String, bool, Vec<String>)>) {
+    let w = type_words(t, Words::Props).expect("a prop's type has no refused word");
+    (w.text, w.held)
 }
 fn disposer_paths(ss: &[Stmt], name: &str, mut named: bool) -> DisposerPaths {
     let m = |e: &Expr| {

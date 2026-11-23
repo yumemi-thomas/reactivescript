@@ -220,7 +220,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     c.expect(")");
     if (pure && draftArgs.length) c.fail(`${name}: a fn that changes what it is given (\`draft ${params[draftArgs[0]]}\`) is not \`pure\` (MO-10i)`);
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined; let waits: [boolean, string[]] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b|\bforwards\b|\bjoins\(|\bmethods\(/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = refRows((r ? t.slice(0, r.index) : t).trim()); if (!fr) c.fail(FIELD_ROWS_GONE);   /* MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r 2026-11-23) they are refused by name, wherever in the result they are written */ const raw = fr.text; held = fr.held; waits = fr.whole; shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b|\bforwards\b|\bjoins\(|\bmethods\(/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail("`holds` on a field is now `pending`, the row `.rx` reads it with (MO-8i)"); const fr = typeWords(r ? t.slice(0, r.index) : t, "result"); if (!fr) c.fail(FIELD_ROWS_GONE);   /* MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r 2026-11-23) they are refused by name, wherever in the result they are written */ held = fr.held; waits = fr.whole; shape = fr.parts ? shapeOf(fr.parts) : undefined; ret = fr.text || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
     let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders: string | undefined;
@@ -260,7 +260,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     const drafts = ptypes.flatMap((t, i) => { const ds = draftParams(t); return ds.length ? [[i, ds] as [number, number[]]] : []; });
     const partDrafts = draftParts(ret);
     for (const t of [...ptypes, ret]) if (t && TRACKED_WORD.test(maskedStrings(t))) c.fail(TRACKED_GONE);
-    for (const t of [...ptypes, ret]) if (t && HANDLER_MISPLACED.test(t)) c.fail(`\`handler\` on fn ${name}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`);
+    for (const t of [...ptypes, ret]) if (t && HANDLER_MISPLACED.test(maskedStrings(t))) c.fail(`\`handler\` on fn ${name}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`);
     const cbs = callbacks(ptypes);   // MO-10g: before the word is taken out — only a function type marked `handler` is a callback
     for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripHandler(stripDraft(ptypes[i])); ret = stripHandler(stripDraft(ret));
     const row: Extract<JsDecl, { kind: "fn" }> = { kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(draftArgs.length ? { draftArgs } : {}), ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(renders !== undefined ? { renders } : {}),  ...(held ? { held } : {}), ...(waits ? { waits } : {}), ...(cbs ? { cbs } : {}), ...(opts.some(Boolean) ? { opts } : {}) };
@@ -318,50 +318,50 @@ function maskedStrings(t: string): string {
   }
   return out;
 }
-/** MO-10f: a result's field rows, `{ data: pending fails(Error) T }` — taken out of the type text, by field; the row words
- *  are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i). */
-export function fieldRows(t: string): { text: string; held?: [string, boolean, string[]][] } {
-  const held: [string, boolean, string[]][] = [];
-  // a record type, field by field, nested records too; each field's rows are kept by its path (`result.data`)
-  const walk = (x: string, prefix: string): string => {
-    if (!(x.startsWith("{") && x.endsWith("}"))) return x;
-    return `{ ${splitTop(x.slice(1, -1), ",;").map(f => {
-      const i = f.indexOf(":"); if (i < 0) return f;
-      const key = f.slice(0, i).trim(); let rest = f.slice(i + 1).trim(); let holds = false; let fails: string[] = []; let any = false;
-      for (let m; (m = /^(pending\b|fails\(([^)]*)\))\s*/.exec(rest)); rest = rest.slice(m[0].length)) { any = true; if (m[1] === "pending") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
-      const path = prefix + fieldName(key);
-      if (any) held.push([path, holds, fails]);
-      return `${key}: ${walk(rest, path + ".")}`;
-    }).join("; ")} }`;
+type Held = [string, boolean, string[]][];
+/** What `typeWords` read: `text`, the type as TypeScript reads it (the words taken out, the rest as written); `parts`, the
+ *  same with each `ref` left where it stood (what MO-10b reads a result's shape off); `held`, the rows by tuple index or
+ *  field path (`data`, `result.data`); `whole`, the rows of a result that is itself a `ref`. */
+export type TypeWords = { text: string; parts: string; held?: Held; whole?: [boolean, string[]] };
+/** The one reader of the words written before a type — `pending`, `fails(E)`, `ref` — by the type's structure: the whole
+ *  type, the items of a tuple, the fields of a record. A word is one only at the head of such a part: inside a string
+ *  literal (`"ref label"`), a type argument or a parameter list it is the type's own text.
+ *  `result` (MO-10b, MO-10l): a declared result — `ref T` at the whole result, an item of its tuple or a field of its
+ *  record, with `pending` and `fails(…)` before a `ref` and nowhere else (undefined otherwise).
+ *  `props` (MO-10f): a native prop's type — `pending` and `fails(…)` before a field's type, in a record at any depth. */
+export function typeWords(src: string, at: "result" | "props"): TypeWords | undefined {
+  const t = src.trim(); const rows: [number, number][] = []; const refs: [number, number][] = []; const held: Held = []; let whole: [boolean, string[]] | undefined; let bad = false;
+  const fields = (a: number, b: number, prefix: string, depth: number) => {
+    for (const [x0, y0] of topRanges(t.slice(a + 1, b - 1), ",;")) {
+      const x = x0 + a + 1, y = y0 + a + 1; const i = t.slice(x, y).indexOf(":"); if (i < 0) continue;
+      const v = t.slice(x + i + 1, y);
+      part(y - v.trimStart().length, y, prefix + fieldName(t.slice(x, x + i)), depth + 1);
+    }
   };
-  if (!/\b(pending|fails\()/.test(t)) return { text: t };   // no rows: the type text is kept as written
-  const text = walk(t, "");
-  return held.length ? { text, held } : { text: t };
-}
-/** MO-10l: the rows of a declared result's `ref` parts, `pending fails(Error) ref T` — the whole result, an item of its
- *  tuple or a field of its record, the places MO-10b reads a part at — taken out of the type text. `held`: the parts, by
- *  tuple index or field name; `whole`: the result itself. Undefined where a row word stands before anything else. */
-export function refRows(t: string): { text: string; held?: [string, boolean, string[]][]; whole?: [boolean, string[]] } | undefined {
-  const WORD = /\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']/;
-  if (!WORD.test(maskedStrings(t))) return { text: t };   // no rows: the type text is kept as written
-  const held: [string, boolean, string[]][] = []; let whole: [boolean, string[]] | undefined; let bad = false;
-  const part = (x: string, path: string | null): string => {
-    let rest = x.trim(); let holds = false; let fails: string[] = []; let any = false;
-    for (let m; (m = /^(pending\b|fails\(([^)]*)\))\s*/.exec(rest)); rest = rest.slice(m[0].length)) { any = true; if (m[1] === "pending") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
-    if (!any) return x.trim();
-    if (!/^ref\s/.test(rest)) { bad = true; return rest; }
-    if (path === null) whole = [holds, fails]; else held.push([path, holds, fails]);
-    return rest;
+  const part = (a: number, b: number, path: string | null, depth: number) => {
+    let i = a; let holds = false; let fails: string[] = []; let any = false;
+    if (at === "result" || depth > 0) for (let m; (m = /^(pending\b|fails\(([^)]*)\))\s*/.exec(t.slice(i, b))); i += m[0].length) { any = true; if (m[1] === "pending") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
+    if (any) rows.push([a, i]);
+    const rest = t.slice(i, b); const record = rest.length >= 2 && rest.startsWith("{") && rest.endsWith("}");
+    if (at === "props") { if (any) held.push([path ?? "", holds, fails]); if (record) fields(i, b, path === null ? "" : path + ".", depth); return; }
+    const r = /^ref\s+/.exec(rest);
+    if (r) { refs.push([i, i + r[0].length]); if (any) { if (path === null) whole = [holds, fails]; else held.push([path, holds, fails]); } }
+    else if (any) bad = true;
+    else if (depth === 0) {
+      const ro = /^readonly\s+(?=\[)/.exec(rest)?.[0].length ?? 0; const body = rest.slice(ro);
+      if (body.length >= 2 && body.startsWith("[") && body.endsWith("]")) topRanges(body.slice(1, -1), ",").forEach(([x, y], k) => part(i + ro + 1 + x, i + ro + 1 + y, String(k), 1));
+      else if (!ro && record) fields(i, b, "", 0);
+    }
   };
-  let text = part(t, null);
-  if (!whole && !bad) {
-    const ro = /^readonly\s+/.exec(text)?.[0] ?? ""; const body = text.slice(ro.length);
-    if (body.startsWith("[") && body.endsWith("]")) text = `${ro}[${splitTop(body.slice(1, -1), ",").map((it, i) => part(it, String(i))).join(", ")}]`;
-    else if (!ro && body.startsWith("{") && body.endsWith("}")) text = `{ ${splitTop(body.slice(1, -1), ",;").map(f => { const i = f.indexOf(":"); if (i < 0) return f; const key = f.slice(0, i).trim(); return `${key}: ${part(f.slice(i + 1), fieldName(key))}`; }).join("; ")} }`;
-  }
-  if (bad || WORD.test(maskedStrings(text))) return undefined;
-  return { text, ...(held.length ? { held } : {}), ...(whole ? { whole } : {}) };
+  part(0, t.length, null, 0);
+  const without = (cuts: [number, number][]) => { let out = ""; let from = 0; for (const [a, b] of [...cuts].sort((p, q) => p[0] - q[0])) { out += t.slice(from, a); from = b; } return out + t.slice(from); };
+  const parts = without(rows);
+  if (at === "result" && (bad || /\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']/.test(maskedStrings(parts)))) return undefined;
+  return { text: without([...rows, ...refs]), parts, ...(held.length ? { held } : {}), ...(whole ? { whole } : {}) };
 }
+/** MO-10f: a native prop's field rows, `{ data: pending fails(Error) T }` — the type as TypeScript reads it, and the rows
+ *  by field path; the row words are `.rx`'s own (CN-4a), so a field reads as an `.rx` value with those rows would (MO-8i). */
+export function fieldRows(t: string): { text: string; held?: Held } { const w = typeWords(t, "props")!; return { text: w.text, ...(w.held ? { held: w.held } : {}) }; }
 /** MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it). */
 function typeParams(c: Cursor): string | undefined {
   if (c.peek() !== "<") return undefined;
@@ -446,8 +446,10 @@ const TRACKED_GONE = "`tracked` is not a word of a declaration: a function type 
 /** MO-10g: `handler` before a function type — the library calls it later, outside any computation (an event, a mutation's
  *  `onSuccess`), so a closure passed there is a handler's: imperative scope. The word is the .d.rx's, not TypeScript's. */
 const HANDLER_MISPLACED = /\bhandler\s+(?!\()/;
-const stripHandler = (t: string | undefined) => t?.replace(/\bhandler\s+(?=\()/g, "");
-const stripDraft = (t: string | undefined) => t?.replace(/\bdraft\s+(?=[A-Za-z_$][\w$]*\s*[?:,)])/g, "");
+/** `t` without what `re` finds outside its string literals: a word of the type's own text (`"handler (x)"`) is not the `.d.rx`'s. */
+const cutWords = (t: string | undefined, re: RegExp) => { if (t === undefined) return t; let out = ""; let at = 0; for (const m of maskedStrings(t).matchAll(re)) { out += t.slice(at, m.index); at = m.index + m[0].length; } return out + t.slice(at); };
+const stripHandler = (t: string | undefined) => cutWords(t, /\bhandler\s+(?=\()/g);
+const stripDraft = (t: string | undefined) => cutWords(t, /\bdraft\s+(?=[A-Za-z_$][\w$]*\s*[?:,)])/g);
 
 /** MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`. */
 function parseJsComponent(c: Cursor, line: number): JsDecl {
@@ -537,11 +539,20 @@ function contextNames(c: Cursor): string[] {
  *  those (only the result and its parts are declared). */
 export type Part = "ref" | "fn" | "value";
 export type Shape = Part | "comp" | { items: Part[] } | { fields: [string, Part][] };   // "comp": the whole result is a component (MO-11f)
-export function splitTop(s: string, seps: string): string[] {
-  const out: string[] = []; let depth = 0, from = 0;
-  for (let i = 0; i < s.length; i++) { const ch = s[i]; if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch) && !(ch === ">" && s[i - 1] === "=")) depth--; else if (depth === 0 && seps.includes(ch)) { out.push(s.slice(from, i)); from = i + 1; } }
-  out.push(s.slice(from)); return out.map(x => x.trim()).filter(x => x);
+/** The pieces of a type's text between separators written at its top level: not inside brackets, and not inside a string
+ *  literal (`"a, b"` is one piece). Each as the range of the piece, trimmed; empty pieces are left out. */
+export function topRanges(s: string, seps: string): [number, number][] {
+  const out: [number, number][] = []; let depth = 0, from = 0, q = "";
+  const push = (a: number, b: number) => { const piece = s.slice(a, b); const t = piece.trim(); if (t) { const at = a + piece.length - piece.trimStart().length; out.push([at, at + t.length]); } };
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (q) { if (ch === "\\") i++; else if (ch === q) q = ""; }
+    else if (ch === '"' || ch === "'" || ch === "`") q = ch;
+    else if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch) && !(ch === ">" && s[i - 1] === "=")) depth--; else if (depth === 0 && seps.includes(ch)) { push(from, i); from = i + 1; }
+  }
+  push(from, s.length); return out;
 }
+export function splitTop(s: string, seps: string): string[] { return topRanges(s, seps).map(([a, b]) => s.slice(a, b)); }
 function partOf(t: string): Part {
   if (/^ref\s/.test(t)) return "ref";
   if (t.startsWith("(") && /\)\s*=>/.test(t)) return "fn";

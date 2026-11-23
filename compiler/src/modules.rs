@@ -469,7 +469,7 @@ impl Loader<'_> {
             st.push(path.to_string());
             self.visit(&to, &st)?;
         }
-        name_methods(&mut p, &self.declarations, path, &mut self.diags);
+        name_methods(&mut p, &self.declarations);
         self.programs.insert(path.to_string(), p);
         self.sources.insert(path.to_string(), src);
         self.state.insert(path.to_string(), State::Done);
@@ -479,22 +479,21 @@ impl Loader<'_> {
 }
 
 /// MO-8t (2026-11-25): a method a declaration gives a row of its own — `export fn toaster.show(…)` beside `export const
-/// toaster` — is named by that row wherever the module writes it: `toaster.show` (no `?.`) becomes the name
+/// toaster` — is named by that row where the module writes it: `toaster.show` (no `?.`) becomes the name
 /// `toaster.show`, which the checker, the emitter and the projection then read as they read any declared fn's. Done once,
-/// as the module is loaded, so every reader has the same tree. A module that binds the object's name again (a parameter,
-/// a local, a loop's variable) would have its methods' rows applied to something else: refused, by the name as written.
-pub fn name_methods(p: &mut Program, declarations: &IndexMap<String, Vec<JsDecl>>, file: &str, diags: &mut Vec<Diagnostic>) {
+/// as the module is loaded, so every reader has the same tree. The object is the import by its scope (2026-11-26): where
+/// the name is bound again around the mention — a parameter, a local, a loop's variable — the member is that binding's,
+/// and stays a member.
+pub fn name_methods(p: &mut Program, declarations: &IndexMap<String, Vec<JsDecl>>) {
     let mut names: indexmap::IndexSet<String> = indexmap::IndexSet::new();
-    let mut lines: IndexMap<String, usize> = IndexMap::new();
     for d in &p.decls {
-        let Decl::Import { names: ns, declared: Some(dts), line, .. } = d else { continue };
+        let Decl::Import { names: ns, declared: Some(dts), .. } = d else { continue };
         for crate::ast::ImportName { name, alias } in ns {
             let prefix = format!("{name}.");
             for x in declarations.get(dts).map(|v| v.as_slice()).unwrap_or(&[]) {
                 if let JsDecl::Fn { name: n, .. } = x {
                     if n.starts_with(&prefix) {
                         names.insert(format!("{}{}", alias, &n[name.len()..]));
-                        lines.entry(alias.clone()).or_insert(*line);
                     }
                 }
             }
@@ -503,48 +502,6 @@ pub fn name_methods(p: &mut Program, declarations: &IndexMap<String, Vec<JsDecl>
     if names.is_empty() {
         return;
     }
-    const BINDERS: [&str; 12] = ["source", "eq", "fn", "component", "action", "server", "error", "context", "typedecl", "let", "for", "mfor"];
-    fn binds(v: &serde_json::Value, bases: &IndexMap<String, usize>, again: &mut std::collections::BTreeSet<String>) {
-        match v {
-            serde_json::Value::Array(xs) => xs.iter().for_each(|x| binds(x, bases, again)),
-            serde_json::Value::Object(o) => {
-                let k = o.get("k").and_then(|k| k.as_str());
-                for b in bases.keys() {
-                    let is = |key: &str| o.get(key).and_then(|x| x.as_str()) == Some(b.as_str());
-                    if k.is_some_and(|k| BINDERS.contains(&k)) && is("name") {
-                        again.insert(b.clone());
-                    }
-                    if o.get("params").and_then(|x| x.as_array()).is_some_and(|ps| ps.iter().any(|x| x.as_str() == Some(b.as_str()) || x.get("name").and_then(|n| n.as_str()) == Some(b.as_str()))) {
-                        again.insert(b.clone());
-                    }
-                    if k == Some("component") && is("props") {
-                        again.insert(b.clone());
-                    }
-                    if is("errName") || is("catchName") {
-                        again.insert(b.clone());
-                    }
-                    if k == Some("draft") && b == "d" {
-                        again.insert(b.clone());
-                    }
-                }
-                o.values().for_each(|x| binds(x, bases, again));
-            }
-            _ => {}
-        }
-    }
-    let mut again = std::collections::BTreeSet::new();
-    binds(&p.to_json(), &lines, &mut again);
-    for b in &again {
-        let prefix = format!("{b}.");
-        let m = names.iter().find(|n| n.starts_with(&prefix)).cloned().unwrap_or_default();
-        diags.push(Diagnostic {
-            code: "SHADOWED_IMPORT".into(),
-            rule: "MO-8t".into(),
-            line: lines[b] as i64,
-            file: Some(file.to_string()),
-            msg: format!("{b} is bound again in this module (a declaration, a parameter, a local or a loop's variable of that name), and {b}'s declaration gives its methods rows of their own ({m}): a second {b} would have them read off something else — rename one (`import {{ {b} as … }}`)"),
-        });
-    }
     fn chain(e: &Expr) -> Option<String> {
         match &e.k {
             ExprKind::Id(n) => Some(n.clone()),
@@ -552,12 +509,12 @@ pub fn name_methods(p: &mut Program, declarations: &IndexMap<String, Vec<JsDecl>
             _ => None,
         }
     }
-    crate::ast::exprs_mut(p, &mut |e: &mut Expr| {
+    crate::ast::exprs_mut(p, &mut |e: &mut Expr, bound: &[String]| {
         if !matches!(e.k, ExprKind::Member { .. }) {
             return;
         }
         if let Some(n) = chain(e) {
-            if names.contains(&n) && !again.contains(n.split('.').next().unwrap_or_default()) {
+            if names.contains(&n) && !bound.iter().any(|b| Some(b.as_str()) == n.split('.').next()) {
                 e.k = ExprKind::Id(n);
             }
         }
@@ -1075,8 +1032,12 @@ mod tests {
         const SAVED: &str = "context accent: string\ncomponent Saved() {\n  <i class={use accent}>s</i>\n}\n";
         assert_eq!(diags(&format!("{SAVED}{}", app("  provide accent = \"x\"\n  <button onClick={() => { toaster.show(Saved) }}>x</button>\n  <Region><Toaster /></Region>\n"))), none);
         assert_eq!(diags(&format!("{SAVED}{}", app("  <button onClick={() => { toaster.show(Saved) }}>x</button>\n  <Region><Toaster /></Region>\n"))), ["CONTEXT_NOT_FOUND@7"]);
-        // the object's name bound again
-        assert_eq!(diags(&app("  <ul>{for toast in [\"a\"] { <li>{toast}</li> }}</ul>\n")), ["SHADOWED_IMPORT@1"]);
+        // the object is the import by its scope: under another binding of the name the member is that binding's (a loop's
+        // variable, a parameter, a local), and a declaration that shadows the import is MO-1d's refusal, said once
+        assert_eq!(diags(&app("  <ul>{for toast in [\"a\"] { <li>{toast}{toast.success(\"a\")}</li> }}</ul>\n")), none);
+        assert_eq!(diags(&app("  <ul>{for t in [\"a\"] { <li>{toast.success(t)}</li> }}</ul>\n")), ["IO_IN_REACTIVE@3"]);
+        assert_eq!(diags(&app("  <button onClick={(toast) => { toast.success(\"a\") }}>{[1].map((toast) => toast.success)}</button>\n")), none);
+        assert_eq!(diags(&format!("component Inner() {{\n  toast = {{ success: (m) => m }}\n  <p>{{toast.success(\"a\")}}</p>\n}}\n{}", app("  <Inner />\n"))), ["SHADOWED_IMPORT@3"]);
         // a method of an import with no declaration is io as the import is; of a `pure` import, pure
         {
             let read = |p: &str| (p == "/app/main.rx").then(|| "import { notify } from \"./undeclared.js\"\nimport pure { read } from \"./undeclared.js\"\nexport default component App() {\n  <p>{notify.success(\"a\")}{read.all()}</p>\n}\n".to_string());
@@ -1151,8 +1112,7 @@ mod tests {
         assert_eq!(diags("mdelse", false), ["COMPONENT_AS_VALUE@mdelse.rx:10"] as [&str; 1]);
         // … given to a fn too
         assert_eq!(diags("mdcall", false), ["COMPONENT_AS_VALUE@mdcall.rx:10"] as [&str; 1]);
-        // … a second binding of the name: the count is of the name as written, and errs on that side
-        assert_eq!(diags("mdshadow", false), ["COMPONENT_AS_VALUE@mdshadow.rx:10"] as [&str; 1]);
+        assert_eq!(diags("mdshadow", false), [] as [&str; 0]); // a second binding of the name (a loop's variable) is another name: a mention is the name's by its scope (2026-11-26)
         // … exported: a signature says nothing of what a value holds
         assert_eq!(diags("mdexport", false), ["COMPONENT_AS_VALUE@mdexport.rx:9"] as [&str; 1]);
         // an undeclared prop
