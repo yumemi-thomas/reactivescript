@@ -1,0 +1,5 @@
+// router.ts in rows, from rx-declare's draft: the component that renders the route files' pages, and the typed path
+// builder the router makes of them. By hand: the component provides the router to what it renders.
+export context router from "@solidjs/router"
+export component Router(props: {}) provides(router)
+export const paths: typeof import("./router.ts").paths

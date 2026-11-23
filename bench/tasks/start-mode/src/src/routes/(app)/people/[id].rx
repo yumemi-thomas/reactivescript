@@ -1,0 +1,9 @@
+// /people/:id — the page of this route file is its default component. It has no region of its own: the layout's hold it.
+import { useParams } from "@solidjs/router"
+import { getPerson } from "../../../people.js"
+export default component Person() {
+  params = useParams()
+  person = await getPerson(params.id ?? "")
+  <h1>{person.name}</h1>
+  <p class="role">{person.role}, #{params.id}</p>
+}

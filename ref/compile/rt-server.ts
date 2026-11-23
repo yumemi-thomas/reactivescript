@@ -322,7 +322,10 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request
     // ---- context (RG-7): the server build's owner context, keyed by the declaration ----
     owner: () => getOwner(),
     context(name: string, dflt: (() => unknown) | null): Ctx { return { name, id: Symbol(name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any) as Acc } : null }; },
-    provide(c: Ctx, e: Entry) { const o = getOwner() as any; o._context = { ...o._context, [c.id]: e }; },
+    // (a component runs under an owner. None here means the component was rendered by another copy of Solid than the one
+    // this runtime imports: a dev server that bundles the app with its development build of Solid and leaves the runtime
+    // to Node, which loads its own. Said in words: the bare failure was "Cannot read properties of null")
+    provide(c: Ctx, e: Entry) { const o = getOwner() as any; if (!o) throw new Error(`[reactivescript] provide ${c.name}: no owner. A component is rendered by one copy of Solid and @reactivescript/runtime runs on another — under a dev server, the app's modules on Vite's and the runtime on Node's. List @reactivescript/runtime in the app's package.json dependencies (Solid's Vite plugin then loads it with the app's Solid), or add it to ssr.noExternal (11 CP-4a)`); o._context = { ...o._context, [c.id]: e }; },
     use(c: Ctx, owner: Owner): Entry {
       const e = ((owner ?? getOwner()) as any)?._context?.[c.id]; if (e) return e;
       if (c.dv) return c.dv;

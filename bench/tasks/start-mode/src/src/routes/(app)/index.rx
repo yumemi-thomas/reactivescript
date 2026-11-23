@@ -1,0 +1,6 @@
+// / — it reads what the app's component provides above the router.
+import { team } from "../../team.rx"
+export default component Home() {
+  t = use team
+  <h1>People of {t.name}</h1>
+}
