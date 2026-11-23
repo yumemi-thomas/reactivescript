@@ -61,7 +61,8 @@ function packageImports(entry, text) {
 function typesStamp(ts, spec, from) {
   try {
     const options = { module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, allowJs: false };
-    const resolve = (name, file) => ts.resolveModuleName(name, file, options, ts.sys).resolvedModule?.resolvedFileName;
+    const cache = require("./library-resolve.js").resolutions(ts, options, ts.sys);
+    const resolve = (name, file) => ts.resolveModuleName(name, file, options, ts.sys, cache).resolvedModule?.resolvedFileName;
     const entry = resolve(spec, from);
     if (!entry) return "";
     const h = crypto.createHash("sha256");

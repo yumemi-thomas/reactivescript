@@ -141,7 +141,7 @@ function packageOf(f) {
 function exportsOf(ts, checker, spec) {
   if (CTX.exports.has(spec)) return CTX.exports.get(spec);
   const map = new Map(); CTX.exports.set(spec, map);
-  const r = spec === CTX.spec ? undefined : require("./library-resolve.js").resolveAsLibrary(ts, spec, CTX.lib, CTX.entry, CTX.options, CTX.host);   // as the library resolves it: nested under it or hoisted, the same module
+  const r = spec === CTX.spec ? undefined : require("./library-resolve.js").resolveAsLibrary(ts, spec, CTX.lib, CTX.entry, CTX.options, CTX.host, CTX.cache);   // as the library resolves it: nested under it or hoisted, the same module
   const sf = r && CTX.program.getSourceFile(r.resolvedFileName);
   const mod = spec === CTX.spec ? CTX.mod : sf && checker.getSymbolAtLocation(sf);
   if (mod) for (const e of checker.getExportsOfModule(mod)) { const y = e.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(e) : e; if (e.name !== "default" && !map.has(y)) map.set(y, e.name); }
@@ -229,11 +229,13 @@ function subpathsOf(ts, pkg) {
  *  declared. */
 const WIDE = new Map();
 function wideIndex(ts, pkg) {
-  const key = `${path.dirname(CTX.entry)}\0${pkg}`;
+  // (kept for the process, which the language server's outlives an install: by the package.json it was read with)
+  const at = require("./library-resolve.js").packageDir(pkg, CTX.lib, CTX.entry); let stamp = ""; try { stamp = String(require("node:fs").statSync(path.join(at, "package.json")).mtimeMs); } catch { /* not installed */ }
+  const key = `${path.dirname(CTX.entry)}\0${pkg}\0${at}\0${stamp}`;
   if (WIDE.has(key)) return WIDE.get(key);
   const { specs, deps } = subpathsOf(ts, pkg);
   const files = new Map();
-  for (const spec of specs) { const r = require("./library-resolve.js").resolveAsLibrary(ts, spec, CTX.lib, CTX.entry, CTX.options, CTX.host); if (r && /\.d\.[cm]?ts$|\.tsx?$/.test(r.resolvedFileName)) files.set(spec, r.resolvedFileName); }
+  for (const spec of specs) { const r = require("./library-resolve.js").resolveAsLibrary(ts, spec, CTX.lib, CTX.entry, CTX.options, CTX.host, CTX.cache); if (r && /\.d\.[cm]?ts$|\.tsx?$/.test(r.resolvedFileName)) files.set(spec, r.resolvedFileName); }
   const index = new Map();
   if (files.size) {
     const program = ts.createProgram([...new Set(files.values())], { ...CTX.options, noEmit: true }, CTX.host, CTX.program);
@@ -901,7 +903,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const out = [];
   const contexts = [];
   const lines = [];
-  CTX = { refs, decl: !!mode.decl, whole: !!mode.whole, named: !!mode.named, spec, entry, lib, options: opts, host, program, mod, scope: new Set(), exports: new Map() };
+  CTX = { refs, cache: require("./library-resolve.js").resolutions(ts, opts, host), decl: !!mode.decl, whole: !!mode.whole, named: !!mode.named, spec, entry, lib, options: opts, host, program, mod, scope: new Set(), exports: new Map() };
   // the module's own types, each with how many type arguments its alias row takes (at least, at most): a row names one
   // bare where what it writes fits. As the library declares them, until a row's bounds turn out not to be nameable
   OWN_ALL = new Map(checker.getExportsOfModule(mod).map(s0 => [s0.name, s0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s0) : s0]).filter(([, y]) => y.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(y.flags & ts.SymbolFlags.Value)).map(([n, y]) => { const tp = y.declarations?.[0]?.typeParameters ?? []; return [n, refs ? [tp.filter(q => !q.default).length, tp.length] : tp.some(q => !q.default) ? [tp.length, tp.length] : [0, 0]]; }));
@@ -1132,7 +1134,8 @@ function declare(ts, spec, from, options = {}, how = {}) {
     // leaves the fewest `any`s (the earlier of two alike), and the row every draft had where it holds none
     const strip = ls => ls.map(l => l.replace(MARK, ""));
     const group = ls => { const by = new Map(); for (const l of ls) { const n = exportedIn(l); if (n) by.set(n, [...(by.get(n) ?? []), l]); } return by; };
-    const check = r => require("./declare-check.js").failing(ts, [...out, ...r.out, ...strip(r.lines)].join("\n") + "\n", out.length + r.out.length, strip(r.lines), spec, from, opts, program, lib);
+    const { resolutions } = require("./library-resolve.js"); const cache = resolutions(ts, opts, host);   // one reading of the disk: every candidate's
+    const check = r => require("./declare-check.js").failing(ts, [...out, ...r.out, ...strip(r.lines)].join("\n") + "\n", out.length + r.out.length, strip(r.lines), spec, from, opts, program, lib, cache);
     const fall = (r, bad, to) => { const by = group(to); const kept = [], done = new Set(); for (const l of r.lines) { const n = exportedIn(l); if (!n || !bad.has(n)) kept.push(l); else if (!done.has(n)) { done.add(n); kept.push(...(by.get(n) ?? [])); } } return { ...r, lines: kept }; };
     // fewest `any`s of the draft's own (MO-8q: the library's are not the draft's), then fewest parts said by their place
     const anys = (ls, mode) => introduced(ls.join("\n")) * 1000 + (ls.join("\n").match(/\b(?:Parameters|ReturnType)</g) ?? []).length + (mode?.whole ? 500 : 0);   // the last reading says least: only before an `any`

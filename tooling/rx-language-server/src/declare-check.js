@@ -11,7 +11,7 @@ const path = require("node:path");
  *  hold; null when there is no crate to check the draft with. A draft the crate cannot read is not that: no row of it
  *  could be held to the module, and every row would be written as every draft was, `any` for each type, with nothing
  *  said (a `readonly` prop did that to a whole library: 726 `any`s). It throws, with the line and the parser's reason. */
-function failing(ts, text, first, rows, spec, from, options, old, lib) {
+function failing(ts, text, first, rows, spec, from, options, old, lib, cache) {
   let b;
   const file = path.join(from, "__rx_declare__.d.rx");
   try { b = require("./rxc").boundary(file, spec, text); } catch { return null; }
@@ -29,7 +29,7 @@ function failing(ts, text, first, rows, spec, from, options, old, lib) {
   host.fileExists = f => path.resolve(f) === unit || fileExists.call(host, f);
   host.readFile = f => path.resolve(f) === unit ? b.code : readFile.call(host, f);
   // a package a row names is the one the library imports (MO-8o): resolved from the library's location, as rx-tsc holds it
-  if (lib) require("./library-resolve.js").resolveUnitsAsLibrary(ts, host, new Map([[unit, lib]]));
+  if (lib) require("./library-resolve.js").resolveUnitsAsLibrary(ts, host, new Map([[unit, lib]]), cache);
   const program = ts.createProgram([unit], { ...options, noEmit: true }, host, old);
   const sf = program.getSourceFile(unit);
   const bad = new Map();

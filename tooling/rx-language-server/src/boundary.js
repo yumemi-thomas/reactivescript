@@ -30,11 +30,11 @@ function importFrom(dir, file) {
  *  spec }` from the crate's analysis), checked against the module its importer's import resolves to, and each `.d.rx`
  *  the project names itself (`named`), against the module beside it. A declaration nothing imports and the project
  *  does not name is not the program's. */
-function boundaryUnits(ts, uses, named, options, host) {
+function boundaryUnits(ts, uses, named, options, host, cache) {
   const out = [], seen = new Set();
   const add = (file, module, why) => { const k = `${path.resolve(file)}\0${module}`; if (seen.has(k)) return; seen.add(k); out.push({ file, module, why }); };
   for (const u of uses) {
-    const r = ts.resolveModuleName(u.spec, u.importer, options, host).resolvedModule;
+    const r = ts.resolveModuleName(u.spec, u.importer, options, host, cache).resolvedModule;
     if (!r) continue;   // nothing TypeScript can type: the .d.rx stands for it (TY-4b)
     add(u.file, importFrom(path.dirname(u.file), r.resolvedFileName), u);
   }
@@ -77,7 +77,8 @@ function checkBoundaries(ts, rxFiles, options, scope) {
   const found = [];
   const units = [];
   const host = ts.createCompilerHost(options);
-  const list = scope ? boundaryUnits(ts, scope.uses ?? [], scope.named ?? [], options, host) : declarations(rxFiles);
+  const { resolutions, resolveUnitsAsLibrary } = require("./library-resolve.js");
+  const list = scope ? boundaryUnits(ts, scope.uses ?? [], scope.named ?? [], options, host, resolutions(ts, options, host)) : declarations(rxFiles);
   const taken = new Set();
   for (const d of list) {
     const r = boundary(d.file, d.module);
@@ -97,14 +98,14 @@ function checkBoundaries(ts, rxFiles, options, scope) {
   // MO-8o: a package a row names (`import("@solid-primitives/utils").Many<T>`) is the one the declared library imports:
   // resolved from where that library is installed (nested under it or hoisted beside the app, the same), then from
   // beside the declaration. A relative name is the declaration's own (`import("./table.js")`)
-  const libs = new Map();
+  const libs = new Map(), cache = resolutions(ts, options, host);   // (made here: the units, which the host has now, are not in the one above)
   const inPackage = f => /[\\/]node_modules[\\/]/.test(f) || (fs.existsSync(f) && /[\\/]node_modules[\\/]/.test(fs.realpathSync(f)));
-  for (const u of units) { const lib = ts.resolveModuleName(u.module, u.at, options, host).resolvedModule?.resolvedFileName; if (lib && inPackage(lib)) libs.set(path.resolve(u.at), lib); }
-  if (libs.size) require("./library-resolve.js").resolveUnitsAsLibrary(ts, host, libs);
+  for (const u of units) { const lib = ts.resolveModuleName(u.module, u.at, options, host, cache).resolvedModule?.resolvedFileName; if (lib && inPackage(lib)) libs.set(path.resolve(u.at), lib); }
+  if (libs.size) resolveUnitsAsLibrary(ts, host, libs, cache);
   const program = ts.createProgram([...byPath.keys()], { ...options, noEmit: true }, host);
   for (const u of units) {
     const sf = program.getSourceFile(u.at);
-    const typesOf = program.getSourceFile(u.at) && ts.resolveModuleName(u.module, u.at, options, host).resolvedModule;
+    const typesOf = program.getSourceFile(u.at) && ts.resolveModuleName(u.module, u.at, options, host, cache).resolvedModule;
     // a module with no TypeScript types of its own is typed by its .d.rx (TY-4b): there is nothing to check it against
     if (!typesOf || /\.(m?js|jsx)$/.test(typesOf.resolvedFileName) || require("./declarations.js").isVirtual(typesOf.resolvedFileName)) continue;
     const dgs = [...program.getSyntacticDiagnostics(sf), ...program.getSemanticDiagnostics(sf)].map(dg => {
