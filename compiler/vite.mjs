@@ -457,8 +457,15 @@ export default function rx(options = {}) {
       const keyed = (code, fn) => solid.dev && /^export (?:default )?function (?:module|__rxModule)\(/m.test(code)
         ? `${code}\n${fn}.__rxKey = ${JSON.stringify(`${path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/")}?${page ? PAGE : lib ? LIB : DEP}#${createHash("sha1").update(m.code).digest("hex").slice(0, 12)}`)};\n` : code;
       const libName = JSON.stringify(path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/"));
+      // CP-4d (2026-11-25): … and its exported records of functions (`export route = { loader: …, validateSearch: … }`),
+      // each a plain record to JavaScript — what a file-based router spreads into the route it makes of the file. Each
+      // function calls the module's own, in the page's instance of the module (made at the first call, as a library's
+      // exports are, MO-13e), so the record is there when the importing module is evaluated, before any app is mounted.
+      const records = Object.entries(out.records ?? {});
+      const rt = JSON.stringify(runtimeFor(path.resolve(root ?? lastRoot ?? process.cwd())));
       const named = lib && file === entry
-        ? `\nmodule.__rxName = ${libName};` + (out.components?.length ? `\nimport { components as __rxComponents } from ${JSON.stringify(runtimeFor(path.resolve(root ?? lastRoot ?? process.cwd())))};\nconst __rx = __rxComponents(module, undefined, ${libName});\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n` : "\n")
+        ? `\nmodule.__rxName = ${libName};` + (out.components?.length ? `\nimport { components as __rxComponents } from ${rt};\nconst __rx = __rxComponents(module, undefined, ${libName});\n${out.components.map(n => `export const ${n} = __rx.${n};`).join("\n")}\n` : "\n")
+          + (records.length ? `import { library as __rxLibrary } from ${rt};\nconst __rxValues = __rxLibrary(module, ${libName});\n${records.map(([n, keys]) => `export const ${n} = { ${keys.map(k => `${JSON.stringify(k)}: (...a) => __rxValues.${n}()[${JSON.stringify(k)}](...a)`).join(", ")} };`).join("\n")}\n` : "")
         : "";
       // CP-4d: a route file's page (`?rx-page`) — the default export is the module's default component, bound as the named
       // ones are (a file-based router imports a route file for its default export); the module itself is `__rxModule`.
@@ -466,7 +473,7 @@ export default function rx(options = {}) {
       if (page && file === entry) {
         if (!out.page) throw new Error(`${path.relative(process.cwd(), file)} is imported as a route file's page (?rx-page) and has no default component: write \`export default component Page() { … }\` (11 CP-4d)`);
         const code = tagDeps(m.code).replace(/^export default function module\(/m, "export function __rxModule(");
-        return { code: keyed(code + named.replace("__rxComponents(module,", "__rxComponents(__rxModule,").replace("\nmodule.__rxName = ", "\n__rxModule.__rxName = ") + `export default __rx.${out.page};\n`, "__rxModule"), map: m.map, css: m.css ?? "" };
+        return { code: keyed(code + named.replace("__rxComponents(module,", "__rxComponents(__rxModule,").replace("__rxLibrary(module,", "__rxLibrary(__rxModule,").replace("\nmodule.__rxName = ", "\n__rxModule.__rxName = ") + `export default __rx.${out.page};\n`, "__rxModule"), map: m.map, css: m.css ?? "" };
       }
       return { code: keyed(tagDeps(m.code) + named, "module"), map: m.map, css: m.css ?? "" };
   }

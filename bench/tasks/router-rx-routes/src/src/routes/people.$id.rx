@@ -1,10 +1,17 @@
-// /people/$id — the param is the generated tree's: `from` names a route of it.
-import { useParams } from "@tanstack/solid-router"
+// /people/$id — the param is the generated tree's: `from` names a route of it. The route validates its search (the
+// file's `route` export), and the page reads what it validated.
+import { useParams, useSearch } from "@tanstack/solid-router"
 import { fetchPerson } from "../people.js"
+
+export route = {
+  validateSearch: (search: Record<string, unknown>) => ({ tab: search.tab === "role" ? "role" : "name" })
+}
 
 export default component Person() {
   params = useParams({ from: "/people/$id" })
+  search = useSearch({ from: "/people/$id" })
   person = await fetchPerson(params.id)
   <h1>{person.name}</h1>
   <p>{person.role}, #{params.id}</p>
+  <p class="tab">tab: {search.tab}</p>
 }

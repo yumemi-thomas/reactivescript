@@ -387,6 +387,17 @@ if (!filter || "context".includes(filter)) {   // CP-4b under the dev server: a 
   });
   await server.close();
 }
+if (!filter || "records".includes(filter)) {   // CP-4d (2026-11-25): a page's exported record of functions is a plain record to JavaScript
+  const { default: rx } = await import(pathToFileURL(path.join(pkg, "vite.mjs")).href);
+  const root = project("records", "shop/main.rx"), file = path.join(root, "src/shop/route.rx");
+  writeFileSync(file, `export route = {\n  loader: (ctx: { params: { id: string } }) => ctx.params.id,\n  validateSearch: (search: Record<string, unknown>) => ({ tab: search.tab === "a" ? "a" : "b" })\n}\nexport limit = { max: 3 }\nexport default component Page() {\n  <h1>page</h1>\n}\n`);
+  const ctx = (id, moduleId) => ({ id, moduleId, root, ssr: false, solid: { generate: "dom", hydratable: false }, addWatchFile() {} });
+  const code = rx().compile("", ctx(file, `${file}?rx-page`)).code;
+  const want = [/import \{ library as __rxLibrary \} from /, /const __rxValues = __rxLibrary\(__rxModule, "src\/shop\/route\.rx"\);/, /export const route = \{ "loader": \(\.\.\.a\) => __rxValues\.route\(\)\["loader"\]\(\.\.\.a\), "validateSearch": \(\.\.\.a\) => __rxValues\.route\(\)\["validateSearch"\]\(\.\.\.a\) \};/, /export default __rx\.Page;/];
+  for (const w of want) if (!w.test(code)) throw new Error(`a page's exported record of functions is exported to JavaScript as a plain record: ${w} is not in\n${code.slice(-900)}`);
+  if (/export const limit/.test(code)) throw new Error("a record that holds no function is not one a host is handed (it is the module's value, read through the module)");
+  console.log("ok records: a page's exported record of functions (`export route = { loader, validateSearch }`) is a plain record to JavaScript, each function the module instance's");
+}
 if (!filter || "cold".includes(filter)) {   // a dependency asked for before its entry, as Vitest's `fsModuleCache` leaves it
   const { default: rx } = await import(pathToFileURL(path.join(pkg, "vite.mjs")).href);
   const root = project("cold", "shop/main.rx"), catalog = path.join(root, "src/shop/catalog.rx");

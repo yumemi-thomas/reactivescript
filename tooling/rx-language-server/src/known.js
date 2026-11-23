@@ -28,7 +28,7 @@ module.exports = {
       Link: "export component Link(props: { to: string; params?: Parameters<typeof import(\"@tanstack/solid-router\").Link>[0][\"params\"]; children?: View }) uses(router)",
     },
     // its hooks read the router's context; their types are the library's, as drafted
-    words: { useParams: { pure: true, after: "uses(router)" }, RouterProvider: { after: "provides(router)" }, Outlet: { after: "uses(router)" },
+    words: { useParams: { pure: true, after: "uses(router)" }, useLoaderData: { pure: true, after: "uses(router)" }, useSearch: { pure: true, after: "uses(router)" }, RouterProvider: { after: "provides(router)" }, Outlet: { after: "uses(router)" },
       // constructors: each call makes a route and writes nothing (`pure`), and keeps the component for the provider
       createRoute: { pure: true, after: "renders(RouterProvider)" }, createRootRoute: { pure: true, after: "renders(RouterProvider)" } },
   },

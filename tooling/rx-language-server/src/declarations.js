@@ -113,7 +113,10 @@ function libDeclaration(rx, page = false) {
   const names = [...src.matchAll(/^export\s+(?:default\s+)?component\s+([A-Za-z_$][\w$]*)/gm)].map(m => m[1]);
   const dflt = /^export\s+default\s+component\s+([A-Za-z_$][\w$]*)/m.exec(src)?.[1];
   const from = JSON.stringify("./" + path.basename(rx));
-  const named = `import type * as M from ${from};\n${names.map(n => `export declare const ${n}: typeof M.${n};`).join("\n")}\n`;
+  // CP-4d (2026-11-25): … and its exported records (`export route = { loader: …, validateSearch: … }`), each a plain
+  // record of functions to JavaScript, typed as the module's own
+  const records = [...src.matchAll(/^export\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]*)?=\s*\{/gm)].map(m => m[1]);
+  const named = `import type * as M from ${from};\n${[...names, ...records].map(n => `export declare const ${n}: typeof M.${n};`).join("\n")}\n`;
   if (page) return named + (dflt ? `declare const page: typeof M.${dflt};\nexport default page;\n` : "");
   return named + `declare const module: (rt: unknown) => { ${names.map(n => `${n}: typeof M.${n}`).join("; ")} };\nexport default module;\n`;
 }

@@ -3625,7 +3625,22 @@ says what the host does, once, in the words a factory's row already has.
     only beside a clone would be green in CI by not running
     (`bench/tasks/router-rx-routes/vendor/README.md`). It is counted as
     what it is: a fork's build, not a release, and no part of MO-8r's
-    count (it adds no word).
+    count (it adds no word). **A route's options in the same file
+    (2026-11-25)**: the fork's second option,
+    `routeComponentOptionsExport: "route"` (`7ba2912`), has the
+    generator take a component route file's options — `loader`,
+    `validateSearch`, `beforeLoad` — from the export of that name,
+    where the file's text exports it, and spread them into the route it
+    writes; an `.rx` route file exports them as a record of functions
+    (`export route = { loader: () => fetchPeople() }`, 11 CP-4d *A
+    page's route options*). The TS route module that stood beside an
+    `.rx` page for its loader is no longer needed, and the route's
+    types — the loader's answer in `useLoaderData({ from })`, the search
+    a link must give — come from the `.rx` file through the generated
+    tree. Built and run (`bench/tasks/router-rx-routes`). Not among
+    them: a route's own components (`errorComponent`,
+    `pendingComponent`), which a record of an equation cannot hold
+    (MO-11c).
   - **The fallback**, for TanStack Router and Start as released: a route
     file is a few lines of TSX that hand the route a component of an
     `.rx` module (`?rx-lib`; `bench/tasks/router-provider`,

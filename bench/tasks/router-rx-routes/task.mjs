@@ -26,6 +26,11 @@ export default {
     { name: "a link to no route is refused (the generated route tree)", file: ROOT, edit: ['<Link to="/">Home</Link>', '<Link to="/home">Home</Link>'], expect: /TS2322|TS2820/ },
     { name: "useParams' `from` is a route of the tree", file: PERSON, edit: ['useParams({ from: "/people/$id" })', 'useParams({ from: "/person/$id" })'], expect: /TS2322|TS2820|TS2345/ },
     { name: "a link without the param its route needs", file: ROOT, edit: [' params={{ id: "1" }}', ""], expect: /TS2741|TS2322|TS2739/ },
+    // the route's options are the file's `route` export (the generator's routeComponentOptionsExport): their types
+    // reach the page, and every link, through the generated tree
+    { name: "the loader's answer keeps its type in the page that reads it", file: HOME, edit: ["<li>{p.name}</li>", "<li>{p.nam}</li>"], expect: /TS2339|TS2551/ },
+    { name: "a link to a route needs the search that route validates", file: ROOT, edit: [' search={{ tab: "role" }}', ""], expect: /TS2741|TS2322|TS2739/ },
+    { name: "the page reads a search param its route does not validate", file: PERSON, edit: ["tab: {search.tab}", "tab: {search.page}"], expect: /TS2339/ },
     { name: "the answer keeps the backend's type in the page", file: PERSON, edit: ["<p>{person.role}, #{params.id}</p>", "<p>{person.rank}, #{params.id}</p>"], expect: /TS2339/ },
   ],
   bad: [
@@ -42,6 +47,10 @@ export default {
     // the declaration is derived from the generated tree (`//@ routes`, 09 MO-14g): one that falls behind is refused
     { name: "a route file added, and the host's declaration not written again: the build refuses the stale one", add: ["src/routes/about.rx", "export default component About() {\n  <h1>About</h1>\n}\n"], build: /HOST_VIEW_STALE[\s\S]*About is a route/ },
     { name: "the host's declaration edited by hand: a page taken out of the root route's children", file: "src/host.d.rx", edit: ["{ component: Root, children: [{ component: Home }, { component: Person }] }", "{ component: Root, children: [{ component: Home }] }, { component: Person }"], gate: /HOST_VIEW_STALE.*Person is among Root's children/ },
+    // a route's options are an equation's value: functions made in reactive scope, so pure (02 SC-3)
+    { name: "a loader that does something instead of asking: io in the route's options", file: HOME, entry: HOME, edit: ["loader: () => fetchPeople()", 'loader: () => log("home")'], expect: "IO_IN_REACTIVE" },
+    { name: "a loader that writes the module's state", file: HOME, entry: HOME, edit: ["export route = {\n  loader: () => fetchPeople()\n}", "source asked := 0\nexport route = {\n  loader: () => { asked := asked + 1 }\n}"], expect: "REACTIVE_WRITE_IN_OWNED_SCOPE" },
+    { name: "the loader's data read outside the provider (in the app, above the Shell)", edit: ["export default component App() {\n", "export default component App() {\n  first = useLoaderData({ from: \"/\" })\n"], edit2: ['import { AppRouter } from "./router.tsx"', 'import { AppRouter } from "./router.tsx"\nimport { useLoaderData } from "@tanstack/solid-router"'], expect: "CONTEXT_NOT_FOUND" },
     { name: "a page's own failure, a class the layout's region does not take", file: PERSON, entry: PERSON, edit: ["person = await fetchPerson(params.id)\n  <h1>{person.name}</h1>", "person = await fetchPerson(params.id)\n  stamp = await fetchStamp(params.id)\n  <h1>{person.name} {stamp}</h1>"], edit2: ['import { fetchPerson } from "../people.js"', 'import { fetchPerson, fetchStamp } from "../people.js"'], expect: "UNHANDLED_FAILURE" },
   ],
   async run(h) {
@@ -51,10 +60,15 @@ export default {
       const page = await h.page();
       await page.goto(`http://127.0.0.1:${port}/people/1`);
       h.check("the Shell's header, and the route file's page for the URL", await h.until(async () => /Directory.*Ann.*engineer, #1/.test(await h.text(page))), await h.text(page));
-      await page.click("a[href='/people/9']");
+      await page.click("a[href^='/people/9']");
       h.check("a route file's NotFound shows at the root route's typed region", await h.until(async () => /no person 9/.test(await h.text(page))), await h.text(page));
       await page.click("a[href='/']");
       h.check("navigation on the client, to a route file that reads what the app's entry provides above the router", await h.until(async () => /People of Directory/.test(await h.text(page)) && !/no person/.test(await h.text(page))), await h.text(page));
+      h.check("the route's loader — the file's `route` export — is run by the router, and the page reads its answer", await h.until(async () => /Ann\s*Bo/.test(await h.text(page, ".people"))), await h.text(page));
+      await page.click("a[href^='/people/1']");
+      h.check("the route's validateSearch gives the page its search: the link's", await h.until(async () => /tab: role/.test(await h.text(page, ".tab"))), await h.text(page));
+      await page.goto(`http://127.0.0.1:${port}/people/2?tab=nonsense`);
+      h.check("…and what the URL gives, validated", await h.until(async () => /Bo/.test(await h.text(page)) && /tab: name/.test(await h.text(page, ".tab"))), await h.text(page));
       h.check("no console errors or warnings", h.problems.length === 0, h.problems);
       await page.close();
       // the declaration itself, run: rx-verify renders the probe's scene (host.probe.mjs) and holds the view to it
@@ -76,7 +90,7 @@ export default {
       h.check("the dev server: an edited route file is shown, and still reads the app's context (one module, served under two URLs)", await h.until(async () => /People in Directory/.test(await h.text(page)), 300), `${await h.text(page)} ${h.problems.slice(from).join(" | ")}`);
       await page.reload();
       h.check("the dev server: and after a reload of the page", await h.until(async () => /People in Directory/.test(await h.text(page)), 300), `${await h.text(page)} ${h.problems.slice(from).join(" | ")}`);
-      await page.click("a[href='/people/1']");
+      await page.click("a[href^='/people/1']");
       h.check("the dev server: navigation to the page with a param", await h.until(async () => /Ann.*engineer, #1/.test(await h.text(page)), 300), await h.text(page));
       writeFileSync(person, was[1].replace("{person.role},", "{person.role} here,"));
       h.check("the dev server: that route file edited, shown at its URL", await h.until(async () => /engineer here, #1/.test(await h.text(page)), 300), `${await h.text(page)} ${h.problems.slice(from).join(" | ")}`);

@@ -293,6 +293,57 @@ record argued each way; this is the decision.
   which is `?rx-page` used as it is with `filesystem-routing`
   (`bench/tasks/router-rx-routes`).
 
+  *A page's route options (2026-11-25).* A route is more than a
+  component: a loader, the search it validates, what runs before it
+  loads. With TanStack's generator those lived in a TS route module
+  beside the `.rx` page, because a page module gave JavaScript its
+  component and nothing else. An `.rx` module may export them as what
+  they are, a record of functions —
+
+  ```rx
+  export route = {
+    loader: () => fetchPeople(),
+    validateSearch: (search: Record<string, unknown>) => ({ tab: search.tab === "role" ? "role" : "name" })
+  }
+  export default component Home() {
+    people = useLoaderData({ from: "/" })
+    …
+  }
+  ```
+
+  — and a module imported `?rx-page` or `?rx-lib` hands JavaScript each
+  **exported equation whose right side is a record literal of function
+  literals** as a plain record under its name (`import { default as
+  Page, route } from "./routes/index.rx?rx-page"`), beside its
+  components. The build lists them (`records: { route: ["loader",
+  "validateSearch"] }`), and each function of the record calls the
+  module's own, in the page's instance of the module — made at the
+  first call, as a library's exports are (09 MO-13e), so the record
+  exists when the importing module is evaluated, before any app is
+  mounted, which is when a router builds its tree. `rx-tsc` types the
+  import by the module's projection (`typeof M.route`), so the types
+  reach the host: the route TanStack's generator writes
+  (`createFileRoute("/")({ ...route, component })`, the fork's
+  `routeComponentOptionsExport`, 09 MO-14 *The native shape*) is typed
+  by the loader and the validator the file exports, and through the
+  registered router so are `useLoaderData({ from: "/" })` in the page
+  and the `search` a `<Link>` to the route must give. **Nothing is
+  added to the language**: an exported equation and a closure are what
+  they were, and the checkers hold the functions as they hold any made
+  in reactive scope (02 SC-3) — pure. A loader asks (`() =>
+  fetchPeople()`, a `pure` import or a server fn); one that does
+  something (`() => log("home")`) is `IO_IN_REACTIVE`, one with a
+  statement body that writes is `REACTIVE_WRITE_IN_OWNED_SCOPE`, where
+  it is written. What a host does not get: a record with a field that
+  is no function literal (it stays the module's value, read through the
+  module), and a route's own *components* (`errorComponent`,
+  `pendingComponent`) — a component in a record of an equation is a
+  value (09 MO-11c), and where the host renders it is not said; a
+  route's failure and wait are held by regions, in the layout or the
+  page. It names no router: a record of functions is any host's.
+  `compiler/test/vite.mjs` (`records`); `bench/tasks/router-rx-routes`
+  (a loader and a validated search, three type probes, three variants).
+
   *Solid's start mode (2026-11-24).* `@solidjs/vite-plugin` 3 has Start as
   a mode of the plugin — `solid({ start: true, ssr: true })` — which owns
   the entries, the dev server's render and the build: an app is its root

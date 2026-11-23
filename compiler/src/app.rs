@@ -98,6 +98,20 @@ pub fn app_with(entry: &str, target: Target, module_name: &str, spa: bool, libra
             }) {
                 result["page"] = json!(page);
             }
+            // CP-4d (2026-11-25): the entry's exported records of functions — `export route = { loader: …, validateSearch:
+            // … }` — each with its keys: what a JS host is handed as a plain record (a file-based router's route options)
+            let mut records = Map::new();
+            for d in &set.programs[&set.entry].decls {
+                if let crate::ast::Decl::Eq { name, e, exported: true, .. } = d {
+                    if let crate::ast::ExprKind::Rec(fields) = &e.k {
+                        let keys: Option<Vec<&str>> = fields.iter().map(|f| match f { crate::ast::Field::Kv { key, v } if matches!(v.k, crate::ast::ExprKind::Fn { .. }) => Some(key.as_str()), _ => None }).collect();
+                        if let Some(keys) = keys.filter(|k| !k.is_empty()) {
+                            records.insert(name.clone(), json!(keys));
+                        }
+                    }
+                }
+            }
+            result["records"] = Value::Object(records);
             // MO-13e: every module's signature as the compiler prints it (`//@ signature …`): what a package ships as its
             // `.d.rx`, beside the module's compiled JavaScript
             let mut sigs = Map::new();

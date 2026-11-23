@@ -3,6 +3,10 @@ const people = { 1: { name: "Ann", role: "engineer" }, 2: { name: "Bo", role: "d
 export class NotFound extends Error {
   constructor(id) { super(`no person ${id}`); this.name = "NotFound"; }
 }
+export async function fetchPeople() {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  return Object.entries(people).map(([id, person]) => ({ id, name: person.name }));
+}
 export async function fetchPerson(id) {
   await new Promise((resolve) => setTimeout(resolve, 30));
   const person = people[id];

@@ -2,7 +2,7 @@
   "name": "rx-bench-router-rx-routes",
   "private": true,
   "type": "module",
-  "description": "The router-rx-routes task's own install: TanStack Router's generator and Vite plugin built from a fork (vendor/README.md: github.com/yumemi-thomas/router, branch rx-route-files, 8688de6), which adds the option `routeComponentExtensions` — a route file that is a component in another language, imported through a query. Nothing else differs from the workspace: the router itself is npm's.",
+  "description": "The router-rx-routes task's own install: TanStack Router's generator and Vite plugin built from a fork (vendor/README.md: github.com/yumemi-thomas/router, branch rx-route-files, 7ba2912), which adds the options `routeComponentExtensions` — a route file that is a component in another language, imported through a query — and `routeComponentOptionsExport`, the name such a file exports its route options under. Nothing else differs from the workspace: the router itself is npm's.",
   "dependencies": {
     "@tanstack/router-generator": "file:vendor/tanstack-router-generator-1.168.0.tgz",
     "@tanstack/router-plugin": "file:vendor/tanstack-router-plugin-1.169.0.tgz"

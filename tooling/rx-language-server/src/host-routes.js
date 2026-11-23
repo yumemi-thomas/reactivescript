@@ -80,7 +80,8 @@ function readTanstack(source, text) {
   const pkg = /from\s+(["'])(@tanstack\/[\w-]+-router)\1/.exec(text)?.[2] ?? "@tanstack/solid-router";
   const routes = new Map();   // the generator's name for a route (`Index`, `PeopleId`, `root`) → { file, name, id, path, parent }
   const at = n => { if (!routes.has(n)) routes.set(n, { key: n, children: [] }); return routes.get(n); };
-  for (const m of text.matchAll(/^import\s*\{\s*default\s+as\s+(\w+?)RouteComponent\s*\}\s*from\s*(["'])([^"'?]+)(\?[^"']*)?\2/gm)) {
+  // (with the file's route options beside it, where it exports them: `{ default as XRouteComponent, route as XRouteOptions }`)
+  for (const m of text.matchAll(/^import\s*\{\s*default\s+as\s+(\w+?)RouteComponent\s*(?:,\s*[\w$]+\s+as\s+\w+?RouteOptions\s*,?\s*)?\}\s*from\s*(["'])([^"'?]+)(\?[^"']*)?\2/gm)) {
     const file = path.resolve(dir, m[3]); const c = componentsOf(file);
     if (!c.dflt) problems.push(`${rel(dir, file)} is a route file with no default component (the tree imports it as a page)`);
     Object.assign(at(m[1]), { file, name: c.dflt, route: file });

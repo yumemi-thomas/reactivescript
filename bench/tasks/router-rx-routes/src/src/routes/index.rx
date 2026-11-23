@@ -1,7 +1,17 @@
-// / — it reads what the app's entry provides above the router.
+// / — it reads what the app's entry provides above the router, and what its own loader answered: the route's options
+// are the file's `route` export, which the router's generator spreads into the route it writes for the file
+// (`routeComponentOptionsExport`). The loader's answer is typed through the generated tree.
+import { useLoaderData } from "@tanstack/solid-router"
+import { fetchPeople } from "../people.js"
 import { team } from "../team.rx"
+
+export route = {
+  loader: () => fetchPeople()
+}
 
 export default component Home() {
   t = use team
+  people = useLoaderData({ from: "/" })
   <h1>People of {t.name}</h1>
+  <ul class="people">{for p in people { <li>{p.name}</li> }}</ul>
 }
