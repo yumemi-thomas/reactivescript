@@ -2460,3 +2460,273 @@ Twenty-seven entries have a module of the app's own (thirty).
 Parity: 720 programs agree between the crate and `ref/` in each of the
 three checking modes (698 before this round), 281 lower alike, 316
 project alike.
+
+## A fourteenth round: the words that are in the code (2026-11-26)
+
+The thirteenth round ended on a line under *What remains*: "words a
+person says and no tool can: `pure`, `handler`, `rejects`". Counted on
+the benchmark's tasks, those were most of what was still written by
+hand over a draft — `pure` on 60 rows, `handler` on 16 callbacks,
+`rejects(E)` on 9, `draft` on 2 (in the words the scorecard counts:
+`pure` alone 81, `handler` 33, `pure … rejects(E)` 24) — and every one
+is a fact about what a function does, which is in its code. This round
+has `rx-declare` read the code (09 MO-8v).
+
+### What is read, and what a word must be shown
+
+The JavaScript an import resolves to, with TypeScript's parser
+(`tooling/rx-language-server/src/infer.js`): the app's module, a
+package's shipped ES module — the file its `solid` condition names
+where it has one (its source before Solid's compiler, JS or JSX, at the
+version installed: 101 of the 109 packages the coverage suite installs
+have it), else every file its export map can hand an `import`, each of
+which must agree — and what those import. A function at a time, to a
+fixed point over the calls between them.
+
+The rule is one sentence: **a word is written only where the code
+proves it, and anything the reading cannot see through is a refusal**.
+`pure` is proven where the call only computes; `handler` where every
+call of the callback is behind a listener, a timer, an observer, a
+promise or a passed `await`; `draft` where the fn writes through a name
+that holds nothing but that argument; `rejects(E)` where every `throw`
+reached is `new C` of a class the module exports. The table of what
+each word takes and what refuses it is the rule's (MO-8v).
+
+Three decisions, with their reasons:
+
+- **An inferred `pure` is narrower than the word.** R-io-4's `pure` is
+  "no writes to reactive state, safe to ask again": a loader that
+  fetches is `pure`. No reading shows a `fetch` safe to ask again, so
+  the reading proves the function *computes* — which is deterministic
+  and the same on both machines, so 10 SV-7c's second assertion holds
+  for it by construction — and leaves the loader to a person. One
+  environment read is let through, a *test* of where the code runs
+  (`isServer`, `typeof window`), since every primitive has one, and
+  only where the fn answers no data.
+- **The mark is a comment, `//@ inferred <export>: <words>`,** not a
+  word: the notation is closed (MO-8r), both checkers read the row as
+  any row (CN-8), a strict record's hash does not move, and the line
+  still does three jobs — a person sees which words nobody checked by
+  hand, the benchmark counts them apart, and `rx-verify` runs them.
+- **A generated declaration takes the words.** MO-8l's caution was
+  against guesses ("an import nothing reviewed cannot make the checker
+  accept more"); a proven word is not one. Draft rule 8.
+
+### The adversarial suite
+
+`test/infer.js`, 170 checks. Each function of the refused side does one
+thing a word must not cover, as code hides it, and each must be refused
+with a reason that names the thing:
+
+- `pure`, 47: a clock two calls down; `new Date(s)`; a push to the
+  argument, a write through an alias of it, through a copy's element,
+  in a `forEach` callback, by `Object.assign`, by `delete`; a global, a
+  module variable, a module object written; a module variable read that
+  another export assigns; a constant another export changes, or hands
+  to another package; a call through a computed member, of a parameter
+  and of a table; `sort()` and `reverse()` in place; `Math.random`,
+  `crypto.randomUUID`; a getter and a `valueOf` of a module object;
+  `eval`, `new Function`, `Function(…)`; `this`; `console.log`; `fetch`;
+  `localStorage`; `toLocaleString`, `localeCompare`; an import that is
+  not read; `import()`; recursion through an unproven function; a timer
+  that calls the callback; a listener registered; a `g`-flagged
+  pattern; a method that is not the language's; `.apply`; data that
+  depends on `typeof window`; `navigator.language`; a generator; a
+  write in a nested function; `Object.freeze` of the argument; an async
+  computation that fetches; an exported object read; a constant handed
+  back by another export.
+- `handler`, 21: called on one branch only; stored in a module variable
+  and called by another export; wrapped in a function that is handed
+  back; kept in a record's method; called in `createMemo`, in an
+  effect's first function, by `list.map`, before an `await`, after an
+  `await` on one branch only, in a promise's executor; given to a
+  package that is not read, to `source.subscribe`; through a helper
+  that calls it, through one that keeps it; handed back; a record's
+  field called while the fn runs, a record spread, a record given
+  whole; a named listener that is also called; never called; bound and
+  called.
+- `rejects`, 11: a call that is not read; a thrown value; a rethrow; an
+  awaited argument; a class the module does not export; a built-in's
+  class; a callback; `JSON.parse`; a rejection with a value; a helper
+  that throws `Error`; a promise the fn was handed.
+
+Their honest twins — 19, 13 and 7 — are proven. A package whose two
+builds disagree is refused; one with a `solid` condition is read from
+that source; `--why` says each; both checkers accept a program for an
+inferred word and refuse one for a word withheld; `rx-verify` reports
+each of nine rows that claim what their code does not do. All pass.
+
+### `rx-verify` against the reading
+
+A row marked `//@ inferred` is run against what the reading claims
+(MO-8v): 43 of the 48 inferred words in the tasks' kept rows are run by
+`rx-verify` (each with a probe's arguments: 21 probe files beside the
+declarations) and none is contradicted. Of the other 5, 2 are
+`instantiates`, which has no run of its own; 2 are rows `rx-verify`
+does not read (`getCoreRowModel`, `getPaginationRowModel`: a type
+parameter whose bound has parentheses — its row reader's limit, older
+than this round); and 1 is `makeResizeObserver`'s callback, which no
+probe can make the page call (there is no layout to resize under
+`--dom`). `--check` holds it: a contradicted word, or a kept
+row whose mark is not the draft's, is a problem. **One false claim was
+found, by reading a draft and not by a probe, and fixed before any
+number was taken:** valibot's `flatten(issues)` was drafted `draft
+issues` — it builds a record and pushes the issues' messages into lists
+of its own, and the reading had taken a write to a local that *may*
+hold a part of the argument for a write to the argument. A `draft` is
+now written only for a write through a name that holds nothing else
+(the row is `fn`, its question asked).
+
+### What it recovered, and why the rest remains
+
+On the tasks, by row (hand-written, before → after):
+
+| word | before | after | what remains, and why |
+| --- | --- | --- | --- |
+| `pure` | 60 | 26 | a value made by a call (`getPerson = query(…)` ×3, `useKeyDownList = createSingletonRoot(…)`); a loader that counts its calls on a global (`fetchTodo`, `fetchTodos`); the environment read when it is called (`makeClient`, `dehydrated`: `document`; `createMediaQuery`: `window.matchMedia`; `whereAmI`, rightly — it is the divergence `rx-verify` reports); a listener registered in the call (`createShortcut`); an object the module exports (`createMousePosition`, `createForm` ×2, `createWritableMemo`); Solid's hydration state (`createConnectivitySignal`); a function chosen by a condition (`createEventBus`); another package's object and its methods (`createVirtualizer`, `createTable`, `persisted`, `ward`, `createTransform`, `useTheme`, `useTicket`); a module with no types, so no draft at all (`fetchPerson` in `start-route`); and one the reading contradicts — `createSorted` sorts its list in place under `options.dirty` |
+| `handler` | 16 | 7 | a component made by a factory (`Toggle`, `Checkbox`, `RadioGroup`), props that reach an element through a spread or `omit` (`Dialog`, `Form` ×2), a callback of a function the result holds (`createEventBus().listen`) |
+| `rejects(E)` | 9 | 4 | `getPerson` ×3 (made by a call), `fetchPerson` (no types) |
+| `draft` | 2 | 0 | |
+| `instantiates` | 5 | 3 | a word the draft adds only to a row it proved `pure` |
+
+In the scorecard's words: 214 hand-written, 157 now, and 48 inferred
+counted apart.
+
+### The questions a draft asks
+
+Over the coverage suite's 193 modules, drafted whole (5 076 rows):
+
+| question | before | after | |
+| --- | --- | --- | --- |
+| `pure?` | 517 | 430 | 330 fns proven; the rest by a name only |
+| "is the result a store with fields that wait or throw?" | 244 | 154 | asked only where the code does not show the result built there |
+| `handler` (called later?) | 172 | 156 | 54 callbacks proven; components made by a factory are most of the rest |
+| "N signatures" | 80 | 40 | a note for `--explain`; kept where the signatures differ in what the checker reads |
+| `uses(<context>)?` | 70 | 70 | not read this round |
+| a `ref` field read or called | 53 | 53 | |
+| `draft`? | 24 | 21 | |
+| `rejects(E)?` | 17 | 16 | |
+| `provides` / `nests` | 17 | 17 | |
+| a class | 11 | 11 | |
+| `renders(H)` | 10 | 10 | |
+| signal | 1 | 1 | |
+| **total** | **1 215** | **979** | |
+
+What stands in the way, over the 193 modules (`rx-declare --why`, by
+first reason): 560 rows are not a function the module declares — a
+value made by a call, of which 229 are UI SDK's components, each made
+by a factory — and 82 are not followed to a declaration; of the fns
+that are read and not proven `pure`, the most common first reasons are
+a `Proxy` made (96, UI SDK's controllers), a value made when the module
+loads (some 200, a quarter of them one constant of the `effect`
+library), a method of an argument whose type has methods (40), the
+environment (some 50), and an object the module exports (40).
+
+**The `solid` condition.** Preferring it changes no question: 979 with
+it and 979 reading every build (three `handler` words fewer with it,
+on components whose compiled form registers a listener the JSX only
+names — JSX is read as rendering, and nothing more, this round). No
+package is unreadable for being minified: Kobalte's export map is a
+pattern (`./*` to `./dist/*/index.jsx`), its `toast` is read through
+it and through the chunk it re-exports, and asks 6 questions either
+way; `solid-sonner` asks 11 (7 of them where `toast` renders), its
+`toast` being a value made by a call. The names `--why` gives for a
+minified chunk are the chunk's.
+
+### What it cannot read soundly, with the example for each
+
+- **A value made by a call.** `export const getPerson = query(async id
+  => { … }, "person")`: the function is an argument; whether `query`
+  calls it once, caches it, or wraps what it throws is `query`'s.
+- **An object the module exports.** `export const DEFAULT = { x: 0 }`,
+  read by `createMousePosition`: any importer may write `DEFAULT.x`.
+  Taking it for a constant would be an assumption, and is not made.
+- **A loader.** `fetchTodo` awaits a timer and copies a row — and counts
+  its calls on `globalThis.__backend`, as the test wants. The count is a
+  write; that it is harmless is a person's knowledge.
+- **A callback through a spread.** `<button {...rest}>` with `onClick`
+  in `rest`, or `omit(props, "children")`: the record goes where the
+  code does not spell out.
+- **A method of an object with methods.** `color.toFormat("oklch")`:
+  the reading does not know a class's method from a field that holds a
+  function, and refuses both.
+- **Where the code runs.** `window.matchMedia(q).matches` when the
+  primitive is called: the answer is the page's.
+
+### Found on the way
+
+- The `tasks` job was red on `cd2f5ae`: a property that may be absent
+  (`_replaceRouteChunk: (…) => void | undefined`) was drafted as a
+  method's row, which TypeScript does not hold, and fell back to `any`
+  for every type (33 introduced in a whole draft). It has no row (5 076
+  rows over the coverage modules, 5 105 before).
+- `rx-verify` stopped at the first row it had to mount where the
+  project had no `@solidjs/universal`; that row is not run now, and the
+  others are. The benchmark installs it.
+- A hand-written `pure` the reading contradicts: `@solid-primitives/
+  sortable`'s `createSorted(list, comparator, { dirty: true })` sorts
+  the list it is given in place. The row stays by hand, as it was, and
+  is recorded here.
+
+### The numbers
+
+`node bench/run.mjs`, at `cd2f5ae` and now, each from a fresh `npm ci`:
+
+| | good | types | runtime | bad caught | unrepresentable | hand-written words | inferred words | TODOs in kept rows | `any` inherited | introduced | by place |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `cd2f5ae` (37 tasks) | 132/132 | 186/186 | 268/268 | 245/245 | 13/13 | 214 | — | — | 61 | 0 | 30 |
+| now (37 tasks) | 132/132 | 186/186 | 268/268 | 245/245 | 13/13 | 157 | 48 | 57 | 61 | 0 | 30 |
+
+No check is red, and none moved. Seventeen tasks have fewer words by
+hand:
+
+| task | hand words, was | now | inferred | run by rx-verify | TODOs in kept rows |
+| --- | --- | --- | --- | --- | --- |
+| `formisch-field-array` | 7 | 2 | 5 | 5 | 10 |
+| `formisch-field-path` | 7 | 2 | 5 | 5 | 6 |
+| `frozen-read` | 2 | 0 | 1 | 1 | 0 |
+| `kobalte-toast` | 3 | 0 | 2 | 2 | 1 |
+| `listener-cleanup` | 1 | 0 | 1 | 1 | 0 |
+| `primitives-listeners` | 11 | 5 | 6 | 5 | 1 |
+| `primitives-sensors` | 6 | 5 | 0 | 0 | 7 |
+| `primitives-state` | 6 | 3 | 3 | 3 | 3 |
+| `primitives-virtual` | 8 | 2 | 4 | 2 | 2 |
+| `router-code-routes` | 3 | 0 | 2 | 2 | 1 |
+| `router-provider` | 3 | 0 | 2 | 2 | 0 |
+| `router-rx-routes` | 7 | 0 | 5 | 5 | 0 |
+| `solid-use-primitives` | 6 | 1 | 5 | 5 | 4 |
+| `solid-use-state` | 9 | 8 | 1 | 1 | 2 |
+| `store-helper` | 3 | 0 | 3 | 3 | 0 |
+| `table-pagination` | 44 | 42 | 2 | 0 | 2 |
+| `wardic-values` | 16 | 15 | 1 | 1 | 3 |
+
+(A row kept as the draft writes it costs no word, so a row that took
+two words from the code and one from a name counts three fewer by hand
+and two inferred.) Whole drafts of the tasks' modules: 808 words read
+(745 `pure`, 34 `handler`, 19 `draft`, 5 `rejects`, 5 `instantiates`),
+994 questions asked.
+
+Coverage, entry for entry: 123 programs, all green (as before); 193
+modules drafted whole, 5 076 rows (5 105: a property that may be absent
+is no method), 1 197 `any`s the libraries' own, none introduced, 1 551
+by place; 407 words read from the code (330 `pure`, 54 `handler`, 18
+`instantiates`, 5 `draft`) and 979 questions asked (1 215); 245
+hand-written words in the kept rows (277), 28 inferred, none
+contradicted; 21/21 bad caught.
+
+Parity is as it was: nothing in a parser, a checker or an emitter
+changed.
+
+### What remains
+
+- The questions the code answers and this round does not read: a
+  hook's context (`useContext` of a context the module makes), a
+  component's provider, an event prop in JSX, where a component is
+  rendered — the next reading, and JSX's.
+- A component or a fn made by a factory: 560 rows of the coverage
+  suite.
+- An object the module exports, read as a constant.
+- A module with no types has no draft, so no word.
+- `rx-verify` reads no row whose type parameter's bound has
+  parentheses.
+

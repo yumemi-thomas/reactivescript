@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+**`rx-declare` reads `pure`, `handler`, `draft` and `rejects(E)` from the code** (spec/09 MO-8v; spec/rfc-declaration-types-2026-11-22.md, *A fourteenth round*)
+
+- **New: a draft writes the words the code proves.** `rx-declare` reads the JavaScript an import resolves to — your
+  own module, a package's shipped ES module, every build its export map has — and writes `pure` before `fn`,
+  `handler` before a callback's type, `draft` before a parameter the function changes in place and `rejects(A | B)`
+  after the signature, **only where the code proves it**: `pure` where the call only computes (no write outside what
+  it makes, no clock, randomness, environment or code it cannot read), `handler` where every call of the callback is
+  behind a listener, a timer, an observer, a promise or an `await`, `rejects(E)` where every `throw` it reaches is of
+  a class the module exports. Anything it cannot see through is left as it was: io, no `handler`, `Error`, and the
+  question asked.
+- **New: `//@ inferred <export>: <words>`** on the line above a row that took a word from the code. It is a comment
+  to both checkers; keep it with the row, and `rx-verify` runs each such word against what was read.
+- **New: `rx-declare --why`** — for every row, what proved each word, or the first thing in the way with its file and
+  line. **`--no-infer`** (or `RX_DECLARE_INFER=0`) drafts from the types alone.
+- **Generated declarations take the proven words too** (`node_modules/.rx-types/`, MO-8l; the draft rule is 8, so they
+  are drafted again once). A package's function that only computes can be called where a view computes without a
+  declaration of your own; a callback its code calls only later may write a source. Nothing is guessed: a name is
+  still not a reason. **If a program of yours is refused after this:** a generated row now says `draft` for a
+  parameter the function changes in place (pass it a store's draft, or a copy), or `instantiates` for a proven-`pure`
+  function that makes Solid nodes (bind its result once).
+- **Fewer questions in a draft.** A question the code answers is not asked — yes (the word is written) or no (a
+  callback called while the call runs, a parameter never changed, a promise that rejects with no class of the
+  module's). *"Is the result a store with fields that wait or throw?"* is asked only where the code does not show
+  the result to be a value built there. *"N signatures in the library's types"* was never a question: it is a note
+  for `--explain`, and stays among the questions only where the signatures differ in what the checker reads.
+- **`rx-verify` checks more, for a row marked `//@ inferred`:** a `pure` function must change nothing it is given,
+  leave no global and ask neither the clock nor for a random number while it is called; a `handler` must not be
+  called while the function's own call is running; a `rejects(E)` must reject with a class of its row under the
+  probe's arguments. A verified record is version 7 (`rx-verify --record` again).
+- **Fixed: a property that may be absent was drafted as a method.** `_replaceRouteChunk?: (…) => void` on TanStack
+  Router's router became `export fn router._replaceRouteChunk(…)`, a row TypeScript does not hold (`undefined` is no
+  function), written with `any` for every type. It has no row now.
+
 **Methods of a library's object, route options in an `.rx` route file, layouts under code routes, fewer modules of your own** (spec/09 MO-8t, MO-8u, MO-11c, MO-14f, MO-14g, MO-14h; spec/11 CP-4d; spec/rfc-declaration-types-2026-11-22.md, *A thirteenth round*)
 
 - **New: a method of a library's object has a row** (MO-8t). `export fn toaster.show(toast: Component<…>): number

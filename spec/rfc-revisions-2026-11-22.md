@@ -526,6 +526,37 @@ of the benchmark was found *too* strict, by running UI SDK's parts to
 write `known.js`: `DialogTrigger … uses(dialog)` — the trigger renders
 outside a dialog. Removed.
 
+## After the thirteenth round (2026-11-26): a word a tool writes
+
+Two earlier rulings said a tool writes no word. RFC 26: a draft never
+guesses `pure` — "a name is a convention, not a fact". 09 MO-8n: what a
+library's source shows is a comment above the row, "never the row: a
+word is the declaration's assertion, and a reading of syntax is a
+reason to look, not a proof". Both stand as written, and 09 MO-8v is
+taken beside them, because it is neither of the things they refuse:
+
+- **Not a guess.** A word is written only where the code proves it;
+  what the reading cannot see through is a refusal, and the row is then
+  what RFC 26 left it. The suite that holds this is adversarial
+  (`test/infer.js`: 79 functions that each do one thing a word must not
+  cover, every one refused).
+- **Not the source's word for the build.** MO-8n read the TypeScript a
+  package was built from, which may be another version than the one
+  installed. MO-8v reads the JavaScript the import resolves to, at the
+  version installed.
+- **Narrower than the word, on purpose.** An inferred `pure` is "the
+  call computes", not "safe to ask again": a loader stays a person's
+  word. The revision does not move what `pure` means (R-io-4).
+- **Marked, and run.** `//@ inferred` above the row; `rx-verify` holds
+  each such word to its reading, and a record's version moved (7).
+
+RFC 28 is unchanged: running refutes and never establishes. The proof
+of an inferred word is the reading; the run is the reading's test.
+
+Two things a draft said that were not questions are no longer written
+as questions (the count of a function's signatures; whether a result
+built in the function's own body is a store that waits).
+
 ## Limits that remain, and why they are inside the goal
 
 - **`renders(H)` by itself places a fn's components side by side

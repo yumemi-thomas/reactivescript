@@ -42,6 +42,19 @@ row makes that running can test is `rx-verify`'s to test: where a
 component renders what it is given (a scene), that a library does
 not call a component it is given with no owner at all, and that a `pure`
 fn answers alike with a window and without one (10 SV-7c).
+A word a tool writes into a row is held to a harder bar than one a person
+writes: it is written only where the code proves it (09 MO-8v: `pure`,
+`handler`, `draft`, `rejects(E)`, read by `rx-declare` from the
+JavaScript an import resolves to), and "probably" is a refusal. A change
+to that reading (`tooling/rx-language-server/src/infer.js`) comes with
+the function that shows it in `test/infer.js` — on the refused side, a
+function that does the one thing the word must not cover, hidden as code
+hides it; on the proven side, its honest twin — and the benchmark holds
+three numbers against it: no word read from the code is contradicted
+when `rx-verify` runs it, no kept row's `//@ inferred` line differs from
+the draft's, and no whole draft asks more questions than the record has.
+A reason a word is refused is recorded as an example, not a count
+(`rx-declare --why`).
 A form that is asked for and not taken is recorded the same way, with
 what was run: 09 MO-11u's three (2026-11-24) — a row for a method of a
 library's object (run: of the two libraries named, one renders what it
@@ -128,7 +141,9 @@ for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/te
 (cd tooling/rx-language-server && npm test)
 node bench/run.mjs --check     # the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
 node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)
-BENCH_WORDS=1 node bench/run.mjs <task>   # each row of the task's declarations written by hand, beside rx-declare's row of the same export
+BENCH_WORDS=1 node bench/run.mjs <task>   # each row of the task's declarations written by hand, beside rx-declare's row of the same export; and each row with an inferred word that rx-verify did not run
+BENCH_MARKS=1 node bench/run.mjs          # after a change to what rx-declare reads from the code (09 MO-8v): each kept row's `//@ inferred` line written again as the draft has it, in the tasks' and the entries' own files
+npx rx-declare <module> --why             # each word read from the code: what proved it, or the first thing in the way with its file and line
 # a task under a file-based router generates the router's tree before any checker reads the program (its `prepare`: a
 # `vite build`), and its host.d.rx is derived from that tree: `rx-declare --host --sync <host.d.rx>` after a route moves
 ```

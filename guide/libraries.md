@@ -7,15 +7,53 @@ at every use; the JavaScript itself is not checked (it's the library's).
 ## Declare it
 
 To start from a draft, run `npx rx-declare <package> --out <name>.d.rx` (the language server's package): it writes
-what the package's TypeScript types show and leaves a `// TODO` line for each row only you can decide. For the routers
-(`@tanstack/solid-router`, `@solidjs/router`) and TanStack Query it also writes the rows types cannot show.
+what the package's TypeScript types show, the words the package's code proves (below), and leaves a `// TODO` line for
+each row only you can decide. For the routers (`@tanstack/solid-router`, `@solidjs/router`) and TanStack Query it also
+writes the rows types cannot show.
+
+**Words read from the code.** Four words are in no type: `pure`, `handler` on a callback, `draft` on a parameter a
+function changes in place, and `rejects(E)`. `rx-declare` reads the JavaScript your import resolves to — your own
+module, a package's shipped ES module, every build its export map has — and writes a word **only where the code proves
+it**:
+
+```rx
+//@ inferred fetchPerson: pure, rejects(NotFound)
+export pure fn fetchPerson(id: string): Promise<Person> rejects(NotFound)
+//@ inferred onShortcut: handler(run)
+export fn onShortcut(key: string, run: handler () => void): () => void
+//@ inferred moveItem: draft(list)
+export fn moveItem<T>(draft list: T[], from: number, to: number): void
+```
+
+- `pure`: the call only computes — no write outside what it makes, no clock, no randomness, no `window`, no
+  `fetch`, no call into code it cannot read. (So a loader that really fetches is not *proven* pure, though it is
+  `pure`: that word is still yours to write.)
+- `handler`: every call of the callback is behind a listener, a timer, an observer, a promise or an `await` — never
+  while the function itself runs, never inside a computation.
+- `draft`: the function changes that argument in place during the call and keeps nothing.
+- `rejects(E)`: every `throw` it reaches is of a class the module exports.
+
+The `//@ inferred` line above a row says which of its words came from the code: keep it with the row, and
+`rx-verify` runs each of those words against what was read (a `pure` function that changes its argument or asks the
+clock, a `handler` that is called while the call runs, are reported as mismatches). `npx rx-declare <module> --why`
+says, for every row, what proved each word or the first thing in the way, with its file and line:
+
+```
+rx-declare: fetchPerson: pure proven — it only computes
+rx-declare: savePerson: pure not proven — it assigns saves, a variable of the module [api.js:5]
+rx-declare: each: handler(visit) not proven — called while the call runs or in a computation: given to .forEach(…), which calls it [api.js:7]
+```
+
+`--no-infer` drafts from the types alone. Where a word is not proven the draft is what it always was — the function
+is io, the callback is pure, the promise rejects with `Error` — and the question is asked.
 
 The draft's types are the library's own, by name: `import("@tanstack/solid-query").QueryClient`, a generic row's type
 parameters, a callback's signature. You rarely need to touch them, and never need to restate them: TypeScript checks
 your `.rx` against the package's types either way, and the checker reads only a row's shape and words. For the words,
-`npx rx-declare <package> --source [<checkout>]` reads the library's source and writes what it finds above each row —
-`// SOURCE …: called from addEventListener … — `handler`? [src/eventListener.ts:67]` — as a suggestion with its place.
-It never writes the word for you.
+`npx rx-declare <package> --source [<checkout>]` reads the library's *original* source and writes what it finds above
+each row — `// SOURCE …: called from addEventListener … — `handler`? [src/eventListener.ts:67]` — as a suggestion with
+its place: for the words the shipped code does not prove (`uses`, `provides`, `instantiates`), it never writes the
+word for you.
 
 A component's props can be the library's own type, with only the fields that carry a word written after it —
 `export component Dialog(props: import("@ui-sdk/solid/dialog").DialogProps & { onOpenChange?: handler (open: boolean,
@@ -69,7 +107,8 @@ package that has none from it.
 A package you import with no declaration anywhere gets one drafted for you. Before a build (and in the editor), the
 plugin reads the package's TypeScript types and writes `node_modules/.rx-types/<package>.d.rx`: its components with
 their props, its functions as io, accessors as `ref`. A draft never guesses that a function is `pure` (a name like
-`useX` is a convention, not a fact), so calling one where a component computes is refused until you say it is, and the
+`useX` is a convention, not a fact): it writes the word where the package's code proves it (a row marked `//@
+inferred`, above), and calling any other function where a component computes is refused until you say it is — the
 error says where. It's redrafted when you upgrade
 the package. So `import { Badge } from "some-solid-kit"` just works.
 
@@ -78,10 +117,11 @@ A draft says only what types show:
 - a component you hand to one of its functions is checked under a root of its own (MO-11s): give it its own
   `errored`/`loading` and the contexts it reads;
 - a hook's provider and a field that suspends or throws are **not** checked: as in TypeScript, they fail at run time;
-- a function is io until a person writes `pure` for it.
+- a function is io unless its code proves it `pure`, or a person writes the word for it.
 
 To say those, write `rx-types/<package>.d.rx` (it wins over the draft): `npx rx-declare <package> --out
-rx-types/<package>.d.rx` starts from the same draft, with a `// TODO` for each guess to confirm (`pure`, `handler`);
+rx-types/<package>.d.rx` starts from the same draft, with a `// TODO` for each question the code did not answer
+(`pure`, `handler`, a hook's context);
 `--run` also runs the package to find which hooks need a provider (it executes the package's code). `npx rx-verify
 rx-types/<package>.d.rx` runs your rows against the package (`--record` keeps the result for `rx-tsc --rx-strict`).
 One thing to look at in a draft: a function that takes nothing and answers a value is drafted `ref`, as an accessor is,

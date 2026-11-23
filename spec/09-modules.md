@@ -701,6 +701,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   where the source type-checks in the app's project and worse where it
   does not (its own dependencies and compiler options are not the app's).
   Nothing in it names a library (08 CN-8c).
+  (2026-11-26: three of these words — `handler`, and with it `pure`,
+  `draft` and `rejects(E)` — are written into the row where the code
+  that runs proves them, MO-8v; this reading of the original source
+  stays what it was, evidence in a comment, for `uses`, `provides`,
+  `instantiates` and a result that undoes the call.)
 - **MO-8r (What earns a word) — ruled 2026-11-22.** The vocabulary of a
   JS declaration is small upstream (MO-8a to MO-8c and MO-10a to MO-10e:
   `pure fn`, `fn`, `error`, `type`, `rejects(E)`, `ref`, `instantiates`)
@@ -1165,6 +1170,142 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   imports two utilities directly; the four that remain have a reason of
   their own. Executable: S-module-43; `tooling/rx-language-server`'s
   `test/declare.js`.
+- **MO-8v (Words read from the code that runs) — 2026-11-26.** Three of
+  a row's words are in no type — `pure`, `handler` on a callback, and
+  what a promise `rejects` with — and with `draft` on a parameter they
+  were most of what a person still wrote over a draft (the thirteenth
+  round counted them: `pure` alone on 81 rows of the benchmark, `handler`
+  on 33, `pure … rejects(E)` on 24, each a fact about what the code
+  does). `rx-declare` reads them from the code now. Not the source a
+  package was built from (MO-8n: that may be another version, and it is
+  not what runs) but **the JavaScript the import resolves to**: the
+  app's own module, a package's shipped ES module, every file its export
+  map can hand an `import` under any condition (`browser`, `node`,
+  `development`, `solid`, `default` — a word must hold in each build,
+  and a build that cannot be read stops it; `require` and `types` are not
+  an `.rx` program's), and each module those import, as far as the code
+  goes. It is read with TypeScript's parser, a function at a time, to a
+  fixed point over the calls between them (recursion is taken as proven
+  until a round shows otherwise; every property only gets worse from
+  round to round, so it ends).
+
+  **A word is written only where the code proves it; everything the
+  reading cannot see through is a refusal, and the draft is then what it
+  was** — io, no `handler`, `Error`, and the question asked. What each
+  word claims:
+
+  | word | proven when | refused by, for instance |
+  | --- | --- | --- |
+  | `pure` | the call, and all it schedules outside Solid's owner (a continuation after `await`, a promise's callback, a timer it sets), only computes: locals, arithmetic, strings, values it makes; reads of its parameters and of constants of the module that nothing in the module writes through, hands to code that is not read, hands back or exports; calls of functions proven the same way, of the callback it is given (while it runs), of the language's own that only compute (`Math` but `random`; `JSON`; `Object.keys`…; a method of `Array` or `String` that does not change its receiver, one that does on a value the call made), and of Solid's makers of nodes (`createSignal`, `createMemo`, `createEffect`, `onCleanup`…: state of its own, MO-10a). What Solid runs later under the owner — an effect's second function, a cleanup — is not the call's, and is not read | a write to a parameter, to a variable or an object of the module, to a global; `Date`, `performance`, `Math.random`, `crypto`; `console`, `fetch`, `document`, `localStorage`, a listener registered; `this`; a call through a computed member, `.call`, `.apply`, `eval`, `Function`, `import()`; a method that is not the language's (`client.refetch()`); a getter, a `valueOf` or a `toString` of an object the module declares; `toLocaleString`, `localeCompare`; a pattern with a `g` flag; a function of another package that cannot be read; the callback called *later*; a generator |
+  | `handler`, on a parameter, a field of a record parameter, a component's prop | every call of the callback the code reaches is behind something that calls later and outside any computation: a listener (`addEventListener`), a timer, an observer, a promise's continuation, a statement after an `await` that is passed whatever happens, an effect's second function, a cleanup, an element's event in JSX — through the module's own functions, each read the same way — and it is called at least once | one call while the fn runs (on one branch is enough), in a computation (`createMemo`, an effect's first function), in a built-in's callback (`list.map(cb)`), in a promise's executor, before the `await`; the callback stored (a variable of the module, a record that goes on), handed back, wrapped in a function that is handed back (called whenever its holder calls it), given to a function that is not read (`source.subscribe(cb)`), or its record spread or given whole to one |
+  | `draft` on a parameter | a write, in the fn's own body, through a name that holds nothing but (a part of) that argument — `list.splice(…)`, `row.done = true` for a `row` of `rows` — during the call, the argument kept nowhere. *Never changed* — every use of it only reads, through every function it is handed to — is proven too, and then the question is not asked | a write through a name that may hold something else, one after the call (a timer), an argument given to code that is not read: neither is said, and the question stays |
+  | `rejects(A \| B)` | every `throw` and every rejection the code writes or reaches (through its own functions, a promise's executor, a `catch` that throws again) is `new C(…)` of a class the module exports; none at all, and nothing is named — the default stands, and the question goes | a call into code that is not read, a callback, an awaited promise the fn was handed, a thrown value that is no `new C`, a built-in's class (`RangeError`), a class the module does not export, `JSON.parse`: each is `Error`, the row's default, so nothing is written |
+
+  *What the reading takes as given*, and says: a parameter is what the
+  row's type says it is — a method named as `Array`'s or `String`'s,
+  called on a parameter whose declared type has no function members of
+  its own, is the built-in (one whose type has — a class's instance, a
+  record of callbacks — is refused); a function the fn is given is its
+  caller's, pure where it is called while the fn runs (MO-10g holds the
+  closure to that at the call) and so no part of the fn's own effect;
+  what the engine raises for a bug (`undefined.x`) is a panic (04
+  R-f-10), not a failure, and no part of `rejects`.
+
+  **`pure` and determinism.** The word asks less than this proves: R-io-4
+  is "no writes to reactive state, and safe to ask again", and a loader
+  that fetches is `pure`. No reading of code shows that a `fetch` is safe
+  to ask again, so that much stays a person's to say. What *is* proven
+  is narrower and stronger — the call computes — and so 10 SV-7c's second
+  assertion (the same answer on the server and in the browser) holds for
+  an inferred `pure` by construction: the clock, randomness and the
+  environment are refusals, the locale's methods are. One reading of the
+  environment is let through, because every Solid primitive has it: a
+  *test* of where the code runs (`isServer`, `typeof window ===
+  "undefined"`, `import.meta.env.SSR`, a constant bound to one), with
+  each way read, **provided the fn answers no data** — nothing,
+  functions, accessors, a record of them — since data that differs is
+  what SV-7c is about and data that is the same cannot be shown
+  (`whereAmI = () => typeof window === "undefined" ? "the server" : "the
+  browser"` is refused: `bench/tasks/ssr-divergence`). What an accessor
+  the call hands back answers when it is read is the accessor's, as it
+  is for a row written by hand (MO-10b). `rx-verify`'s comparison of the
+  two sides (SV-7c) is run on an inferred `pure` as on any.
+
+  **How it is marked.** The row is the notation's: no new word, no new
+  form (MO-8r), read by both checkers as any row (08 CN-8: nothing in a
+  checker knows a word was inferred, and nothing in the reading names a
+  package). Above it, one line: `//@ inferred fetchPerson: pure,
+  rejects(NotFound)`, `//@ inferred onShortcut: handler(run)`, `//@
+  inferred moveItem: draft(list)`. A comment, as `//@ for` is, so a
+  declaration that keeps the row keeps the line, a strict record's hash
+  does not move (MO-8j leaves comments out), and three readers use it:
+  a person (which words nobody has checked by hand), the benchmark
+  (inferred words are counted apart from words written by hand, and a
+  kept row's line must be the draft's), and `rx-verify`. `rx-declare
+  --why` says, word by word, what proved it or the first thing in the
+  way with its file and line; `--no-infer` drafts from the types alone.
+  A fn proven `pure` that makes Solid nodes and has no `ref` part is
+  written `instantiates` (MO-10a: the word the draft wrote by a name).
+  A generated declaration (MO-8l) takes the words too: they are read,
+  not guessed, so an import nothing reviewed still makes the checker
+  accept nothing the code does not show (the draft rule's number moved;
+  RFC 26's "no draft guesses `pure`" stands as it was written).
+
+  **`rx-verify` runs each.** A row marked `//@ inferred` is held to what
+  the reading claims, which is more than the word: a `pure` fn is called
+  (with a probe's arguments, or none) and must change nothing it was
+  given, leave no new global, and ask neither `Date.now()`,
+  `performance.now()` nor `Math.random()` while it is called; a
+  `handler` must not be called while the fn's own call is still running
+  (a row written by hand is asked only whether it is called inside a
+  computation, MO-10g); a `rejects(E)` is run with the probe's arguments
+  and its failing ones, and what it rejects with must be a class of the
+  row; a `draft` is run as any (MO-10i). One observation the other way
+  is a mismatch that says the reading is wrong — a defect of
+  `rx-declare`, to report — whoever wrote the line. Running can refute a
+  word and never establish it (RFC 28): the proof is the reading, and
+  this is its test.
+
+  **The questions.** A question the reading answers is not written —
+  answered yes (the word is in the row) or no (a callback called while
+  the fn runs has no `handler` and no question; a parameter never
+  changed has no `draft` and none; a promise that rejects with no class
+  has no `rejects` and none). Two more went with it. *"Is the result a
+  store with fields that wait or throw?"* was asked of every fn that
+  hands back a record of the library's; it is asked now only where the
+  code does not show what is handed back to be a value built there (a
+  record or a list written out, with no getter of its own; a function; a
+  built-in's instance; the result of one of the module's functions that
+  is such) — a store, a projection, a value the fn was given, the result
+  of code that is not read can still wait where they are read, and are
+  still asked about. *"N signatures in the library's types"* asked
+  nothing: it is a note, written among the questions only where the
+  signatures differ in what the checker reads (a callback in one
+  position in one and another in the other, a reader for a result in
+  one), and otherwise said by `--explain`.
+
+  **What it does not reach**, each a refusal with its reason in `--why`,
+  and each still a person's word where it is true: a value made by a
+  call (`export const getPerson = query(async id => …)`, a component
+  made by a factory — the function is an argument, and what the factory
+  does with it is the factory's); a loader that counts its calls on a
+  global or reads a table another export writes; a primitive that reads
+  the page when it is called (`window.matchMedia(q).matches`) or
+  registers with it then (`addEventListener` in the call, not in an
+  effect); an object the module exports, which any importer may change;
+  a callback that reaches an element through a spread of props
+  (`{...rest}`) or `omit`; a callback of a function the *result* holds
+  (`bus.listen(listener)`); a package with no ES module to read. A
+  bundle that is minified is read as any code is — the names in `--why`
+  are then the bundle's.
+  Executable: `tooling/rx-language-server/test/infer.js` — 48 functions
+  that each do one thing `pure` must not cover, 21 for `handler`, 11 for
+  `rejects`, every one refused with a reason that names the thing, and
+  their honest twins proven; a package with two builds that disagree;
+  the draft, `--why`, `--no-infer`; both checkers reading the rows
+  (rx-tsc over the crate, `ref/`'s checker) with a program accepted for
+  an inferred word and one refused for a word withheld; and `rx-verify`
+  over rows that claim what their code does not do.
 
 ## MO-9 — A signature read in place of its module
 
@@ -3842,6 +3983,17 @@ S-module-37, S-module-38 (MO-14f); the units
   fn's into a namespace. `rx-declare`: `methodsOf` in `declare.js`.
   `rx-verify`: `at` binds a method to its object; the scene's proxy
   records a method with a row.
+- MO-8v: nothing in a parser, a checker or an emitter — a row with an
+  inferred word is a row, and `//@ inferred` a comment to both. The
+  reading is `tooling/rx-language-server/src/infer.js` (modules and
+  export maps, scopes, a function's summary to a fixed point, what a
+  value shares with what the call did not make, where a constant goes,
+  when a callback is called); `src/declare-infer.js` writes the words
+  into a draft's rows and drops the questions they answer;
+  `bin/verify.js` and `src/verify-place.js` run a marked row against
+  its reading (`watched`, the spy's `during`); `bench/harness.mjs`
+  counts inferred words and questions, holds a kept row's mark to the
+  draft's and runs `rx-verify` over each marked file.
 - MO-8u: nothing in a parser, a checker or an emitter; `declarationFile`
   (`declaration_file`) writes the row named `default` as `export
   default`, and `declare.js` drafts it.

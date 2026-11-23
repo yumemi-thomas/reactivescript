@@ -482,3 +482,29 @@ package written in `.rx`:
   signature could say it (a word on a component's row, `shape(…)`'s
   neighbour); no package asks, and the app writes the outlet in a
   component of its own.
+
+## Words read from the code, for a package (2026-11-26)
+
+09 MO-8v (`rx-declare` reads `pure`, `handler`, `draft` and
+`rejects(E)` from the JavaScript an import resolves to) changes nothing
+a package written in `.rx` ships: its declaration is its printed
+signature (MO-13a), whose words are inferred from `.rx` bodies by the
+checker (MO-9), and that was always the stronger form of the same
+thing. What changes is the other side — the JavaScript an `.rx` package
+or an app imports:
+
+- A JS dependency with no declaration gets a generated one (MO-8l) that
+  now carries the words its code proves, so a package's `.rx` module
+  that calls a library's function which only computes is accepted
+  without a `rx-types/` file of the package's own.
+- A package that ships a hand-written `.d.rx` for JS of its own
+  (MO-10c) can start from the draft and keep the `//@ inferred` lines:
+  `rx-verify` then holds each of those words to its reading, in the
+  package's own CI.
+- The reading prefers the file a package's `solid` export condition
+  names — its source before Solid's compiler — which is what an `.rx`
+  package compiled to JSX-free JavaScript does not have and does not
+  need: its rows are printed, not read.
+
+Nothing here is a proposal to Solid.
+
