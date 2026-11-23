@@ -1,395 +1,390 @@
 #!/usr/bin/env node
-// `rx-verify [--dom] [--record] <file.d.rx>...`: run a declaration's JS module and check the rows that running can check (09 MO-8f's sibling:
-// TY-6 checks what types can, this checks what running can). For each declared export: it exists, and a fn is a function.
-// For each hook declared `uses(…)` that needs no arguments: called with nothing providing its context, it must throw
-// (Solid's `useContext` finds nothing, and the library refuses), or the row claims a need the hook does not have. The
-// rest is listed as not verified, with why. A failure that only says there is no browser (no `window`) is not
-// verified either; `--dom` runs with happy-dom's browser globals (@happy-dom/global-registrator, from the project).
+// `rx-verify [--dom] [--record] [--json] <file.d.rx>...`: run a declaration's JS module and check what running can check
+// of its rows (09 MO-8f's sibling: TY-6 checks what types can, this checks what running can).
 //
-// Probes: `lib.probe.mjs` (or .js) beside `lib.d.rx` may give what only the app has. It exports `probes`, by hook name,
-// `{ args: () => [...], fail?: () => [...], run?: result => … }` (the arguments as JS passes them: a `ref` parameter is
-// an accessor; `run` uses the result, for a hook that reads its context only then, as a mutation's `mutateAsync`), and
-// `provide(children)`, the providers a `uses(…)` hook needs, as a tree (`createComponent(Ctx, { value, get children() {
-// return children() } })`). With them: a `uses(…)` hook that needs arguments is run with no provider (it, or `run`, must throw);
-// and the hook is mounted (@solidjs/universal) under `provide`, beneath an errored boundary, and every field of its
-// declared result (a record's fields, a tuple's parts, a `ref` result) is read in a render effect: a plain field that
-// holds (Solid's NotReadyError) or fails where it is read is a mismatch (no row describes it: MO-8r withdrew `pending`
-// and `fails(…)` there; they are written before a `ref` part, MO-10l), as is a `ref` part that is not an accessor. A
-// `ref` part that waits and does not say `pending` is no mismatch (an accessor's read may hold, MO-10d: the row says
-// less), and is pointed out; one declared `fails(…)` is run with the probe's failing arguments. A `pure` fn (one that makes nothing) is
-// called twice with the same arguments and must answer alike. For each `c` a component `provides(c)`, it is mounted
-// (with the probe's `props`) around a hook or a part of the same file that uses `c` alone and fails without it, which
-// must then run cleanly. A component's function-typed props are run with the probe's props, each wrapped in a spy.
-// Placement rows (a fn that hands back a `Component`, `nests(children in component)`, `renders(H)`, and a component's
-// props that take components: MO-11c) are checked against a scene the probe gives (`scene(lib, h)`), which also reports a
-// fn that calls a component it is given with no owner, `draft` rows by calling the setter, and a component's `uses(…)` (a kit's compound part) by rendering
-// it alone, where it must fail or warn, and inside a component of the file that provides it (`probes[P].around` when the
-// provider renders something else than its children), where it must not: src/verify-place.js. RXV_DEBUG=1 names each
-// export on stderr as it is checked.
+// A row makes claims, each under a name of its own, as the crate's parser reads the row (src/rows.js; `obligations` in
+// compiler/src/parse.rs): `exists`, `pure`, `uses:<context>`, `provides:<context>`, `rejects`, `fields`, `fails`,
+// `callbacks:<position>`, `draft`, `placement`, `through:<component>`. Every result below is about one claim, by that
+// name, and says one of: `held`, `mismatch`, `unverified`, `n/a`. A claim no check answers is `unverified`. Nothing
+// printed that is not about a claim (the count of words read from the code) is a result, and none is recorded.
+//
+//   exists      the export is there, of its kind.
+//   pure        refuted by running (two calls that answer differently; the server and a browser's globals answering
+//               differently, 10 SV-7c; an argument changed, a global left, the clock asked): running cannot show a fn is
+//               pure, so the claim is held only where the code proves it (`rx-declare --audit`, 09 MO-8w) and no run
+//               refutes it.
+//   uses:c      evidence tied to `c`: the hook (or the component) fails or warns with no provider, runs cleanly under a
+//               provider of each context it names, and — where it names several — fails again with only `c`'s taken
+//               away. A provider of `c` is a component of the same file declared `provides(c)`, or the probe's
+//               `providers.c`; a row that names one context may be run under the probe's `provide`. A failure with no
+//               provider and nothing to run it under says only that something is missing: `unverified`.
+//   provides:c  the component mounted around a hook or a part of the same file that uses `c` alone and fails without it,
+//               which must then run cleanly.
+//   rejects     under the probe's failing arguments (`fail`) the fn rejects with a class its row names.
+//   fields      mounted under the probe's providers, every part of the declared result read in a render effect: a `ref`
+//               part is an accessor; a plain part that waits or fails where it is read has no row (MO-10l).
+//   fails       under the probe's failing arguments a part declared `fails(E)` fails with E.
+//   callbacks   src/verify-place.js: each function-typed position wrapped in a spy.
+//   draft       a `draft` parameter is changed during the call and not after; a draft callback is handed an object
+//               whose writes the library keeps.
+//   placement   src/verify-place.js, against the probe's scene.
+//
+// Probes: `lib.probe.mjs` (or .js) beside `lib.d.rx` gives what only the app has. It exports `probes`, by export name —
+// `{ args: () => [...], fail?: () => [...], run?: result => …, act?, props?, around? }` (the arguments as JS passes
+// them: a `ref` parameter is an accessor) — and `provide(children, solid)`, `providers: { c: (children, solid) => … }`,
+// `scene(lib, h)`. `--dom` runs with happy-dom's browser globals (@happy-dom/global-registrator, from the project).
+// `--json` prints `[{ file, results: [{ line, name, ob, status, what }], audit }]` and nothing else. RXV_DEBUG=1 names
+// each export on stderr as it is checked.
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
+const { rowsOf, claimOf, describe } = require("../src/rows.js");
+const { render, settle, hushed, noRenderer } = require("../src/render.js");
+const place = require("../src/verify-place.js");
 
-/** The declaration's exports, as far as the runner needs them. */
-function exportsOf(text) {
-  const out = [];
-  text.split("\n").forEach((l0, i) => {
-    const l = l0.replace(/\/\/.*$/, "");
-    let m;
-    if ((m = /^\s*export\s+(?:server\s+|client\s+)?(pure\s+)?fn\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)(?:<[^(]*>)?\s*\(/.exec(l))) {
-      const close = matching(l, m.index + m[0].length - 1);
-      const params = splitTop(l.slice(m.index + m[0].length, close)).map(p => p.trim()).filter(Boolean);
-      const after = l.slice(close + 1).replace(/^\s*:\s*/, "");
-      const ret = after.split(/\s(?=uses\(|provides\(|nests\(|renders\(|instantiates\b|rejects\()/)[0].trim();
-      // MO-10g: its callbacks, a parameter typed as a function or a function-typed field of a record parameter (`ref` too)
-      const cbs = [];
-      params.forEach((p0, index) => {
-        const c = p0.indexOf(":"); if (c < 0) return; const ty = p0.slice(c + 1).trim().replace(/^ref\s+/, "");
-        const name = p0.slice(0, c).replace(/^(ref|draft)\s+|\?$/g, "").replace(/^\.\.\./, "").trim();
-        // MO-10g: `handler` before it — the library is expected to call it later, outside any computation
-        const fnType = t => /^(?:handler\s+)?\(.*\)\s*=>/.test(t), handlerOf = t => /^handler\s/.test(t);
-        if (fnType(ty)) cbs.push({ index, name, ref: /^ref\s/.test(p0), handler: handlerOf(ty) });
-        else if (ty.startsWith("{")) for (const f of splitTop(ty.slice(1, matching(ty, 0)))) { const m2 = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (m2 && fnType(m2[2].trim())) cbs.push({ index, field: m2[1], name: `${name}.${m2[1]}`, ref: /^ref\s/.test(p0), handler: handlerOf(m2[2].trim()) }); }
-      });
-      const fields = ret.startsWith("{") ? fieldsOf(ret) : ret.startsWith("[") ? partsOf(ret) : (r => r.ref ? [{ path: [], holds: r.holds, fails: r.fails, ref: true }] : null)(rowsOf(ret));   // MO-10l: the whole result an accessor, with its rows
-      const inst = /\binstantiates\b|\bnests\(|\bprovides\(|\brenders\(/.test(l) || /\bComponent\b/.test(ret) || params.some(q => /^ref\s/.test(q));
-      // MO-10i (2026-11-22): `draft list: T[]` — a parameter the fn changes in place, during the call
-      const drafts = params.flatMap((p, index) => /^draft\s+[A-Za-z_$]/.test(p) ? [index] : []);
-      out.push({ kind: "fn", name: m[2], line: i + 1, pure: !!m[1], side: /^\s*export\s+(server|client)\s/.exec(l)?.[1], inst, drafts, required: params.filter(p => !/^((ref|draft)\s+)?[\w$]+\?/.test(p)).length, uses: /\buses\(/.test(l), usesNames: names(l, "uses"), holds: /\bpending\b|\bfails\(/.test(l), fields, cbs });
-    } else if ((m = /^\s*export\s+component\s+([A-Za-z_$][\w$.]*)/.exec(l))) out.push({ kind: "component", name: m[1], line: i + 1, provides: /\bprovides\(/.test(l), providesNames: names(l, "provides"), usesNames: names(l, "uses") });   // MO-11q: a member, `Dialog.Trigger`
-    else if ((m = /^\s*export\s+error\s+([A-Za-z_$][\w$]*)/.exec(l))) out.push({ kind: "error", name: m[1], line: i + 1 });
-    else if ((m = /^\s*export\s+const\s+([A-Za-z_$][\w$]*)/.exec(l))) out.push({ kind: "value", name: m[1], line: i + 1 });   // MO-8g
-  });
-  return out;
-}
+const short = (e, n = 60) => String(e?.message || e?.name || e?.constructor?.name || e).slice(0, n);
+const notReady = e => e?.name === "NotReadyError" || e?.constructor?.name === "NotReadyError";
 
-/** The contexts a row names: `uses(a, b)` gives [a, b]. */
-function names(l, word) { const m = new RegExp(`\\b${word}\\(([^)]*)\\)`).exec(l); return m ? m[1].split(",").map(x => x.trim()).filter(Boolean) : []; }
-/** A field's or a part's rows, then its type: `pending fails(E) ref T` (MO-10l). */
-function rowsOf(ty) {
-  let holds = false, fails = [], ref = false;
-  for (;;) { let k; if ((k = /^ref\s+/.exec(ty))) { ref = true; ty = ty.slice(k[0].length); } else if ((k = /^pending\b\s*/.exec(ty))) { holds = true; ty = ty.slice(k[0].length); } else if ((k = /^fails\(([^)]*)\)\s*/.exec(ty))) { fails = k[1].split(/[,|]/).map(x => x.trim()).filter(Boolean); ty = ty.slice(k[0].length); } else break; }
-  return { holds, fails, ref, ty };
-}
-/** A declared tuple result's parts (MO-10b): `[ref any, (v: any) => void]`, by index. */
-function partsOf(t) {
-  const body = t.trim().slice(1, matching(t.trim(), 0));
-  return splitTop(body).map((x, i) => { const r = rowsOf(x.trim()); return { path: [String(i)], holds: r.holds, fails: r.fails, ref: r.ref }; });
-}
-/** The index of the bracket closing the one at `i`. */
-function matching(s, i) {
-  let d = 0;
-  for (let j = i; j < s.length; j++) { if ("({[<".includes(s[j])) d++; else if (")}]>".includes(s[j]) && !(s[j] === ">" && s[j - 1] === "=")) { if (--d === 0) return j; } }
-  return s.length;
-}
-/** `a, b` at depth 0. */
-function splitTop(s) {
-  const out = []; let d = 0, from = 0;
-  for (let j = 0; j < s.length; j++) { const c = s[j]; if ("({[<".includes(c)) d++; else if (")}]>".includes(c) && !(c === ">" && s[j - 1] === "=")) d--; else if ((c === "," || c === ";") && d === 0) { out.push(s.slice(from, j)); from = j + 1; } }
-  out.push(s.slice(from)); return out.filter(x => x.trim());
-}
-/** A declared record result's fields, as paths: `{ data: pending fails(Error) any; at: { x: number } }` gives
- *  [{ path: ["data"], holds: true, fails: ["Error"] }, { path: ["at", "x"], … }]: what each read may do (MO-10f). */
-function fieldsOf(t, pre = []) {
-  const body = t.trim().slice(1, matching(t.trim(), 0));
-  const out = [];
-  for (const f of splitTop(body)) {
-    const m = /^\s*([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]*)$/.exec(f); if (!m) continue;
-    const { holds, fails, ref, ty } = rowsOf(m[2].trim());
-    const path = [...pre, m[1]];
-    if (ty.startsWith("{") && !holds && !fails.length && !ref) out.push(...fieldsOf(ty, path)); else out.push({ path, holds, fails, ref });
-  }
-  return out;
-}
-
-/** Mount `hook(...args)` under the probe's providers and an errored boundary; read each field in a render effect. */
-async function mount(dir, mod, probeMod, hook, args, fields, run, provide = probeMod?.provide) {
-  const from = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
-  const s = await import(from("solid-js"));
-  const { createRenderer } = await import(from("@solidjs/universal"));
-  const n = { createElement: t => ({ t, c: [] }), createTextNode: x => ({ x }), replaceText: (a, v) => { a.x = v; }, isTextNode: a => "x" in a, setProperty() {}, insertNode: (p, a) => { (p.c ??= []).push(a); a.p = p; }, removeNode: (p, a) => { p.c = (p.c ?? []).filter(y => y !== a); }, getParentNode: a => a.p, getFirstChild: a => a.c?.[0], getNextSibling: () => undefined };
-  const R = createRenderer(n);
-  const seen = new Map(fields.map(f => [f.path.join("."), { pending: false, value: false, failed: null, notAccessor: false }]));
-  let boundary = null, result, runError = null;
+/** Mount `hook(...args)` under `provide` (the probe's providers, or a component's) and an errored boundary; read each
+ *  part in a render effect; then the probe's `run(result)`. What the console was told meanwhile is `warned`. */
+async function mount(ctx, hook, args, parts, run, provide = ctx.probeMod?.provide) {
+  const s = ctx.solid;
+  const seen = new Map(parts.map(f => [f.path.join("."), { pending: false, value: false, failed: null, notAccessor: false }]));
+  let boundary = null, result, runError = null, renderError = null, dispose = () => {};
   const Probe = () => {
     const r = (result = hook(...args));
-    for (const f of fields) {
-      const k = f.path.join("."), st = seen.get(k);
-      s.createRenderEffect(() => { try { let v = r; for (const p of f.path) v = v?.[p]; if (f.ref) { if (typeof v !== "function") { st.notAccessor = true; return { v }; } v = v(); } return { v }; } catch (e) { if (e?.name === "NotReadyError" || e?.constructor?.name === "NotReadyError") { st.pending = true; throw e; } return { e }; } },
+    for (const f of parts) {
+      const st = seen.get(f.path.join("."));
+      s.createRenderEffect(() => { try { let v = r; for (const p of f.path) v = v?.[p]; if (f.ref) { if (typeof v !== "function") { st.notAccessor = true; return { v }; } v = v(); } return { v }; } catch (e) { if (notReady(e)) { st.pending = true; throw e; } return { e }; } },
         x => { if ("e" in x) st.failed = x.e; else st.value = true; });
     }
     return null;
   };
   const errored = () => s.createComponent(s.Errored, { fallback: e0 => { boundary = typeof e0 === "function" ? e0() : e0; return null; }, get children() { return s.createComponent(Probe, {}); } });
-  let dispose = () => {}, renderError = null;   // a provider that throws as it mounts (props the probe did not give)
-  // with a document (--dom) the browser build renders, as for a library whose components are DOM (TanStack Router's)
-  const view = () => provide ? provide(errored, s) : errored();
+  const quiet = hushed();
   try {
-    if (typeof document !== "undefined" && document.body) { const web = await import(from("@solidjs/web")); const el = document.createElement("div"); document.body.appendChild(el); dispose = web.render(view, el); }
-    else dispose = R.render(view, { t: "root", c: [] });
-  } catch (e) { renderError = e; return { seen, boundary, runError, renderError }; }
-  for (let i = 0; i < 20; i++) { s.flush(); await new Promise(r => setTimeout(r, 10)); if ([...seen.values()].every(x => x.value || x.failed) || boundary) break; }
-  if (run) { try { await run(result); } catch (e) { runError = e; } }
-  dispose();
-  return { seen, boundary, runError, renderError };
+    try { dispose = await render(() => provide ? provide(errored, s) : errored(), ctx.resolve); }   // a provider may throw as it mounts (props the probe did not give)
+    catch (e) { if (noRenderer(e)) throw e; renderError = e; return { seen, boundary, runError, renderError, warned: quiet.warned }; }
+    for (let i = 0; i < 20; i++) { s.flush(); await new Promise(r => setTimeout(r, 10)); if ([...seen.values()].every(x => x.value || x.failed) || boundary) break; }
+    if (run) { try { await run(result); } catch (e) { runError = e; } }
+    dispose();
+  } finally { quiet.restore(); }
+  return { seen, boundary, runError, renderError, warned: quiet.warned };
+}
+
+/** `uses(c)` by running, the evidence tied to each context named (the head of this file). `run(wrap)` renders or calls
+ *  the subject under `wrap` (`(children, solid) => view`; null: with no provider) and answers what it threw or warned,
+ *  or null; `providerOf(c)` is `{ wrap, name }` or undefined. One result for each context. */
+async function usesClaims({ name, line, contexts, run, providerOf }) {
+  const each = (status, what) => contexts.map(c => ({ line, ob: `uses:${c}`, status, what: what(c) }));
+  const alone = await run(null);
+  if (alone.env) return each("unverified", c => `${name}: uses(${c}) not run: it needs a browser (${alone.failed}); run rx-verify with --dom`);
+  if (!alone.failed) return each("mismatch", c => `${name}: declared uses(${c}), but with no provider it neither throws nor warns: does it read a context?`);
+  const provs = new Map(contexts.map(c => [c, providerOf(c)]));
+  const missing = contexts.filter(c => !provs.get(c));
+  if (missing.length) return each("unverified", c => `${name}: uses(${c}) not shown: with no provider it fails (${alone.failed}), which says something is missing and not that it is ${c} — nothing here provides ${missing.join(", ")} to run it with and without: a component of this file declared provides(${missing[0]}), or the probe's providers.${missing[0]}`);
+  const under = cs => cs.length ? (children, s) => cs.reduceRight((kids, c) => () => provs.get(c).wrap(kids, s), children)() : null;
+  const said = [...new Set(contexts.map(c => provs.get(c).name))].join(", ");
+  const full = await run(under(contexts));
+  if (full.failed) return each("unverified", c => `${name}: uses(${c}) not shown: it fails under ${said} too (${full.failed}), as it does with no provider (${alone.failed}): what it wants is not what is provided there`);
+  const out = [];
+  for (const c of contexts) {
+    const ob = `uses:${c}`;
+    if (contexts.length === 1) { out.push({ line, ob, status: "held", what: `${name}: uses(${c}) holds: with no provider it fails (${alone.failed}), and under ${said} it runs` }); continue; }
+    if (contexts.some(o => o !== c && provs.get(o).wrap === provs.get(c).wrap)) { out.push({ line, ob, status: "unverified", what: `${name}: uses(${c}) not shown apart: ${provs.get(c).name} provides ${c} and another context it names at once, so taking one away is not run — give each its own in the probe's providers` }); continue; }
+    const without = await run(under(contexts.filter(o => o !== c)));
+    out.push(without.failed ? { line, ob, status: "held", what: `${name}: uses(${c}) holds: it runs under ${said}, and with only ${c}'s provider taken away it fails (${without.failed})` }
+      : { line, ob, status: "mismatch", what: `${name}: declared uses(${c}), but it runs with every provider it names but ${c}'s: it does not need ${c}` });
+  }
+  return out;
 }
 
 async function verify(file) {
-  const base = file.slice(0, -".d.rx".length);
+  const rows = rowsOf(file);
   let js = require("../src/beside.js").jsOf(file);
+  const base = file.slice(0, -".d.rx".length);
+  const dir = path.dirname(path.resolve(file));
+  const probeFile = [".probe.mjs", ".probe.js"].map(x => base + x).find(f => fs.existsSync(f));
+  const probeMod = probeFile ? await import(pathToFileURL(path.resolve(probeFile)).href) : null;
   // 09 MO-14: a host declaration (`host.d.rx`) declares no JS module's exports: its view is checked against the probe's scene
-  if (/^\s*export\s+default\s+component\b/m.test(fs.readFileSync(file, "utf8"))) {
-    const probeFile = [".probe.mjs", ".probe.js"].map(x => base + x).find(f => fs.existsSync(f));
-    const probeMod = probeFile ? await import(pathToFileURL(path.resolve(probeFile)).href) : null;
-    const dir = path.dirname(path.resolve(file));
+  const hostRow = rows.find(r => r.kind === "host");
+  if (hostRow) {
     // MO-14g: a declaration derived from the router's tree is first held to it — one that has fallen behind is a
     // mismatch before anything is run — and its probe is handed the routes (the scene's third argument), so the scene
     // is the tree's and restates none of it
     const H = require("../src/host-routes.js"); const stale = H.drift(file);
-    if (stale?.stale) {
-      const rows = require("../src/strict.js").rowsOf(file);
-      return rows.flatMap(row => (row.obligations ?? []).map(ob => ({ line: row.line, ob, status: "fail", what: `HOST_VIEW_STALE: ${H.message(file, stale)}` })));
-    }
-    const host = await require("../src/verify-place.js").verifyHost({ text: require("../src/strict.js").rowText(file), probeMod, routes: stale ? rx => H.sceneRoutes(file, rx) : undefined, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href });
-    if (!js) return [...host, ...require("../src/strict.js").unanswered(file, host)];
-    return [...host, ...(await verifyModule(file, base, js)).filter(r => !host.some(h => h.line === r.line && h.ob === r.ob))];   // a module's own rows beside the view
+    if (stale?.stale) return { results: rows.flatMap(row => row.obligations.map(ob => ({ line: row.line, ob, status: "mismatch", what: `HOST_VIEW_STALE: ${H.message(file, stale)}` }))) };
+    const host = await place.verifyHost({ rows, probeMod, routes: stale ? rx => H.sceneRoutes(file, rx) : undefined, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href });
+    if (!js) return { results: host };
+    const own = await verifyModule(file, rows, js, probeMod, probeFile);   // a module's own rows beside the view
+    return { ...own, results: [...host, ...own.results.filter(r => !host.some(h => h.line === r.line && h.ob === r.ob))] };
   }
-  return verifyModule(file, base, js);
+  return verifyModule(file, rows, js, probeMod, probeFile);
 }
-async function verifyModule(file, base, js) {
+
+async function verifyModule(file, rows, js, probeMod, probeFile) {
   // MO-8k's first place (2026-11-23): a project's declaration of a package, `rx-types/<spec>.d.rx`, declares the module
   // that import resolves to from the folder that holds `rx-types/` — found as the checker finds the declaration, the
-  // other way round. (It was "no JS module beside": no row of a project's declaration could be shown, and strict
-  // declarations, MO-8j, could not be asked of a package the project declares.)
+  // other way round
   if (!js) {
     const parts = path.resolve(file).split(path.sep); const at = parts.lastIndexOf("rx-types");
     if (at > 0) { const spec = parts.slice(at + 1).join("/").slice(0, -".d.rx".length); js = require("../src/declare-run.js").resolveModule(spec, parts.slice(0, at).join(path.sep)) || undefined; }
   }
-  if (!js) return [{ line: 1, status: "fail", what: `no JS module beside ${path.basename(file)}, and it is not a project's declaration of a package that resolves (rx-types/<package>.d.rx)` }];
+  const checked = rows.filter(r => ["fn", "component", "error", "const"].includes(r.kind));
+  if (!js) return { results: checked.map(r => ({ line: r.line, ob: "exists", status: "mismatch", what: `${r.name}: no JS module beside ${path.basename(file)}, and it is not a project's declaration of a package that resolves (rx-types/<package>.d.rx)` })) };
   require("../src/declare-run.js").compileJsx(path.dirname(path.resolve(js)));   // a package that ships .jsx runs compiled (its solid build)
   const mod = await import(pathToFileURL(path.resolve(js)).href);
-  const probeFile = [".probe.mjs", ".probe.js"].map(x => base + x).find(f => fs.existsSync(f));
-  const probeMod = probeFile ? await import(pathToFileURL(path.resolve(probeFile)).href) : null;
   const dir = path.dirname(path.resolve(js));
-  const { createRoot } = await import(pathToFileURL(require.resolve("solid-js", { paths: [path.dirname(path.resolve(js))] })).href);
+  const resolve = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
+  const solid = await import(resolve("solid-js"));
+  const ctx = { mod, probeMod, dir, resolve, solid };
+  const { createRoot } = solid;
   const out = [];
   // MO-11q: `Dialog.Trigger` is a member of `Dialog`. MO-8t: and `toaster.show` a method of `toaster`, called on it
   const at = n => { const ks = n.split("."); let o = mod, of; for (const k of ks) { of = o; o = o?.[k]; } return ks.length > 1 && typeof o === "function" && !/^[A-Z]/.test(ks[ks.length - 1]) ? o.bind(of) : o; };
-  // each row as one line, at the line it starts on, as the crate's parser spans it: a claim on a row's later line (a props
-  // record broken over lines, then `provides(theme)`) is read as the row's
-  const text = require("../src/strict.js").rowText(file);
-  // MO-8w: which of the file's words the code proves is read from the code now (src/declare-audit.js), not from a line
-  // in the file: a word that is proven is held, below, to what the reading claims; one the code contradicts is a
-  // mismatch as it stands; the rest are a person's, and are run as any row is. (An `//@ inferred` line, as drafts
-  // wrote one a row until 2026-11-27, still asks for the stricter run of the words it names.)
-  const inferredRows = inferredOf(fs.readFileSync(file, "utf8"));
+  // MO-8w: which of the file's words the code proves is read from the code (src/declare-audit.js): a word that is proven
+  // is held, below, to what the reading claims; one the code contradicts is a mismatch as it stands; the rest are a
+  // person's, and are run as any row is
   let read = null;
   if (process.env.RX_VERIFY_READ !== "0") { try { read = require("../src/declare-audit.js").auditFile(require("typescript"), file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
-  const tally = { proven: 0, contradicted: 0, unproven: 0 };
+  const proven = new Map();   // export → claim → why the code proves it
+  const audit = { proven: 0, contradicted: 0, unproven: 0 };
   for (const row of read?.rows ?? []) for (const w of row.words) {
-    tally[w.verdict]++;
-    if (w.verdict === "proven") { if (!inferredRows.has(row.name)) inferredRows.set(row.name, new Set()); inferredRows.get(row.name).add(w.word); }
+    audit[w.verdict]++;
+    const ob = claimOf(w.word);
+    if (w.verdict === "proven" && ob) { if (!proven.has(row.name)) proven.set(row.name, new Map()); proven.get(row.name).set(ob, w.why); }
   }
-  const usesHeld = new Set();   // hooks whose uses(…) row held: with no provider they throw or warn (provides(c) needs one)
-  // a provider last, so every hook's uses(…) is known when its provides(c) is checked; the results stay in line order
-  const rows = exportsOf(text), isProv = x => x.kind === "component" && x.providesNames.length;
-  const first = out.length;
-  for (const x of [...rows.filter(x => !isProv(x)), ...rows.filter(isProv)]) { if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${x.name}\n`);
-    // a row that is mounted needs a renderer; where the project has none installed, that row is not run, and the
-    // others are (it was the end of the whole run)
+  // (An `//@ inferred <export>: <words>` line, as drafts wrote one a row until 2026-11-27, still asks for the stricter
+  // run of the words it names — what a reading would claim of them. It proves nothing: only the reading does.)
+  const reading = new Map([...proven].map(([n, m]) => [n, new Set(m.keys())]));
+  for (const m of fs.readFileSync(file, "utf8").matchAll(/^\/\/@ inferred ([\w$.]+): (.*)$/gm)) for (const w of m[2].split(/,\s*(?![^()]*\))/)) { const ob = claimOf(w.trim()); if (ob) reading.set(m[1], (reading.get(m[1]) ?? new Set()).add(ob)); }
+  const probes = probeMod?.probes ?? {};
+  const propsOf = n => probes[n]?.props?.() ?? {};
+  const classOf = c => c === "Error" ? Error : typeof mod[c] === "function" ? mod[c] : typeof globalThis[c] === "function" ? globalThis[c] : null;
+  const isA = (e, classes) => classes.some(c => { const C = classOf(c); return C && e instanceof C; });
+  // a provider of `c` in this file: a component declared `provides(c)`, mounted around what is run (as its children, or
+  // as its probe says — `around`, for a provider that renders something else than its children: a router its routes)
+  const around = p => probes[p.name]?.around ?? ((children, s) => s.createComponent(at(p.name), Object.defineProperty({ ...propsOf(p.name) }, "children", { get: () => children(), enumerable: true })));
+  const wraps = new Map();
+  const providerOf = (c, alone) => {
+    const p = checked.find(p => p.kind === "component" && p.facts.provides.includes(c) && typeof at(p.name) === "function");
+    if (p) { if (!wraps.has(p.name)) wraps.set(p.name, around(p)); return { wrap: wraps.get(p.name), name: p.name }; }
+    if (typeof probeMod?.providers?.[c] === "function") return { wrap: probeMod.providers[c], name: `the probe's providers.${c}` };
+    if (alone && typeof probeMod?.provide === "function") return { wrap: probeMod.provide, name: "the probe's providers" };
+    return undefined;
+  };
+  // what failed only for want of a browser (no `window` here) is no evidence either way: run with --dom
+  const failure = (e, warned) => e ? { failed: short(e), env: environmental(e) } : warned?.length ? { failed: `it warns: ${warned[0].slice(0, 60)}` } : { failed: null };
+  const called = new Set();   // `line:claim`, where a run was made that could have refuted the claim and showed nothing
+  const failsAlone = new Set();   // hooks and parts that fail with no provider: what a provides(c) is shown through
+  const fns = checked.filter(r => r.kind === "fn"), comps = checked.filter(r => r.kind === "component");
+
+  for (const row of checked) {
+    const x = row.facts, line = row.line, name = row.name, obs = new Set(row.obligations);
+    if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${name}\n`);
+    const push = (ob, status, what, more) => out.push({ line, ob, status, what: `${name}: ${what}`, ...more });
+    // a row that is mounted needs a renderer; where the project has none installed, that row is not run, and the others are
     try {
-    const v = at(x.name);
-    if (v === undefined) { out.push({ line: x.line, ob: "exists", status: "fail", what: `${x.name}: ${path.basename(js)} exports nothing by that name` }); continue; }
-    if (x.kind === "value") { out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: a value, exported` }); continue; }
-    if (x.kind === "error") { const ok = typeof v === "function" && v.prototype instanceof Error; out.push({ line: x.line, ob: "exists", status: ok ? "ok" : "fail", what: `${x.name}: ${ok ? "an Error subclass" : "declared an error, but is not an Error subclass"}` }); continue; }
-    if (typeof v !== "function") { out.push({ line: x.line, ob: "exists", status: "fail", what: `${x.name}: declared a ${x.kind}, but is a ${typeof v}` }); continue; }
-    out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: exported, a function`, quiet: true });   // what the record needs; the line printed is the check below
-    const probe = probeMod?.probes?.[x.name];
-    // MO-8v: a word the draft read from the code (`//@ inferred`) is held to what that reading claims, by running it:
-    // a `pure` fn changes none of its arguments, leaves no new global, and asks neither the clock nor for a random
-    // number while it is called; what it rejects with, under the probe's failing arguments, is a class its row names.
-    // One observation the other way and the reading was wrong — a defect of rx-declare, reported as a mismatch
-    const marked = inferredRows.get(x.name);
-    if (x.kind === "fn" && marked?.has("pure") && (probe?.args || !x.required)) {
-      const seen = watched(createRoot, v, probe?.args?.() ?? []);
-      try { await seen.result; } catch { /* what it rejects with is the row's rejects(…) */ }
-      const bad = seen.done();
-      if (bad.length) { out.push({ line: x.line, ob: "pure", status: "fail", what: `${x.name}: read from its code as pure, but when it is called ${bad.join("; ")}: the reading is wrong — remove the word, and report it` }); continue; }
-      out.push({ line: x.line, status: "ok", what: `${x.name}: the pure read from its code is not contradicted: called, it changed no argument, left no global and asked neither the clock nor for a random number` });
-    }
-    const classes = marked && [...marked].map(w => /^rejects\((.*)\)$/.exec(w)?.[1]).find(Boolean)?.split("|").map(c => c.trim());
-    if (x.kind === "fn" && classes) {
-      for (const [which, args] of [["the probe's arguments", probe?.args], ["the probe's failing arguments", probe?.fail]]) {
-        if (!args) continue;
-        let got = null; try { await v(...args()); } catch (e) { got = e ?? new Error("undefined"); }
-        if (got && !classes.some(c => typeof mod[c] === "function" && got instanceof mod[c])) out.push({ line: x.line, status: "fail", what: `${x.name}: read from its code to reject with ${classes.join(" | ")} alone, but under ${which} it rejects with ${got?.constructor?.name ?? typeof got}${got?.message ? ` (${String(got.message).slice(0, 40)})` : ""}: the reading is wrong — remove the word, and report it` });
-        else if (got) out.push({ line: x.line, status: "ok", what: `${x.name}: under ${which} it rejects with ${got.constructor.name}, as its row says` });
+      const v = at(name);
+      if (v === undefined) { push("exists", "mismatch", `${path.basename(js)} exports nothing by that name`); continue; }
+      if (row.kind === "const") { push("exists", "held", "a value, exported"); continue; }
+      if (row.kind === "error") { const ok = typeof v === "function" && v.prototype instanceof Error; push("exists", ok ? "held" : "mismatch", ok ? "an Error subclass" : "declared an error, but is not an Error subclass"); continue; }
+      if (typeof v !== "function") { push("exists", "mismatch", `declared a ${row.kind}, but is a ${typeof v}`); continue; }
+      push("exists", "held", `exported, a function`, { quiet: true });
+      if (row.kind === "component") continue;   // its claims are run below, once every hook's are known
+
+      const probe = probes[name];
+      const required = x.params.filter(p => !p.optional && !p.rest).length;
+      const runnable = !!probe?.args || !required;
+      const args = () => probe?.args?.() ?? [];
+      const code = proven.get(name) ?? new Map(), read = reading.get(name) ?? new Set();
+      let own;   // the providers of the contexts the row names, where this file or the probe has each
+
+      // pure: refuted by running, never shown by it (RFC 28)
+      if (x.pure && runnable && (obs.has("pure") || read.has("pure"))) {
+        const bad = []; called.add(`${line}:pure`);
+        if (read.has("pure")) {   // MO-8v: what a `pure` read from the code says it does not do
+          const seen = watched(createRoot, v, args());
+          try { await seen.result; } catch { /* what it rejects with is the row's rejects(…) */ }
+          bad.push(...seen.done().map(b => `read from its code as pure, but when it is called ${b}: the reading is wrong — remove the word, and report it`));
+        }
+        let ran = false;
+        if (obs.has("pure") && !bad.length) {   // (a fn that makes something each call is not alike on two calls by design)
+          let a, b, threw = null, across = null;
+          createRoot(d => { try { a = v(...args()); b = v(...args()); } catch (e) { threw = e; } d(); });
+          try { [a, b] = await Promise.all([a, b]); } catch (e) { threw ??= e; }
+          ran = !threw;
+          if (threw) push("pure", "unverified", `pure not run: it threw (${short(threw, 50)})`);
+          else if (!same(a, b)) bad.push(`declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})`);
+          // 10 SV-7c: that a `pure` fn answers alike on the server and in the browser is part of the word, and a build
+          // cannot see it (hydration adopts the server's text). So it is run on the other side too — this process has a
+          // browser's globals (--dom) or has not, a second one the other way — and a plain answer that is steady on each
+          // side and differs between them refutes the row. (`server` and `client` fns run on one side only.)
+          else if ((across = x.side ? null : otherSide(js, name, probeFile)) && plain(a) && !same(a, across.value)) bad.push(`declared pure, but it answers differently on the server and in the browser (${show(across.dom ? a : across.value)} with no window, ${show(across.dom ? across.value : a)} with one): a page rendered on the server would show one and hydrate with the other. What only the browser knows is \`client\` JS, asked as a question (10 SV-7b, SV-7c)`);
+        }
+        if (bad.length) push("pure", "mismatch", bad.join("; "));
+        else if (ran && !code.has("pure")) push("pure", "unverified", "pure not contradicted: two calls with the same arguments answer alike, which cannot show a fn is pure");
       }
-    }
-    if (x.kind === "fn" && x.uses) {
-      if (x.required && !probe?.args) out.push({ line: x.line, ob: "uses", status: "unverified", what: `${x.name}: uses(…) not run, it needs ${x.required} argument${x.required > 1 ? "s" : ""} (give them in a probe)` });
-      else {
-        let threw = null, dispose = () => {}, result;
-        const warned = [];   // a hook that warns, not throws, with no provider (TanStack Router's `useRouter must be used inside a <RouterProvider>`)
-        const saved = [console.warn, console.error]; console.warn = console.error = (...a) => { warned.push(a.map(String).join(" ")); };
-        try {
-          createRoot(d => { dispose = d; try { result = v(...(probe?.args?.() ?? [])); } catch (e) { threw = e; } });
-          if (!threw && probe?.run) { try { await probe.run(result); } catch (e) { threw = e; } }   // a hook that reads its context lazily: the probe uses what it gave
-          dispose();
-        } finally { [console.warn, console.error] = saved; }
-        if (!threw && warned.length) { out.push({ line: x.line, ob: "uses", status: "ok", what: `${x.name}: uses(…) holds: with no provider it warns (${warned[0].slice(0, 60)})` }); if (!x.fields) continue; }
+
+      // rejects(E): what its promise rejects with, under the probe's failing arguments
+      if (obs.has("rejects")) {
+        const classes = x.rejects; let shown = false, bad = false;
+        // (the probe's own arguments are called with where calling is already asked for: a `pure` fn, a reading of the code)
+        for (const [which, given] of [["the probe's arguments", (x.pure || read.has("rejects")) && probe?.args], ["the probe's failing arguments", probe?.fail]]) {
+          if (!given) continue;
+          let got = null; try { await v(...given()); } catch (e) { got = e ?? new Error("undefined"); }
+          if (got && !isA(got, classes)) { bad = true; push("rejects", "mismatch", `declared to reject with ${classes.join(" | ")} alone, but under ${which} it rejects with ${got?.constructor?.name ?? typeof got}${got?.message ? ` (${String(got.message).slice(0, 40)})` : ""}`); }
+          else if (got) { shown = true; push("rejects", "held", `under ${which} it rejects with ${got.constructor.name}, as its row says`); }
+        }
+        if (!shown && !bad && !code.has("rejects")) push("rejects", "unverified", probe?.fail ? "rejects(…) not shown: under the probe's failing arguments nothing rejects" : "rejects(…) not run: give failing arguments as the probe's fail");
+      }
+
+      // uses(c): with no provider, and under one
+      if (x.uses.length) {
+        if (!runnable) for (const c of x.uses) push(`uses:${c}`, "unverified", `uses(${c}) not run, it needs ${required} argument${required > 1 ? "s" : ""} (give them in a probe)`);
         else {
-        // the control: under its providers, the same `run` must not throw, or the probe (not the row) is what failed
-        const control = threw && probe?.run && probeMod?.provide ? (await mount(dir, mod, probeMod, v, probe.args?.() ?? [], [], probe.run)).runError : null;
-        if (control) out.push({ line: x.line, ob: "uses", status: "unverified", what: `${x.name}: the probe's run throws under its providers too (${String(control.message || control).slice(0, 60)}): fix the probe` });
-        else out.push(threw ? { line: x.line, ob: "uses", status: "ok", what: `${x.name}: uses(…) holds: with no provider it throws (${String(threw.message || threw.name || threw).slice(0, 60)})` }
-          : { line: x.line, status: "fail", what: `${x.name}: declared uses(…), but called with no provider it neither throws nor warns: does it read a context?` });
+          let aloneWarned = [];
+          const run = async wrap => {
+            if (wrap) { const m = await mount(ctx, v, args(), [], probe?.run, wrap); const e = m.renderError ?? (m.boundary && !notReady(m.boundary) ? m.boundary : null) ?? m.runError; return failure(e, m.warned.filter(w => aloneWarned.includes(w))); }
+            let threw = null, dispose = () => {}, result; const quiet = hushed();   // a hook may warn, not throw, with no provider (TanStack Router's `useRouter must be used inside a <RouterProvider>`)
+            try {
+              createRoot(d => { dispose = d; try { result = v(...args()); } catch (e) { threw = e; } });
+              if (!threw && probe?.run) { try { await probe.run(result); } catch (e) { threw = e; } }   // a hook that reads its context lazily: the probe uses what it gave
+              dispose();
+            } finally { quiet.restore(); }
+            aloneWarned = quiet.warned;
+            return failure(threw, quiet.warned);
+          };
+          const rs = await usesClaims({ name, line, contexts: x.uses, run, providerOf: c => providerOf(c, x.uses.length === 1) });
+          if (!rs.some(r => /neither throws nor warns/.test(r.what))) failsAlone.add(name);
+          out.push(...rs);
+          // what it is mounted under below, to read its parts: the providers it was just shown to run with
+          const ps = x.uses.map(c => providerOf(c, x.uses.length === 1));
+          if (ps.every(Boolean)) own = (children, s) => [...new Set(ps.map(p => p.wrap))].reduceRight((kids, w) => () => w(kids, s), children)();
         }
       }
-      if (out.some(r => r.line === x.line && r.ob === "uses" && r.status === "ok")) usesHeld.add(x.name);
-      if (!x.fields) continue;
-    }
-    if (x.kind === "fn" && x.fields && (probe?.args || !x.required)) {
-      const fails = x.fields.filter(f => f.fails.length);
-      const ran = await mount(dir, mod, probeMod, v, probe?.args?.() ?? [], x.fields);
-      // what failed only for want of a browser (no `window` here) is no evidence either way: run with --dom
-      const envErr = [ran.boundary, ...x.fields.map(f => ran.seen.get(f.path.join(".")).failed)].find(environmental);
-      if (envErr) { out.push({ line: x.line, ob: "fields", status: "unverified", what: `${x.name}: not run: it needs a browser (${String(envErr.message ?? envErr).slice(0, 40)}); run rx-verify with --dom` }); continue; }
-      const bad = [];
-      for (const f of x.fields) {
-        const st = ran.seen.get(f.path.join("."));
-        // MO-10d: an accessor's read may hold, whatever its row says; a plain field that does is one a row cannot describe (MO-8r)
-        if (st.pending && !f.ref) bad.push(`${f.path.join(".")} holds (its first read is not ready): a plain field that waits where it is read has no row — hand it out as a function from a module of the app's own, declared \`pending ref\` (MO-10l)`);
-        if (st.notAccessor) bad.push(`${f.path.join(".") || "the result"} is declared ref, but is not an accessor (a function)`);
-        if (st.failed && !f.ref) bad.push(`${f.path.join(".")} fails (${String(st.failed?.message ?? st.failed).slice(0, 40)}) where it is read: a plain field that does has no row — hand it out as a function, declared \`fails(…) ref\` (MO-10l)`);
-      }
-      if (ran.boundary && !fails.length && !(ran.boundary?.name === "NotReadyError")) bad.push(`it fails into the errored boundary (${String(ran.boundary?.message ?? ran.boundary).slice(0, 40)}), and no field is declared fails(…)`);
-      const label = f => f.path.join(".") || "the result";
-      const heldSeen = x.fields.filter(f => f.holds && ran.seen.get(f.path.join(".")).pending).map(label);
-      // MO-10l: an accessor that waited and whose row does not say so — the row says less (MO-10d), and the checker asks for no region
-      const quiet = x.fields.filter(f => f.ref && !f.holds && ran.seen.get(f.path.join(".")).pending).map(label);
-      const loud = x.fields.filter(f => f.ref && !f.fails.length && ran.seen.get(f.path.join(".")).failed).map(label);
-      out.push(bad.length ? { line: x.line, ob: "fields", status: "fail", what: `${x.name}: ${bad.join("; ")}` }
-        : { line: x.line, status: "ok", what: `${x.name}: its fields read as declared${heldSeen.length ? ` (${heldSeen.join(", ")} held, then answered)` : ""}${quiet.length ? `; ${quiet.join(", ")} waited where it was read: \`pending ref\` would have the checker ask for a loading region above its reads (MO-10l)` : ""}${loud.length ? `; ${loud.join(", ")} failed where it was read: \`fails(…) ref\` would have it ask for an errored one (MO-10l)` : ""}` });
-      if (fails.length) {
-        if (!probe?.fail) out.push({ line: x.line, ob: "fails", status: "unverified", what: `${x.name}: fails(…) not run (give failing arguments as the probe's fail)` });
+
+      // fields, fails: every part of the result read where it is mounted
+      if (x.parts.length && runnable) {
+        const fails = x.parts.filter(f => f.fails.length);
+        const ran = await mount(ctx, v, args(), x.parts, null, own);
+        const key = f => f.path.join("."), label = f => key(f) || "the result";
+        const envErr = [ran.renderError, ran.boundary, ...x.parts.map(f => ran.seen.get(key(f)).failed)].find(environmental);
+        if (envErr) push("fields", "unverified", `not run: it needs a browser (${short(envErr, 40)}); run rx-verify with --dom`);
+        else if (ran.renderError) push("fields", "unverified", `not run: it threw as it mounted (${short(ran.renderError, 50)}); give its providers in the probe`);
         else {
-          const r2 = await mount(dir, mod, probeMod, v, probe.fail(), x.fields);
-          const got = r2.boundary ?? fails.map(f => r2.seen.get(f.path.join(".")).failed).find(Boolean);
-          const classes = [...new Set(fails.flatMap(f => f.fails))];
-          const ok = got && classes.some(c => c === "Error" ? got instanceof Error : typeof mod[c] === "function" && got instanceof mod[c]);
-          out.push(ok ? { line: x.line, ob: "fails", status: "ok", what: `${x.name}: under the failing arguments it fails with ${got.constructor?.name ?? "an error"}, as declared` }
-            : { line: x.line, status: "fail", what: `${x.name}: under the failing arguments ${got ? `it fails with ${got.constructor?.name}, not ${classes.join(" or ")}` : "nothing fails"}` });
+          const bad = [];
+          for (const f of x.parts) {
+            const st = ran.seen.get(key(f));
+            // MO-10d: an accessor's read may hold, whatever its row says; a plain part that does is one a row cannot describe (MO-8r)
+            if (st.pending && !f.ref) bad.push(`${key(f)} holds (its first read is not ready): a plain field that waits where it is read has no row — hand it out as a function from a module of the app's own, declared \`pending ref\` (MO-10l)`);
+            if (st.notAccessor) bad.push(`${label(f)} is declared ref, but is not an accessor (a function)`);
+            if (st.failed && !f.ref) bad.push(`${key(f)} fails (${short(st.failed, 40)}) where it is read: a plain field that does has no row — hand it out as a function, declared \`fails(…) ref\` (MO-10l)`);
+          }
+          if (ran.boundary && !fails.length && !notReady(ran.boundary)) bad.push(`it fails into the errored boundary (${short(ran.boundary, 40)}), and no field is declared fails(…)`);
+          const heldSeen = x.parts.filter(f => f.pending && ran.seen.get(key(f)).pending).map(label);
+          // MO-10l: an accessor that waited and whose row does not say so — the row says less (MO-10d), and the checker asks for no region
+          const quiet = x.parts.filter(f => f.ref && !f.pending && ran.seen.get(key(f)).pending).map(label);
+          const loud = x.parts.filter(f => f.ref && !f.fails.length && ran.seen.get(key(f)).failed).map(label);
+          if (bad.length) push("fields", "mismatch", bad.join("; "));
+          else push("fields", "held", `its fields read as declared${heldSeen.length ? ` (${heldSeen.join(", ")} held, then answered)` : ""}${quiet.length ? `; ${quiet.join(", ")} waited where it was read: \`pending ref\` would have the checker ask for a loading region above its reads (MO-10l)` : ""}${loud.length ? `; ${loud.join(", ")} failed where it was read: \`fails(…) ref\` would have it ask for an errored one (MO-10l)` : ""}`);
+          if (fails.length) {
+            if (!probe?.fail) push("fails", "unverified", "fails(…) not run (give failing arguments as the probe's fail)");
+            else {
+              const r2 = await mount(ctx, v, probe.fail(), x.parts, null, own);
+              const got = r2.boundary ?? fails.map(f => r2.seen.get(key(f)).failed).find(Boolean);
+              const classes = [...new Set(fails.flatMap(f => f.fails))];
+              if (got && isA(got, classes)) push("fails", "held", `under the failing arguments it fails with ${got.constructor?.name ?? "an error"}, as declared`);
+              else push("fails", "mismatch", `under the failing arguments ${got ? `it fails with ${got.constructor?.name}, not ${classes.join(" or ")}` : "nothing fails"}`);
+            }
+          }
         }
       }
-      continue;
-    }
-    // MO-10i (2026-11-22): a `draft` parameter. The fn is run with the probe's arguments, what it is given at that
-    // position watched: it must change it during the call (else the word claims a change the fn does not make), and
-    // must not change it after it returned (else it kept the draft, which the word says it does not)
-    if (x.kind === "fn" && x.drafts?.length) {
-      if (!probe?.args) { out.push({ line: x.line, ob: "draft", status: "unverified", what: `${x.name}: its \`draft\` parameter is not run: with the arguments it is called with (a probe's \`args\`) it is checked to change what it is given during the call, and not after` }); continue; }
-      const args = probe.args(); let during = 0, after = 0, returned = false, threw = null;
-      const watch = o => o === null || typeof o !== "object" ? o : new Proxy(o, {
-        get: (t, k, r) => watch(Reflect.get(t, k, r)),
-        set: (t, k, val) => { returned ? after++ : during++; return Reflect.set(t, k, val); },
-        deleteProperty: (t, k) => { returned ? after++ : during++; return Reflect.deleteProperty(t, k); },
-      });
-      try { await v(...args.map((a, i) => x.drafts.includes(i) ? watch(a) : a)); } catch (e) { threw = e; }
-      returned = true;
-      await new Promise(r => setTimeout(r, 20));
-      out.push(threw ? { line: x.line, ob: "draft", status: "unverified", what: `${x.name}: its \`draft\` parameter is not run: it threw (${String(threw.message ?? threw).slice(0, 50)})` }
-        : after ? { line: x.line, ob: "draft", status: "fail", what: `${x.name}: declared to change its \`draft\` parameter during the call, but it changed it after it returned: it kept what it was given` }
-        : !during ? { line: x.line, ob: "draft", status: "fail", what: `${x.name}: its parameter is declared \`draft\`, but with the probe's arguments it changed nothing of what it was given` }
-        : { line: x.line, ob: "draft", status: "ok", what: `${x.name}: it changes its \`draft\` parameter in place during the call (${during} write${during === 1 ? "" : "s"}), and not after` });
-      continue;
-    }
-    // pure (MO-8): with the same arguments, two calls answer alike (promises awaited); a fn that makes something is not run
-    if (x.kind === "fn" && x.pure && !x.inst && !x.uses && (probe?.args || !x.required)) {
-      let a, b, threw = null, across = null;
-      createRoot(d => { try { a = v(...(probe?.args?.() ?? [])); b = v(...(probe?.args?.() ?? [])); } catch (e) { threw = e; } d(); });
-      try { [a, b] = await Promise.all([a, b]); } catch (e) { threw ??= e; }
-      out.push(threw ? { line: x.line, ob: "pure", status: "unverified", what: `${x.name}: pure not run: it threw (${String(threw.message ?? threw).slice(0, 50)})` }
-        : !same(a, b) ? { line: x.line, ob: "pure", status: "fail", what: `${x.name}: declared pure, but two calls with the same arguments answer differently (${show(a)} then ${show(b)})` }
-        // 10 SV-7c: that a `pure` fn answers alike on the server and in the browser is part of the word, and a build
-        // cannot see it (hydration adopts the server's text). So it is run on the other side too — this process has a
-        // browser's globals (--dom) or has not, a second one the other way — and a plain answer that is steady on each
-        // side and differs between them refutes the row. (`server` and `client` fns run on one side only.)
-        : ((across = x.side ? null : otherSide(js, x.name, probeFile)), across?.plain && plain(a) && !same(a, across.value)) ? { line: x.line, ob: "pure", status: "fail", what: `${x.name}: declared pure, but it answers differently on the server and in the browser (${show(across.dom ? a : across.value)} with no window, ${show(across.dom ? across.value : a)} with one): a page rendered on the server would show one and hydrate with the other. What only the browser knows is \`client\` JS, asked as a question (10 SV-7b, SV-7c)` }
-        : { line: x.line, ob: "pure", status: "unverified", what: `${x.name}: pure not contradicted: two calls with the same arguments answer alike${across?.plain ? ", on the server and in a browser's globals" : ""}, which cannot show a fn is pure` });   // RFC 28: running can refute purity, never establish it
-      continue;
-    }
-    // provides(c) (MO-12c, RFC 28): each context is its own claim, answered only by actual provision: a hook or a part of
-    // the same file that uses `c` and nothing else, shown to fail (or warn) with no provider, runs cleanly under the
-    // component. A hook declared `uses(a, b)` cannot tell which of the two it read, so it answers neither: `b` would be
-    // recorded ok through a hook that reads only `a` (revised after review)
-    if (x.kind === "component" && x.providesNames.length) {
-      const all = exportsOf(text);
-      const props = probe?.props?.() ?? {};
-      // inside it: as its children, or as the probe says (`around`, for a provider that renders something else, as a router)
-      const wrap = probe?.around ? probe.around : (children, sol) => sol.createComponent(v, Object.defineProperty({ ...props }, "children", { get: () => children(), enumerable: true }));
-      const runs = new Map();   // a hook mounted once, whatever contexts it answers for
-      const only = (u, c) => u?.length === 1 && u[0] === c;
-      for (const c of x.providesNames) {
-        const ob = `provides:${c}`;
-        const hook = all.find(h => h.kind === "fn" && only(h.usesNames, c) && usesHeld.has(h.name) && (probeMod?.probes?.[h.name]?.args || !h.required) && typeof mod[h.name] === "function");
-        const part = !hook && all.find(p => p.kind === "component" && p !== x && only(p.usesNames, c) && typeof at(p.name) === "function");
-        if (part) {   // MO-11q: a kit's part, rendered alone (it must fail or warn) and inside the component (it must not fail)
-          const r = await require("../src/verify-place.js").partUnder({ part: at(part.name), partProps: probeMod?.probes?.[part.name]?.props?.() ?? {}, wrap, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href });
-          out.push(!r.alone ? { line: x.line, ob, status: "unverified", what: `${x.name}: provides(${c}) not shown: ${part.name}, which uses it, renders with no provider too` }
-            : r.inside ? { line: x.line, ob, status: "fail", what: `${x.name}: declared provides(${c}), but ${part.name}, which uses it, still fails under it (${String(r.inside.message ?? r.inside).slice(0, 60)})` }
-            : { line: x.line, ob, status: "ok", what: `${x.name}: provides(${c}) holds: ${part.name}, which uses it alone, fails without it and renders under it` });
+
+      // MO-10i (2026-11-22): a `draft` parameter. The fn is run with the probe's arguments, what it is given at that
+      // position watched: it must change it during the call (else the word claims a change the fn does not make), and
+      // must not change it after it returned (else it kept the draft, which the word says it does not)
+      const drafts = x.params.flatMap((p, i) => p.draft ? [i] : []);
+      if (drafts.length) {
+        if (!probe?.args) push("draft", "unverified", "its `draft` parameter is not run: with the arguments it is called with (a probe's `args`) it is checked to change what it is given during the call, and not after");
+        else {
+          let during = 0, after = 0, returned = false, threw = null;
+          const watch = o => o === null || typeof o !== "object" ? o : new Proxy(o, {
+            get: (t, k, r) => watch(Reflect.get(t, k, r)),
+            set: (t, k, val) => { returned ? after++ : during++; return Reflect.set(t, k, val); },
+            deleteProperty: (t, k) => { returned ? after++ : during++; return Reflect.deleteProperty(t, k); },
+          });
+          try { await v(...probe.args().map((a, i) => drafts.includes(i) ? watch(a) : a)); } catch (e) { threw = e; }
+          returned = true;
+          await new Promise(r => setTimeout(r, 20));
+          if (threw) push("draft", "unverified", `its \`draft\` parameter is not run: it threw (${short(threw, 50)})`);
+          else if (after) push("draft", "mismatch", "declared to change its `draft` parameter during the call, but it changed it after it returned: it kept what it was given");
+          else if (!during) push("draft", "mismatch", "its parameter is declared `draft`, but with the probe's arguments it changed nothing of what it was given");
+          else push("draft", "held", `it changes its \`draft\` parameter in place during the call (${during} write${during === 1 ? "" : "s"}), and not after`);
+        }
+      }
+    } catch (e) { if (!noRenderer(e)) throw e; for (const ob of row.obligations.filter(ob => ob !== "exists" && !out.some(r => r.line === line && r.ob === ob))) push(ob, "unverified", "not run: it is mounted to be read, with @solidjs/universal, which is not installed here (npm i -D @solidjs/universal)"); }
+  }
+
+  // a component's uses(c) (MO-12b, a kit's compound part): rendered alone and inside what provides it
+  for (const row of comps.filter(c => c.facts.uses.length && typeof at(c.name) === "function")) {
+    if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] uses of ${row.name}\n`);
+    const part = () => solid.createComponent(at(row.name), propsOf(row.name));
+    let alone;
+    const run = async wrap => { const r = await place.renderOnce(() => wrap ? wrap(part, solid) : part(), resolve); if (!wrap) alone = r; const same = wrap && alone ? r.warned.filter(w => alone.warned.includes(w)) : r.warned; return failure(r.error, same); };
+    const rs = await usesClaims({ name: row.name, line: row.line, contexts: row.facts.uses, run, providerOf: c => providerOf(c, row.facts.uses.length === 1) });
+    if (!rs.some(r => /neither throws nor warns/.test(r.what))) failsAlone.add(row.name);
+    out.push(...rs);
+  }
+  // provides(c) (MO-12c, RFC 28): each context is its own claim, answered only by actual provision: a hook or a part of
+  // the same file that uses `c` and nothing else, shown to fail (or warn) with no provider, runs cleanly under the
+  // component. A hook declared `uses(a, b)` cannot tell which of the two it read, so it answers neither
+  for (const row of comps.filter(c => c.facts.provides.length && typeof at(c.name) === "function")) {
+    const wrap = wraps.get(row.name) ?? around(row); const runs = new Map();
+    const only = (r, c) => r.facts.uses.length === 1 && r.facts.uses[0] === c && failsAlone.has(r.name);
+    for (const c of row.facts.provides) {
+      const push = (status, what) => out.push({ line: row.line, ob: `provides:${c}`, status, what: `${row.name}: ${what}` });
+      const hook = fns.find(h => only(h, c) && (probes[h.name]?.args || !h.facts.params.some(p => !p.optional && !p.rest)) && typeof at(h.name) === "function");
+      const part = !hook && comps.find(p => p !== row && only(p, c) && typeof at(p.name) === "function");
+      try {
+        if (part) {   // MO-11q: a kit's part, rendered inside the component (it must not fail)
+          const inside = await place.renderOnce(() => wrap(() => solid.createComponent(at(part.name), propsOf(part.name)), solid), resolve);
+          if (inside.error) push("mismatch", `declared provides(${c}), but ${part.name}, which uses it, still fails under it (${short(inside.error)})`);
+          else push("held", `provides(${c}) holds: ${part.name}, which uses it alone, fails without it and renders under it`);
           continue;
         }
-        if (!hook) { out.push({ line: x.line, ob, status: "unverified", what: `${x.name}: provides(${c}) not run: no hook or component in this file uses ${c} alone and is shown to fail without it (with a probe's arguments if it needs any)` }); continue; }
-        if (!runs.has(hook.name)) runs.set(hook.name, await mount(dir, mod, probeMod, mod[hook.name], probeMod?.probes?.[hook.name]?.args?.() ?? [], [], null, wrap));
+        if (!hook) { push("unverified", `provides(${c}) not run: no hook or component in this file uses ${c} alone and is shown to fail without it (with a probe's arguments if it needs any)`); continue; }
+        if (!runs.has(hook.name)) runs.set(hook.name, await mount(ctx, at(hook.name), probes[hook.name]?.args?.() ?? [], [], null, wrap));
         const ran = runs.get(hook.name);
-        if (ran.renderError) { out.push({ line: x.line, ob, status: "unverified", what: `${x.name}: provides(${c}) not run: it threw as it mounted (${String(ran.renderError.message ?? ran.renderError).slice(0, 50)}); give its props as the probe's props` }); continue; }
-        out.push(ran.boundary && ran.boundary?.name !== "NotReadyError" ? { line: x.line, ob, status: "fail", what: `${x.name}: declared provides(${c}), but ${hook.name}, which uses it, still fails under it (${String(ran.boundary.message ?? ran.boundary).slice(0, 60)})` }
-          : { line: x.line, ob, status: "ok", what: `${x.name}: provides(${c}) holds: ${hook.name} runs under it` });
-      }
-      continue;
+        if (ran.renderError) push("unverified", `provides(${c}) not run: it threw as it mounted (${short(ran.renderError, 50)}); give its props as the probe's props`);
+        else if (ran.boundary && !notReady(ran.boundary)) push("mismatch", `declared provides(${c}), but ${hook.name}, which uses it, still fails under it (${short(ran.boundary)})`);
+        else push("held", `provides(${c}) holds: ${hook.name}, which fails without it, runs under it`);
+      } catch (e) { if (!noRenderer(e)) throw e; push("unverified", `provides(${c}) not run: it is mounted with @solidjs/universal, which is not installed here (npm i -D @solidjs/universal)`); }
     }
-    const left = [x.pure && !x.inst && "pure", x.holds && "pending/fails", x.provides && "provides"].filter(Boolean);
-    // a fn that makes something each call is not pure by two calls answering alike: that claim does not apply (n/a)
-    if (!left.length && x.pure && x.inst) { out.push({ line: x.line, ob: "pure", status: "na", what: `${x.name}: a fn that makes something each call: two calls are not alike by design` }); continue; }
-    out.push({ line: x.line, ob: "exists", status: "ok", what: `${x.name}: a ${x.kind}` });
-    for (const o of left) out.push({ line: x.line, ob: o === "pending/fails" ? "fields" : o, status: "unverified", what: `${x.name}: ${o} not run (it needs what the app passes: give it in a probe)` });
-    } catch (e) { if (e?.code !== "MODULE_NOT_FOUND" || !/@solidjs\/universal/.test(String(e.message))) throw e; out.push({ line: x.line, status: "unverified", what: `${x.name}: not run: it is mounted to be read, with @solidjs/universal, which is not installed here (npm i -D @solidjs/universal)` }); }
   }
-  out.splice(first, out.length - first, ...out.slice(first).map((r, i) => [r, i]).sort((a, b) => a[0].line - b[0].line || a[1] - b[1]).map(([r]) => r));
-  // MO-10g: callbacks, by running: a closure at a declared function-typed parameter is checked as a handler
-  out.push(...(await require("../src/verify-place.js").verifyCallbacks({ inferred: inferredRows, fns: exportsOf(text).filter(x => x.kind === "fn" && x.cbs?.length), at, probeMod, resolve: pathToFileURL(require.resolve("solid-js", { paths: [dir, __dirname] })).href, mount: (fn, args, run) => mount(dir, mod, probeMod, fn, args, [], run) })));   // each tagged with its position, `callbacks:<name>` (RFC 29)
-  // RFC 29: a component's function-typed props, by rendering it (the crate names them: each row's `callbacks:<prop>`)
-  const cbComps = require("../src/strict.js").rowsOf(file).filter(r => r.kind === "component").flatMap(r => {
-    const cbs = (r.obligations ?? []).filter(o => o.startsWith("callbacks:")).map(o => o.slice("callbacks:".length)).map(name => {
-      const m = new RegExp(`(?:^|[{;,\\s])${name.replace(/[$]/g, "\\$")}\\??\\s*:\\s*(handler)?`).exec(r.text);
-      return { name, handler: m?.[1] === "handler" };
-    });
-    return cbs.length ? [{ name: r.name, line: r.line, cbs }] : [];
-  });
-  out.push(...(await require("../src/verify-place.js").verifyComponentCallbacks({ comps: cbComps, at, probeMod, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href })));
-  // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its drafts
-  const from = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
-  out.push(...(await require("../src/verify-place.js").verifyPlacement({ text, mod, probeMod, dir, resolve: from })).map(r => ({ ob: "placement", ...r })));
-  out.push(...(await require("../src/verify-place.js").verifyComponentUses({ comps: exportsOf(text).filter(x => x.kind === "component"), at, probeMod, resolve: from })).map(r => ({ ob: "uses", ...r })));
-  // MO-8j: a claim the crate reads in a row that no check above answered is not verified (a layout the checks above
-  // misread, or a claim running cannot test): said here, and recorded so
-  // MO-8w: a word the code contradicts — whoever wrote it
-  for (const row of read?.rows ?? []) for (const w of row.words) if (w.verdict === "contradicted") out.push({ line: row.line, ob: w.word.replace(/\(.*$/, ""), status: "fail", what: `${row.name}: ${w.word} is contradicted by the code: ${w.why} — the word is false as the module is installed: take it off, or declare what is true (MO-8w)` });
-  if (read?.rows.length) out.push({ line: 1, status: "ok", what: `words: ${tally.proven} read from the code (each run against what the reading claims, where there are arguments to call with), ${tally.contradicted} contradicted by it, ${tally.unproven} it neither shows nor refutes (\`rx-declare --audit\` lists them, with what to check)` });
+  // MO-10g: callbacks, by running: a closure at a declared function-typed position is checked as a handler (each its
+  // own claim, `callbacks:<position>`, RFC 29); a component's function-typed props, by rendering it
+  out.push(...(await place.verifyCallbacks({ reading, fns: fns.filter(r => r.facts.callbacks.length), at, probeMod, solid, mount: (fn, args, run) => mount(ctx, fn, args, [], run) })));
+  out.push(...(await place.verifyComponentCallbacks({ comps: comps.filter(r => r.facts.props.some(p => p.function)), at, probeMod, solid, resolve })));
+  // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its draft callbacks
+  out.push(...(await place.verifyPlacement({ rows: checked, mod, probeMod, solid, resolve })));
+
+  // MO-8w: a word the code contradicts is a mismatch whoever wrote it; a claim the code proves and no run refuted is
+  // held by that proof, where running showed nothing of it
+  for (const row of read?.rows ?? []) for (const w of row.words) if (w.verdict === "contradicted") out.push({ line: row.line, ob: claimOf(w.word) ?? "exists", status: "mismatch", what: `${row.name}: ${w.word} is contradicted by the code: ${w.why} — the word is false as the module is installed: take it off, or declare what is true (MO-8w)` });
+  for (const row of checked) for (const [ob, why] of proven.get(row.name) ?? []) {
+    const mine = out.filter(r => r.line === row.line && [].concat(r.ob).includes(ob));
+    if (mine.some(r => r.status === "mismatch" || r.status === "held")) continue;
+    for (const r of mine) out.splice(out.indexOf(r), 1);   // an `unverified` the proof answers
+    out.push({ line: row.line, ob, status: "held", by: "code", what: `${row.name}: ${describe(ob)} is proven by the code (${why}), ${mine.length || called.has(`${row.line}:${ob}`) ? "and no run contradicts it" : "which was not run"}` });
+  }
   out.push(...require("../src/strict.js").unanswered(file, out));
-  return out;
+  const order = new Map(out.map((r, i) => [r, i]));
+  out.sort((a, b) => a.line - b.line || order.get(a) - order.get(b));
+  return { results: out, audit: read?.rows.length ? audit : undefined };
 }
 
-/** Plain data: what two machines can be compared on (no function, no class instance, no accessor). */
-/** The rows a draft read words for from the code (09 MO-8v): export → the words of its `//@ inferred` line. */
-function inferredOf(text) {
-  const out = new Map();
-  for (const m of text.matchAll(/^\/\/@ inferred ([\w$.]+): (.*)$/gm)) out.set(m[1], new Set(m[2].split(/,\s*(?![^()]*\))/).map(w => w.trim()).filter(Boolean)));
-  return out;
-}
 /** Calls `fn(...args)` under a root, watching what a `pure` read from the code says it does not do: `done()` lists what
  *  was seen — an argument changed, a global left behind, the clock or a random number asked for while it was called. */
 function watched(createRoot, fn, args) {
@@ -410,6 +405,7 @@ function watched(createRoot, fn, args) {
     return out;
   } };
 }
+/** Plain data: what two machines can be compared on (no function, no class instance, no accessor). */
 function plain(v, seen = new Set()) {
   if (v === null || ["string", "number", "boolean", "undefined"].includes(typeof v)) return true;
   if (typeof v !== "object" || seen.has(v)) return false; seen.add(v);
@@ -417,11 +413,11 @@ function plain(v, seen = new Set()) {
   return Object.getPrototypeOf(v) === Object.prototype && Object.values(v).every(x => plain(x, seen));
 }
 /** SV-7c: a fn's answer on the other side — a second process with a browser's globals when this one has none, and the
- *  other way round: `{ plain, value, dom }`, or null when it could not be asked (no happy-dom, it threw, it is not steady). */
+ *  other way round: `{ value, dom }`, or null when it could not be asked (no happy-dom, it threw, it is not steady). */
 function otherSide(js, name, probeFile) {
   const dom = !process.argv.includes("--dom");
   const r = require("node:child_process").spawnSync(process.execPath, [...process.execArgv, __filename, "--answer", path.resolve(js), name, probeFile ? path.resolve(probeFile) : "-", ...(dom ? ["--dom"] : [])], { cwd: process.cwd(), encoding: "utf8" });
-  try { const out = JSON.parse(String(r.stdout).trim().split("\n").pop()); return out.ok ? { plain: true, value: out.value, dom } : null; } catch { return null; }
+  try { const out = JSON.parse(String(r.stdout).trim().split("\n").pop()); return out.ok ? { value: out.value, dom } : null; } catch { return null; }
 }
 /** Structural equality, for `pure`: functions are alike when both are functions. */
 function same(a, b, seen = new Set()) {
@@ -441,10 +437,13 @@ function environmental(e) {
   return !!e && (e instanceof ReferenceError || /\bis not defined\b|\b(window|document|navigator|localStorage|matchMedia)\b/.test(String(e.message ?? "")) || environmental(e.cause));
 }
 
+const LABEL = { held: "held      ", mismatch: "MISMATCH  ", na: "n/a       ", unverified: "unverified" };
 (async () => {
+  const flags = ["--dom", "--record", "--json"];
   const dom = process.argv.includes("--dom");
   const record = process.argv.includes("--record");   // MO-8j: write what was verified beside each declaration
-  const files = process.argv.slice(2).filter(a => a !== "--dom" && a !== "--record");
+  const json = process.argv.includes("--json");
+  const files = process.argv.slice(2).filter(a => !flags.includes(a));
   // `--answer <module.js> <export> <probe|->` (rx-verify's own second process, SV-7c): the export called with the probe's
   // arguments, twice; its answer as JSON when it is plain data and steady
   if (process.argv[2] === "--answer") {
@@ -464,16 +463,23 @@ function environmental(e) {
     catch { process.stderr.write("rx-verify --dom: install @happy-dom/global-registrator in the project\n"); process.exit(2); }
     reg.GlobalRegistrator.register({ url: "http://localhost/" });
   }
-  if (!files.length) { process.stderr.write("usage: rx-verify <file.d.rx>...\n"); process.exit(2); }
-  let fails = 0;
+  if (!files.length) { process.stderr.write("usage: rx-verify [--dom] [--record] [--json] <file.d.rx>...\n"); process.exit(2); }
+  let fails = 0; const all = [];
+  const say = text => { if (!json) process.stdout.write(text); };
   for (const f of files) {
-    const results = await verify(f);
+    const { results, audit } = await verify(f);
+    const names = rowsOf(f);
     for (const r of results) {
-      if (r.status === "fail") fails++;
-      if (r.quiet) continue;
-      process.stdout.write(`${path.relative(process.cwd(), f)}:${r.line} ${r.status === "ok" ? "ok        " : r.status === "fail" ? "MISMATCH  " : r.status === "na" ? "n/a       " : "unverified"} ${r.what}\n`);
+      r.name = names.find(x => r.line >= x.line && r.line <= x.end)?.name;
+      if (r.status === "mismatch") fails++;
+      if (!r.quiet) say(`${path.relative(process.cwd(), f)}:${r.line} ${LABEL[r.status]} ${r.what}\n`);
     }
-    if (record) { const at = require("../src/strict.js").writeRecord(f, results); process.stdout.write(`${path.relative(process.cwd(), at)}: recorded\n`); }
+    // (said, not recorded: it is about no claim)
+    if (audit) say(`${path.relative(process.cwd(), f)}: words: ${audit.proven} read from the code (each run against what the reading claims, where there are arguments to call with), ${audit.contradicted} contradicted by it, ${audit.unproven} it neither shows nor refutes (\`rx-declare --audit\` lists them, with what to check)\n`);
+    if (record) { const at = require("../src/strict.js").writeRecord(f, results); say(`${path.relative(process.cwd(), at)}: recorded\n`); }
+    all.push({ file: f, results: results.flatMap(r => [].concat(r.ob).map(ob => ({ line: r.line, name: r.name, ob, status: r.status, ...(r.by ? { by: r.by } : {}), what: r.what }))), ...(audit ? { audit } : {}) });
   }
-  process.exit(fails ? 1 : 0);
-})();
+  if (json) process.stdout.write(JSON.stringify(all) + "\n");
+  process.exitCode = fails ? 1 : 0;
+  process.exit();
+})().catch(e => { process.stderr.write(`rx-verify: ${e?.stack ?? e}\n`); process.exit(2); });

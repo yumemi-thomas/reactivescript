@@ -343,7 +343,7 @@ check("...whose types hold: a wrong argument is TypeScript's error on the .rx", 
   const plain = tsc(), unrecorded = tsc("--rx-strict");
   check("a host declaration with no record passes outside strict mode", plain.status === 0, plain);
   check("strict: the host declaration a program is under is asked for its record (UNVERIFIED_ROW)", unrecorded.status !== 0 && /host\.d\.rx:2:1 - error UNVERIFIED_ROW: default: nothing verified it/.test(unrecorded.out), unrecorded);
-  require("../src/strict.js").writeRecord(path.join(hosted, "host.d.rx"), [{ line: 2, ob: "placement", status: "ok", what: "the host's view holds" }]);
+  require("../src/strict.js").writeRecord(path.join(hosted, "host.d.rx"), [{ line: 2, ob: "placement", status: "held", what: "the host's view holds" }]);
   const recorded = tsc("--rx-strict");
   check("...and accepted once rx-verify recorded its view", recorded.status === 0, recorded);
   fs.rmSync(hosted, { recursive: true });

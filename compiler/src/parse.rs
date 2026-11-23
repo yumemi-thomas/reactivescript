@@ -617,32 +617,24 @@ pub struct Callback {
     pub field: Option<String>,
     pub handler: bool,
 }
-/// A type's text as a function type: `Some(handler)` for `(…) => R` and `handler (…) => R` (a `ref` before it is the
-/// parameter's), `None` for anything else.
-fn fn_typed(t: &str) -> Option<bool> {
-    let word = |t: &'_ str, w: &str| -> Option<String> { t.strip_prefix(w).filter(|r| r.starts_with(char::is_whitespace)).map(|r| js_trim(r).to_string()) };
-    let t = js_trim(t).to_string();
-    let t = word(&t, "ref").unwrap_or(t);
-    let (t, handler) = match word(&t, "handler") {
-        Some(r) => (r, true),
-        None => (t, false),
-    };
-    fn_params_text(&t).map(|_| handler)
-}
-pub fn callbacks_of(params: &[String], ptypes: &[Option<String>]) -> Vec<Callback> {
+/// The callback positions of a fn's parameters as the row keeps them (`ptypes`, the `handler` word already taken out;
+/// `cbs`, where it stood).
+pub fn callbacks_of(params: &[String], ptypes: &[Option<String>], cbs: &[Option<(bool, Vec<String>)>]) -> Vec<Callback> {
+    let fn_typed = |t: &str| fn_params_text(js_trim(t)).is_some();
     let mut out = vec![];
     for (index, t) in ptypes.iter().enumerate() {
         let Some(t) = t else { continue };
         let t = js_trim(t);
-        let t = t.strip_prefix("ref").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
         let name = params.get(index).map(|n| n.trim_start_matches("...").to_string()).unwrap_or_else(|| index.to_string());
-        if let Some(handler) = fn_typed(t) {
-            out.push(Callback { index, name, field: None, handler });
+        let marked = cbs.get(index).cloned().flatten();
+        if fn_typed(t) {
+            out.push(Callback { index, name, field: None, handler: marked.is_some_and(|m| m.0) });
         } else if t.starts_with('{') && t.ends_with('}') {
             for f in split_top(&t[1..t.len() - 1], ",;") {
                 let Some(at) = f.find(':') else { continue };
-                if let Some(handler) = fn_typed(&f[at + 1..]) {
-                    let field = js_trim(&f[..at]).trim_end_matches('?').trim().to_string();
+                if fn_typed(&f[at + 1..]) {
+                    let field = field_name(&f[..at]);
+                    let handler = marked.as_ref().is_some_and(|m| m.1.contains(&field));
                     out.push(Callback { index, name: format!("{name}.{field}"), field: Some(field), handler });
                 }
             }
@@ -673,7 +665,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
         out.extend(provides.iter().map(|c| format!("provides:{c}")));
     };
     match d {
-        JsDecl::Fn { params, pure, instantiates, uses, provides, held, waits, shape, ptypes, nests, drafts, part_drafts, draft_args, renders, rejects, .. } => {
+        JsDecl::Fn { params, pure, instantiates, uses, provides, held, waits, shape, ptypes, nests, drafts, part_drafts, draft_args, renders, rejects, cbs, .. } => {
             if *pure && !*instantiates {
                 out.push("pure".into());
             }
@@ -687,7 +679,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
             if held.iter().any(|h| !h.2.is_empty()) || waits.as_ref().is_some_and(|w| !w.1.is_empty()) {
                 out.push("fails".into());
             }
-            out.extend(callbacks_of(params, ptypes).into_iter().map(|c| format!("callbacks:{}", c.name)));
+            out.extend(callbacks_of(params, ptypes, cbs).into_iter().map(|c| format!("callbacks:{}", c.name)));
             if !drafts.is_empty() || !part_drafts.is_empty() || !draft_args.is_empty() {
                 out.push("draft".into());
             }

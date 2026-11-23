@@ -196,7 +196,11 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
                         JsDecl::Import { .. } => "import",
                         JsDecl::Host { .. } => "host",
                     };
-                    json!({ "name": d.name(), "kind": kind, "line": line, "end": end, "obligations": crate::parse::obligations(d), "facts": facts(d) })
+                    let mut facts = facts(d);
+                    if let JsDecl::Host { span, .. } = d {
+                        facts["tree"] = json!(text.get(span.1..span.2).unwrap_or_default().trim()); // MO-14b: the view, as written
+                    }
+                    json!({ "name": d.name(), "kind": kind, "line": line, "end": end, "obligations": crate::parse::obligations(d), "facts": facts })
                 })
                 .collect();
             json!({ "rows": rows })
@@ -214,13 +218,13 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
 fn facts(d: &crate::parse::JsDecl) -> Value {
     use crate::parse::{split_top, JsDecl, Part, Shape};
     match d {
-        JsDecl::Fn { pure, params, rejects, side, ptypes, ret, refs, shape, instantiates, uses, provides, nests, held, opts, waits, part_drafts, draft_args, renders, .. } => {
+        JsDecl::Fn { pure, params, rejects, side, ptypes, ret, refs, shape, instantiates, uses, provides, nests, held, opts, waits, part_drafts, draft_args, renders, cbs, .. } => {
             let ps: Vec<Value> = params
                 .iter()
                 .enumerate()
                 .map(|(i, n)| json!({ "name": n.trim_start_matches("..."), "type": ptypes.get(i).cloned().flatten(), "ref": refs.get(i).copied().unwrap_or(false), "draft": draft_args.contains(&i), "optional": opts.get(i).copied().unwrap_or(false), "rest": n.starts_with("...") }))
                 .collect();
-            let cbs: Vec<Value> = crate::parse::callbacks_of(params, ptypes).into_iter().map(|c| json!({ "index": c.index, "name": c.name, "field": c.field, "handler": c.handler })).collect();
+            let cbs: Vec<Value> = crate::parse::callbacks_of(params, ptypes, cbs).into_iter().map(|c| json!({ "index": c.index, "name": c.name, "field": c.field, "handler": c.handler })).collect();
             let rows = |key: &str| held.iter().find(|h| h.0 == key).map(|h| (h.1, h.2.clone())).unwrap_or_default();
             let part = |path: Vec<String>, kind: Part, rows: (bool, Vec<String>)| json!({ "path": path, "ref": kind == Part::Ref, "fn": kind == Part::Fn, "pending": rows.0, "fails": rows.1, "draft": path.len() == 1 && part_drafts.iter().any(|p| p.0 == path[0]) });
             // a plain record below a field is read field by field as well: a read that waits or fails there has no row

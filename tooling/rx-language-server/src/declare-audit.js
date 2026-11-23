@@ -175,7 +175,7 @@ function auditFile(ts, file) {
   const fs = require("node:fs"); const raw = fs.readFileSync(file, "utf8");
   if (/^\s*export\s+default\s+component\b/m.test(raw) || /^\s*\/\/@\s*signature\b/m.test(raw)) return undefined;
   const d = declares(file); if (!d) return undefined;
-  let text; try { text = require("./strict.js").rowText(file); } catch { text = raw; }
+  let text; try { text = require("./rows.js").rowText(file); } catch { text = raw; }
   return { ...audit(ts, d.spec, d.from, text), spec: d.spec, from: d.from };
 }
 

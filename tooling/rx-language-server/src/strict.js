@@ -1,84 +1,45 @@
-// MO-8j: strict declarations. `rx-verify --record` writes, beside `lib.d.rx`, `lib.verified.json`: each row it ran, by a
-// hash of the row's text, with what running showed (ok, n/a, unverified, mismatch). `rx-tsc --rx-strict` (or
-// `"reactivescript": { "strict": true }` in the tsconfig) then refuses every row of a declaration the program imports
-// that is not recorded as verified (or as not applicable). A row edited since the record was written is not verified any more (its hash changed).
+// MO-8j: strict declarations. `rx-verify --record` writes, beside `lib.d.rx`, `lib.verified.json`: for each row, by a
+// hash of the row's text, each claim the row makes (`obligations`, as the crate's parser names them) with what was
+// shown of it — `held`, `na` (it does not apply), `unverified`, `mismatch`. `rx-tsc --rx-strict` (or `"reactivescript":
+// { "strict": true }` in the tsconfig) then refuses every row of a declaration the program imports that has a claim
+// not recorded as held. A result is about one claim, by name: nothing answers for a whole row, and a row edited since
+// the record was written is not verified any more (its hash changed).
 const fs = require("node:fs");
 const path = require("node:path");
-const crypto = require("node:crypto");
 
-const { rows: parsed } = require("./rxc");
-/** The kinds of row running can check: fns, components, error classes and values. */
-const CHECKED = new Set(["fn", "component", "error", "const", "host", "import"]);   // host: 09 MO-14, a host declaration's view; import: MO-14f, one that claims something (a component the host renders through)
-/** A line without its `// comment`; a `//` inside a string literal is not one. */
-function codeOf(line) {
-  let q = "";
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (q) { if (ch === "\\") i++; else if (ch === q) q = ""; continue; }
-    if (ch === '"' || ch === "'" || ch === "`") { q = ch; continue; }
-    if (ch === "/" && line[i + 1] === "/") return line.slice(0, i);
+const { rowsOf, hashOf, describe } = require("./rows.js");
+/** The kinds of row that claim something running can check: fns, components, error classes and values; a host
+ *  declaration's view (09 MO-14) and an import of it that names a component the host renders through (MO-14f). */
+const CHECKED = new Set(["fn", "component", "error", "const", "host", "import"]);
+const claimed = file => rowsOf(file).filter(x => CHECKED.has(x.kind) && x.obligations.length);
+const RANK = { mismatch: 3, unverified: 2, held: 1, na: 0 };
+const rowAt = (rows, line) => rows.find(x => line >= x.line && line <= x.end);
+
+/** Each row's claims with what `results` show of them: `[{ row, claims: { ob: { status, what } } }]`. A result names
+ *  its claim (`ob`; several for one run that could not tell them apart); the worst of a claim's results is its status.
+ *  A claim of the row with no result is `unverified`. */
+function claimsOf(file, results) {
+  const rows = claimed(file); const by = new Map(rows.map(x => [x, {}]));
+  for (const r of results) for (const ob of [].concat(r.ob)) {
+    if (typeof ob !== "string" || !RANK.hasOwnProperty(r.status)) throw new Error(`rx-verify: a result that names no claim, or no status (${JSON.stringify(r).slice(0, 120)})`);
+    const row = rowAt(rows, r.line); if (!row) continue;
+    const claims = by.get(row), prev = claims[ob];
+    if (!prev || RANK[r.status] > RANK[prev.status]) claims[ob] = { status: r.status, what: r.what };
+    else if (prev.status === r.status && !r.quiet) prev.what += `; ${r.what}`;
   }
-  return line;
+  for (const [row, claims] of by) for (const ob of row.obligations) claims[ob] ??= { status: "unverified", what: `${row.name}: ${describe(ob)} not checked by running${ob === "exists" ? "" : ": give it in a probe"}`, missing: true };
+  return [...by].map(([row, claims]) => ({ row, claims }));
 }
-/** `text` with each run of whitespace outside a string literal made one space, and a string literal kept as written:
- *  `"a  b"` and `"a b"` are different types. */
-function collapse(text) {
-  let out = "", q = "", gap = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (q) { out += ch; if (ch === "\\" && i + 1 < text.length) out += text[++i]; else if (ch === q) q = ""; continue; }
-    if (/\s/.test(ch)) { gap = true; continue; }
-    if (gap && out) out += " "; gap = false;
-    out += ch;
-    if (ch === '"' || ch === "'" || ch === "`") q = ch;
-  }
-  return out;
-}
-/** A declaration's rows, as the crate's parser reads them, each with its text: every line it spans (a multi-line props
- *  type included), comments dropped outside string literals, whitespace collapsed outside them. Throws on a file that
- *  does not parse. */
-function rowsOf(file) {
-  const r = parsed(file);
-  if (!r || r.error) throw new Error(`${path.basename(file)}: ${r?.error ?? "cannot read it"}`);
-  const lines = fs.readFileSync(file, "utf8").split("\n");
-  return r.rows.filter(x => CHECKED.has(x.kind) && (x.kind !== "import" || x.obligations?.length)).map(x => ({ ...x, text: collapse(lines.slice(x.line - 1, x.end).map(codeOf).join(" ")).trim() }));
-}
-/** The file's text with each row on one line, at the line the row starts on (its other lines blank), comments dropped:
- *  what rx-verify reads, so a claim is found wherever the row's layout puts it. */
-function rowText(file) {
-  const r = parsed(file);
-  const lines = fs.readFileSync(file, "utf8").split("\n");
-  if (!r || r.error) return lines.join("\n");
-  const out = lines.slice();
-  for (const x of r.rows) {
-    const text = collapse(lines.slice(x.line - 1, x.end).map(codeOf).join(" ")).trim();
-    for (let i = x.line - 1; i < x.end && i < out.length; i++) out[i] = "";
-    out[x.line - 1] = text;
-  }
-  return out.join("\n");
-}
-/** MO-8j: what each row claims as the crate's parser reads it (`obligations`), with no result among `results` (tagged
- *  `ob`) answering it: an `unverified` result for each, so a row counts as verified only when every claim was run. */
+/** MO-8j: the claims no result answers, each as an `unverified` result: what rx-verify says of them. */
 function unanswered(file, results) {
-  const out = [];
-  for (const row of rowsOf(file)) {
-    const mine = results.filter(r => r.line >= row.line && r.line <= row.end);
-    if (mine.some(r => r.ob === undefined)) continue;   // a result with no claim named is about the whole row (a caller of writeRecord that checks rows its own way)
-    const got = new Set(mine.flatMap(r => [].concat(r.ob)));
-    for (const ob of row.obligations ?? []) if (!got.has(ob)) { const [kind, at] = ob.split(/:(.*)/s); out.push({ line: row.line, ob, status: "unverified", what: `${row.name}: ${at ? (AT[kind] ?? (x => `${kind} ${x}`))(at) : WHAT[ob] ?? ob} not checked by running${ob === "exists" ? "" : ": give it in a probe"}` }); }
-  }
-  return out;
+  return claimsOf(file, results).flatMap(({ row, claims }) => Object.entries(claims).filter(([, c]) => c.missing).map(([ob, c]) => ({ line: row.line, ob, status: "unverified", what: c.what })));
 }
-/** A claim about one position (`provides:theme`, `callbacks:options.onSuccess`, RFC 28/29), in words. */
-const AT = { through: c => `the host rendering through ${c}`, provides: c => `provides(${c})`, callbacks: c => `callback ${c} (handler or pure)` };
-const WHAT = { exists: "the export", pure: "pure", uses: "uses(…)", provides: "provides", fields: "its result's fields (ref, pending, fails)", fails: "fails(…)", callbacks: "its callbacks (handler or pure)", draft: "draft", placement: "where it renders what it is given (a factory, nests, renders(H), a component in a prop)" };
-/** The meaning of a record: what rx-verify checked when it wrote one. A record from a version whose checks differ (2:
- *  each claim the crate reads must be answered; 3: each context provided and each callback position is a claim of its
- *  own, a component's function-typed props included; 4: provides(c) only through a hook or part that uses c alone and
- *  fails without it, and a component's function-typed props are run; 6: `renders(H)` is a placement claim, and so is a
- *  component's prop that takes components — DV-24 was taken on the declaration's word; 7: a word read from the code,
- *  `//@ inferred`, is run against what that reading claims, MO-8v) does not count. */
-const RECORD_VERSION = 7;
+/** The meaning of a record: what rx-verify checked when it wrote one. A record from a version whose checks differ does
+ *  not count. 8 (2026-11-26): a record holds each claim's own result — until then a row had one status, and a result
+ *  that named no claim (the audit's summary on line 1, a `pure` read from the code) answered for every claim of the
+ *  row it fell on; `uses(c)` is a claim for each context, shown by the hook failing without that context's provider
+ *  and running with it (it was any throw or any warning with no provider); `rejects(E)` is a claim. */
+const RECORD_VERSION = 8;
 /** What a record was verified against: the library (an installed package's version, or the JS module's own text beside
  *  the declaration) and the probe file. A record made against other inputs does not count (the library moved under it). */
 function inputsOf(file) {
@@ -94,46 +55,39 @@ function inputsOf(file) {
   return inputs;
 }
 const changedInputs = (was, now) => Object.keys({ ...was, ...now }).filter(k => (was ?? {})[k] !== now[k]);
-const hashOf = text => crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 const recordOf = file => file.replace(/\.d\.rx$/, ".verified.json");
-const RANK = { fail: 3, unverified: 2, ok: 1, na: 0 };
 
-/** Write the record of one rx-verify run: each row's worst status, by the hash of the row's text. A claim of the row no
- *  result answers is recorded as not verified (MO-8j). */
+/** Write the record of one rx-verify run: each row's claims, by the hash of the row's text. */
 function writeRecord(file, results) {
-  const all = rowsOf(file);
   const rows = {};
-  const answered = results.concat(unanswered(file, results).filter(u => !results.some(r => r.line === u.line && r.ob === u.ob)));
-  for (const r of answered) {
-    const row = all.find(x => r.line >= x.line && r.line <= x.end); if (!row) continue;
-    const h = hashOf(row.text), prev = rows[h];
-    if (!prev || RANK[r.status] > RANK[prev.status]) rows[h] = { line: row.line, status: r.status, what: r.what };
-    else if (prev.status === r.status && !r.quiet) prev.what += `; ${r.what}`;
-  }
+  for (const { row, claims } of claimsOf(file, results)) rows[hashOf(row.text)] = { line: row.line, name: row.name, claims: Object.fromEntries(Object.entries(claims).map(([ob, c]) => [ob, { status: c.status, what: c.what }])) };
   const at = recordOf(file);
   fs.writeFileSync(at, JSON.stringify({ verifiedBy: "rx-verify", version: RECORD_VERSION, inputs: inputsOf(file), rows }, null, 2) + "\n");
   return at;
 }
 
-/** The rows of `file` strict mode refuses: not recorded, or recorded unverified or mismatched. */
+/** The rows of `file` strict mode refuses: not recorded, or with a claim that is not recorded as held — one the row
+ *  makes as it is read now, or one a run found a mismatch in. */
 function checkStrict(file) {
   const out = [];
   const at = recordOf(file);
   let rec = null; try { rec = JSON.parse(fs.readFileSync(at, "utf8")); } catch {}
   const moved = rec ? changedInputs(rec.inputs, inputsOf(file)) : [];
   const stale = rec && rec.version !== RECORD_VERSION;   // written by an rx-verify whose checks were different
-  for (const row of rowsOf(file)) {
-    const r = rec?.rows?.[hashOf(row.text)];
-    if (r && (r.status === "ok" || r.status === "na") && !moved.length && !stale) continue;
+  for (const row of claimed(file)) {
+    const r = rec?.rows?.[hashOf(row.text)]; const claims = r?.claims ?? {};
+    const bad = row.obligations.map(ob => [ob, claims[ob]]).find(([, c]) => !c || (c.status !== "held" && c.status !== "na")) ?? Object.entries(claims).find(([, c]) => c.status === "mismatch");
+    if (r && !bad && !moved.length && !stale) continue;
     const why = !rec ? `nothing verified it: run \`rx-verify --record ${path.basename(file)}\` (with a probe beside it)`
       : stale ? `${path.basename(at)} was recorded by an older rx-verify, whose checks differ: run it again`
       : moved.length ? `${moved.join(", ")} changed since rx-verify recorded ${path.basename(at)}: run it again`
       : !r ? `it changed since rx-verify last recorded ${path.basename(at)}: run it again`
-      : r.status === "fail" ? `rx-verify found a mismatch (${r.what.slice(0, 90)})`
-      : `rx-verify could not check it (${r.what.slice(0, 90)})`;
+      : !bad[1] ? `${describe(bad[0])} is a claim of the row with no result in ${path.basename(at)}: run rx-verify again`
+      : bad[1].status === "mismatch" ? `rx-verify found a mismatch (${bad[1].what.slice(0, 90)})`
+      : `rx-verify could not check ${describe(bad[0])} (${bad[1].what.slice(0, 90)})`;
     out.push({ file, line: row.line, name: row.name, message: `${row.name}: ${why}` });
   }
   return out;
 }
 
-module.exports = { writeRecord, checkStrict, recordOf, rowText, rowsOf, unanswered, RECORD_VERSION };
+module.exports = { writeRecord, checkStrict, recordOf, claimsOf, unanswered, RECORD_VERSION };
