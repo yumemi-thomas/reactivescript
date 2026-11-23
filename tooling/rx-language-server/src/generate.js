@@ -22,8 +22,9 @@ const GENERATED = /^\/\/@ generated (\S+)@(\S+) \(MO-8l, draft (\d+)(?:, types (
 const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, under any rule
 // The drafting rules a generated file was written under. A draft is kept only while the package's version and this both
 // stand, so a change of rule (2: no fn is guessed `pure`; 3: a result is typed a step at a time, a disposer as `() => void`; 4: the library's types are named where a draft wrote `any`, MO-8m; 5: types are written as the library's declaration writes them, props by their type, a row for each signature, MO-8o to MO-8q; 6: no `any` is the draft's — a place at the row's type parameters, the last reading, MO-8q over whole drafts; 7: an export has one row, of several signatures the shortest, and no row says `signal` or `tracked` — the vocabulary pruned, MO-8i; 8: the words the package's code proves are written, each on a row marked `//@ inferred`, and a property that may be absent is no method's row, MO-8v) redrafts what an earlier rule wrote. Bump it with any change to
-// what a draft says.
-const FORMAT = 8;
+// what a draft says. (9: the words read from JSX and from contexts — `handler` on a prop, `uses(c)`, `provides(c)` with their
+// `export context` rows — and no `//@ inferred` line, MO-8w.)
+const FORMAT = 9;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];

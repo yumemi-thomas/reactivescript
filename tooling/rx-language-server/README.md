@@ -70,11 +70,16 @@ npx rx-declare @tanstack/solid-query --out rx-types/@tanstack/solid-query.d.rx
 **Words read from the code** (spec/09 MO-8v, `src/infer.js`, `src/declare-infer.js`). Beside the types, the draft
 reads the JavaScript the import resolves to — the module itself, a package's shipped ES module, every build its export
 map can hand an `import` — with TypeScript's parser, to a fixed point over the calls between its functions, and writes
-four words only where the code proves them: `pure` (the call only computes), `handler` on a callback (every call of
-it is behind a listener, a timer, an observer, a promise or an `await`), `draft` on a parameter (changed in place
-during the call, kept nowhere) and `rejects(A | B)` (every `throw` reached is of a class the module exports). A row
-that took one has `//@ inferred <export>: <words>` on the line above it; the question each word answers is not
-asked, and nor is one answered "no". `--why` prints, for every row, what proved each word or the first thing in the
+six words only where the code proves them: `pure` (the call only computes), `handler` on a callback (every call of
+it is behind a listener, a timer, an observer, a promise or an `await` — for a component's prop, an element's
+event, through spreads, `omit`, `merge` and the module's own components), `draft` on a parameter (changed in place
+during the call, kept nowhere), `rejects(A | B)` (every `throw` reached is of a class the module exports), `uses(c)`
+(`useContext(C)` on every path, no default to answer) and `provides(c)` (a provider around everything the component
+is given), with the `export context` rows they name (MO-8w). A value made by a call is read as the function its
+factory hands back. The draft's second line counts the words it read; no row is marked (it was, `//@ inferred`, a
+line a row): `rx-declare --audit <file.d.rx>` and `rx-verify` read the code again and say, of every word a
+declaration has, whether the code proves it, contradicts it or neither (`src/declare-audit.js`). The question each
+word answers is not asked, and nor is one answered "no". `--why` prints, for every row, what proved each word or the first thing in the
 way with its file and line; `--no-infer` (or `RX_DECLARE_INFER=0`) drafts from the types alone.
 
 ```sh
@@ -196,7 +201,10 @@ not have). `rx-tsc` checks what types can (TY-6); this checks what running can.
 A parameter declared as a function (a callback, MO-10g) is wrapped in a spy: the row holds if the library calls it
 outside tracking, as a handler, and is a mismatch if it calls it inside a computation.
 
-A row marked `//@ inferred` (a word `rx-declare` read from the code, MO-8v) is held to what that reading claims: a
+`rx-verify` first holds every word of the file against what the code shows (MO-8w, the audit `rx-declare --audit`
+prints): a word the code contradicts is a mismatch as it stands, and the last line counts the words read from the
+code, contradicted, and neither. A word the code proves (it was: a row marked `//@ inferred`, a line that is still
+read where a file has one) is then held to what that reading claims: a
 `pure` fn is called and must change nothing it was given, leave no new global and ask neither `Date.now()`,
 `performance.now()` nor `Math.random()` while it is called; a `handler` must not be called while the fn's own call
 is still running; a `rejects(E)`, under the probe's arguments and its failing ones, must reject with a class of its
@@ -333,6 +341,7 @@ npm install && node test/run.js      # VERBOSE=1 prints each answer
 node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, a .d.rx that disagrees with its types
 node test/declare.js                 # rx-declare: each kind of export drafted as its row, the run pass, and the draft passes rx-tsc
 node test/infer.js                   # the words read from the code (MO-8v): every function that does what a word must not cover is refused it, its honest twin is given it; the draft, --why; both checkers; rx-verify against a false mark
+node test/infer-view.js              # MO-8w: `handler` through JSX, `uses(c)`, `provides(c)`, a value made by a call — dishonest twins refused, honest ones proven; the audit's three classes; the unmarked draft; --run; rx-verify
 node test/generate.js                # generated declarations: drafted, found by the crate, kept, redrafted, and in the Vite plugin
 node test/verify.js                  # rx-verify: uses(…) rows, missing exports, errors, probes, callbacks, --record and strict mode
 ```

@@ -179,7 +179,18 @@ async function verifyModule(file, base, js) {
   // each row as one line, at the line it starts on, as the crate's parser spans it: a claim on a row's later line (a props
   // record broken over lines, then `provides(theme)`) is read as the row's
   const text = require("../src/strict.js").rowText(file);
-  const inferredRows = inferredOf(fs.readFileSync(file, "utf8"));   // MO-8v: the rows whose words the draft read from the code
+  // MO-8w: which of the file's words the code proves is read from the code now (src/declare-audit.js), not from a line
+  // in the file: a word that is proven is held, below, to what the reading claims; one the code contradicts is a
+  // mismatch as it stands; the rest are a person's, and are run as any row is. (An `//@ inferred` line, as drafts
+  // wrote one a row until 2026-11-27, still asks for the stricter run of the words it names.)
+  const inferredRows = inferredOf(fs.readFileSync(file, "utf8"));
+  let read = null;
+  if (process.env.RX_VERIFY_READ !== "0") { try { read = require("../src/declare-audit.js").auditFile(require("typescript"), file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
+  const tally = { proven: 0, contradicted: 0, unproven: 0 };
+  for (const row of read?.rows ?? []) for (const w of row.words) {
+    tally[w.verdict]++;
+    if (w.verdict === "proven") { if (!inferredRows.has(row.name)) inferredRows.set(row.name, new Set()); inferredRows.get(row.name).add(w.word); }
+  }
   const usesHeld = new Set();   // hooks whose uses(…) row held: with no provider they throw or warn (provides(c) needs one)
   // a provider last, so every hook's uses(…) is known when its provides(c) is checked; the results stay in line order
   const rows = exportsOf(text), isProv = x => x.kind === "component" && x.providesNames.length;
@@ -204,7 +215,7 @@ async function verifyModule(file, base, js) {
       const seen = watched(createRoot, v, probe?.args?.() ?? []);
       try { await seen.result; } catch { /* what it rejects with is the row's rejects(…) */ }
       const bad = seen.done();
-      if (bad.length) { out.push({ line: x.line, ob: "pure", status: "fail", what: `${x.name}: read from its code as pure (//@ inferred), but when it is called ${bad.join("; ")}: the reading is wrong — remove the word, and report it` }); continue; }
+      if (bad.length) { out.push({ line: x.line, ob: "pure", status: "fail", what: `${x.name}: read from its code as pure, but when it is called ${bad.join("; ")}: the reading is wrong — remove the word, and report it` }); continue; }
       out.push({ line: x.line, status: "ok", what: `${x.name}: the pure read from its code is not contradicted: called, it changed no argument, left no global and asked neither the clock nor for a random number` });
     }
     const classes = marked && [...marked].map(w => /^rejects\((.*)\)$/.exec(w)?.[1]).find(Boolean)?.split("|").map(c => c.trim());
@@ -212,7 +223,7 @@ async function verifyModule(file, base, js) {
       for (const [which, args] of [["the probe's arguments", probe?.args], ["the probe's failing arguments", probe?.fail]]) {
         if (!args) continue;
         let got = null; try { await v(...args()); } catch (e) { got = e ?? new Error("undefined"); }
-        if (got && !classes.some(c => typeof mod[c] === "function" && got instanceof mod[c])) out.push({ line: x.line, status: "fail", what: `${x.name}: read from its code to reject with ${classes.join(" | ")} alone (//@ inferred), but under ${which} it rejects with ${got?.constructor?.name ?? typeof got}${got?.message ? ` (${String(got.message).slice(0, 40)})` : ""}: the reading is wrong — remove the word, and report it` });
+        if (got && !classes.some(c => typeof mod[c] === "function" && got instanceof mod[c])) out.push({ line: x.line, status: "fail", what: `${x.name}: read from its code to reject with ${classes.join(" | ")} alone, but under ${which} it rejects with ${got?.constructor?.name ?? typeof got}${got?.message ? ` (${String(got.message).slice(0, 40)})` : ""}: the reading is wrong — remove the word, and report it` });
         else if (got) out.push({ line: x.line, status: "ok", what: `${x.name}: under ${which} it rejects with ${got.constructor.name}, as its row says` });
       }
     }
@@ -365,6 +376,9 @@ async function verifyModule(file, base, js) {
   out.push(...(await require("../src/verify-place.js").verifyComponentUses({ comps: exportsOf(text).filter(x => x.kind === "component"), at, probeMod, resolve: from })).map(r => ({ ob: "uses", ...r })));
   // MO-8j: a claim the crate reads in a row that no check above answered is not verified (a layout the checks above
   // misread, or a claim running cannot test): said here, and recorded so
+  // MO-8w: a word the code contradicts — whoever wrote it
+  for (const row of read?.rows ?? []) for (const w of row.words) if (w.verdict === "contradicted") out.push({ line: row.line, ob: w.word.replace(/\(.*$/, ""), status: "fail", what: `${row.name}: ${w.word} is contradicted by the code: ${w.why} — the word is false as the module is installed: take it off, or declare what is true (MO-8w)` });
+  if (read?.rows.length) out.push({ line: 1, status: "ok", what: `words: ${tally.proven} read from the code (each run against what the reading claims, where there are arguments to call with), ${tally.contradicted} contradicted by it, ${tally.unproven} it neither shows nor refutes (\`rx-declare --audit\` lists them, with what to check)` });
   out.push(...require("../src/strict.js").unanswered(file, out));
   return out;
 }

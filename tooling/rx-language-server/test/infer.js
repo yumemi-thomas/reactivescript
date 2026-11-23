@@ -111,7 +111,7 @@ const HANDLER_BAD = {
   throughHelperStored: ["const hold = [];\nconst keep = f => { hold.push(f); };\nexport function throughHelperStored(cb) { keep(cb); }", 0, undefined, /not followed|not read|\.push/],
   handedBack: ["export function handedBack(cb) { return cb; }", 0, undefined, /handed back/],
   fieldSync: ["export function fieldSync(opts) { return opts.onChange(1); }", 0, "onChange", /while the call runs/],
-  fieldSpread: ["import { mystery } from \"kit\";\nexport function fieldSpread(opts) { mystery({ ...opts }); }", 0, "onChange", /spread/],
+  fieldSpread: ["import { mystery } from \"kit\";\nexport function fieldSpread(opts) { mystery({ ...opts }); }", 0, "onChange", /given to mystery/],
   fieldWhole: ["import { mystery } from \"kit\";\nexport function fieldWhole(opts) { setTimeout(() => opts.onChange(1)); mystery(opts); }", 0, "onChange", /given to/],
   namedBoth: ["export function namedBoth(el, cb) { const go = () => cb(); el.addEventListener(\"click\", go); go(); }", 1, undefined, /while the call runs/],
   neverCalled: ["export function neverCalled(cb) { return 1; }", 0, undefined, /never called/],
@@ -268,10 +268,10 @@ if (process.env.VERBOSE) console.log(draft, r.stderr);
 const rowOf = n => draft.split("\n").find(l => new RegExp(`^export (?:pure )?fn ${n}\\b`).test(l)) ?? "";
 const above = n => { const ls = draft.split("\n"); const i = ls.findIndex(l => new RegExp(`^export (?:pure )?fn ${n}\\b`).test(l)); return i > 0 ? ls[i - 1] : ""; };
 ok("a loader that only computes and waits: `pure`, and what it rejects with", rowOf("fetchPerson") === "export pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)", rowOf("fetchPerson") + r.stderr);
-ok("…marked on the line above, which is a comment to every reader of the file", above("fetchPerson") === "//@ inferred fetchPerson: pure, rejects(NotFound)", above("fetchPerson"));
+ok("…with no line above it (MO-8w): which words were read is said once, at the head of the draft, and again by --audit and rx-verify from the code", !/\/\/@ inferred/.test(draft), above("fetchPerson"));
 ok("…and neither question is asked", !/TODO fetchPerson/.test(draft));
 ok("one that writes and fetches is io, and its question stays", rowOf("savePerson") === "export fn savePerson(id: string, name: string): Promise<Response>" && /TODO savePerson: what does its promise reject with/.test(draft), rowOf("savePerson"));
-ok("a callback given to a listener: `handler`", rowOf("onKey") === "export fn onKey(key: string, run: handler () => void): () => void" && above("onKey") === "//@ inferred onKey: handler(run)", rowOf("onKey"));
+ok("a callback given to a listener: `handler`", rowOf("onKey") === "export fn onKey(key: string, run: handler () => void): () => void", rowOf("onKey"));
 ok("a callback called while the call runs: no `handler` — and the fn is `pure`, as a fn that only calls the pure function it is given is", rowOf("each") === "export pure fn each(list: number[], visit: (n: number) => void): void", rowOf("each"));
 ok("a record's callbacks, each by what the code does with it", rowOf("watch") === "export fn watch(opts: { onStart: () => void; onChange: handler (n: number) => void }): void", rowOf("watch"));
 ok("…and the question about them is not asked: one is a handler, the other is called while the call runs", !/TODO watch: on/.test(draft), draft.split("\n").filter(l => /TODO watch/.test(l)).join("\n"));
@@ -288,7 +288,7 @@ ok("…and each refused with the first thing in the way, and its place", /savePe
   const plain = declare("./api.js", "--no-infer");
   ok("--no-infer: the draft from the types alone, every question asked", !/\/\/@ inferred|^export pure fn|: handler \(|rejects\(N|draft list:/m.test(plain.stdout) && /TODO fetchPerson: what does its promise reject with/.test(plain.stdout) && /TODO createCounter: pure\?/.test(plain.stdout), plain.stdout);
   const only = declare("./api.js", "--only", "onKey");
-  ok("--only keeps a row's mark with the row", /^\/\/@ inferred onKey: handler\(run\)\nexport fn onKey/m.test(only.stdout) && !/fetchPerson/.test(only.stdout), only.stdout);
+  ok("--only keeps the row, words and all", /^export fn onKey\(key: string, run: handler \(\) => void\)/m.test(only.stdout) && !/fetchPerson/.test(only.stdout), only.stdout);
 }
 
 // ---- both checkers read the draft ----
@@ -359,14 +359,14 @@ console.log("rx-verify runs each inferred word: an observation against it is a m
   const v = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "lies.d.rx"], { cwd: app, encoding: "utf8" });
   const said = v.stdout + v.stderr; if (process.env.VERBOSE) console.log(said);
   const line = n => said.split("\n").filter(l => new RegExp(`\\b${n}:`).test(l)).join("\n");
-  ok("a `pure` that asks the clock: mismatch", /stamps: read from its code as pure .*Date\.now\(\)/.test(said) && /✗|MISMATCH|mismatch/i.test(line("stamps")), line("stamps") || said.slice(0, 600));
-  ok("a `pure` that asks for a random number: mismatch", /rolls: read from its code as pure .*Math\.random\(\)/.test(said), line("rolls"));
-  ok("a `pure` that changes its argument: mismatch", /pushes: read from its code as pure .*changed what it was given/.test(said), line("pushes"));
-  ok("a `pure` that leaves a global: mismatch", /leaks: read from its code as pure .*__leaked/.test(said), line("leaks"));
+  ok("a `pure` that asks the clock: mismatch", /stamps: read from its code as pure\b.*Date\.now\(\)/.test(said) && /✗|MISMATCH|mismatch/i.test(line("stamps")), line("stamps") || said.slice(0, 600));
+  ok("a `pure` that asks for a random number: mismatch", /rolls: read from its code as pure\b.*Math\.random\(\)/.test(said), line("rolls"));
+  ok("a `pure` that changes its argument: mismatch", /pushes: read from its code as pure\b.*changed what it was given/.test(said), line("pushes"));
+  ok("a `pure` that leaves a global: mismatch", /leaks: read from its code as pure\b.*__leaked/.test(said), line("leaks"));
   ok("an honest one is not contradicted", /honest: the pure read from its code is not contradicted/.test(said), line("honest"));
-  ok("a `handler` called while the call runs: mismatch", /callsNow: cb was read from the code as a handler .*while the call itself runs/.test(said), line("callsNow"));
+  ok("a `handler` called while the call runs: mismatch", /callsNow: cb was read from the code as a handler\b.*while the call itself runs/.test(said), line("callsNow"));
   ok("…and one called only by the listener holds", /callsLater: callback cb holds/.test(said), line("callsLater"));
-  ok("a `rejects(E)` that rejects with another class: mismatch", /rejectsOther: read from its code to reject with NotFound alone .*rejects with Other/.test(said), line("rejectsOther"));
+  ok("a `rejects(E)` that rejects with another class: mismatch", /rejectsOther: read from its code to reject with NotFound alone\b.*rejects with Other/.test(said), line("rejectsOther"));
   ok("…and one that rejects with the class its row names holds", /rejectsRight: under the probe's failing arguments it rejects with NotFound, as its row says/.test(said), line("rejectsRight"));
   ok("rx-verify exits 1 on the mismatches", v.status === 1, String(v.status));
   // the drafts of the suite's honest twins, run: no inferred word of a real draft is contradicted

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]`: a draft `.d.rx` for a JS module, from its TypeScript types
+// `rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any] [--source [checkout]]`, `rx-declare --audit <file.d.rx>…`: a draft `.d.rx` for a JS module, from its TypeScript types
 // (src/declare.js) and, for a library it knows (src/known.js), the rows types cannot show (--types-only leaves those out),
 // then from running it (src/declare-run.js: which hooks read a context, which provider provides it),
 // only with --run (it executes the package's code). The module is resolved from the current directory, as an import there would be
@@ -52,6 +52,26 @@ if (args.includes("--host")) {
   if (out) fs.writeFileSync(out, text); else process.stdout.write(text);
   process.exit(0);
 }
+// `rx-declare --audit <file.d.rx>… [--json]` (MO-8w): each behaviour word the declaration has — `pure`, `handler`,
+// `draft`, `rejects(E)`, `uses(c)`, `provides(c)`, `nests(…)`, `renders(H)` — held against what the code shows: proven
+// (a word rx-declare would write: read from the code), contradicted (the code shows the opposite: exit 1), or
+// unproven, with what stands in the way — the thing a reviewer should check.
+if (args.includes("--audit")) {
+  const files = args.filter(a => !a.startsWith("--"));
+  if (!files.length) { process.stderr.write("usage: rx-declare --audit <file.d.rx>… [--json]\n"); process.exit(2); }
+  const A = require("../src/declare-audit.js"); const ts = require("typescript");
+  const all = []; let bad = 0;
+  for (const f of files) {
+    const r = A.auditFile(ts, f);
+    if (!r) { all.push({ file: f, skipped: true, rows: [] }); if (!args.includes("--json")) process.stdout.write(`${f}: declares no JS module that is found here (a host declaration, a package written in .rx): not read\n`); continue; }
+    all.push({ file: f, spec: r.spec, rows: r.rows, unread: r.unread });
+    const n = { proven: 0, contradicted: 0, unproven: 0 };
+    for (const row of r.rows) for (const w of row.words) { n[w.verdict]++; if (w.verdict === "contradicted") bad++; if (!args.includes("--json") && (w.verdict !== "proven" || args.includes("--all"))) process.stdout.write(`${f}:${row.line}: ${row.name}: ${w.word} ${w.verdict === "contradicted" ? "CONTRADICTED" : w.verdict} — ${w.why}\n`); }
+    if (!args.includes("--json")) process.stdout.write(`${f}: ${n.proven} word${n.proven === 1 ? "" : "s"} read from the code, ${n.contradicted} contradicted by it, ${n.unproven} it neither shows nor refutes\n`);
+  }
+  if (args.includes("--json")) process.stdout.write(JSON.stringify(all) + "\n");
+  process.exit(bad ? 1 : 0);
+}
 const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--context" && args[args.indexOf(a) - 1] !== "--source" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings" && args[args.indexOf(a) - 1] !== "--only");
 // `--only <export>[,<export>…]` (MO-8k): the rows an app keeps — those exports' (a component with its members), the
 // contexts their words name, and the types they name, and the types those name. A library's draft has a row for every
@@ -97,7 +117,7 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   }
   if (onlyAt >= 0) { const r = only(text, (args[onlyAt + 1] ?? "").split(",").map(x => x.trim()).filter(Boolean)); text = r.text; for (const n of r.missing) process.stderr.write(`rx-declare: --only ${n}: ${spec} has no such export to declare\n`); }
   if (readings) for (const r of readings.out) process.stderr.write(`rx-declare: ${r.name} read ${r.reading}: ${r.bad === null ? "held" : `not held — ${r.bad}`}\n${r.rows.map(l => `    ${l}`).join("\n")}\n`);
-  if (causesAt >= 0) fs.writeFileSync(args[causesAt + 1], JSON.stringify({ causes, places, unheld }, null, 1) + "\n");
+  if (causesAt >= 0) fs.writeFileSync(args[causesAt + 1], JSON.stringify({ causes, places, unheld, inferred: inferred.words ?? {} }, null, 1) + "\n");
   // --why (MO-8v): each word read from the code that runs — proven, with what shows it, or refused, with the first
   // thing that stands in the way and its place — on stderr; --no-infer drafts from the types alone
   if (args.includes("--why")) {

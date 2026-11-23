@@ -315,7 +315,7 @@ async function verifyCallbacks({ fns, at, probeMod, resolve, mount, inferred }) 
       const push = r => out.push({ ob, ...r });
       const never = { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe${err ? ` (it threw: ${String(err.message ?? err).slice(0, 40)})` : ""}: give an act that makes the library call it` };
       const field = c.field ?? c.name.split(".").pop();
-      if (c.handler && st.during && inferred?.get(f.name)?.has(`handler(${c.name})`)) { push({ line: f.line, status: "fail", what: `${f.name}: ${c.name} was read from the code as a handler (//@ inferred), but the library calls it while the call itself runs: the reading is wrong — remove the word, and report it (MO-8v)` }); continue; }
+      if (c.handler && st.during && inferred?.get(f.name)?.has(`handler(${c.name})`)) { push({ line: f.line, status: "fail", what: `${f.name}: ${c.name} was read from the code as a handler, but the library calls it while the call itself runs: the reading is wrong — remove the word, and report it (MO-8v)` }); continue; }
       if (c.handler) { push(st.tracked ? { line: f.line, status: "fail", what: `${f.name}: ${c.name} is declared handler, but the library calls it inside a computation (tracked): a closure there would have its reads tracked by the library and its writes refused by Solid: drop \`handler\` — a function type without it is pure, which is right for a callback called inside a computation (MO-10g)` }
         : st.calls ? { line: f.line, status: "ok", what: `${f.name}: callback ${c.name} holds: the library calls it outside tracking, as a handler` } : never); continue; }
       // MO-10g (revised): an unmarked function type is pure, which holds however the library calls it

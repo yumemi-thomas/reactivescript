@@ -20,6 +20,15 @@
 //             exports. A call into code that is not read, a callback, a thrown value that is no `new C(…)` add `Error`,
 //             which is the row's default: then nothing is written. What the engine raises for a bug (a TypeError on
 //             `undefined.x`) is a panic (04 R-f-10), not a failure, and is no part of it.
+// MO-8w adds what JSX and Solid's contexts show, and a value made by a call:
+//   handler   on a component's prop too: it reaches only an element's `on…` or `ref` — as an attribute, by a spread,
+//             through `omit`, `merge`, a copy, a component of the module it is given to.
+//   uses(c)   `useContext(C)` on every path of the call, where nothing answers without a provider (no default; a
+//             `null` the code throws on). On one path only, later, or under another owner: no word.
+//   provides  a provider of `C` written in the component, and every use of its props that may be of a view written
+//             among that provider's children (a view is made where its expression is evaluated).
+//   a value made by a call (`export const x = factory(…)`) is the function the factory hands back, read with the
+//   factory's parameters standing for the call's arguments; what that function shares between its calls is state.
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -71,7 +80,7 @@ const LATER_NEW = new Set(["ResizeObserver", "MutationObserver", "IntersectionOb
 /** Solid's, by what it does with each function argument: "track" — run now, inside a computation; "run" — run now;
  *  "later" — run after, outside any computation, under the owner (an effect's second function, a cleanup). `makes`: the
  *  call makes a node the owner keeps. */
-const SOLID = /^(solid-js(\/store)?|@solidjs\/(signals|web|universal))$/;
+const SOLID = /^(solid-js(\/store|\/internal)?|@solidjs\/(signals|web|universal))$/;
 const SOLID_API = T({
   createSignal: { args: { 0: "track" }, makes: true, gives: "signal" }, createMemo: { args: { 0: "track" }, makes: true, gives: "read" }, createEffect: { args: { 0: "track", 1: "later" }, makes: true },
   createRenderEffect: { args: { 0: "track", 1: "later" }, makes: true }, createTrackedEffect: { args: { 0: "later" }, makes: true }, createStore: { args: { 0: "track" }, makes: true, gives: "store" },
@@ -92,7 +101,8 @@ function create(ts, options = {}) {
   const mods = new Map();          // file → module model, or null
   let sums = new WeakMap();        // function node → its summary (this round's)
   const prev = new WeakMap();      // … the round before's, for a function met while it is being read
-  const active = new Set();
+  const active = new Map();        // function node → the environments it is being read in
+  const NOENV = {};
   let changed = false, cyclic = false;
   const isFn = n => !!n && (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n) || ts.isMethodDeclaration(n) || ts.isGetAccessorDeclaration(n) || ts.isSetAccessorDeclaration(n) || ts.isConstructorDeclaration(n));
   const skip = e => { while (e && (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e) || ts.isTypeAssertionExpression?.(e) || ts.isSatisfiesExpression?.(e))) e = e.expression; return e; };
@@ -292,7 +302,13 @@ function create(ts, options = {}) {
     }
     if (ts.isVariableDeclaration(p) && p.initializer === n && ts.isIdentifier(p.name)) return { kind: "named", name: p.name.text, at: p };
     if (ts.isFunctionDeclaration(fn) && fn.name) return { kind: "named", name: fn.name.text, at: fn };
-    if (ts.isJsxExpression(p) && ts.isJsxAttribute(p.parent)) { const tag = p.parent.parent.parent.tagName; const an = p.parent.name.getText(); if (ts.isIdentifier(tag) && /^[a-z]/.test(tag.text) && (/^on[A-Z:]/.test(an) || an === "ref")) return { kind: "listen" }; }
+    if (ts.isJsxExpression(p) && ts.isJsxAttribute(p.parent)) {
+      const tag = tagOf(p.parent); const an = p.parent.name.getText();
+      if (isElementTag(tag)) { if (/^on[A-Z]/.test(an) || an === "ref") return { kind: "listen" }; return { kind: "kept" }; }
+      // a prop of a component the code declares: called when that component calls it
+      const fns = /^[\w$]+$/.test(an) ? tagFns(tag, m) : undefined;
+      if (fns) return { kind: "given", fns, index: 0, field: an, call: p.parent.parent.parent };
+    }
     return { kind: "kept" };
   }
   /** What a call's callee is. */
@@ -338,6 +354,26 @@ function create(ts, options = {}) {
     return { kind: "unknown", why: ts.isElementAccessExpression(e) ? "a call through a computed member" : "a call of a value that is computed" };
   }
   const memberFn = (obj, name) => { for (const p of obj.properties) { const pn = p.name && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) ? p.name.text : undefined; if (pn !== name) continue; if (ts.isMethodDeclaration(p)) return p; if (ts.isPropertyAssignment(p) && isFn(skip(p.initializer))) return skip(p.initializer); } return undefined; };
+  const staticOf = (e, m) => ts.isPropertyAccessExpression(e) && ts.isIdentifier(skip(e.expression)) && !m.top.has(skip(e.expression).text) && skip(e.expression).text !== "Math" && STATIC[skip(e.expression).text]?.[e.name.text] ? { kind: "builtin", name: `${skip(e.expression).text}.${e.name.text}`, gives: STATIC[skip(e.expression).text][e.name.text], sync: skip(e.expression).text === "Array" && e.name.text === "from" } : undefined;
+  /** The functions a JSX tag names, where it is a component the code declares: `<Inner …>`, `<Kit.Part …>`. */
+  function tagFns(tag, m) {
+    if (ts.isIdentifier(tag)) {
+      if (/^[a-z]/.test(tag.text)) return undefined;
+      const r = resolve(tag, m);
+      if (r.local) { if (r.local.multi || r.local.inits.length !== 1) return undefined; const i0 = r.local.inits[0]; const g = i0.fn ?? (i0.expr && isFn(skip(i0.expr)) ? skip(i0.expr) : undefined); return g ? [{ m, node: g, name: tag.text }] : undefined; }
+      if (!r.top) return undefined;
+      const c = fromBinding(binding(m, tag.text), tag.text, false); return c.kind === "fns" ? c.fns : undefined;
+    }
+    if (ts.isPropertyAccessExpression(tag) && ts.isIdentifier(tag.expression)) {
+      const r = resolve(tag.expression, m); const name = tag.name.text;
+      if (r.top?.kind === "ns") { const c = fromBinding(imported(m, r.top.from, name), `${tag.expression.text}.${name}`, false); return c.kind === "fns" ? c.fns : undefined; }
+      if (r.top?.kind === "var" && r.top.isConst && r.top.init && ts.isObjectLiteralExpression(skip(r.top.init))) { const f = memberFn(skip(r.top.init), name); return f ? [{ m, node: f, name: `${tag.expression.text}.${name}` }] : undefined; }
+    }
+    return undefined;
+  }
+  /** The element or component a JSX attribute (or a spread among them) is written on. */
+  const tagOf = attr => attr.parent.parent.tagName;
+  const isElementTag = tag => ts.isIdentifier(tag) && /^[a-z]/.test(tag.text);
   function fromBinding(bs, name, isNew) {
     if (!bs) return { kind: "unknown", why: `${name}: code that is not read (another package's, or not a module's top-level function)` };
     if (bs.every(x => x.solid)) { const api = SOLID_API[bs[0].solid]; return api && !isNew && bs.every(x => x.solid === bs[0].solid) ? { kind: "solid", api, name: bs[0].solid } : { kind: "unknown", why: `${bs[0].solid}, of Solid: not known to only compute` }; }
@@ -349,9 +385,169 @@ function create(ts, options = {}) {
       else if (b.kind === "class" && isNew) fns.push({ m: x.m, node: b.node, name: x.name, cls: true });
       else if (b.kind === "var" && b.isConst && !x.m.written.has(x.name) && b.init && isFn(skip(b.init)) && !isNew) fns.push({ m: x.m, node: skip(b.init), name: x.name });
       else if (b.kind === "var" && b.isConst && b.init && ts.isClassExpression(skip(b.init)) && isNew) fns.push({ m: x.m, node: skip(b.init), name: x.name, cls: true });
-      else return { kind: "unknown", why: `${name}: ${b.kind === "var" ? "a value made by a call, or one the module assigns again" : "not a function the module declares"}` };
+      else {
+        // `const keys = Object.keys`: the built-in by another name
+        const st = b.kind === "var" && b.isConst && b.init && !isNew && bs.length === 1 ? staticOf(skip(b.init), x.m) : undefined;
+        if (st) return st;
+        return { kind: "unknown", why: `${name}: ${b.kind === "var" ? "a value made by a call, or one the module assigns again" : "not a function the module declares"}` };
+      }
     }
     return { kind: "fns", fns, name };
+  }
+
+  // ---- a value made by a call ----
+  // `export const ease = named(bezier(0.42, 0, 1, 1), "easeIn")`, `export const useKeys = createSingletonRoot(() => …)`,
+  // `export const Toggle = rootScope(function Toggle(props) { … })`: what such a name holds is the function its factory
+  // hands back, with the factory's parameters standing for the arguments it was called with. An environment says which:
+  // `{ id, map: local → { expr, m, env } | { undef }, parent }` — a factory's parameter bound to the argument's
+  // expression, in the module and the environment the call is written in. A function value is `{ m, node, env }`.
+  let envIds = 0; const envOf = new WeakMap(); const MAX_DEPTH = 6;
+  const envGet = (env, local) => { for (let e = env; e; e = e.parent) { const b = e.map.get(local); if (b) return b; } return undefined; };
+  /** Whether a reference writes the name it names: `x = …`, `x += …`, `x++`, a loop's target, a destructuring target. */
+  const isWriteRef = id => { let [n, p] = up(id); while (p && (ts.isArrayLiteralExpression(p) || ts.isObjectLiteralExpression(p) || ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p) || ts.isSpreadElement(p) || ts.isSpreadAssignment(p))) { if (ts.isPropertyAssignment(p) && p.name === n) return false; [n, p] = up(p); } if (!p) return false; if (ts.isBinaryExpression(p) && p.left === n && p.operatorToken.kind >= K.FirstAssignment && p.operatorToken.kind <= K.LastAssignment) return true; if ((ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p)) && (p.operator === K.PlusPlusToken || p.operator === K.MinusMinusToken)) return true; if ((ts.isForInStatement(p) || ts.isForOfStatement(p)) && p.initializer === n) return true; return false; };
+  /** Whether a function's local is given a value more than once: declared twice, or assigned anywhere in the function. */
+  const reassigned = (r, m) => r.local.count > 1 || r.local.multi || refs(r.fn, r.name, m, x => x.local === r.local).some(isWriteRef);
+  /** The environment of a call of `g` with `call`'s arguments, written in module `am` under `aenv`. */
+  function bindEnv(g, call, am, aenv) {
+    let by = envOf.get(call); if (!by) envOf.set(call, by = new Map());
+    const key = aenv ?? NOENV; let byG = by.get(key); if (!byG) by.set(key, byG = new Map());
+    const k2 = g.env ?? NOENV; if (byG.has(g.node) && byG.get(g.node).has(k2)) return byG.get(g.node).get(k2);
+    // (`depth`: how many calls deep the arguments were written; past a few, a call is not followed — see `resultOf`)
+    const env = { id: ++envIds, map: new Map(), parent: g.env, depth: Math.max(aenv?.depth ?? 0, g.env?.depth ?? 0) + 1 };
+    const ls = locals(g.node); const args = call.arguments ?? [];
+    (g.node.parameters ?? []).forEach((q, i) => { if (!ts.isIdentifier(q.name) || q.dotDotDotToken) return; const l = ls.get(q.name.text); if (!l) return; const a = args[i]; const isUndef = !a || (ts.isIdentifier(skip(a)) && skip(a).text === "undefined") || ts.isVoidExpression(skip(a)); env.map.set(l, isUndef ? (q.initializer ? { expr: q.initializer, m: g.m, env } : { undef: true }) : { expr: a, m: am, env: aenv }); });
+    if (!byG.has(g.node)) byG.set(g.node, new Map()); byG.get(g.node).set(k2, env);
+    return env;
+  }
+  const isObjectAssign = (e, m) => { const c = skip(e.expression); return ts.isPropertyAccessExpression(c) && c.name.text === "assign" && ts.isIdentifier(skip(c.expression)) && skip(c.expression).text === "Object" && resolve(skip(c.expression), m).global !== undefined; };
+  const shortEnvs = new WeakMap();
+  /** `g` as a call with `n` arguments reads it: the parameters past the last argument are `undefined` (or their
+   *  defaults), so a branch that tests one of them (`if (options?.dirty)`) is not taken. The function itself where
+   *  every parameter is given, or it takes the rest of its arguments in one. */
+  function calledWith(g, n) {
+    const ps = g.node.parameters ?? [];
+    if (g.env || g.cls || n >= ps.length || ps.some(q => q.dotDotDotToken) || /\barguments\b/.test(g.node.body?.getText() ?? "")) return g;
+    let by = shortEnvs.get(g.node); if (!by) shortEnvs.set(g.node, by = new Map());
+    if (!by.has(n)) { const env = { id: ++envIds, map: new Map(), parent: undefined }; const ls = locals(g.node); ps.forEach((q, i) => { if (i < n || !ts.isIdentifier(q.name)) return; const l = ls.get(q.name.text); if (l) env.map.set(l, q.initializer ? { expr: q.initializer, m: g.m, env } : { undef: true }); }); by.set(n, env); }
+    return { ...g, env: by.get(n) };
+  }
+  /** What an expression's value is, as far as the code shows it: `{ e, m, env, name? }` with `e` the expression that
+   *  makes it — a function, a record or a list written out, a call that is not followed — reached through names bound
+   *  once, a factory's parameters (by the environment), members of records written out, parts taken by a pattern, and
+   *  what a call of a function that is read hands back (every `return` of it the same value). */
+  const valMemo = new WeakMap();
+  function valOf(e, m, env, d = 0) {
+    e = skip(e); if (!e || d > 32) return undefined;
+    // (asked many times of the same expression: each answer is kept, by where the expression is read from)
+    if (e.pos >= 0 && e.parent) { let by = valMemo.get(e); if (!by) valMemo.set(e, by = new Map()); const k = env ?? NOENV; if (by.has(k)) return by.get(k); by.set(k, undefined); const v = valOf1(e, m, env, d); by.set(k, v); return v; }
+    return valOf1(e, m, env, d);
+  }
+  function valOf1(e, m, env, d) {
+    if (isFn(e)) return { e, m, env, name: e.name && ts.isIdentifier(e.name) ? e.name.text : undefined };
+    if (ts.isIdentifier(e)) {
+      const r = resolve(e, m);
+      if (r.local) {
+        const b = envGet(env, r.local); if (b) return b.undef ? undefined : valOf(b.expr, b.m, b.env, d + 1);
+        if (r.local.inits.length !== 1 || reassigned(r, m)) return undefined;
+        const v = initOf(r.local.inits[0], m, env, d + 1); return v && { ...v, name: v.name ?? e.text };
+      }
+      if (!r.top) return undefined;
+      const bs = binding(m, e.text); if (!bs || bs.length !== 1 || bs[0].solid) return undefined;
+      const x = bs[0];
+      if (x.b.kind === "fn") return { e: x.b.node, m: x.m, env: undefined, name: x.name };
+      if (x.b.kind !== "var" || !x.b.isConst || x.m.written.has(x.name)) return undefined;
+      if (x.b.pattern) { const v = partOf(x.b.decl.name, x.name, x.b.decl.initializer, x.m, undefined, d + 1); return v && { ...v, name: x.name }; }
+      if (!x.b.init) return undefined;
+      const v = valOf(x.b.init, x.m, undefined, d + 1); return v && { ...v, name: x.name };
+    }
+    if (ts.isPropertyAccessExpression(e)) { const o = skip(e.expression); if (ts.isIdentifier(o)) { const r = resolve(o, m); if (r.top?.kind === "ns") { const bs = imported(m, r.top.from, e.name.text); if (!bs || bs.length !== 1 || bs[0].solid) return undefined; const x = bs[0]; return x.b.kind === "fn" ? { e: x.b.node, m: x.m, env: undefined, name: x.name } : x.b.kind === "var" && x.b.isConst && x.b.init && !x.b.pattern && !x.m.written.has(x.name) ? valOf(x.b.init, x.m, undefined, d + 1) : undefined; } } const v = memberOf(e.expression, e.name.text, m, env, d + 1); return v && (v.node ? { e: v.node, m: v.m, env: v.env, method: true } : valOf(v.expr, v.m, v.env, d + 1)); }
+    if (ts.isElementAccessExpression(e) && ts.isNumericLiteral(skip(e.argumentExpression))) { const o = valOf(e.expression, m, env, d + 1); const i = Number(skip(e.argumentExpression).text); if (!o || !ts.isArrayLiteralExpression(o.e) || o.e.elements.slice(0, i + 1).some(x => ts.isSpreadElement(x)) || !o.e.elements[i]) return undefined; return valOf(o.e.elements[i], o.m, o.env, d + 1); }
+    if (ts.isCallExpression(e)) {
+      if (isObjectAssign(e, m)) return e.arguments[0] ? valOf(e.arguments[0], m, env, d + 1) : undefined;
+      const g = fnValueOf(e.expression, m, env, d + 1);
+      if (g) { const r = resultOf(g, e, m, env, d + 1); if (r) return r; }
+      return { e, m, env };
+    }
+    return { e, m, env };
+  }
+  /** The value a local's one initializer gives it. */
+  function initOf(i0, m, env, d) {
+    if (i0.fn) return i0.fn.body ? { e: i0.fn, m, env } : undefined;
+    if (i0.expr) return valOf(i0.expr, m, env, d);
+    if (i0.part) { const src = i0.part.expr ? i0.part.expr : undefined; if (!src) return undefined; return partOf(i0.of, undefined, src, m, env, d, i0.el); }
+    return undefined;
+  }
+  /** The part a pattern takes of an initializer's value: an element of a list written out, a member of a record. */
+  function partOf(pat, name, init, m, env, d, el) {
+    if (!init) return undefined;
+    el ??= (pat.elements ?? []).find(x => !ts.isOmittedExpression(x) && ts.isIdentifier(x.name) && x.name.text === name);
+    if (!el || el.dotDotDotToken || el.initializer || !pat.elements.includes(el)) return undefined;
+    if (ts.isArrayBindingPattern(pat)) { const o = valOf(init, m, env, d + 1); const i = pat.elements.indexOf(el); if (!o || !ts.isArrayLiteralExpression(o.e) || o.e.elements.slice(0, i + 1).some(x => ts.isSpreadElement(x)) || !o.e.elements[i]) return undefined; return valOf(o.e.elements[i], o.m, o.env, d + 1); }
+    const key = el.propertyName ?? el.name; if (!ts.isIdentifier(key) && !ts.isStringLiteralLike(key)) return undefined;
+    const v = memberOf(init, key.text, m, env, d + 1); return v && (v.node ? { e: v.node, m: v.m, env: v.env, method: true } : valOf(v.expr, v.m, v.env, d + 1));
+  }
+  /** The function an expression's value is, where the code shows it. `{ m, node, env, name }`. */
+  function fnValueOf(e, m, env, d = 0) {
+    const v = valOf(e, m, env, d); if (!v || !isFn(v.e) || !v.e.body) return undefined;
+    return { m: v.m, node: v.e, env: v.env, name: v.name, method: v.method };
+  }
+  /** What a call of `g` hands back: every `return` of it the same value. */
+  function resultOf(g, call, am, aenv, d) {
+    const node = g.node; if (!node.body || node.asteriskToken || isAsync(node) || (call.arguments ?? []).some(a => ts.isSpreadElement(a))) return undefined;
+    if (Math.max(aenv?.depth ?? 0, g.env?.depth ?? 0) >= MAX_DEPTH) return undefined;   // factories of factories, further than is followed
+    const env = bindEnv(g, call, am, aenv);
+    const rets = [];
+    if (ts.isBlock(node.body)) { const find = n => { if (isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n)) rets.push(n.expression); ts.forEachChild(n, find); }; find(node.body); } else rets.push(node.body);
+    let out;
+    for (const r of rets) { const v = r ? valOf(r, g.m, env, d + 1) : undefined; if (!v) return undefined; if (out && (out.e !== v.e || out.env !== v.env)) return undefined; out = v; }
+    return out;
+  }
+  /** The member `name` of what an expression's value is, where the code writes that object out: a record written there,
+   *  a name bound once to one, `Object.assign(target, { … })`. `{ expr, m, env }`, or a method's `{ m, node, env }`. */
+  function memberOf(e, name, m, env, d = 0) {
+    e = skip(e); if (!e || d > 32) return undefined;
+    const inRecord = (lit, mm, ee) => {
+      for (let i = lit.properties.length - 1; i >= 0; i--) {
+        const p = lit.properties[i]; if (ts.isSpreadAssignment(p)) return undefined;
+        const pn = p.name && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) ? p.name.text : undefined; if (pn === undefined) return undefined; if (pn !== name) continue;
+        if (ts.isMethodDeclaration(p)) return { m: mm, node: p, env: ee, method: true };
+        if (ts.isPropertyAssignment(p)) return { expr: p.initializer, m: mm, env: ee };
+        if (ts.isShorthandPropertyAssignment(p)) return { expr: p.name, m: mm, env: ee };
+        return undefined;
+      }
+      return undefined;
+    };
+    if (ts.isCallExpression(e) && isObjectAssign(e, m)) {
+      for (let i = e.arguments.length - 1; i >= 1; i--) { const a = valOf(e.arguments[i], m, env, d + 1); if (!a || !ts.isObjectLiteralExpression(a.e)) return undefined; const v = inRecord(a.e, a.m, a.env); if (v) return v; if (a.e.properties.some(p => ts.isSpreadAssignment(p) || !(p.name && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name))))) return undefined; }
+      return undefined;   // (a member of the target itself — a function's own property — is not one the code writes out)
+    }
+    // a name bound once to `Object.assign(fn, { … })`: the members the call writes
+    if (ts.isIdentifier(e)) {
+      const r = resolve(e, m); let raw;
+      if (r.local) { const b = envGet(env, r.local); raw = b ? (b.undef ? undefined : b) : r.local.inits.length === 1 && r.local.inits[0].expr && !reassigned(r, m) ? { expr: r.local.inits[0].expr, m, env } : undefined; }
+      else if (r.top) { const bs = binding(m, e.text); const x = bs && bs.length === 1 && !bs[0].solid ? bs[0] : undefined; if (x && x.b.kind === "var" && x.b.isConst && x.b.init && !x.b.pattern && !x.m.written.has(x.name)) raw = { expr: x.b.init, m: x.m, env: undefined }; }
+      if (raw && ts.isCallExpression(skip(raw.expr)) && isObjectAssign(skip(raw.expr), raw.m)) return memberOf(raw.expr, name, raw.m, raw.env, d + 1);
+      if (raw && ts.isIdentifier(skip(raw.expr))) return memberOf(raw.expr, name, raw.m, raw.env, d + 1);
+    }
+    const o = valOf(e, m, env, d + 1);
+    if (!o) return undefined;
+    if (ts.isObjectLiteralExpression(o.e)) return inRecord(o.e, o.m, o.env);
+    if (ts.isCallExpression(o.e) && o.e !== e && isObjectAssign(o.e, o.m)) return memberOf(o.e, name, o.m, o.env, d + 1);
+    return undefined;
+  }
+
+  const passMemo = new WeakMap();
+  /** Whether a function only hands back what it was given: every `return` a parameter, a call of one with nothing
+   *  (`v()`), or a choice between those. `{ idx: the parameters, calls: whether one is called }`, else null. */
+  function passes(g) {
+    if (passMemo.has(g.node)) return passMemo.get(g.node);
+    passMemo.set(g.node, null);
+    const node = g.node; if (!node.body || isAsync(node) || node.asteriskToken) return null;
+    const idx = new Set(); let calls = false, ok = true;
+    const pi = id => { const r = resolve(id, g.m); return r.local && r.fn === node && r.local.inits.length === 1 && r.local.inits[0].param !== undefined && !reassigned(r, g.m) ? r.local.inits[0].param : -1; };
+    const ret = e => { e = skip(e); if (!e) { ok = false; return; } if (ts.isIdentifier(e)) { const i = pi(e); if (i < 0) ok = false; else idx.add(i); return; } if (ts.isCallExpression(e) && !e.arguments.length && ts.isIdentifier(skip(e.expression))) { const i = pi(skip(e.expression)); if (i < 0) ok = false; else { idx.add(i); calls = true; } return; } if (ts.isConditionalExpression(e)) { ret(e.whenTrue); ret(e.whenFalse); return; } if (ts.isBinaryExpression(e) && (e.operatorToken.kind === K.BarBarToken || e.operatorToken.kind === K.QuestionQuestionToken)) { ret(e.left); ret(e.right); return; } ok = false; };
+    if (ts.isBlock(node.body)) { let any = false; const find = n => { if (isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n)) { any = true; ret(n.expression); } ts.forEachChild(n, find); }; find(node.body); if (!any) ok = false; } else ret(node.body);
+    const out = ok && idx.size ? { idx, calls } : null; passMemo.set(g.node, out); return out;
   }
 
   // ---- a function's summary ----
@@ -360,14 +556,16 @@ function create(ts, options = {}) {
   /** `{ pure: [reasons: why it is not], makes, fails: Set<class | "*">, mutates: Map<param index, reason>, calls:
    *  Set<param index> (called while it runs), keeps: Set<param index> (given to what is not read, or kept) }`. */
   function summary(f) {
-    if (sums.has(f.node)) return sums.get(f.node);
-    if (active.has(f.node)) { cyclic = true; return prev.get(f.node) ?? optimistic(); }
-    active.add(f.node);
+    const key = f.env ?? NOENV;
+    const got = (w) => w.get(f.node)?.get(key), put = (w, v) => { let by = w.get(f.node); if (!by) w.set(f.node, by = new Map()); by.set(key, v); };
+    if (got(sums)) return got(sums);
+    if (active.get(f.node)?.has(key)) { cyclic = true; return got(prev) ?? optimistic(); }
+    if (!active.has(f.node)) active.set(f.node, new Set()); active.get(f.node).add(key);
     let s;
     try { s = f.cls ? construct(f) : read(f); } catch (e) { if (options.debug) throw e; s = optimistic(); s.pure.push({ why: `could not be read (${String(e?.message ?? e).slice(0, 80)})`, ...place(f.node) }); s.fails.add("*"); }
-    active.delete(f.node);
-    const was = prev.get(f.node); if (!was || !same(was, s)) changed = true;
-    sums.set(f.node, s); prev.set(f.node, s);
+    active.get(f.node).delete(key);
+    const was = got(prev); if (!was || !same(was, s)) changed = true;
+    put(sums, s); put(prev, s);
     return s;
   }
   /** `new C(…)`: the constructor's own body with `this` the thing being made; a class it extends is a built-in error,
@@ -506,10 +704,12 @@ function create(ts, options = {}) {
         const ps = localTaint(r0);
         // a local that holds nothing but what the function was given: the write is to its argument, for certain — its
         // caller's to answer for (one that gives it a value it made has changed nothing else: `_attach({ … })`)
-        if (ps.size && r0.fn === root && paramOnly(r0, 0)) {
-          const pi = paramIndex(r0); const of = pi !== undefined ? [pi] : [...ps];
-          for (const i of of) if (!s.mutates.has(i)) s.mutates.set(i, { why: what, ...place(n), later: depth.later });
-          s.pure.push({ why: `it changes its argument ${of.map(i => `\`${paramName(i)}\``).join(", ")} in place (${what})`, ...place(n), param: true }); return;
+        if (ps.size && inRoot(r0.fn) && paramOnly(r0, 0)) {
+          // the parameters it is a part of, by the names its initializers spell out (not all that may flow into it)
+          const direct = (r, seen = new Set()) => { if (seen.has(r.local)) return []; seen.add(r.local); const pi0 = paramIndex(r); if (pi0 !== undefined) return [pi0]; return r.local.inits.flatMap(i => { while (i.part) i = i.part; const e = i.again ? undefined : i.expr ?? i.loop?.expression; return e ? rootsIn(e).flatMap(q => direct(q, seen)) : []; }); };
+          const named = [...new Set(direct(r0))]; const of = named.length ? named : [...ps];
+          for (const i of of) if (!s.mutates.has(i)) s.mutates.set(i, { why: what, ...place(n), later: depth.later || depth.tracked });
+          s.pure.push({ why: `it changes its argument ${of.map(i => `\`${paramName(i)}\``).join(", ")} in place (${what})`, ...place(n), param: true, params: of }); return;
         }
         for (const i of ps) s.may.add(i);
         return no(ps.size ? `it may change its argument ${[...ps].map(i => `\`${paramName(i)}\``).join(", ")} in place: it writes to ${r0.name}, which may hold a part of it (${what})` : `it writes to ${r0.name}, which holds what the call did not make (${what})`, n);
@@ -517,14 +717,31 @@ function create(ts, options = {}) {
       no(`it writes to ${t.getText().slice(0, 40)}, which the call did not make (${what})`, n);
     };
     /** A local that holds nothing but (a part of) what the function was given. */
-    const paramOnly = (r, d) => d < 8 && !r.local.multi && r.fn === root && r.local.inits.length > 0 && r.local.inits.every(i => { while (i.part) i = i.part; if (i.param !== undefined) return true; let e = i.expr ? skip(i.expr) : i.loop ? skip(i.loop.expression) : undefined; if (!e) return false; while (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) e = skip(e.expression); if (!ts.isIdentifier(e)) return false; const q = resolve(e, m); return !!q.local && paramOnly(q, d + 1); });
+    const paramOnly = (r, d) => d < 8 && !r.local.multi && inRoot(r.fn) && r.local.inits.length > 0 && r.local.inits.every(i => { while (i.part) i = i.part; if (i.param !== undefined) return r.fn === root; const e = i.expr ? i.expr : i.loop ? i.loop.expression : undefined; return !!e && partOnly(e, d); });
+    /** An expression that is nothing but (a part of) what the function was given: a parameter, a part of one, what
+     *  calling an accessor parameter answers (`ref list`: the list itself), a choice between such, and what a function
+     *  that only hands its argument back — or calls it — makes of one (`access(list)`). */
+    const partOnly = (e, d) => {
+      e = skip(e); if (!e || d > 8) return false;
+      while (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) e = skip(e.expression);
+      if (ts.isIdentifier(e)) { const q = resolve(e, m); return !!q.local && paramOnly(q, d + 1); }
+      if (ts.isConditionalExpression(e)) return partOnly(e.whenTrue, d + 1) && partOnly(e.whenFalse, d + 1);
+      if (ts.isBinaryExpression(e) && (e.operatorToken.kind === K.BarBarToken || e.operatorToken.kind === K.QuestionQuestionToken)) return partOnly(e.left, d + 1) && partOnly(e.right, d + 1);
+      if (ts.isCallExpression(e)) {
+        const accessor = a => { a = skip(a); if (!ts.isIdentifier(a)) return false; const q = resolve(a, m); const pi = q.local ? paramIndex(q) : undefined; return pi !== undefined && !!f.refs?.has(pi); };
+        if (!e.arguments.length) return accessor(e.expression);
+        const c = callee(e, m); if (c.kind !== "fns") return false;
+        return c.fns.every(g => { const ps = passes(g); return !!ps && [...ps.idx].every(i => e.arguments[i] && !ts.isSpreadElement(e.arguments[i]) && (ps.calls ? accessor(e.arguments[i]) : partOnly(e.arguments[i], d + 1))); });
+      }
+      return false;
+    };
     const paramName = i => { const p = root.parameters?.[i]; return p && ts.isIdentifier(p.name) ? p.name.text : `#${i + 1}`; };
-    const depth = { later: false };
+    const depth = { later: false, tracked: false };
 
     const fnArg = (a, how, call) => {
       // a function given where it will be called: `how` is "run" | "track" | "then"
       const e = skip(a);
-      if (isFn(e)) { if (how === "then") { const was = depth.later, wasFails = fails; depth.later = true; fails = s.fails; inner(e); depth.later = was; fails = wasFails; } else inner(e); return; }
+      if (isFn(e)) { if (how === "then") { const was = depth.later, wasFails = fails; depth.later = true; fails = s.fails; inner(e); depth.later = was; fails = wasFails; } else if (how === "track") { const was = depth.tracked; depth.tracked = true; inner(e); depth.tracked = was; } else inner(e); return; }
       if (ts.isIdentifier(e)) {
         const r = resolve(e, m);
         if (r.local) {
@@ -534,6 +751,7 @@ function create(ts, options = {}) {
           const fnInit = r.local.inits.length === 1 && (r.local.inits[0].fn ?? (r.local.inits[0].expr && isFn(skip(r.local.inits[0].expr)) ? skip(r.local.inits[0].expr) : undefined));
           if (fnInit) { runNamed(fnInit, how === "then"); return; }
           if (solidLocal(r)) return;
+          { const g = fnValueOf(e, m, f.env); if (g) { absorb(s, summary(g), g, a); return; } }
           return no(`it hands \`${e.text}\`, a value that is not known to be a function of its own, to be called`, a);
         }
         if (r.top) { const c = fromBinding(binding(m, e.text), e.text, false); if (c.kind === "fns") { for (const g of c.fns) absorb(s, summary(g), g, a); return; } return no(`it has ${c.why} called`, a); }
@@ -556,6 +774,16 @@ function create(ts, options = {}) {
         const e = ts.isSpreadElement(a) ? a.expression : a;
         expr(e);
       }
+    };
+    /** A call of a value the code shows to be a function — a parameter of the factory that made this one (by the
+     *  call's arguments), what a call of a function that is read handed back: read as that function's call. */
+    const viaValue = (n, as, label) => {
+      const g = ts.isCallExpression(n) ? fnValueOf(n.expression, m, f.env) : undefined; if (!g) return false;
+      const t = summary(g); absorb(s, t, g, n);
+      as.forEach((a, i) => { const e = skip(ts.isSpreadElement(a) ? a.expression : a); if (t.mutates.has(i)) writeTo(e, n, `given to ${g.name ?? label}, which changes it`); else if (t.may.has(i)) { const v = val(e); if (!(v.f > 0 || v.r === 0)) { for (const x of taint(e)) s.may.add(x); no(`it gives ${e.getText().slice(0, 30)} to ${g.name ?? label}, which may change it`, n); } } if (t.keeps.has(i)) for (const x of taint(e)) s.keeps.add(x); if (t.calls.has(i) && ts.isIdentifier(e)) { const q = resolve(e, m); const qi = q.local ? paramIndex(q) : undefined; if (qi !== undefined) s.calls.add(qi); } });
+      for (const a of as) { const e = skip(ts.isSpreadElement(a) ? a.expression : a); if (isFn(e)) fnArg(e, "run", n); else expr(e); }
+      { const ce = skip(n.expression); if (ts.isCallExpression(ce)) for (const a of ce.arguments) { const e = skip(ts.isSpreadElement(a) ? a.expression : a); if (isFn(e)) kept(e); else expr(e); } }
+      return true;
     };
     const call = n => {
       const c = callee(n, m); const as = n.arguments ?? [];
@@ -593,13 +821,17 @@ function create(ts, options = {}) {
           if (solidLocal(r)) return;
           const fnInit = !r.local.multi && r.local.inits.length === 1 && (r.local.inits[0].fn ?? (r.local.inits[0].expr && isFn(skip(r.local.inits[0].expr)) ? skip(r.local.inits[0].expr) : undefined));
           if (fnInit && inRoot(r.fn)) { runNamed(fnInit, false); return; }
+          // a function the code shows it to be: a parameter of the factory that made this one (by the call's
+          // arguments), what a call of one of the module's functions handed back
+          if (viaValue(n, as, r.name)) return;
           // an element of a list the function was given, called where a built-in walks the list: its caller's function,
           // as a callback parameter is
           if (!depth.later && !r.local.multi && r.local.inits.length === 1 && r.local.inits[0].param !== undefined && inRoot(r.fn) && r.fn !== root) { const [fnN, fnP] = up(r.fn); const ce = fnP && ts.isCallExpression(fnP) && fnP.arguments.includes(fnN) ? skip(fnP.expression) : undefined; let b = ce && ts.isPropertyAccessExpression(ce) && CALLBACK_SYNC.has(ce.name.text) ? skip(ce.expression) : undefined; while (b && (ts.isPropertyAccessExpression(b) || ts.isElementAccessExpression(b))) b = skip(b.expression); const rb = b && ts.isIdentifier(b) ? resolve(b, m) : undefined; if (rb?.local && rb.fn === root && paramOnly(rb, 0)) { for (const i of localTaint(rb)) s.calls.add(i); addFail("*"); return; } }
           addFail("*"); return no(`it calls \`${r.name}\`, a value it was handed or computed, as a function`, n);
         }
         case "fns": {
-          for (const g of c.fns) {
+          for (const g0 of c.fns) {
+            const g = as.some(a => ts.isSpreadElement(a)) ? g0 : calledWith(g0, as.length);
             const t = summary(g); absorb(s, t, g, n);
             as.forEach((a, i) => { const e = skip(ts.isSpreadElement(a) ? a.expression : a); if (t.mutates.has(i)) writeTo(e, n, `given to ${g.name}, which changes it`); else if (t.may.has(i)) { const v = val(e); if (!(v.f > 0 || v.r === 0)) { for (const x of taint(e)) s.may.add(x); no(`it gives ${e.getText().slice(0, 30)} to ${g.name}, which may change it`, n); } } if (t.keeps.has(i)) for (const x of taint(e)) s.keeps.add(x); if (t.calls.has(i) && ts.isIdentifier(e)) { const r = resolve(e, m); const pi = r.local ? paramIndex(r) : undefined; if (pi !== undefined) s.calls.add(pi); } });
             if (g.method && /\bthis\b/.test(g.node.getText())) no(`${g.name} reads \`this\``, n);
@@ -630,7 +862,7 @@ function create(ts, options = {}) {
           if (/^toLocale|^localeCompare$/.test(name)) return no(`.${name}(…): the answer is the locale's and the time zone's`, n);
           return no(`it calls .${name}(…), a method that is not read`, n);
         }
-        default: plain(); addFail("*"); { const ce = skip(n.expression); if (ts.isCallExpression(ce) || ts.isNewExpression(ce) || ts.isPropertyAccessExpression(ce) || ts.isElementAccessExpression(ce)) expr(ce); } return no(isNew && c.kind === "unknown" && /^new /.test(c.why ?? "") ? `${c.why}: not known to only compute` : `it calls ${c.why ?? "code that is not read"}`, n);
+        default: if (!isNew && c.kind === "unknown" && viaValue(n, as, "a function")) return; plain(); addFail("*"); { const ce = skip(n.expression); if (ts.isCallExpression(ce) || ts.isNewExpression(ce) || ts.isPropertyAccessExpression(ce) || ts.isElementAccessExpression(ce)) expr(ce); } return no(isNew && c.kind === "unknown" && /^new /.test(c.why ?? "") ? `${c.why}: not known to only compute` : `it calls ${c.why ?? "code that is not read"}`, n);
       }
     };
     /** A function that is handed back or stored: not run by the call. What it closes over is kept past the call. */
@@ -652,7 +884,7 @@ function create(ts, options = {}) {
       if (ts.isIdentifier(n)) {
         if (!isRef(n)) return;
         const r = resolve(n, m);
-        if (r.local) return;
+        if (r.local) { if (!inRoot(r.fn)) freeRead(n, r); return; }
         if (r.global !== undefined) { if (!GLOBAL_VALUES.has(r.global) && !(r.global in GLOBAL_FNS)) no(r.global === "Date" || r.global === "performance" ? `${r.global}: the clock` : /^(window|document|navigator|location|localStorage|sessionStorage|globalThis|self|process|history|screen)$/.test(r.global) ? `it reads ${r.global}: the environment` : r.global === "console" ? "console: it writes output" : `it reads ${r.global}, a global that is not known to only compute`, n); return; }
         return topRead(n, r);
       }
@@ -677,6 +909,9 @@ function create(ts, options = {}) {
         if (ts.isIdentifier(o)) {
           const r = resolve(o, m);
           if (r.global !== undefined && !r.local) { const name = ts.isPropertyAccessExpression(n) ? n.name.text : undefined; if (r.global === "Math" || r.global === "Number" || r.global === "Symbol" || (r.global === "arguments")) { if (ts.isElementAccessExpression(n)) expr(n.argumentExpression); return; } if (r.global === "import" ) return; void name; }
+          // Solid's own record of a hydration under way: `sharedConfig.hydrating` is a test of when the code runs, as
+          // `isServer` is of where (the server's page stands until the browser's has taken it over)
+          if (r.top && !r.local && r.top.kind === "import" && ts.isPropertyAccessExpression(n)) { const bs = binding(m, o.text); if (bs && bs.length && bs.every(x => x.solid === "sharedConfig")) { if (n.name.text === "hydrating" && isTest(n)) { s.env ??= { what: "sharedConfig.hydrating", ...place(n) }; return; } return no(`it reads sharedConfig.${n.name.text}: Solid's hydration state (the environment)`, n); } }
           if (r.top?.kind === "ns") { const name = ts.isPropertyAccessExpression(n) ? n.name.text : undefined; const bs = name ? imported(m, r.top.from, name) : undefined; if (!bs) return no(`it reads ${o.text}.${name ?? "[…]"}: a module that is not read`, n); return bindingRead(bs, n, `${o.text}.${name}`); }
         }
         expr(n.expression); if (ts.isElementAccessExpression(n)) expr(n.argumentExpression); return;
@@ -687,6 +922,15 @@ function create(ts, options = {}) {
       if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) { no("it renders (JSX)", n); return; }
       if (ts.isMetaProperty(n)) { no("import.meta: the environment", n); return; }
       ts.forEachChild(n, c => { if (ts.isTypeNode?.(c)) return; expr(c); });
+    };
+    /** A read of a name of the function that made this one (a closure's free variable): what every call of the made
+     *  function shares. A function, a primitive written out, a constant of the module — by the factory's arguments —
+     *  is the same at every call; a variable that is assigned again, or a value the factory built, is state. */
+    const freeRead = (id, r) => {
+      const ok = (e, mm, env, d) => { e = skip(e); if (!e || d > 12) return false; if (fnValueOf(e, mm, env)) return true; if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) { let b = e; while (ts.isPropertyAccessExpression(b) || ts.isElementAccessExpression(b)) b = skip(b.expression); if (ts.isIdentifier(b) && mm === m) { const q = resolve(b, mm); if (q.local && inRoot(q.fn)) return true; } } if (ts.isIdentifier(e)) { const q = resolve(e, mm); if (q.local && mm === m && inRoot(q.fn)) return true; if (q.local) return held(q, mm, env, d + 1); if (q.top) { const bs = binding(mm, e.text); return !!bs && bs.every(x => x.b && (x.b.kind === "fn" || x.b.kind === "class" || (x.b.kind === "var" && !constant(x.m, x.name)))); } return e.text === "undefined"; } return literal(e, mm, 0) === 0; };
+      const held = (q, mm, env, d) => { const b = envGet(env, q.local); if (b) return b.undef || ok(b.expr, b.m, b.env, d); if (reassigned(q, mm) || q.local.inits.length !== 1) return false; const i0 = q.local.inits[0]; return !!i0.fn || (!!i0.expr && ok(i0.expr, mm, env, d)); };
+      if (reassigned(r, m)) return no(`it reads ${id.text}, a variable of the function that made it, which is assigned again: state its calls share`, id);
+      if (!held(r, m, f.env, 0)) no(`it reads ${id.text}, a value the function that made it holds: not known to be the same at every call`, id);
     };
     /** A read of a name of the module. */
     const topRead = (id, r) => { const bs = binding(m, id.text); if (!bs) return no(`it reads ${id.text}: ${r.top.kind === "import" || r.top.kind === "ns" ? "another module's, which is not read" : "a name the module declares twice"}`, id); bindingRead(bs, id, id.text); };
@@ -717,6 +961,17 @@ function create(ts, options = {}) {
     };
     /** Whether an expression only decides which way the code goes: the condition of an `if` or of `a ? b : c`. */
     const isTest = e => { for (let [n, p] = up(e); p; [n, p] = up(p)) { if (ts.isIfStatement(p)) return p.expression === n; if (ts.isConditionalExpression(p)) return p.condition === n; if (ts.isPrefixUnaryExpression(p) && p.operator === K.ExclamationToken) continue; if (ts.isBinaryExpression(p)) { const k = p.operatorToken.kind; if (k === K.BarBarToken || k === K.AmpersandAmpersandToken) continue; if (k === K.EqualsEqualsEqualsToken || k === K.ExclamationEqualsEqualsToken || k === K.EqualsEqualsToken || k === K.ExclamationEqualsToken) { const o = skip(p.left === n ? p.right : p.left); if (ts.isStringLiteralLike(o)) continue; } } return false; } return false; };
+    /** Whether a test is false for certain, as this call is read: a parameter the call was not given (`undefined`), a
+     *  chain that asks of one with `?.`, `a && …` of such, a comparison of one with `undefined`. */
+    const absent = e => {
+      e = skip(e); if (!e || !f.env) return false;
+      const undef = x => { x = skip(x); if (!ts.isIdentifier(x)) return false; const r = resolve(x, m); return !!r.local && r.fn === root && !reassigned(r, m) && !!envGet(f.env, r.local)?.undef; };
+      if (undef(e)) return true;
+      if (ts.isBinaryExpression(e)) { const k = e.operatorToken.kind; if (k === K.AmpersandAmpersandToken) return absent(e.left); if (k === K.ExclamationEqualsEqualsToken || k === K.ExclamationEqualsToken) { const nothing = x => { x = skip(x); return (ts.isIdentifier(x) && x.text === "undefined") || ts.isVoidExpression(x) || (k === K.ExclamationEqualsToken && x.kind === K.NullKeyword); }; return (undef(e.left) && nothing(e.right)) || (undef(e.right) && nothing(e.left)); } return false; }
+      let b = e, opt = false;
+      while (ts.isPropertyAccessExpression(b) || ts.isElementAccessExpression(b) || ts.isCallExpression(b)) { opt = !!b.questionDotToken; b = skip(b.expression); }
+      return opt && undef(b);
+    };
     const block = b => { for (const st of b.statements) stmt(st); };
     const stmt = n => {
       if (!n) return;
@@ -725,7 +980,7 @@ function create(ts, options = {}) {
       if (ts.isVariableStatement(n)) { for (const d of n.declarationList.declarations) decl(d); return; }
       if (ts.isExpressionStatement(n)) return expr(n.expression);
       if (ts.isReturnStatement(n)) { if (n.expression) { const e = skip(n.expression); if (isFn(e)) kept(e); else { if (!settled(e)) addFail("*"); expr(e); } } return; }
-      if (ts.isIfStatement(n)) { expr(n.expression); stmt(n.thenStatement); return stmt(n.elseStatement); }
+      if (ts.isIfStatement(n)) { expr(n.expression); if (!absent(n.expression)) stmt(n.thenStatement); return stmt(n.elseStatement); }
       if (ts.isThrowStatement(n)) { expr(n.expression); return addFail(classOf(n.expression)); }
       if (ts.isTryStatement(n)) {
         if (n.catchClause) { const outer = fails; const inside = new Set(); fails = inside; block(n.tryBlock); fails = outer; caughtSets.set(n.catchClause, inside); block(n.catchClause.block); }
@@ -811,7 +1066,7 @@ function create(ts, options = {}) {
     if (ts.isRegularExpressionLiteral(e)) return /\/[a-z]*[gy][a-z]*$/.test(e.text) ? undefined : 0;
     if (isFn(e) || ts.isClassExpression(e) || ts.isVoidExpression(e)) return 0;
     // a symbol, and a context Solid makes: values that are made once and hold nothing that changes
-    if (ts.isCallExpression(e)) { const c = skip(e.expression); if (ts.isIdentifier(c) && c.text === "Symbol" && !m.top.has("Symbol")) return 0; if (ts.isPropertyAccessExpression(c) && c.getText() === "Symbol.for") return 0; if (ts.isIdentifier(c)) { const bs = binding(m, c.text); if (bs && bs.every(x => x.solid === "createContext")) return 0; } }
+    if (ts.isCallExpression(e)) { const c = skip(e.expression); if (ts.isIdentifier(c) && c.text === "Symbol" && !m.top.has("Symbol")) return 0; if (ts.isPropertyAccessExpression(c) && c.getText() === "Symbol.for") return 0; if (ts.isIdentifier(c)) { const bs = binding(m, c.text); if (bs && bs.every(x => x.solid === "createContext")) return 0; } if (solidName(c, m) === "createContext") return 0; }
     if (ts.isPrefixUnaryExpression(e) && ts.isNumericLiteral(e.operand)) return 0;
     if (ts.isTemplateExpression(e)) return e.templateSpans.every(sp => literal(sp.expression, m, d + 1) === 0) ? 0 : undefined;
     if (ts.isIdentifier(e)) { if (e.text === "undefined" || e.text === "NaN" || e.text === "Infinity") return 0; const b = m.top.get(e.text); if (b?.kind === "var" && b.isConst && b.init && !m.written.has(e.text)) return literal(b.init, m, d + 1); if (b?.kind === "fn" || b?.kind === "class") return 0; return undefined; }
@@ -928,7 +1183,7 @@ function create(ts, options = {}) {
       if (r.kind === "given") {
         // handed to a function that is read: when that function calls it
         let worst = "later";
-        for (const g of r.fns) { const us = callbackUses(g, r.index, undefined, seen); if (!us.length) return "reentry"; for (const u of us) { if (u.how === "escape" || u.how === "reentry") return "reentry"; if (u.how === "sync") worst = "sync"; } }
+        for (const g of r.fns) { const us = callbackUses(g, r.index, r.field, seen); if (!us.length) return "reentry"; for (const u of us) { if (u.how === "escape" || u.how === "reentry") return "reentry"; if (u.how === "sync") worst = "sync"; } }
         if (worst === "later") return "later";
       }
       node = fn;
@@ -955,7 +1210,7 @@ function create(ts, options = {}) {
   /** Every use the code makes of a callback — parameter `index` of `f`, or its field `field` — as
    *  `{ how: "sync" | "later" | "reentry" | "escape", why, file, line }`. Empty: it is never called here. */
   function callbackUses(f, index, field, seen = new Set()) {
-    const key = `${f.node.pos}\0${f.m.file}\0${index}\0${field ?? ""}`;
+    const key = `${f.node.pos}\0${f.m.file}\0${index}\0${field ?? ""}\0${f.env?.id ?? ""}`;
     if (usesMemo.has(key)) return usesMemo.get(key);
     if (usesBusy.has(key)) return [];   // met again while it is read (recursion): the reading under way finds what there is
     usesBusy.add(key);
@@ -987,7 +1242,8 @@ function create(ts, options = {}) {
         if (c.kind === "method" && c.name === "removeEventListener") return;   // taken off: not called
         if (c.kind === "method") return PROMISE_LATER.has(c.name) ? use("later", `given to .${c.name}(…)`, par) : CALLBACK_SYNC.has(c.name) ? use(at("sync"), `given to .${c.name}(…), which calls it`, par) : use("escape", `given to .${c.name}(…), a method that is not read`, par);
         if (c.kind === "fns") { for (const g of c.fns) for (const u of callbackUses(g, i, undefined, seen)) out.push({ ...u, how: u.how === "escape" ? "escape" : at(u.how === "reentry" ? "reentry" : u.how), why: `${g.name}: ${u.why}` }); return; }
-        return use("escape", `given to ${c.why ?? "code that is not read"}`, par);
+        if (c.kind === "local" || c.kind === "unknown") { const g = ts.isCallExpression(par) ? fnValueOf(par.expression, m, f.env) : undefined; if (g) { for (const u of callbackUses(g, i, undefined, seen)) out.push({ ...u, how: u.how === "escape" ? "escape" : at(u.how === "reentry" ? "reentry" : u.how), why: `${g.name ?? "a function it was made with"}: ${u.why}` }); return; } }
+        return use("escape", `given to ${c.why ?? (c.kind === "local" ? `${c.r.name}(…)` : "code that is not read")}`, par);
       }
       if (ts.isVariableDeclaration(par) && par.initializer === n && ts.isIdentifier(par.name)) return name(par.name, d);
       if (ts.isBinaryExpression(par)) {
@@ -1005,7 +1261,16 @@ function create(ts, options = {}) {
         if (fname && lp && ts.isCallExpression(lp) && lp.arguments.includes(ln)) { const c = callee(lp, m); const t = timing(lp, f); if (c.kind === "fns") { for (const g of c.fns) for (const u of callbackUses(g, lp.arguments.indexOf(ln), fname, seen)) out.push({ ...u, how: u.how === "escape" || u.how === "reentry" ? u.how : u.how === "later" || t === "later" ? "later" : t === "reentry" ? "reentry" : u.how, why: `${g.name}: ${u.why}` }); return; } }
         return use("escape", "put in a record that goes where it is not followed", par);
       }
-      if (ts.isJsxExpression(par) && ts.isJsxAttribute(par.parent)) { const tag = par.parent.parent.parent.tagName; const an = par.parent.name.getText(); if (ts.isIdentifier(tag) && /^[a-z]/.test(tag.text) && (/^on[A-Z:]/.test(an) || an === "ref")) return use("later", `the element's ${an}`, par); return use("escape", `given to <${tag.getText()}> as ${an}`, par); }
+      if (ts.isJsxExpression(par) && ts.isJsxAttribute(par.parent)) {
+        const tag = tagOf(par.parent); const an = par.parent.name.getText();
+        if (isElementTag(tag)) return /^on[A-Z]/.test(an) || an === "ref" ? use("later", `the element's ${an}`, par) : use("escape", `given to <${tag.getText()}> as ${an}`, par);
+        // a prop of a component the code declares: that component's field
+        const fns = /^[\w$]+$/.test(an) ? tagFns(tag, m) : undefined;
+        if (fns) { const t = timing(par, f); for (const g of fns) for (const u of callbackUses(g, 0, an, seen)) out.push({ ...u, how: u.how === "escape" || u.how === "reentry" ? u.how : u.how === "later" || t === "later" ? "later" : t === "reentry" ? "reentry" : u.how, why: `<${g.name}>: ${u.why}` }); return; }
+        return use("escape", `given to <${tag.getText()}> as ${an}`, par);
+      }
+      // `onClick={[cb, data]}`: Solid calls the first with the second, when the event comes
+      if (ts.isArrayLiteralExpression(par) && par.elements[0] === n) { const [an2, ap2] = up(par); if (ap2 && ts.isJsxExpression(ap2) && ts.isJsxAttribute(ap2.parent) && isElementTag(tagOf(ap2.parent)) && /^on[A-Z]/.test(ap2.parent.name.getText())) return use("later", `the element's ${ap2.parent.name.getText()}`, par); void an2; }
       if (ts.isReturnStatement(par) || (ts.isArrowFunction(par) && par.body === n)) return use("escape", "handed back", par);
       return use("escape", "used in a way that is not followed", par);
     };
@@ -1019,10 +1284,10 @@ function create(ts, options = {}) {
       if (!par) return;
       if ((ts.isPropertyAccessExpression(par) || ts.isElementAccessExpression(par)) && par.expression === n) {
         const fname = ts.isPropertyAccessExpression(par) ? par.name.text : ts.isStringLiteralLike(skip(par.argumentExpression)) ? skip(par.argumentExpression).text : null;
-        if (fname === null) return use("escape", "read by a computed name", par);
-        if (fname !== field) return;
+        if (fname !== null && fname !== field) return;
         const [an, ap] = up(par);
         if (ap && ts.isBinaryExpression(ap) && ap.left === an && ap.operatorToken.kind === K.EqualsToken) return;
+        // (read by a computed name, `rec[k]`: any field, this one among them — followed as this one)
         return value(par, 1);
       }
       if (ts.isVariableDeclaration(par) && par.initializer === n) return pattern(par.name, d);
@@ -1030,16 +1295,63 @@ function create(ts, options = {}) {
         const i = (par.arguments ?? []).indexOf(n); if (i < 0) return;
         const c = callee(par, m); const t = timing(par, f);
         if (c.kind === "fns") { for (const g of c.fns) for (const u of callbackUses(g, i, field, seen)) out.push({ ...u, how: u.how === "escape" || u.how === "reentry" ? u.how : u.how === "later" || t === "later" ? "later" : t === "reentry" ? "reentry" : u.how, why: `${g.name}: ${u.why}` }); return; }
-        if (c.kind === "builtin" && (c.gives === "prim") && !/^(Object\.(keys|getOwnPropertyNames)|JSON\.stringify)$/.test(c.name)) return;
+        if (c.kind === "local" || c.kind === "unknown") { const g = ts.isCallExpression(par) ? fnValueOf(par.expression, m, f.env) : undefined; if (g) { for (const u of callbackUses(g, i, field, seen)) out.push({ ...u, how: u.how === "escape" || u.how === "reentry" ? u.how : u.how === "later" || t === "later" ? "later" : t === "reentry" ? "reentry" : u.how, why: `${g.name ?? "a function it was made with"}: ${u.why}` }); return; } }
+        if (c.kind === "builtin" && (c.gives === "prim") && c.name !== "JSON.stringify") return;   // (its keys: a field is then read by a computed name, which is followed where it is written)
+        if (c.kind === "builtin" && c.name === "Object.entries") return listOf(par, true, d + 1);
+        if (c.kind === "builtin" && c.name === "Object.values") return listOf(par, false, d + 1);
+        if (c.kind === "builtin" && c.name === "Object.assign") { if (i === 0 || ts.isObjectLiteralExpression(skip(par.arguments[0]))) return whole(par, d + 1); return use("escape", "the record is copied into another object", par); }
+        // Solid's `omit` and `merge` hand back the record's fields, read when they are asked for: but those `omit` names
+        if (c.kind === "solid" && c.name === "omit" && i === 0) { if (par.arguments.slice(1).some(a => ts.isStringLiteralLike(skip(a)) && skip(a).text === field)) return; return whole(par, d + 1); }
+        if (c.kind === "solid" && c.name === "merge") return whole(par, d + 1);
         return use("escape", `the record is given to ${c.why ?? c.name ?? "code that is not read"}`, par);
       }
-      if (ts.isSpreadAssignment(par) || ts.isSpreadElement(par) || ts.isJsxSpreadAttribute(par)) return use("escape", "the record is spread into another", par);
+      // `{ ...rec, a }`: a record with the field, unless a later property of the same name takes its place
+      if (ts.isSpreadAssignment(par) && ts.isObjectLiteralExpression(par.parent)) { const ps = par.parent.properties; if (ps.slice(ps.indexOf(par) + 1).some(q => (ts.isPropertyAssignment(q) || ts.isShorthandPropertyAssignment(q) || ts.isMethodDeclaration(q)) && q.name && (ts.isIdentifier(q.name) || ts.isStringLiteralLike(q.name)) && q.name.text === field)) return; return whole(par.parent, d + 1); }
+      // `<button {...rec}>`: Solid sets an element's `on…` as its listener, calls its `ref` when the element is made,
+      // renders its `children` (a function among them is called in a computation), and sets every other as an attribute;
+      // `<Part {...rec}>` is the record given to a component the code declares
+      if (ts.isJsxSpreadAttribute(par)) {
+        const tag = tagOf(par);
+        if (isElementTag(tag)) { if (/^on[A-Z]/.test(field) || field === "ref") return use("later", `spread on <${tag.text}>, where ${field} is the element's ${field === "ref" ? "ref" : "listener"}`, par); if (field === "children") return use("sync", `spread on <${tag.text}>, which renders its children`, par); if (/^on/.test(field)) return use("escape", `spread on <${tag.text}>`, par); return; }
+        const fns = tagFns(tag, m);
+        if (fns) { const t = timing(par, f); for (const g of fns) for (const u of callbackUses(g, 0, field, seen)) out.push({ ...u, how: u.how === "escape" || u.how === "reentry" ? u.how : u.how === "later" || t === "later" ? "later" : t === "reentry" ? "reentry" : u.how, why: `<${g.name}>: ${u.why}` }); return; }
+        return use("escape", `the record is spread on <${tag.getText()}>, which is not read`, par);
+      }
+      if (ts.isSpreadAssignment(par) || ts.isSpreadElement(par)) return use("escape", "the record is spread into another", par);
       if (ts.isBinaryExpression(par)) { const k = par.operatorToken.kind; if (k === K.EqualsToken && par.right === n) return use("escape", "the record is stored", par); if ((k === K.QuestionQuestionToken || k === K.BarBarToken || k === K.AmpersandAmpersandToken) && (par.right === n || k !== K.AmpersandAmpersandToken)) return whole(par, d + 1); return; }
       if (ts.isConditionalExpression(par)) return par.condition === n ? undefined : whole(par, d + 1);
       if (ts.isPrefixUnaryExpression(par) || ts.isTypeOfExpression(par) || ts.isIfStatement(par) || ts.isExpressionStatement(par)) return;
-      if (ts.isForInStatement(par)) return use("escape", "the record's fields are walked", par);
+      if (ts.isForInStatement(par)) return;   // its keys: a field is then read by a computed name
       if (ts.isPropertyAssignment(par) || ts.isShorthandPropertyAssignment(par) || ts.isArrayLiteralExpression(par) || ts.isReturnStatement(par) || ts.isArrowFunction(par) || ts.isJsxExpression(par)) return use("escape", "the record is handed on", par);
       return use("escape", "the record is used in a way that is not followed", par);
+    };
+    /** The references to a name declared at `id`, each given to `each`. */
+    const eachRef = (id, each) => { const host = fnOf(id); const scope = host && isFn(host) ? host : m.sf; const l = isFn(scope) ? locals(scope).get(id.text) : undefined; if (!l) return use("escape", "bound to a name of the module", id); if (visited.has(l)) return; visited.add(l); if (l.count > 1) return use("escape", `${id.text} is bound more than once`, id); for (const r of refs(scope, id.text, m, x => x.local === l)) if (!isAssignTarget(r)) each(r); };
+    /** `node` is a list made from the record: its values (`Object.values(rec)`), or its `[key, value]` pairs. */
+    const listOf = (node, pairs, d = 0) => {
+      if (d > 30) return use("escape", "handed on further than is followed", node);
+      const [n, par] = up(node); if (!par) return;
+      const what = pairs ? "entries" : "values";
+      const item = pat => {
+        if (!pairs) return ts.isIdentifier(pat) ? name(pat, 1) : use("escape", "a value of the record is taken apart", pat);
+        if (ts.isArrayBindingPattern(pat)) { const e = pat.elements[1]; if (!e || ts.isOmittedExpression(e)) return; if (e.dotDotDotToken || !ts.isIdentifier(e.name) || pat.elements.length > 2) return use("escape", "a pair of the record is taken apart further", pat); return name(e.name, 1); }
+        if (ts.isIdentifier(pat)) return eachRef(pat, r => { const [rn, rp] = up(r); if (rp && ts.isElementAccessExpression(rp) && rp.expression === rn && ts.isNumericLiteral(skip(rp.argumentExpression))) return skip(rp.argumentExpression).text === "1" ? value(rp, 1) : undefined; if (rp && ts.isVariableDeclaration(rp) && rp.initializer === rn) return item(rp.name); use("escape", "a pair of the record goes where it is not followed", r); });
+        return use("escape", "a pair of the record is taken apart as a record", pat);
+      };
+      if (ts.isForOfStatement(par) && par.expression === n) return ts.isVariableDeclarationList(par.initializer) ? item(par.initializer.declarations[0].name) : use("escape", `the record's ${what} are walked into a name declared elsewhere`, par);
+      if (ts.isPropertyAccessExpression(par) && par.expression === n) {
+        const [pn, pp] = up(par); const mn = par.name.text;
+        if (mn === "length") return;
+        if (!(pp && ts.isCallExpression(pp) && pp.expression === pn) || !/^(forEach|filter|some|every)$/.test(mn)) return use("escape", `the record's ${what} are given to .${mn}`, par);
+        const cb = skip(pp.arguments[0]);
+        if (mn === "filter" && cb && ts.isIdentifier(cb) && cb.text === "Boolean" && resolve(cb, m).global !== undefined) return listOf(pp, pairs, d + 1);
+        if (!cb || !isFn(cb)) return use("escape", `the record's ${what} are given to .${mn}(…) with a function that is not written there`, pp);
+        if (cb.parameters[0]) item(cb.parameters[0].name);
+        return mn === "filter" ? listOf(pp, pairs, d + 1) : undefined;
+      }
+      if (ts.isVariableDeclaration(par) && par.initializer === n && ts.isIdentifier(par.name)) return eachRef(par.name, r => listOf(r, pairs, d + 1));
+      if (ts.isExpressionStatement(par)) return;
+      return use("escape", `the record's ${what} go where they are not followed`, par);
     };
     const pattern = (pat, d) => {
       if (ts.isIdentifier(pat)) { const host = fnOf(pat); const scope = host && isFn(host) ? host : m.sf; const l = isFn(scope) ? locals(scope).get(pat.text) : undefined; if (!l) return use("escape", "the record is bound to a name of the module", pat); if (visited.has(l)) return; visited.add(l); for (const id of refs(scope, pat.text, m, x => x.local === l)) whole(id, d + 1); return; }
@@ -1057,43 +1369,389 @@ function create(ts, options = {}) {
    *  getter of its own), a function, a primitive, a built-in's instance — and so no store whose fields wait or throw
    *  where they are read: that is what Solid's store makers and projections hand back, a value the function was given
    *  may be, and a call into code that is not read may hand back. */
-  function plainResult(f) {
-    if (plainMemo.has(f.node)) return plainMemo.get(f.node);
-    plainMemo.set(f.node, false);   // met again while it is read: not shown
+  function plainResult(f) { return !plainWhy(f); }
+  /** Why what `f` hands back is not shown to be built there — undefined where it is. */
+  function plainWhy(f) {
+    const key = f.env ?? NOENV;
+    if (plainMemo.get(f.node)?.has(key)) return plainMemo.get(f.node).get(key);
+    if (!plainMemo.has(f.node)) plainMemo.set(f.node, new Map());
+    plainMemo.get(f.node).set(key, { why: "it hands back what a call of itself does", ...place(f.node) });   // met again while it is read: not shown
     const m = f.m, root = f.node;
+    const bad = (why, n) => ({ why, ...place(n) });
+    /** undefined where the expression's value is built there, else why it is not shown to be. */
     const ok = (e, d = 0) => {
-      e = skip(e); if (!e) return true; if (d > 10) return false;
-      if (isFn(e) || ts.isClassExpression(e) || ts.isLiteralExpression(e) || ts.isTemplateExpression(e) || ts.isArrayLiteralExpression(e) || ts.isTypeOfExpression(e) || ts.isVoidExpression(e) || ts.isPrefixUnaryExpression(e) || ts.isPostfixUnaryExpression(e)) return true;
-      if (e.kind === K.TrueKeyword || e.kind === K.FalseKeyword || e.kind === K.NullKeyword) return true;
-      if (ts.isObjectLiteralExpression(e)) return e.properties.every(p => ts.isSpreadAssignment(p) ? ok(p.expression, d + 1) : !ts.isGetAccessorDeclaration(p) && !ts.isSetAccessorDeclaration(p));
-      if (ts.isConditionalExpression(e)) return ok(e.whenTrue, d + 1) && ok(e.whenFalse, d + 1);
-      if (ts.isBinaryExpression(e)) { const k = e.operatorToken.kind; return k === K.BarBarToken || k === K.AmpersandAmpersandToken || k === K.QuestionQuestionToken ? ok(e.left, d + 1) && ok(e.right, d + 1) : k === K.CommaToken || (k >= K.FirstAssignment && k <= K.LastAssignment) ? ok(e.right, d + 1) : true; }
+      e = skip(e); if (!e) return undefined; if (d > 10) return bad("a value handed on further than is followed", e);
+      if (isFn(e) || ts.isClassExpression(e) || ts.isLiteralExpression(e) || ts.isTemplateExpression(e) || ts.isArrayLiteralExpression(e) || ts.isTypeOfExpression(e) || ts.isVoidExpression(e) || ts.isPrefixUnaryExpression(e) || ts.isPostfixUnaryExpression(e)) return undefined;
+      if (e.kind === K.TrueKeyword || e.kind === K.FalseKeyword || e.kind === K.NullKeyword) return undefined;
+      if (ts.isObjectLiteralExpression(e)) { for (const p of e.properties) { if (ts.isSpreadAssignment(p)) { const w = ok(p.expression, d + 1); if (w) return w; } else if (ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p)) { const w = getter(p); if (w) return w; } } return undefined; }
+      if (ts.isConditionalExpression(e)) return ok(e.whenTrue, d + 1) ?? ok(e.whenFalse, d + 1);
+      if (ts.isBinaryExpression(e)) { const k = e.operatorToken.kind; return k === K.BarBarToken || k === K.AmpersandAmpersandToken || k === K.QuestionQuestionToken ? ok(e.left, d + 1) ?? ok(e.right, d + 1) : k === K.CommaToken || (k >= K.FirstAssignment && k <= K.LastAssignment) ? ok(e.right, d + 1) : undefined; }
       if (ts.isAwaitExpression(e)) return ok(e.expression, d + 1);
       if (ts.isIdentifier(e)) {
-        if (e.text === "undefined") return true;
+        if (e.text === "undefined") return undefined;
         const r = resolve(e, m);
-        if (r.local) return !r.local.multi && r.local.inits.length > 0 && r.local.inits.every(i => i.fn || i.cls || i.none || (i.expr && ok(i.expr, d + 1)));
-        if (r.top) { const bs = binding(m, e.text); return !!bs && bs.every(x => x.b && (x.b.kind === "fn" || x.b.kind === "class" || (x.b.kind === "var" && x.b.isConst && x.b.init && !x.m.written.has(x.name) && literal(x.b.init, x.m, 0) !== undefined))); }
-        return false;
+        if (r.local) { const b = envGet(f.env, r.local); if (b) return b.undef ? undefined : bad(`it hands back ${e.text}, which the function that made it was given`, e); if (r.local.multi || !r.local.inits.length) return bad(`it hands back ${e.text}, a value it was given or binds more than once`, e); for (const i of r.local.inits) { if (i.fn || i.cls || i.none) continue; if (!i.expr) return bad(`it hands back ${e.text}, a value it was given`, e); const w = ok(i.expr, d + 1); if (w) return w; } return undefined; }
+        if (r.top) { const bs = binding(m, e.text); return bs && bs.every(x => x.b && (x.b.kind === "fn" || x.b.kind === "class" || (x.b.kind === "var" && x.b.isConst && x.b.init && !x.m.written.has(x.name) && literal(x.b.init, x.m, 0) !== undefined))) ? undefined : bad(`it hands back ${e.text}, a value of the module that is not a literal`, e); }
+        return bad(`it hands back ${e.text}, a global`, e);
       }
       if (ts.isCallExpression(e) || ts.isNewExpression(e)) {
         const c = callee(e, m);
-        if (c.kind === "builtin") return c.gives === "target" || c.gives === "same" ? (e.arguments ?? []).every(a => ok(ts.isSpreadElement(a) ? a.expression : a, d + 1)) : true;
-        if (c.kind === "later") return true;   // a timer's id, an observer
-        if (c.kind === "solid") return c.name === "createSignal" || c.name === "createMemo" || c.name === "createStore" || c.name === "createOptimistic" || c.name === "createOptimisticStore" || c.name === "createUniqueId" || c.name === "getOwner" || c.name === "createRoot" && false;
-        if (c.kind === "method") return (c.name in READ && READ[c.name] !== "elem" && READ[c.name] !== "same") || c.name === "bind";
-        if (c.kind === "fns") return c.fns.every(g => g.cls ? !g.node.members.some(x => ts.isGetAccessorDeclaration(x)) && !g.node.heritageClauses?.some(h => h.token === K.ExtendsKeyword && !(ts.isIdentifier(skip(h.types[0].expression)) && skip(h.types[0].expression).text in NEW_OK)) : plainResult(g));
-        if (c.kind === "local" && !c.r.local.multi && c.r.local.inits.length === 1) { const i0 = c.r.local.inits[0]; const g = i0.fn ?? (i0.expr && isFn(skip(i0.expr)) ? skip(i0.expr) : undefined); if (g) return plainResult({ m, node: g }); }
+        if (c.kind === "builtin") { if (c.gives === "target" || c.gives === "same") { for (const a of e.arguments ?? []) { const w = ok(ts.isSpreadElement(a) ? a.expression : a, d + 1); if (w) return w; } } return undefined; }
+        if (c.kind === "later") return undefined;   // a timer's id, an observer
+        if (c.kind === "solid") {
+          if (c.name === "createSignal" || c.name === "createUniqueId" || c.name === "getOwner") return undefined;
+          // a memo's accessor is a function (what reading it answers is the accessor's: MO-10b); a store made from a
+          // value written out holds that value — one made from a function is a projection, which may wait
+          if (c.name === "createMemo") return undefined;
+          if (c.name === "createStore" || c.name === "createOptimisticStore" || c.name === "createOptimistic") { const a0 = e.arguments[0] && skip(e.arguments[0]); return !a0 || ts.isObjectLiteralExpression(a0) || ts.isArrayLiteralExpression(a0) || ts.isLiteralExpression(a0) ? undefined : bad(`${c.name}(…) of what is not written out there: a store made from a function is a projection, whose fields may wait`, e); }
+          return bad(`it hands back what Solid's ${c.name} makes`, e);
+        }
+        if (c.kind === "method") return (c.name in READ && READ[c.name] !== "elem" && READ[c.name] !== "same") || c.name === "bind" ? undefined : bad(`it hands back what .${c.name}(…) answers, a method that is not read`, e);
+        if (c.kind === "fns") { for (const g of c.fns) { if (g.cls) { if (g.node.members.some(x => ts.isGetAccessorDeclaration(x)) || g.node.heritageClauses?.some(h => h.token === K.ExtendsKeyword && !(ts.isIdentifier(skip(h.types[0].expression)) && skip(h.types[0].expression).text in NEW_OK))) return bad(`it hands back a ${g.name}, a class with getters or a class it extends`, e); } else { const w = plainWhy(g); if (w) return w.via ? w : { ...w, via: place(e) }; } } return undefined; }
+        const g = ts.isCallExpression(e) ? fnValueOf(e.expression, m, f.env) : undefined;
+        if (g) { const w = plainWhy(g); return w ? (w.via ? w : { ...w, via: place(e) }) : undefined; }
+        return bad(`it hands back what ${c.why ?? (c.kind === "local" ? `${c.r.name}(…)` : "a call")} answers${c.kind === "local" ? ", a value it was handed or computed" : ""}`, e);
+      }
+      if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) return bad(`it hands back ${e.getText().slice(0, 40)}, a part of a value that is not followed`, e);
+      return bad("it hands back a value that is computed", e);
+    };
+    /** A getter of a record written out: reading the field runs it. It neither waits nor throws where its body only
+     *  reads — locals, parameters, fields, a signal's or a memo's accessor made there from what is not a promise. */
+    const getter = p => {
+      let why;
+      const quiet = n => {
+        if (why) return;
+        if (isFn(n) && n !== p) return;
+        if (ts.isThrowStatement(n)) { why = bad("a getter of the record it hands back throws", n); return; }
+        if (ts.isAwaitExpression(n) || ts.isNewExpression(n)) { why = bad("a getter of the record it hands back does more than read", n); return; }
+        if (ts.isCallExpression(n)) {
+          const ce = skip(n.expression);
+          // a call of a local made by `createSignal` (its reader) — a signal holds what it was set to, and does not wait
+          const r = ts.isIdentifier(ce) ? resolve(ce, m) : undefined;
+          const sig = r?.local && !r.local.multi && r.local.inits.length === 1 && (() => { let i = r.local.inits[0]; const el = i.el; while (i.part) i = i.part; if (!i.expr) return false; const x = skip(i.expr); if (!ts.isCallExpression(x)) return false; const c = callee(x, m); return c.kind === "solid" && c.name === "createSignal" && el && ts.isArrayBindingPattern(el.parent) && el.parent.elements.indexOf(el) === 0 && !(x.arguments[0] && (isFn(skip(x.arguments[0])) || isAsync(skip(x.arguments[0])))); })();
+          if (!sig) { const c = callee(n, m); if (!(c.kind === "builtin" && !THROWS.has(c.name)) && !(c.kind === "method" && c.name in READ && kind(c.on))) { why = bad(`a getter of the record it hands back calls ${ce.getText().slice(0, 30)}, which may wait or throw where the field is read`, n); return; } }
+        }
+        ts.forEachChild(n, quiet);
+      };
+      if (p.body) quiet(p.body);
+      return why;
+    };
+    const kind = e => { e = skip(e); return ts.isArrayLiteralExpression(e) ? "array" : ts.isStringLiteralLike(e) ? "string" : undefined; };
+    let out;
+    const body = root.body;
+    if (!body) out = bad("its code is not there to read", root);
+    else if (ts.isBlock(body)) { const find = n => { if (out || isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n) && n.expression) out = ok(n.expression); ts.forEachChild(n, find); }; find(body); }
+    else out = ok(body);
+    plainMemo.get(f.node).set(key, out); return out;
+  }
+
+  // ---- what a function reads from above, and what it provides beneath: Solid's contexts, and JSX ----
+  // The facts are Solid's and @solidjs/web's (08 CN-8: no package is named): `useContext(C)` throws where nothing above
+  // provides `C` and `createContext` was given no default (`undefined` is none; `null` is a value); a context is its own
+  // provider component (`<C value={v}>…</C>`, or `createComponent(C, { value, get children() { … } })` where a package
+  // ships JavaScript); what is written among a provider's children is created beneath it, and an expression written
+  // anywhere else is evaluated where it stands — so a `props.children` read outside the provider makes the children
+  // outside it, wherever the result is put. A lower-case tag is an element; `Show`, `For` and the rest are Solid's.
+  /** The export of Solid an expression names (`useContext`, `createComponent`, `Show`…). */
+  function solidName(e, m) {
+    e = skip(e);
+    if (ts.isPropertyAccessExpression(e) && ts.isIdentifier(skip(e.expression))) { const r = resolve(skip(e.expression), m); return !r.local && r.top?.kind === "ns" && SOLID.test(r.top.from) ? e.name.text : undefined; }
+    if (!ts.isIdentifier(e)) return undefined;
+    const r = resolve(e, m); if (r.local || !r.top) return undefined;
+    const bs = binding(m, e.text); return bs && bs.length && bs.every(x => x.solid && x.solid === bs[0].solid) ? bs[0].solid : undefined;
+  }
+  /** The context an expression's value is: a `createContext(…)` the code shows it to be. `required`: no default, so a
+   *  read with nothing above throws; `nullish`: its default is `null` (a read answers it, and the code may then throw). */
+  function ctxOf(e, m, env) {
+    const v = valOf(e, m, env); if (!v || !ts.isCallExpression(v.e) || solidName(v.e.expression, v.m) !== "createContext") return undefined;
+    const a0 = v.e.arguments[0]; let none = !a0, nul = false;
+    if (a0) { const d = valOf(a0, v.m, v.env); const x = d ? d.e : skip(a0); none = (ts.isIdentifier(x) && x.text === "undefined" && !d?.name) || ts.isVoidExpression(x); nul = x.kind === K.NullKeyword; if (ts.isIdentifier(skip(a0))) { const r = resolve(skip(a0), v.m); if (r.local) { const b = envGet(v.env, r.local); if (b?.undef) none = true; else if (!b) { none = false; nul = false; } } } }
+    return { key: `${v.m.file}:${v.e.pos}:${v.env?.id ?? ""}`, node: v.e, m: v.m, env: v.env, name: v.name, required: none, nullish: none || nul };
+  }
+  /** A JSX element, or `createComponent(Tag, { … })` written out: its tag, what is written on it, and what is written
+   *  among its children (`kids`: nodes that are created beneath it). */
+  function elementOf(n, m) {
+    if (ts.isJsxElement(n)) return { node: n, tag: n.openingElement.tagName, attrs: [...n.openingElement.attributes.properties], kids: [...n.children], jsx: true };
+    if (ts.isJsxSelfClosingElement(n)) return { node: n, tag: n.tagName, attrs: [...n.attributes.properties], kids: [], jsx: true };
+    if (ts.isCallExpression(n) && n.arguments.length >= 1 && solidName(n.expression, m) === "createComponent") {
+      const p = n.arguments[1] && skip(n.arguments[1]); const attrs = [], kids = [];
+      if (p && ts.isObjectLiteralExpression(p)) { for (const q of p.properties) { const pn = q.name && (ts.isIdentifier(q.name) || ts.isStringLiteralLike(q.name)) ? q.name.text : undefined; if (pn === "children") kids.push(q); else attrs.push(q); } }
+      else if (p) attrs.push(p);
+      return { node: n, tag: n.arguments[0], attrs, kids, whole: p && !ts.isObjectLiteralExpression(p) ? p : undefined };
+    }
+    return undefined;
+  }
+  /** Whether `node` is written among the children of the element `el`. */
+  /** Whether `node` is written in the `value` an element is given (a provider's value: what its readers get, beneath it). */
+  const inValue = (node, el) => { for (let n = node; n && n !== el.node; n = n.parent) { if (ts.isJsxAttribute(n) && n.parent?.parent === (ts.isJsxElement(el.node) ? el.node.openingElement : el.node)) return n.name.getText() === "value"; if ((ts.isPropertyAssignment(n) || ts.isGetAccessorDeclaration(n)) && el.attrs.includes(n)) return (ts.isIdentifier(n.name) || ts.isStringLiteralLike(n.name)) && n.name.text === "value"; } return false; };
+  const beneath = (node, el) => { if (el.jsx) { if (!ts.isJsxElement(el.node)) return false; for (let n = node; n && n !== el.node; n = n.parent) if (n.parent === el.node) return n !== el.node.openingElement && n !== el.node.closingElement; return false; } for (let n = node; n && n !== el.node; n = n.parent) if (el.kids.includes(n)) return true; return false; };
+  const SOLID_FLOW = new Set(["Show", "For", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored", "NoHydration", "Hydration"]);
+  const ctxMemo = new Map(); const ctxBusy = new Set(); let ctxSpent = 0;
+  /** The contexts a call of `f` reads from above: `must` — on every path, and it throws without one; `may` — on some
+   *  path, or when a function it hands back or keeps is called; `opaque` — code it calls or renders that is not read,
+   *  which may read more. A read beneath a provider the function itself renders is not from above. */
+  function ctxReads(f) {
+    const key = `${f.m.file}\0${f.node.pos}\0${f.env?.id ?? ""}`;
+    if (ctxMemo.has(key)) return ctxMemo.get(key);
+    const out = { must: new Map(), may: new Map(), opaque: [] };
+    if (ctxBusy.has(key)) return out;   // met again while it is read (recursion): the reading under way finds what there is
+    // a reading that goes on past what any module's own code needs (a library of combinators, each made by the last)
+    // stops, and says so: what is beyond it may read a context
+    if (ctxBusy.size > 80 || ++ctxSpent > 6000) { out.opaque.push({ why: "it calls more functions, each made by another, than are followed", ...place(f.node) }); return out; }
+    ctxBusy.add(key);
+    const m = f.m, env = f.env, root = f.node;
+    // (under `runWithOwner(owner, …)` a context is looked up from that owner, not from where the function is called:
+    // a provider above the call does not answer it, so it is no `uses` of the call's — and not nothing either)
+    const ELSEWHERE = "\0another owner";
+    const add = (c, alw, prov, at) => { if (prov.has(c.key)) return; if (prov.has(ELSEWHERE)) { out.opaque.push({ why: `it reads ${c.name ?? "a context"} under another owner (runWithOwner): a provider above the call does not answer it`, ...(at.file ? at : place(at)) }); return; } (alw ? out.must : out.may).set(c.key, { ...c, at: at.file ? at : place(at) }); };
+    const take = (t, alw, prov) => { for (const c of t.must.values()) add(c, alw, prov, c.at); for (const c of t.may.values()) add(c, false, prov, c.at); for (const o of t.opaque) out.opaque.push(o); };
+    const opaque = (why, at) => out.opaque.push({ why, ...place(at) });
+    // a value that is another package's, or a context's: what calling it runs is not read
+    const foreignOf = new Map();
+    const foreign = (e, d = 0) => {
+      e = skip(e); if (!e || d > 16) return false;
+      if (ts.isIdentifier(e)) {
+        const r = resolve(e, m);
+        if (r.local) { const b = envGet(env, r.local); if (b) return false; if (foreignOf.has(r.local)) return foreignOf.get(r.local); foreignOf.set(r.local, false); const v = r.local.inits.some(i => { while (i.part) i = i.part; return i.expr ? foreign(i.expr, d + 1) : i.loop ? foreign(i.loop.expression, d + 1) : false; }); foreignOf.set(r.local, v); return v; }
+        if (r.top) { if (r.top.kind === "import" || r.top.kind === "ns") return !SOLID.test(r.top.from) && !binding(m, e.text); if (r.top.kind === "var" && r.top.init && !isFn(skip(r.top.init))) { if (foreignOf.has(r.top)) return foreignOf.get(r.top); foreignOf.set(r.top, false); const v = !valOf(e, m, env) || foreign(r.top.init, d + 1); foreignOf.set(r.top, v); return v; } return false; }
         return false;
       }
+      if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e) || ts.isAwaitExpression(e)) return foreign(e.expression, d + 1);
+      if (ts.isConditionalExpression(e)) return foreign(e.whenTrue, d + 1) || foreign(e.whenFalse, d + 1);
+      if (ts.isBinaryExpression(e)) { const k = e.operatorToken.kind; return k === K.BarBarToken || k === K.AmpersandAmpersandToken || k === K.QuestionQuestionToken ? foreign(e.left, d + 1) || foreign(e.right, d + 1) : false; }
+      if (ts.isCallExpression(e)) { const sn = solidName(e.expression, m); if (sn) return sn === "useContext"; const g = fnValueOf(e.expression, m, env); if (g) { const t = ctxReads(g); return t.must.size > 0 || t.may.size > 0 || t.opaque.length > 0; } return unread(e.expression) !== undefined || foreign(e.expression, d + 1); }
       return false;
     };
-    let out = true;
-    const body = root.body;
-    if (!body) out = false;
-    else if (ts.isBlock(body)) { const find = n => { if (!out || isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n) && n.expression && !ok(n.expression)) out = false; ts.forEachChild(n, find); }; find(body); }
-    else out = ok(body);
-    plainMemo.set(f.node, out); return out;
+    /** Why calling `ce` runs code that is not read — undefined where it does not (a built-in, a value the caller gave). */
+    const unread = ce => {
+      let b = skip(ce); while (b && (ts.isPropertyAccessExpression(b) || ts.isElementAccessExpression(b) || ts.isCallExpression(b))) b = skip(b.expression);
+      if (!b) return undefined;
+      if (b.kind === K.ThisKeyword || b.kind === K.SuperKeyword) return "a method of `this`";
+      if (!ts.isIdentifier(b)) return isFn(b) || ts.isObjectLiteralExpression(b) || ts.isArrayLiteralExpression(b) || ts.isStringLiteralLike(b) || ts.isTemplateExpression(b) || ts.isParenthesizedExpression(b) ? undefined : "a value that is computed";
+      const r = resolve(b, m);
+      if (r.global !== undefined) return r.global === "eval" || r.global === "Function" ? `${r.global}: code made from a string` : undefined;
+      if (r.local) return foreign(b) ? `${b.text}, which holds a context's value or another package's` : undefined;
+      if (r.top.kind === "import" || r.top.kind === "ns") { if (SOLID.test(r.top.from)) return undefined; return `${b.text}, of ${r.top.from}: code that is not read`; }
+      if (r.top.kind === "var" && foreign(b)) return `${b.text}, a value made by code that is not read`;
+      if (r.top.kind === "class") return `${b.text}, a class`;
+      return undefined;
+    };
+    /** `const v = useContext(C)` followed by `if (!v) throw …`: a default of `null` that the code refuses. */
+    const refused = call => {
+      const [n, p] = up(call); if (!p || !ts.isVariableDeclaration(p) || p.initializer !== n || !ts.isIdentifier(p.name)) return false;
+      const st = p.parent?.parent; const list = st && ts.isVariableStatement(st) && st.parent && (ts.isBlock(st.parent) || ts.isSourceFile(st.parent)) ? st.parent.statements : undefined; if (!list) return false;
+      const v = p.name.text; const isV = e => ts.isIdentifier(skip(e)) && skip(e).text === v;
+      const nothing = e => { e = skip(e); return e.kind === K.NullKeyword || (ts.isIdentifier(e) && e.text === "undefined") || ts.isVoidExpression(e); };
+      const test = e => { e = skip(e); if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) return isV(e.operand); if (ts.isBinaryExpression(e)) { const k = e.operatorToken.kind; if (k === K.EqualsEqualsToken || k === K.EqualsEqualsEqualsToken) return (isV(e.left) && nothing(e.right) && (k === K.EqualsEqualsToken || skip(e.right).kind === K.NullKeyword)) || (isV(e.right) && nothing(e.left) && (k === K.EqualsEqualsToken || skip(e.left).kind === K.NullKeyword)); if (k === K.BarBarToken) return test(e.left); } return false; };
+      const throws = s => ts.isThrowStatement(s) || (ts.isBlock(s) && s.statements.length > 0 && ts.isThrowStatement(s.statements[0]));
+      for (let i = list.indexOf(st) + 1; i < list.length; i++) { const s = list[i]; if (ts.isIfStatement(s) && test(s.expression) && throws(s.thenStatement)) return true; if (exits(s)) return false; }
+      return false;
+    };
+    const exits = st => { let found = false; const v = n => { if (found || isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n)) { found = true; return; } ts.forEachChild(n, v); }; v(st); return found; };
+    const optional = e => { for (e = skip(e); e && (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e) || ts.isCallExpression(e)); e = skip(e.expression)) if (e.questionDotToken) return true; return false; };
+    const fn = (g, alw, prov) => { for (const q of g.parameters ?? []) if (q.initializer) scan(q.initializer, false, prov); if (!g.body) return; if (ts.isBlock(g.body)) stmts(g.body.statements, alw, prov); else top(g.body, alw, prov); };
+    const stmts = (list, alw, prov) => { let a = alw; for (const st of list) { stmt(st, a, prov); if (a && !ts.isReturnStatement(st) && exits(st)) a = false; } };
+    const stmt = (n, alw, prov) => {
+      if (!n) return;
+      if (ts.isFunctionDeclaration(n)) return fn(n, false, prov);
+      if (ts.isClassDeclaration(n) || ts.isInterfaceDeclaration(n) || ts.isTypeAliasDeclaration(n)) return;
+      if (ts.isBlock(n)) return stmts(n.statements, alw, prov);
+      if (ts.isVariableStatement(n)) { for (const d of n.declarationList.declarations) if (d.initializer) scan(d.initializer, alw, prov); return; }
+      if (ts.isExpressionStatement(n)) return scan(n.expression, alw, prov);
+      if (ts.isReturnStatement(n)) return n.expression ? top(n.expression, alw, prov) : undefined;
+      if (ts.isIfStatement(n)) { scan(n.expression, alw, prov); stmt(n.thenStatement, false, prov); return stmt(n.elseStatement, false, prov); }
+      if (ts.isThrowStatement(n)) return scan(n.expression, alw, prov);
+      if (ts.isTryStatement(n)) { stmts(n.tryBlock.statements, alw && !n.catchClause, prov); if (n.catchClause) stmts(n.catchClause.block.statements, false, prov); if (n.finallyBlock) stmts(n.finallyBlock.statements, alw, prov); return; }
+      if (ts.isForOfStatement(n) || ts.isForInStatement(n)) { scan(n.expression, alw, prov); return stmt(n.statement, false, prov); }
+      if (ts.isForStatement(n)) { if (n.initializer) { if (ts.isVariableDeclarationList(n.initializer)) { for (const d of n.initializer.declarations) if (d.initializer) scan(d.initializer, alw, prov); } else scan(n.initializer, alw, prov); } if (n.condition) scan(n.condition, alw, prov); if (n.incrementor) scan(n.incrementor, false, prov); return stmt(n.statement, false, prov); }
+      if (ts.isWhileStatement(n)) { scan(n.expression, alw, prov); return stmt(n.statement, false, prov); }
+      if (ts.isDoStatement(n)) { stmt(n.statement, alw, prov); return scan(n.expression, alw, prov); }
+      if (ts.isSwitchStatement(n)) { scan(n.expression, alw, prov); for (const c of n.caseBlock.clauses) { if (ts.isCaseClause(c)) scan(c.expression, false, prov); stmts(c.statements, false, prov); } return; }
+      if (ts.isLabeledStatement(n)) return stmt(n.statement, alw, prov);
+      ts.forEachChild(n, c => (ts.isStatement?.(c) ? stmt(c, false, prov) : scan(c, false, prov)));
+    };
+    /** What a function hands back: an element written there is made when the function is called. */
+    const top = (e, alw, prov) => { const x = skip(e); if (x && (ts.isJsxElement(x) || ts.isJsxSelfClosingElement(x) || elementOf(x, m))) return element(x, alw, prov); scan(e, alw, prov); };
+    const element = (n, alw, prov) => {
+      const el = elementOf(n, m);
+      const tag = el.tag; const lower = ts.isIdentifier(tag) && /^[a-z]/.test(tag.text) || ts.isJsxNamespacedName?.(tag) || ts.isStringLiteralLike(skip(tag));
+      let under = prov;
+      if (!lower) {
+        const c = ctxOf(tag, m, env);
+        if (c) { under = new Set(prov); under.add(c.key); }
+        else { const sn = solidName(tag, m); const g = sn ? undefined : fnValueOf(tag, m, env); if (g) take(ctxReads(g), alw, prov); else if (!sn || !SOLID_FLOW.has(sn)) { const w = sn ? `Solid's ${sn}` : unread(tag); if (w) opaque(`it renders ${w}: a component that is not read`, n); } }
+      }
+      for (const a of el.attrs) { if (ts.isJsxAttribute(a)) { if (a.initializer && ts.isJsxExpression(a.initializer) && a.initializer.expression) scan(a.initializer.expression, false, prov); } else if (ts.isJsxSpreadAttribute(a)) scan(a.expression, false, prov); else if (ts.isPropertyAssignment(a)) scan(a.initializer, false, prov); else if (isFn(a)) fn(a, false, prov); else if (ts.isSpreadAssignment(a)) scan(a.expression, false, prov); else if (ts.isShorthandPropertyAssignment(a)) scan(a.name, false, prov); else scan(a, false, prov); }
+      for (const k of el.kids) { if (ts.isJsxText(k)) continue; if (ts.isJsxExpression(k)) { if (k.expression) scan(k.expression, false, under); } else if (ts.isPropertyAssignment(k)) scan(k.initializer, false, under); else if (isFn(k)) fn(k, false, under); else if (ts.isShorthandPropertyAssignment(k)) scan(k.name, false, under); else scan(k, false, under); }
+    };
+    /** A call of a value that is one of several the code shows — `isDev ? fn => … : onCleanup`, what a factory hands
+     *  back on one path or another: each is read, as what the call may do. False where one of them is not shown. */
+    const either = (e, prov, d) => {
+      e = skip(e); if (!e || d > 8) return false;
+      if (solidName(e, m)) return true;
+      const g = fnValueOf(e, m, env); if (g) { take(ctxReads(g), false, prov); return true; }
+      if (ts.isConditionalExpression(e)) return either(e.whenTrue, prov, d + 1) && either(e.whenFalse, prov, d + 1);
+      if (ts.isBinaryExpression(e) && (e.operatorToken.kind === K.BarBarToken || e.operatorToken.kind === K.QuestionQuestionToken)) return either(e.left, prov, d + 1) && either(e.right, prov, d + 1);
+      if (ts.isIdentifier(e)) {   // a name bound once to such a choice, here or in the module it comes from
+        const r = resolve(e, m);
+        if (r.local) { if (envGet(env, r.local) || r.local.inits.length !== 1 || !r.local.inits[0].expr || reassigned(r, m)) return false; return ts.isIdentifier(skip(r.local.inits[0].expr)) ? false : either(r.local.inits[0].expr, prov, d + 1); }
+        if (!r.top) return false;
+        const bs = binding(m, e.text); const x = bs && bs.length === 1 && !bs[0].solid ? bs[0] : undefined;
+        if (!x || x.b.kind !== "var" || !x.b.isConst || !x.b.init || x.b.pattern || x.m.written.has(x.name)) return false;
+        const t = ctxReads.choice(x, d); if (!t) return false; take(t, false, prov); return true;
+      }
+      // what a factory that is read hands back, whichever of its functions that is: all it holds is read, as what
+      // the call may do
+      if (ts.isCallExpression(e)) { const fac = fnValueOf(e.expression, m, env); if (!fac || e.arguments.some(x => ts.isSpreadElement(x)) || Math.max(env?.depth ?? 0, fac.env?.depth ?? 0) >= MAX_DEPTH) return false; take(ctxReads({ ...fac, env: bindEnv(fac, e, m, env) }), false, prov); return true; }
+      return false;
+    };
+    /** `new C(…)` of a class the code declares: its constructor and its fields' initializers run now, and its methods
+     *  whenever what holds the object calls them. */
+    const made = (ce, alw, prov) => {
+      const c = ts.isIdentifier(ce) ? fromBinding(binding(m, ce.text), ce.text, true) : undefined; if (!c || c.kind !== "fns" || resolve(ce, m).local) return false;
+      for (const k of c.fns) {
+        const h = k.node.heritageClauses?.find(x => x.token === K.ExtendsKeyword)?.types[0]?.expression;
+        if (h && !(ts.isIdentifier(skip(h)) && resolve(skip(h), k.m).global !== undefined)) return false;
+        const t = ctxReads.classOf(k); take(t, alw, prov);
+      }
+      return true;
+    };
+    const scan = (n, alw, prov) => {
+      n = skip(n); if (!n) return;
+      if (isFn(n)) return fn(n, false, prov);
+      if (ts.isClassExpression(n) || ts.isTypeNode?.(n)) return;
+      if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) return element(n, false, prov);
+      if (ts.isJsxFragment(n)) { for (const k of n.children) { if (ts.isJsxExpression(k)) { if (k.expression) scan(k.expression, false, prov); } else if (!ts.isJsxText(k)) scan(k, false, prov); } return; }
+      if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
+        const as = n.arguments ?? []; const isNew = ts.isNewExpression(n);
+        const a = alw && !optional(n);
+        const sn = isNew ? undefined : solidName(n.expression, m);
+        if (sn === "useContext") { const c = as[0] && ctxOf(as[0], m, env); if (!c) opaque("it reads a context the code does not show to be one the module makes", n); else if (c.required || (c.nullish && refused(n))) add(c, a, prov, n); return; }
+        if (sn === "createComponent") return element(n, false, prov);
+        // a memo computes when it is made, unless it is made `lazy` (Solid 2: `lazy` defers it to its first read)
+        const eager = sn === "createMemo" && (!as[1] || (ts.isObjectLiteralExpression(skip(as[1])) && skip(as[1]).properties.every(q => ts.isPropertyAssignment(q) && (ts.isIdentifier(q.name) || ts.isStringLiteralLike(q.name)) && (q.name.text !== "lazy" || skip(q.initializer).kind === K.FalseKeyword))));
+        if (sn === "runWithOwner") { const under = new Set(prov); under.add(ELSEWHERE); as.forEach((x, i) => { const e = skip(x); if (i === 1 && isFn(e)) fn(e, a, under); else if (i === 1) { const g = fnValueOf(e, m, env); if (g) take(ctxReads(g), a, under); else scan(e, a, prov); } else scan(e, a, prov); }); return; }
+        if (sn) { const api = SOLID_API[sn]; as.forEach((x, i) => { const e = skip(x); const how = eager && i === 0 ? "run" : api?.args?.[i]; if (isFn(e)) fn(e, how === "run" && a, prov); else if (how && ts.isIdentifier(e)) { const g = fnValueOf(e, m, env); if (g) take(ctxReads(g), how === "run" && a, prov); else scan(e, a, prov); } else scan(e, a, prov); }); return; }
+        const ce = skip(n.expression);
+        if (!isNew && isFn(ce)) { fn(ce, a, prov); for (const x of as) scan(ts.isSpreadElement(x) ? x.expression : x, a, prov); return; }
+        const g = isNew ? undefined : fnValueOf(n.expression, m, env);
+        if (g) take(ctxReads(g), a, prov);
+        else if (isNew) { if (!(ts.isIdentifier(ce) && resolve(ce, m).global !== undefined) && !made(ce, a, prov)) opaque(`it calls new ${ce.getText().slice(0, 30)}: a class that is not read`, n); }
+        else if (!either(n.expression, prov, 0)) { const w = unread(ce); if (w) opaque(`it calls ${w}`, n); }
+        if (!ts.isIdentifier(ce)) scan(ce, a, prov);
+        for (const x of as) { const e = skip(ts.isSpreadElement(x) ? x.expression : x); if (isFn(e)) fn(e, false, prov); else scan(e, a, prov); }
+        return;
+      }
+      if (ts.isConditionalExpression(n)) { scan(n.condition, alw, prov); scan(n.whenTrue, false, prov); return scan(n.whenFalse, false, prov); }
+      if (ts.isBinaryExpression(n)) { const k = n.operatorToken.kind; const short = k === K.BarBarToken || k === K.AmpersandAmpersandToken || k === K.QuestionQuestionToken || k === K.BarBarEqualsToken || k === K.AmpersandAmpersandEqualsToken || k === K.QuestionQuestionEqualsToken; scan(n.left, alw, prov); return scan(n.right, alw && !short, prov); }
+      if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) { scan(n.expression, alw, prov); if (ts.isElementAccessExpression(n)) scan(n.argumentExpression, alw && !n.questionDotToken, prov); return; }
+      if (ts.isObjectLiteralExpression(n)) { for (const q of n.properties) { if (ts.isPropertyAssignment(q)) { if (ts.isComputedPropertyName(q.name)) scan(q.name.expression, alw, prov); scan(q.initializer, alw, prov); } else if (ts.isSpreadAssignment(q)) scan(q.expression, alw, prov); else if (isFn(q)) fn(q, false, prov); } return; }
+      if (ts.isIdentifier(n) || ts.isLiteralExpression(n)) return;
+      ts.forEachChild(n, c => { if (!ts.isTypeNode?.(c)) scan(c, alw, prov); });
+    };
+    try { fn(root, true, new Set()); } catch (e) { if (options.debug) throw e; opaque(`could not be read (${String(e?.message ?? e).slice(0, 80)})`, root); }
+    for (const k of out.must.keys()) out.may.delete(k);
+    ctxBusy.delete(key); if (!ctxBusy.size) ctxMemo.set(key, out);
+    return out;
+  }
+  /** A class's own code, as `new` of it runs it: `{ must, may, opaque }` as `ctxReads` gives. */
+  ctxReads.classOf = k => { const out = { must: new Map(), may: new Map(), opaque: [] }; for (const mem of k.node.members) { const fnode = ts.isConstructorDeclaration(mem) || ts.isMethodDeclaration(mem) || ts.isGetAccessorDeclaration(mem) || ts.isSetAccessorDeclaration(mem) ? mem : ts.isPropertyDeclaration(mem) && mem.initializer && isFn(skip(mem.initializer)) ? skip(mem.initializer) : undefined; if (!fnode || !fnode.body) { if (ts.isPropertyDeclaration(mem) && mem.initializer && !isFn(skip(mem.initializer)) && (ts.isCallExpression(skip(mem.initializer)) || ts.isNewExpression(skip(mem.initializer))) && !(ts.isNewExpression(skip(mem.initializer)) && ts.isIdentifier(skip(skip(mem.initializer).expression)) && resolve(skip(skip(mem.initializer).expression), k.m).global !== undefined)) out.opaque.push({ why: `a field of ${k.name} is made by a call`, ...place(mem) }); continue; } const t = ctxReads({ m: k.m, node: fnode, env: undefined }); const ctor = ts.isConstructorDeclaration(mem); for (const c of t.must.values()) (ctor ? out.must : out.may).set(c.key, c); for (const c of t.may.values()) out.may.set(c.key, c); out.opaque.push(...t.opaque); } return out; };
+  /** A value of a module that is a choice between functions (`const f = dev ? a : b`): what a call of it may do. */
+  ctxReads.choice = (x, d) => { const e = skip(x.b.init); if (!ts.isConditionalExpression(e) && !(ts.isBinaryExpression(e) && (e.operatorToken.kind === K.BarBarToken || e.operatorToken.kind === K.QuestionQuestionToken))) return undefined; const out = { must: new Map(), may: new Map(), opaque: [] }; const each = b => { b = skip(b); if (solidName(b, x.m)) return true; const g = fnValueOf(b, x.m, undefined); if (g) { const t = ctxReads(g); for (const c of [...t.must.values(), ...t.may.values()]) out.may.set(c.key, c); out.opaque.push(...t.opaque); return true; } if (ts.isConditionalExpression(b)) return each(b.whenTrue) && each(b.whenFalse); return false; }; return (ts.isConditionalExpression(e) ? each(e.whenTrue) && each(e.whenFalse) : each(e.left) && each(e.right)) ? out : undefined; };
+  /** Every use the code makes of the record a function takes as parameter `index` (a component's props): each
+   *  `{ field, node, why }` — `field` the one read there, or null where the record goes whole (spread, handed on,
+   *  read by a computed name) — at `node`, the place in `f` where it happens. Followed through names it is bound to,
+   *  Solid's `omit` and `merge` (which read nothing until they are asked), and the functions of the module it is given to. */
+  function recordUses(f, index, seen = new Set()) {
+    const out = []; const m = f.m, root = f.node; const p = root.parameters?.[index]; if (!p) return out;
+    const k = `${m.file}\0${root.pos}\0${index}\0${f.env?.id ?? ""}`; if (seen.has(k)) return out; seen.add(k);
+    // `except`: the fields Solid's `omit` took off the record before it got here — a field read there is nothing
+    const use = (field, node, why, except) => { if (field !== null && except?.has(field)) return; out.push({ field, node, why, except: field === null ? except : undefined }); };
+    const apart = (pat, node, except) => { if (!ts.isObjectBindingPattern(pat)) return use(null, node, "the record is taken apart as a list", except); for (const e of pat.elements) { if (e.dotDotDotToken) { use(null, node, "the rest of the record is taken", except); continue; } const key = e.propertyName ?? e.name; use(ts.isIdentifier(key) || ts.isStringLiteralLike(key) ? key.text : null, node, "taken out of the record", except); } };
+    if (!ts.isIdentifier(p.name)) { apart(p.name, p); return out; }
+    const visited = new Set();
+    const names = (id, except) => { const host = fnOf(id); const scope = host && isFn(host) ? host : m.sf; const l = isFn(scope) ? locals(scope).get(id.text) : undefined; if (!l) return use(null, id, "the record is bound to a name of the module", except); if (visited.has(l)) return; visited.add(l); if (l.count > 1 || refs(scope, id.text, m, x => x.local === l).some(isWriteRef)) return use(null, id, `${id.text} is bound more than once`, except); for (const r of refs(scope, id.text, m, x => x.local === l)) rec(r, except); };
+    /** `node` is the record, as an expression. */
+    const rec = (node, except) => {
+      const [n, par] = up(node); if (!par) return;
+      if ((ts.isPropertyAccessExpression(par) || ts.isElementAccessExpression(par)) && par.expression === n) { const name = ts.isPropertyAccessExpression(par) ? par.name.text : ts.isStringLiteralLike(skip(par.argumentExpression)) ? skip(par.argumentExpression).text : null; return use(name, par, name === null ? "read by a computed name" : `${name} is read`, except); }
+      if (ts.isVariableDeclaration(par) && par.initializer === n) return ts.isIdentifier(par.name) ? names(par.name, except) : apart(par.name, par, except);
+      if (ts.isCallExpression(par) && par.expression !== n) {
+        const i = par.arguments.indexOf(n); const sn = solidName(par.expression, m);
+        if (sn === "omit" && i === 0) { const ks = par.arguments.slice(1).map(a => skip(a)); return rec(par, ks.every(a => ts.isStringLiteralLike(a)) ? new Set([...(except ?? []), ...ks.map(a => a.text)]) : except); }
+        if (sn === "merge") return rec(par, undefined);
+        if (sn === "createComponent" && i === 1) { const g = fnValueOf(par.arguments[0], m, f.env); if (g && !except) return out.push({ via: { g, index: 0 }, node: par, why: g.name ?? "a component" }); return use(null, par, "the record is given to a component that is not read", except); }
+        const g = i >= 0 && !sn ? fnValueOf(par.expression, m, f.env) : undefined;
+        if (g && !except) return out.push({ via: { g, index: i }, node: par, why: g.name ?? "a function" });
+        return use(null, par, g ? `the record is given to ${g.name ?? "a function"}` : "the record is given to code that is not read", except);
+      }
+      if (ts.isJsxSpreadAttribute(par)) { const tag = tagOf(par); if (!isElementTag(tag) && !except) { const g = fnValueOf(tag, m, f.env); if (g) return out.push({ via: { g, index: 0 }, node: par, why: `<${g.name ?? "a component"}>` }); } return use(null, par, `the record is spread on <${tag.getText()}>`, except); }
+      if (ts.isExpressionStatement(par) || ts.isTypeOfExpression(par) || ts.isPrefixUnaryExpression(par) || (ts.isIfStatement(par) && par.expression === n) || (ts.isConditionalExpression(par) && par.condition === n)) return;
+      if (ts.isBinaryExpression(par) && (par.operatorToken.kind === K.InKeyword || par.operatorToken.kind === K.EqualsEqualsEqualsToken || par.operatorToken.kind === K.ExclamationEqualsEqualsToken)) return;
+      use(null, par, "the record is handed on", except);
+    };
+    names(p.name, undefined);
+    return out;
+  }
+  /** Whether a value may be another package's, or one made by code that is not read: a name of an import that is
+   *  not followed, a value of the module made by a call that is not, a local bound to either. */
+  function mayBeUnread(e, m, d) {
+    e = skip(e); if (!e) return false; if (d > 12) return true;
+    if (e.kind === K.ThisKeyword) return true;
+    if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) return mayBeUnread(e.expression, m, d + 1);
+    if (ts.isConditionalExpression(e)) return mayBeUnread(e.whenTrue, m, d + 1) || mayBeUnread(e.whenFalse, m, d + 1);
+    if (ts.isBinaryExpression(e)) return mayBeUnread(e.left, m, d + 1) || mayBeUnread(e.right, m, d + 1);
+    if (ts.isCallExpression(e)) { const sn = solidName(e.expression, m); if (sn) return false; return !fnValueOf(e.expression, m, undefined) ? mayBeUnread(e.expression, m, d + 1) : false; }
+    if (!ts.isIdentifier(e)) return false;
+    const r = resolve(e, m);
+    if (r.local) return !r.local.multi && r.local.inits.some(i => { while (i.part) i = i.part; return i.expr ? mayBeUnread(i.expr, m, d + 1) : i.loop ? mayBeUnread(i.loop.expression, m, d + 1) : false; });
+    if (!r.top) return false;
+    if (r.top.kind === "import" || r.top.kind === "ns") return !SOLID.test(r.top.from) && !binding(m, e.text);
+    if (r.top.kind === "var") return !!r.top.init && !isFn(skip(r.top.init)) && mayBeUnread(r.top.init, m, d + 1);
+    return false;
+  }
+  /** The function a factory hands back, whatever it is called with: every `return` of it the same function. */
+  function returnedFn(g) {
+    const node = g.node; if (!node.body || node.asteriskToken || isAsync(node)) return undefined;
+    const rets = [];
+    if (ts.isBlock(node.body)) { const find = n => { if (isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n)) rets.push(n.expression); ts.forEachChild(n, find); }; find(node.body); } else rets.push(node.body);
+    let out;
+    for (const r of rets) { const v = r ? fnValueOf(r, g.m, g.env) : undefined; if (!v) return undefined; if (out && (out.node !== v.node || out.env !== v.env)) return undefined; out = v; }
+    return out;
+  }
+  /** The contexts a component provides to what it is given: each `{ ctx, inside, outside }` — the uses of its props
+   *  written among the children of a provider of that context the function renders, and the uses that are not. With
+   *  no provider written in the function: `[]`, and `clean` says the code shows that nothing it renders could be one. */
+  function providesOf(f, index = 0, seen = new Set()) {
+    const m = f.m, env = f.env, root = f.node;
+    const k = `${m.file}\0${root.pos}\0${index}\0${env?.id ?? ""}`; if (seen.has(k)) return { list: [], clean: false }; seen.add(k);
+    const found = []; let clean = true;
+    // (a component the caller gave — a prop, a parameter of the factory — is the caller's: what it provides is its own row's)
+    const find = n => { const el = !isFn(n) || n === root ? elementOf(n, m) : undefined; if (el) { const lower = ts.isIdentifier(el.tag) && /^[a-z]/.test(el.tag.text); if (!lower) { const c = ctxOf(el.tag, m, env); if (c) found.push({ c, el }); else { const sn = solidName(el.tag, m); const g = sn ? undefined : fnValueOf(el.tag, m, env); if (g) { if (!providesOf(g, 0, new Set(seen)).clean) clean = false; } else if (!(sn && SOLID_FLOW.has(sn)) && (sn || mayBeUnread(el.tag, m, 0))) clean = false; } } } ts.forEachChild(n, find); };
+    if (root.body) find(root.body);
+    const uses = recordUses(f, index);
+    // the record given whole to a function or a component that is read: what that one does with it, there
+    const given = uses.filter(u => u.via).map(u => ({ u, p: providesOf(u.via.g, u.via.index, seen), all: recordUses(u.via.g, u.via.index) }));
+    const by = new Map(); const ctx = c => { if (!by.has(c.key)) by.set(c.key, { ctx: c, els: [] }); return by.get(c.key); };
+    for (const x of found) ctx(x.c).els.push(x.el);
+    for (const g of given) for (const x of g.p.list) ctx(x.ctx);
+    const here = n => place(n);
+    const list = [...by.values()].map(({ ctx: c, els }) => {
+      const inside = [], outside = [];
+      for (const u of uses) {
+        // (among the provider's children, or in the value it is given: a context's value reaches only what reads it,
+        // which is beneath)
+        const under = els.some(el => beneath(u.node, el) || inValue(u.node, el));
+        if (!u.via) { (under ? inside : outside).push({ field: u.field, why: u.why, except: u.except && [...u.except], ...here(u.node) }); continue; }
+        const g = given.find(x => x.u === u); const sub = g.p.list.find(x => x.ctx.key === c.key);
+        if (under) { inside.push({ field: null, why: `${u.why}, beneath the provider`, ...here(u.node) }); continue; }
+        if (sub) { inside.push(...sub.inside.map(o => ({ ...o, why: `${u.why}: ${o.why}` }))); outside.push(...sub.outside.map(o => ({ ...o, why: `${u.why}: ${o.why}` }))); }
+        // a function that renders no provider of it: what it reads of the record, it reads there
+        else for (const x of g.all) outside.push({ field: x.via ? null : x.field, except: x.except && [...x.except], why: x.via ? `the record is given to ${u.why}, which hands it on to ${x.why}` : `${u.why}: ${x.why}`, ...here(u.node) });
+      }
+      return { ctx: c, inside, outside };
+    });
+    return { list, clean: clean && !uses.some(u => !u.via && u.field === null) && given.every(g => g.p.clean && !g.p.list.length) };
   }
 
   // ---- the answers ----
@@ -1111,20 +1769,26 @@ function create(ts, options = {}) {
     const [head, ...rest] = name.split(".");
     const fns = [];
     for (const file of files) {
-      const bs = exported(file, head);
+      let bs = exported(file, head), parts = rest;
+      // `export * as Kit from "./kit.js"`, and `import * as Kit …; export { Kit }`: a member is that module's export
+      if (!bs && parts.length) { const mm = load(file); const e = mm?.exports.get(head); if (e?.ns) { bs = imported(mm, e.ns, parts[0]); parts = parts.slice(1); } }
+      if (bs && parts.length && bs.every(x => x.b?.kind === "ns")) { const next = []; for (const x of bs) { const r = imported(x.m, x.b.from, parts[0]); if (!r) { next.length = 0; bs = undefined; break; } next.push(...r); } if (bs) { bs = next; parts = parts.slice(1); } }
       if (!bs) return { unread: `${head} is not followed to a declaration in ${path.basename(file)}`, files };
       for (const x of bs) {
         if (x.solid) return { unread: `${head} is Solid's own`, files };
-        const b = x.b; let node = b.kind === "fn" ? b.node : b.kind === "var" && b.isConst && b.init && !x.m.written.has(x.name) ? skip(b.init) : undefined;
-        let method = false;
-        for (const part of rest) { node = node && ts.isObjectLiteralExpression(node) ? memberFn(node, part) : undefined; method = true; }
-        if (!node || !isFn(node)) return { unread: `${name} is ${b.kind === "class" ? "a class" : "not a function the module declares (a value made by a call, or assigned again)"} in ${path.basename(x.m.file)}`, files };
-        fns.push({ m: x.m, node, name, opaque: types.opaque, plain: types.plain, method });
+        const b = x.b;
+        // the function it is: one the module declares, or what the code shows a call to hand back (a value made by a
+        // call), a member of a record written out, of `Object.assign(fn, { … })`
+        let v = b.kind === "fn" ? { m: x.m, node: b.node } : b.kind === "var" && b.isConst && !x.m.written.has(x.name) && (b.init || b.pattern) ? { expr: ts.factory.createIdentifier(x.name), m: x.m, env: undefined } : undefined;
+        for (const part of parts) v = v && !v.node ? memberOf(v.expr, part, v.m, v.env) : undefined;
+        const fv = v && (v.node ? v : fnValueOf(v.expr, v.m, v.env));
+        if (!fv || !isFn(fv.node)) return { unread: `${name} is ${b.kind === "class" ? "a class" : "not a function the code shows (a value made by a call that is not followed, or assigned again)"} in ${path.basename(x.m.file)}`, files };
+        fns.push({ m: fv.m, node: fv.node, env: fv.env, name, opaque: types.opaque, plain: types.plain, refs: types.refs, method: parts.length > 0 || !!fv.method, made: !!fv.env });
       }
     }
     const classes = file => { const out = new Map(); const m = load(file); if (!m) return out; for (const [en] of m.exports) { const bs = exported(file, en); if (bs && bs.length === 1 && bs[0].b?.kind === "class") out.set(bs[0].b.node, en); } return out; };
     return rounds(() => {
-      const ss = fns.map(g => g.opaque?.size || g.plain?.size ? read(g) : summary(g));
+      const ss = fns.map(g => g.opaque?.size || g.plain?.size || g.refs?.size ? read(g) : summary(g));
       const why = []; for (const [i, s] of ss.entries()) { for (const w of s.pure) why.push(w); if (fns[i].method && /\bthis\b/.test(fns[i].node.getText())) why.push({ why: "a method that reads `this`", ...place(fns[i].node) }); if (fns[i].node.asteriskToken) why.push({ why: "a generator", ...place(fns[i].node) }); }
       // what it rejects with: classes the module exports, in every build
       let rejects = [], rejectsWhy;
@@ -1146,10 +1810,20 @@ function create(ts, options = {}) {
         return "never";
       };
       const draftWhy = index => { for (const s of ss) if (s.mutates.has(index)) return s.mutates.get(index); return undefined; };
-      return { files, plain: fns.every(g => plainResult(g)), pure: !why.length, why, makes: ss.some(s => s.makes), rejects, rejectsWhy, isAsync: fns.every(g => isAsync(g.node)), fns, handler, draft, draftWhy };
+      // contexts: what every build must read from above (a context is named by where it is made: the builds of a
+      // package each make their own, so the names are compared), and what the component provides
+      const reads = fns.map(g => ctxReads(g));
+      const ctxName = c => c.name ?? "context";
+      const uses = { must: [...reads[0].must.values()].filter(c => reads.every(t => [...t.must.values()].some(x => ctxName(x) === ctxName(c)))), may: reads.flatMap(t => [...t.may.values(), ...[...t.must.values()].filter(c => !reads.every(u => [...u.must.values()].some(x => ctxName(x) === ctxName(c))))]), opaque: reads.flatMap(t => t.opaque) };
+      const provides = index => { const ps = fns.map(g => providesOf(g, index)); return { list: ps[0].list.filter(x => ps.every(q => q.list.some(y => ctxName(y.ctx) === ctxName(x.ctx)))).map(x => ({ ctx: x.ctx, inside: ps.flatMap(q => q.list.filter(y => ctxName(y.ctx) === ctxName(x.ctx)).flatMap(y => y.inside)), outside: ps.flatMap(q => q.list.filter(y => ctxName(y.ctx) === ctxName(x.ctx)).flatMap(y => y.outside)) })), clean: ps.every(q => q.clean && !q.list.length) }; };
+      // a factory's component (the function the fn hands back): whether the code shows it to render no provider
+      const madeClean = () => fns.every(g => { const r = returnedFn(g); if (!r) return false; const p = providesOf(r, 0); return p.clean && !p.list.length; });
+      return { files, uses, provides, madeClean, plain: fns.every(g => plainResult(g)), plainWhy: fns.map(g => plainWhy(g)).find(Boolean), pure: !why.length, why, makes: ss.some(s => s.makes), rejects, rejectsWhy, isAsync: fns.every(g => isAsync(g.node)), fns, handler, draft, draftWhy };
     });
   }
-  return { exportFacts, targets, load };
+  /** The context the export `name` of `spec` is (a `createContext(…)` the module hands out), by its key. */
+  function contextKey(spec, dir, name) { for (const file of targets(spec, dir)) { const bs = exported(file, name); const x = bs && bs.length === 1 && !bs[0].solid ? bs[0] : undefined; if (!x) continue; const c = ctxOf(ts.factory.createIdentifier(x.name), x.m, undefined); if (c) return c.key; } return undefined; }
+  return { exportFacts, targets, load, exported, contextKey };
 }
 
 module.exports = { create };

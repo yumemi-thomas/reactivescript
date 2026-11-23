@@ -81,7 +81,8 @@ async function runRows(draft, spec, from, opts = {}) {
     // the result is read too (its fields, its accessors): a hook may look its context up only then (useMutation's client)
     // MO-10l: an accessor whose read is not ready yet waits; that is not the hook throwing
     const read = (k, f) => { try { f(); } catch (e) { if (!(e?.name === "NotReadyError" || e?.constructor?.name === "NotReadyError")) throw e; if (current) { if (!waited.has(current)) waited.set(current, new Set()); waited.get(current).add(k); } } };
-    const touch = r => { if (typeof r === "function" && r.length === 0) return read("", r); if (r && typeof r === "object") for (const k of Object.keys(r)) { const v = r[k]; if (typeof v === "function" && v.length === 0 && /^(is|get|use)?[a-z]/.test(k) && !/^(mutate|refetch|reset|navigate|set)/.test(k)) read(k, v); } };
+    // (a field's own read may wait or throw too — a store's field, a getter: MO-8w — and is seen as it is read)
+    const touch = r => { if (typeof r === "function" && r.length === 0) return read("", r); if (r && typeof r === "object") for (const k of Object.keys(r)) { let v; try { v = r[k]; } catch (e) { if (current) { const m = e?.name === "NotReadyError" || e?.constructor?.name === "NotReadyError" ? held : threw_; if (!m.has(current)) m.set(current, new Set()); m.get(current).add(k); } continue; } if (typeof v === "function" && v.length === 0 && /^(is|get|use)?[a-z]/.test(k) && !/^(mutate|refetch|reset|navigate|set)/.test(k)) read(k, v); } };
     // a hook that warns, not throws, with no provider (TanStack Router's `useRouter must be used inside a <RouterProvider>`)
     // is read the same way: what it warned is what it would have thrown
     const Probe = () => { ran = true; const saved = [console.warn, console.error]; console.warn = console.error = (...a) => { threw ??= new Error(a.map(String).join(" ")); }; try { touch(hook()); } catch (e) { threw = e; } finally { [console.warn, console.error] = saved; } return null; };
@@ -96,6 +97,7 @@ async function runRows(draft, spec, from, opts = {}) {
   let lastThrow = null;
   let current = null;         // the hook being run
   const waited = new Map();   // hook → its result's parts that were not ready when read ("" the whole result, else a field)
+  const held = new Map(), threw_ = new Map();   // fn → the plain fields of its result whose own read waited, or threw
   // a missing global (`window`, `document`: running here has no DOM) or a property of nothing says nothing about contexts
   // (Solid may wrap what a computation threw: its cause is looked at too)
   const environmental = e => !!e && (e instanceof ReferenceError || e instanceof TypeError || /\bis not defined\b|Cannot read propert|\b(window|document|navigator|localStorage|matchMedia)\b/.test(String(e.message ?? "")) || environmental(e.cause));
@@ -104,6 +106,13 @@ async function runRows(draft, spec, from, opts = {}) {
   // a hook every parameter of which is optional (`useQueryClient(client?: …)`) runs with none
   const bare = l => { const m = /^export (?:pure )?fn (use[A-Z]\w*)\(([^)]*)\)/.exec(l); return m && (!m[2].trim() || m[2].split(",").every(q => /^\s*(ref\s+)?[\w$]+\?/.test(q))) ? m[1] : null; };
   lines.forEach((l, i) => { const n = bare(l); if (n && typeof mod[n] === "function") hooks.push({ name: n, i }); });
+  // MO-8w: a fn whose draft asks "is the result a store with fields that wait or throw?" and that runs with no
+  // arguments is run, and each field of what it hands back is read once. A field seen to wait or to throw is said by
+  // name in the question (no row has a word for a plain field that does, MO-8r); none seen is no proof — a field may
+  // wait only under other arguments, or later — and the question stays as it was
+  const asked = new Set(lines.map(l => /^\/\/ TODO ([\w$]+): is the result a store with fields that wait or throw/.exec(l)?.[1]).filter(Boolean));
+  const bareFn = l => { const m = /^export (?:pure )?fn ([A-Za-z_$][\w$]*)(?:<[^(]*>)?\(([^)]*)\)/.exec(l); return m && asked.has(m[1]) && (!m[2].trim() || m[2].split(",").every(q => /^\s*(ref\s+)?[\w$]+\?/.test(q))) ? m[1] : null; };
+  for (const l of lines) { const n = bareFn(l); if (n && typeof mod[n] === "function" && !hooks.some(h => h.name === n)) { current = n; runs(mod[n]); current = null; } }
   const contexts = Object.entries(mod).filter(([, v]) => v && typeof v === "function" && "id" in v && "defaultValue" in v);   // Solid 2's createContext
   // the name of a context the module does not export: `--context <name>`, else what its hooks call it (`useDialogContext`
   // → dialog), else its one compound object's (`Dialog.Trigger` → dialog), else the module's
@@ -159,6 +168,8 @@ async function runRows(draft, spec, from, opts = {}) {
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     let l = lines[i];
+    const store = /^\/\/ TODO ([\w$]+): is the result a store with fields that wait or throw/.exec(l);
+    if (store && (held.has(store[1]) || threw_.has(store[1]))) { const hs = [...held.get(store[1]) ?? []], ts_ = [...threw_.get(store[1]) ?? []]; out.push(`// TODO ${store[1]}: run with no arguments, ${[hs.length && `its field${hs.length > 1 ? "s" : ""} ${hs.map(k => `\`${k}\``).join(", ")} wait${hs.length > 1 ? "" : "s"} where ${hs.length > 1 ? "they are" : "it is"} read (Solid's NotReadyError)`, ts_.length && `its field${ts_.length > 1 ? "s" : ""} ${ts_.map(k => `\`${k}\``).join(", ")} throw${ts_.length > 1 ? "" : "s"} where ${ts_.length > 1 ? "they are" : "it is"} read`].filter(Boolean).join(", and ")}: a row cannot say so of a plain field (MO-8r) — hand each out as a function from a module of the app's own, declared \`pending fails(Error) ref\` (MO-10l)`); continue; }
     const todo = /^\/\/ TODO (\w+): which context does this hook read\?/.exec(l);
     if (todo && needs.has(todo[1])) continue;   // settled below
     if (todo && envOnly.has(todo[1])) { out.push(`// TODO ${todo[1]}: run here it throws for want of a browser (${envOnly.get(todo[1])}): not settled; rx-verify in a browser-like setup, or read its source (MO-12b)`); continue; }

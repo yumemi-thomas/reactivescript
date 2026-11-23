@@ -6,6 +6,9 @@
 // that rejects with no class of the module's — goes too). Each row that took a word has a line above it,
 // `//@ inferred <export>: <words>`, so a word read off the code is told from one a person wrote: the row itself is
 // the notation's, with no new word and no new form (MO-8r), and both checkers read it as any row (08 CN-8).
+// MO-8w: `uses(c)` and `provides(c)` are written too, with the `export context` rows they name (a `uses` only beside
+// a `provides` of the same draft), and no row has a line above it: the draft's head says once how many words were
+// read, `--causes` says which by export, and src/declare-audit.js reads them from the code again for whoever asks.
 const path = require("node:path");
 
 /** The row's parts: `{ head, name, open, close, params: [{ from, to, text }] }` — offsets into the line. */
@@ -100,37 +103,141 @@ function paramTypes(ts, checker, mod, imp, name) {
     const ps = x.getProperties(); if (ps.length > 60) return true;
     return ps.some(p => (p.declarations ?? []).some(d => !lib(d)) && own(checker.getTypeOfSymbolAtLocation(p, imp), 1));
   };
-  const plain = new Set(), opaque = new Map();
+  // `objects`: the parameters whose type has methods at all, the platform's among them (a socket, an element): an
+  // object, not data
+  const methods = (x, depth = 0) => { if (depth > 3) return false; if (x.isUnion() || x.isIntersection()) return x.types.some(y => methods(y, depth)); if (x.flags & ts.TypeFlags.TypeParameter) { const c = checker.getBaseConstraintOfType(x); return !!c && c !== x && methods(c, depth + 1); } if (!(x.flags & ts.TypeFlags.Object) || x.getCallSignatures().length || checker.isArrayType(x) || checker.isTupleType(x)) return false; return x.getProperties().some(p => checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)).getCallSignatures().length > 0); };
+  const plain = new Set(), opaque = new Map(), objects = new Set();
   const n = Math.max(...sigs.map(g => g.getParameters().length));
   for (let i = 0; i < n; i++) {
     const ts_ = sigs.map(g => { const p = g.getParameters()[i]; if (!p) return undefined; const d = p.valueDeclaration; if (d && ts.isParameter(d) && d.dotDotDotToken) return null; return checker.getTypeOfSymbolAtLocation(p, imp); });
     if (ts_.every(x => x && isPrim(x))) plain.add(i);
+    if (ts_.some(x => x && methods(x))) objects.add(i);
     if (ts_.some(x => x && own(x))) opaque.set(i, "self"); else if (ts_.some(x => x === null || (x && parts(x)))) opaque.set(i, "parts");
   }
-  return { plain, opaque };
+  return { plain, opaque, objects };
+}
+
+/** The props of the component `name` that may hold a view — an element, a component, a function that gives one, a list
+ *  or a record of them, a type that is not known: what `provides(c)` must show is rendered beneath the provider. */
+function viewProps(ts, checker, mod, imp, name) {
+  const D = require("./declare.js");
+  const [head, ...rest] = name.split(".");
+  const sym0 = checker.getExportsOfModule(mod).find(s => s.name === head); if (!sym0) return { has: () => true, outside: () => true, surely: () => false };
+  const sym = sym0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym0) : sym0;
+  let t = checker.getTypeOfSymbolAtLocation(sym, imp);
+  for (const r of rest) { const q = t.getProperty(r); if (!q) return { has: () => true, outside: () => true, surely: () => false }; t = checker.getTypeOfSymbolAtLocation(q, imp); }
+  const sigs = checker.getNonNullableType(t).getCallSignatures(); if (!sigs.length) return { has: () => true, outside: () => true, surely: () => false };
+  const out = new Set(); let all = false;
+  const viewy = (x, d = 0) => {
+    if (d > 3) return true;
+    if (x.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter)) return true;
+    if (x.isUnion() || x.isIntersection()) return x.types.some(y => viewy(y, d));
+    if (D.isElement(ts, checker, x)) return true;
+    if (!(x.flags & ts.TypeFlags.Object)) return false;
+    const cs = x.getCallSignatures();
+    if (cs.length) return cs.some(g => D.givesElement(ts, checker, g) || viewy(g.getReturnType(), d + 1));
+    if (checker.isArrayType(x) || checker.isTupleType(x)) return checker.getTypeArguments(x).some(y => viewy(y, d + 1));
+    const ps = x.getProperties(); if (ps.length > 40) return false;
+    return ps.some(q => viewy(checker.getTypeOfSymbolAtLocation(q, imp), d + 1));
+  };
+  for (const g of sigs) { const p = g.getParameters()[0]; if (!p) continue; const pt = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)); if (pt.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) { all = true; continue; } for (const q of pt.getProperties()) if (viewy(checker.getTypeOfSymbolAtLocation(q, imp))) out.add(q.name); }
+  out.add("children");
+  /** `outside(o)`: whether a use of the props outside a provider may be of a view — a field that may hold one, or the
+   *  record whole, unless `omit` took every such field off it first. */
+  // `surely(o)`: a use of a prop that is a view for certain — an element (`children`, a prop typed as one), which is
+  // made where it is read; a function that gives a view is made where it is called, and is not one
+  const sure = new Set();
+  for (const g of sigs) { const p = g.getParameters()[0]; if (!p) continue; const pt = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)); if (pt.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) continue; for (const q of pt.getProperties()) { const raw = checker.getTypeOfSymbolAtLocation(q, imp); const qt = checker.getNonNullableType(raw); if (D.isElement(ts, checker, raw) && !(qt.getCallSignatures().length && qt.getCallSignatures().every(c => c.getParameters().length > 0))) sure.add(q.name); } }
+  return { has: f => all || out.has(f), surely: o => o.field !== null && sure.has(o.field), outside: o => o.field !== null ? all || out.has(o.field) : all || !o.except || [...out].some(n => !o.except.includes(n)) };
+}
+
+/** The parameters a row says are accessors (`ref list: T[]`): calling one answers the caller's value itself. */
+const refsOf = (line, row) => new Set(row.params.map((part, i) => { const p = named(line, part); return p && /\bref\b/.test(p.words) ? i : -1; }).filter(i => i >= 0));
+
+/** Whether a fn takes a tree it could nest (MO-11i): a parameter that is a record — or a list of records — with a
+ *  component among its fields and a list of records among them. No such parameter, and `nests(…)` has nothing to say. */
+function couldNest(ts, checker, mod, imp, name) {
+  const D = require("./declare.js");
+  const [head, ...rest] = name.split(".");
+  const sym0 = checker.getExportsOfModule(mod).find(s => s.name === head); if (!sym0) return true;
+  const sym = sym0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym0) : sym0;
+  let t = checker.getTypeOfSymbolAtLocation(sym, imp);
+  for (const r of rest) { const q = t.getProperty(r); if (!q) return true; t = checker.getTypeOfSymbolAtLocation(q, imp); }
+  const elem = x => { x = checker.getNonNullableType(x); return checker.isArrayType(x) || checker.isTupleType(x) ? checker.getTypeArguments(x) : [x]; };
+  const record = x => !!(x.flags & ts.TypeFlags.Object) && !x.getCallSignatures().length && !checker.isArrayType(x) && !checker.isTupleType(x);
+  const tree = (x, d = 0) => {
+    if (x.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter)) return true;
+    if (x.isUnion() || x.isIntersection()) return x.types.some(y => tree(y, d));
+    if (!record(x)) return false;
+    const ps = x.getProperties(); if (ps.length > 80) return true;
+    const types = ps.map(q => checker.getTypeOfSymbolAtLocation(q, imp));
+    const comp = types.some(y => { const z = checker.getNonNullableType(y); return z.flags & ts.TypeFlags.Any || (z.isUnion() ? z.types : [z]).some(w => D.isComponent(ts, checker, w)); });
+    const list = types.some(y => { const z = checker.getNonNullableType(y); return (checker.isArrayType(z) || checker.isTupleType(z)) && checker.getTypeArguments(z).some(w => record(checker.getNonNullableType(w)) || !!(w.flags & (ts.TypeFlags.Any | ts.TypeFlags.TypeParameter))); });
+    return comp && list;
+  };
+  return checker.getNonNullableType(t).getCallSignatures().some(g => g.getParameters().some(p => elem(checker.getTypeOfSymbolAtLocation(p, imp)).some(x => tree(x))));
 }
 
 /** @param {string[]} lines the draft's lines (rows, and the questions above them)
  *  @param {(name: string) => object} typesOf what the row's types say of a fn's parameters (`paramTypes`)
  *  @param {object[]} [why] filled with what was proven and what was refused, word by word (`rx-declare --why`)
  *  @returns {{ lines: string[], head: string[], count: { pure, handler, rejects, draft, instantiates } }} */
-function apply(ts, spec, from, lines, typesOf, why) {
+function apply(ts, spec, from, lines, typesOf, why, more = {}) {
   const inf = require("./infer.js").create(ts, { solid: process.env.RX_INFER_SOLID !== "0" });
+  // ---- contexts (MO-8w): a context a row names is declared by an `export context` row of the draft's own. One the
+  // module exports is named after its export (`RouterContext` → router), any other after the name the code binds it to,
+  // or after the provider or the hook that names it first. A module that has context rows already (known.js, a module
+  // of the app's own that carries a library's) keeps them: nothing is named beside them.
+  const hasContexts = lines.some(l => /^export context\b/.test(l));
+  const ctxNames = new Map(), ctxRows = [], namedCtx = new Set();
+  const taken = new Set(lines.flatMap(l => l.split("\n")).map(l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1]).filter(Boolean));
+  const exportedCtx = new Map();   // a context's key → the name the module exports it by
+  for (const n of more.contexts ?? []) { try { const k = inf.contextKey(spec, from, n); if (k && !exportedCtx.has(k)) exportedCtx.set(k, n); } catch { /* not read */ } }
+  const ownFiles = (() => { try { return inf.targets(spec, from); } catch { return []; } })();
+  const pkgRoot = f => { for (let d = path.dirname(f); ; d = path.dirname(d)) { if (require("node:fs").existsSync(path.join(d, "package.json"))) return d; if (path.dirname(d) === d) return d; } };
+  const roots = new Set(ownFiles.map(pkgRoot));
+  /** Whether a context is the module's own to declare: made in the package's own files (a relative module: in the file itself). */
+  const ownCtx = c => !hasContexts && (spec.startsWith(".") ? ownFiles.includes(c.m.file) : roots.has(pkgRoot(c.m.file)));
+  const nameCtx = (c, rowName) => {
+    if (ctxNames.has(c.key)) return ctxNames.get(c.key);
+    const leaf = rowName.split(".").pop(); const strip = x => x.replace(/(Context|Ctx)$/, "");
+    let base = exportedCtx.get(c.key) ?? c.name;
+    if (!base || !strip(base) || /^(ctx|context|c)$/i.test(base)) base = /^(.+)Provider$/.exec(leaf)?.[1] ?? /^use(.+?)(?:Context)?$/.exec(leaf)?.[1] ?? leaf;
+    // (`MDXContext` → mdx, `URLState` → urlState: a leading run of capitals is one word)
+    let n = strip(base).replace(/^[^A-Za-z_$]+/, "").replace(/^[A-Z]+(?![a-z])|^[A-Z]+(?=[A-Z][a-z])|^[A-Z]/, w => w.toLowerCase()) || "context";
+    // two contexts of one name (a kit's `ItemContext` in two of its files): the second by its file, `ratingItem`
+    if (taken.has(n)) { const file = path.basename(c.m.file).replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9]+(.)?/g, (_, ch) => (ch ?? "").toUpperCase()).replace(/^[^A-Za-z_$]+/, "").replace(/^./, ch => ch.toLowerCase()); const q = file && !n.toLowerCase().startsWith(file.toLowerCase()) ? `${file}${n[0].toUpperCase()}${n.slice(1)}` : n; n = q; for (let k = 2; taken.has(n); k++) n = `${q}${k}`; }
+    taken.add(n); ctxNames.set(c.key, n); ctxRows.push(`export context ${n}`); if (exportedCtx.has(c.key)) namedCtx.add(exportedCtx.get(c.key));
+    return n;
+  };
+  const ctxKnown = new Map();   // a row → whether the code shows every context it reads, and what it provides
+  const words = {};             // export → the words read from the code (the benchmark's and rx-verify's count)
   const exportedAs = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
-  const out = []; const count = { pure: 0, handler: 0, rejects: 0, draft: 0, instantiates: 0 };
+  const out = []; const count = { pure: 0, handler: 0, rejects: 0, draft: 0, instantiates: 0, uses: 0, provides: 0 };
   const errors = new Set(lines.map(l => /^export error ([\w$]+)/.exec(l)?.[1]).filter(Boolean));
   const rel = f => path.relative(from, f).split(path.sep).join("/").replace(/^(?:\.\.\/)+node_modules\//, "").replace(/^node_modules\//, "");
   const at = w => `${rel(w.file)}:${w.line}`;
   const note = (name, word, ok, reason) => { if (why) why.push({ name, word, ok, why: reason }); };
   let unread;
   lines = lines.flatMap(l => l.split("\n"));   // (a component's question is written in its row's own element)
+  const factsOf = new Map();
+  const facts = (line, row) => { if (factsOf.has(row.name)) return factsOf.get(row.name); let f; try { f = inf.exportFacts(spec, from, row.name, row.kind === "fn" ? { ...typesOf(row.name), refs: refsOf(line, row) } : {}); } catch (e) { f = { unread: `the code could not be read (${String(e?.message ?? e).slice(0, 120)})` }; } factsOf.set(row.name, f); return f; };
+  const viewsOf = new Map(); const views = name => { if (!viewsOf.has(name)) viewsOf.set(name, more.views ? more.views(name) : { has: () => true, outside: () => true, surely: () => false }); return viewsOf.get(name); };
+  /** The contexts a component is shown to provide: a provider of it written in the code, and every prop that may hold
+   *  a view rendered among that provider's children. */
+  const providedBy = (row, f) => f.provides(0).list.filter(x => ownCtx(x.ctx) && x.inside.length && !x.outside.some(o => views(row.name).outside(o)));
+  // a `uses(c)` is written only beside a `provides(c)` of the same draft: a context no row is shown to provide would
+  // refuse every program that calls the hook, the correct ones with them (its provider is then a component the
+  // reading did not get through, or another module's), and the question stays
+  const provided = new Set();
+  for (const l of lines) { const row = l.startsWith("export ") ? parseRow(l) : undefined; if (!row || row.kind !== "component" || /\b(uses|provides)\(/.test(l.slice(row.close + 1))) continue; const f = facts(l, row); if (!f || f.unread) continue; try { for (const x of providedBy(row, f)) provided.add(x.ctx.key); } catch { /* not read */ } }
   for (let li = 0; li < lines.length; li++) {
     let line = lines[li];
     const row = line.startsWith("export ") ? parseRow(line) : undefined;
     if (!row || /\bserver\b/.test(row.words)) { out.push(line); continue; }
-    let f; try { f = inf.exportFacts(spec, from, row.name, row.kind === "fn" ? typesOf(row.name) : {}); } catch (e) { f = { unread: `the code could not be read (${String(e?.message ?? e).slice(0, 120)})` }; }
+    const f = facts(line, row);
     if (!f || f.unread) { unread ??= f?.unread; note(row.name, "*", false, f?.unread ?? "no code"); out.push(line); continue; }
-    const took = []; const answered = { pure: false, rejects: false, events: new Set(), drafts: new Set(), draftNames: new Set() };
+    const took = []; const answered = { pure: false, rejects: false, events: new Set(), drafts: new Set(), draftNames: new Set(), uses: undefined };
     // insertions into the row, applied from its end so that the offsets before them stand
     const ins = [];
     // ---- handler: a callback parameter, a callback field of a record parameter, a callback prop
@@ -176,25 +283,58 @@ function apply(ts, spec, from, lines, typesOf, why) {
     if (took.some(t => t.startsWith("rejects("))) line = `${line} rejects(${f.rejects.join(" | ")})`;
     // a proven `pure` fn that makes nodes is made once where it is bound (MO-10a): the word the draft writes by a name
     if (answered.pure && f.makes && !/\binstantiates\b/.test(line) && !/\bref\b/.test(line)) { line = `${line} instantiates`; took.push("instantiates"); count.instantiates++; }
+    // ---- uses(c): a context every call reads, and throws without; provides(c): a provider around all it is given
+    let usesDone = false, provDone = row.kind !== "component";
+    if (!/\b(uses|provides)\(/.test(line.slice(row.close + 1))) {
+      const u = f.uses; const must = u.must.filter(c => ownCtx(c) && provided.has(c.key));
+      const doubt = [...u.may.map(c => ({ why: `it reads ${c.name ?? "a context"} on some path only, or when what it hands back is called`, ...c.at })), ...u.must.filter(c => !ownCtx(c)).map(c => ({ why: `it reads ${c.name ?? "a context"}, which another module makes`, ...c.at })), ...u.must.filter(c => ownCtx(c) && !provided.has(c.key)).map(c => ({ why: `it reads ${c.name ?? "a context"} on every path, and no component of this module is shown to provide it (its provider is another module's, or one the reading does not get through)`, ...c.at })), ...u.opaque];
+      if (must.length) { const ns = must.map(c => nameCtx(c, row.name)); line = `${line.replace(/ instantiates$/, "")} uses(${ns.join(", ")})`; for (const n of ns) { took.push(`uses(${n})`); count.uses++; } note(row.name, `uses(${ns.join(", ")})`, true, must.map(c => `useContext(${c.name ?? "…"}) on every path, with no default to answer [${at(c.at)}]`).join("; ")); }
+      usesDone = !doubt.length;
+      if (!usesDone) note(row.name, "uses", false, `${doubt[0].why} [${at(doubt[0])}]`); else if (!must.length) note(row.name, "uses", false, "it reads no context: every call it makes is read, and none asks for one");
+      answered.uses = must.length ? { partial: !usesDone, why: doubt[0] && `${doubt[0].why} [${at(doubt[0])}]` } : undefined;
+      if (row.kind === "component") {
+        const pv = f.provides(0); const yes = providedBy(row, f).filter(x => pv.list.some(y => y.ctx.key === x.ctx.key));
+        for (const x of pv.list) if (!yes.some(y => y.ctx.key === x.ctx.key)) { const o = x.outside.find(q => views(row.name).outside(q)); note(row.name, `provides(${x.ctx.name ?? "…"})`, false, !ownCtx(x.ctx) ? "the context is another module's" : o ? `${o.field === null ? "its props go" : `${o.field} is read`} outside the provider: ${o.why} [${at(o)}]` : "nothing it is given is rendered beneath the provider"); }
+        if (yes.length) { const ns = yes.map(x => nameCtx(x.ctx, row.name)); line = `${line} provides(${ns.join(", ")})`; for (const n of ns) { took.push(`provides(${n})`); count.provides++; } note(row.name, `provides(${ns.join(", ")})`, true, yes.map(x => `everything it is given is rendered among <${x.ctx.name ?? "the context"} value>'s children [${at(x.inside[0])}]`).join("; ")); }
+        provDone = pv.list.length ? yes.length === pv.list.length : pv.clean;
+      }
+    } else { usesDone = true; provDone = true; }
+    ctxKnown.set(row.name, usesDone && provDone);
     // the questions above the row that are answered now
     for (let k = out.length - 1; k >= 0 && out[k].startsWith(`// TODO ${row.name}: `); k--) {
       const q = out[k].slice(`// TODO ${row.name}: `.length);
       if (/^pure\?/.test(q) && answered.pure) out.splice(k, 1);
+      else if (/^which context does this hook read\?/.test(q)) { if (usesDone) out.splice(k, 1); else if (answered.uses) out[k] = `// TODO ${row.name}: which context does this hook read beside what its row says? ${answered.uses.why}: add uses(<context>) if that reads one (MO-12b)`; }
+      else if (/^does it provide a context to its children\?/.test(q) && provDone) out.splice(k, 1);
+      // a factory's component: it provides nothing where the code shows the function the fn hands back to render no
+      // provider (and nothing that is not read), and nests nothing where no parameter is a tree of components
+      else if (/^does its component provide a context, or nest what it is given\?/.test(q)) { let clean = false; try { clean = f.madeClean(); } catch { /* not read */ } const nest = more.couldNest ? more.couldNest(row.name) : true; if (clean && !nest) { out.splice(k, 1); note(row.name, "provides", false, "the component it makes renders no provider, and every component it renders is read or the caller's; no parameter is a tree of components to nest"); } else note(row.name, "provides", false, !clean ? "the component it makes is not followed, or renders a component that is not read" : "a parameter is a record of components with a list of records: whether the made component nests them is not read"); }
+      // (a parameter named as a word of the notation is written with a `_` in its row: `fn_`)
+      // a component the fn is given and calls while it runs (or in a computation it makes there) is rendered where the
+      // fn is called: the library keeps it for no component of its own, so `renders(H)` has nothing to name (the
+      // cautious placement stands: a root of its own, MO-11s)
+      else if (/is given a component: where does the library render it\?/.test(q)) { const names = [...q.split(" is given a component")[0].split(" are given a component")[0].matchAll(/`([\w$]+)`/g)].map(x => x[1]); const idx = names.map(n => row.params.findIndex(part => { const pn = named(line, part)?.name; return pn === n || pn === `${n}_`; })); const here = idx.length > 0 && idx.every(i => { if (i < 0) return false; const h = f.handler(i, undefined); return !h.never && h.uses.every(u => u.how === "sync"); }); if (here) { out.splice(k, 1); note(row.name, "renders", false, `${names.join(", ")}: called while the fn runs, or in a computation it makes there — rendered where the fn is called, beneath no component of the library's`); } else { const i = idx.find(j => j >= 0); const h = i !== undefined ? f.handler(i, undefined) : undefined; const bad = h?.uses.find(u => u.how !== "sync"); note(row.name, "renders", false, bad ? `it goes where it is not followed: ${bad.why} [${at(bad)}]` : "where the component goes is not followed"); } }
       else if (/^what does its promise reject with\?/.test(q) && answered.rejects) out.splice(k, 1);
       // what it hands back is a value the code builds there (a record written out, a function, a primitive): no store
-      else if (/^is the result a store with fields that wait or throw/.test(q) && f.plain) { out.splice(k, 1); note(row.name, "result", true, "what it hands back is built where it is written: no store whose fields wait or throw"); }
+      else if (/^is the result a store with fields that wait or throw/.test(q)) { if (f.plain) { out.splice(k, 1); note(row.name, "result", true, "what it hands back is built where it is written: no store whose fields wait or throw"); } else if (f.plainWhy) note(row.name, "result", false, `${f.plainWhy.why} [${at(f.plainWhy)}]${f.plainWhy.via ? ` (called at ${at(f.plainWhy.via)})` : ""}`); }
       else if (/: called later, outside any computation\?/.test(q)) { const names = q.split(": called later")[0].split(", "); const left = names.filter(n => !answered.events.has(n)); if (!left.length) out.splice(k, 1); else if (left.length < names.length) out[k] = `// TODO ${row.name}: ${left.join(", ")}: called later, outside any computation? mark ${left.length > 1 ? "each" : "it"} \`handler (…) => …\`, so a closure there may write sources (MO-10g)`; }
       else if (/^does it change /.test(q)) { const names = [...q.split(" in place?")[0].matchAll(/`([\w$]+)`/g)].map(x => x[1]); const left = names.filter(n => !answered.drafts.has(n)); if (!left.length) out.splice(k, 1); else if (left.length < names.length) out[k] = `// TODO ${row.name}: does it change ${left.map(n => `\`${n}\``).join(" or ")} in place? mark that parameter \`draft ${left[0]}\`, and a store's draft is given to it as it is (MO-10i)`; }
     }
     // (a component's question is written on its row's own element, before the row)
     if (line.startsWith("// TODO ")) { /* not a row */ }
-    if (took.length) out.push(`//@ inferred ${row.name}: ${took.join(", ")}`);
+    if (took.length) words[row.name] = took;
     out.push(line);
   }
+  // a compound component's question — "its parts likely read a context it provides" — is answered where the code
+  // shows what the root provides and what each part reads
+  for (let k = out.length - 1; k >= 0; k--) { const t = /^\/\/ TODO ([\w$.]+): its parts likely read a context it provides/.exec(out[k]); if (!t) continue; const rows = [...ctxKnown].filter(([n]) => n === t[1] || n.startsWith(`${t[1]}.`)); if (rows.length > 1 && rows.every(([, known]) => known)) out.splice(k, 1); }
+  if (ctxRows.length) { const at0 = out.findIndex(l => !l.startsWith("//") || /^\/\/ TODO /.test(l)); out.splice(at0 < 0 ? 0 : at0, 0, ...ctxRows); }
   // a component's row carries its question in the same element (`// TODO X: onA, onB: …\nexport component X…`)
-  const total = count.pure + count.handler + count.rejects + count.draft + count.instantiates;
-  const head = total ? [`// Read from the code that runs (MO-8v): ${[["pure", count.pure], ["handler", count.handler], ["rejects", count.rejects], ["draft", count.draft], ["instantiates", count.instantiates]].filter(([, n]) => n).map(([w, n]) => `${n} ${w}`).join(", ")} — each on a row marked \`//@ inferred\`, proven and not guessed; \`rx-declare --why\` says how, and why not for every other row.`] : [];
-  return { lines: out, head, count, unread: total ? undefined : unread };
+  const total = Object.values(count).reduce((a, b) => a + b, 0);
+  // one line for the whole draft (MO-8w): which words were read is not written row by row — it is what the code shows,
+  // and `rx-verify` and `rx-declare --why` say it again from the code whenever they are asked
+  const head = total ? [`// Read from the code that runs (MO-8v): ${Object.entries(count).filter(([, n]) => n).map(([w, n]) => `${n} ${w}`).join(", ")} — proven, not guessed. Which words, and how: \`rx-declare --why\`; \`rx-verify\` tells them from the words written by hand, and runs each.`] : [];
+  return { lines: out, head, count, words, named: namedCtx, unread: total ? undefined : unread };
 }
 
-module.exports = { apply, paramTypes, parseRow, named, fnTypeAt, records };
+module.exports = { apply, paramTypes, viewProps, couldNest, refsOf, parseRow, named, fnTypeAt, records };

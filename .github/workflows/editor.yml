@@ -50,6 +50,10 @@ jobs:
           node test/run.js
           RXC=$GITHUB_WORKSPACE/compiler/target/release/rxc node test/run.js
           node test/tsc.js
+          # the words rx-declare reads from the code (09 MO-8v, MO-8w): every function that does what a word must not
+          # cover is refused it, and its honest twin is given it; the audit; the draft; rx-verify
+          node test/infer.js
+          node test/infer-view.js
       - name: Package the extension
         working-directory: tooling/vscode-rx
         run: |

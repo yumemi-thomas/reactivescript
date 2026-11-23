@@ -1173,9 +1173,10 @@ function declare(ts, spec, from, options = {}, how = {}) {
   // row marked `//@ inferred`; the question each answers is not asked (declare-infer.js, infer.js)
   if (how.infer !== false) {
     const di = require("./declare-infer.js");
-    const r = di.apply(ts, spec, from, lines, name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } }, how.why);
+    const r = di.apply(ts, spec, from, lines, name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } }, how.why, { contexts, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } }, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
     lines = r.lines; out.push(...r.head);
-    if (how.inferred) Object.assign(how.inferred, r.count, { unread: r.unread });
+    contexts = contexts.filter(c => !r.named.has(c));   // (a context a row names is declared: no question about it)
+    if (how.inferred) Object.assign(how.inferred, r.count, { unread: r.unread, words: r.words });
   }
   // why each `any` left is one (--explain): what the type holds that the row cannot say; in a row of an overloaded fn,
   // where a type with no name would else be said by its place, that the fn has no one signature to take it from
@@ -1194,4 +1195,4 @@ function declare(ts, spec, from, options = {}, how = {}) {
   return [...out, ...lines].join("\n") + "\n";
 }
 
-module.exports = { declare, withWaits };
+module.exports = { declare, withWaits, isElement, isComponent, givesElement };
