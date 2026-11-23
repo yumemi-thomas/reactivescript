@@ -31,6 +31,14 @@ read the same way now, with no word: each component written in the
 literal the prop is given is checked as applied there, with no arguments,
 among the application's children (DV-24), as a direct one is.
 
+And the literal may have a name (2026-11-25): an equation bound to a
+record or an array of components (`panels = [First, Second]`, at a
+module's top or in a component) is read as that literal where it is
+given, by name, to such a prop — on the condition that every mention of
+the name in the module is one: read anywhere else, exported, or given to
+nothing, the components in it are values (`COMPONENT_AS_VALUE`, on the
+line of the binding).
+
 ## Program
 
 ```rx
@@ -48,10 +56,14 @@ component First() {
 component Second() {
   <p>two</p>
 }
+builtins = { Heading: Heading, Paragraph: Paragraph }
 export default component App() {
   provide accent = "dark"
+  panels = [First, Second]
   <Markdown builtins={{ Heading: Heading, Paragraph: Paragraph }}>{"# hi"}</Markdown>
+  <Markdown builtins={builtins}>{"# by name"}</Markdown>
   <Tabs panels={[First, Second]} labels={["one", "two"]} />
+  <Tabs panels={panels} labels={["one", "two"]} />
   <Provider components={{ h1: Heading }}><p>text</p></Provider>
 }
 ```
@@ -111,6 +123,21 @@ A record given to a prop whose type holds no `Component`: the component
 in it is a value nothing renders.
 
 ```rx
+-- reject: CONTEXT_NOT_FOUND
+import { Markdown } from "./markdown.js"
+context accent: string
+component Heading(props: { depth: number; children?: View }) {
+  <h2 class={use accent}>{props.children}</h2>
+}
+builtins = { Heading: Heading }
+export default component App() {
+  <Markdown builtins={builtins}>{"# hi"}</Markdown>
+}
+```
+
+A record given by name is checked where it is given, as the literal is.
+
+```rx
 -- reject: COMPONENT_AS_VALUE
 import { Tabs } from "./markdown.js"
 component First() {
@@ -118,9 +145,31 @@ component First() {
 }
 export default component App() {
   panels = [First]
+  count = panels.length
+  <Tabs panels={panels} labels={[`${count}`]} />
+}
+```
+
+The name is read as its literal only where every mention of it is such a
+prop. Read anywhere else, the list is a value, and so are the components
+in it.
+
+```rx
+-- reject: COMPONENT_AS_VALUE
+import { Tabs } from "./markdown.js"
+component First() {
+  <p>one</p>
+}
+component Second() {
+  <p>two</p>
+}
+export default component App() {
+  source wide := false
+  panels = wide ? [First, Second] : [First]
   <Tabs panels={panels} labels={["one"]} />
 }
 ```
 
-The components are read in the literal the prop is given, where the
-checker can name them. A list built elsewhere is a value.
+A list that is computed is not a literal: the checker reads the
+components a record or an array literal names, not the values an
+expression may take.

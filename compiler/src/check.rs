@@ -980,6 +980,32 @@ fn strip_pre(n: &str) -> &str {
 /// `use:c`, for the checks that must know a value came from where they cannot look.
 /// Where a name is written as a call's whole argument: `f(x)` gives `x → (f, 0)`. Read off the module's tree as data, so
 /// it sees every call, in every view, handler and statement.
+/// MO-11c (2026-11-25): how many times each name is written as an expression of its own in the module's tree (an `id`, a
+/// `pre`), whatever it resolves to — read off the tree as data, so no mention is missed and shadowing only counts more.
+pub(crate) fn id_counts(v: &serde_json::Value, out: &mut HashMap<String, usize>) {
+    match v {
+        serde_json::Value::Array(xs) => xs.iter().for_each(|x| id_counts(x, out)),
+        serde_json::Value::Object(o) => {
+            if matches!(o.get("k").and_then(|k| k.as_str()), Some("id" | "pre")) {
+                if let Some(n) = o.get("name").and_then(|n| n.as_str()) {
+                    *out.entry(n.to_string()).or_default() += 1;
+                }
+            }
+            o.values().for_each(|x| id_counts(x, out));
+        }
+        _ => {}
+    }
+}
+/// MO-11c (2026-11-25): an equation bound to a record or array literal with components in it, read as that literal where
+/// it is given, by name, to a JS component's prop whose type holds components.
+struct Through {
+    name: String,
+    ids: Vec<(*const Expr, String)>,
+    env: EId,
+    line: i64,
+    sites: HashSet<*const Expr>,
+    exported: bool,
+}
 pub(crate) fn arg_calls(v: &serde_json::Value, out: &mut HashMap<String, Vec<(String, usize)>>) {
     match v {
         serde_json::Value::Array(xs) => xs.iter().for_each(|x| arg_calls(x, out)),
@@ -1854,6 +1880,9 @@ pub struct Checker<'a> {
     /// MO-10i (2026-11-22): where a name is written as a call's whole argument, in this module: name → (callee's name,
     /// argument index). What `updater_positions` reads to find a named closure's uses before it walks its body
     arg_calls: HashMap<String, Vec<(String, usize)>>,
+    /// MO-11c (2026-11-25): each name's mentions in the module's tree, and the equations bound to a literal of components
+    id_counts: HashMap<String, usize>,
+    throughs: IndexMap<SId, Through>,
     /// …and the arguments so written that a draft-handing call took as its callback
     updater_ok: HashSet<*const Expr>,
     /// W-1a: the functions of functional writes of a source (`x := xs => …`): their parameter is the slot's value
@@ -2221,6 +2250,8 @@ impl<'a> Checker<'a> {
             nesting_word: None,
             view_props: HashMap::new(),
             arg_calls: HashMap::new(),
+            id_counts: HashMap::new(),
+            throughs: IndexMap::new(),
             updater_ok: HashSet::new(),
             write_fns: HashSet::new(),
             advice: vec![],
@@ -2346,7 +2377,9 @@ impl<'a> Checker<'a> {
     }
 
     pub fn run(&mut self, p: &'a Program) {
-        arg_calls(&p.to_json(), &mut self.arg_calls);
+        let tree = p.to_json();
+        arg_calls(&tree, &mut self.arg_calls);
+        id_counts(&tree, &mut self.id_counts);
         let r = self.region(None, "program", false, None);
         let root = self.env(None, r);
         self.root_env = Some(root);
@@ -2372,6 +2405,67 @@ impl<'a> Checker<'a> {
         self.snapshot_guards();
         self.guess_while_loading();
         self.kept_peek_check();
+        self.through_check();
+    }
+    /// MO-11c (2026-11-25): the components in a literal bound to a name are values on a condition — every mention of the
+    /// name is the whole value of a prop that holds components (counted over the module's whole tree, so a mention the walk
+    /// does not resolve counts against it), it is given to one, and it is not exported.
+    fn through_check(&mut self) {
+        let ts: Vec<(String, Vec<String>, i64, bool, usize)> = self.throughs.values().map(|t| (t.name.clone(), t.ids.iter().map(|x| x.1.clone()).collect(), t.line, t.exported, t.sites.len())).collect();
+        for (name, ids, line, exported, sites) in ts {
+            let n = self.id_counts.get(&name).copied().unwrap_or(0);
+            if !exported && sites > 0 && n == sites {
+                continue;
+            }
+            self.line = line;
+            let why = if exported { "it is exported, and a signature says nothing of the components a value holds" } else if sites == 0 { "it is given to no such prop" } else { "it is also read elsewhere" };
+            for x in ids {
+                self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {x} used as a value: {name} holds it, and a name bound to a record or an array of components is read as that literal only where every mention of the name is the whole value of a JS component's prop whose type holds components (`<Markdown builtins={{{name}}} />`) — {why} (MO-11c)"));
+            }
+        }
+    }
+    fn through_binding(&mut self, made: SId, name: &str, e: &'a Expr, env: EId, line: i64, exported: bool) {
+        fn walk(c: &Checker, e: &Expr, env: EId, out: &mut Vec<(*const Expr, String)>) {
+            match &e.k {
+                ExprKind::Id(n) => {
+                    if is_upper_tag(n) && c.lookup(env, n).is_some_and(|s| c.syms[s].kind == SymKind::Comp) && !c.value_ids.contains(&(e as *const Expr)) {
+                        out.push((e as *const Expr, n.clone()));
+                    }
+                }
+                ExprKind::Rec(fields) => {
+                    for f in fields {
+                        if let Field::Kv { v, .. } = f {
+                            walk(c, v, env, out);
+                        }
+                    }
+                }
+                ExprKind::Arr(items) => {
+                    for x in items {
+                        if !matches!(x.k, ExprKind::Spread(_)) {
+                            walk(c, x, env, out);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut ids = vec![];
+        walk(self, e, env, &mut ids);
+        if ids.is_empty() {
+            return;
+        }
+        for (at, _) in &ids {
+            self.value_ids.insert(*at);
+        }
+        self.throughs.insert(made, Through { name: name.to_string(), ids, env, line, sites: HashSet::new(), exported });
+    }
+    /// The equation a prop's argument names, where it is one read as its literal here: every component in it is the
+    /// same component at this place as where it was bound.
+    fn through_at(&self, e: &Expr, env: EId) -> Option<SId> {
+        let ExprKind::Id(n) = &e.k else { return None };
+        let s = self.lookup(env, n)?;
+        let t = self.throughs.get(&s)?;
+        t.ids.iter().all(|(_, x)| self.lookup(env, x) == self.lookup(t.env, x)).then_some(s)
     }
     fn run_later(&mut self, job: Later<'a>) {
         match job {
@@ -3471,6 +3565,14 @@ impl<'a> Checker<'a> {
                     // MO-10f: a signature carries an equation's rows, not its fields': an importer's `x.data` would be unseen
                     if let Some(h) = self.envs[env].vars.get(name.as_str()).and_then(|&t| self.syms[t].held.first().cloned()) {
                         self.err("RESULT_AS_VALUE", "MO-10f", format!("{name} is a JS result whose fields hold or fail where each is read ({name}.{}), and a module's signature says nothing of a value's fields: export the field, `export {} = {name}.{}`, which carries its rows", h.0, h.0.rsplit('.').next().unwrap_or(""), h.0));
+                    }
+                }
+                // MO-11c: a literal of components bound to a name
+                if matches!(e.k, ExprKind::Rec(_) | ExprKind::Arr(_)) {
+                    if let Some(&made) = self.envs[env].vars.get(name.as_str()) {
+                        if self.syms[made].factory.is_none() {
+                            self.through_binding(made, name, e, env, d.line() as i64, d.exported());
+                        }
                     }
                 }
                 // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
@@ -6319,6 +6421,14 @@ impl<'a> Checker<'a> {
                             }
                         }
                         let values = self.component_values(tag, attrs, env);
+                        if let Some(sig) = self.lookup(env, tag).and_then(|s| self.syms[s].comp_region).and_then(|r| self.regions[r].sig.as_ref()) {
+                            let held: Vec<&'a Attr> = attrs.iter().filter(|a| sig.props.get(&a.name).is_some_and(|p| p.components)).collect();
+                            for a in held {
+                                if let Some(t) = self.through_at(&a.e, env) {
+                                    self.throughs[&t].sites.insert(&a.e as *const Expr);
+                                }
+                            }
+                        }
                         for (i, v, at) in &values {
                             self.escape_comp(&v.tag, env); // E-5a: a JS component applies it
                             if i.is_none() {
@@ -6630,7 +6740,17 @@ impl<'a> Checker<'a> {
             }
             // MO-11c (2026-11-24): a prop whose type holds a `Component` in a record or an array (`builtins={{ Heading }}`,
             // `tabs={[First, Second]}`) — each component in the literal is a value there, applied as a direct one is
-            if !prop.is_some_and(|p| p.components) || !matches!(a.e.k, ExprKind::Rec(_) | ExprKind::Arr(_)) {
+            if !prop.is_some_and(|p| p.components) {
+                continue;
+            }
+            // MO-11c (2026-11-25): … or the name of an equation bound to such a literal, read as the literal
+            if let Some(t) = self.through_at(&a.e, env) {
+                for (at, n) in &self.throughs[&t].ids {
+                    out.push((None, VTree { tag: n.clone(), kids: vec![] }, *at));
+                }
+                continue;
+            }
+            if !matches!(a.e.k, ExprKind::Rec(_) | ExprKind::Arr(_)) {
                 continue;
             }
             fn walk(e: &Expr, is_comp: &dyn Fn(&Expr) -> bool, out: &mut Vec<(Option<usize>, VTree, *const Expr)>) {

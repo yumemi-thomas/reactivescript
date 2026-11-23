@@ -21,12 +21,15 @@ component Themed(props: { children: View }) {
   {props.children}
 }
 
+// the record has a name: every mention of it is the prop, so it is read as the literal it is bound to (MO-11c)
+builtins = { Root: Page, Heading: Heading, Paragraph: Paragraph, Strong: Strong }
+
 export default component App() {
   source text := `# Field notes
 
 written in **markdown**`
   <Themed>
-    <Markdown builtins={{ Root: Page, Heading: Heading, Paragraph: Paragraph, Strong: Strong }}>{text}</Markdown>
+    <Markdown builtins={builtins}>{text}</Markdown>
   </Themed>
   <button class="edit" onClick={() => { text := `# Field notes
 

@@ -1895,14 +1895,49 @@ export default component App() {
   array literals the prop is given is a value there, checked as applied,
   with no arguments, among the application's children. It was
   `COMPONENT_AS_VALUE`, and no row could say otherwise. The components are
-  read in the literal, where the checker can name them: a record built
-  elsewhere and given by name is a value (`COMPONENT_AS_VALUE` where it is
-  written), as is one given to a prop whose type holds none. It is a form
+  read in the literal, where the checker can name them; a record given to
+  a prop whose type holds none is a value (`COMPONENT_AS_VALUE`). It is a form
   of the same rule, not a word, and the type is the row's own text:
   `rx-declare` writes such a prop so (`builtins: { Heading?: Component;
   … }`, after the type the library names, MO-8o). Executable: S-module-39;
   the units `a_component_inside_a_record_or_an_array_in_a_prop_is_a_value_there`;
   `bench/coverage/solid-marked/markdown`.
+
+  *The literal by a name (2026-11-25; it was ruled a value on
+  2026-11-24).* `builtins = { Heading, Paragraph }` at a module's top, or
+  `tabs = [First, Second]` in a component, then `<Markdown
+  builtins={builtins} />`: the program a person writes once the record
+  has ten entries, or is given to two applications. It was
+  `COMPONENT_AS_VALUE` on the binding, because the checker read the
+  components "in the literal, where it can name them". It can name them
+  through an equation as well, since an equation is never written (E-1):
+  the name *is* its right side wherever it is read. So an equation whose
+  right side is a record or an array literal with components in it is
+  read as that literal where it is given, by name, as the whole value of
+  a prop whose type holds components — each component checked as applied
+  there, at every such application — on one condition, which is what
+  keeps it sound: **every mention of the name in the module is such a
+  prop.** A mention anywhere else (`tabs[0]`, `tabs.length`, an argument
+  of a fn, another equation, a spread) could hand a component to
+  something the checker does not see render it, so the components are
+  values again and the binding is refused, with which of the three it
+  was: read elsewhere, given to no such prop, or exported (a signature
+  says nothing of the components a value holds, MO-3, so an importer
+  could not be held to the condition). The mentions are counted over the
+  module's whole tree by the name as written, not by what each resolves
+  to, so a name bound twice (a loop's variable of the same name) counts
+  against the binding and never for it; and each component must be the
+  same component at the prop as at the binding. The literal is read, not
+  the values an expression may take: `wide ? [First, Second] : [First]`
+  is no literal, and stays a value. A factory's arguments and a fn's keep
+  the literal at the call (MO-11f, MO-11s): a factory's tree is read for
+  its shape (which record nests which, MO-11i), by both checkers and the
+  emitter, where a prop's is read only for the components in it. No word,
+  no form: the same rule, read one binding further.
+  Counter-examples held as units and as the coverage entry's variants:
+  `first = tabs[0]` beside the prop; `plain(tabs)` from a handler; a
+  loop variable named `tabs`; `export tabs = [Plain]`; the record
+  computed by a conditional.
 - **MO-11d (Hooks).** A library's hooks are MO-10's primitives. `useParams`
   and `useLocation` hand back a store, a value whose fields track at run
   time (MO-10b), so `id = params.id` follows the URL. `useNavigate` hands

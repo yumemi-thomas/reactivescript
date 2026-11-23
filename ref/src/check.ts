@@ -100,6 +100,7 @@ type Sym = {
   kind: SymKind; name: string; region: Region; line: number;
   question?: boolean;                  // source x = e
   eqDecl?: Extract<Decl, { k: "eq" }>;  // a declared equation: a guess may sit over it (AC-3, ST-5c)
+  through?: { ids: Extract<Expr, { k: "id" }>[]; env: Env; line: number; sites: Set<Expr>; exported: boolean };   // MO-11c: bound to a literal of components, read as the literal where it is given to a prop that holds components
   io?: boolean;                        // calling it is io (R-io)
   param?: boolean;                     // a fn's parameter: never a write target (O-4)
   instantiating?: boolean;             // fn with ref params or declarations (E-9)
@@ -247,6 +248,15 @@ export function argCalls(v: unknown, out: Map<string, [string, number][]>): void
   const o = v as { k?: string; f?: { k?: string; name?: string }; args?: { k?: string; name?: string }[] };
   if (o.k === "call" && o.f?.k === "id" && typeof o.f.name === "string" && Array.isArray(o.args)) o.args.forEach((a, i) => { if (a?.k === "id" && typeof a.name === "string") { let xs = out.get(a.name); if (!xs) { xs = []; out.set(a.name, xs); } xs.push([o.f!.name!, i]); } });
   for (const x of Object.values(v)) argCalls(x, out);
+}
+/** MO-11c (2026-11-25): how many times each name is written as an expression of its own in the module's tree (an `id`, a
+ *  `pre`), whatever it resolves to — read off the tree as data, so no mention is missed and shadowing only counts more. */
+export function idCounts(v: unknown, out: Map<string, number>): void {
+  if (Array.isArray(v)) { for (const x of v) idCounts(x, out); return; }
+  if (!v || typeof v !== "object") return;
+  const o = v as { k?: string; name?: string };
+  if ((o.k === "id" || o.k === "pre") && typeof o.name === "string") out.set(o.name, (out.get(o.name) ?? 0) + 1);
+  for (const x of Object.values(v)) idCounts(x, out);
 }
 /** ST-4d: a key two rows of a list literal share — `[{ id: 1, … }, { id: 1, … }]` keyed by `id` — as written. */
 function duplicateKey(e: Expr, key: string): string | undefined {
@@ -714,7 +724,7 @@ class Checker {
   private bind(env: Env, name: string, sym: Sym) { env.vars.set(name, sym); this.model.sym(sym); }
 
   run(p: Program) {
-    argCalls(p, this.argCalls);
+    argCalls(p, this.argCalls); idCounts(p, this.idCounts);
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     // MO-1c: the runtime mounts the entry's default component, and no other module's — a dependency's is applied where an
@@ -729,6 +739,7 @@ class Checker {
     this.loadingOnOutside();
     this.guessWhileLoading();
     this.keptPeekCheck();
+    this.throughCheck();
   }
 
   // ---- AC-3a: a guess a click can make while its value loads a new question ----
@@ -1296,6 +1307,7 @@ class Checker {
           const h = made?.held?.[0];
           if (h) this.err("RESULT_AS_VALUE", "MO-10f", `${d.name} is a JS result whose fields hold or fail where each is read (${d.name}.${h[0]}), and a module's signature says nothing of a value's fields: export the field, \`export ${h[0].split(".").pop()} = ${d.name}.${h[0]}\`, which carries its rows`);
         }
+        if (made && !made.factory && (d.e.k === "rec" || d.e.k === "arr")) this.throughBinding(made, d, env);   // MO-11c: a literal of components bound to a name
         if (d.e.k === "id" || d.e.k === "member" || d.e.k === "index") this.wholeOk.add(d.e);   // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
         { const ps = this.updaterPositions(d.name, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
           if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
@@ -2629,6 +2641,8 @@ class Checker {
       // MO-11c (2026-11-24): a prop whose type holds a `Component` in a record or an array (`builtins={{ Heading }}`,
       // `tabs={[First, Second]}`) — each component in the literal is a value there, applied as a direct one is
       if (!sig?.props[a.name]?.components) continue;
+      // MO-11c (2026-11-25): … or the name of an equation bound to such a literal, read as the literal
+      if (a.e.k === "id") { const t = env.lookup(a.e.name)?.through; if (t && t.ids.every(x => env.lookup(x.name) === t.env.lookup(x.name))) { t.sites.add(a.e); for (const x of t.ids) { out.set(x, this.applied([x.name], m.line)[0]); escapes(x.name); } } continue; }
       const walk = (e: Expr) => {
         if (isComp(e)) { this.valueIds.add(e); out.set(e, this.applied([e.name], m.line)[0]); escapes(e.name); }
         else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
@@ -2637,6 +2651,34 @@ class Checker {
       if (a.e.k === "rec" || a.e.k === "arr") walk(a.e);
     }
     return out;
+  }
+  /** MO-11c (2026-11-25): an equation whose right side is a record or array literal with components in it
+   *  (`builtins = { Heading }`) is read as that literal where it is given, by name, to a JS component's prop whose type
+   *  holds components. The components in it are values on that condition, held at the end of the module (throughCheck). */
+  private idCounts = new Map<string, number>();
+  private throughs: Sym[] = [];
+  private throughBinding(made: Sym, d: Extract<Decl, { k: "eq" }>, env: Env) {
+    const ids: Extract<Expr, { k: "id" }>[] = [];
+    const walk = (e: Expr) => {
+      if (e.k === "id") { if (/^[A-Z]/.test(e.name) && env.lookup(e.name)?.kind === "comp" && !this.valueIds.has(e)) ids.push(e); }
+      else if (e.k === "rec") { for (const x of e.fields) if (!("spread" in x)) walk(x.v); }
+      else if (e.k === "arr") { for (const x of e.items) if (x.k !== "spread") walk(x); }
+    };
+    walk(d.e); if (!ids.length) return;
+    for (const x of ids) this.valueIds.add(x);
+    made.through = { ids, env, line: d.line, sites: new Set(), exported: !!d.exported };
+    this.throughs.push(made);
+  }
+  /** Every mention of the name is such a prop (counted over the module's whole tree, so a mention the walk does not
+   *  resolve — a callee, a path, a name shadowed in between — counts against it), it is given to one, and it is not exported. */
+  private throughCheck() {
+    for (const s of this.throughs) {
+      const t = s.through!; const n = this.idCounts.get(s.name) ?? 0;
+      if (!t.exported && t.sites.size > 0 && n === t.sites.size) continue;
+      this.line = t.line;
+      const why = t.exported ? "it is exported, and a signature says nothing of the components a value holds" : t.sites.size === 0 ? "it is given to no such prop" : "it is also read elsewhere";
+      for (const x of t.ids) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${x.name} used as a value: ${s.name} holds it, and a name bound to a record or an array of components is read as that literal only where every mention of the name is the whole value of a JS component's prop whose type holds components (\`<Markdown builtins={${s.name}} />\`) — ${why} (MO-11c)`);
+    }
   }
   private viewProps = new Map<Region, Set<string>>();   // MO-11t: a JS component's props that take a view (typed `View`, not `children`)
   /** MO-10f: each component's prop interfaces, found before any view is walked. */

@@ -475,6 +475,12 @@ export const units: [string, () => void][] = [
       "/app/mdmeta.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown meta={{ title: \"x\", icon: Plain }} />\n}\n",
       "/app/mdone.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown one={{ a: Plain }} />\n}\n",
       "/app/mdname.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  tabs = [Plain]\n  <Markdown tabs={tabs} />\n}\n",
+      "/app/mdnamed.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nbuiltins = { Heading: Heading }\nexport default component App() {\n  provide accent = \"dark\"\n  tabs = [Plain, Heading]\n  <Markdown builtins={builtins} tabs={tabs} />\n  <Markdown tabs={tabs} />\n}\n",
+      "/app/mdnamedbad.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nbuiltins = { Heading: Heading }\nexport default component App() {\n  <Markdown builtins={builtins} />\n}\n",
+      "/app/mdelse.rx": "import { Markdown, plain } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  tabs = [Plain]\n  first = tabs[0]\n  <Markdown tabs={tabs} />\n}\n",
+      "/app/mdcall.rx": "import { Markdown, plain } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  tabs = [Plain]\n  <Markdown tabs={tabs} />\n  <button onClick={() => { plain(tabs) }}>x</button>\n}\n",
+      "/app/mdshadow.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  tabs = [Plain]\n  <Markdown tabs={tabs} />\n  for tabs in [[1]] { <i>{tabs.length}</i> }\n}\n",
+      "/app/mdexport.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport tabs = [Plain]\nexport default component App() {\n  <Markdown tabs={tabs} />\n}\n",
       "/app/mdundeclared.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown other={{ a: Plain }} />\n}\n",
     });
     const diags = (name: string) => { const entry = `/app/${name}.rx`; return checkModules(loadModules(entry, fs)).diags.map(x => `${x.code}@${(x.file ?? entry).split("/").pop()}:${x.line}`); };
@@ -482,7 +488,13 @@ export const units: [string, () => void][] = [
     deepStrictEqual(diags("mdbad"), ["CONTEXT_NOT_FOUND@mdbad.rx:4"]);   // checked as applied there: the heading's context is not above the component
     deepStrictEqual(diags("mdmeta"), ["COMPONENT_AS_VALUE@mdmeta.rx:10"]);   // a record in a prop whose type holds no component
     deepStrictEqual(diags("mdone"), ["COMPONENT_AS_VALUE@mdone.rx:10"]);   // a record in a prop typed `Component`
-    deepStrictEqual(diags("mdname"), ["COMPONENT_AS_VALUE@mdname.rx:10"]);   // a list built elsewhere: the literal is where the checker can name them
+    deepStrictEqual(diags("mdname"), []);   // (2026-11-25) a list bound to a name and given only to such a prop is read as the literal
+    deepStrictEqual(diags("mdnamed"), []);   // … a module's binding and a component's, the second given to two applications
+    deepStrictEqual(diags("mdnamedbad"), ["CONTEXT_NOT_FOUND@mdnamedbad.rx:4"]);   // … checked as applied where it is given
+    deepStrictEqual(diags("mdelse"), ["COMPONENT_AS_VALUE@mdelse.rx:10"]);   // … read elsewhere too (`tabs[0]`): a value
+    deepStrictEqual(diags("mdcall"), ["COMPONENT_AS_VALUE@mdcall.rx:10"]);   // … given to a fn too
+    deepStrictEqual(diags("mdshadow"), ["COMPONENT_AS_VALUE@mdshadow.rx:10"]);   // … a second binding of the name: the count is of the name as written, and errs on that side
+    deepStrictEqual(diags("mdexport"), ["COMPONENT_AS_VALUE@mdexport.rx:9"]);   // … exported: a signature says nothing of what a value holds
     deepStrictEqual(diags("mdundeclared"), ["COMPONENT_AS_VALUE@mdundeclared.rx:10"]);   // an undeclared prop
     deepStrictEqual(["{ Heading?: Component<{ depth: number }> }", "Component[]", "Record<string, Component>", "Partial<{ a: Component }> | undefined", "readonly [Component, string]", "Component", "string | Component", "(c: Component) => void", "{ render: (c: Component) => View }", "{ title: string }", "Array<{ view: Component; path: string }>"].map(t => holdsComponent(t)), [true, true, true, true, true, false, false, false, false, false, true]);
   }],
