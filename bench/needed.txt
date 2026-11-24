@@ -2,55 +2,55 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
 
 47 a correct program is refused without (31 instantiates, 12 pure, 4 provides; by diagnostic: 42 IO_IN_REACTIVE, 4 CONTEXT_NOT_FOUND, 2 SNAPSHOT_KEPT, 1 SNAPSHOT_ARGUMENT):
   cover-primitives-a11y/rx-types/@solid-primitives/a11y.d.rx: createAnnounce: instantiates — without it: IO_IN_REACTIVE main.rx:7
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-analytics/rx-types/@solid-primitives/analytics.d.rx: createAnalytics: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-async/rx-types/@solid-primitives/async.d.rx: createAbortable: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-broadcast-channel/rx-types/@solid-primitives/broadcast-channel.d.rx: createBroadcastChannel: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-deep/rx-types/@solid-primitives/deep.d.rx: trackDeep: pure — without it: IO_IN_REACTIVE main.rx:7
       not proven: it calls traverse, which is not proven: it calls .has(…), a method that is not read [@solid-primitives/deep/dist/track-deep.js:29]
   cover-primitives-event-bus/rx-types/@solid-primitives/event-bus.d.rx: createEventBus: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-event-dispatcher/rx-types/@solid-primitives/event-dispatcher.d.rx: createEventDispatcher: instantiates — without it: SNAPSHOT_KEPT main.rx:5
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-event-props/rx-types/@solid-primitives/event-props.d.rx: createEventProps: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-filesystem/rx-types/@solid-primitives/filesystem.d.rx: createFileSystem: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-filesystem/rx-types/@solid-primitives/filesystem.d.rx: makeVirtualFileSystem: pure — without it: IO_IN_REACTIVE main.rx:5
       not proven: it calls .getItem(…), a method that is not read [@solid-primitives/filesystem/dist/adapter-vfs.js:14]
   cover-primitives-flux-store/counter.d.rx: createCounter: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-idle/rx-types/@solid-primitives/idle.d.rx: createIdleTimer: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-input-mask/rx-types/@solid-primitives/input-mask.d.rx: createInputMask: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-keyboard/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: instantiates — without it: IO_IN_REACTIVE main.rx:7
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-map/map.d.rx: makeMap: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-marker/marker.d.rx: createHighlighter: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-masonry/rx-types/@solid-primitives/masonry.d.rx: createMasonry: instantiates — without it: IO_IN_REACTIVE main.rx:7
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-mutable/cart.d.rx: createCart: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-resize-observer/rx-types/@solid-primitives/resize-observer.d.rx: createWindowSize: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-script-loader/rx-types/@solid-primitives/script-loader.d.rx: createScriptLoader: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-set/set.d.rx: makeSet: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-url/rx-types/@solid-primitives/url.d.rx: createURL: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-websocket/rx-types/@solid-primitives/websocket.d.rx: createWS: instantiates — without it: IO_IN_REACTIVE main.rx:5, SNAPSHOT_ARGUMENT main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-workers/worker.d.rx: createSquarer: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-solid-use-server-value/ticket.d.rx: useTicket: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   cover-ui-sdk-utilities/rx-types/@ui-sdk/solid/date.d.rx: addDays: pure — without it: IO_IN_REACTIVE main.rx:9
       not proven: it calls clampDays, which is not proven: it reads firstDay, a value made by code that runs when the module loads: not known to be a constant [@ui-sdk/core/dist/foundation/date/plain-date.js:130]
   cover-ui-sdk-utilities/rx-types/@ui-sdk/solid/date.d.rx: formatDate: pure — without it: IO_IN_REACTIVE main.rx:9
@@ -64,21 +64,21 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
   file-routes/src/router.d.rx: Router: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10
       not proven: children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
   formisch-field-array/rx-types/@formisch/solid/v2.d.rx: createForm: instantiates — without it: IO_IN_REACTIVE main.rx:12
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   formisch-field-path/rx-types/@formisch/solid/v2.d.rx: createForm: instantiates — without it: IO_IN_REACTIVE main.rx:12
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   primitives-listeners/rx-types/@solid-primitives/event-bus.d.rx: createEventBus: instantiates — without it: IO_IN_REACTIVE main.rx:15
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: instantiates — without it: IO_IN_REACTIVE main.rx:15
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   query-mutation/api.d.rx: dehydrated: pure — without it: IO_IN_REACTIVE main.rx:20
       not proven: it reads document: the environment [api.js:24]
   query-mutation/api.d.rx: fetchTodo: pure — without it: IO_IN_REACTIVE main.rx:10
       not proven: it reads seen, a value made by code that runs when the module loads: not known to be a constant [api.js:8]
   query-mutation/api.d.rx: makeClient: instantiates — without it: IO_IN_REACTIVE main.rx:25
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRouter: instantiates — without it: IO_IN_REACTIVE main.rx:30, SNAPSHOT_KEPT main.rx:30
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   router-data/people.d.rx: getPerson: pure — without it: IO_IN_REACTIVE main.rx:18
       not proven: it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
   router-provider/src/router.d.rx: AppRouter: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:9, CONTEXT_NOT_FOUND host.d.rx:9
@@ -86,7 +86,7 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
   router-rx-routes/src/router.d.rx: AppRouter: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:11, CONTEXT_NOT_FOUND host.d.rx:11, CONTEXT_NOT_FOUND host.d.rx:11, CONTEXT_NOT_FOUND host.d.rx:11
       not proven: it renders a component that is not read, or its props go where they are not followed
   solid-use-primitives/use.d.rx: useTicket: instantiates — without it: IO_IN_REACTIVE main.rx:20
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
   ssr-divergence/env.d.rx: whereAmI: pure — without it: IO_IN_REACTIVE main.rx:6
       not proven: it tests where it runs (typeof window) and answers data: what it answers may differ between the server and the browser (10 SV-7c) [env.js:2]
   start-mode/src/people.d.rx: getPerson: pure — without it: IO_IN_REACTIVE [id].rx:6, IO_IN_REACTIVE [id].rx:6, IO_IN_REACTIVE [id].rx:6
@@ -94,262 +94,6 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
   start-mode/src/router.d.rx: Router: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10
       not proven: children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
   wardic-motion/rx-types/@wardic/solid.d.rx: ward: instantiates — without it: IO_IN_REACTIVE main.rx:11
-      not proven: a word a name suggests: not read from the code
+      not proven: the code does not show a pure fn that makes Solid nodes
 
-128 no program needs (they go):
-  cover-primitives-a11y/rx-types/@solid-primitives/a11y.d.rx: createAnnounce: pure
-      not proven: it calls makeAnnounce, which is not proven: it calls createLiveRegionEl, which is not proven: it reads document: the environment [@solid-primitives/a11y/dist/announce.js:6]
-  cover-primitives-a11y/rx-types/@solid-primitives/a11y.d.rx: createReducedMotion: pure
-      not proven: it reads window: the environment [@solid-primitives/a11y/dist/reduced-motion.js:34]
-  cover-primitives-active-element/rx-types/@solid-primitives/active-element.d.rx: createActiveElement: pure
-      not proven: it calls makeActiveElementListener, which is not proven: it calls makeEventListener, which is not proven: addEventListener: it registers with the platform [@solid-primitives/event-listener/dist/eventListener.js:7]
-  cover-primitives-analytics/rx-types/@solid-primitives/analytics.d.rx: createAnalytics: pure
-      not proven: it calls createServerSafeSignal, which is not proven: it hands `value`, a value that is not known to be a function of its own, to be called [@solid-primitives/utils/dist/index.js:220]
-  cover-primitives-animation/rx-types/@solid-primitives/animation.d.rx: createAnimate: pure
-      not proven: it reads INTERNAL_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/animation/dist/animate.js:17]
-  cover-primitives-async/rx-types/@solid-primitives/async.d.rx: createAbortable: pure
-      not proven: it calls makeAbortable, which is not proven: it reads chained, a value of the module that is changed in place (.set()) [index.js:95]: state that changes [@solid-primitives/async/dist/index.js:95]
-  cover-primitives-audio/rx-types/@solid-primitives/audio.d.rx: createAudio: pure
-      not proven: it calls unwrapSource, which is not proven: it reads HTMLAudioElement, a global that is not known to only compute [@solid-primitives/audio/dist/index.js:12]
-  cover-primitives-bounds/rx-types/@solid-primitives/bounds.d.rx: createElementBounds: pure
-      not proven: it reads NULLED_BOUNDS, a value of the module that is handed back, to be changed by whoever calls [index.js:49]: state that changes [@solid-primitives/bounds/dist/index.js:49]
-  cover-primitives-broadcast-channel/rx-types/@solid-primitives/broadcast-channel.d.rx: createBroadcastChannel: pure
-      not proven: it calls makeBroadcastChannel, which is not proven: it reads map, a value of the module that is written to [index.js:59]: state that changes [@solid-primitives/broadcast-channel/dist/index.js:30]
-  cover-primitives-connectivity/rx-types/@solid-primitives/connectivity.d.rx: createConnectivitySignal: pure
-      not proven: it reads navigator: the environment [@solid-primitives/connectivity/dist/index.js:75]
-  cover-primitives-controlled-signal/rx-types/@solid-primitives/controlled-signal.d.rx: createControllableSignal: pure
-      not proven: it calls .value(…) of an argument whose type has methods of its own: not known to be the built-in [@solid-primitives/controlled-signal/dist/index.js:17]
-  cover-primitives-cookies/rx-types/@solid-primitives/cookies.d.rx: createUserTheme: pure
-      not proven: it calls createServerCookie, which is not proven: it calls getCookiesString, which is not proven: it calls getRequestEvent, of Solid: not known to only compute [@solid-primitives/cookies/dist/index.js:14]
-  cover-primitives-date/rx-types/@solid-primitives/date.d.rx: createDateNow: pure
-      not proven: new Date: not known to only compute [@solid-primitives/date/dist/primitives.js:43]
-  cover-primitives-destructure/fields.d.rx: createName: pure
-      not proven: it calls destructure, which is not proven: it calls createProxyCache, which is not proven: new Proxy: not known to only compute [@solid-primitives/destructure/dist/index.js:11]
-  cover-primitives-devices/rx-types/@solid-primitives/devices.d.rx: createDevices: pure
-      not proven: it reads navigator: the environment [@solid-primitives/devices/dist/index.js:17]
-  cover-primitives-drag-drop/rx-types/@solid-primitives/drag-drop.d.rx: createDraggable: pure
-      not proven: it reads INTERNAL_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/drag-drop/dist/draggable.js:99]
-  cover-primitives-event-bus/rx-types/@solid-primitives/event-bus.d.rx: createEventBus: pure
-      not proven: it calls tryOnCleanup: a value made by a call, or one the module assigns again [@solid-primitives/event-bus/dist/eventBus.js:36]
-  cover-primitives-event-props/rx-types/@solid-primitives/event-props.d.rx: createEventProps: pure
-      not proven: it calls .forEach(…) of an argument whose type has methods of its own: not known to be the built-in [@solid-primitives/event-props/dist/index.js:25]
-  cover-primitives-favicon/rx-types/@solid-primitives/favicon.d.rx: createFavicon: pure
-      not proven: it calls makeFavicon, which is not proven: it calls bindFaviconLink, which is not proven: it reads document: the environment [@solid-primitives/favicon/dist/link.js:22]
-  cover-primitives-filesystem/rx-types/@solid-primitives/filesystem.d.rx: createFileSystem: pure
-      not proven: it calls .then(…) of an argument whose type has methods of its own: not known to be the built-in [@solid-primitives/filesystem/dist/reactive.js:195]
-  cover-primitives-flux-store/counter.d.rx: createCounter: pure
-      not proven: it calls createFluxStore, which is not proven: it calls .getters(…), a method that is not read [@solid-primitives/flux-store/dist/index.js:28]
-  cover-primitives-form/rx-types/@solid-primitives/form.d.rx: createForm: pure
-      not proven: it calls `fn`, a value it was handed or computed, as a function [@solid-primitives/form/dist/form.js:79]
-  cover-primitives-fullscreen/rx-types/@solid-primitives/fullscreen.d.rx: createFullscreen: pure
-      not proven: it reads document: the environment [@solid-primitives/fullscreen/dist/index.js:56]
-  cover-primitives-geolocation/position.d.rx: createPosition: pure
-      not proven: it calls `location`, a value it was handed or computed, as a function [position.js:3]
-  cover-primitives-graphql/client.d.rx: createGreeting: pure
-      not proven: it calls a function, which is not proven: it reads url, a value the function that made it holds: not known to be the same at every call [@solid-primitives/graphql/dist/index.js:38]
-  cover-primitives-history/history.d.rx: createUndoHistory: pure
-      not proven: it calls createUndoHistory, which is not proven: it hands `s`, a value that is not known to be a function of its own, to be called [@solid-primitives/history/dist/index.js:41]
-  cover-primitives-i18n/i18n.d.rx: createI18n: pure
-      not proven: it reads dictionaries, a value made by code that runs when the module loads: not known to be a constant [i18n.js:3]
-  cover-primitives-i18n/i18n.d.rx: createI18n: instantiates
-      not proven: a word a name suggests: not read from the code
-  cover-primitives-idle/rx-types/@solid-primitives/idle.d.rx: createIdleTimer: pure
-      not proven: it reads INTERNAL_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/idle/dist/createIdleTimer.js:60]
-  cover-primitives-input-mask/rx-types/@solid-primitives/input-mask.d.rx: createInputMask: pure
-      not proven: it calls anyMaskToFn, which is not proven: it calls stringMaskToArray, which is not proven: it reads stringMaskRegExp, an object the module exports: any importer may change it [@solid-primitives/input-mask/dist/index.js:12]
-  cover-primitives-intersection-observer/rx-types/@solid-primitives/intersection-observer.d.rx: createVisibilityObserver: pure
-      not proven: it reads Element, a global that is not known to only compute [@solid-primitives/intersection-observer/dist/index.js:185]
-  cover-primitives-keyboard/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: pure
-      not proven: it calls makeEventListener, which is not proven: addEventListener: it registers with the platform [@solid-primitives/event-listener/dist/eventListener.js:7]
-  cover-primitives-keyboard/rx-types/@solid-primitives/keyboard.d.rx: useKeyDownList: pure
-      not proven: it assigns listeners, a variable of the function around it [@solid-primitives/rootless/dist/index.js:94]
-  cover-primitives-list-state/rx-types/@solid-primitives/list-state.d.rx: createListState: pure
-      not proven: it calls createServerSafeSignal, which is not proven: it hands `value`, a value that is not known to be a function of its own, to be called [@solid-primitives/utils/dist/index.js:220]
-  cover-primitives-map/map.d.rx: makeMap: pure
-      not proven: it calls ReactiveMap, which is not proven: it calls TriggerCache, which is not proven: new mapConstructor(…): a class that is a value [@solid-primitives/trigger/dist/index.js:39]
-  cover-primitives-map/rx-types/@solid-primitives/map.d.rx: createMap: pure
-      not proven: it calls ReactiveMap, which is not proven: it calls TriggerCache, which is not proven: new mapConstructor(…): a class that is a value [@solid-primitives/trigger/dist/index.js:39]
-  cover-primitives-map/rx-types/@solid-primitives/map.d.rx: createMap: instantiates
-      not proven: a word a name suggests: not read from the code
-  cover-primitives-marker/marker.d.rx: createHighlighter: pure
-      not proven: it calls `match`, a value it was handed or computed, as a function [marker.js:2]
-  cover-primitives-masonry/rx-types/@solid-primitives/masonry.d.rx: createMasonry: pure
-      not proven: it hands `source`, a value that is not known to be a function of its own, to be called [@solid-primitives/masonry/dist/index.js:26]
-  cover-primitives-media/rx-types/@solid-primitives/media.d.rx: createMediaQuery: pure
-      not proven: it reads window: the environment [@solid-primitives/media/dist/index.js:40]
-  cover-primitives-media/rx-types/@solid-primitives/media.d.rx: createMediaQuery: instantiates
-      not proven: a word a name suggests: not read from the code
-  cover-primitives-media/rx-types/@solid-primitives/media.d.rx: createPrefersDark: pure
-      not proven: it calls createMediaQuery, which is not proven: it reads window: the environment [@solid-primitives/media/dist/index.js:40]
-  cover-primitives-media/rx-types/@solid-primitives/media.d.rx: createPrefersDark: instantiates
-      not proven: a word a name suggests: not read from the code
-  cover-primitives-mediastream/rx-types/@solid-primitives/mediastream.d.rx: createStream: pure
-      not proven: it reads INTERNAL_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/mediastream/dist/index.js:30]
-  cover-primitives-memo/rx-types/@solid-primitives/memo.d.rx: createWritableMemo: pure
-      not proven: it calls createLatest, which is not proven: it reads EQUALS_FALSE_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/memo/dist/index.js:63]
-  cover-primitives-mouse/rx-types/@solid-primitives/mouse.d.rx: createMousePosition: pure
-      not proven: it reads DEFAULT_MOUSE_POSITION, an object the module exports: any importer may change it [@solid-primitives/mouse/dist/primitives.js:29]
-  cover-primitives-mutable/cart.d.rx: createCart: pure
-      not proven: it calls createMutable, which is not proven: it calls wrap, which is not proven: it reads $PROXY, of Solid: not known to be a constant [@solid-primitives/mutable/dist/index.js:101]
-  cover-primitives-mutation-observer/rx-types/@solid-primitives/mutation-observer.d.rx: createMutationObserver: pure
-      not proven: it reads isServer, of Solid: the environment [@solid-primitives/mutation-observer/dist/index.js:8]
-  cover-primitives-notification/rx-types/@solid-primitives/notification.d.rx: createNotificationPermission: pure
-      not proven: it calls isNotificationSupported, which is not proven: it reads isServer, of Solid: the environment [@solid-primitives/notification/dist/index.js:11]
-  cover-primitives-orientation/rx-types/@solid-primitives/orientation.d.rx: createOrientation: pure
-      not proven: it calls readOrientation, which is not proven: it reads screen: the environment [@solid-primitives/orientation/dist/index.js:21]
-  cover-primitives-page-utilities/rx-types/@solid-primitives/page-utilities.d.rx: createPageVisibility: pure
-      not proven: it reads INTERNAL_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/page-utilities/dist/index.js:24]
-  cover-primitives-permission/rx-types/@solid-primitives/permission.d.rx: createPermission: pure
-      not proven: it reads navigator: the environment [@solid-primitives/permission/dist/index.js:15]
-  cover-primitives-pointer/rx-types/@solid-primitives/pointer.d.rx: createPointerPosition: pure
-      not proven: it reads DEFAULT_STATE, an object the module exports: any importer may change it [@solid-primitives/pointer/dist/index.js:132]
-  cover-primitives-presence/rx-types/@solid-primitives/presence.d.rx: createPresence: pure
-      not proven: it reads INTERNAL_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/presence/dist/index.js:111]
-  cover-primitives-queue/rx-types/@solid-primitives/queue.d.rx: createQueue: pure
-      not proven: it calls createServerSafeSignal, which is not proven: it hands `value`, a value that is not known to be a function of its own, to be called [@solid-primitives/utils/dist/index.js:220]
-  cover-primitives-resize-observer/rx-types/@solid-primitives/resize-observer.d.rx: createWindowSize: pure
-      not proven: it reads WINDOW_SIZE_FALLBACK, a value of the module that is given to createStaticStore, which keeps it or hands it on [index.js:88]: state that changes [@solid-primitives/resize-observer/dist/index.js:88]
-  cover-primitives-rootless/clicks.d.rx: useClicks: pure
-      not proven: it assigns listeners, a variable of the function around it [@solid-primitives/rootless/dist/index.js:94]
-  cover-primitives-script-loader/rx-types/@solid-primitives/script-loader.d.rx: createScriptLoader: pure
-      not proven: it reads document: the environment [@solid-primitives/script-loader/dist/index.js:24]
-  cover-primitives-scroll/rx-types/@solid-primitives/scroll.d.rx: createScrollPosition: pure
-      not proven: it reads window: the environment [@solid-primitives/scroll/dist/scrollPosition.js:51]
-  cover-primitives-selection/rx-types/@solid-primitives/selection.d.rx: createSelection: pure
-      not proven: it reads INTERNAL_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/selection/dist/index.js:37]
-  cover-primitives-sensors/rx-types/@solid-primitives/sensors.d.rx: createBattery: pure
-      not proven: it reads OWNED_WRITE, a value of the module that is given to a call, which is not read [battery.js:51]: state that changes [@solid-primitives/sensors/dist/battery.js:51]
-  cover-primitives-set/rx-types/@solid-primitives/set.d.rx: createSet: pure
-      not proven: it calls ReactiveSet, which is not proven: it calls TriggerCache, which is not proven: new mapConstructor(…): a class that is a value [@solid-primitives/trigger/dist/index.js:39]
-  cover-primitives-set/rx-types/@solid-primitives/set.d.rx: createSet: instantiates
-      not proven: a word a name suggests: not read from the code
-  cover-primitives-set/set.d.rx: makeSet: pure
-      not proven: it calls ReactiveSet, which is not proven: it calls TriggerCache, which is not proven: new mapConstructor(…): a class that is a value [@solid-primitives/trigger/dist/index.js:39]
-  cover-primitives-share/rx-types/@solid-primitives/share.d.rx: createWebShare: pure
-      not proven: it reads INTERNAL_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/share/dist/web-share.js:55]
-  cover-primitives-spring/rx-types/@solid-primitives/spring.d.rx: createSpring: pure
-      not proven: it reads INTERNAL_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/spring/dist/index.js:159]
-  cover-primitives-sse/stream.d.rx: createStream: pure
-      not proven: it calls createSSE, which is not proven: it calls NotReadyError, of Solid: not known to only compute [@solid-primitives/sse/dist/sse.js:105]
-  cover-primitives-state-machine/light.d.rx: createLight: pure
-      not proven: it calls createMachine, which is not proven: it reads STATE_OPTIONS, a value made by code that runs when the module loads: not known to be a constant [@solid-primitives/state-machine/dist/index.js:60]
-  cover-primitives-static-store/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: instantiates
-      not proven: a word a name suggests: not read from the code
-  cover-primitives-storage/storage.d.rx: persisted: pure
-      not proven: it calls makePersisted, which is not proven: it reads globalThis: the environment [@solid-primitives/storage/dist/persisted.js:39]
-  cover-primitives-styles/rx-types/@solid-primitives/styles.d.rx: createRemSize: pure
-      not proven: it reads serverRemSize, a variable of the module that is assigned: state that changes [@solid-primitives/styles/dist/index.js:30]
-  cover-primitives-timer/rx-types/@solid-primitives/timer.d.rx: createPolled: pure
-      not proven: it calls createTimer, which is not proven: performance: the clock [@solid-primitives/timer/dist/index.js:42]
-  cover-primitives-transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: pure
-      not proven: it reads VERSION_SIGNAL_OPTS, a value of the module that is given to a call, which is not read [index.js:46]: state that changes [@solid-primitives/transition-group/dist/index.js:46]
-  cover-primitives-trigger/version.d.rx: createVersion: pure
-      not proven: it calls createTrigger, which is not proven: it reads triggerOptions, a value made by code that runs when the module loads: not known to be a constant [@solid-primitives/trigger/dist/index.js:34]
-  cover-primitives-tween/rx-types/@solid-primitives/tween.d.rx: createTween: pure
-      not proven: it tests where it runs (isServer) and answers data: what it answers may differ between the server and the browser (10 SV-7c) [@solid-primitives/tween/dist/index.js:27]
-  cover-primitives-url/rx-types/@solid-primitives/url.d.rx: createURL: pure
-      not proven: it calls ReactiveURL, which is not proven: it calls createURLRecord, which is not proven: it calls pick, which is not proven: it may change its argument `keys`, `object` in place: it writes to n, which may hold a part of it (an assignment) [@solid-primitives/utils/dist/immutable/object.js:24]
-  cover-primitives-vibrate/rx-types/@solid-primitives/vibrate.d.rx: createVibrate: pure
-      not proven: it calls isVibrationSupported, which is not proven: it reads isServer, of Solid: the environment [@solid-primitives/vibrate/dist/index.js:10]
-  cover-primitives-video/rx-types/@solid-primitives/video.d.rx: createVideo: pure
-      not proven: it calls makeVideo, which is not proven: it calls unwrapSource, which is not proven: it reads HTMLVideoElement, a global that is not known to only compute [@solid-primitives/video/dist/createVideo.js:18]
-  cover-primitives-websocket/rx-types/@solid-primitives/websocket.d.rx: createWS: pure
-      not proven: it calls makeWS, which is not proven: new WebSocket: not known to only compute [@solid-primitives/websocket/dist/index.js:16]
-  cover-primitives-websocket/rx-types/@solid-primitives/websocket.d.rx: createWSState: pure
-      not proven: it changes its argument `ws` in place (an assignment) [@solid-primitives/websocket/dist/index.js:56] — an object with methods of its own, not data: check that the change is one its caller expects
-  cover-primitives-websocket/rx-types/@solid-primitives/websocket.d.rx: createWSState: instantiates
-      not proven: a word a name suggests: not read from the code
-  cover-primitives-workers/worker.d.rx: createSquarer: pure
-      not proven: it calls createWorker, which is not proven: new EventTarget: not known to only compute [@solid-primitives/workers/dist/index.js:42]
-  cover-solid-use-fetch/fetch.d.rx: createJson: pure
-      not proven: it calls .json(…), a method that is not read [fetch.js:2]
-  cover-solid-use-provider/theme.d.rx: useTheme: pure
-      not proven: it calls inject, which is not proven: it reads PROVIDER, a variable of the module that is assigned: state that changes [solid-use/dist/provider.js:45]
-  cover-solid-use-server-value/ticket.d.rx: useTicket: pure
-      not proven: it calls useServerValue, which is not proven: it reads sharedConfig, of Solid: not known to be a constant [solid-use/dist/server-value.js:36]
-  cover-solid-use-string/greeting.d.rx: createGreeting: pure
-      not proven: it calls string, which is not proven: it calls `node`, a value it was handed or computed, as a function [solid-use/dist/string.js:20]
-  cover-wardic-gestures/sensors.d.rx: createHoverSensor: pure
-      not proven: it calls createHover, which is not proven: it calls useBrought, which is not proven: it calls useFeatureRegistry, which is not proven: it calls contextValue, which is not proven: it calls fromNullishOr, which is not proven: it calls none, which is not proven: it reads option.none, a value made by co
-  cover-wardic-values/rx-types/@wardic/solid.d.rx: createReducedMotion: pure
-      not proven: it calls useWardicRuntime, which is not proven: it calls contextValue, which is not proven: it calls fromNullishOr, which is not proven: it calls none, which is not proven: it reads option.none, a value made by code that runs when the module loads: not known to be a constant [effect/dist/Option.js:5
-  cover-wardic-values/rx-types/@wardic/solid.d.rx: createTransform: pure
-      not proven: it calls atomOf, which is not proven: it calls isAtom, which is not proven: it calls hasProperty: a value made by a call, or one the module assigns again [effect/dist/reactivity/Atom.js:55]
-  file-routes/rx-types/@solidjs/router.d.rx: useParams: pure
-      not proven: it calls useRoute, which is not proven: it reads TempRoute, a value the module takes apart from a call [@solidjs/router/dist/routing.js:55]
-  file-routes/rx-types/@solidjs/router.d.rx: useParams: instantiates
-      not proven: a word a name suggests: not read from the code
-  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: createForm: pure
-      not proven: it calls createFormStore, which is not proven: it reads DEFAULT_EMPTY_INPUT, an object the module exports: any importer may change it [@formisch/solid/dist/v2/internals.js:615]
-  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: createForm: pure
-      not proven: it calls createFormStore, which is not proven: it reads DEFAULT_EMPTY_INPUT, an object the module exports: any importer may change it [@formisch/solid/dist/v2/internals.js:615]
-  primitives-listeners/rx-types/@solid-primitives/event-bus.d.rx: createEventBus: pure
-      not proven: it calls tryOnCleanup: a value made by a call, or one the module assigns again [@solid-primitives/event-bus/dist/eventBus.js:36]
-  primitives-sensors/rx-types/@solid-primitives/connectivity.d.rx: createConnectivitySignal: pure
-      not proven: it reads navigator: the environment [@solid-primitives/connectivity/dist/index.js:75]
-  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: pure
-      not proven: it calls makeEventListener, which is not proven: addEventListener: it registers with the platform [@solid-primitives/event-listener/dist/eventListener.js:7]
-  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: useKeyDownList: pure
-      not proven: it assigns listeners, a variable of the function around it [@solid-primitives/rootless/dist/index.js:94]
-  primitives-sensors/rx-types/@solid-primitives/media.d.rx: createMediaQuery: pure
-      not proven: it reads window: the environment [@solid-primitives/media/dist/index.js:40]
-  primitives-sensors/rx-types/@solid-primitives/media.d.rx: createMediaQuery: instantiates
-      not proven: a word a name suggests: not read from the code
-  primitives-sensors/rx-types/@solid-primitives/mouse.d.rx: createMousePosition: pure
-      not proven: it reads DEFAULT_MOUSE_POSITION, an object the module exports: any importer may change it [@solid-primitives/mouse/dist/primitives.js:29]
-  primitives-state/rx-types/@solid-primitives/memo.d.rx: createWritableMemo: pure
-      not proven: it calls createLatest, which is not proven: it reads EQUALS_FALSE_OPTIONS, an object the module exports: any importer may change it [@solid-primitives/memo/dist/index.js:63]
-  primitives-state/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: instantiates
-      not proven: a word a name suggests: not read from the code
-  primitives-state/storage.d.rx: persisted: pure
-      not proven: it calls makePersisted, which is not proven: it reads globalThis: the environment [@solid-primitives/storage/dist/persisted.js:39]
-  primitives-virtual/virtual.d.rx: createVirtualizer: pure
-      not proven: it calls Virtualizer, which is not proven: it calls .calculateRange(…), a method that is not read [@tanstack/virtual-core/dist/esm/index.js:468]
-  query-forward/api.d.rx: fetchTodos: pure
-      not proven: it calls down, which is not proven: it reads location: the environment [api.js:5]
-  query-forward/query.d.rx: useQuery: pure
-      not proven: it calls useQuery, which is not proven: it calls useBaseQuery, which is not proven: it calls useBaseQueryLayer, which is not proven: it calls useQueryClient, which is not proven: it calls `client`, a value it was handed or computed, as a function [@tanstack/solid-query/src/QueryClientProvider.tsx:13
-  query-mutation/api.d.rx: makeClient: pure
-      not proven: it calls QueryClient: a value made by a call, or one the module assigns again [api.js:17]
-  query-mutation/query.d.rx: useQuery: pure
-      not proven: it calls useQuery, which is not proven: it calls useBaseQuery, which is not proven: it calls useBaseQueryLayer, which is not proven: it calls useQueryClient, which is not proven: it calls `client`, a value it was handed or computed, as a function [@tanstack/solid-query/src/QueryClientProvider.tsx:13
-  query-mutation/rx-types/@tanstack/solid-query.d.rx: useMutation: pure
-      not proven: it calls useQueryClient, which is not proven: it calls `client`, a value it was handed or computed, as a function [@tanstack/solid-query/src/QueryClientProvider.tsx:137]
-  query-mutation/rx-types/@tanstack/solid-query.d.rx: useQueryClient: pure
-      not proven: it calls `client`, a value it was handed or computed, as a function [@tanstack/solid-query/src/QueryClientProvider.tsx:137]
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRootRoute: instantiates
-      not proven: a word a name suggests: not read from the code
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRoute: instantiates
-      not proven: a word a name suggests: not read from the code
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: useParams: pure
-      not proven: it calls useMatch, which is not proven: it calls useRouter, which is not proven: console: it writes output [@tanstack/solid-router/dist/source/useRouter.jsx:7]
-  router-data/rx-types/@solidjs/router.d.rx: createRouter: pure
-      not proven: console: it writes output [@solidjs/router/dist/routers/factory.jsx:221]
-  router-data/rx-types/@solidjs/router.d.rx: useSubmissions: pure
-      not proven: it calls a call through a computed member [@solidjs/router/dist/data/action.js:214]
-  router-provider/rx-types/@tanstack/solid-router.d.rx: useParams: pure
-      not proven: it calls useMatch, which is not proven: it calls useRouter, which is not proven: console: it writes output [@tanstack/solid-router/dist/source/useRouter.jsx:7]
-  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: useLoaderData: pure
-      not proven: it calls useMatch, which is not proven: it calls useRouter, which is not proven: console: it writes output [@tanstack/solid-router/dist/source/useRouter.jsx:7]
-  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: useParams: pure
-      not proven: it calls useMatch, which is not proven: it calls useRouter, which is not proven: console: it writes output [@tanstack/solid-router/dist/source/useRouter.jsx:7]
-  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: useSearch: pure
-      not proven: it calls useMatch, which is not proven: it calls useRouter, which is not proven: console: it writes output [@tanstack/solid-router/dist/source/useRouter.jsx:7]
-  solid-use-primitives/use.d.rx: useTicket: pure
-      not proven: it calls useServerValue, which is not proven: it reads sharedConfig, of Solid: not known to be a constant [solid-use/dist/server-value.js:36]
-  solid-use-state/theme.d.rx: useTheme: pure
-      not proven: it calls inject, which is not proven: it reads PROVIDER, a variable of the module that is assigned: state that changes [solid-use/dist/provider.js:45]
-  start-mode/rx-types/@solidjs/router.d.rx: useParams: pure
-      not proven: it calls useRoute, which is not proven: it reads TempRoute, a value the module takes apart from a call [@solidjs/router/dist/routing.js:55]
-  start-mode/rx-types/@solidjs/router.d.rx: useParams: instantiates
-      not proven: a word a name suggests: not read from the code
-  start-route/rx-types/@tanstack/solid-router.d.rx: useParams: pure
-      not proven: it calls useMatch, which is not proven: it calls useRouter, which is not proven: console: it writes output [../../deps/start-route/node_modules/@tanstack/solid-router/dist/source/useRouter.jsx:7]
-  table-pagination/table.d.rx: createTable: pure
-      not proven: it calls createTable, which is not proven: console: it writes output [@tanstack/table-core/build/lib/index.mjs:2761]
-  table-pagination/table.d.rx: createTable: instantiates
-      not proven: a word a name suggests: not read from the code
-  wardic-motion/rx-types/@wardic/solid.d.rx: ward: pure
-      not proven: it calls wardWith, which is not proven: it calls useWardicRuntime, which is not proven: it calls contextValue, which is not proven: it calls fromNullishOr, which is not proven: it calls none, which is not proven: it reads option.none, a value made by code that runs when the module loads: not known t
-  wardic-values/rx-types/@wardic/solid.d.rx: createTransform: pure
-      not proven: it calls atomOf, which is not proven: it calls isAtom, which is not proven: it calls hasProperty: a value made by a call, or one the module assigns again [effect/dist/reactivity/Atom.js:55]
+0 no program needs.
