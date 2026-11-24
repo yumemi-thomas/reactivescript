@@ -135,7 +135,7 @@ by an entry, each package is at its recorded version in `bench/package.json` and
 several at once (`BENCH_JOBS`, half the cores by default); a module no entry's program imports is drafted in a process of its own.
 `--shard i/n` runs every n-th entry and drafts every n-th such module, and holds the whole list (what an entry drafts
 and imports is read off its `use.mjs`); `.github/workflows/bench.yml`
-runs the tasks and three shards as four jobs. The tasks run several at once too, those that build with Vite at most two
+runs the tasks and the suite over two jobs each. The tasks run several at once too, those that build with Vite at most two
 at a time; what is reported does not depend on the number, nor does its order.
 
 To add a package: its name and version in `bench/package.json` (and the lock), its modules in `libraries.json`, and an

@@ -262,8 +262,8 @@ field at a time, or by its place. So:
   (an editor's hover, `rx-tsc`) give. Twenty-four or fewer are still
   written out. `@ui-sdk/solid` 4.46 MB to 0.23 MB, the 193 modules of
   the coverage suite 9.43 MB to 0.96 MB, the longest row 27 KB to 14 KB
-  (an event listener component: each prop is a callback), the median
-  line 89 characters to 95 (a place is longer than `boolean`).
+  (an event listener component: each prop is a callback); the median
+  line is 95 characters, as it was.
 
 Every row is still held against the module before the draft is written
 (MO-8m): a row TypeScript does not hold this way is written as MO-8m

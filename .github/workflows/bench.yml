@@ -4,8 +4,8 @@
 # red, and a check that is red is one its task's `known` gives the reason for. And the coverage suite: every package of
 # the libraries bench/coverage/libraries.json lists, drafted whole and used once, compared with bench/coverage/coverage.json.
 #
-# The tasks on one machine, several at once (BENCH_JOBS), and the coverage suite over three. `--shard i/3` is every third entry and every
-# third module no entry drafts; each shard holds the whole list (bench/coverage.mjs).
+# The tasks over two machines, several at once (BENCH_JOBS), and the coverage suite over two. `--shard i/2` is every second task, entry and
+# module no entry drafts; each shard holds the whole list (bench/coverage.mjs).
 name: bench
 
 on:
@@ -24,10 +24,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: tasks, run: "--tasks-only" }
-          - { name: coverage 1/3, run: "--coverage-only --shard 1/3" }
-          - { name: coverage 2/3, run: "--coverage-only --shard 2/3" }
-          - { name: coverage 3/3, run: "--coverage-only --shard 3/3" }
+          - { name: tasks 1/2, run: "--tasks-only --shard 1/2" }
+          - { name: tasks 2/2, run: "--tasks-only --shard 2/2" }
+          - { name: coverage 1/2, run: "--coverage-only --shard 1/2" }
+          - { name: coverage 2/2, run: "--coverage-only --shard 2/2" }
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
