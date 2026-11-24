@@ -1,3 +1,3 @@
 //@ for @solid-primitives/websocket ^2.0.0
-export pure fn createWS(url: string, protocols?: string | string[]): WebSocket instantiates
-export pure fn createWSState(ws: WebSocket): ref 0 | 1 | 2 | 3 instantiates
+export fn createWS(url: string, protocols?: string | string[]): WebSocket instantiates
+export fn createWSState(ws: WebSocket): ref 0 | 1 | 2 | 3

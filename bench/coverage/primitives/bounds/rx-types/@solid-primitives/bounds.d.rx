@@ -1,4 +1,4 @@
 //@ for @solid-primitives/bounds ^1.0.0
 export type Options = import("@solid-primitives/bounds").Options
 export type NullableBounds = import("@solid-primitives/bounds").NullableBounds
-export pure fn createElementBounds(ref target: Element | import("@solid-primitives/utils").FalsyValue, __1?: Options): Readonly<NullableBounds>
+export fn createElementBounds(ref target: Element | import("@solid-primitives/utils").FalsyValue, __1?: Options): Readonly<NullableBounds>

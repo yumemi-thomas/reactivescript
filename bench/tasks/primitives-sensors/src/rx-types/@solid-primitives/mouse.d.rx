@@ -1,4 +1,4 @@
 //@ for @solid-primitives/mouse ^4.0.0
 export type MousePositionOptions = import("@solid-primitives/mouse").MousePositionOptions
 export type MousePositionInside = import("@solid-primitives/mouse").MousePositionInside
-export pure fn createMousePosition(ref target?: SVGSVGElement | HTMLElement | Window | Document, options?: MousePositionOptions): MousePositionInside
+export fn createMousePosition(ref target?: SVGSVGElement | HTMLElement | Window | Document, options?: MousePositionOptions): MousePositionInside

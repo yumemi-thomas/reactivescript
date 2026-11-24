@@ -100,7 +100,7 @@ function audit(ts, spec, from, rowsIn) {
       if (!f.rejects) say(`rejects(${names.join(" | ")})`, "unproven", f.rejectsWhy ?? "what it throws is not read");
       else { const extra = f.rejects.filter(n => !names.includes(n)), missing = names.filter(n => !f.rejects.includes(n) && n !== "Error"); say(`rejects(${names.join(" | ")})`, !extra.length && !missing.length ? "proven" : "contradicted", extra.length ? `it throws ${extra.join(", ")}, which the row does not name` : missing.length ? `every throw the code reaches is read, and none is of ${missing.join(", ")}` : `every throw the code reaches is of ${f.rejects.join(", ") || "no class"}`); }
     }
-    if (w.instantiates) say("instantiates", f.pure && f.makes ? "proven" : "unproven", f.pure && f.makes ? "a pure fn that makes Solid nodes" : "a word a name suggests: not read from the code");
+    if (w.instantiates) say("instantiates", f.pure && f.makes ? "proven" : "unproven", f.pure && f.makes ? "a pure fn that makes Solid nodes" : "the code does not show a pure fn that makes Solid nodes");
     // contexts: paired once every row is read (a name is tied to a context by the row that has one of each)
     if (w.uses.length || w.provides.length) pending.push({ out, w, f, row, say });
     if (w.nests) say(`nests(${w.nests})`, "unproven", "how a component the fn makes nests what it is given is not read");

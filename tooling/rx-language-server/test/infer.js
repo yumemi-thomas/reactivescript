@@ -384,5 +384,31 @@ console.log("rx-verify runs each word the code proves: an observation against it
   ok("…and run, none is contradicted: every probed word holds", tv.status === 0 && /copies: pure is proven by the code \(it only computes\), and no run contradicts it/.test(tv.stdout) && /listener: callback cb holds/.test(tv.stdout) && /timer: callback cb holds/.test(tv.stdout) && /twoClasses: under the probe's failing arguments it rejects with Stale, as its row says/.test(tv.stdout), tv.stdout + tv.stderr);
 }
 
+// ---- `ref` on a part only shaped as an accessor (`() => T`): where the code shows a reader, and nowhere else ----
+console.log("a function of nothing is `ref` where the code shows that calling it only reads");
+{
+  const app = path.join(ws, "verify");
+  const READS = {
+    memo: "const m = createMemo(() => x); return m;", memoField: "return { v: createMemo(() => x) };", getter: "const [g] = createSignal(x); return g;", tuple: "const [g, set] = createSignal(x); return [g, v => set(v)];",
+    closure: "const [g] = createSignal(x); return () => g() + 1;", branches: "const [g] = createSignal(x); return x ? g : () => 0;", named: "const [g] = createSignal(x); const read = () => ({ n: g() }); return { v: read };", constant: "return () => 1;",
+  };
+  const NOT = {
+    aborts: "let c; return () => { c?.abort(); c = new AbortController(); return c.signal; };", counts: "let n = 0; return () => n++;", clock: "return () => Date.now();", random: "return () => Math.random();",
+    made: "return () => new FormData();", writes: "const [g, set] = createSignal(x); return () => { set(1); return g(); };", setter: "const [g, set] = createSignal(x); return set;", calls: "return () => x();", fetches: "return () => fetch(x);",
+    held: "let n = 0; globalThis.addEventListener?.('x', () => n++); return () => n;", makes: "return () => createMemo(() => x);", logs: "return () => { console.log(x); return 1; };", oneBranch: "let n = 0; const [g] = createSignal(x); return x ? g : () => n++;",
+    reassigned: "let [g] = createSignal(x); g = () => Date.now(); return g;", secondPart: "const [, set] = createSignal(x); return { v: set };", listed: "const ls = []; return () => ls.push(x);", lookalike: "const createMemo2 = f => f; let n = 0; return createMemo2(() => n++);", asyncs: "return async () => 1;", another: "return other;", viaHelper: "const [g, set] = createSignal(x); const bump = () => { set(1); }; return () => { bump(); return g(); };", viaRecord: "const [g, set] = createSignal(x); const api = { bump: () => set(1) }; return () => { api.bump(); return g(); };", viaValue: "const [g, set] = createSignal(x); return () => { [1].forEach(set); return g(); };", viaPair: "const s = createSignal(x); return () => { s[1](2); return s[0](); };", store: "const [st, setSt] = createStore({ n: 0 }); return () => { setSt(d => { d.n++; }); return st.n; };",
+  };
+  const body = { ...READS, ...NOT };
+  fs.writeFileSync(path.join(app, "readers.js"), `import { createMemo, createSignal, createStore } from "solid-js";\nimport { other } from "./elsewhere.js";\n${Object.entries(body).map(([n, b]) => `export function ${n}(x) { ${b} }`).join("\n")}\n`);
+  const type = (n, b) => /\{ v: /.test(b) ? "{ v: () => number }" : n === "tuple" ? "[() => number, (v: number) => void]" : "() => number";
+  fs.writeFileSync(path.join(app, "readers.d.ts"), Object.entries(body).map(([n, b]) => `export declare function ${n}(x: any): ${type(n, b)};`).join("\n") + "\n");
+  const d = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./readers.js"], { cwd: app, encoding: "utf8", env: { ...process.env, RX_DECLARE_INFER: "1" } }).stdout;
+  const row = n => d.split("\n").find(l => l.includes(`fn ${n}(`)) ?? "";
+  for (const n in READS) ok(`a reader: ${n}`, /\bref number/.test(row(n)), row(n));
+  for (const n in NOT) ok(`no reader: ${n}`, row(n) && !/\bref\b/.test(row(n)) && /\(\) => number/.test(row(n)), row(n));
+  const off = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./readers.js", "--no-infer"], { cwd: app, encoding: "utf8" }).stdout;
+  ok("no code read: no part is ref off its shape, and no row instantiates off its name", !/\bref\b|instantiates/.test(off.split("\n").filter(l => l.startsWith("export")).join("\n")), off);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1,2 +1,2 @@
 //@ for @solid-primitives/share ^4.0.0
-export pure fn createWebShare(): { share: (data: ShareData) => Promise<void>; pending: ref boolean; status: ref boolean | undefined; message: ref string | undefined }
+export fn createWebShare(): { share: (data: ShareData) => Promise<void>; pending: ref boolean; status: ref boolean | undefined; message: ref string | undefined }

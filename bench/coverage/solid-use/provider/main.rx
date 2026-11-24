@@ -1,5 +1,5 @@
-// solid-use/provider: the library's own injection (theme.js provides a value and reads it); the declaration names the
-// context, so a reader with no provider above it is refused.
+// solid-use/provider: the library's own injection (theme.js provides a value and reads it); it is no
+// context, so its reader with no scope above fails when it runs, not when it is checked.
 import { ThemeScope, useTheme } from "./theme.js"
 
 component Badge() {

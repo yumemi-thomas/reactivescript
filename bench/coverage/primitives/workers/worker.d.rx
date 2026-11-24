@@ -1,2 +1,2 @@
 // By hand: every word (the module is the app's own).
-export pure fn createSquarer(): { run: (n: number) => Promise<number> } instantiates
+export fn createSquarer(): { run: (n: number) => Promise<number> } instantiates

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+**A generated declaration holds only words its code proves** (spec/09 MO-8v, ruled 2026-11-24; tooling/rx-language-server/DECLARATIONS.md; spec/archive/generated-words-2026-11-24.md)
+
+- **Changed: `rx-declare` writes no word off a name, a shape, a run or a list of libraries.** Gone: the list of words it
+  knew of nine libraries (two were false of the library), `ref` off the shape `() => T` (seven were false: each read made
+  another value), `instantiates` off `create…`/`use…`, `--run`, `--dom`, `--context` and `--types-only`, and the words an
+  app's module copied off the library's rows (MO-8s). `ref` is written where the type is Solid's `Accessor`, or the code
+  shows a reader. An absent word means what it meant. Drafts in `node_modules/.rx-types/` are made again once (draft 12).
+  **If a program of yours reads a generated result as a value and is now refused** (`IO_IN_REACTIVE`): write the row in
+  `rx-types/`, with `ref` where you know it is read.
+- **Changed: `rx-verify` tests its own evidence.** What a run holds is run again over the module changed so that the claim
+  is false, and is `unverified` if it holds there too. A `ref` part must answer alike when read twice, a `pending` one be
+  seen to wait, a `handler` not be called while the call runs or the component renders, and `provides(c)` hold for what is
+  made under it later. A callback with no word claims nothing (`n/a`; it was `held` or `unverified`). Records of earlier
+  versions no longer count: run `rx-verify --record` again. A probe's `around` and `providers` are handed the module it
+  runs (third argument), and `inside`, `uses` are new.
+- **Fixed: `rx-verify`.** A provider that renders nothing of its children no longer shows `uses(c)`; one that fails by
+  itself as its part does alone is no mismatch; a long `--json` answer is no longer cut short on a pipe; an export of a
+  CommonJS build's re-exports is found.
+
 **The suites run on Vite 8.3.8 and Solid 2.0.3** (bench, examples, the runtime's own tests)
 
 - **Changed: what the benchmark, the examples and the runtime's tests install** — Vite 8.1.5 to 8.3.8 (Rolldown 1.2),

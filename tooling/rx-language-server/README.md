@@ -85,7 +85,7 @@ projection, so TypeScript alone would pass it.
 
 ## Drafting a declaration
 
-`rx-declare <module> [--out file.d.rx] [--run] [--dom] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
+`rx-declare <module> [--out file.d.rx] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any]` (`bin/declare.js`) writes a draft `.d.rx` for a JS module from its TypeScript
 types, resolved from the current directory as an import there would be. A package's declaration goes in the project's
 `rx-types/` folder, named by the import (spec/09 MO-8k); the import in `.rx` stays as written:
 
@@ -172,30 +172,8 @@ that (`View | (() => View)`, not an accessor); a prop that holds components in a
 reads them (`builtins: { Heading?: Component }`, 09 MO-11c). A fn that is given a component gets the question a type
 cannot answer — where the library renders it (`renders(<Component>)`, 09 MO-11u).
 
-For a few libraries the draft also has what types cannot show (`src/known.js`): a router's context and its factory's
-`nests(…)` (`@tanstack/solid-router`, `@solidjs/router`), where a library renders the components a fn is given
-(`renders(Toaster)` for solid-sonner's `toast`, `renders(RouterProvider)` for TanStack Router's `createRoute`), the
-contexts of Kobalte's toast parts and `renders(Toast.List)` on its `toaster.show`, UI SDK's dialog and radio-group
-contexts, the hooks of both routers that read the router (`useParams`; TanStack's `useLoaderData`, `useSearch`),
-TanStack Query's context, `handler` on its callbacks, `pure`
-on those primitives, and `pending` or `fails(…)` before a `ref` part that waits or fails where it is read
-(`@solid-primitives/sse`, `@solid-primitives/geolocation`; 09 MO-10l). Each entry
-is for a version range and was checked by running that release; outside the range, and for every other package, the
-draft is the types' alone, with its TODOs. A generated declaration (MO-8l) never takes them: nothing a person reviewed
-makes the checker accept more.
-
-With `--run` it then runs the module (it executes the package's code, so only when asked; run it with
-`node --conditions=browser`) to settle what running can:
-a hook whose parameters are all optional is called with nothing providing anything, and its result read (fields,
-accessors), since a hook may look its context up only then. One that throws reads a context: the module's exported
-contexts are tried around it (with a placeholder value) and the one under which it runs is named (`QueryClientContext`
-→ `export context queryClient`, `uses(queryClient)`); a module that exports none gets one context named after it
-(`export context router`). A `…Provider` component under which the hook then runs, with no props or placeholder ones,
-`provides` it. A hook that never throws keeps its TODO rather than a claim of no need (it may read its context later
-than running reaches), and one that throws under every context gets no invented one. On `@solidjs/router` 2.0 this
-settles 7 of 8 argument-free hooks; on `@tanstack/solid-query` 6, `useQueryClient` and `QueryClientProvider`. A hook
-that throws only for want of a browser (no `window` in Node) is not a context read; `--dom` runs with happy-dom's
-globals (`@happy-dom/global-registrator`, installed in the project) so such hooks run as in a page. Drafted over all 98
+A draft holds no word off a name, a shape, a run or a list of libraries: what the code proves is written, and the rest is a
+question or nothing (DECLARATIONS.md, MO-8v). Drafted over all 98
 `@solid-primitives` packages with a Solid 2 release, the drafts pass TY-6 but for three types no draft can spell (a
 props type intersected with a tuple, a callable interface), which a person writes.
 
@@ -248,10 +226,6 @@ createRouter({ routeTree })`) is read by compiling its module (whatever the chec
 written is what it is checked by), running it in a child process with a browser's globals (happy-dom, from the
 project) and asking the router object for its tree; the outlet, and the entry's router component, are found through
 the `.rx` modules a layout or an entry imports.
-
-`rx-declare ./module.js`, for a module of the app's own, also carries the words of the library rows the module hands
-on (MO-8s, `src/declare-own.js`): a component exported again, one that renders the library's and nothing else, what a
-factory makes, a hook over the library's. `--types-only` leaves them out.
 
 `rx-verify` runs a `pure` fn on the other side too (10 SV-7c): a second process, with a browser's globals when the
 first has none; a plain answer that is steady on each side and differs between them is a MISMATCH.

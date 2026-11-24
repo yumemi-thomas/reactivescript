@@ -1,2 +1,2 @@
 //@ for @solid-primitives/memo ^2.0.0
-export pure fn createWritableMemo<Next extends Prev, Prev = Next>(fn_: (v: import("solid-js").NoInfer<Prev> | undefined) => Next | PromiseLike<Next> | AsyncIterable<Next>): [ref Next, (...args: Parameters<import("solid-js").Setter<Next>>) => ReturnType<import("solid-js").Setter<Next>>]
+export fn createWritableMemo<Next extends Prev, Prev = Next>(fn_: (v: import("solid-js").NoInfer<Prev> | undefined) => Next | PromiseLike<Next> | AsyncIterable<Next>): [ref Next, (...args: Parameters<import("solid-js").Setter<Next>>) => ReturnType<import("solid-js").Setter<Next>>]

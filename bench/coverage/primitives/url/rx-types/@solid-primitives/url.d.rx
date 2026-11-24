@@ -1,2 +1,2 @@
 //@ for @solid-primitives/url ^0.2.0
-export pure fn createURL(url: string, base?: string): import("@solid-primitives/url").ReactiveURL instantiates
+export fn createURL(url: string, base?: string): import("@solid-primitives/url").ReactiveURL instantiates

@@ -1,2 +1,2 @@
 // By hand: every word (the module is the app's own).
-export pure fn createHighlighter(): { parts: (text: string, query: string) => string[] } instantiates
+export fn createHighlighter(): { parts: (text: string, query: string) => string[] } instantiates

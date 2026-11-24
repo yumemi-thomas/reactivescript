@@ -34,7 +34,7 @@ export default {
     { name: "the app's context provided nowhere above the provider", edit: ['  provide accent = "dark"\n', ""], expect: "CONTEXT_NOT_FOUND" },
     { name: "a router hook called outside the provider (in the app, above the Shell)", edit: ["export default component App() {\n", "export default component App() {\n  where = useParams({ from: \"/people/$id\" })\n"], expect: "CONTEXT_NOT_FOUND" },
     { name: "a page component applied by hand as well as routed, outside the router", edit: ['<Shell router={router} title="Directory" />', '<Shell router={router} title="Directory" />\n  <Person />'], expect: "CONTEXT_NOT_FOUND" },
-    { name: "the row without the word: a page under a root of its own reads no router", file: "rx-types/@tanstack/solid-router.d.rx", edit: [" instantiates renders(RouterProvider)", " instantiates"], expect: "CONTEXT_NOT_FOUND" },
+    { name: "the row without the word: a page under a root of its own reads no router", file: "rx-types/@tanstack/solid-router.d.rx", edit: [" renders(RouterProvider)", " instantiates"], expect: "CONTEXT_NOT_FOUND" },
     { name: "a page's component given as a rendered element, not the component", edit: ['path: "/", component: Home })', 'path: "/", component: <Home /> })'], expect: "PARSE" },
   ],
   async run(h) {

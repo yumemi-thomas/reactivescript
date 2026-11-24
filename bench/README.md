@@ -63,14 +63,13 @@ and five columns score it, with two numbers beside them:
 
 | number | what it counts (lower is better) |
 | --- | --- |
-| **hand-written `.d.rx` words** | for every `.d.rx` of the task, the words a person wrote on top of what `rx-declare` drafts for the same module (run by the suite, with the flags the task's `declare` names: `--run --dom` where the draft was made by running the package). A row the draft has word for word costs nothing, a row it has otherwise costs the words that differ, a row it has not costs every word; rows left out cost nothing. It is what an app pays to use the library |
+| **hand-written `.d.rx` words** | for every `.d.rx` of the task, the words a person wrote on top of what `rx-declare` drafts for the same module. A row the draft has word for word costs nothing, a row it has otherwise costs the words that differ, a row it has not costs every word; rows left out cost nothing. It is what an app pays to use the library |
 | **`any` inherited** | the `any`s those files hold that the library's own declaration has at that place (09 MO-8q): for an export, as many as `rx-declare`'s draft of the same export writes for the library's own (`rx-declare --causes`, cause `vendor-any`). They are reproduced, not narrowed |
 | **`any` introduced** | every other `any` those files hold: written where the library has a type. It must be none. One that cannot be named yet is listed in `any-allowlist.json` — the task, the file, the export, how many, a one-line reason and what blocks naming it — and nowhere else |
 | **by-place** | the parts those files say by their place in the library's declaration (`Parameters<typeof import(…)>`, `ReturnType<…>`): a type in name only, counted apart so that it is not a way around the rule above |
 
 `BENCH_WORDS=1 node bench/run.mjs <task>` prints each row written by hand beside the draft's row of the same export:
-what a person added, which is where a draft or `known.js` can still do more (it found, on 2026-11-25, a context word
-that was false of the library: UI SDK's `DialogTrigger` renders outside a `Dialog`).
+what a person added.
 
 `--check` holds these numbers too: a task's declarations may not need more hand-written words, hold more `any`s (of
 either kind, or together), nor say more parts by place, than `scorecard.json` records; an introduced `any` that is not
@@ -202,11 +201,14 @@ runs and how the suite came to be as it is: [archive/HISTORY.md](archive/HISTORY
 - **An `any` counts where it stands** (09 MO-8q): at each parameter, part of the result, prop, function type's parameter
   and type argument, against the library's own type there. Until 2026-11-26 it was credited by export, so that one moved
   from a parameter to a result was "inherited". `bench/measure.test.mjs` holds the counting.
-- **A claim is `rx-verify`'s answer about one word of one row**, by name: held by running, held by the code's proof where
-  no run reached it, unverified, or a mismatch. An export being there is no claim, and one that does not apply is none.
-  Most are unverified, because a declaration without a probe beside it gives `rx-verify` nothing to call. What was
-  reported before ("words run by rx-verify") counted only words the code proves, by matching printed prose, and one
-  `uses(…)` line as every context it names.
+- **A claim is one behaviour word of one row** (its `ref`s and what it `fails` with are one claim each), in one of three
+  classes, never merged: *proven by the generator* (the reading `rx-declare` writes a word from proves it), *held by a
+  probe* (a run that fails over a module changed so that the claim is false: rx-verify runs each again that way), and *the
+  author's own* (nothing has shown it). The last are hand-written, in the app's own declarations, and stay only where a
+  correct program is refused without them: `bench/needed.txt` lists each with the diagnostic (`bench/needed.mjs`). Until
+  2026-11-24 a claim was one of rx-verify's obligations: an unmarked callback counted, the `pure` of a primitive did not,
+  and what a probe showed was not tested.
+- **Probes are one file a package** (`bench/probes/<spec>.probe.mjs`), put beside each declaration of it.
 - **What could not be measured is a failure of `--check`**: an audit or a verifier that did not answer was counted as one
   with nothing to say.
 - **Words read from the code** are counted whoever the tool reads them for, and 932 of the 984 `handler` words of the

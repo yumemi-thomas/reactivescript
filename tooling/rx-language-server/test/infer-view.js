@@ -259,8 +259,8 @@ fs.writeFileSync(path.join(ws, "shows.d.ts"), [
   ok("a component rendered outside the host too (kept, and called where the fn runs): the question stays", /TODO showBoth: `view` is given a component/.test(d.stdout), d.stdout);
 }
 
-// ---- --run: a field seen to wait or to throw is said; none seen is no proof ----
-console.log("rx-declare --run: a field of a result that waits or throws where it is read is named; one that was not seen to is still asked about");
+// ---- a result whose fields may wait or throw where they are read ----
+console.log("a result whose getter may wait or throw is asked about; one built where it is handed back is not");
 fs.writeFileSync(path.join(ws, "late.js"), [
   "class NotReadyError extends Error { constructor() { super(\"not ready\"); this.name = \"NotReadyError\"; } }",
   "export function makeLate() { return { get data() { throw new NotReadyError(); }, get broken() { throw new Error(\"no\"); }, ready: 1 }; }",
@@ -279,9 +279,6 @@ fs.writeFileSync(path.join(ws, "late.d.ts"), [
 {
   const plain = declare("./late.js").stdout;
   ok("the draft asks of a result whose getter may wait or throw, and not of one built there", /TODO makeLate: is the result a store with fields that wait or throw/.test(plain) && /TODO makeQuiet: is the result a store with fields that wait or throw/.test(plain) && !/TODO makePlain: is the result/.test(plain), plain);
-  const ran = declare("./late.js", "--run").stdout;
-  ok("--run: the fields seen to wait and to throw are named in the question", /TODO makeLate: run with no arguments, its field `data` waits where it is read \(Solid's NotReadyError\), and its field `broken` throws where it is read/.test(ran), ran);
-  ok("--run: a field that was not seen to wait is no proof that it never does: the question stays as it was", /TODO makeQuiet: is the result a store with fields that wait or throw/.test(ran), ran);
 }
 
 // ---- the audit ----

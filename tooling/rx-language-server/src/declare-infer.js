@@ -212,7 +212,7 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
   const ctxKnown = new Map();   // a row → whether the code shows every context it reads, and what it provides
   const words = {};             // export → the words read from the code (the benchmark's and rx-verify's count)
   const exportedAs = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
-  const out = []; const count = { pure: 0, handler: 0, rejects: 0, draft: 0, instantiates: 0, uses: 0, provides: 0 };
+  const out = []; const count = { pure: 0, handler: 0, rejects: 0, draft: 0, instantiates: 0, uses: 0, provides: 0, ref: 0 };
   const errors = new Set(lines.map(l => /^export error ([\w$]+)/.exec(l)?.[1]).filter(Boolean));
   const rel = f => path.relative(from, f).split(path.sep).join("/").replace(/^(?:\.\.\/)+node_modules\//, "").replace(/^node_modules\//, "");
   const at = w => `${rel(w.file)}:${w.line}`;
@@ -232,7 +232,8 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
   for (const l of lines) { const row = l.startsWith("export ") ? parseRow(l) : undefined; if (!row || row.kind !== "component" || /\b(uses|provides)\(/.test(l.slice(row.close + 1))) continue; const f = facts(l, row); if (!f || f.unread) continue; try { for (const x of providedBy(row, f)) provided.add(x.ctx.key); } catch { /* not read */ } }
   for (let li = 0; li < lines.length; li++) {
     let line = lines[li];
-    const row = line.startsWith("export ") ? parseRow(line) : undefined;
+    let row = line.startsWith("export ") ? parseRow(line) : undefined;
+    if (row?.kind === "fn" && more.unshaped) { const g = facts(line, row); line = more.unshaped(line, row.name, at => { let ok = false; try { ok = !!g && !g.unread && g.reads(at); } catch { /* not read */ } if (ok) count.ref++; note(row.name, `ref${at ? `(${at})` : ""}`, ok, ok ? "a reader: it only computes, from what Solid's nodes hold" : "only shaped as an accessor: the code does not show that calling it only reads"); return ok; }); row = parseRow(line); }
     if (!row || /\bserver\b/.test(row.words)) { out.push(line); continue; }
     const f = facts(line, row);
     if (!f || f.unread) { unread ??= f?.unread; note(row.name, "*", false, f?.unread ?? "no code"); out.push(line); continue; }

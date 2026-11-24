@@ -1,2 +1,2 @@
 //@ for @solid-primitives/tween ^2.0.0
-export pure fn createTween(ref target: number, __1: { duration?: number; ease?: (t: number) => number }): ref number
+export fn createTween(ref target: number, __1: { duration?: number; ease?: (t: number) => number }): ref number

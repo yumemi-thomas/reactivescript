@@ -1,2 +1,4 @@
 //@ for @solid-primitives/async ^0.0.101
-export pure fn createAbortable(options?: { autoAbort?: boolean; timeout?: number; chainTo?: () => AbortSignal }): [ref AbortSignal, () => void, (err: any) => void]
+// (the signal is a function: each call aborts the one before and makes another, so it is no reader; rx-verify reads it twice)
+// (`chainTo` is left out: it is kept in the module, so a call given it is not pure)
+export fn createAbortable(options?: { autoAbort?: boolean; timeout?: number }): [() => AbortSignal, () => void, (err: any) => void] instantiates

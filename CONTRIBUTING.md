@@ -97,10 +97,16 @@ a module's default export was listed as having no row for three rounds,
 and `import { default as x }` with a row named `default` had always
 parsed, checked and run (09 MO-8u) — only the draft said otherwise.
 What a tool can read is not a word's to say: a host declaration's
-nesting is read off the router's own tree (`//@ routes`, 09 MO-14g), and
-a module of the app's own takes the words of the library rows it hands
-on (MO-8s). Neither is the checkers' (08 CN-8): they check the rows they
-are given.
+nesting is read off the router's own tree (`//@ routes`, 09 MO-14g). That
+is not the checkers' (08 CN-8): they check the rows they are given.
+A generated declaration holds only words proven from the code by a
+general rule (ruled 2026-11-24): none off a name, a shape, a run or a list
+of libraries, and wrong stays at zero. A rule that writes one is tested on
+the refused side first, and rx-verify is run over the drafts of every
+module (`bench/needed.mjs` and spec/archive/generated-words-2026-11-24.md
+say how). A word a person writes is kept apart: one nothing has shown
+stays only where a correct program of the benchmark is refused without it,
+listed in `bench/needed.txt` as that app's own claim.
 A library that is not released as the benchmark needs it is used from
 the lockfile all the same, as packed tarballs with the commit they were
 built from (`bench/tasks/router-rx-routes/vendor`): a test that runs
@@ -176,6 +182,7 @@ node bench/measure.test.mjs      # the benchmark's own counting
 node bench/run.mjs --check     # BENCH_JOBS processes (default: half the cores); the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
 node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)
 BENCH_WORDS=1 node bench/run.mjs <task>   # each row of the task's declarations written by hand, beside rx-declare's row of the same export; and each row with an inferred word that rx-verify did not run
+node bench/needed.mjs --write             # the hand-written words no tool has shown, and the diagnostic a program gets without each (--apply takes off those none needs)
 npx rx-declare <module> --why             # each word read from the code: what proved it, or the first thing in the way with its file and line
 npx rx-declare --audit <file.d.rx>        # every word a declaration has, whoever wrote it: proven by the code, contradicted by it (exit 1), or neither — with what to check (09 MO-8w); the benchmark writes the lists (bench/audit.txt, bench/coverage/audit.txt)
 # a task under a file-based router generates the router's tree before any checker reads the program (its `prepare`: a

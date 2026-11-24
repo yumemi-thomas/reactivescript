@@ -10,8 +10,7 @@ offsets into its own lines (`src/declare-infer.js`).
 
 | tool | what it does | code |
 | --- | --- | --- |
-| `rx-declare <module>` | a draft from the types, with the words the code proves and a `// TODO` for each thing left to a person | `declare.js`, `declare-check.js`, `known.js`; `infer.js`, `declare-infer.js`; `declare-own.js` |
-| `--run`, `--dom` | runs the module for what types and code do not show: a context a hook reads, a provider | `declare-run.js`, `load.js` |
+| `rx-declare <module>` | a draft from the types, with the words the code proves and a `// TODO` for each thing left to a person | `declare.js`, `declare-check.js`; `infer.js`, `declare-infer.js` |
 | `--why`, `--explain`, `--causes`, `--readings` | why a word was written or not, why an `any`, which reading of a row TypeScript held | |
 | `--audit <file.d.rx>` | every word a declaration has: proven, contradicted (exit 1), unproven | `declare-audit.js` |
 | `--host`, `--host --routes\|--sync\|--check` | a host declaration, by hand or from a router's tree | `declare-host.js`, `host-routes.js`, a reader for each router in `routes/` |
@@ -71,11 +70,7 @@ that guessed `pure`, is redone once though the version stands; one that
 must be redone and cannot be, its package's types gone, is removed, so
 the import is undeclared rather than read under an earlier rule); a package with no types gets none, and a row
 the notation cannot say is left out as a comment, not the whole file.
-The draft is `rx-declare`'s from types alone (the package is not run,
-and what `rx-declare` knows of a named library beyond its types —
-`known.js`: a router's `renders(later)` and `nests(…)`, a query's
-field rows, `pure` — is left out here: it is for a draft a person
-reviews, 2026-11-22):
+The draft is `rx-declare`'s (the package is not run):
 every fn io (revised 2026-11-21: a name such as `use…` is a convention,
 not a fact, so no draft guesses `pure`, and an import nothing reviewed
 cannot make the checker accept more; `IO_IN_REACTIVE` on such a call
@@ -374,58 +369,12 @@ record is not the row's own; a function of nothing that answers
 (`SourceAccessor`) is an accessor; a render prop generic in what it
 gives is a render prop.
 
-## What a module of the app's own takes (MO-8s)
+## A module of the app's own (MO-8s)
 
-The ways round above — a hook's store
-handed out field by field, a method of an object handed out as a
-function, the router's provider in a component of the app's — are each
-a small JS module the app writes, and until now each came with a
-declaration written by hand: every word of it, though the module says
-nothing the library's own rows do not. `rx-declare` now reads the
-module's own text and carries those words over, in the shapes where
-they hold for every run:
+It is drafted as any module is: the words its code proves, and no word copied from another row (a word copied off a row
+a person wrote was that person's claim in a generated file: withdrawn 2026-11-24, spec/archive/generated-words-2026-11-24.md).
 
-| the module writes | its row takes |
-| --- | --- |
-| `export { Toast }` of a library's component (or `export { Toast } from …`, or under another name), with its members | that row's `uses(…)` and `provides(…)`, member for member |
-| a component whose body is one `return` of one library component and nothing around it (`return <RouterProvider router={router} />`), or of a fragment around that one element alone | that component's `uses(…)` and `provides(…)` |
-| `export const Router = createRouter(…)`, of a fn whose row hands back a `Component` with words | the component's words (`provides(router)`) |
-| a fn that calls a library's hook at the top of its body — not behind a condition, not in a nested function | the hook's `uses(…)`; and `pure`, where the hook is `pure` and the body does nothing else but return a record of functions and names |
-| a fn that calls, at the top of its body, a helper of the module's own (a function declared once at the module's top, not exported) that calls the hook so | what the helper's call takes: `uses(…)`, and `pure` only where neither body does anything else |
-| a field of that record that only reads the hook's result, `data: () => q.data` | `ref` (an accessor, read as a value); and `pending fails(E)` where rx-declare knows the result's field to wait or throw |
-| a fn that hands its own parameters straight to a library call known to render them (`toast => toaster.show(toast)`) | `renders(H)`, where the module exports H too |
-
-The library's rows are the project's declaration of the package where
-it has one (found as the checker finds it), else what `known.js` says
-of the installed release; two facts no row of the library's own can
-say are kept there for this (`wraps`): that `@tanstack/solid-query`'s
-`useQuery` is pure, reads the client, and has a `data` that waits and
-throws (a store's field: MO-8r), and that Kobalte's `toaster.show`
-renders beneath `Toast.List`. A context a carried word names is
-declared with it — `export context router from "@solidjs/router"`
-(MO-12e) where the project declares the package, the bare name
-otherwise. The TODO a word answers is removed; any other stays. The
-draft says, in a comment, which rows took what and from where.
-
-**It adds no word and no form**: the rows are the ones a person wrote.
-And it is not the guess RFC 26 forbids: `pure` is still never read off
-a name. A word is copied from the row it was written on, only where
-the text shows the module does what that row describes and nothing
-more — a component that renders the provider inside markup of its own
-(an element is something of its own; a fragment is not, and one with
-the children beside the provider puts them outside it), a hook called
-behind a condition, here or in a helper, a body that also logs, take
-nothing (or `uses` without `pure`), and their questions stay. (The
-fragment and the helper were added 2026-11-24, having been listed as
-the two ways a module does the same thing and took nothing.) As any row, a
-carried one is `rx-verify`'s to run. `--types-only` leaves them out.
-What it cut, measured on the benchmark's own modules: `query.d.rx` in
-two tasks 20 words each to none, the routers' `router.d.rx` 6 and 13 to
-none and 6 (what is left is `paths`, a function with a member for each
-route, kept as a value), the Kobalte toaster's 21 to none
-(`tooling/rx-language-server/src/declare-own.js`, `test/declare.js`).
-
-With it, one reading of a row more (MO-8q): an accessor's options
+One reading of a row more (MO-8q): an accessor's options
 record where the fn has type parameters of its own (`ref options: {
 queryKey: QueryKey; queryFn: () => Promise<TData> }`) is written with
 those parameters by name, where it was said by its place
@@ -494,6 +443,17 @@ browser"` is refused: `bench/tasks/ssr-divergence`). What an accessor
 the call hands back answers when it is read is the accessor's, as it
 is for a row written by hand (MO-10b). `rx-verify`'s comparison of the
 two sides (SV-7c) is run on an inferred `pure` as on any.
+
+**What is written off the types, and what is not.** A word is the code's or it is not written: none comes off a name
+(`create…`, `use…`), a shape or a list of libraries. Two that did are the code's since 2026-11-24:
+
+| word | written where | never off |
+| --- | --- | --- |
+| `ref` on a result or a part of it | the library's type is Solid's own `Accessor<T>` (`SourceAccessor<T>`, a union with one, an alias of one); or, for a part only shaped as one (`() => T`), every `return` hands out what `createMemo` gives, a signal's getter, or a function of nothing that only computes and writes nothing the call made (`readsPart` in infer.js) | the shape alone: of 148 such parts in the 193 modules 7 were false — an abort signal made anew at each read, an id counted, a `FormData`, a clipboard read, a ref callback — and 10 are proven; the rest are the functions they are |
+| `ref` on a parameter | the type is Solid's own accessor | the shape alone: a callback of nothing is a function type |
+| `instantiates` | a proven `pure` fn makes nodes of its own | a name: 248 rows had it |
+
+`Component`, `error` and `View` are the types' own, as the types of a row are.
 
 **`rx-verify` runs each.** A row with a word the code proves is held to what
 the reading claims, which is more than the word: a `pure` fn is called
@@ -624,12 +584,11 @@ computes; `createSorted` itself, which sorts its list in place under
 
 **A context's row, and its name.** A word names a context the draft
 declares itself (`export context tabs`): one the module exports by its
-export's name (`RouterContext` → `router`, as `--run` names it), any
+export's name (`RouterContext` → `router`), any
 other by the name the code binds it to, or by the provider or hook
 that names it first. It is declared only where it is the module's own
 to declare — made in the package's own files; for a relative module,
-in the file itself — and where the draft has no context rows already
-(`known.js`, a module that carries a library's). **`uses(c)` is
+in the file itself. **`uses(c)` is
 written only beside a `provides(c)` of the same draft**: a context no
 row is shown to provide would refuse every program that calls the
 hook, the correct ones with them, so the question stays instead.
@@ -647,11 +606,7 @@ computation it makes there (MO-11s's cautious placement stands).
 "Is the result a store with fields that wait or throw?" — no, also
 where a getter of a record written out only reads a signal made
 there; and a store Solid makes from a *function* (a projection) is no
-longer taken for a value built there, which it was. `rx-declare
---run` adds what running shows: a field of a result seen to wait
-(Solid's `NotReadyError`) or to throw where it is read is named in
-the question; **none seen is no proof**, and the question then stays
-as it was.
+longer taken for a value built there, which it was.
 
 **The audit: every word, whoever wrote it.** `rx-declare --audit
 <file.d.rx>` asks the same reading about the words a declaration
@@ -714,7 +669,7 @@ Executable: `tooling/rx-language-server/test/infer-view.js` — for
 `handler` 13 components and fns proven and 17 dishonest twins
 refused; for `uses` 10 and 20; for `provides` 8 and 10; for a value
 made by a call 6 and 9; the draft, its one line, `--causes`, `--why`;
-`--run`'s observation of a result's fields; the audit over a module
+the audit over a module
 with every class of every word; `rx-verify` over the same file, and
 over a draft. `bench/tasks/primitives-state` and
 `bench/coverage/primitives/sortable` hold the word the audit found

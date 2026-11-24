@@ -2,4 +2,4 @@
 // @solidjs/router 2.0 in rows, from rx-declare's draft: the router's context and the hook that reads the matched params.
 export type Params = import("@solidjs/router").Params
 export context router
-export pure fn useParams<T extends Params>(): T instantiates uses(router)
+export fn useParams<T extends Params>(): T uses(router)

@@ -23,7 +23,7 @@ const pkg = (name, version, files) => {
 const kitTypes = [
   "import type { JSX } from \"@solidjs/web\";",
   "export declare function Badge(props: { label: string }): JSX.Element;",
-  "export declare function useCount(): () => number;",
+  "export declare function useCount(): import(\"solid-js\").Accessor<number>;",
   "export declare function formatDate(d: number): string;",
   "export declare function weird(x: { [K in \"a\" | \"b\"]: number }): void;",
   "",

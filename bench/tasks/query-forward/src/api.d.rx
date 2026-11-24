@@ -1,3 +1,3 @@
 export type Todo = import("./api.js").Todo
 export const queryClient: typeof import("./api.js").queryClient
-export pure fn fetchTodos(): Promise<Todo[]>
+export fn fetchTodos(): Promise<Todo[]>

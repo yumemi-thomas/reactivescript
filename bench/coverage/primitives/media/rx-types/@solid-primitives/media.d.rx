@@ -1,3 +1,3 @@
 //@ for @solid-primitives/media ^4.0.0
-export pure fn createMediaQuery(query: string, serverFallback?: boolean): ref boolean instantiates
-export pure fn createPrefersDark(serverFallback?: boolean): ref boolean instantiates
+export fn createMediaQuery(query: string, serverFallback?: boolean): ref boolean
+export fn createPrefersDark(serverFallback?: boolean): ref boolean

@@ -1,3 +1,3 @@
 //@ for @solid-primitives/intersection-observer ^3.0.0
 export type VisibilitySetter<Ctx extends {  } = {  }> = import("@solid-primitives/intersection-observer").VisibilitySetter<Ctx>
-export pure fn createVisibilityObserver(ref element: Element | import("@solid-primitives/utils").FalsyValue, options?: IntersectionObserverInit & { initialValue?: boolean }, ref setter?: VisibilitySetter): ref boolean
+export fn createVisibilityObserver(ref element: Element | import("@solid-primitives/utils").FalsyValue, options?: IntersectionObserverInit & { initialValue?: boolean }, ref setter?: VisibilitySetter): ref boolean

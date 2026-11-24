@@ -38,8 +38,10 @@ function unanswered(file, results) {
  *  not count. 8 (2026-11-26): a record holds each claim's own result — until then a row had one status, and a result
  *  that named no claim (the audit's summary on line 1, a `pure` read from the code) answered for every claim of the
  *  row it fell on; `uses(c)` is a claim for each context, shown by the hook failing without that context's provider
- *  and running with it (it was any throw or any warning with no provider); `rejects(E)` is a claim. */
-const RECORD_VERSION = 8;
+ *  and running with it (it was any throw or any warning with no provider); ` rejects(E)` is a claim. 9 (2026-11-24): what a
+ *  run holds is run again over a module changed so that the claim is false; a `ref` is read twice, a `pending` one seen
+ *  to wait, what `provides(c)` is under it is made later too; a callback with no word claims nothing. */
+const RECORD_VERSION = 9;
 /** What a record was verified against: the library (an installed package's version, or the JS module's own text beside
  *  the declaration) and the probe file. A record made against other inputs does not count (the library moved under it). */
 function inputsOf(file) {

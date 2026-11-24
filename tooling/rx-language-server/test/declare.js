@@ -28,8 +28,8 @@ fs.writeFileSync(path.join(ws, "lib.js"), [
 fs.writeFileSync(path.join(ws, "lib.d.ts"), [
   "import type { JSX } from \"@solidjs/web\";",
   "export declare class NotFound extends Error {}",
-  "export declare function createDebounced(source: () => string, ms: number): () => string;",
-  "export declare function createToggle(initial: boolean): [() => boolean, (v: boolean) => void];",
+  "import type { Accessor } from \"solid-js\";", "export declare function createDebounced(source: Accessor<string>, ms: number): Accessor<string>;",
+  "export declare function createToggle(initial: boolean): [Accessor<boolean>, (v: boolean) => void];",
   "export declare function useTheme(): string;",
   "export declare function Card(props: { title: string; children?: JSX.Element }): JSX.Element;",
   "export declare function Toggle(props: { on: boolean; onToggle: (v: boolean) => void }): JSX.Element;",
@@ -65,7 +65,7 @@ check("an Error subclass is an error", has("export error NotFound"), draft);
 check("an accessor parameter and result are ref", has("export fn createDebounced(ref source: string, ms: number): ref string"), draft);
 check("a tuple keeps its ref part and its setter (instantiates is inferred from the ref)", has("export fn createToggle(initial: boolean): [ref boolean, (v: boolean) => void]"), draft);
 check("a plain result gets no store TODO", !/TODO useTheme: is the result a store/.test(draft), draft);
-check("a hook instantiates, is io until a person writes `pure` (a TODO suggests it), with a TODO for its context", has("export fn useTheme(): string instantiates") && /\/\/ TODO useTheme: pure\? its name is a primitive's/.test(draft) && /\/\/ TODO useTheme: which context does this hook read\?/.test(draft), draft);
+check("a hook is io until a person writes `pure` (a TODO suggests it), with a TODO for its context", has("export fn useTheme(): string") && /\/\/ TODO useTheme: pure\? its name is a primitive's/.test(draft) && /\/\/ TODO useTheme: which context does this hook read\?/.test(draft), draft);
 check("a component's JSX children are a View", has("export component Card(props: { title: string; children?: View })"), draft);
 check("a function-typed children prop is a render prop (MO-11k)", has("export component List(props: { items: string[]; children: (item: string, index: number) => View })"), draft);
 check("a callback parameter is a function type; an optional one keeps its `?` (MO-8e)", has("export fn onIdle(run: () => void, delay?: number): void"), draft);
@@ -82,7 +82,7 @@ fs.writeFileSync(path.join(ws, "more.d.ts"), [
   "export type Cell<T, V = unknown> = { row: T; value: V };",
   "export declare class Client { private secret: number; invalidate(key?: string): Promise<void>; fetch<T>(key: string): Promise<T>; size(): number; peek(key: string): Row | undefined; clear(): void; }",
   "export declare function listen(run: () => void): Unsubscribe;",
-  "export declare function makePager(): { page: () => number; getPageCount: () => number; next: () => void; rows: Row[]; label: string; nested: { open: boolean; close: () => void } };",
+  "export declare function makePager(): { page: import(\"solid-js\").Accessor<number>; turns: () => number; getPageCount: () => number; next: () => void; rows: Row[]; label: string; nested: { open: boolean; close: () => void } };",
   "export declare function makeClient(): Client;",
   "export declare function load(id: string): Promise<Row[]>;",
   "",
@@ -91,7 +91,7 @@ const r1 = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"
 const more = r1.stdout; if (process.env.VERBOSE) console.log(more, r1.stderr);
 const hasMore = line => more.split("\n").includes(line);
 check("a result that takes nothing and answers nothing is `() => void`, through the library's own name for it (EF-5a)", hasMore("export fn listen(run: () => void): () => void"), more);
-check("a small object result is typed by its fields: an accessor `ref`, a called getter and a function by what they answer, a nested object a step further", hasMore("export fn makePager(): { page: ref number; getPageCount: () => number; next: () => void; rows: Row[]; label: string; nested: { open: boolean; close: () => void } }"), more);
+check("a small object result is typed by its fields: an accessor `ref`, one only shaped as an accessor and a called getter and a function by what they answer, a nested object a step further", hasMore("export fn makePager(): { page: ref number; turns: () => number; getPageCount: () => number; next: () => void; rows: Row[]; label: string; nested: { open: boolean; close: () => void } }"), more);
 check("a class instance is typed by its methods, each as it is written where it can be (a generic one by what it answers), and stays the library's own object", hasMore("export fn makeClient(): { invalidate: (key?: string) => Promise<void>; fetch: (key: string) => Promise<unknown>; size: () => number; peek: (key: string) => Row | undefined; clear: () => void }"), more);
 check("a row names the module's own types, which the draft declares", hasMore("export fn load(id: string): Promise<Row[]>") && hasMore("export type Row = import(\"./more.js\").Row"), more);
 check("a generic type is declared with the parameters that have no default", hasMore("export type Page<T> = import(\"./more.js\").Page<T>") && hasMore("export type Cell<T, V = unknown> = import(\"./more.js\").Cell<T, V>"), more);
@@ -236,105 +236,6 @@ check("the draft that names the library's types passes rx-tsc against them (TY-6
   check("that draft passes rx-tsc against the package's own types: the props type, the record after it, each signature (TY-6)", tw.status === 0 && tw.stdout.trim() === "", { status: tw.status, out: tw.stdout + tw.stderr });
 }
 
-// the run pass (src/declare-run.js): which hook reads which context, which provider provides it
-fs.writeFileSync(path.join(ws, "ctx.mjs"), [
-  "import { createContext, useContext, createComponent, createMemo } from \"solid-js\";",
-  "export const ThemeContext = createContext();",
-  "export const useTheme = () => { const t = useContext(ThemeContext); if (!t) throw new Error(\"no theme\"); return t; };",
-  "export const useLazy = () => ({ read: () => { const t = useContext(ThemeContext); if (!t) throw new Error(\"no theme yet\"); return t; } });",
-  "export const useBroken = () => { throw new Error(\"always\"); };",
-  "export const useFree = () => 1;",
-  "export const useAnswer = () => createMemo(async () => 1);",
-  "export const useBoth = () => ({ answer: createMemo(async () => 1), size: createMemo(() => 2) });",
-  "export const ThemeProvider = props => createComponent(ThemeContext, { value: \"dark\", get children() { return props.children; } });",
-  "",
-].join("\n"));
-fs.writeFileSync(path.join(ws, "ctx.d.mts"), [
-  "import type { JSX } from \"@solidjs/web\";",
-  "import type { Context } from \"solid-js\";",
-  "export declare const ThemeContext: Context<string | undefined>;",
-  "export declare function useTheme(): string;",
-  "export declare function useLazy(): { read: () => string };",
-  "export declare function useFree(): number;",
-  "export declare function useAnswer(): () => number;",
-  "export declare function useBoth(): { answer: () => number; size: () => number };",
-  "export declare function useBroken(): number;",
-  "export declare function ThemeProvider(props: { children?: JSX.Element }): JSX.Element;",
-  "",
-].join("\n"));
-const r2 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./ctx.mjs", "--run"], { cwd: ws, encoding: "utf8" });
-const ran = r2.stdout;
-if (process.env.VERBOSE) console.log(ran, r2.stderr);
-const hasRan = line => ran.split("\n").some(l => l.split("   //")[0] === line);
-check("running: the exported context is named from its export", hasRan("export context theme"), ran + r2.stderr);
-check("running: a hook that throws with no provider uses it", hasRan("export fn useTheme(): string uses(theme)"), ran);
-check("running: a provider that lets it run provides it", hasRan("export component ThemeProvider(props: { children?: View }) provides(theme)"), ran);
-check("running: a hook that reads its context only when its result is read uses it too", /export fn useLazy\(\): .* uses\(theme\)/.test(ran), ran);
-check("running: a hook that throws under every context gets no invented one", /TODO useBroken: run with no provider it throws, and under each of this module's contexts too/.test(ran) && !/useBroken\(\).*uses\(/.test(ran), ran);
-check("running: an accessor whose first read is not ready is drafted `pending ref`, the whole result or a field (MO-10l)", /export (pure )?fn useAnswer\(\): pending ref number/.test(ran) && /export (pure )?fn useBoth\(\): \{ answer: pending ref number; size: ref number \}/.test(ran), ran);
-check("running: a hook that never throws keeps a TODO, not a claim", /TODO useFree: run with no provider, and its result read, it does not throw/.test(ran), ran);
-
-// MO-11q: a kit's compound parts on its root (`Dialog.Trigger`), which read the root's context; an `aria-label` prop, and a
-// value export
-fs.writeFileSync(path.join(ws, "kit.mjs"), [
-  "import { createContext, useContext, createComponent } from \"solid-js\";",
-  "const DialogContext = createContext();",
-  "const part = name => props => { if (!useContext(DialogContext)) throw new Error(`<Dialog.${name}> outside <Dialog>`); return props.children; };",
-  "const Trigger = part(\"Trigger\"), Content = part(\"Content\");",
-  "export const Dialog = Object.assign(props => createComponent(DialogContext, { value: {}, get children() { return props.children; } }), { Trigger, Content });",
-  "export { Trigger };",
-  "export const normalizeProps = { button: x => x };",
-  "",
-].join("\n"));
-fs.writeFileSync(path.join(ws, "kit.d.mts"), [
-  "import type { JSX } from \"@solidjs/web\";",
-  "type Part = (props: { \"aria-label\"?: string; children?: JSX.Element }) => JSX.Element;",
-  "export declare const Dialog: ((props: { open?: boolean; children?: JSX.Element }) => JSX.Element) & { Trigger: Part; Content: Part };",
-  "export declare const Trigger: Part;",
-  "export declare const normalizeProps: { button: (x: object) => object };",
-  "",
-].join("\n"));
-const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./kit.mjs", "--run"], { cwd: ws, encoding: "utf8" });
-const kit = r3.stdout;
-if (process.env.VERBOSE) console.log(kit, r3.stderr);
-const kitHas = line => kit.split("\n").includes(line);
-check("a compound root is a component that provides its parts' context (MO-11q, by running)", kitHas("export component Dialog(props: { open?: boolean; children?: View }) provides(dialog)"), kit + r3.stderr);
-check("its parts are dotted members that use it (MO-11q, by running)", kitHas("export component Dialog.Trigger(props: { children?: View }) uses(dialog)") && kitHas("export component Dialog.Content(props: { children?: View }) uses(dialog)"), kit);
-check("the same part exported by its own name gets the same rows; a prop a .d.rx cannot name (`aria-label`) is left out", kitHas("export component Trigger(props: { children?: View }) uses(dialog)") && /^export context dialog   \/\/ drafted by running: compound parts/m.test(kit), kit);
-check("a value is declared a value (MO-8g)", kitHas("export const normalizeProps: typeof import(\"./kit.mjs\").normalizeProps"), kit);
-
-// a package that ships .jsx (its solid build) runs compiled by the project's Solid compiler; a context it does not export is
-// named after its hook (`usePanelContext` → panel), or as `--context` says
-fs.writeFileSync(path.join(ws, "jsxkit.jsx"), [
-  "import { createContext, useContext } from \"solid-js\";",
-  "const PanelContext = createContext();",
-  "export const usePanelContext = () => { const c = useContext(PanelContext); if (!c) throw new Error(\"no panel\"); return c; };",
-  "export const Panel = props => <PanelContext value={{}}><section>{props.children}</section></PanelContext>;",
-  "",
-].join("\n"));
-fs.writeFileSync(path.join(ws, "jsxkit.d.ts"), [
-  "import type { JSX } from \"@solidjs/web\";",
-  "export declare function usePanelContext(): object;",
-  "export declare function Panel(props: { children?: JSX.Element }): JSX.Element;",
-  "",
-].join("\n"));
-const r4 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./jsxkit.jsx", "--run"], { cwd: ws, encoding: "utf8" });
-if (process.env.VERBOSE) console.log(r4.stdout, r4.stderr);
-check("a .jsx module runs compiled; its hook's context is named after the hook", /^rx-declare: ran 1 hook: 1 read a context/m.test(r4.stderr) && r4.stdout.split("\n").includes("export fn usePanelContext(): object uses(panel)") && /^export context panel /m.test(r4.stdout), r4.stdout + r4.stderr);
-const r5 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./jsxkit.jsx", "--context", "sidePanel", "--run"], { cwd: ws, encoding: "utf8" });
-check("--context names it", r5.stdout.split("\n").includes("export fn usePanelContext(): object uses(sidePanel)"), r5.stdout + r5.stderr);
-
-// a hook that warns, not throws, with no provider reads its context too
-fs.writeFileSync(path.join(ws, "warns.mjs"), [
-  "import { createContext, useContext } from \"solid-js\";",
-  "export const RouterContext = createContext();",
-  "export const useRouter = () => { const r = useContext(RouterContext); if (!r) console.warn(\"useRouter must be used inside a <RouterProvider>\"); return r; };",
-  "",
-].join("\n"));
-fs.writeFileSync(path.join(ws, "warns.d.mts"), ["import type { Context } from \"solid-js\";", "export declare const RouterContext: Context<object | undefined>;", "export declare function useRouter(): object | undefined;", ""].join("\n"));
-const r6 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/declare.js"), "./warns.mjs", "--run"], { cwd: ws, encoding: "utf8" });
-check("running: a hook that warns with no provider uses the context it warns about", /^export fn useRouter\(\): .* uses\(router\)$/m.test(r6.stdout), r6.stdout + r6.stderr);
-
 const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js")], { cwd: ws, encoding: "utf8" });
 check("the draft parses and passes rx-tsc against the module's own types (TY-6)", t.status === 0 && t.stdout.trim() === "", { status: t.status, out: t.stdout + t.stderr });
 
@@ -471,7 +372,7 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   const app = path.join(ws, "defaults"); fs.mkdirSync(app, { recursive: true });
   fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(app, "node_modules"), "dir");
   fs.writeFileSync(path.join(app, "status.js"), "export default function useOnline() { return () => true; }\n");
-  fs.writeFileSync(path.join(app, "status.d.ts"), "export default function useOnline(): () => boolean;\n");
+  fs.writeFileSync(path.join(app, "status.d.ts"), "export default function useOnline(): import(\"solid-js\").Accessor<boolean>;\n");
   fs.writeFileSync(path.join(app, "card.js"), "export default function Card(props) { return props.children; }\n");
   fs.writeFileSync(path.join(app, "card.d.ts"), "import type { JSX } from \"@solidjs/web\";\nexport default function Card(props: { title: string; children?: JSX.Element }): JSX.Element;\n");
   const draftOf = m => { const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), m], { cwd: app, encoding: "utf8" }); return r.stdout + r.stderr; };
@@ -568,58 +469,16 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   w("hand.d.rx", "import { Root } from \"./routes/__root.rx\"\nexport default component nests(children in component) = [{ component: Root }]\n");
   check("a declaration that names no routes is written by hand: not derived, never stale", H.drift(path.join(app, "src/hand.d.rx")) === null);
 }
-// 09 MO-8s: a module of the app's own takes the words of the library rows it hands on
-{
-  const app = path.join(ws, "ownapp"); const nm = path.join(app, "node_modules");
-  fs.mkdirSync(path.join(nm, "kit"), { recursive: true }); fs.mkdirSync(path.join(app, "rx-types"), { recursive: true });
-  for (const d of fs.readdirSync(path.join(repo, "ref/node_modules"))) if (!d.startsWith(".")) fs.symlinkSync(path.join(repo, "ref/node_modules", d), path.join(nm, d));
-  fs.writeFileSync(path.join(nm, "kit/package.json"), JSON.stringify({ name: "kit", version: "1.0.0", type: "module", main: "index.js", types: "index.d.ts" }));
-  fs.writeFileSync(path.join(nm, "kit/index.js"), "export const Provider = p => p.children;\nexport const Part = () => null;\nexport const useThing = o => ({ data: \"\", busy: false });\nexport const createFrame = () => Provider;\n");
-  fs.writeFileSync(path.join(nm, "kit/index.d.ts"), "import type { JSX } from \"@solidjs/web\";\nexport declare function Provider(props: { children?: JSX.Element }): JSX.Element;\nexport declare function Part(props: {}): JSX.Element;\nexport declare function useThing(opts: () => { key: string }): { data: string; busy: boolean };\nexport declare function createFrame(): (props: {}) => JSX.Element;\n");
-  fs.writeFileSync(path.join(app, "rx-types/kit.d.rx"), "export context kit\nexport component Provider(props: { children?: View }) provides(kit)\nexport component Part(props: {}) uses(kit)\nexport pure fn useThing(ref opts: { key: string }): { data: ref string; busy: ref boolean } uses(kit)\nexport pure fn createFrame(): Component provides(kit)\n");
-  fs.writeFileSync(path.join(app, "own.jsx"), [
-    "import { Provider, Part, useThing, createFrame } from \"kit\";",
-    "export const Frame = () => <Provider />;",
-    "export function Mixed() { return <div><Provider /></div>; }",
-    "export const Made = createFrame();",
-    "export function useData(opts) { const q = useThing(opts); return { data: () => q.data }; }",
-    "export function useMaybe(opts) { if (opts) return useThing(opts); return null; }",
-    "export function useNoisy(opts) { const q = useThing(opts); console.log(q); return { data: () => q.data }; }",
-    "export const Wrapped = props => <><Provider>{props.children}</Provider></>;",
-    "export const Beside = props => <><Provider />{props.children}</>;",
-    "function load(opts) { const q = useThing(opts); return { data: () => q.data }; }",
-    "const loud = opts => { console.log(opts); return useThing(opts); };",
-    "const sometimes = opts => { if (opts) return useThing(opts); return null; };",
-    "export function useLoaded(opts) { return load(opts); }",
-    "export function useLoud(opts) { const q = loud(opts); return { data: () => q.data }; }",
-    "export function useSometimes(opts) { return sometimes(opts); }",
-    "export { Part };", "",
-  ].join("\n"));
-  fs.writeFileSync(path.join(app, "own.d.ts"), "import type { JSX } from \"@solidjs/web\";\nexport declare function Frame(): JSX.Element;\nexport declare function Mixed(): JSX.Element;\nexport declare const Made: (props: {}) => JSX.Element;\nexport declare function useData(opts: () => { key: string }): { data: () => string };\nexport declare function useMaybe(opts?: () => { key: string }): unknown;\nexport declare function useNoisy(opts: () => { key: string }): { data: () => string };\nexport declare function Wrapped(props: { children?: JSX.Element }): JSX.Element;\nexport declare function Beside(props: { children?: JSX.Element }): JSX.Element;\nexport declare function useLoaded(opts: () => { key: string }): { data: () => string };\nexport declare function useLoud(opts: () => { key: string }): { data: () => string };\nexport declare function useSometimes(opts?: () => { key: string }): unknown;\nexport declare function Part(props: {}): JSX.Element;\n");
-  const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./own.jsx"], { cwd: app, encoding: "utf8" });
-  const text = r.stdout + r.stderr; const row = n => text.split("\n").find(l => new RegExp(`^export (?:pure )?(?:fn|component) ${n}\\b`).test(l)) ?? "";
-  check("a component that renders a library's and nothing else takes its words; the context is the library's, named from there (MO-12e)", /provides\(kit\)$/.test(row("Frame")) && text.includes("export context kit from \"kit\""), text);
-  check("...one that renders it inside something of its own does not (the row would say more than the text shows)", row("Mixed") && !/provides|uses/.test(row("Mixed")), text);
-  check("...what a factory declared to make a component makes is that component", /provides\(kit\)$/.test(row("Made")), text);
-  check("...a component exported again is the library's row", /uses\(kit\)$/.test(row("Part")), text);
-  check("a hook that calls the library's at the top of its body uses what it uses, and is pure where it does nothing else", /^export pure fn useData\b.*uses\(kit\)$/.test(row("useData")) && !/TODO useData: which context/.test(text) && !/TODO useData: pure\?/.test(text), text);
-  check("...one that calls it behind a condition takes nothing: its questions stay", row("useMaybe") && !/uses\(|pure/.test(row("useMaybe")) && /TODO useMaybe: which context/.test(text), text);
-  check("...one that does something else uses the context, and is not drafted pure", /^export fn useNoisy\b.*uses\(kit\)$/.test(row("useNoisy")), text);
-  check("a provider inside a fragment, alone, is still the library's component rendered and nothing else", /provides\(kit\)$/.test(row("Wrapped")), text);
-  check("...and not one with the children beside it in the fragment (they would not be under the provider)", row("Beside") && !/provides|uses/.test(row("Beside")), text);
-  check("a hook that calls a helper of the module's own takes what the helper calls: uses, and pure where neither does anything else", /^export pure fn useLoaded\b.*uses\(kit\)$/.test(row("useLoaded")) && /load\(\), a helper here, which calls useThing of kit/.test(text), text);
-  check("...not pure where the helper does something else", /^export fn useLoud\b.*uses\(kit\)$/.test(row("useLoud")), text);
-  check("...and nothing where the helper calls the library behind a condition", row("useSometimes") && !/uses\(|pure/.test(row("useSometimes")), text);
-  const rt = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./own.jsx", "--types-only"], { cwd: app, encoding: "utf8" });
-  check("--types-only leaves the carried words out", !/provides\(kit\)|uses\(kit\)/.test(rt.stdout), rt.stdout);
-}
 // MO-8k: `--only`, the rows an app keeps — those exports', the contexts their words name, the types they name
 {
-  const app = path.join(ws, "ownapp");   // the kit of the test above: rx-types/kit.d.rx declares it; here its own draft is cut
+  const app = path.join(ws, "ownapp"), kit = path.join(app, "node_modules/kit"); fs.rmSync(app, { recursive: true, force: true }); fs.mkdirSync(kit, { recursive: true });
+  fs.writeFileSync(path.join(kit, "package.json"), JSON.stringify({ name: "kit", version: "1.0.0", type: "module", main: "index.js", types: "index.d.ts" }));
+  fs.writeFileSync(path.join(kit, "index.js"), "export const useThing = () => 1;\nexport const other = () => 2;\n");
+  fs.writeFileSync(path.join(kit, "index.d.ts"), "export declare function useThing(): number;\nexport declare function other(): number;\n");
   const all = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "kit"], { cwd: app, encoding: "utf8" });
   const some = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "kit", "--only", "useThing,Nope"], { cwd: app, encoding: "utf8" });
   const rows = t => t.split("\n").filter(l => /^export /.test(l)).map(l => /^export\s+(?:pure\s+)?(?:fn|component|type|context|const)\s+([\w$.]+)/.exec(l)?.[1]);
-  check("--only keeps the rows of the exports named, with their TODOs, and nothing else of the module", JSON.stringify(rows(some.stdout)) === JSON.stringify(["useThing"]) && rows(all.stdout).length === 4 && /TODO useThing:/.test(some.stdout) && !/TODO Provider:/.test(some.stdout), some.stdout);
+  check("--only keeps the rows of the exports named, with their TODOs, and nothing else of the module", JSON.stringify(rows(some.stdout)) === JSON.stringify(["useThing"]) && rows(all.stdout).length === 2 && /TODO useThing:/.test(some.stdout) && !/TODO Provider:/.test(some.stdout), some.stdout);
   check("...and says which name is no export", /--only Nope: kit has no such export/.test(some.stderr), some.stderr);
 }
 // MO-11u, MO-11c (2026-11-24): what a library is given to render. A parameter that is a component is a `Component<P>`,

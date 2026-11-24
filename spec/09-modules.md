@@ -229,7 +229,8 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     lists them (`rxc serve`'s `rows`): `exists`; `pure`; `uses:c` and
     `provides:c` for each context named; `rejects`; `fields`; `fails`;
     `callbacks:<position>` for each function-typed parameter, record field or
-    prop; `draft`; `placement`; `through:<component>` for a host's import.
+    prop (one with no `handler` claims nothing of the library, and is not
+    applicable); `draft`; `placement`; `through:<component>` for a host's import.
   - *A result is about one claim*, by that name, and is `held`, `mismatch`,
     `unverified` or not applicable. What is printed about no claim is no
     result and is never recorded. A claim no check answered is `unverified`.
@@ -244,7 +245,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     a clean run under providers of every context named and, where several are
     named, a failure again with `c`'s alone taken away. `pure`, which running
     can refute and not establish, is held where the code proves it and no run
-    refutes it. `rejects` is run under failing arguments.
+    refutes it. `rejects` is run under failing arguments. A `ref` part answers
+    alike when read twice, and one that is `pending` is seen to wait. `provides:c`
+    holds for what is made under the component later, too. What a run holds is
+    run again over the module changed so that the claim is false, and must not
+    hold there.
 - **MO-8k (Where a package's declaration is found).** The first of these that
   exists:
   1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or one
@@ -296,9 +301,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   undeclared, by a small module of the app's own JavaScript declared in the
   words there are (MO-10c), or by the library's own types (TY-4b).
 - **MO-8s (A module of the app's own).** A relative JS module that stands over
-  a library is declared like any; the tool that drafts it may carry over the
-  words of the library's rows it hands on. The checkers read the rows they
-  are given.
+  a library is declared like any, and drafted like any.
 - **MO-8t (A method of a declared value).** `export fn toaster.show(…)` beside
   `export const toaster: …`, or beside `export fn toast(…)` for a function
   with methods, is a fn's row whose name takes one step, with every word a fn
@@ -325,7 +328,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   `pure`, `handler`, `draft`, `rejects(E)`, `uses(c)` and `provides(c)` into a
   draft only where the code an import resolves to proves them, and holds the
   words a file already has against the same reading (`--audit`: proven,
-  contradicted, unproven). Nothing in a checker knows where a word came from.
+  contradicted, unproven). No word is written off a name, a shape, a run or a
+  list of libraries (ruled 2026-11-24): `ref` is the types' own `Accessor`, or
+  proven by the code, as `instantiates` is. Nothing in a checker knows where a word came from.
   What proves each, and what is refused, is in DECLARATIONS.md.
 
 ## MO-9 — A signature read in place of its module

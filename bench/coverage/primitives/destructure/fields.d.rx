@@ -1,2 +1,2 @@
 // By hand: every word (the module is the app's own).
-export pure fn createName(ref person: { first: string; last: string }): { first: ref string; last: ref string }
+export fn createName(ref person: { first: string; last: string }): { first: ref string; last: ref string }

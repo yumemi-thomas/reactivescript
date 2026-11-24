@@ -1,1 +1,2 @@
-export const probes = { ThemeScope: { props: () => ({ value: "dark" }) } };
+import { ThemeScope } from "./theme.js";
+export const provide = (children, s) => s.createComponent(ThemeScope, { value: "dark", get children() { return children(); } });

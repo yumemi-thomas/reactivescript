@@ -10,5 +10,5 @@ export const scene = (lib, h) => {
 };
 export const act = lib => { lib.toaster.show(Saved); };
 export const probes = {
-  Toast: { props: () => ({ toastId: 0 }), around: (children, s) => s.createComponent(Toast.Region, { get children() { return s.createComponent(Toast, { toastId: 0, get children() { return children(); } }); } }) },
+  Toast: { props: () => ({ toastId: 0 }), around: (children, s, lib) => s.createComponent(Toast.Region, { get children() { return s.createComponent(lib.Toast, { toastId: 0, get children() { return children(); } }); } }) },
 };

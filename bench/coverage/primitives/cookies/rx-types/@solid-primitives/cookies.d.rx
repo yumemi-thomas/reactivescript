@@ -1,4 +1,4 @@
 //@ for @solid-primitives/cookies ^2.0.0
 export type UserThemeOptions = import("@solid-primitives/cookies").UserThemeOptions
 export type Theme = import("@solid-primitives/cookies").Theme
-export pure fn createUserTheme(name?: string, options?: UserThemeOptions): [ref Theme | undefined, (...args: Parameters<ReturnType<typeof import("@solid-primitives/cookies").createUserTheme>[1]>) => ReturnType<ReturnType<typeof import("@solid-primitives/cookies").createUserTheme>[1]>]
+export fn createUserTheme(name?: string, options?: UserThemeOptions): [ref Theme | undefined, (...args: Parameters<ReturnType<typeof import("@solid-primitives/cookies").createUserTheme>[1]>) => ReturnType<ReturnType<typeof import("@solid-primitives/cookies").createUserTheme>[1]>]

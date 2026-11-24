@@ -137,10 +137,11 @@ A draft says only what types show:
 To say those, write `rx-types/<package>.d.rx` (it wins over the draft): `npx rx-declare <package> --out
 rx-types/<package>.d.rx` starts from the same draft, with a `// TODO` for each question the code did not answer
 (`pure`, `handler`, a hook's context);
-`--run` also runs the package to find which hooks need a provider (it executes the package's code). `npx rx-verify
+`npx rx-verify
 rx-types/<package>.d.rx` runs your rows against the package (`--record` keeps the result for `rx-tsc --rx-strict`).
-One thing to look at in a draft: a function that takes nothing and answers a value is drafted `ref`, as an accessor is,
-and types cannot tell `size: () => number` from `remove: () => Item` — write the second as the function it is.
+A part of a result that takes nothing and answers a value is drafted `ref` where the library's type is Solid's
+`Accessor`, or its code shows a reader; any other is the function it is (`size: () => number`), and you write `ref` where
+you know it is read.
 Turn drafting off with `RX_GENERATE=0` or `rx({ generate: false })`.
 
 ## Use it
@@ -178,8 +179,7 @@ errored fallback(e) { <p>failed: {e.message}</p> } {
 Without the `errored` region the read is `UNHANDLED_FAILURE`; in a client-only app, without the `loading` one it is
 `ASYNC_OUTSIDE_LOADING_BOUNDARY`. The words go before a `ref` part and nowhere else: the whole result, an item of a
 tuple, a field of a record. A record or a tuple with such a part is read a part at a time (`q.data`, never `q` passed
-whole: `RESULT_AS_VALUE`); the part itself goes anywhere. `rx-declare` writes the words where it knows them (a release
-it was checked against, or a hook `--run` could run), and `rx-verify` points out an accessor that waited without
+whole: `RESULT_AS_VALUE`); the part itself goes anywhere. You write the words, and `rx-verify` points out an accessor that waited without
 saying so.
 
 One library hands back a store whose plain field waits instead (a query's `data`), and no row says so of a plain
@@ -377,16 +377,8 @@ used correctly. What a single package does, you say without one, in one of three
   `data` says what the library's field does — it waits for the first answer and throws the query's error — so a read
   of `todos.data` with no `errored` region above it is refused, as a read of an `await` would be.
 
-  **You do not write those rows.** `rx-declare ./query.js` drafts them whole (spec/09 MO-8s): the module only hands
-  the library's hook on, so its row takes the library's words — `pure` and `uses(queryClient)`, because the body
-  calls the hook at its top and does nothing else; `ref` for each field that only reads the result; `pending
-  fails(Error)` on `data`, which rx-declare knows of the release. The same goes for the other small modules an app
-  writes over a library: a component that renders the library's provider and nothing else takes its
-  `provides(router)`, `export const Router = createRouter(…)` takes the factory's, a component exported again keeps
-  its row's words, and a function that hands its argument straight to Kobalte's `toaster.show` takes
-  `renders(Toast.List)`. Nothing is guessed: a word is copied from the row it was written on, only in the shapes
-  where the text shows the module does that and no more (a hook called behind a condition takes nothing, and its
-  TODO stays). `--types-only` leaves them out.
+  **These rows are yours.** `rx-declare ./query.js` drafts what the module's code proves; `pending fails(Error)` and the
+  context are what you know of the library, and `rx-verify` runs them.
 
   **Your wrapper still needs the library's provider, and says so.** `export context queryClient from
   "@tanstack/solid-query"` names the context that package's declaration declares, so `uses(queryClient)` on your hook

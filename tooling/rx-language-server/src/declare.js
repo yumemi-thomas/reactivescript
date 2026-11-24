@@ -3,10 +3,11 @@
 // component, a `JSX.Element` prop is a `View`, a component-typed prop or result is `Component`, a tuple result keeps
 // its `ref` parts, an `Error` subclass is an `error`. What types cannot show is left for a person, as a `TODO` comment
 // on the line it concerns: whether a hook reads a context (`uses(…)`), whether an accessor waits or fails where it is
-// read (`pending`, `fails(…)` before its `ref`, MO-10l: known.js says it of a release it was read off, `--run` of a hook
-// it could run; a store whose plain fields wait has no row, and a module of the app's own hands each out as an
-// accessor), what a promise rejects with. A fn is `pure` only where Solid's convention says a primitive
-// is (`create*`, `use*`) or a config helper is (`define*`, `*Options`); everything else stays io, the row that cannot be wrong in the unsafe direction (R-io-4).
+// read (`pending`,
+// `fails(…)` before its `ref`, MO-10l; a store whose plain fields wait has no row, and a module of the app's own hands
+// each out as an accessor), what a promise rejects with. No word is
+// written off a name, a shape or a judgment (MO-8v): those the code proves are added by declare-infer.js, and the rest stay
+// off, the row that says least (a fn with no word is io, R-io-4).
 // `rx-tsc` then checks the draft against the same types (spec/13 TY-6).
 const path = require("node:path");
 
@@ -490,6 +491,29 @@ function typeParams(ts, checker, symbols, used) {
   return kept.length ? `<${kept.map(x => x[1]).join(", ")}>` : "";
 }
 
+/** The name of the package a folder is in. */
+const PACKAGES = new Map();
+function packageOf(dir) {
+  if (!PACKAGES.has(dir)) { let n; try { n = JSON.parse(require("node:fs").readFileSync(path.join(dir, "package.json"), "utf8")).name; } catch { /* none here */ } PACKAGES.set(dir, n ?? (path.dirname(dir) === dir ? undefined : packageOf(path.dirname(dir)))); }
+  return PACKAGES.get(dir);
+}
+/** Whether the library's types say a function of nothing is an accessor: Solid's own `Accessor<T>` (`SourceAccessor<T>`),
+ *  a union with one (`MaybeAccessor<T>`), or an alias of one (`type Options<T> = Accessor<…>`). One that is only shaped as
+ *  one (`() => T`) may be called for what it does — an abort signal made at each call, an id counted — so a result's part
+ *  is drafted `ref` where the code shows a reader (declare-infer.js), and a parameter is the function it is. */
+function named(ts, checker, t0) {
+  const solid = y => /^(solid-js|@solidjs\/signals)$/.test(packageOf(path.dirname(y.declarations?.[0]?.getSourceFile().fileName ?? "/")) ?? "");
+  const alias = (y, d = 0) => {
+    if (!y || d > 4) return false;
+    if (y.flags & ts.SymbolFlags.Alias) y = checker.getAliasedSymbol(y);
+    if (/^(Source)?Accessor$/.test(y.name) && solid(y)) return true;
+    const n = y.declarations?.find(ts.isTypeAliasDeclaration)?.type;
+    return !!n && ts.isTypeReferenceNode(n) && alias(checker.getSymbolAtLocation(ts.isQualifiedName(n.typeName) ? n.typeName.right : n.typeName), d + 1);
+  };
+  const t = checker.getNonNullableType(t0);
+  return [t0, t, ...(t.types ?? [])].some(x => alias(x.aliasSymbol) || alias(x.symbol));
+}
+const shaped = (ts, checker, t, at) => { if (CTX.shaped && !named(ts, checker, t)) CTX.shaped.add(at); return true; };
 /** An accessor: one call signature, no parameters (Solid's `Accessor<T>`). Returns what it reads, or undefined. */
 function accessorOf(ts, checker, t) {
   t = checker.getNonNullableType(t);
@@ -661,7 +685,7 @@ function paramText(ts, checker, p, at, generic = false, here) {
   const node = annotation(ts, p);   // MO-8o: the parameter as the library declares it
   const opt = p.valueDeclaration && ts.isParameter(p.valueDeclaration) && (p.valueDeclaration.questionToken || p.valueDeclaration.initializer) ? "?" : "";   // MO-8e
   const name = RESERVED.has(p.name) ? `${p.name}_` : p.name;   // a parameter's name is only a name: never a row word (`ref`)
-  const read = accessorOf(ts, checker, t);
+  const read0 = accessorOf(ts, checker, t), read = read0 && (named(ts, checker, t) || isElement(ts, checker, read0)) ? read0 : undefined;
   // MO-11u (2026-11-24): a function of nothing that gives an element is no accessor of a value — the library renders it
   // (a component with no props, a render function: sonner's `toast(() => <Saved />)`). The parameter takes a view, or
   // such a function, and a call of the fn is a call, not an instantiation
@@ -789,6 +813,7 @@ function structural(ts, checker, t, depth = 0, here, refs = depth === 0) {   // 
     const read = accessorOf(ts, checker, qt);
     // MO-10b: only the result's own fields are declared accessors; one nested deeper is a value — the function it is
     if (read && !refs) return `() => ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
+    if (read && refs) shaped(ts, checker, qt, q.name);
     if (read) return CALLED.test(q.name) ? `() => ${(st => st ? st + nullish(ts, read) : text(ts, checker, read))(structural(ts, checker, read, depth + 1))}` : `ref ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
     if (isFn(checker, qt)) return fnResultText(ts, checker, qt, at(q));
     const st = depth < 2 ? structural(ts, checker, qt, depth + 1, at(q)) : undefined;
@@ -819,6 +844,7 @@ const byPlace = s => /\b(?:Parameters|ReturnType)</.test(s);
 function resultText(ts, checker, t, todos, generic = false, here, node) {
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return "Component";
   const read = accessorOf(ts, checker, t);
+  if (read) shaped(ts, checker, t, "");
   if (read) return `ref ${text(ts, checker, read, CTX.decl && here ? `ReturnType<${here}>` : undefined, innerNode(ts, checker, node, read))}`;   // MO-8q: what the accessor answers, by its place, before an `any`
   if (isDisposer(ts, checker, t)) return nullish(ts, t) ? `(() => void)${nullish(ts, t)}` : "() => void";   // EF-5a: the checker holds a call to keeping it
   if (isFn(checker, t)) return generic && !CTX.decl ? ANY("generic") : `(${callbackText(ts, checker, t, here, "function-result", node)})${nullish(ts, t)}`;   // a function part is io (MO-10b); it may be absent
@@ -839,7 +865,7 @@ function resultText(ts, checker, t, todos, generic = false, here, node) {
       const open = declared(ts, checker, parts[i], x, true);
       return open && !introduced(open) ? open : partAt(i) ?? said;
     };
-    return `${ro}[${checker.getTypeArguments(tuple).map((x, i) => accessorOf(ts, checker, x) ? `ref ${text(ts, checker, accessorOf(ts, checker, x), CTX.decl && partAt(i) ? `ReturnType<${partAt(i)}>` : undefined, innerNode(ts, checker, parts[i], accessorOf(ts, checker, x)))}` : isFn(checker, x) ? (generic && !CTX.decl ? ANY("generic") : setter(ts, checker, x, parts[i], partAt(i))) : value(x, i)).join(", ")}]`;
+    return `${ro}[${checker.getTypeArguments(tuple).map((x, i) => accessorOf(ts, checker, x) && shaped(ts, checker, x, String(i)) ? `ref ${text(ts, checker, accessorOf(ts, checker, x), CTX.decl && partAt(i) ? `ReturnType<${partAt(i)}>` : undefined, innerNode(ts, checker, parts[i], accessorOf(ts, checker, x)))}` : isFn(checker, x) ? (generic && !CTX.decl ? ANY("generic") : setter(ts, checker, x, parts[i], partAt(i))) : value(x, i)).join(", ")}]`;
   }
   let s = text(ts, checker, t, here, node);
   // a promise is said to be one, whatever it answers (MO-10b reads it): by its place, else of `any`
@@ -867,9 +893,10 @@ function withWaits(row, waits) {
   const tail = /\s(?:uses\(|provides\(|nests\(|instantiates\b|rejects\()/.exec(row.slice(at));
   const ret = tail ? row.slice(at, at + tail.index) : row.slice(at), rest = tail ? row.slice(at + tail.index) : "";
   const split = (t, seps) => { const out = []; let k = 0, from = 0; for (let j = 0; j < t.length; j++) { const c = t[j]; if ("([{<".includes(c)) k++; else if (")]}>".includes(c) && !(c === ">" && t[j - 1] === "=")) k--; else if (k === 0 && seps.includes(c)) { out.push(t.slice(from, j)); from = j + 1; } } out.push(t.slice(from)); return out; };
-  const mark = (part, words) => words && /^\s*ref\s/.test(part) ? part.replace(/^(\s*)ref\s/, `$1${words} ref `) : part;
+  // (`words` of "" take the word off: the function of nothing the part is)
+  const mark = (part, words) => words === undefined || !/^\s*ref\s/.test(part) ? part : words ? part.replace(/^(\s*)ref\s/, `$1${words} ref `) : part.replace(/^(\s*)ref\s+/, "$1() => ");
   let out = ret;
-  if (/^ref\s/.test(ret)) out = mark(ret, waits[""]);
+  if (/^ref\s/.test(ret)) { out = mark(ret, waits[""]); if (waits[""] === "") out = `(${out})`; }
   else if (ret.startsWith("[") && ret.endsWith("]")) out = `[${split(ret.slice(1, -1), ",").map((x, i) => mark(x, waits[String(i)])).join(",")}]`;
   else if (ret.startsWith("{") && ret.endsWith("}")) out = `{${split(ret.slice(1, -1), ";").map(f => { const c = f.indexOf(":"); if (c < 0) return f; const key = f.slice(0, c).trim().replace(/^readonly\s+/, "").replace(/\?$/, ""); return `${f.slice(0, c + 1)}${mark(f.slice(c + 1), waits[key])}`; }).join(";")}}`;
   return row.slice(0, at) + out + rest;
@@ -895,6 +922,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   host.fileExists = f => path.resolve(f) === entry || fileExists.call(host, f);
   const program = ts.createProgram([entry], { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options }, host);
   CTX = { refs: false, scope: new Set() };
+  const shapedBy = new Map();   // an export → the parts of its result that are only shaped as accessors
   const checker = program.getTypeChecker();
   const sf = program.getSourceFile(entry);
   const imp = sf.statements[0];
@@ -1063,8 +1091,9 @@ function declare(ts, spec, from, options = {}, how = {}) {
     { const sg = params.filter(p => signalOf(ts, checker, checker.getTypeOfSymbolAtLocation(p, imp))); if (sg.length) todos.push(`${sg.map(p => `\`${p.name}\``).join(", ")} takes a Solid signal (a getter and a setter), and an .rx program has none to pass: make it in a module of the app's own, \`export const x = (init, …) => ${name}(createSignal(init), …)\`, and declare that — its result is a reader and a setter (MO-10c)`); }
     const events = [...ps.join("; ").matchAll(/(?:^|[\s{;,(])(on[A-Z][\w$]*)\??\s*:\s*\(/g)].map(m => m[1]);
     if (events.length) todos.push(`${[...new Set(events)].join(", ")}: called later, outside any computation? mark ${events.length > 1 ? "each" : "it"} \`handler (…) => …\`, so a closure there may write sources (MO-10g)`);
+    if (!shapedBy.has(name)) shapedBy.set(name, new Set()); CTX.shaped = shapedBy.get(name);
     const ret = resultText(ts, checker, sig.getReturnType(), todos, generic, place && `ReturnType<${place}>`, sig.declaration?.type);
-    CTX.scope = new Set();
+    CTX.shaped = undefined; CTX.scope = new Set();
     const primitive = /^(create|use)[A-Z]/.test(leafName);
     const config = /^define[A-Z]|[a-z]Options$/.test(leafName);   // a config helper (`defineRoute`, `queryOptions`): pure by convention
     if (/^use[A-Z]/.test(leafName)) todos.unshift("which context does this hook read? add uses(<context>) (MO-12b)");
@@ -1085,7 +1114,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
       const mutable = params.filter(p => { const pt = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)); return !isFn(checker, pt) && !accessorOf(ts, checker, pt) && !!(pt.flags & (ts.TypeFlags.Object | ts.TypeFlags.TypeParameter)) && !/^(readonly |Readonly(Array)?<)/.test(checker.typeToString(pt)); });
       if (mutable.length) todos.push(`does it change ${mutable.map(p => `\`${p.name}\``).join(" or ")} in place? mark that parameter \`draft ${mutable[0].name}\`, and a store's draft is given to it as it is (MO-10i)`);
     }
-    return `export fn ${name}${tps}(${ps.join(", ")}): ${ret}${primitive && !/\bref\b/.test(ps.join(" ") + ret) && !factory ? " instantiates" : ""}`;
+    return `export fn ${name}${tps}(${ps.join(", ")}): ${ret}`;   // (`instantiates` is read from the code, never off a name: declare-infer.js)
     };
     // an export has one row (MO-8b): of several signatures the shortest, the common form — the checker reads the row's
     // words, which are the fn's, and TypeScript types a call from the library's own overloads (13 TY-4b)
@@ -1115,34 +1144,6 @@ function declare(ts, spec, from, options = {}, how = {}) {
     for (const t of todos) lines.push(`// TODO ${name}: ${t}`);   // on lines of their own: a declaration's line is read to its end
     lines.push(...fnRows);
     if (!item.member) work.splice(wi + 1, 0, ...methodsOf(name, t));   // MO-8t: a fn's own methods (`toast.success`), each a row
-  }
-  // what types cannot show, for a library rx-declare has been checked against (known.js): its rows for the exports
-  // the installed version has, in place of the drafted ones
-  const known = how.known === false || spec.startsWith(".") ? undefined : require("./known.js")[spec];
-  if (known) {
-    const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
-    const v = require("./versions.js").installed(pkg, from);
-    if (v && require("./versions.js").satisfies(v, known.range)) {
-      const exportedAs = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/m.exec(l)?.[1];   // (a row may have its question on the line before it)
-      const has = new Set(checker.getExportsOfModule(mod).map(s0 => s0.name));
-      const took = [];
-      for (const [name, row] of Object.entries(known.rows ?? {})) {
-        if (!has.has(name)) continue;
-        for (let i = lines.length - 1; i >= 0; i--) if (exportedAs(lines[i]) === name || lines[i].startsWith(`// TODO ${name}:`)) lines.splice(i, 1);
-        lines.push(row); took.push(name);
-      }
-      for (const [name, w] of Object.entries(known.words ?? {})) {
-        const i = lines.findIndex(l => exportedAs(l) === name); if (i < 0) continue;
-        let l = lines[i]; if (w.drop) l = l.replace(new RegExp(`\\s+${w.drop}$`), ""); if (w.pure) l = l.replace(/^export fn /m, "export pure fn "); if (w.waits) l = withWaits(l, w.waits); if (w.after) l = `${l} ${w.after}`;
-        lines[i] = l; took.push(name);
-        for (let j = lines.length - 1; j >= 0; j--) if (lines[j].startsWith(`// TODO ${name}:`) && !lines[j].includes("\n")) lines.splice(j, 1);   // (a question written on its row's own element stays with the row: it asks something else)
-      }
-      if (took.length) {
-        out.push(`// Known of ${pkg} ${known.range} (what its types cannot show, checked by running it): ${took.join(", ")}.`);
-        for (const c of known.contexts ?? []) out.push(`export context ${c}`);
-        contexts.length = 0;
-      }
-    }
   }
   return { out, lines, contexts, wide, placed };
   };
@@ -1216,13 +1217,14 @@ function declare(ts, spec, from, options = {}, how = {}) {
     if (!bad && how.unheld) how.unheld["*"] = "the draft could not be checked against the module (no crate to read it with): written as every draft was";
   } else ({ out: head, lines, contexts } = plain());
   out.push(...head);
-  // MO-8s: a module of the app's own takes the words of the library rows it hands on (declare-own.js)
-  if (spec.startsWith(".") && how.known !== false) { const c = require("./declare-own.js").carry(ts, spec, from, lines, withWaits); lines = c.lines; out.push(...c.head); }
+  // a part only shaped as an accessor is `ref` where the code shows a reader (declare-infer.js), else the function it is
+  const unshaped = (line, name, reads) => [...shapedBy.get(name) ?? []].reduce((l, at) => reads(at) ? l : withWaits(l, { [at]: "" }), line);
+  if (how.infer === false) lines = lines.map(l => { const n = exportedIn(l); return n ? l.split("\n").map(x => x.startsWith("export ") ? unshaped(x, n, () => false) : x).join("\n") : l; });
   // MO-8v: the words the code that runs proves — `pure`, `handler`, `draft`, `rejects(E)` — written into the rows;
   // the question each answers is not asked (declare-infer.js, infer.js)
   if (how.infer !== false) {
     const di = require("./declare-infer.js");
-    const r = di.apply(ts, spec, from, lines, name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } }, how.why, { contexts, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } }, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
+    const r = di.apply(ts, spec, from, lines, name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } }, how.why, { unshaped, contexts, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } }, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
     lines = r.lines; out.push(...r.head);
     contexts = contexts.filter(c => !r.named.has(c));   // (a context a row names is declared: no question about it)
     if (how.inferred) Object.assign(how.inferred, r.count, { unread: r.unread, words: r.words });

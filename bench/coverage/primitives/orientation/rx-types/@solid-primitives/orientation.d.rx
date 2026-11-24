@@ -1,3 +1,3 @@
 //@ for @solid-primitives/orientation ^1.0.0
 export type OrientationType = import("@solid-primitives/orientation").OrientationType
-export pure fn createOrientation(): { angle: ref number; type: ref OrientationType }
+export fn createOrientation(): { angle: ref number; type: ref OrientationType }

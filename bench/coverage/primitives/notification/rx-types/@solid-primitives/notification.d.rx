@@ -1,2 +1,2 @@
 //@ for @solid-primitives/notification ^1.0.0
-export pure fn createNotificationPermission(): { permission: ref PermissionState | "unknown"; requestPermission: () => Promise<void>; pending: ref boolean }
+export fn createNotificationPermission(): { permission: ref PermissionState | "unknown"; requestPermission: () => Promise<void>; pending: ref boolean }

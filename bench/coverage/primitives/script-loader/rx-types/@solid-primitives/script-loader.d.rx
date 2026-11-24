@@ -1,2 +1,2 @@
 //@ for @solid-primitives/script-loader ^3.0.0
-export pure fn createScriptLoader(props: { src: string; onLoad?: handler (event: Event) => void }): HTMLScriptElement | undefined instantiates
+export fn createScriptLoader(props: { src: string; onLoad?: handler (event: Event) => void }): HTMLScriptElement | undefined instantiates

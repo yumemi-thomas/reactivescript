@@ -4,4 +4,4 @@ export type SpringOptions = import("@solid-primitives/spring").SpringOptions
 export type WidenSpringTarget<T> = import("@solid-primitives/spring").WidenSpringTarget<T>
 export type SpringSetter<T> = import("@solid-primitives/spring").SpringSetter<T>
 export type SpringExtras = import("@solid-primitives/spring").SpringExtras
-export pure fn createSpring<T extends SpringTarget>(initialValue: T, ref options?: SpringOptions): [ref WidenSpringTarget<T>, (...args: Parameters<SpringSetter<WidenSpringTarget<T>>>) => ReturnType<SpringSetter<WidenSpringTarget<T>>>, SpringExtras]
+export fn createSpring<T extends SpringTarget>(initialValue: T, ref options?: SpringOptions): [ref WidenSpringTarget<T>, (...args: Parameters<SpringSetter<WidenSpringTarget<T>>>) => ReturnType<SpringSetter<WidenSpringTarget<T>>>, SpringExtras]

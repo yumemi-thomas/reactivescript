@@ -1,4 +1,4 @@
 // By hand: every word (the module is the app's own). Wardic's `createHover()` reads the provider's context, and so does
 // this wrapper of it: the context is the library's, named from here (09 MO-12e).
 export context wardic from "@wardic/solid"
-export pure fn createHoverSensor(): { ref: (element: Element) => void; hovered: ref boolean } uses(wardic)
+export fn createHoverSensor(): { ref: (element: Element) => void; hovered: ref boolean } uses(wardic)

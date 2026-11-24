@@ -24,8 +24,9 @@ const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, unde
 // stand, so a change of rule (2: no fn is guessed `pure`; 3: a result is typed a step at a time, a disposer as `() => void`; 4: the library's types are named where a draft wrote `any`, MO-8m; 5: types are written as the library's declaration writes them, props by their type, a row for each signature, MO-8o to MO-8q; 6: no `any` is the draft's — a place at the row's type parameters, the last reading, MO-8q over whole drafts; 7: an export has one row, of several signatures the shortest, and no row says `signal` or `tracked` — the vocabulary pruned, MO-8i; 8: the words the package's code proves are written, and a property that may be absent is no method's row, MO-8v) redrafts what an earlier rule wrote. Bump it with any change to
 // what a draft says. (9: the words read from JSX and from contexts — `handler` on a prop, `uses(c)`, `provides(c)` with their
 // `export context` rows, MO-8w. 10: a component's props of many fields with no name are their place, MO-8o. 11: no `ref` in
-// a record that may be absent, MO-10b)
-const FORMAT = 11;
+// a record that may be absent, MO-10b. 12: no word off a name or a shape — `ref` and `instantiates` are the types' `Accessor` or
+// proven by the code, MO-8v)
+const FORMAT = 12;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
@@ -155,7 +156,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     let text;
     // MO-8v: with the words the package's code proves (`pure`, `handler`, `draft`, `rejects(E)`), each marked: they are
     // read, not guessed, so an import nothing reviewed still makes the checker accept nothing the code does not show
-    try { text = declare(typescriptFor(dir), spec, dir, {}, { known: false, infer: process.env.RX_DECLARE_INFER !== "0" }); }   // from the types alone (MO-8l): what known.js says of a library is for a draft a person reviews
+    try { text = declare(typescriptFor(dir), spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0" }); }   // from the types alone (MO-8l): what known.js says of a library is for a draft a person reviews
     catch (e) {
       // a draft written for another version or under other rules is not kept when it cannot be redone: its rows (an
       // earlier rule's guessed `pure`) would still be read, so the import falls back to undeclared, the cautious reading

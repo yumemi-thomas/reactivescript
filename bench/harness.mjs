@@ -10,7 +10,7 @@ import path from "node:path";
 import { published } from "../compiler/scripts/published.mjs";
 
 const require_ = createRequire(import.meta.url);
-const { rowsOf } = require_("../tooling/rx-language-server/src/rows.js");   // a declaration's rows, as the crate reads them
+const { rowsOf, claimOf } = require_("../tooling/rx-language-server/src/rows.js");   // a declaration's rows, as the crate reads them
 const { declares } = require_("../tooling/rx-language-server/src/load.js");   // …and the module it declares
 
 export const here = path.dirname(fileURLToPath(import.meta.url));
@@ -106,6 +106,15 @@ export const alone = (args, id, crash, timeout = 600000) => new Promise(res => {
 
 /** A record as data, one line an entry: what `--check` compares with, and a diff shows entry by entry. */
 export const compact = o => `{\n${Object.entries(o).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(",\n")}\n}\n`;
+/** What rx-verify runs a package's rows with is one file a package (bench/probes/<spec>.probe.mjs), put beside each
+ *  declaration of it (`rx-types/<spec>.d.rx`) that has no probe of its own. */
+function shareProbes(dir) {
+  for (const f of readdirSync(dir, { recursive: true })) {
+    const at = f.split(path.sep); const i = at.indexOf("rx-types"); if (i < 0 || !f.endsWith(".d.rx")) continue;
+    const probe = path.join(here, "probes", `${at.slice(i + 1).join("/").slice(0, -".d.rx".length)}.probe.mjs`), to = path.join(dir, f.replace(/\.d\.rx$/, ".probe.mjs"));
+    if (existsSync(probe) && !existsSync(to)) cpSync(probe, to);
+  }
+}
 /** A task's folder in the workspace: its `src/`, copied fresh. A coverage entry (bench/coverage/<group>/<name>, `from`)
  *  is staged the same way, beside the tasks, under a name of its own. */
 export function stage(id, from) {
@@ -114,6 +123,7 @@ export function stage(id, from) {
   // a group's own `rx-types/` is the project's every entry of it is in (09 MO-8k: a declaration is found in a folder above)
   if (from && existsSync(path.join(from, "../rx-types"))) cpSync(path.join(from, "../rx-types"), path.join(dir, "rx-types"), { recursive: true });
   cpSync(from ?? path.join(here, "tasks", id, "src"), dir, { recursive: true });
+  shareProbes(dir);
   const own = from ? null : ownInstall(id); if (own) symlinkSync(own, path.join(dir, "node_modules"), "dir");
   if (!existsSync(path.join(dir, "tsconfig.json"))) writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2023", "DOM", "DOM.Iterable"], types: [] }, include: ["**/*.rx", "**/*.d.ts"], exclude: ["node_modules", "dist", ".build"] }, null, 2));
   return dir;
@@ -264,7 +274,7 @@ export class Runner {
 }
 
 /** Every file under a task's folder (its own: no node_modules, no dot folders, nothing the build wrote), by a test of its name. */
-function own(dir, keep) {
+export function own(dir, keep) {
   const out = [];
   const walk = d => { for (const e of readdirSync(d, { withFileTypes: true })) { if (e.name === "node_modules" || e.name === "dist" || e.name.startsWith(".")) continue; const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (keep(e.name)) out.push(p); } };
   walk(dir);
@@ -284,7 +294,7 @@ const isWord = t => /^[\w$]/.test(t);
 const exported = line => /^export\s+default\s+component\b/.test(line.trim()) ? "default" : /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(line.trim())?.[1];   // default: a host declaration's view (09 MO-14)
 /** 09 MO-14: whether a `.d.rx` is a host declaration (it states the view a JS host makes), and its rows a line each: the
  *  view may be written over several lines, and is measured as one row. */
-const isHost = text => /^\s*export\s+default\s+component\b/m.test(text);
+export const isHost = text => /^\s*export\s+default\s+component\b/m.test(text);
 const hostRows = text => { const ls = code(text).map(l => l.trim()).filter(Boolean); const at = ls.findIndex(l => /^export\s+default\s+component\b/.test(l)); return at < 0 ? ls : [...ls.slice(0, at), ls.slice(at).join(" ").replace(/([\[{(])\s+/g, "$1 ").replace(/\s+/g, " ").replace(/\[ /g, "[").replace(/ \]/g, "]")]; };
 /** What `rx-declare --host` drafts for the modules a host declaration imports (its lines, comments dropped): the
  *  imports, the contexts those modules use, and every component placed at the top. */
@@ -350,7 +360,7 @@ function draftNow(spec, from, flags) {
   const anyBy = new Map(); let places = 0;
   for (const l of lines) { const n = exported(l); const k = anysIn(l); if (k) anyBy.set(n ?? l, (anyBy.get(n ?? l) ?? 0) + k); places += tokens(l).filter(t => PLACE.has(t)).length; }
   const rows = [];
-  for (const [n, k] of anyBy) { const own = k - (inherited.get(n) ?? 0); if (own > 0) rows.push({ name: n, introduced: own, causes: [...new Set([...(why.get(n) ?? []), ...(k > (caused.get(n) ?? 0) ? ["written by hand (known.js)"] : [])])] }); }
+  for (const [n, k] of anyBy) { const own = k - (inherited.get(n) ?? 0); if (own > 0) rows.push({ name: n, introduced: own, causes: [...new Set([...(why.get(n) ?? [])])] }); }
   const any = [...anyBy.values()].reduce((a, b) => a + b, 0), introduced = rows.reduce((a, x) => a + x.introduced, 0);
   const count = o => Object.values(o).reduce((a, b) => a + b, 0);
   lines.whole = { rows: lines.length, any, vendor: any - introduced, introduced, places, introducedRows: rows, inferred: count(inferredBy), inferredBy, todos: count(todosBy), todosBy, drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
@@ -420,7 +430,6 @@ export function declarations(dir, flagsFor = {}) {
     // word read from the code, counted apart from the words written by hand; contradicted — a false word, which is a
     // problem whoever wrote it; unproven — a person's, listed
     const read = host ? { rows: [] } : audited(p, from);
-    if (read.error) problems.push(`the audit did not run (${read.error})`);
     const said = v => read.rows.flatMap(x => x.words.filter(w => w.verdict === v && w.word !== "instantiates").map(w => `${x.name}: ${w.word} — ${w.why}`));
     const inferred = read.rows.reduce((n, x) => n + x.words.filter(w => w.verdict === "proven").length, 0);
     for (const line of host ? hostRows(text) : code(text).map(l => l.trim()).filter(Boolean)) {
@@ -441,7 +450,7 @@ export function declarations(dir, flagsFor = {}) {
       any += best.inherited + best.introduced; inherited += best.inherited;
       if (best.introduced) rows.push({ name: row.name, introduced: best.introduced });
     }
-    const claims = host ? { total: 0, run: 0, code: 0, unverified: 0, mismatch: 0, mismatches: [], by: {} } : claimsOf(dir, p, problems);
+    const claims = claimsOf(dir, p, problems, read);
     files.push({ file: path.relative(dir, p), spec, words, inferred, todos, contradicted: [...said("contradicted").map(c => `${c} (the code contradicts the word)`), ...claims.mismatches], unproven: said("unproven"), claims, problems, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows, whole: draft.whole });
   }
   const sum = k => files.reduce((n, f) => n + f[k], 0);
@@ -460,23 +469,39 @@ function audited(file, from) {
 }
 /** The claims of several files, kind by kind. */
 export const claimKinds = bys => { const o = {}; for (const by of bys) for (const [k, c] of Object.entries(by ?? {})) { o[k] ??= { run: 0, code: 0, unverified: 0, mismatch: 0 }; for (const s in c) o[k][s] += c[s]; } return o; };
-export const claimsSaid = by => Object.entries(by).sort((a, b) => (b[1].unverified - a[1].unverified) || a[0].localeCompare(b[0])).map(([k, c]) => `${k} ${c.run + c.code}/${c.run + c.code + c.unverified + c.mismatch}`).join(", ");
-/** What rx-verify shows of each claim a declaration's rows make (`rx-verify --json`: one result a claim, by name):
- *  `total` (that an export is there, `exists`, is no claim about what it does, and a claim that does not apply, are not counted); `run`, held by running; `code`, held by the code's proof where no run reached it; `unverified`; `mismatch`,
- *  with what each says. A verifier that did not answer is a problem, and counts nothing. */
-function claimsOf(dir, file, problems) {
-  const out = { total: 0, run: 0, code: 0, unverified: 0, mismatch: 0, mismatches: [], by: {} };
+export const claimsSaid = by => Object.entries(by).sort((a, b) => a[0].localeCompare(b[0])).map(([k, c]) => `${k} ${c.code} proven + ${c.run} held + ${c.unverified} the author's${c.mismatch ? ` + ${c.mismatch} MISMATCHED` : ""}`).join(", ");
+/** The claims of a declaration file: one for each behaviour word of each row (`pure`, `handler(x)`, `draft(x)`, `rejects(E)`,
+ *  `uses(c)`, `provides(c)`, `nests(…)`, `renders(H)`, `instantiates`), one for the accessors of a row's result (`ref`, with
+ *  its `pending`) and one for what they `fails(E)` with, and a host declaration's view. `by`: `code`, proven by the reading
+ *  the generator writes a word from (`rx-declare --audit`); `run`, held by a probe that fails over a module changed to make
+ *  the claim false (`rx-verify`); `mismatch`; or `unverified` — nothing has shown it: a person's own claim. */
+export function claimsIn(dir, file, read = audited(file, declares(file)?.from ?? path.dirname(file))) {
+  const problems = []; const claims = [];
+  if (read.error) problems.push(`the audit did not run (${read.error})`);
   const v = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/verify.js"), "--dom", "--json", path.relative(dir, file)], { cwd: dir, encoding: "utf8", timeout: 180000, maxBuffer: 1 << 26 });
-  let res; try { res = JSON.parse(String(v.stdout).trim().split("\n").pop())[0].results; } catch { problems.push(`rx-verify did not run (${String(v.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${v.status ?? v.signal}`})`); return out; }
+  let res; try { res = JSON.parse(String(v.stdout).trim().split("\n").pop())[0].results; } catch { return { claims, problems: [...problems, `rx-verify did not run (${String(v.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${v.status ?? v.signal}`})`], mismatches: [] }; }
   const worst = new Map(); const RANK = { mismatch: 3, unverified: 2, held: 1, na: 0 };
   for (const r of res) { const k = `${r.line}:${r.ob}`; const was = worst.get(k); if (!was || RANK[r.status] > RANK[was.status]) worst.set(k, r); }
-  for (const r of worst.values()) {
-    if (r.status === "mismatch") out.mismatches.push(String(r.what).slice(0, 300));   // (an export that is not there, too)
-    if (r.ob === "exists" || r.status === "na") continue;
-    if (process.env.BENCH_CLAIMS) console.error(`[claim] ${r.status}${r.by ? ` by ${r.by}` : ""} ${path.relative(ws, file)} ${r.ob}: ${String(r.what).slice(0, 220)}`);
-    const st = r.status === "held" ? (r.by === "code" ? "code" : "run") : r.status, kind = r.ob.replace(/:.*$/, "");
-    out.total++; out[st]++; out.by[kind] ??= { run: 0, code: 0, unverified: 0, mismatch: 0 }; out.by[kind][st]++;
+  const mismatches = [...worst.values()].filter(r => r.status === "mismatch").map(r => String(r.what).slice(0, 300));   // (an export that is not there, too)
+  const byOf = r => r?.status === "held" ? (r.by === "code" ? "code" : "run") : r?.status === "mismatch" ? "mismatch" : "unverified";
+  let rows = []; try { rows = rowsOf(file); } catch { /* said by rx-verify */ }
+  const words = new Map(read.rows.map(x => [x.line, x.words]));
+  for (const row of rows) {
+    const at = ob => [...worst.values()].find(r => r.line >= row.line && r.line <= row.end && r.ob === ob);
+    const add = (kind, word, r, w) => claims.push({ name: row.name, line: row.line, kind, word, by: w?.verdict === "contradicted" ? "mismatch" : w?.verdict === "proven" && r?.status !== "mismatch" ? "code" : byOf(r), why: String(byOf(r) === "unverified" ? w?.why ?? r?.what ?? "" : r?.what ?? w?.why ?? "").slice(0, 300) });
+    for (const w of words.get(row.line) ?? []) { const ob = claimOf(w.word); add(w.word.replace(/\(.*$/, ""), w.word, ob && at(ob), w); }
+    if (row.obligations.includes("fields")) add(row.facts.parts?.some(x => x.pending) ? "pending ref" : "ref", null, at("fields"));
+    if (row.obligations.includes("fails")) add("fails", null, at("fails"));
+    if (row.kind === "host" || row.kind === "import") for (const ob of row.obligations.filter(o => o !== "exists")) add("host", null, at(ob));
   }
+  if (process.env.BENCH_CLAIMS) for (const c of claims) console.error(`[claim] ${c.by} ${path.relative(ws, file)} ${c.name}: ${c.word ?? c.kind}: ${c.why.slice(0, 200)}`);
+  return { claims, problems, mismatches };
+}
+/** The claims of one file, counted: by what shows them, and of each kind. */
+function claimsOf(dir, file, problems, read) {
+  const out = { total: 0, run: 0, code: 0, unverified: 0, mismatch: 0, mismatches: [], by: {} };
+  const c = claimsIn(dir, file, read); problems.push(...c.problems); out.mismatches = c.mismatches;
+  for (const x of c.claims) { out.total++; out[x.by]++; out.by[x.kind] ??= { run: 0, code: 0, unverified: 0, mismatch: 0 }; out.by[x.kind][x.by]++; }
   return out;
 }
 

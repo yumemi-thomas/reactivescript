@@ -9,4 +9,4 @@ export type FormProps<TSchema extends FormSchema = FormSchema> = import("@formis
 export type RequiredPath = import("@formisch/solid/v2").RequiredPath
 export component Field<TSchema extends FormSchema, TFieldPath extends RequiredPath>(props: FieldProps<TSchema, TFieldPath> & { children: (store: FieldStore<TSchema, TFieldPath>) => View })
 export component Form<TSchema extends FormSchema>(props: FormProps<TSchema> & { onSubmit: handler (output: import("valibot").InferOutput<TSchema>, event: SubmitEvent) => unknown })
-export pure fn createForm<TSchema extends FormSchema>(config: FormConfig<TSchema>): FormStore<TSchema> instantiates
+export fn createForm<TSchema extends FormSchema>(config: FormConfig<TSchema>): FormStore<TSchema> instantiates

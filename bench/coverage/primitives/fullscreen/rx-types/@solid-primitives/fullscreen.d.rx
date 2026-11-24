@@ -1,3 +1,3 @@
 //@ for @solid-primitives/fullscreen ^2.0.0
 export type FullscreenPrimitiveOptions = import("@solid-primitives/fullscreen").FullscreenPrimitiveOptions
-export pure fn createFullscreen(ref ref_: HTMLElement | undefined, options?: FullscreenPrimitiveOptions): { enter: (options?: FullscreenOptions) => Promise<void>; exit: () => Promise<void>; isActive: () => boolean }
+export fn createFullscreen(ref ref_: HTMLElement | undefined, options?: FullscreenPrimitiveOptions): { enter: (options?: FullscreenOptions) => Promise<void>; exit: () => Promise<void>; isActive: () => boolean }

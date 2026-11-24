@@ -19,10 +19,13 @@
 //               `providers.c`; a row that names one context may be run under the probe's `provide`. A failure with no
 //               provider and nothing to run it under says only that something is missing: `unverified`.
 //   provides:c  the component mounted around a hook or a part of the same file that uses `c` alone and fails without it,
-//               which must then run cleanly.
+//               which must then run cleanly; or, where no row of the file uses `c`, the probe's `uses.c`.
 //   rejects     under the probe's failing arguments (`fail`) the fn rejects with a class its row names.
+//               (each result held by running is tested: run again over the module changed so that the claim is false, it
+//               must not be held — src/verify-mutate.js)
 //   fields      mounted under the probe's providers, every part of the declared result read in a render effect: a `ref`
-//               part is an accessor; a plain part that waits or fails where it is read has no row (MO-10l).
+//               part is an accessor; two reads of it answer alike, a `pending` one is seen to
+//               wait; a plain part that waits or fails where it is read has no row (MO-10l).
 //   fails       under the probe's failing arguments a part declared `fails(E)` fails with E.
 //   callbacks   src/verify-place.js: each function-typed position wrapped in a spy.
 //   draft       a `draft` parameter is changed during the call and not after; a draft callback is handed an object
@@ -30,7 +33,7 @@
 //   placement   src/verify-place.js, against the probe's scene.
 //
 // Probes: `lib.probe.mjs` (or .js) beside `lib.d.rx` gives what only the app has. It exports `probes`, by export name —
-// `{ args: () => [...], fail?: () => [...], run?: result => …, act?, props?, around? }` (the arguments as JS passes
+// `{ args: () => [...], fail?: () => [...], run?: result => …, act?, props?, inside?, around?: (children, solid, lib) => … }` (the arguments as JS passes
 // them: a `ref` parameter is an accessor) — and `provide(children, solid)`, `providers: { c: (children, solid) => … }`,
 // `scene(lib, h)`. `--dom` runs with happy-dom's browser globals (@happy-dom/global-registrator, from the project).
 // `--json` prints `[{ file, results: [{ line, name, ob, status, what }], audit }]` and nothing else. RXV_DEBUG=1 names
@@ -42,6 +45,7 @@ const { pathToFileURL } = require("node:url");
 const { rowsOf, claimOf, describe } = require("../src/rows.js");
 const { render, settle, hushed, noRenderer } = require("../src/render.js");
 const place = require("../src/verify-place.js");
+const { mutationsOf, falsified, mutant } = require("../src/verify-mutate.js");
 
 const short = (e, n = 60) => String(e?.message || e?.name || e?.constructor?.name || e).slice(0, n);
 const notReady = e => e?.name === "NotReadyError" || e?.constructor?.name === "NotReadyError";
@@ -50,13 +54,14 @@ const notReady = e => e?.name === "NotReadyError" || e?.constructor?.name === "N
  *  part in a render effect; then the probe's `run(result)`. What the console was told meanwhile is `warned`. */
 async function mount(ctx, hook, args, parts, run, provide = ctx.probeMod?.provide) {
   const s = ctx.solid;
-  const seen = new Map(parts.map(f => [f.path.join("."), { pending: false, value: false, failed: null, notAccessor: false }]));
-  let boundary = null, result, runError = null, renderError = null, dispose = () => {};
+  const seen = new Map(parts.map(f => [f.path.join("."), { pending: false, value: false, failed: null, notAccessor: false, unsteady: null }]));
+  let boundary = null, result, runError = null, renderError = null, dispose = () => {}, reached = false;
   const Probe = () => {
+    reached = true;
     const r = (result = hook(...args));
     for (const f of parts) {
       const st = seen.get(f.path.join("."));
-      s.createRenderEffect(() => { try { let v = r; for (const p of f.path) v = v?.[p]; if (f.ref) { if (typeof v !== "function") { st.notAccessor = true; return { v }; } v = v(); } return { v }; } catch (e) { if (notReady(e)) { st.pending = true; throw e; } return { e }; } },
+      s.createRenderEffect(() => { try { let v = r; for (const p of f.path) v = v?.[p]; if (f.ref) { if (typeof v !== "function") { st.notAccessor = true; return { v }; } st.read = v; v = v(); } return { v }; } catch (e) { if (notReady(e)) { st.pending = true; throw e; } return { e }; } },
         x => { if ("e" in x) st.failed = x.e; else st.value = true; });
     }
     return null;
@@ -66,10 +71,13 @@ async function mount(ctx, hook, args, parts, run, provide = ctx.probeMod?.provid
   try {
     try { dispose = await render(() => provide ? provide(errored, s) : errored(), ctx.resolve); }   // a provider may throw as it mounts (props the probe did not give)
     catch (e) { if (noRenderer(e)) throw e; renderError = e; return { seen, boundary, runError, renderError, warned: quiet.warned }; }
-    for (let i = 0; i < 20; i++) { s.flush(); await new Promise(r => setTimeout(r, 10)); if ([...seen.values()].every(x => x.value || x.failed) || boundary) break; }
+    for (let i = 0; i < 20; i++) { s.flush(); await new Promise(r => setTimeout(r, 10)); if (reached && [...seen.values()].every(x => x.value || x.failed) || boundary) break; }
+    // settled, two reads of a `ref` part answer alike: one that makes a value at each read is no reader
+    for (const st of seen.values()) if (st.read && st.value) { try { const [v, w] = s.untrack(() => [st.read(), st.read()]); if (!same(v, w) || (identified(v) || typeof v === "function") && v !== w) st.unsteady = `${show(v)} then ${show(w)}`; } catch { /* waits, or fails: said above */ } }
     if (run) { try { await run(result); } catch (e) { runError = e; } }
     dispose();
   } finally { quiet.restore(); }
+  if (!reached && !boundary) renderError = new Error("the provider renders nothing of what it is given");
   return { seen, boundary, runError, renderError, warned: quiet.warned };
 }
 
@@ -116,15 +124,38 @@ async function verify(file) {
     // is the tree's and restates none of it
     const H = require("../src/host-routes.js"); const stale = H.drift(file);
     if (stale?.stale) return { results: rows.flatMap(row => row.obligations.map(ob => ({ line: row.line, ob, status: "mismatch", what: `HOST_VIEW_STALE: ${H.message(file, stale)}` }))) };
-    const host = await place.verifyHost({ rows, probeMod, routes: stale ? rx => H.sceneRoutes(file, rx) : undefined, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href });
+    const view = detached => place.verifyHost({ rows, probeMod, detached, routes: stale ? rx => H.sceneRoutes(file, rx) : undefined, resolve: p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href });
+    const host = await view(false);
+    if (host.some(r => r.status === "held")) noEvidence(host.filter(r => r.status === "held"), await view(true), "detached");
     if (!js) return { results: host };
-    const own = await verifyModule(file, rows, js, probeMod, probeFile);   // a module's own rows beside the view
+    const own = await tested(file, rows, js, probeMod, probeFile);   // a module's own rows beside the view
     return { ...own, results: [...host, ...own.results.filter(r => !host.some(h => h.line === r.line && h.ob === r.ob))] };
   }
-  return verifyModule(file, rows, js, probeMod, probeFile);
+  return tested(file, rows, js, probeMod, probeFile);
 }
 
-async function verifyModule(file, rows, js, probeMod, probeFile) {
+/** The module verified, and each claim held by running tested: the probe is run again over the module changed so that the
+ *  claim is false (src/verify-mutate.js), and one that is held all the same was shown by nothing. */
+async function tested(file, rows, js, probeMod, probeFile) {
+  const all = await verifyModule(file, rows, js, probeMod, probeFile);
+  const at = r => rows.find(x => r.line >= x.line && r.line <= x.end);
+  const ran = r => r.status === "held" && r.by !== "code";
+  process.on("unhandledRejection", () => {});   // (a module changed to reject is called where nothing awaits it, too)
+  for (const kind of mutationsOf(all.results.filter(ran).flatMap(r => [].concat(r.ob)))) {
+    const claims = all.results.filter(r => ran(r) && [].concat(r.ob).some(ob => falsified(kind, ob)));
+    const only = rows.filter(x => claims.some(r => at(r) === x) || x.kind !== "fn" && x.kind !== "component" || x.facts.uses?.length || x.facts.provides?.length);
+    const again = (await verifyModule(file, only, js, probeMod, probeFile, kind)).results;
+    noEvidence(claims, again, kind);
+  }
+  return all;
+}
+/** The claims a changed module shows as well: shown by nothing. */
+function noEvidence(claims, again, kind) {
+  for (const r of claims) if (again.some(a => a.line === r.line && a.ob === r.ob && a.status === "held")) Object.assign(r, { status: "unverified", what: `${r.what} — which is not evidence: the probe shows the same of a module changed so that the claim is false (${kind}; src/verify-mutate.js). Use what the probe is handed (lib, the result), not the library it imports` });
+}
+
+/** `mutation`: the module is changed by it, and only what running shows is asked. */
+async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
   // MO-8k's first place (2026-11-23): a project's declaration of a package, `rx-types/<spec>.d.rx`, declares the module
   // that import resolves to from the folder that holds `rx-types/` — found as the checker finds the declaration, the
   // other way round
@@ -141,16 +172,17 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
   const dir = path.dirname(path.resolve(js));
   const resolve = p => pathToFileURL(require.resolve(p, { paths: [dir, __dirname] })).href;
   const solid = await import(resolve("solid-js"));
+  if (mutation) mod = mutant(mod, rows, mutation, solid);
   const ctx = { mod, probeMod, dir, resolve, solid };
   const { createRoot } = solid;
   const out = [];
   // MO-11q: `Dialog.Trigger` is a member of `Dialog`. MO-8t: and `toaster.show` a method of `toaster`, called on it
-  const at = n => { const ks = n.split("."); let o = mod, of; for (const k of ks) { of = o; o = o?.[k]; } return ks.length > 1 && typeof o === "function" && !/^[A-Z]/.test(ks[ks.length - 1]) ? o.bind(of) : o; };
+  const at = n => { const ks = n.split("."); let o = ks[0] in mod ? mod : mod.default ?? mod, of; for (const k of ks)   /* (a CommonJS build's re-exports are its default's) */ { of = o; o = o?.[k]; } return ks.length > 1 && typeof o === "function" && !/^[A-Z]/.test(ks[ks.length - 1]) ? o.bind(of) : o; };
   // MO-8w: which of the file's words the code proves is read from the code (src/declare-audit.js): a word that is proven
   // is held, below, to what the reading claims; one the code contradicts is a mismatch as it stands; the rest are a
   // person's, and are run as any row is
   let read = null;
-  if (process.env.RX_VERIFY_READ !== "0") { try { read = require("../src/declare-audit.js").auditFile(require("typescript"), file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
+  if (process.env.RX_VERIFY_READ !== "0" && !mutation) { try { read = require("../src/declare-audit.js").auditFile(require("typescript"), file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
   const proven = new Map();   // export → claim → why the code proves it
   const audit = { proven: 0, contradicted: 0, unproven: 0 };
   for (const row of read?.rows ?? []) for (const w of row.words) {
@@ -165,24 +197,25 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
   const isA = (e, classes) => classes.some(c => { const C = classOf(c); return C && e instanceof C; });
   // a provider of `c` in this file: a component declared `provides(c)`, mounted around what is run (as its children, or
   // as its probe says — `around`, for a provider that renders something else than its children: a router its routes)
-  const around = p => probes[p.name]?.around ?? ((children, s) => s.createComponent(at(p.name), Object.defineProperty({ ...propsOf(p.name) }, "children", { get: () => children(), enumerable: true })));
+  const around = p => probes[p.name]?.around ? (children, s) => probes[p.name].around(children, s, mod) : ((children, s) => s.createComponent(at(p.name), Object.defineProperty({ ...propsOf(p.name) }, "children", { get: () => children(), enumerable: true })));
   const wraps = new Map();
   const providerOf = (c, alone) => {
-    const p = checked.find(p => p.kind === "component" && p.facts.provides.includes(c) && typeof at(p.name) === "function");
+    const p = checked.find(p => (p.kind === "component" || probes[p.name]?.around) && p.facts.provides?.includes(c) && typeof at(p.name) === "function");
     if (p) { if (!wraps.has(p.name)) wraps.set(p.name, around(p)); return { wrap: wraps.get(p.name), name: p.name }; }
-    if (typeof probeMod?.providers?.[c] === "function") return { wrap: probeMod.providers[c], name: `the probe's providers.${c}` };
+    if (typeof probeMod?.providers?.[c] === "function") { if (!wraps.has(`providers.${c}`)) wraps.set(`providers.${c}`, (children, s) => probeMod.providers[c](children, s, mod)); return { wrap: wraps.get(`providers.${c}`), name: `the probe's providers.${c}` }; }
     if (alone && typeof probeMod?.provide === "function") return { wrap: probeMod.provide, name: "the probe's providers" };
     return undefined;
   };
   // what failed only for want of a browser (no `window` here) is no evidence either way: run with --dom
   const failure = (e, warned) => e ? { failed: short(e), env: environmental(e) } : warned?.length ? { failed: `it warns: ${warned[0].slice(0, 60)}` } : { failed: null };
+  const owns = new Map();   // a hook's providers, as its uses(c) was run under
   const called = new Set();   // `line:claim`, where a run was made that could have refuted the claim and showed nothing
   const failsAlone = new Map();   // hooks and parts that fail with no provider, each with what it fails with: what a provides(c) is shown through
   const fns = checked.filter(r => r.kind === "fn"), comps = checked.filter(r => r.kind === "component");
 
   for (const row of checked) {
     const x = row.facts, line = row.line, name = row.name, obs = new Set(row.obligations);
-    if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${name}\n`);
+    if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] ${name}${mutation ? ` (${mutation})` : ""}\n`);
     const push = (ob, status, what, more) => out.push({ line, ob, status, what: `${name}: ${what}`, ...more });
     // a row that is mounted needs a renderer; where the project has none installed, that row is not run, and the others are
     try {
@@ -202,7 +235,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
       let own;   // the providers of the contexts the row names, where this file or the probe has each
 
       // pure: refuted by running, never shown by it (RFC 28)
-      if (x.pure && runnable && (obs.has("pure") || read.has("pure"))) {
+      if (!mutation && x.pure && runnable && (obs.has("pure") || read.has("pure"))) {
         const bad = []; called.add(`${line}:pure`);
         if (read.has("pure")) {   // MO-8v: what a `pure` read from the code says it does not do
           const seen = watched(createRoot, v, args());
@@ -258,13 +291,14 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
               dispose();
             } finally { quiet.restore(); }
             aloneWarned = quiet.warned;
+            if (!threw && !quiet.warned.length) { const m = await mount(ctx, v, args(), [], probe?.run, null); threw = m.renderError ?? (m.boundary && !notReady(m.boundary) ? m.boundary : null) ?? m.runError; aloneWarned = m.warned; return failure(threw, m.warned); }   // one that reads its context in a computation of its own
             return failure(threw, quiet.warned);
           };
           const rs = await usesClaims({ name, line, contexts: x.uses, run, providerOf: c => providerOf(c, x.uses.length === 1), fails: failsAlone });
           out.push(...rs);
           // what it is mounted under below, to read its parts: the providers it was just shown to run with
           const ps = x.uses.map(c => providerOf(c, x.uses.length === 1));
-          if (ps.every(Boolean)) own = (children, s) => [...new Set(ps.map(p => p.wrap))].reduceRight((kids, w) => () => w(kids, s), children)();
+          if (ps.every(Boolean)) owns.set(name, own = (children, s) => [...new Set(ps.map(p => p.wrap))].reduceRight((kids, w) => () => w(kids, s), children)());
         }
       }
 
@@ -283,6 +317,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
             // MO-10d: an accessor's read may hold, whatever its row says; a plain part that does is one a row cannot describe (MO-8r)
             if (st.pending && !f.ref) bad.push(`${key(f)} holds (its first read is not ready): a plain field that waits where it is read has no row — hand it out as a function from a module of the app's own, declared \`pending ref\` (MO-10l)`);
             if (st.notAccessor) bad.push(`${label(f)} is declared ref, but is not an accessor (a function)`);
+            if (st.unsteady) bad.push(`${label(f)} is declared ref, but each read makes another value (${st.unsteady}): a reader is read as often as the program names it — declare it a function, \`() => T\`, which is called where an event is handled (MO-10b)`);
             if (st.failed && !f.ref) bad.push(`${key(f)} fails (${short(st.failed, 40)}) where it is read: a plain field that does has no row — hand it out as a function, declared \`fails(…) ref\` (MO-10l)`);
           }
           // (a failure of a hook given nothing, with nothing around it but a provider given nothing, says that something is missing — a provider
@@ -295,6 +330,8 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
           const quiet = x.parts.filter(f => f.ref && !f.pending && ran.seen.get(key(f)).pending).map(label);
           const loud = x.parts.filter(f => f.ref && !f.fails.length && ran.seen.get(key(f)).failed).map(label);
           if (bad.length) push("fields", "mismatch", bad.join("; "));
+          else if (x.parts.some(f => f.pending && !ran.seen.get(key(f)).pending)) push("fields", "unverified", `its fields read as declared, but ${x.parts.filter(f => f.pending && !ran.seen.get(key(f)).pending).map(label).join(", ")}, declared pending, never waited: give arguments in the probe under which it does`);
+          else if (!obs.has("fields")) push("fields", "na", "no part of its result has a word (ref, pending, fails): nothing is claimed of them");
           else push("fields", "held", `its fields read as declared${heldSeen.length ? ` (${heldSeen.join(", ")} held, then answered)` : ""}${quiet.length ? `; ${quiet.join(", ")} waited where it was read: \`pending ref\` would have the checker ask for a loading region above its reads (MO-10l)` : ""}${loud.length ? `; ${loud.join(", ")} failed where it was read: \`fails(…) ref\` would have it ask for an errored one (MO-10l)` : ""}`);
           if (fails.length) {
             if (!probe?.fail) push("fails", "unverified", "fails(…) not run (give failing arguments as the probe's fail)");
@@ -339,29 +376,49 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
     if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] uses of ${row.name}\n`);
     const part = () => solid.createComponent(at(row.name), propsOf(row.name));
     let alone;
-    const run = async wrap => { const r = await place.renderOnce(() => wrap ? wrap(part, solid) : part(), resolve); if (!wrap) alone = r; const same = wrap && alone ? r.warned.filter(w => alone.warned.includes(w)) : r.warned; return failure(r.error, same); };
+    const run = async wrap => { let seen = false; const inner = () => { seen = true; return part(); }; const r = await place.renderOnce(() => wrap ? wrap(inner, solid) : part(), resolve, wrap && (() => seen)); if (!wrap) alone = r; else if (!seen && !r.error) return { failed: "the provider renders nothing of what it is given" }; const same = wrap && alone ? r.warned.filter(w => alone.warned.includes(w)) : r.warned; return failure(r.error, same); };
     const rs = await usesClaims({ name: row.name, line: row.line, contexts: row.facts.uses, run, providerOf: c => providerOf(c, row.facts.uses.length === 1), fails: failsAlone });
     out.push(...rs);
   }
   // provides(c) (MO-12c, RFC 28): each context is its own claim, answered only by actual provision: a hook or a part of
   // the same file that uses `c` and nothing else, shown to fail (or warn) with no provider, runs cleanly under the
   // component. A hook declared `uses(a, b)` cannot tell which of the two it read, so it answers neither
-  for (const row of comps.filter(c => c.facts.provides.length && typeof at(c.name) === "function")) {
+  // (a fn that makes the provider — a router's factory — with the probe's `around`)
+  for (const row of checked.filter(c => c.facts.provides?.length && (c.kind === "component" || probes[c.name]?.around) && typeof at(c.name) === "function")) {
     const wrap = wraps.get(row.name) ?? around(row); const runs = new Map();
     const only = (r, c) => r.facts.uses.length === 1 && r.facts.uses[0] === c && failsAlone.has(r.name);
     for (const c of row.facts.provides) {
       const push = (status, what) => out.push({ line: row.line, ob: `provides:${c}`, status, what: `${row.name}: ${what}` });
       // one that fails under the component as it fails alone found no provider; one that fails otherwise wants something
       // else there (a probe's props), which says nothing of `c`
-      const still = (n, e) => failure(e).failed === failsAlone.get(n) ? push("mismatch", `declared provides(${c}), but ${n}, which uses it, still fails under it (${short(e)})`)
+      // (and where the component fails by itself as the part does alone, both want something else that is missing)
+      const bare = await place.renderOnce(() => wrap(() => null, solid), resolve);
+      const still = (n, e) => failure(e).failed === failsAlone.get(n) && failure(bare.error).failed === failsAlone.get(n) ? push("unverified", `provides(${c}) not shown: it fails by itself (${short(bare.error)}), as ${n} does alone: give what it needs in the probe`)
+        : failure(e).failed === failsAlone.get(n) ? push("mismatch", `declared provides(${c}), but ${n}, which uses it, still fails under it (${short(e)})`)
         : push("unverified", `provides(${c}) not shown: ${n}, which uses it, fails under it for another reason (${short(e)}) than alone (${failsAlone.get(n)}): give what it needs in the probe`);
       const hook = fns.find(h => only(h, c) && (probes[h.name]?.args || !h.facts.params.some(p => !p.optional && !p.rest)) && typeof at(h.name) === "function");
+      // …and where it is made later, under the provider already mounted
+      const later = async (what, Part) => { const r = await place.renderLater(wrap, Part, resolve); if (r.made && r.error) push("mismatch", `declared provides(${c}), but ${what} made later under it (a conditional turned on) fails (${short(r.error)}): what it provides is there only while its body runs, which no context is`); };
       const part = !hook && comps.find(p => p !== row && only(p, c) && typeof at(p.name) === "function");
+      // no row of the file uses it: the probe's own hook (`uses.c`), which must fail with no provider
+      const own = !hook && !part && probeMod?.uses?.[c];
+      if (own) {
+        const Own = () => { own(mod); return null; };   // (handed the module: the one this verifier runs, which a project's import may not be)
+        const alone = await place.renderOnce(() => solid.createComponent(Own, {}), resolve); let seen = false;
+        const inside = await place.renderOnce(() => wrap(() => { seen = true; return solid.createComponent(Own, {}); }, solid), resolve, () => seen);
+        if (!alone.error && !alone.warned.length) push("unverified", `provides(${c}) not shown: the probe's uses.${c} does not fail without it`);
+        else if (!seen) push("unverified", `provides(${c}) not shown: it renders nothing of what it is given here${inside.error ? ` (${short(inside.error)})` : ""}: give its props, or an around, in the probe`);
+        else if (inside.error) push("mismatch", `declared provides(${c}), but the probe's uses.${c} still fails under it (${short(inside.error)})`);
+        else push("held", `provides(${c}) holds: the probe's uses.${c}, which fails without it, runs under it`), await later(`the probe's uses.${c}`, Own);
+        continue;
+      }
       try {
         if (part) {   // MO-11q: a kit's part, rendered inside the component (it must not fail)
-          const inside = await place.renderOnce(() => wrap(() => solid.createComponent(at(part.name), propsOf(part.name)), solid), resolve);
+          let seen = false;
+          const inside = await place.renderOnce(() => wrap(() => { seen = true; return solid.createComponent(at(part.name), propsOf(part.name)); }, solid), resolve, () => seen);
+          if (!seen && !inside.error) { push("unverified", `provides(${c}) not shown: it renders nothing of what it is given here (${part.name}): give its props, or an around, in the probe`); continue; }
           if (inside.error) still(part.name, inside.error);
-          else push("held", `provides(${c}) holds: ${part.name}, which uses it alone, fails without it and renders under it`);
+          else push("held", `provides(${c}) holds: ${part.name}, which uses it alone, fails without it and renders under it`), await later(part.name, () => solid.createComponent(at(part.name), propsOf(part.name)));
           continue;
         }
         if (!hook) { push("unverified", `provides(${c}) not run: no hook or component in this file uses ${c} alone and is shown to fail without it (with a probe's arguments if it needs any)`); continue; }
@@ -369,13 +426,13 @@ async function verifyModule(file, rows, js, probeMod, probeFile) {
         const ran = runs.get(hook.name);
         if (ran.renderError) push("unverified", `provides(${c}) not run: it threw as it mounted (${short(ran.renderError, 50)}); give its props as the probe's props`);
         else if (ran.boundary && !notReady(ran.boundary)) still(hook.name, ran.boundary);
-        else push("held", `provides(${c}) holds: ${hook.name}, which fails without it, runs under it`);
+        else push("held", `provides(${c}) holds: ${hook.name}, which fails without it, runs under it`), await later(hook.name, () => { at(hook.name)(...(probes[hook.name]?.args?.() ?? [])); return null; });
       } catch (e) { if (!noRenderer(e)) throw e; push("unverified", `provides(${c}) not run: it is mounted with @solidjs/universal, which is not installed here (npm i -D @solidjs/universal)`); }
     }
   }
   // MO-10g: callbacks, by running: a closure at a declared function-typed position is checked as a handler (each its
   // own claim, `callbacks:<position>`, RFC 29); a component's function-typed props, by rendering it
-  out.push(...(await place.verifyCallbacks({ reading, fns: fns.filter(r => r.facts.callbacks.length), at, probeMod, solid, mount: (fn, args, run) => mount(ctx, fn, args, [], run) })));
+  out.push(...(await place.verifyCallbacks({ reading, fns: fns.filter(r => r.facts.callbacks.length), at, probeMod, solid, mount: (fn, args, run, name) => mount(ctx, fn, args, [], run, owns.get(name)) })));
   out.push(...(await place.verifyComponentCallbacks({ comps: comps.filter(r => r.facts.props.some(p => p.function)), at, probeMod, solid, resolve })));
   // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its draft callbacks
   out.push(...(await place.verifyPlacement({ rows: checked, mod, probeMod, solid, resolve })));
@@ -415,6 +472,8 @@ function watched(createRoot, fn, args) {
     return out;
   } };
 }
+/** A value whose identity is what it is: an instance of a class (an AbortSignal, an element), not data. */
+const identified = v => v !== null && typeof v === "object" && !Array.isArray(v) && ![Object.prototype, null].includes(Object.getPrototypeOf(v));
 /** Plain data: what two machines can be compared on (no function, no class instance, no accessor). */
 function plain(v, seen = new Set()) {
   if (v === null || ["string", "number", "boolean", "undefined"].includes(typeof v)) return true;
@@ -490,7 +549,6 @@ const LABEL = { held: "held      ", mismatch: "MISMATCH  ", na: "n/a       ", un
     if (record) { const at = require("../src/strict.js").writeRecord(f, results); say(`${path.relative(process.cwd(), at)}: recorded\n`); }
     all.push({ file: f, results: results.flatMap(r => [].concat(r.ob).map(ob => ({ line: r.line, name: r.name, ob, status: r.status, ...(r.by ? { by: r.by } : {}), what: r.what }))), ...(audit ? { audit } : {}) });
   }
-  if (json) process.stdout.write(JSON.stringify(all) + "\n");
-  process.exitCode = fails ? 1 : unrun ? 2 : 0;
-  process.exit();
+  // (exits once it is written: a pipe takes a long answer in parts, and exiting before the last cut it short)
+  process.stdout.write(json ? JSON.stringify(all) + "\n" : "", () => process.exit(fails ? 1 : unrun ? 2 : 0));
 })().catch(e => { process.stderr.write(`rx-verify: ${e?.stack ?? e}\n`); process.exit(2); });

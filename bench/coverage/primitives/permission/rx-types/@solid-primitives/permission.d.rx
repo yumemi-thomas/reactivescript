@@ -1,2 +1,2 @@
 //@ for @solid-primitives/permission ^2.0.0
-export pure fn createPermission(name: PermissionDescriptor | PermissionName | "microphone" | "camera"): ref PermissionState | "unknown"
+export fn createPermission(name: PermissionDescriptor | PermissionName | "microphone" | "camera"): ref PermissionState | "unknown"

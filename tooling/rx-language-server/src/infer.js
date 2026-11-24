@@ -517,6 +517,51 @@ function create(ts, options = {}) {
     return undefined;
   }
 
+  /** Whether the part `at` of what `g` hands back (an index, a field, `""` the whole of it) is shown to be a reader:
+   *  in every `return`, what Solid's `createMemo` (or another maker of one) gives, a signal's getter, or a function of
+   *  nothing that only computes — it writes nothing, makes nothing, and answers no function made at each call. */
+  function readsPart(g, at) {
+    const node = g.node; if (!node.body || node.asteriskToken || isAsync(node)) return false;
+    const reader = (e, m, env) => {
+      e = skip(e); if (!e) return false;
+      if (ts.isIdentifier(e)) {
+        const r = resolve(e, m), i = r.local?.inits.length === 1 && !r.local.multi && !reassigned(r, m) ? r.local.inits[0] : undefined;
+        if (i?.part?.expr && i.of && ts.isArrayBindingPattern(i.of) && ts.isCallExpression(skip(i.part.expr))) { const c = callee(skip(i.part.expr), m); return c.kind === "solid" && c.api.gives === "signal" && i.of.elements.indexOf(i.el) === 0; }
+      }
+      const v = valOf(e, m, env); if (!v) return false;
+      if (ts.isCallExpression(v.e)) { const c = callee(v.e, v.m); return c.kind === "solid" && c.api.gives === "read"; }
+      if (!isFn(v.e) || !v.e.body || v.method || isAsync(v.e) || v.e.asteriskToken || (v.e.parameters ?? []).some(q => !q.initializer && !q.questionToken)) return false;
+      const s = summary({ m: v.m, node: v.e, env: v.env, name: v.name });
+      return !s.pure.length && !s.makes && !s.mutates.size && !s.may.size && quiet(v, new Set());
+    };
+    // no write of the state the call made: nothing it names, nor what a function it names names, is a setter (a write of
+    // a fn's own state is no part of `pure`, and is one of a read)
+    const quiet = (v, seen) => {
+      if (seen.has(v.e)) return true; seen.add(v.e);
+      let ok = true;
+      const look = n => {
+        if (!ok) return;
+        if (ts.isIdentifier(n) && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) && !(ts.isPropertyAssignment(n.parent) && n.parent.name === n)) {
+          const r = resolve(n, v.m), i = r.local?.inits[0];
+          if (i?.part?.expr && ts.isCallExpression(skip(i.part.expr))) { const c = callee(skip(i.part.expr), v.m); if (c.kind === "solid" && c.api.gives && !(i.of && ts.isArrayBindingPattern(i.of) && i.of.elements.indexOf(i.el) === 0)) { ok = false; return; } }
+        }
+        if (ts.isIdentifier(n) || ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) { const g = fnValueOf(n, v.m, v.env); if (g && !quiet({ e: g.node, m: g.m, env: g.env }, seen)) { ok = false; return; } }
+        ts.forEachChild(n, look);
+      };
+      look(v.e.body ?? v.e);
+      return ok;
+    };
+    const rets = [];
+    if (ts.isBlock(node.body)) { const find = n => { if (isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n)) rets.push(n.expression); ts.forEachChild(n, find); }; find(node.body); } else rets.push(node.body);
+    const one = e => {
+      e = skip(e); if (!e) return false;
+      if (ts.isConditionalExpression(e)) return one(e.whenTrue) && one(e.whenFalse);
+      if (at === "") return reader(e, g.m, g.env);
+      if (/^\d+$/.test(at)) { const o = valOf(e, g.m, g.env); return !!o && ts.isArrayLiteralExpression(o.e) && !o.e.elements.slice(0, Number(at) + 1).some(x => ts.isSpreadElement(x)) && !!o.e.elements[Number(at)] && reader(o.e.elements[Number(at)], o.m, o.env); }
+      const f = memberOf(e, at, g.m, g.env); return !!f && !f.node && reader(f.expr, f.m, f.env);
+    };
+    return rets.length > 0 && rets.every(one);
+  }
   const passMemo = new WeakMap();
   /** Whether a function only hands back what it was given: every `return` a parameter, a call of one with nothing
    *  (`v()`), or a choice between those. `{ idx: the parameters, calls: whether one is called }`, else null. */
@@ -1793,7 +1838,7 @@ function create(ts, options = {}) {
       const provides = index => { const ps = fns.map(g => providesOf(g, index)); return { list: ps[0].list.filter(x => ps.every(q => q.list.some(y => ctxName(y.ctx) === ctxName(x.ctx)))).map(x => ({ ctx: x.ctx, inside: ps.flatMap(q => q.list.filter(y => ctxName(y.ctx) === ctxName(x.ctx)).flatMap(y => y.inside)), outside: ps.flatMap(q => q.list.filter(y => ctxName(y.ctx) === ctxName(x.ctx)).flatMap(y => y.outside)) })), clean: ps.every(q => q.clean && !q.list.length) }; };
       // a factory's component (the function the fn hands back): whether the code shows it to render no provider
       const madeClean = () => fns.every(g => { const r = returnedFn(g); if (!r) return false; const p = providesOf(r, 0); return p.clean && !p.list.length; });
-      return { files, uses, provides, madeClean, plain: fns.every(g => plainResult(g)), plainWhy: fns.map(g => plainWhy(g)).find(Boolean), pure: !why.length, why, makes: ss.some(s => s.makes), rejects, rejectsWhy, isAsync: fns.every(g => isAsync(g.node)), fns, handler, draft, draftWhy };
+      return { files, uses, provides, madeClean, reads: at => fns.every(g => readsPart(g, at)), plain: fns.every(g => plainResult(g)), plainWhy: fns.map(g => plainWhy(g)).find(Boolean), pure: !why.length, why, makes: ss.some(s => s.makes), rejects, rejectsWhy, isAsync: fns.every(g => isAsync(g.node)), fns, handler, draft, draftWhy };
     });
   }
   /** The context the export `name` of `spec` is (a `createContext(…)` the module hands out), by its key. */

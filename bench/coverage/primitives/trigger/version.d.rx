@@ -1,2 +1,2 @@
 // By hand: every word (the module is the app's own).
-export pure fn createVersion(): [ref number, () => void]
+export fn createVersion(): [ref number, () => void]

@@ -34,7 +34,7 @@ function placementRows(rows) {
       const mode = f.shape === "comp" ? "factory" : null;
       const cautious = !mode && !f.nests && !f.renders && f.params.some(p => /\bComponent\b/.test(p.type ?? ""));
       const draftPart = f.parts.find(p => p.draft)?.path[0];
-      if (mode || f.nests || f.renders || cautious || draftPart !== undefined) fns.push({ name: row.name, line: row.line, mode, nestsIn: f.nests, rendersIn: f.renders, cautious, draftPart });
+      if (mode || f.nests || f.renders || cautious || draftPart !== undefined) fns.push({ name: row.name, line: row.line, mode, nestsIn: f.nests, rendersIn: f.renders, cautious, draftPart, refs: f.params.flatMap((p, i) => p.ref ? [i] : []) });
     } else if (row.kind === "component") comps.push({ name: row.name, line: row.line, componentProps: f.props.filter(p => p.component || p.components).map(p => p.name) });
   }
   return { fns, comps };
@@ -123,7 +123,7 @@ async function verifyPlacement({ rows, mod, probeMod, solid: s, resolve }) {
     // MO-8t: a method with a row of its own (`toaster.show`, `toast.success`) is recorded as a fn is, called on its object
     const methods = watched.filter(x => x.name.startsWith(k + "."));
     const recorded = (name, row, call) => (...args) => {
-      const rec = { fn: name, row, args, caller: [...above()] };
+      const rec = { fn: name, row, args: args.map((a, i) => row.refs?.includes(i) && typeof a === "function" ? s.untrack(a) : a), caller: [...above()] };   // a `ref` argument is an accessor of what it is given
       let result = call(args);
       if (row.mode === "factory" && typeof result === "function") { const id = `${name}#made${++seq}`; const made = result; rec.made = id; result = mark(id, props => s.createComponent(made, props)); }
       rec.result = result; calls.push(rec); return result;
@@ -198,7 +198,7 @@ async function verifyPlacement({ rows, mod, probeMod, solid: s, resolve }) {
 
 /** Render `view` (the browser build when there is a document, as with --dom; else a universal renderer); what it threw
  *  or warned while rendering, synchronously. */
-async function renderOnce(view, resolve) {
+async function renderOnce(view, resolve, reached) {
   const s = await import(resolve("solid-js"));
   const quiet = hushed();
   let error = null, dispose = () => {};
@@ -207,11 +207,27 @@ async function renderOnce(view, resolve) {
     // flushed synchronously and disposed before yielding: a context a component reads, it reads as it renders, and a
     // component left mounted with nothing above it can keep scheduling work (TanStack's Outlet with no router does)
     for (let i = 0; i < 5; i++) s.flush?.();
+    for (let i = 0; i < 20 && reached && !reached() && !error; i++) { await new Promise(r => setTimeout(r, 15)); s.flush?.(); }   // a provider that renders its children later (a router, once its route has loaded)
   } catch (e) { if (noRenderer(e)) throw e; error ??= e; }
   finally { try { dispose(); } catch {} quiet.restore(); }
   return { error, warned: quiet.warned };
 }
 
+/** What fails where `part` is made later, under `wrap` already mounted (a conditional turned on): a provider is above what
+ *  it is given whenever that is made, as a Solid context is, and a scope set only while its body runs is not. */
+async function renderLater(wrap, part, resolve) {
+  const s = await import(resolve("solid-js"));
+  const [on, turn] = s.createSignal(false); let made = false;
+  const quiet = hushed(); let error = null, dispose = () => {};
+  try {
+    dispose = await render(() => s.createComponent(s.Errored, { fallback: e => { error ??= typeof e === "function" ? e() : e; return null; }, get children() { return wrap(() => { const shown = s.createMemo(() => on() ? (made = true, s.createComponent(part, {})) : null); s.createRenderEffect(shown, () => {}); return shown; }, s); } }), resolve);
+    for (let i = 0; i < 4; i++) { s.flush?.(); await new Promise(r => setTimeout(r, 15)); }
+    turn(true);
+    for (let i = 0; i < 4; i++) { s.flush?.(); await new Promise(r => setTimeout(r, 15)); }
+  } catch (e) { if (noRenderer(e)) throw e; error ??= e; }
+  finally { try { dispose(); } catch {} quiet.restore(); }
+  return { error, made };
+}
 /** MO-10g: a closure passed where a fn's declaration types a parameter as a function (or a record parameter's field) is
  *  checked as a handler: imperative scope, untracked. Running the fn with the probe's arguments, each such callback is
  *  wrapped in a spy; the probe's `run(result)` or `act(result)` makes the library call it (a debounce's returned fn, a
@@ -224,6 +240,8 @@ async function verifyCallbacks({ fns: rows, at, probeMod, solid: s, mount, readi
     const f = { name: row.name, line: row.line, cbs: row.facts.callbacks.map(c => ({ ...c, ref: !!row.facts.params[c.index]?.ref })) };
     const fn = at(f.name); const probe = probeMod?.probes?.[f.name];
     if (typeof fn !== "function") continue;
+    const unmarked = f.cbs.filter(c => !c.handler);
+    if (!probe?.args && unmarked.length) { out.push({ line: f.line, ob: unmarked.map(c => `callbacks:${c.name}`), status: "na", quiet: true, what: `${f.name}: ${unmarked.map(c => c.name).join(", ")} unmarked, which claims nothing of how the library calls it` }); f.cbs = f.cbs.filter(c => c.handler); if (!f.cbs.length) continue; }
     if (!probe?.args) { out.push({ line: f.line, ob: f.cbs.map(c => `callbacks:${c.name}`), status: "unverified", what: `${f.name}: callback${f.cbs.length > 1 ? "s" : ""} ${f.cbs.map(c => c.name).join(", ")} not run: give its arguments in a probe` }); continue; }
     const seen = new Map(f.cbs.map(c => [c.name, { calls: 0, tracked: 0, during: 0 }]));
     // MO-8v: `during` — called while the fn's own call is still running: what a `handler` read from the code is never
@@ -241,7 +259,7 @@ async function verifyCallbacks({ fns: rows, at, probeMod, solid: s, mount, readi
     // under the probe's providers and an errored boundary, as a hook is mounted; then its run and act, and time for what
     // the library schedules (a fetch's callback, a debounce)
     let m;
-    try { m = await mount(called, args, async r => { await settle(s); if (probe.run) await probe.run(r); if (probe.act) await probe.act(r); await settle(s); }); }
+    try { m = await mount(called, args, async r => { await settle(s); if (probe.run) await probe.run(r); if (probe.act) await probe.act(r); await settle(s); }, f.name); }
     catch (e) { if (!noRenderer(e)) throw e; out.push({ line: f.line, ob: f.cbs.map(c => `callbacks:${c.name}`), status: "unverified", what: `${f.name}: callback${f.cbs.length > 1 ? "s" : ""} ${f.cbs.map(c => c.name).join(", ")} not run: the fn is mounted with @solidjs/universal, which is not installed here (npm i -D @solidjs/universal)` }); continue; }
     const err = m.renderError ?? m.boundary ?? m.runError;
     for (const c of f.cbs) {
@@ -250,12 +268,12 @@ async function verifyCallbacks({ fns: rows, at, probeMod, solid: s, mount, readi
       const push = r => out.push({ ob, ...r });
       const never = { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe${err ? ` (it threw: ${String(err.message ?? err).slice(0, 40)})` : ""}: give an act that makes the library call it` };
       const field = c.field ?? c.name.split(".").pop();
-      if (c.handler && st.during && reading?.get(f.name)?.has(ob)) { push({ line: f.line, status: "mismatch", what: `${f.name}: ${c.name} was read from the code as a handler, but the library calls it while the call itself runs: the reading is wrong — remove the word, and report it (MO-8v)` }); continue; }
+      if (c.handler && st.during && !st.tracked) { push({ line: f.line, status: "mismatch", what: `${f.name}: ${c.name} ${reading?.get(f.name)?.has(ob) ? "was read from the code as a handler" : "is declared handler"}, but the library calls it while the call itself runs, where its writes are refused: ${reading?.get(f.name)?.has(ob) ? "the reading is wrong — remove the word, and report it (MO-8v)" : "drop `handler` (MO-10g)"}` }); continue; }
       if (c.handler) { push(st.tracked ? { line: f.line, status: "mismatch", what: `${f.name}: ${c.name} is declared handler, but the library calls it inside a computation (tracked): a closure there would have its reads tracked by the library and its writes refused by Solid: drop \`handler\` — a function type without it is pure, which is right for a callback called inside a computation (MO-10g)` }
         : st.calls ? { line: f.line, status: "held", what: `${f.name}: callback ${c.name} holds: the library calls it outside tracking, as a handler` } : never); continue; }
-      // MO-10g (revised): an unmarked function type is pure, which holds however the library calls it
-      push(st.tracked ? { line: f.line, status: "held", what: `${f.name}: ${c.name} is pure, as declared; the library calls it inside a computation` }
-        : st.calls ? { line: f.line, status: "held", what: `${f.name}: ${c.name} is pure, as declared; the library calls it outside tracking, so \`handler\` would let a closure there write (MO-10g)` } : never);
+      // MO-10g (revised): an unmarked function type is a pure function, safe however the library calls it: the row claims
+      // nothing of the library there, and nothing is held
+      push({ line: f.line, status: "na", what: `${f.name}: ${c.name} is unmarked, which claims nothing of how the library calls it${st.calls && !st.tracked && !st.during ? " (called outside tracking: `handler` would let a closure there write, MO-10g)" : ""}` });
     }
   }
   return out;
@@ -272,26 +290,29 @@ async function verifyComponentCallbacks({ comps: rows, at, probeMod, solid: s, r
     const c = { name: row.name, line: row.line, cbs: row.facts.props.filter(p => p.function).map(p => ({ name: p.name, handler: p.handler })) };
     const C = at(c.name); if (typeof C !== "function") continue;
     const probe = probeMod?.probes?.[c.name];
-    const seen = new Map(c.cbs.map(cb => [cb.name, { calls: 0, tracked: 0 }]));
+    const seen = new Map(c.cbs.map(cb => [cb.name, { calls: 0, tracked: 0, during: 0 }]));
     const given = probe?.props?.() ?? {};
-    const props = { ...given };
-    for (const cb of c.cbs) { const g = typeof given[cb.name] === "function" ? given[cb.name] : () => undefined; props[cb.name] = (...a) => { const st = seen.get(cb.name); st.calls++; if (s.getObserver?.()) st.tracked++; return g(...a); }; }
+    // (a getter of the probe's is kept a getter: a list of children is made where the component reads it, as an app's is)
+    const props = Object.defineProperties({}, Object.getOwnPropertyDescriptors(given)); let rendering = true;
+    for (const cb of c.cbs) { const g = typeof given[cb.name] === "function" ? given[cb.name] : () => undefined; props[cb.name] = (...a) => { const st = seen.get(cb.name); st.calls++; if (s.getObserver?.()) st.tracked++; if (rendering) st.during++; return g(...a); }; }
     const quiet = hushed();
     let error = null, dispose = () => {};
     try {
       // at the root, not under an Errored boundary: a boundary's children run inside its computation, where every call
       // would look tracked; here the component's body has no observer, and only what it runs in a computation has one
-      dispose = await render(() => s.createComponent(C, props), resolve);
+      const part = () => s.createComponent(C, props);
+      dispose = await render(() => { const v = probe?.inside ? probe.inside(part, s) : part(); rendering = false; return v; }, resolve);   // `inside`: what a kit's part is rendered within
+      rendering = false;
       await settle(s);
-      if (probe?.act) { await probe.act(); await settle(s); }
+      if (probe?.act) { await probe.act(s); await settle(s); }
     } catch (e) { error ??= e; }
     finally { try { dispose(); } catch {} quiet.restore(); }
     for (const cb of c.cbs) {
       const st = seen.get(cb.name), ob = `callbacks:${cb.name}`;
       const never = { line: c.line, ob, status: "unverified", what: `${c.name}: prop ${cb.name} never called${error ? ` (it threw: ${String(error.message ?? error).slice(0, 40)})` : ""}: give the probe's props and an act that makes the component call it` };
-      if (cb.handler) out.push(st.tracked ? { line: c.line, ob, status: "mismatch", what: `${c.name}: prop ${cb.name} is declared handler, but the component calls it inside a computation (tracked): a closure there would have its reads tracked and its writes refused by Solid: drop \`handler\` (MO-10g)` }
+      if (cb.handler) out.push(st.during && !st.tracked ? { line: c.line, ob, status: "mismatch", what: `${c.name}: prop ${cb.name} is declared handler, but the component calls it while it renders, where its writes are refused: drop \`handler\` (MO-10g)` } : st.tracked ? { line: c.line, ob, status: "mismatch", what: `${c.name}: prop ${cb.name} is declared handler, but the component calls it inside a computation (tracked): a closure there would have its reads tracked and its writes refused by Solid: drop \`handler\` (MO-10g)` }
         : st.calls ? { line: c.line, ob, status: "held", what: `${c.name}: prop ${cb.name} holds: the component calls it outside tracking, as a handler` } : never);
-      else out.push(st.calls ? { line: c.line, ob, status: "held", what: `${c.name}: prop ${cb.name} is pure, as declared; the component calls it ${st.tracked ? "inside" : "outside"} tracking` } : never);
+      else out.push({ line: c.line, ob, status: "na", what: `${c.name}: prop ${cb.name} is unmarked, which claims nothing of how the component calls it` });
     }
   }
   return out;
@@ -306,7 +327,8 @@ async function verifyComponentCallbacks({ comps: rows, at, probeMod, solid: s, r
  *  neither. For each component the declaration imports from JavaScript (MO-14f), `rx` holds a marked wrapper of the probe's
  *  `through[name]`: the scene applies it where the app's component applies the real one, and a component of the view must
  *  render inside it. `text` is the declaration with each row on one line. Null when the file states no view. */
-async function verifyHost({ rows, probeMod, resolve, routes }) {
+/*  `detached`: the host's view changed so that its claims are false — each component is rendered from a root of its own. */
+async function verifyHost({ rows, probeMod, resolve, routes, detached }) {
   const host = rows.find(r => r.kind === "host"); if (!host) return null;
   const line = host.line; const { tree, provides, nests } = host.facts;
   const imported = rows.filter(r => r.kind === "import").flatMap(r => r.facts.names.map(([name, alias]) => [alias, r.facts.from, r.line, name]));
@@ -330,11 +352,12 @@ async function verifyHost({ rows, probeMod, resolve, routes }) {
     const walk = v => { if (!v || typeof v !== "object" || v.__rx) return; if (Array.isArray(v)) return v.forEach(walk); if (nests && v[nests.inside]?.__rx && [].concat(v[nests.kids] ?? []).length) parents.add(v[nests.inside].__rx); Object.values(v).forEach(walk); };
     walk(shape);
   } catch (e) { return all("unverified", `the host's tree is not read: ${String(e.message ?? e).slice(0, 60)}`); }
-  for (const name of names) rx[name] = props => {
+  const place = detached ? f => props => s.runWithOwner(null, () => s.createRoot(() => f(props))) : f => f;
+  for (const name of names) rx[name] = place(props => {
     const chain = [...(s.useContext(MARK) ?? []), name]; chains.set(name, chain);
     for (const c of provides) { const hook = probeMod.uses?.[c]; if (typeof hook !== "function") continue; (complains(hook) ? threw : used).set(c, [...((complains.last ? threw : used).get(c) ?? []), name]); }
     return s.createComponent(MARK, { value: chain, get children() { return parents.has(name) ? props.children : null; } });
-  };
+  });
   // a component the host renders through: the probe's own (`through.Outlet`), applied where the scene applies `rx.Outlet`
   // and marked, so that what renders inside it is seen to
   const applied = new Set();
@@ -390,4 +413,4 @@ async function verifyHost({ rows, probeMod, resolve, routes }) {
   }
   return out;
 }
-module.exports = { verifyPlacement, verifyCallbacks, renderOnce, verifyComponentCallbacks, verifyHost };
+module.exports = { renderLater, verifyPlacement, verifyCallbacks, renderOnce, verifyComponentCallbacks, verifyHost };

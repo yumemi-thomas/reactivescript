@@ -1,2 +1,2 @@
 //@ for @solid-primitives/active-element ^3.0.0
-export pure fn createActiveElement(): ref Element | null
+export fn createActiveElement(): ref Element | null

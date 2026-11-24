@@ -1,3 +1,3 @@
 // By hand: every word (the module is the app's own).
 // the position waits for the browser's answer and throws its refusal where it is read (MO-10l)
-export pure fn createPosition(): pending fails(Error) ref GeolocationCoordinates
+export fn createPosition(): pending fails(Error) ref GeolocationCoordinates

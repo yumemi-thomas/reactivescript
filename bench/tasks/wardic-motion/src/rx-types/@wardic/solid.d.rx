@@ -16,5 +16,5 @@ export type Presence = import("@wardic/solid").Presence
 export type WardicScaleCorrector = import("@wardic/solid").WardicScaleCorrector
 export type Ward<C extends WardConfig = WardConfig, F = import("@wardic/dom/unstable/features/All").EveryFeature> = import("@wardic/solid").Ward<C, F>
 export type WardConfig = import("@wardic/solid").WardConfig
-export pure fn ward(): Ward<{  }> instantiates
+export fn ward(): Ward<{  }> instantiates
 export component wardic.div(props: WardicProps<"div">) uses(wardic)

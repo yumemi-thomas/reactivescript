@@ -5,6 +5,6 @@ export default component App() {
   source state := "idle"
   [signal, abort] = createAbortable()
   <p>{state}</p>
-  <button class="start" onClick={() => { state := signal.aborted ? "aborted" : "running" }}>start</button>
+  <button class="start" onClick={() => { state := signal().aborted ? "aborted" : "running" }}>start</button>
   <button class="stop" onClick={() => { abort(); state := "stopped" }}>stop</button>
 }

@@ -260,7 +260,7 @@ fs.writeFileSync(path.join(ws, "cb.probe.mjs"), [
 const cbDecl = [
   "export fn onTick(cb: handler (n: number) => void): void",
   "export fn watchIn(cb: handler (n: number) => number): void",
-  "export fn never(cb: (n: number) => void): void",
+  "export fn never(cb: handler (n: number) => void): void",
   "export fn later(n: number): number",
   "export fn watchTracked(cb: (n: number) => number): void",
   "export fn watchPure(cb: (n: number) => number): void",
@@ -276,8 +276,8 @@ const out3 = r3.stdout + r3.stderr;
 if (process.env.VERBOSE) console.log(out3);
 check("callback: called outside tracking holds, as a handler", /cb\.d\.rx:1 held\s+onTick: callback cb holds/.test(out3), out3);
 check("callback: declared handler and called inside a computation is a mismatch (MO-10g)", /cb\.d\.rx:2 MISMATCH\s+watchIn: cb is declared handler, but the library calls it inside a computation/.test(out3), out3);
-check("callback: an unmarked function type is pure, which holds inside a computation too", /cb\.d\.rx:6 held\s+watchPure: cb is pure, as declared/.test(out3), out3);
-check("callback: an unmarked one called inside a computation is pure, as declared: no word says more (MO-10g)", /cb\.d\.rx:5 held\s+watchTracked: cb is pure, as declared; the library calls it inside a computation/.test(out3), out3);
+check("callback: an unmarked function type claims nothing of the library", /cb\.d\.rx:6 n\/a\s+watchPure: cb is unmarked/.test(out3), out3);
+check("callback: ...and one called inside a computation is safe there (MO-10g)", /cb\.d\.rx:5 n\/a\s+watchTracked: cb is unmarked/.test(out3), out3);
 check("callback: never called under the probe is unverified", /cb\.d\.rx:3 unverified never: callback cb never called/.test(out3), out3);
 check("--record writes the record beside the declaration", fs.existsSync(path.join(ws, "cb.verified.json")) && /recorded/.test(out3), out3);
 const after = checkStrict(path.join(ws, "cb.d.rx"));
@@ -384,7 +384,7 @@ check("provides(a, b): a hook that uses only a answers provides(a) alone; b is u
 check("...and strict refuses the row (no `ok` record for provides(a, b))", bothStrict.some(u => u.name === "Both" && /could not check provides\(b\)/.test(u.message)) && !bothStrict.some(u => u.name === "useA"), bothStrict);
 check("a component's handler prop it never calls: unverified, and strict refuses it", /both\.d\.rx:5 unverified Lone: prop ref never called/.test(both.stdout) && bothStrict.some(u => u.name === "Lone" && /could not check callback ref/.test(u.message)), { out: both.stdout, bothStrict });
 const bothRec = JSON.parse(fs.readFileSync(path.join(ws, "both.verified.json"), "utf8"));
-check("...in a version-8 record, which holds each claim's own result", bothRec.version === 8 && Object.values(bothRec.rows).find(r => r.line === 4).claims["provides:a"].status === "held" && Object.values(bothRec.rows).find(r => r.line === 4).claims["provides:b"].status === "unverified" && Object.values(bothRec.rows).find(r => r.line === 5).claims["callbacks:ref"].status === "unverified", bothRec);
+check("...in a version-9 record, which holds each claim's own result", bothRec.version === 9 && Object.values(bothRec.rows).find(r => r.line === 4).claims["provides:a"].status === "held" && Object.values(bothRec.rows).find(r => r.line === 4).claims["provides:b"].status === "unverified" && Object.values(bothRec.rows).find(r => r.line === 5).claims["callbacks:ref"].status === "unverified", bothRec);
 
 // RFC 28 (revised after review): provides(b) is not shown by a hook declared uses(a, b) that reads only a, nor by a part
 // that still fails under the provider; only actual provision verifies it
@@ -431,7 +431,7 @@ fs.rmSync(path.join(ws, "props.verified.json"), { force: true });
 const pr = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "props.d.rx"], { cwd: ws, encoding: "utf8" });
 check("a handler prop the component calls later holds", /props\.d\.rx:1 held\s+Later: prop onPress holds/.test(pr.stdout), pr.stdout + pr.stderr);
 check("a handler prop it calls inside a computation is a mismatch", /props\.d\.rx:2 MISMATCH\s+Now: prop onPress is declared handler, but the component calls it inside a computation/.test(pr.stdout), pr.stdout + pr.stderr);
-check("an unmarked prop is pure however it is called: inside a computation, or while it renders", /props\.d\.rx:3 held\s+Each: prop each is pure/.test(pr.stdout) && /props\.d\.rx:4 held\s+Pick: prop pick is pure/.test(pr.stdout), pr.stdout + pr.stderr);
+check("an unmarked prop claims nothing of how it is called", /props\.d\.rx:3 n\/a\s+Each: prop each is unmarked/.test(pr.stdout) && /props\.d\.rx:4 n\/a\s+Pick: prop pick is unmarked/.test(pr.stdout), pr.stdout + pr.stderr);
 const prStrict = checkStrict(path.join(ws, "props.d.rx"));
 check("...and strict mode accepts those rows, refusing only the mismatch", !prStrict.some(u => ["Later", "Each", "Pick"].includes(u.name)) && prStrict.some(u => u.name === "Now"), prStrict);
 
@@ -573,6 +573,33 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   check("a loader asked twice answers differently: no mismatch (it is safe to ask again, R-io-4), and not shown", /anew\.d\.rx:1 unverified load: pure not shown: asked twice it answers differently/.test(anew.out) && !/MISMATCH/.test(anew.out), anew.out);
   const want = run("want", "import { createContext, useContext } from \"solid-js\";\nconst C = createContext();\nexport const P = props => C({ value: {}, get children() { return props.children; } });\nexport const useIt = () => { const c = useContext(C); return c.router.options; };\n", "export context it\nexport component P(props: { children?: View }) provides(it)\nexport fn useIt(): string uses(it)\n", undefined, []);
   check("a hook that fails under its provider otherwise than alone: provides is unverified, not a mismatch", /want\.d\.rx:2 unverified P: provides\(it\) not shown: useIt, which uses it, fails under it for another reason/.test(want.out) && !/MISMATCH/.test(want.out), want.out);
+}
+
+// what a run holds is tested: each claim false in the library is found, and a probe that shows nothing of it is no evidence
+{
+  const run = (name, js, decl, probe) => {
+    fs.writeFileSync(path.join(ws, `${name}.mjs`), js); fs.writeFileSync(path.join(ws, `${name}.d.rx`), decl); fs.writeFileSync(path.join(ws, `${name}.probe.mjs`), probe);
+    return spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), `${name}.d.rx`], { cwd: ws, encoding: "utf8" }).stdout;
+  };
+  const solid = 'import { createSignal, createMemo, createContext, useContext, createComponent } from "solid-js";\n';
+  const steady = run("steady", `${solid}export const abortable = () => [() => new AbortController().signal, () => {}];\nexport const steadyOne = () => { const [g] = createSignal(1); return g; };\nexport const handed = () => () => () => 1;\nexport const never = () => createMemo(() => 1);\n`,
+    "export fn abortable(): [ref AbortSignal, () => void]\nexport fn steadyOne(): ref number\nexport fn handed(): ref () => number\nexport fn never(): pending ref number\n", "export const probes = {};\n");
+  check("a `ref` that makes another value at each read is a mismatch", /abortable: 0 is declared ref, but each read makes another value/.test(steady) && /handed: the result is declared ref, but each read makes another value/.test(steady), steady);
+  check("...one that answers alike holds", /:2 held\s+steadyOne: its fields read as declared/.test(steady), steady);
+  check("a `pending` that is never seen to wait is unverified", /:4 unverified never: .*declared pending, never waited/.test(steady), steady);
+  const scope = `${solid}let here; const Real = createContext();\nexport const useScope = () => { if (here === undefined) throw new Error("no scope"); return here; };\nexport const Scope = props => { const was = here; here = 1; try { return props.children; } finally { here = was; } };\nexport const useReal = () => { const v = useContext(Real); if (!v) throw new Error("no real"); return v; };\nexport const RealScope = props => createComponent(Real, { value: 1, get children() { return props.children; } });\nexport const Hides = () => null;\n`;
+  const sc = run("scope", scope, "export context scope\nexport context real\nexport context hidden\nexport pure fn useScope(): number uses(scope)\nexport component Scope(props: { children?: View }) provides(scope)\nexport pure fn useReal(): number uses(real)\nexport component RealScope(props: { children?: View }) provides(real)\n", "");
+  check("a scope set only while the component's body runs is no provider: what is made under it later fails", /:5 MISMATCH\s+Scope: declared provides\(scope\), but useScope made later under it/.test(sc), sc);
+  check("...a context is", /:7 held\s+RealScope: provides\(real\) holds/.test(sc) && !/:7 MISMATCH/.test(sc), sc);
+  const hid = run("hides", scope, "export context real\nexport pure fn useReal(): number uses(real)\nexport component Hides(props: { children?: View }) provides(real)\n", "");
+  check("a provider that renders nothing of what it is given shows nothing", !/useReal: uses\(real\) holds/.test(hid) && /:3 unverified Hides: .*renders nothing of what it is given/.test(hid), hid);
+  // the probe calls the callback itself, or the library it imports: the same is shown of a library that never does
+  const own = run("own", `let kept;\nexport const onceLater = cb => { setTimeout(() => cb(1), 5); };\nexport const ignores = cb => { kept = cb; };\nexport const fire = () => kept?.(1);\nexport const rejects = async x => { if (x) throw new TypeError("no"); };\n`,
+    "export fn onceLater(cb: handler (n: number) => void): void\nexport fn ignores(cb: handler (n: number) => void): void\n", 'import { ignores } from "./own.mjs";\nexport const probes = { onceLater: { args: () => [() => {}] }, ignores: { args: () => { const cb = () => {}; return [cb]; } } };\n');
+  check("a handler the library calls later holds", /:1 held\s+onceLater: callback cb holds/.test(own), own);
+  check("...one it never calls does not", /:2 unverified ignores/.test(own), own);
+  const { mutant } = require("../src/verify-mutate.js");
+  check("a changed module is the module but for the claim", Object.keys(mutant({ a: 1, f: () => 2 }, [], "uses", {})).join() === "a,f" && mutant({ f: () => 2 }, [{ name: "f", kind: "fn", facts: { uses: ["c"], params: [] } }], "uses", {}).f() === undefined && mutant({ k: { m: () => 2, n: 3 } }, [{ name: "k.m", kind: "fn", facts: { uses: ["c"], params: [] } }], "uses", {}).k.m() === undefined && mutant({ k: { m: () => 2, n: 3 } }, [{ name: "k.m", kind: "fn", facts: { uses: ["c"], params: [] } }], "uses", {}).k.n === 3);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

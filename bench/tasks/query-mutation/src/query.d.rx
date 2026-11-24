@@ -3,4 +3,4 @@
 // the context the library's own, MO-12e), and each field reads the result's (`ref`); `data` waits for the first answer
 // and throws the query's error where it is read (MO-10l: what rx-declare knows of the release).
 export context queryClient from "@tanstack/solid-query"
-export pure fn useQuery<TData = unknown>(ref options: { queryKey: import("@tanstack/solid-query").QueryKey; queryFn: () => Promise<TData> }): { data: pending fails(Error) ref TData; isFetching: ref boolean; status: ref string; refetch: (options?: import("@tanstack/solid-query").RefetchOptions) => Promise<unknown> } uses(queryClient)
+export fn useQuery<TData = unknown>(ref options: { queryKey: import("@tanstack/solid-query").QueryKey; queryFn: () => Promise<TData> }): { data: pending fails(Error) ref TData; isFetching: ref boolean; status: ref string; refetch: (options?: import("@tanstack/solid-query").RefetchOptions) => Promise<unknown> } uses(queryClient)

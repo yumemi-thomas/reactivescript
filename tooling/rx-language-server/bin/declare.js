@@ -1,12 +1,9 @@
 #!/usr/bin/env node
-// `rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any]`, `rx-declare --audit <file.d.rx>…`: a draft `.d.rx` for a JS module, from its TypeScript types
-// (src/declare.js) and, for a library it knows (src/known.js), the rows types cannot show (--types-only leaves those out),
-// then from running it (src/declare-run.js: which hooks read a context, which provider provides it),
-// only with --run (it executes the package's code). The module is resolved from the current directory, as an import there would be
-// (`@tanstack/solid-query`, `./lib.js`). Run it with `node --conditions=browser`, so Solid is its client build.
+// `rx-declare <module> [--out file.d.rx] [--only export,…] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any]`, `rx-declare --audit <file.d.rx>…`: a draft `.d.rx` for a JS module, from its TypeScript types
+// (src/declare.js), with the words its code proves (src/declare-infer.js) and no other. The module is resolved from the
+// current directory, as an import there would be (`@tanstack/solid-query`, `./lib.js`). Run it with `node --conditions=browser`, so Solid is its client build.
 const fs = require("node:fs");
 const { declare } = require("../src/declare.js");
-const { runRows } = require("../src/declare-run.js");
 const args = process.argv.slice(2);
 // `rx-declare --host <route.rx>... [--out host.d.rx]` (09 MO-14): a draft of a host declaration for the `.rx` modules a
 // JS host renders (a file-based router's route files) — an import of each one's exported components, the contexts
@@ -72,7 +69,7 @@ if (args.includes("--audit")) {
   if (args.includes("--json")) process.stdout.write(JSON.stringify(all) + "\n");
   process.exit(bad ? 1 : 0);
 }
-const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--context" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings" && args[args.indexOf(a) - 1] !== "--only");
+const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings" && args[args.indexOf(a) - 1] !== "--only");
 // `--only <export>[,<export>…]` (MO-8k): the rows an app keeps — those exports' (a component with its members), the
 // contexts their words name, and the types they name, and the types those name. A library's draft has a row for every
 // export; a project's declaration of it holds what its programs import, and this writes that much.
@@ -87,19 +84,12 @@ function only(text, names) {
     lines.forEach((l, i) => { if (keep.has(i) || !/^export\s+(?:type|context)\b/.test(l)) return; if (said.has(nameOf(l))) { keep.add(i); grew = true; } });
   }
   const first = lines.findIndex(l => nameOf(l) || /^\/\/ TODO /.test(l));
-  return { text: lines.filter((l, i) => keep.has(i) || (i < first && l.trim()) || /^\/\/ (?:Known of|Carried from)/.test(l)).join("\n") + "\n", missing };
+  return { text: lines.filter((l, i) => keep.has(i) || (i < first && l.trim()) ).join("\n") + "\n", missing };
 }
-const ctxAt = args.indexOf("--context");   // the name for a context the module reads but does not export (MO-12a)
 const outAt = args.indexOf("--out");
 const causesAt = args.indexOf("--causes");   // MO-8q: each row's `any`s by cause and its parts said by place, as JSON, to a file
-if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--only export,…] [--run] [--dom] [--context name] [--types-only] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any]\n"); process.exit(2); }
+if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] [--only export,…] [--no-infer] [--why] [--explain] [--causes file.json] [--readings export] [--any]\n"); process.exit(2); }
 (async () => {
-  if (args.includes("--dom")) {   // a browser's globals (happy-dom, from the project), so hooks that need a page run here
-    let reg;
-    try { reg = require(require.resolve("@happy-dom/global-registrator", { paths: [process.cwd(), __dirname] })); }
-    catch { process.stderr.write("rx-declare --dom: install @happy-dom/global-registrator in the project\n"); process.exit(2); }
-    reg.GlobalRegistrator.register({ url: "http://localhost/" });
-  }
   // --explain: why each `any` the draft holds is one (its cause, by export), and each row TypeScript did not hold with
   // the library's types named (MO-8m), on stderr; --any: the draft as it was before MO-8m, every unnamed type `any`
   const causes = [], unheld = {}, places = {}, why = [], inferred = {}, notes = [], anyRows = [];
@@ -107,7 +97,7 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   const readAt = args.indexOf("--readings");
   const readings = readAt >= 0 ? { names: (args[readAt + 1] ?? "").split(","), out: [] } : undefined;
   let text;
-  try { text = declare(require("typescript"), spec, process.cwd(), {}, { known: !args.includes("--types-only"), refs: !args.includes("--any"), causes, anyRows, unheld, places, readings, infer: !args.includes("--no-infer") && process.env.RX_DECLARE_INFER !== "0", why: args.includes("--why") ? why : undefined, inferred, notes }); }
+  try { text = declare(require("typescript"), spec, process.cwd(), {}, { refs: !args.includes("--any"), causes, anyRows, unheld, places, readings, infer: !args.includes("--no-infer") && process.env.RX_DECLARE_INFER !== "0", why: args.includes("--why") ? why : undefined, inferred, notes }); }
   catch (e) {
     // a draft the crate cannot read: nothing is written, and the line and the parser's reason are the message (it was a
     // silent fall back to `any` for every row)
@@ -132,10 +122,7 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
     for (const n of notes) process.stderr.write(`rx-declare: ${n}\n`);   // what is true of a row and asks nothing
     for (const [n, why] of Object.entries(unheld)) process.stderr.write(`rx-declare: ${n}: written with \`any\` — with the library's types named, TypeScript does not hold the row: ${why}\n`);
   }
-  // RFC 26: running the package is the user's choice: it executes third-party code
-  if (args.includes("--run")) { const r = await runRows(text, spec, process.cwd(), ctxAt >= 0 ? { context: args[ctxAt + 1] } : {}); text = r.draft; for (const n of r.notes) process.stderr.write(`rx-declare: ${n}\n`); }
-  // what running the module left behind (timers, listeners) is not the draft's: the process ends here — once the draft
-  // is written out (a pipe takes a long draft in parts: exiting before the last cut it short)
+  // the process ends once the draft is written out (a pipe takes a long draft in parts: exiting before the last cut it short)
   if (outAt >= 0) { fs.writeFileSync(args[outAt + 1], text); process.exit(0); }
   else process.stdout.write(text, () => process.exit(0));
 })();

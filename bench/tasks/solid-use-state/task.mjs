@@ -2,14 +2,14 @@
 // reads and writes, a call made while a component is made — given names by two modules of the app's own, and declared
 // in the words there are. Solid: `const count = atom(0)`, `provide(Theme, value)`, `inject(Theme)`.
 export default {
-  title: "solid-use: an atom as a reader and a setter, its injection as a context of the app's own module",
+  title: "solid-use: an atom as a reader and a setter, its injection through the app's own module",
   types: [
     { name: "the atom's setter takes the atom's type", edit: ["setCount(count + 1)", "setCount(\"1\")"], expect: /TS2345/ },
     { name: "the scope's value is a string", edit: ['<ThemeScope value={dark ? "dark" : "light"}>', "<ThemeScope value={dark ? 1 : 0}>"], expect: /TS2322|TS2769/ },
     { name: "the hook's value keeps its type", edit: ["{props.count} in {theme}", "{props.count} in {theme.toFixed(1)}"], expect: /TS2339|TS2551/ },
   ],
   bad: [
-    { name: "the hook's reader beside its scope, not under it", edit: ['<ThemeScope value={dark ? "dark" : "light"}><Badge count={count} /></ThemeScope>', '<ThemeScope value={dark ? "dark" : "light"}></ThemeScope><Badge count={count} />'], expect: "CONTEXT_NOT_FOUND" },
+    { name: "the hook's reader beside its scope, not under it", edit: ['<ThemeScope value={dark ? "dark" : "light"}><Badge count={count} /></ThemeScope>', '<ThemeScope value={dark ? "dark" : "light"}></ThemeScope><Badge count={count} />'], dev: /no ThemeScope/, drive: async h => { const r = await h.ssr("/"); if (r.error) throw r.error; } },   // (the library's scope is no Solid context: no row says so, and only running it tells)
     { name: "the atom's setter called while the view computes", edit: ["<Badge count={count} />", "<Badge count={count} />{setCount(1)}"], expect: "IO_IN_REACTIVE" },
     { name: "the atom's value written as a source is", edit: ["onClick={() => { setCount(count + 1) }}", "onClick={() => { count := count + 1 }}"], expect: "WRITE_TO_NON_SOURCE" },
     { name: "an atom made in a handler", edit: ["onClick={() => { dark := true }}", "onClick={() => { createAtom(1) }}"], expect: "INSTANTIATION_NOT_BOUND" },
