@@ -12,16 +12,33 @@ export default component App() {
 
 ## Frames
 
-| instant | action | frame | effect / probe verdicts |
+| instant | action | frame | effect |
 | ------- | ------ | ----- | ----------------------- |
 
 ## Rejected variants
 
-| fragment | rule | verdict |
-| -------- | ---- | ------- |
+```rx
+-- reject: <RULE or CODE>
+<program>
+```
+
+## Accepted variants
+
+```rx
+-- accept
+<program>
+```
 
 ## Mechanics (for writing scenarios)
 
+- A scenario is read whole or refused: an unknown `##` heading, a block
+  under a heading that reads none (or a second where one is read), a block
+  that begins with no directive where one is needed, a line that begins
+  with `--` and is no directive, a table with no row, a column or a
+  `Divergences` row no runner reads fail every runner
+  (`ref/src/scenario.ts`). Text between the blocks is prose; a block marked
+  `text` is an illustration; a `note` column is a remark; a heading that is
+  prose throughout is listed in `PROSE` there.
 - `## Program` holds a fenced program, or a line `file: ../examples/x.rx`.
 - `## Modules` (09): fences beginning `-- module: ./x.rx` are modules every
   program in the scenario may import; a `file:` program finds its modules
@@ -42,6 +59,11 @@ export default component App() {
 - `## Variant: …` tables replay the base table up to the first listed
   instant, then override; with their own program fence, prefix rows only
   drive state.
+- `## Accepted variants`: fences starting `-- accept` (the checker says
+  nothing, module by module) or `-- accept: whole-program` (E-5a); both may
+  also stand under `## Rejected variants`, beside what they are the other
+  side of. `npm run -s types` checks each one's types; a `-- untyped` line
+  says TypeScript refuses it, and the text why.
 - `## Rejected variants`: fences starting `-- reject: RULE` (or `-- warn:
   CODE`), optional `-- handler: stmts` lines, an optional `-- spa` line (checked
   as a client-only build, 08 CN-3d) or `-- app` line (checked as an app's

@@ -145,6 +145,7 @@ person says so, at the import or as `pure fn` in
 
 ```rx
 -- accept
+-- untyped
 import pure { readGauge, Meter } from "@demo/gauge" fails Error
 export default component App() {
   v = readGauge()
@@ -153,7 +154,8 @@ export default component App() {
 ```
 
 What the import says of a draft stands, as with no declaration, and a name
-the draft has no row for (`Meter`, a class) is an undeclared import (MO-8l).
+the draft has no row for (`Meter`, a class) is an undeclared import (MO-8l). Its type is the
+package's, which this scenario has none of.
 
 ```rx
 -- reject: UNKNOWN_COMPONENT

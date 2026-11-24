@@ -229,7 +229,12 @@ record argued each way; this is the decision.
   scenario prelude), and `flights`, `lastKey`, `log`, `asyncError`,
   `frame` (what the runners observe). Compiled code calls them only in a
   conformance build — the compiler's option for running `scenarios/`
-  (CP-5); `ref/compile/emit.ts` always emits one.
+  (CP-5); `ref/compile/emit.ts` always emits one. An app's code
+  calls `api` too, for an import of `./api` (MO-8c): given no `api`, the
+  app has no one to answer the call, and a development build says so on
+  the console at the first, once an import. The language's `log`, which
+  writes to the `log` the runners observe, prints in a development build.
+  A runner's app (`createApp({ conformance: true })`) is silent.
 
   *`fetch` and `fail` are names only there (corrected 2026-11-24).* Both
   checkers took an unimported `fetch` or `fail` in any program, and an app's

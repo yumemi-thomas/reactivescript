@@ -349,7 +349,7 @@ impl<'p> Gen<'p> {
     /// bundler (`by_source`, the product), where `./util.js` is the app's own file. `./api` stays the app's injected API
     /// (`createApp({ api })`, CP-4), and in the scenario runners every relative import is the harness's.
     fn js_import(&self, from: &str) -> bool {
-        !from.starts_with('.') || (self.by_source && !from.ends_with("/api"))
+        !from.starts_with('.') || (self.by_source && from != "./api")
     }
     /// SV-5a: the module a declared JS error class is identified by: a package's specifier, or the app's own `.d.rx`
     /// as `modules::package_relative` names it — after its named package, else below the nearest package.json above it,

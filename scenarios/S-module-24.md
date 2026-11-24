@@ -118,7 +118,8 @@ export default component App() {
 ```
 
 and a dotted tag whose head is no name of the module is refused the same
-way; a custom element's name has a `-`.
+way; a custom element's name has a `-` (and the app's own types, in
+TypeScript: there it is no known element).
 
 ```rx
 -- reject: UNKNOWN_COMPONENT
@@ -129,6 +130,7 @@ export default component App() {
 
 ```rx
 -- accept
+-- untyped
 export default component App() {
   <my-kit.card>a custom element</my-kit.card>
 }

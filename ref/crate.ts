@@ -52,6 +52,7 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
       add(`${sc.name} ${t.title}`, sc.entry, read(t.program ?? sc.program), rows.filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7)));
     }
     if (!sc.tables.length && sc.program) add(`${sc.name} Program`, sc.entry, read(sc.program), []);
+    sc.accepted.forEach((a, i) => add(`${sc.name} accept #${i}`, sc.entry, read(a.program), []));
     continue;
   }
   if (sc.program) add(`${sc.name} Program`, sc.entry, read(sc.program));

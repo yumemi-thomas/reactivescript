@@ -39,9 +39,10 @@ const units: Unit[] = [];
 const filter = process.argv[2];
 const sdir = new URL("../../scenarios/", import.meta.url);
 let seq = 0;
-function add(sc: Scenario, title: string, src: string, expect: string | null) {
-  let set; try { set = moduleSet(sc, src); } catch { return; }
-  if (checkModules(set).diags.length) return;                                    // the checker refused it: no types are asked
+const unasked: string[] = [];                                                    // what the checker refused: its types cannot be asked, and nothing else would say so
+function add(sc: Scenario, title: string, src: string, expect: string | null, whole = false) {
+  let set; try { set = moduleSet(sc, src); } catch (e) { unasked.push(`${sc.name} ${title}: ${(e as Error).message}`); return; }
+  const ds = checkModules(set, false, whole).diags; if (ds.length) { unasked.push(`${sc.name} ${title}: refused by the checker — ${ds.map(d => `${d.code} line ${d.line}`).join(", ")}`); return; }
   const dir = join(out, `${sc.name}.${seq++}`); const root = dirname(set.entry.startsWith("/") ? set.entry : "/" + set.entry);
   const files = new Map<string, Projected>();
   for (const p of process.env.RX_CRATE ? crateProjection(sc, src) : projectModules(set)) {
@@ -56,6 +57,7 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
   const sc = parseScenario(f.replace(/\.md$/, ""), readFileSync(new URL(f, sdir), "utf8"), fileURLToPath(sdir));
   add(sc, "Program", sc.program, null);
   for (const t of sc.tables) if (t.program) add(sc, t.title, t.program, null);
+  sc.accepted.forEach((a, i) => add(sc, `accepted #${i}`, a.program, a.untyped ? "" : null, a.whole));
   for (const rj of sc.rejected) if (rj.types) add(sc, `types ${rj.rule}`, rj.program, rj.rule);
 }
 const roots = units.flatMap(u => [...u.files.keys()].filter(f => f.endsWith(".tsx")));
@@ -78,8 +80,9 @@ for (const u of units) {
   }
   const lines = scenarios.get(u.sc) ?? []; scenarios.set(u.sc, lines);
   if (u.expect === null) { if (got.length) { fail++; lines.push(`  ✗ ${u.title}: ${got.join("\n      ")}`); } else { pass++; lines.push(`  ✓ ${u.title}: types check`); } }
-  else { const hit = got.find(g => g.startsWith(u.expect! + " ")); if (hit) { pass++; lines.push(`  ✓ ${u.title}: ${hit}`); } else { fail++; lines.push(`  ✗ ${u.title}: expected ${u.expect}, got ${got.join(" | ") || "no error"}`); } }
+  else { const hit = got.find(g => u.expect === "" || g.startsWith(u.expect + " ")); if (hit) { pass++; lines.push(`  ✓ ${u.title}: ${hit}`); } else { fail++; lines.push(`  ✗ ${u.title}: expected ${u.expect || "a type error (-- untyped)"}, got ${got.join(" | ") || "no error"}`); } }
 }
+for (const u of unasked) { fail++; console.log(`✗ ${u}`); }
 for (const d of byFile.get("(global)") ?? []) { fail++; console.log(`✗ global: TS${d.code} ${d.message}`); }
 for (const [sc, lines] of scenarios) { console.log(`${lines.some(l => l.includes("✗")) ? "FAIL" : "PASS"} ${sc}`); for (const l of lines) console.log(l); }
 console.log(`\n${pass} pass, ${fail} fail (TypeScript ${versions().typescript}, tsrs ${versions().tsrs}, ${roots.length} projected modules${process.env.RX_CRATE ? " from the crate" : ""}, ${Date.now() - t0} ms)`);

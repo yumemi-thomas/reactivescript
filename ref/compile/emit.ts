@@ -11,6 +11,7 @@ export { madeComponent };
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
+import { jsxTag } from "./jsx.ts";
 import { unwrapServer, litKey } from "../src/check.ts";
 import { scopeFacts } from "../src/scope.ts";
 import { isPrims } from "../src/prims.ts";
@@ -226,7 +227,7 @@ class Gen {
         case "el": {
           if (m.tag === "") return `<>${tree(m.children)}</>`;
           const attrs = m.attrs.filter(a => !isHandler(a.name) && a.name !== "...").map(a => a.e.k === "lit" && typeof a.e.v === "string" ? ` ${a.name}="${esc(a.e.v)}"` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : ` ${a.name}={0}`).join("") + (m.attrs.some(a => a.name === "...") ? " {...0}" : "");
-          return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${tree(m.children)}</${m.tag}>`;
+          { const tag = jsxTag(m.tag); return VOID_TAGS.has(m.tag) ? `<${tag}${attrs} />` : `<${tag}${attrs}>${tree(m.children)}</${tag}>`; }
         }
         case "mif": return `{(<>${tree(m.t)}</>)}{(<>${tree(m.f)}</>)}`;
         case "mfor": case "mview": return `{(<>${tree(m.body)}</>)}`;
@@ -723,7 +724,7 @@ class Gen {
         }
         let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");
         if (this.styleHash && !m.attrs.some(a => a.name === "class")) attrs += ` class=${J(this.styleHash)}`;   // CSS-2: every HTML element of the view
-        return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${m.tag}>`;
+        { const tag = jsxTag(m.tag); return VOID_TAGS.has(m.tag) ? `<${tag}${attrs} />` : `<${tag}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${tag}>`; }
       }
       case "mif": {
         const narrowed = m.c.k === "id" ? env.lookup(m.c.name) : undefined;

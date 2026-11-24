@@ -182,12 +182,11 @@ export default component App() {
 
 A source imported from another module is written through an action that module exports (MO-2):
 
-```rx
-// store.rx
+```rx after
+-- module: ./store.rx
 export source selected := 0
 export action select(id: number) { selected := id }
-
-// App.rx
+-- main
 import { selected, select } from "./store.rx"
 export default component App() {
   <button onClick={() => { select(5) }}>{selected}</button>
@@ -616,16 +615,28 @@ Advice, not an error: the program is accepted and the build goes on (`rxc check`
 block reads a value that changes and that the effect does not take as an input. The block runs when its inputs change
 (with no inputs: once), so it sees that value as it was then and is not run again when it changes.
 
-```rx
-total = qty * price
-effect () { setTitle(`cart: ${total}`) }     // advice: `total` is not an input — the title is set once
+```rx advice
+import { setTitle } from "./page.js"
+export default component Cart() {
+  source qty := 1
+  total = qty * 5
+  effect () { setTitle(`cart: ${total}`) }   // advice: `total` is not an input — the title is set once
+  <button onClick={() => { qty := qty + 1 }}>{total}</button>
+}
 ```
 
 Name it as an input and read what the block is given, or say the snapshot is meant:
 
-```rx
-effect (total) { setTitle(`cart: ${$0}`) }
-effect (saves) { report(peek(draft)) }       // what the draft held when `saves` changed
+```rx after
+import { setTitle, report } from "./page.js"
+export default component Cart() {
+  source qty := 1
+  source saves := 0
+  total = qty * 5
+  effect (total) { setTitle(`cart: ${$0}`) }
+  effect (saves) { report(peek(qty)) }       // what `qty` held when `saves` changed
+  <button onClick={() => { qty := qty + 1; saves := saves + 1 }}>{total}</button>
+}
 ```
 
 ### GUESS_AFTER_AWAIT
@@ -633,25 +644,47 @@ effect (saves) { report(peek(draft)) }       // what the draft held when `saves`
 Advice, not an error: the program is accepted and the build goes on. An action's first guess is written after an
 `await`, so it is ahead of nothing: what it shows appears once that `await` has answered.
 
-```rx
-action add(id: string, title: string) {
-  try {
-    await addTodo(id, title)
-    guess todos := ts => [...ts, { id: id, title: title }]     // advice: after `await addTodo(…)`
-    refresh todos
-  } catch (e) { failed := e.message }
+```rx advice
+import pure { fetchTodos } from "./api.js"
+import { addTodo } from "./api.js"
+export default component Todos() {
+  source todos = await fetchTodos()
+  source failed := ""
+  action add(id: string, title: string) {
+    try {
+      await addTodo(id, title)
+      guess todos := ts => [...ts, { id: id, title: title }]     // advice: after `await addTodo(…)`
+      refresh todos
+    } catch (e) { failed := e.message }
+  }
+  <button onClick={() => { add("1", "milk") }}>add</button>
+  {failed}
+  {errored fallback(e) { <p>failed</p> } {
+    {loading fallback { <p>…</p> } { <p>{len(todos)}</p> }}
+  }}
 }
 ```
 
 Write the guess before the `await` it is a guess about:
 
-```rx
-action add(id: string, title: string) {
-  guess todos := ts => [...ts, { id: id, title: title }]
-  try {
-    await addTodo(id, title)
-    refresh todos
-  } catch (e) { failed := e.message }
+```rx after
+import pure { fetchTodos } from "./api.js"
+import { addTodo } from "./api.js"
+export default component Todos() {
+  source todos = await fetchTodos()
+  source failed := ""
+  action add(id: string, title: string) {
+    guess todos := ts => [...ts, { id: id, title: title }]
+    try {
+      await addTodo(id, title)
+      refresh todos
+    } catch (e) { failed := e.message }
+  }
+  <button onClick={() => { add("1", "milk") }}>add</button>
+  {failed}
+  {errored fallback(e) { <p>failed</p> } {
+    {loading fallback { <p>…</p> } { <p>{len(todos)}</p> }}
+  }}
 }
 ```
 
@@ -729,22 +762,35 @@ Advice, not an error: the program is correct and the build goes on (`rxc check` 
 or handler, a question awaited after another that reads nothing the first answered waits for the first for nothing:
 the two could have been out at once.
 
-```rx
-action load() {
-  try {
-    let user = await fetchUser(id)
-    let news = await fetchNews()        // advice: reads nothing `await fetchUser(…)` answered
-    shown := `${user.name}: ${len(news)}`
-  } catch (e) { shown := "failed" }
+```rx advice
+import pure { fetchUser, fetchNews } from "./api.js"
+export default component App() {
+  source shown := ""
+  action load(id: number) {
+    try {
+      let user = await fetchUser(id)
+      let news = await fetchNews()        // advice: reads nothing `await fetchUser(…)` answered
+      shown := `${user.name}: ${len(news)}`
+    } catch (e) { shown := "failed" }
+  }
+  <button onClick={() => { load(1) }}>{shown}</button>
 }
 ```
 
 Ask both, then await them together (a JS helper over `Promise.all`), or make each an equation, which Solid asks side
 by side:
 
-```rx
-user = await fetchUser(id)
-news = await fetchNews()
+```rx after
+import pure { fetchUser, fetchNews } from "./api.js"
+export default component App() {
+  source id := 1
+  user = await fetchUser(id)
+  news = await fetchNews()
+  <button onClick={() => { id := id + 1 }}>next</button>
+  {errored fallback(e) { <p>failed</p> } {
+    {loading fallback { <p>…</p> } { <p>{user.name}: {len(news)}</p> }}
+  }}
+}
 ```
 
 A second question that needs the first's answer (`await fetchTeam(user.team)`) is no waterfall, and an io call awaited

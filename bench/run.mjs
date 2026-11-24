@@ -166,7 +166,7 @@ async function runTask(id, entry) {
           const said = [threw, ...h.problems, ...h.checks.filter(c => !c.ok).map(c => c.got ?? "")].join(" | ");
           mark(res.bad, `${b.name} (dev: ${b.dev.source})`, b.dev.test(said), said || "ran silently");
         }
-      }
+      } else mark(col, b.name, false, "the variant names nothing that judges it");
     } finally { undo(); }
   }
   return res;

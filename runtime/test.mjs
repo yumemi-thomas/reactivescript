@@ -27,6 +27,20 @@ try {
   writeFileSync(path.join(tmp, "ssr.mjs"), `import main from "./todo.mjs";\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp(); let html = "";\napp.stream(main(app), { write: s => { html += s; }, end: () => console.log(html) });\n`);
   const html = execFileSync(process.execPath, ["ssr.mjs"], { cwd: tmp }).toString();
   check("todo.rx rendered on the server build", /<main _hk=[^>]*>.*0<!--\/--> left/.test(html), html.slice(0, 120));
+  // MO-8c, CP-4c: `./api` in an app given no `api` — a development build says so at the first call, once an import, on both
+  // builds; a production build, a runner (`conformance`) and an app that has an `api` say nothing. `log` prints there too.
+  // Only `./api` is the app's: `../api` and `./lib/api` are files. A `./api.js` beside the program does not change it.
+  mkdirSync(path.join(tmp, "in/lib"), { recursive: true });
+  for (const f of ["api.js", "in/api.js", "in/lib/api.js"]) writeFileSync(path.join(tmp, f), `export const load = async () => "file";\nexport const up = () => "up";\nexport const deep = () => "deep";\n`);
+  writeFileSync(path.join(tmp, "in/asks.rx"), `import pure { load } from "./api"\nimport pure { up } from "../api"\nimport pure { deep } from "./lib/api"\nexport default component App() {\n  a = await load("x")\n  <b onClick={() => { log(1, "two") }}>{up()} {deep()}</b>\n  errored fallback(e) { <p>e</p> } { loading fallback { <p>w</p> } { <p>{a}</p> } }\n}\n`);
+  const asks = Object.values(JSON.parse(compile(path.join(tmp, "in/asks.rx"), "ssr")).modules)[0].code;
+  check("only ./api is the app's injected API; ../api and ./lib/api are imported (MO-8c)", /from "\.\.\/api"/.test(asks) && /from "\.\/lib\/api"/.test(asks) && !/from "\.\/api"/.test(asks) && /__rt\.api\("load"\)/.test(asks), asks.slice(0, 300));
+  const silent = `import { createApp } from "@reactivescript/runtime";\nfor (const o of [{}, {}, { conformance: true }, { api: { load: async () => "given" } }]) { const a = createApp({ root: null, ...o }); if (o.conformance || o.api) console.error("--"); a.api("load")("x"); a.api("load")("y"); a.B.log(1, "two"); }\n`;
+  for (const [conds, dev] of [[["browser", "development"], true], [["node", "development"], true], [["browser"], false], [["node"], false]]) {
+    const r = spawnSync(process.execPath, [...conds.map(c => "--conditions=" + c), "--input-type=module", "-e", silent], { cwd: tmp, encoding: "utf8" });
+    const [first, ...rest] = r.stderr.split("--\n"); const once = (first.match(/load\(…\), imported from "\.\/api", will never answer/g) ?? []).length;
+    check(`./api with no createApp({ api }), and log (${conds}): ${dev ? "said once, with the two ways out, and printed" : "silent"}`, once === (dev ? 1 : 0) && (!dev || /createApp\(\{ api: \{ load \} \}\)/.test(first) && /"\.\/api\.js" for one/.test(first)) && rest.length === 2 && !rest.join("").trim() && r.stdout === (dev ? "1 two\n".repeat(3) : ""), (r.stdout + r.stderr).slice(0, 400));
+  }
   // AC-3: a guess over a list that is written too, on the release installed here (its server ran a projection over a
   // pending store at once, solidjs/solid#5097): the page waits and renders the truth
   writeFileSync(path.join(tmp, "rows.mjs"), `export const load = async () => { await new Promise(r => setTimeout(r, 5)); return [{ id: 1, t: "A" }, { id: 2, t: "B" }]; };\nexport const save = async t => t;\n`);

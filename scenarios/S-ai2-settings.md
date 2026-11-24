@@ -10,7 +10,7 @@ file: ../examples/ai2/settings/main.rx
 
 ## Frames
 
-| instant | action | frame | effect / probe verdicts |
+| instant | action | frame | note |
 | ------- | ------ | ----- | ----------------------- |
 | 0 | mount | `Settings [comfortable] Loading settings…` | `pending? settings`: no verdict (first load) |
 | 1 | reject "loadSettings:" "network down" | `Settings [comfortable] Could not load settings: network down Retry` | — |

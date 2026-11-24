@@ -28,7 +28,5 @@ content is the region's, and the region has not revealed (D-19).
 | 0       | mount                 | `…`                       |
 | 1       | resolve "data" "d"    | `d » dialog for d`        |
 
-## Divergences
-
-(none; Solid's ✗ row — the portal in `body` while the fallback shows — is
-what D-19 ruled out)
+No divergence: Solid's ✗ row — the portal in `body` while the fallback shows —
+is what D-19 ruled out.

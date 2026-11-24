@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+**What nothing read, and what nothing said** (`scenarios/TEMPLATE.md`, 09 MO-8c, 11 CP-4c; `ref/units.ts`, `runtime/test.mjs`)
+
+- **A scenario is read whole or refused.** A heading, a block, a directive, a table, a column or a row that no runner reads fails
+  every runner. Two `## Accepted variants` sections (7 programs) had never run, nor had three rejected variants written as a table
+  of predictions; an accepted program is now type-checked and lowered as well. `rx advice` examples of the diagnostics page and
+  README's programs are run; a `.rx` example of the page with no mark fails.
+- **Fixed (the reference): `<my-kit.card>`**, a custom element whose name has a `.`, was lowered as a member of `my - kit`. The
+  compiler's output was right.
+- **Added: a call of `./api` in an app given no `api` is said on the console** of a development build, once an import, with the
+  two ways out. It never answered, in silence.
+- **Fixed: only `./api` is the app's injected API** (MO-8c). `../api` and `./lib/api` were taken for it, and a file there was
+  not read; each is an import of that file.
+- **Added: `log(…)` prints** in a development build. It wrote to a list only the tests read.
+
 **`fetch` and `fail` are the test harness's, not an app's** (11 CP-4c; `scenarios/S-module-46`, `compiler/test/names.mjs`)
 
 - **Fixed: an unimported `fetch` or `fail` was accepted in an app**, and compiled to the scenarios' test harness (a request that

@@ -27,7 +27,7 @@ may say less than the library accepts, never something else.
 A field that fails this is `DECLARATION_MISMATCH` on the row, naming the
 prop and both types:
 
-```
+```text
 kit.d.rx:3:1 - error DECLARATION_MISMATCH: Mislabeled: `label` is written `number` in the record after the props' type,
 and the library's type for that prop does not take it: the record may narrow a prop of PickerProps<string>, not give it
 another type (MO-8o)

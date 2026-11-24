@@ -14,6 +14,9 @@ import { Avatar } from "./Avatar.rx"       // another .rx module
 export default component App() { … }       // the entry module's default component is mounted
 ```
 
+`./api`, spelled so, is the app's injected API, `createApp({ api: { fetchUser, saveUser } })`, and no file. A module of
+your own is imported with its extension (`"./api.js"`), and needs nothing given.
+
 A Solid library (solid-primitives and the like) is declared once in a `.d.rx` and then used like .rx: `libraries.md`.
 
 A file's top level is imports, exports and declarations. A `source` at the top level is app state; inside a
@@ -108,7 +111,7 @@ effect (count) { log($0) }   // runs after `count` changes; `$0` is its value (a
   it writes, and a loop's turns are one run). `for (const t of d.items) { d.items.push(copy(t)) }` in a store's
   setter doubles the list and ends. The list is read to its end first, so loop over a finite one. In a loop that
   writes a source, write functionally (`total := t => t + x`): a second turn reads what the first wrote.
-- Browser and JS globals (`console`, `document`, `window`) are not in scope. `log(…)` prints; anything else from
+- Browser and JS globals (`console`, `document`, `window`) are not in scope. `log(…)` prints in a development build; anything else from
   JS comes in through an import from a `.js` module.
 - Reading a source gives its value at the start of the run: after `x := v`, `x` still reads the old value. Keep the
   new value in a local (`let n = count + 1; count := n`).

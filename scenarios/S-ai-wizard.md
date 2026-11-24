@@ -10,9 +10,7 @@ an action whose await may reject and whose catch reports the failure.
 
 ## Program
 
-```
 file: ../examples/ai/wizard.rx
-```
 
 ## Frames
 

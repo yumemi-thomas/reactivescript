@@ -186,7 +186,13 @@ function oneKeyEach(name: string, key: string | undefined, rows: unknown): void 
     return;
   }
 }
-function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown> }) {
+/** MO-8c, CP-4c: a development build's word, once an import, on a call of `./api` that nothing answers — the app was given no `api`. */
+const unanswered = new Set<string>();
+function noApi(name: string) {
+  if (unanswered.has(name)) return; unanswered.add(name);
+  console.error(`[reactivescript] ${name}(…), imported from "./api", will never answer: "./api" is the app's injected API, not a file (a ./api.js or ./api.ts beside the module is not read), and this app was given none. Give it one, createApp({ api: { ${name} } }) (a whole module: import * as api from "./api.js"; createApp({ api })), or import a module of your own by another spelling, "./api.js" for one.`);
+}
+function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown>; conformance?: boolean }) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const truthOf = new Map<Acc, Acc>();                                  // an optimistic signal-form source: its guess layer -> its question
@@ -225,12 +231,12 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
       indexOf: (xs: unknown[], f: (x: unknown) => unknown) => xs.findIndex(f),
       fail: (msg: string) => { throw Object.assign(new Error(msg), { panic: true }); },   // R-f-3: a JS throw — a panic, not in the failure row
       fetch: (key: string) => opts.api?.fetch ? opts.api.fetch(key) : flight(String(key)),
-      log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
+      log: (...a: unknown[]) => { const said = a.map(fmt); log.push(`log(${said.join(", ")})`); if (DEV && !opts.conformance) console.log(...said); },   // CP-4c: a development build prints it; a runner reads `app.log`
     } as Record<string, any>,
     /** `import pure { f } from "./api"`: every function is a flight keyed by its name and formatted arguments. */
     /** MO-8: a class `api.d.rx` declares as an error: the real module's, or (in the harness) a stand-in `C(message)`. */
     jsError: (name: string) => jsErrors.get(name) ?? (jsErrors.set(name, (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`)), jsErrors.get(name)),
-    api: (name: string) => opts.api ? (opts.api[name] ?? (() => { throw new Error(`./api has no ${name}`); })) : (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`),
+    api: (name: string) => opts.api ? (opts.api[name] ?? (() => { throw new Error(`./api has no ${name}`); })) : (...a: unknown[]) => { if (DEV && !opts.conformance) noApi(name); return flight(`${name}:${a.map(fmt).join(",")}`); },
     /** MO-10: the scenario prelude's `./prims` — Solid primitives, as a library writes them (`ref/compile/prims-solid.ts`). */
     prim: (name: string) => primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any })[name] ?? (() => { throw new Error(`./prims has no ${name}`); }),
 

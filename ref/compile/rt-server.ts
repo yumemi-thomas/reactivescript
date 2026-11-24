@@ -122,7 +122,13 @@ function lent(v: unknown, to: string): unknown {
   };
   return wrap(v);
 }
-function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request?: Request } = {}) {
+/** MO-8c, CP-4c: a development build's word, once an import, on a call of `./api` that nothing answers — the app was given no `api`. */
+const unanswered = new Set<string>();
+function noApi(name: string) {
+  if (unanswered.has(name)) return; unanswered.add(name);
+  console.error(`[reactivescript] ${name}(…), imported from "./api", will never answer: "./api" is the app's injected API, not a file (a ./api.js or ./api.ts beside the module is not read), and this app was given none. Give it one, createApp({ api: { ${name} } }) (a whole module: import * as api from "./api.js"; createApp({ api })), or import a module of your own by another spelling, "./api.js" for one.`);
+}
+function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conformance?: boolean; request?: Request } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const registry = new Map<string, Entry[]>();
@@ -161,13 +167,13 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request
       indexOf: (xs: unknown[], f: (x: unknown) => unknown) => xs.findIndex(f),
       fail: (msg: string) => { throw Object.assign(new Error(msg), { panic: true }); },
       fetch: (key: string) => opts.api?.fetch ? opts.api.fetch(key) : flight(String(key)),
-      log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
+      log: (...a: unknown[]) => { const said = a.map(fmt); log.push(`log(${said.join(", ")})`); if (DEV && !opts.conformance) console.log(...said); },   // CP-4c: a development build prints it; a runner reads `app.log`
     } as Record<string, any>,
     /** MO-8: a class a `.d.rx` declares — a failure the server sends as it is (SV-5). */
     jsError(name: string) { if (jsErrors.has(name)) return jsErrors.get(name); const C = (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`); declared.push(C); jsErrors.set(name, C); return C; },
     /** A JS function's promise: a rejection with a declared class is marked safe to send; any other is redacted (SV-5). */
     api: (name: string) => {
-      if (!opts.api) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
+      if (!opts.api) return (...a: unknown[]) => { if (DEV && !opts.conformance) noApi(name); return flight(`${name}:${a.map(fmt).join(",")}`); };
       const f = opts.api[name] ?? (() => { throw new Error(`./api has no ${name}`); });
       return (...a: unknown[]) => { const r = f(...a); return r && typeof (r as PromiseLike<unknown>).then === "function" ? Promise.resolve(r).catch(e => { if (isA(e, declared)) markSafeError(e); throw e; }) : r; };
     },

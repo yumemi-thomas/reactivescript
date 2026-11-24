@@ -188,7 +188,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   where TypeScript (13 TY-6) or running (MO-8j) holds it.
 - **MO-8c (The import stays).** A JS import, relative or a package's, stays an
   ES import in the compiled module, for the bundler to resolve. The one
-  exception is `./api`, the app's injected API (`createApp({ api })`, CP-4).
+  exception is `./api`, the app's injected API (`createApp({ api })`, CP-4):
+  that spelling alone (`./api.js`, `../api` and `./lib/api` are files), and
+  whether or not a file `./api.js` is beside the module (CP-4c).
 - **MO-8d (Type parameters).** A declared fn, type or component may have
   TypeScript type parameters (`export pure fn defineRoute<const S extends
   string>(…)`, `component Picker<Option>(props: { … })`, `component
