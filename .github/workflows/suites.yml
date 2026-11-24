@@ -81,13 +81,13 @@ jobs:
         run: npm run compiled
       - name: "ref: streamed SSR and hydration in Chromium"
         working-directory: ref
-        run: npm run ssr
+        run: RX_JOBS=4 npm run ssr   # it waits more than it works
       - name: "ref: the TSX projection, checked by TypeScript"
         working-directory: ref
         run: npm run types
       - name: "crate against ref/: checked, client-only (--spa), the whole program (--whole-program), lowered (--lower), projected (--project)"
         working-directory: ref
-        run: node ../scripts/parallel.mjs "npm run -s crate" "npm run -s crate -- --spa" "npm run -s crate -- --whole-program" "npm run -s crate -- --lower" "npm run -s crate -- --project"
+        run: RX_JOBS=4 node ../scripts/parallel.mjs "npm run -s crate" "npm run -s crate -- --spa" "npm run -s crate -- --whole-program" "npm run -s crate -- --lower" "npm run -s crate -- --project"
       - name: "the guarantees, run: drafts (MO-10i)"
         run: node compiler/test/drafts.mjs
       - name: "the library build: a package written in .rx (MO-13e)"
