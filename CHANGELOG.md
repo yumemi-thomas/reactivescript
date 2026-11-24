@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+**The tooling's TypeScript is tsrs 7.1.0-beta.tsrs5 (TypeScript 7.1 beta)** (spec/13 TY-1; tooling/rx-language-server/README.md, *The checker*)
+
+- **Changed: every verdict about types is tsrs's** — `rx-tsc`, the Vite build's gate, the check `rx-declare` makes of its
+  draft, the check of a declaration against its module (TY-6), the editor's type errors. One exact version, in
+  `@reactivescript/language-server`'s dependencies; `rx-tsc --version` prints it. There is no fallback: where tsrs cannot
+  run, the tool says so and stops (`rx-tsc` exits 2, no draft is written).
+- **Changed: what TypeScript 7 removed is removed here.** `baseUrl`, `moduleResolution: node10`, `target: ES5` and the
+  other options TypeScript 6 deprecated are errors (TS5102, TS5108), `ignoreDeprecations` or not. `rx-tsc` takes
+  `--noEmit`, `-p`, `--watch`, `--declaration` and the compiler options; `-b`, `--init` and `--showConfig` are refused, and
+  it writes no `.tsbuildinfo`. An option's error names the option, without its place in the tsconfig.json.
+- **Changed: Node 20.19, 22.12 or later** for `@reactivescript/language-server` (it was 18).
+- **Changed: `rx-tsc --watch` reports what `rx-tsc` reports** (it reported TypeScript's errors alone).
+- **Faster.** `rx-tsc` over the benchmark's 37 tasks: 64 s of CPU to 13 s; `rx-declare @ui-sdk/solid`: 16 s to 6.7 s; a small library's draft: no difference.
+- **Fixed: a draft wrote `ref` in a record that may be absent** (`{ name: ref string } | null`), where the notation does not
+  read it: the crate's check of the row was not TypeScript. Its accessors are drafted as the functions they are.
+- **Known: TypeScript 7.1 beta refuses some correct programs TypeScript 6 accepts** — a value of a generic function type
+  that writes a conditional over its own type parameter, assigned to that same type (microsoft/TypeScript#64673, fixed by
+  #64307, not merged). A declaration's row is not concerned: it is checked as an instance of its type, which relates.
+
 **Drafts are short, and the tools faster** (tooling/rx-language-server/DECLARATIONS.md, MO-8o)
 
 - **Changed: a component whose props no module names, more than 24 of them, is drafted by its place**, `props:

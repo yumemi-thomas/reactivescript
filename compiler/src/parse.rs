@@ -4307,6 +4307,19 @@ mod recovering {
         assert!(check.contains("type __decl_Picker = <Option, G = never>(props: {"), "{check}");
     }
 
+    /// TY-6: a row that writes a conditional over its type parameters is held as an instance of its type (TypeScript 7.1's
+    /// relation of a conditional that distributes, microsoft/TypeScript#64673); every other row as it is written
+    #[test]
+    fn a_row_with_a_conditional_is_held_as_an_instance() {
+        let src = "export pure fn asArray<T>(value: T): (T extends any[] ? T[number] : NonNullable<T>)[]\nexport pure fn pick<const K extends string | number = string>(k: K, f: (x: K extends number ? string : K) => void): void\nexport pure fn same<T extends { id?: string }>(value?: T): T\n";
+        let decls = parse_declarations(src).expect("parses");
+        let (check, _) = crate::project::boundary_file(&decls, "./kit.js");
+        assert!(check.contains("type __decl_asArray<__Any = unknown> = <T extends __Any>(value: T) => (T extends any[] ? T[number] : NonNullable<T>)[];"), "{check}");
+        assert!(check.contains("type __decl_pick<__Any = unknown> = <const K extends (string | number) & __Any>(k: K, f: (x: K extends number ? string : K) => void) => void;"), "{check}");
+        assert!(check.contains("type __decl_same = <T extends { id?: string }>(value?: T) => T;"), "{check}");
+        assert!(check.contains("const __check_asArray: __decl_asArray = __real.asArray;"), "{check}");
+    }
+
     /// MO-8o: `props: Kit.SelectProps<Option> & { … }` — the props are the type the library declares, TypeScript's
     /// text, and the record after `&` its fields that carry words; a record alone is read as it was
     #[test]

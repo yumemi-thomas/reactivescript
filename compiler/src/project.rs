@@ -1285,20 +1285,17 @@ pub struct OverlayCheck {
     pub has: bool,
     pub says: String,
 }
-/// A row's type parameters as types of the block an overlay check is written in, so that the library's props are a type
-/// TypeScript can read a prop of (a conditional over a type parameter is not): a parameter is its default, else its
-/// bound, else a type of its own that nothing else is; one whose bound comes back to itself is `any`.
-fn tparams_held(tparams: Option<&str>) -> String {
-    let Some(t) = tparams.map(str::trim).filter(|t| t.starts_with('<') && t.ends_with('>')) else { return String::new() };
+/// A row's type parameters, read: for each, its modifiers, its name, its bound and its default.
+fn tparams_read(tparams: Option<&str>) -> Vec<(String, String, Option<String>, Option<String>)> {
+    let Some(t) = tparams.map(str::trim).filter(|t| t.starts_with('<') && t.ends_with('>')) else { return vec![] };
     let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-    let mentions = |text: &str, name: &str| text.match_indices(name).any(|(i, _)| !text[..i].chars().next_back().is_some_and(|c| is_word(c) || c == '.') && !text[i + name.len()..].chars().next().is_some_and(is_word));
-    // (name, the type it is held at, or None: a type of its own)
-    let mut ps: Vec<(String, Option<String>)> = vec![];
+    let mut out = vec![];
     for part in crate::parse::split_top(&t[1..t.len() - 1], ",") {
         let mut rest = part.as_str();
         while let Some(r) = ["const ", "in ", "out "].iter().find_map(|m| rest.strip_prefix(m)) {
             rest = r.trim_start();
         }
+        let mods = part[..part.len() - rest.len()].to_string();
         let n = rest.find(|c: char| !is_word(c)).unwrap_or(rest.len());
         let (name, rest) = (rest[..n].to_string(), rest[n..].trim());
         if name.is_empty() {
@@ -1324,7 +1321,33 @@ fn tparams_held(tparams: Option<&str>) -> String {
             None => (rest.to_string(), None),
         };
         let bound = bound.trim().strip_prefix("extends").map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
-        ps.push((name, default.filter(|d| !d.is_empty()).or(bound)));
+        out.push((mods, name, bound, default.filter(|d| !d.is_empty())));
+    }
+    out
+}
+/// TypeScript 7.1 (microsoft/TypeScript#64673) relates two instances of a conditional type that distributes over a type
+/// parameter, and does not relate an instance of one to the type as it is written: `<T>(v: T) => T extends any[] ? T[number]
+/// : T` is not assignable to itself. A row that writes such a conditional is therefore held as an instance: its type is an
+/// alias of a parameter of its own (`unknown`), which each of the row's type parameters is bound by besides. What the row
+/// says is the same: a parameter bound by `unknown` is bound by nothing, and a default says nothing to an assignment.
+fn as_instance(tparams: Option<&str>) -> Option<String> {
+    let ps = tparams_read(tparams);
+    if ps.is_empty() {
+        return None;
+    }
+    let each = |(mods, name, bound, _): (String, String, Option<String>, Option<String>)| format!("{mods}{name} extends {}", bound.map_or("__Any".into(), |b| format!("({b}) & __Any")));
+    Some(format!("<{}>", ps.into_iter().map(each).collect::<Vec<_>>().join(", ")))
+}
+/// A row's type parameters as types of the block an overlay check is written in, so that the library's props are a type
+/// TypeScript can read a prop of (a conditional over a type parameter is not): a parameter is its default, else its
+/// bound, else a type of its own that nothing else is; one whose bound comes back to itself is `any`.
+fn tparams_held(tparams: Option<&str>) -> String {
+    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    let mentions = |text: &str, name: &str| text.match_indices(name).any(|(i, _)| !text[..i].chars().next_back().is_some_and(|c| is_word(c) || c == '.') && !text[i + name.len()..].chars().next().is_some_and(is_word));
+    // (name, the type it is held at, or None: a type of its own)
+    let mut ps: Vec<(String, Option<String>)> = tparams_read(tparams).into_iter().map(|(_, name, bound, default)| (name, default.or(bound))).collect();
+    if ps.is_empty() {
+        return String::new();
     }
     // a parameter held at a type that comes back to it would be a circular alias
     let names: Vec<String> = ps.iter().map(|p| p.0.clone()).collect();
@@ -1398,7 +1421,15 @@ pub fn boundary_checks(decls: &[JsDecl], module: &str) -> (String, Vec<(usize, u
             JsDecl::Type { .. } | JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. } => continue,
         };
         let key = name.replace('.', "$$"); // MO-11q: a member (`Dialog.Trigger`), read as a property of its object
-        out.push(format!("type __decl_{} = {};", key, ty));
+        let tparams = match d {
+            JsDecl::Fn { tparams, .. } | JsDecl::Comp { tparams, .. } => tparams.as_deref(),
+            _ => None,
+        };
+        let conditional = |rest: &str| rest.contains(" extends ") && rest.contains('?');
+        match (tparams, as_instance(tparams)) {
+            (Some(tp), Some(held)) if ty.strip_prefix(tp).is_some_and(conditional) => out.push(format!("type __decl_{}<__Any = unknown> = {}{};", key, held, &ty[tp.len()..])),
+            _ => out.push(format!("type __decl_{} = {};", key, ty)),
+        }
         out.push(format!("const __check_{}: __decl_{} = __real.{};", key, key, name));
         checks.push((out.len(), line, name.clone()));
         // MO-8o, TY-6f: `P & NoInfer<{ … }>` holds the component to the type and says nothing of the record, which an

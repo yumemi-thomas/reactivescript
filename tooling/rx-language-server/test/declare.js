@@ -402,11 +402,24 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   check("...and a few are written out", row("Small") === "export component Small(props: { a: string; onPick: (v: string) => void })", text);
 }
 
+// `ref` is read in the result's own record (MO-10b), and a record that may be absent is a union: its accessors are drafted
+// as the functions they are, and the crate's check of the row is TypeScript
+{
+  fs.writeFileSync(path.join(ws, "absent.js"), "export const x = 1;\n");
+  fs.writeFileSync(path.join(ws, "absent.d.ts"), 'import type { Accessor } from "solid-js";\ninterface Inner { name: Accessor<string | undefined>; deep: { on: Accessor<boolean> }; set: (v: string) => void }\nexport declare function useMaybe(id: string): Inner | null;\nexport declare function useMaybeNot(id: string): { open: Accessor<boolean> } | undefined;\nexport declare function useAlways(id: string): { open: Accessor<boolean> };\nexport {};\n');
+  const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./absent.js", "--no-infer"], { cwd: ws, encoding: "utf8" });
+  const row = n => r.stdout.split("\n").find(l => l.includes(`fn ${n}(`)) ?? "";
+  check("a record that may be absent has no `ref` field: an accessor in it is a function", !/\bref\b/.test(row("useMaybe")) && /name: \(\) => string \| undefined;.*deep: \{ on: \(\) => boolean \};.*\} \| null/.test(row("useMaybe")) && /\{ open: \(\) => boolean \} \| undefined/.test(row("useMaybeNot")), r.stdout + r.stderr);
+  check("...and one that is always there has", /: \{ open: ref boolean \}/.test(row("useAlways")), row("useAlways"));
+  const b = require("../src/rxc.js").boundary(path.join(ws, "absent.d.rx"), "./absent.js", r.stdout);
+  check("...so no check the crate writes of a draft holds a word TypeScript cannot read", typeof b.code === "string" && !/[:[,(]\s*ref\s+[\w({[]/.test(b.code), b);
+}
+
 // a draft the crate cannot read is an error, with the line and the parser's reason — not `any` for every row and nothing
 // said (a `readonly` prop the parser refused did that to a whole library)
 {
   const { failing } = require("../src/declare-check.js");
-  let thrown; try { failing(require("typescript"), "export pure fn ok(): number\nexport component Broken(props: { a b })\n", 0, ["export pure fn ok(): number", "export component Broken(props: { a b })"], "./more.js", ws, {}, undefined); } catch (e) { thrown = e; }
+  let thrown; try { failing("export pure fn ok(): number\nexport component Broken(props: { a b })\n", 0, ["export pure fn ok(): number", "export component Broken(props: { a b })"], "./more.js", ws, {}); } catch (e) { thrown = e; }
   check("a draft the crate cannot parse is not checked row by row: it throws, naming the line, the parser's reason and the row", thrown?.code === "RX_DRAFT_UNREADABLE" && thrown.line === 2 && /line 2: /.test(thrown.message) && /2 \| export component Broken\(props: \{ a b \}\)/.test(thrown.message), String(thrown?.message ?? thrown));
   // the same through rx-declare: the crate is made to refuse the draft, and the run fails with that message and writes nothing
   const stub = path.join(ws, "refuse-draft.cjs");

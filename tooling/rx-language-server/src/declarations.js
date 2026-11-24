@@ -1,8 +1,7 @@
 // TY-4b in rx-tsc: a JS module with a `.d.rx` beside it and no TypeScript types of its own is typed by its declaration.
 // TypeScript resolves `import "./router.js"` to `router.d.ts`; where that file does not exist but `router.d.rx` and
-// `router.js` do, TypeScript's file system (its `ts.sys`) answers for it with the `.d.ts` the crate writes from the `.d.rx`
-// (as `rxc project` does). Only TypeScript's own reads see these files: `rx-tsc` wraps the `ts.sys` of the TypeScript it
-// runs (`patchSystem`), not Node's `fs`, so nothing else in the process is affected; nothing is written to disk.
+// `router.js` do, the file system the checker reads (src/program.js `overlay`) answers for it with the `.d.ts` the crate
+// writes from the `.d.rx` (as `rxc project` does). Only the checker's reads see these files; nothing is written to disk.
 const fs = require("node:fs");
 const path = require("node:path");
 const { declaration } = require("./rxc");
@@ -122,21 +121,10 @@ function libDeclaration(rx, page = false) {
 }
 
 const real = { existsSync: fs.existsSync, readFileSync: fs.readFileSync };
-const patched = new WeakSet();
-/** RFC 23: TypeScript's own file system answers for the `.d.ts` files a `.d.rx` stands for: `sys` is the `ts.sys` of the
- *  TypeScript that type-checks (a compiler host calls it at each read), so Node's `fs` is left alone. */
-function patchSystem(sys) {
-  if (!sys || patched.has(sys)) return; patched.add(sys);
-  const { fileExists, readFile, directoryExists, realpath, getModifiedTime, getFileSize } = sys;
-  sys.fileExists = p => virtualText(p) !== null || fileExists.call(sys, p);
-  sys.readFile = (p, enc) => { const t = virtualText(p); return t !== null ? t : readFile.call(sys, p, enc); };
-  sys.directoryExists = p => virtualDir(p) || directoryExists.call(sys, p);
-  if (realpath) sys.realpath = p => virtualText(p) !== null || virtualDir(p) ? path.resolve(p) : realpath.call(sys, p);
-  if (getModifiedTime) sys.getModifiedTime = p => virtualText(p) !== null ? new Date(0) : getModifiedTime.call(sys, p);
-  if (getFileSize) sys.getFileSize = p => { const t = virtualText(p); return t !== null ? Buffer.byteLength(t) : getFileSize.call(sys, p); };
-}
-
 /** Whether `p` is a `.d.ts` this module stands in for (TY-6 reports such a module as having no types of its own). */
 const isVirtual = p => virtual.get(path.resolve(p)) != null;
 
-module.exports = { patchSystem, isVirtual };
+/** What was found is not kept past a change of the disk. */
+const forget = () => { virtual.clear(); ownTypes.clear(); };
+
+module.exports = { virtualText, virtualDir, isVirtual, forget };

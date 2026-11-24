@@ -128,6 +128,20 @@ Semantics follow Solid 2.0 (`solidjs/solid@next`, pinned in
 spec diverges from Solid, the divergence is recorded as a `DV-n` in
 `spec/05-holds.md` or `spec/10-server.md`.
 
+The checker of types is tsrs at the version
+`tooling/rx-language-server/package.json` pins, and nothing else
+(`tooling/rx-language-server/README.md`, *The checker*): no tool asks
+another TypeScript for a verdict, and none falls back to one. A new
+version of it is a change of verdicts: before an expected result is
+changed, the old and the new answer are compared over the benchmark's
+probes, `npm run types` and the drafts of every module of the coverage
+suite, and each difference has a minimal program, a cause and a verdict
+(`spec/archive/ts7-tsrs-2026-11-24.md` is the record of the first). A
+difference that refuses a correct program, accepts a wrong one, widens a
+drafted type or varies from run to run blocks it. `test/checker.js` holds
+the differences the tooling stands on, so that a version that has lost
+one says so.
+
 ## Running the suite
 
 Solid is built from its `main` branch at the pinned commit (needs Node 22+,
@@ -156,7 +170,7 @@ for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confi
 for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done   # git clone -b frontend-resolve https://github.com/yumemi-thomas/solid-vite-plugin && pnpm install && npx rolldown -c
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar
 (cd runtime && node test.mjs)
-(cd tooling/rx-language-server && npm test)   # its suites at once, RX_JOBS at a time (scripts/parallel.mjs)
+(cd tooling/rx-language-server && npm test)   # its suites at once, RX_JOBS at a time (scripts/parallel.mjs); ref's `npm run types` asks its checker too: npm ci there first
 node scripts/spec-refs.mjs       # every rule and diagnostic that is named is in spec/
 node bench/measure.test.mjs      # the benchmark's own counting
 node bench/run.mjs --check     # BENCH_JOBS processes (default: half the cores); the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used

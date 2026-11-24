@@ -6,8 +6,7 @@
 // version was a different type under the same name.
 const path = require("node:path");
 
-/** A specifier TypeScript resolves through node_modules (not a relative or an absolute path). */
-const bare = name => !name.startsWith(".") && !path.isAbsolute(name) && !/^[A-Za-z]:[\\/]/.test(name);
+const { bare } = require("./checker.js");
 
 /** `spec` as the library resolves it: from `lib` (a file of the library) first, then from `from` (the app's file).
  *  @returns the resolved module, or undefined */
@@ -37,22 +36,4 @@ function packageDir(pkg, lib, from) {
  *  library's and the unit's own do not meet. */
 const resolutions = (ts, options, host) => ts.createModuleResolutionCache(host.getCurrentDirectory?.() ?? process.cwd(), f => ts.sys.useCaseSensitiveFileNames ? f : f.toLowerCase(), options);
 
-/** Makes `host` resolve the bare specifiers written in each unit (`units`: unit file → a file of the library it checks)
- *  as that library does: from the library's location first, then from the unit's own. Relative specifiers, and every
- *  other file's imports, are resolved as before. This hook answers for every file of the program, and TypeScript keeps no
- *  cache for a host that has one: `cache` is it (`resolutions`; one for this host where none is given). */
-function resolveUnitsAsLibrary(ts, host, units, cache) {
-  let own; const kept = options => cache ?? (own ??= host.getModuleResolutionCache?.() ?? resolutions(ts, options, host));
-  const prior = host.resolveModuleNameLiterals?.bind(host);
-  host.resolveModuleNameLiterals = (literals, containingFile, redirected, options, sourceFile, reused) => {
-    const lib = units.get(path.resolve(containingFile));
-    if (!lib) return prior ? prior(literals, containingFile, redirected, options, sourceFile, reused) : literals.map(l => ts.resolveModuleName(l.text, containingFile, options, host, kept(options), redirected, sourceFile && ts.getModeForUsageLocation ? ts.getModeForUsageLocation(sourceFile, l, options) : undefined));
-    return literals.map(l => {
-      const mode = sourceFile && ts.getModeForUsageLocation ? ts.getModeForUsageLocation(sourceFile, l, options) : undefined;
-      if (bare(l.text)) { const r = ts.resolveModuleName(l.text, lib, options, host, kept(options), redirected, mode); if (r.resolvedModule) return r; }
-      return ts.resolveModuleName(l.text, containingFile, options, host, kept(options), redirected, mode);
-    });
-  };
-}
-
-module.exports = { resolveAsLibrary, packageDir, resolveUnitsAsLibrary, resolutions, bare };
+module.exports = { resolveAsLibrary, packageDir, resolutions };

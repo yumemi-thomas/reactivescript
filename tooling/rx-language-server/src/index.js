@@ -13,7 +13,7 @@ const COARSE = { verification: true };
 
 /** A module: `.rx`, not a declaration file (`.d.rx`, MO-8/MO-9), which the crate reads beside the modules that import it. */
 const isModule = f => f.endsWith(".rx") && !f.endsWith(".d.rx");
-/** `include` globs take `.d.rx` too; Volar's tsc stops on a program file with no script, so it is an empty module. */
+/** `include` globs take `.d.rx` too; a program file with no script stops Volar, so it is an empty module there. */
 const isDeclaration = f => f.endsWith(".d.rx");
 
 const snapshotOf = text => ({ getText: (s, e) => text.slice(s, e), getLength: () => text.length, getChangeRange: () => undefined });
@@ -42,14 +42,22 @@ function analysis(file, text) {
   return result;
 }
 
+/** The last analysis of `file`, with the text it is of. */
+analysis.last = file => cache.get(file);
+/** What was read is not kept past a change of the disk (a module's projection is read with the modules it imports). */
+analysis.forget = () => cache.clear();
+
+/** The projection's mappings onto the `.rx`. */
+const mappingsOf = a => [
+  ...(a.mappings ?? []).map(([g, s, n]) => ({ sourceOffsets: [s], generatedOffsets: [g], lengths: [n], data: EXACT })),
+  ...(a.ranges ?? []).map(([g, gn, s, n]) => ({ sourceOffsets: [s], generatedOffsets: [g], lengths: [n], generatedLengths: [gn], data: COARSE })),
+];
+
 function virtualCode(file, snapshot) {
   const text = snapshot.getText(0, snapshot.getLength());
   const a = analysis(file, text);
   const code = a.code ?? "";
-  const mappings = [
-    ...(a.mappings ?? []).map(([g, s, n]) => ({ sourceOffsets: [s], generatedOffsets: [g], lengths: [n], data: EXACT })),
-    ...(a.ranges ?? []).map(([g, gn, s, n]) => ({ sourceOffsets: [s], generatedOffsets: [g], lengths: [n], generatedLengths: [gn], data: COARSE })),
-  ];
+  const mappings = mappingsOf(a);
   return {
     id: "root",
     languageId: "reactivescript",
@@ -124,4 +132,4 @@ function rxDiagnostics() {
 /** Every `.rx` module analyzed so far, with its last analysis (the command line reports their crate diagnostics). */
 const analyses = () => [...cache].filter(([f]) => isModule(f)).map(([file, { result }]) => ({ file, result }));
 
-module.exports = { rxLanguagePlugin, rxDiagnostics, analysis, analyses, guideUrl };
+module.exports = { rxLanguagePlugin, rxDiagnostics, analysis, analyses, mappingsOf, isModule, isDeclaration, guideUrl };

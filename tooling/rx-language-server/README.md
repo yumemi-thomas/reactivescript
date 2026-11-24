@@ -3,9 +3,10 @@
 The `.rx` language server (spec/11 CP-8e), built on [Volar](https://volarjs.dev).
 A `.rx` file's virtual code is its TSX projection (spec/13 TY-1c), which the
 crate makes with mappings back onto the `.rx` (CP-8c). TypeScript answers hover,
-go to definition, references, rename, completion and type errors on the
-projection, and Volar maps the answers back. The crate's own diagnostics (parse
-errors, else the checker's, each with its rule) are a second service.
+go to definition, references, rename and completion on the projection, and
+Volar maps the answers back. The type errors are the checker's (*The checker*,
+below), placed through the same mappings. The crate's own diagnostics (parse
+errors, else the checker's, each with its rule) are a service of their own.
 
 - `src/rxc.js` asks the crate for a file's analysis, with the editor's unsaved
   text as overlays: its WebAssembly build in process (`src/wasm.rs`; one build
@@ -14,6 +15,8 @@ errors, else the checker's, each with its rule) are a second service.
   projection's prelude to `node_modules/.reactivescript/prelude.d.ts`.
 - `src/index.js` is the language plugin (exact mappings carry every feature;
   ranges only place type errors) and the diagnostics service.
+- `src/checker.js` is the one way to TypeScript's diagnostics; `src/program.js` a project's `.rx` modules in its program;
+  `src/editor.js` the editor's type errors.
 - `bin/server.js` is the server, over stdio or IPC.
 
 The project needs a `tsconfig.json` with Solid's JSX (`"jsx": "preserve"`,
@@ -36,15 +39,39 @@ node bin/server.js --stdio
 ```
 
 `initializationOptions: { typescript: { tsdk } }` picks TypeScript's `lib`
-folder; without it, the server uses its own `typescript`.
+folder for hover, completion and the rest; without it, the server uses its own
+`typescript`. The type errors are tsrs's either way.
+
+## The checker
+
+Types are checked by [tsrs](https://github.com/oxc-project/tsrs), a port of TypeScript 7, at the one version
+`package.json` pins (`rx-tsc --version` prints it with the TypeScript it is). `src/checker.js` is the only file that speaks
+to it: files and options in, diagnostics with positions out, in order. It is a process that stays up, spoken to through its
+API; a projection or a boundary check is given with the question and is no file on disk.
+
+- **One answer.** A program is checked by one checker, in the order its files are given, so what is reported does not
+  depend on a number of threads. No program is cut to run in parallel: a row near TypeScript's depth limit (TS2589) is not the
+  same row beside others.
+- **No other checker stands in.** tsrs has a binary for macOS, Linux (glibc and musl) and Windows, on x64 and arm64, as
+  optional packages npm picks from. Where none is installed (`--omit=optional`, a lockfile from another platform, another
+  platform), or another version is, `rx-tsc` exits 2 and `rx-declare` writes nothing, each with the reason. `TSRS_BINARY`
+  names a binary built by hand. (tsrs's WebAssembly build is a command line for WASI, without the API; it is not used.)
+- **The editor's extension** holds no binary: it takes the tsrs of the project's `@reactivescript/language-server`, and
+  where there is none it says so once and the type errors are the editor's TypeScript's.
+- **What stays on TypeScript 6** (`typescript`, in process): reading a library's types for a draft (`src/declare.js`),
+  parsing JavaScript for what it proves (`src/infer.js`), hover and the rest of the editor. A draft of `@ui-sdk/solid`
+  makes 1.3 million calls of the checker, 1.1 million of which would each be a request to another process (some 17 s where the
+  reading takes 4). What TypeScript 6
+  reads, tsrs then holds: a row it does not hold is not written.
+
 
 ## Type-checking from the command line
 
 `rx-tsc` (`bin/tsc.js`) is `tsc` with `.rx` modules in the program, for CI.
-It is Volar's tsc runner (the one `vue-tsc` uses) with this package's
-language plugin, so it checks the same projection the editor does, and places
-type errors on the `.rx`. It takes `tsc`'s arguments and reads
-`tsconfig.json`, whose `include` must name the `.rx` files.
+It checks the projection the editor does with the checker above, and places
+type errors on the `.rx`. It takes `tsc`'s arguments (not `-b`, `--init` or
+`--showConfig`) and reads `tsconfig.json`, whose `include` must name the `.rx`
+files.
 
 ```sh
 npx rx-tsc --noEmit
@@ -54,8 +81,7 @@ After TypeScript's errors it prints the crate's diagnostics for every `.rx`
 module in the program (parse errors, else the checker's, with their rules),
 and exits non-zero if there are any. It also checks each `.d.rx` beside a JS module against that module's real
 types (spec/13 TY-6), reporting `DECLARATION_MISMATCH` on the declaration's line. A module that does not parse has no
-projection, so TypeScript alone would pass it. Under `--watch` only
-TypeScript's errors are reported.
+projection, so TypeScript alone would pass it.
 
 ## Drafting a declaration
 
