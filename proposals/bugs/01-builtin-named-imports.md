@@ -34,6 +34,20 @@ export default component App() { <p>{filter("a", 3)}</p> }
 export const filter = (s: string, n: number): string => s.repeat(n);
 ```
 
+Both spellings matter: `import pure { len as size }` is dropped too (the imported name decides there), and `import pure { custom as len }` keeps its import on both trees. An `.rx` import of such a name is kept.
+
+<!-- app branch=ok upstream=ok says-branch="len as w$size" says-upstream="v$size = __B.len" -->
+```rx
+import pure { len as size } from "./kit.js"
+export default component App() { <p>{size("x")}</p> }
+```
+
+<!-- app branch=ok upstream=ok says-branch="custom as w$len" says-upstream="custom as w$len" -->
+```rx
+import pure { custom as len } from "./kit.js"
+export default component App() { <p>{len("x")}</p> }
+```
+
 **On upstream (e650b85).** Both checkers accept. `rxc app` writes `const v$len = __B.len` and no import. The second program shows `error` at instant 0. The third is TS2345. An import from an `.rx` module is right (`import { sum } from "./own.rx"`, run).
 
 **Spec.** MO-8c: a JS import stays an ES import. MO-1d forbids shadowing an import; it does not name these functions.

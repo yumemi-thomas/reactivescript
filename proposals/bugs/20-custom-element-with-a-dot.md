@@ -13,7 +13,7 @@ export default component App() { <my-kit.card>x</my-kit.card> }
 
 **On upstream (e650b85).** `my is not defined`. The crate's code and the interpreter show `x`.
 
-**Spec.** 07 §4: a tag that begins with a small letter and has a `-` is an element.
+**Spec.** 07 §4: *JSX elements are verbatim*. (The narrower sentence this report had is not in upstream's §4.)
 
 **Cause.** The reference's emitter hands the dotted name to TypeScript's JSX, which reads a member.
 

@@ -34,6 +34,6 @@ this is not a program
 
 **Cause.** `parseScenario` looks for the headings it knows.
 
-**Fix in this branch.** a349e48: a heading, a block, a directive, a table, a column or a row that no runner reads fails every runner. An accepted program is type-checked and lowered too. Upstream's own files held three rejected variants written as a table of predictions (S-ai2-tracker); they are programs now. The two *Accepted* sections that had never run were this branch's.
+**Fix in this branch.** a349e48: a heading, a block, a directive, a table, a column or a row that no runner reads fails every runner. A heading with prose alone is the author's, and accepted (it was refused until this round). An accepted program is type-checked and lowered too. Upstream's own files held three rejected variants written as a table of predictions (S-ai2-tracker); they are programs now. The two *Accepted* sections that had never run were this branch's.
 
 **Test.** `ref/units.ts`.

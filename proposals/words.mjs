@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // What each word or form of a declaration is for, measured: it is taken off every declaration the benchmark's programs
 // keep (hand-written and drafted), and the checker reads the good programs and their one-line mistakes again. A word
-// earns its place where a correct program is then refused, or a mistake accepted. The crate's checker alone.
+// earns its place where a correct program is then refused, or a mistake accepted. A *variant* is one of a program's
+// one-line mistakes; it is *missed* when the diagnostic its task expects is no longer among the crate's — it is accepted
+// then, or refused by another diagnostic, and the two are counted apart. The crate's checker alone.
 //   node proposals/words.mjs [word]      after a run of bench/run.mjs (it reads the programs staged in bench/.out)
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -27,7 +29,7 @@ const words = {
   "rejects(E) (upstream's)": tail("rejects"),
 };
 const only = process.argv[2], list = Object.entries(words).filter(([w]) => !only || w.startsWith(only));
-const sum = Object.fromEntries(list.map(([w]) => [w, { uses: 0, programs: 0, refused: [], lost: [] }]));
+const sum = Object.fromEntries(list.map(([w]) => [w, { uses: 0, programs: 0, refused: [], lost: [], other: 0 }]));
 const sig = d => `${d.code}@${path.basename(d.file ?? "")}:${d.line}`;
 const all = [...readdirSync(path.join(here, "tasks")).filter(t => existsSync(path.join(here, "tasks", t, "task.mjs"))).map(t => [t]), ...entries().map(e => [`cover-${e.replaceAll("/", "-")}`, path.join(here, "coverage", e)])];
 for (const [id, from] of all) {
@@ -49,10 +51,10 @@ for (const [id, from] of all) {
     const s = sum[w]; s.uses += n; s.programs++;
     const now = refused(), old = new Set(now.map(sig));
     if (now.length) s.refused.push(`${id}: ${[...new Set(now.map(d => d.code))].join(", ")}`);
-    for (const b of bads) if (caught.has(b) && !said(b).some(d => d.code === b.expect && !old.has(sig(d)))) s.lost.push(`${id}: ${b.name} (${b.expect})`);
+    for (const b of bads) if (caught.has(b)) { const r = said(b).filter(d => !old.has(sig(d))); if (!r.some(d => d.code === b.expect)) { s.lost.push(`${id}: ${b.name} (${b.expect})${r.length ? ` — refused still, ${[...new Set(r.map(d => d.code))].join(", ")}` : ""}`); if (r.length) s.other++; } }
     for (const [f, t] of raws) writeFileSync(f, t);
   }
 }
-console.log("\n| word or form | rows | programs | correct programs refused without it | mistakes no longer caught |\n| --- | --- | --- | --- | --- |");
-for (const [w, s] of Object.entries(sum)) console.log(`| ${w} | ${s.uses} | ${s.programs} | ${s.refused.length} | ${s.lost.length} |`);
+console.log("\n| word or form | rows | programs | correct programs refused without it | variants whose diagnostic is missed | of them, refused by another | programs those are of |\n| --- | --- | --- | --- | --- | --- | --- |");
+for (const [w, s] of Object.entries(sum)) console.log(`| ${w} | ${s.uses} | ${s.programs} | ${s.refused.length} | ${s.lost.length} | ${s.other} | ${new Set(s.lost.map(x => x.split(":")[0])).size} |`);
 for (const [w, s] of Object.entries(sum)) { console.log(`\n${w}`); for (const x of s.refused) console.log(`  refused: ${x}`); for (const x of s.lost) console.log(`  lost: ${x}`); }

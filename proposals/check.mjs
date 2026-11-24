@@ -14,6 +14,7 @@
 //   <!-- app    branch=ok says-upstream="…" -->       rxc app, what the Vite front end is given: `ok` or `failed`; its JSON is the output
 //   <!-- scenario branch=fail upstream=pass -->       a ````md fence: a whole scenario, in the reference's interpreter
 //   <!-- tool   branch=failed tool=verify args=x.d.rx -->   a tool of the language server's bin/ (this branch's alone): its exit, and what it says
+// What cannot be run — no build, no Chromium, a module not installed — is `setup`: it is counted apart and is no verdict.
 //   <!-- types  branch=ok upstream=TS2345 -->         rx-tsc over the files: its codes, checkers' codes included
 //   <!-- tsx    branch=ok upstream=TS2345 -->         types, where main.tsx is what uses the .rx
 // `says-branch="text"` and `says-upstream="text"` ask that the output hold the text. `files=<dir>` copies a folder of proposals/ beside.
@@ -26,6 +27,7 @@ const here = import.meta.dirname, repo = dirname(here);
 const arg = n => { const i = process.argv.indexOf(n); return i < 0 ? undefined : process.argv[i + 1]; };
 const verbose = process.argv.includes("-v"), only = arg("--only"), up = arg("--upstream");
 const roots = { branch: repo, ...(up ? { upstream: resolve(up) } : {}) };
+for (const [name, root] of Object.entries(roots)) for (const f of ["compiler/target/release/rxc", "ref/node_modules/solid-js", "runtime/dist/web.js", "tooling/rx-language-server/node_modules"]) if (!existsSync(join(root, f))) { console.log(`SETUP ${name}: no ${f} in ${root} (README.md says how it is built)`); process.exit(2); }
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "rx-proposals-")));
 const node = (args, cwd, env = {}) => { const r = spawnSync(process.execPath, args, { cwd, encoding: "utf8", env: { ...process.env, ...env } }); return (r.stdout ?? "") + (r.stderr ?? ""); };
 const uniq = xs => [...new Set(xs)].sort();
@@ -110,15 +112,19 @@ function blocks(file) {
   if (marks !== out.length) { console.log(`${relative(repo, file)}: ${marks} marks, ${out.length} programs read`); bad++; }
   return out;
 }
-let ran = 0, bad = 0;
+/** A run that did not get as far as the program. */
+const noSetup = out => /ERR_MODULE_NOT_FOUND|Cannot find (module|package) '(?!\.{1,2}\/)|browserType\.launch|Executable doesn't exist/.test(out);
+let ran = 0, bad = 0, setup = 0;
 const docs = [...readdirSync(here).filter(f => f.endsWith(".md")).map(f => join(here, f)), ...readdirSync(join(here, "bugs")).filter(f => f.endsWith(".md")).map(f => join(here, "bugs", f))].filter(f => !only || f.includes(only)).sort();
 for (const d of docs) for (const b of blocks(d)) for (const [name, root] of Object.entries(roots)) {
   const want = b.attrs[name]; if (want === undefined) { console.log(`${relative(repo, d)}:${b.line}: no verdict stated for ${name}`); bad++; continue; }
   if (want === "-") continue;
-  const { got, out } = kinds[b.kind](root, b, name), text = b.attrs[`says-${name}`]; ran++;
+  const r = kinds[b.kind](root, b, name), out = r.out, text = b.attrs[`says-${name}`]; let got = r.got;
+  if (got !== want && (noSetup(out) || !out.trim() || (b.kind === "frames" && !/^(PASS|FAIL|SKIP) S-proposal-1/m.test(out)))) { setup++; console.log(`SETUP ${relative(repo, d)}:${b.line} ${b.kind} ${name}: not run — ${(out.split("\n").find(l => noSetup(l)) ?? "no output").trim().slice(0, 200)}`); continue; }
+  ran++;
   const ok = got === want && (!text || out.includes(text)); if (!ok) bad++;
   if (!ok || verbose) console.log(`${ok ? "ok  " : "FAIL"} ${relative(repo, d)}:${b.line} ${b.kind} ${name}: ${got}${ok ? "" : `, stated ${want}${text && !out.includes(text) ? `, saying ${JSON.stringify(text)}` : ""}`}${verbose ? "\n" + out.replaceAll(/^/gm, "     | ").slice(0, 1600) : ""}`);
 }
 rmSync(tmp, { recursive: true, force: true });
-console.log(`${ran} verdicts compared over ${docs.length} documents${up ? "" : " (this branch only: --upstream <path> for both)"}: ${bad ? `${bad} differ` : "all as stated"}`);
-process.exit(bad ? 1 : 0);
+console.log(`${ran} verdicts compared over ${docs.length} documents${up ? "" : " (this branch only: --upstream <path> for both)"}: ${bad ? `${bad} differ` : "all as stated"}${setup ? `; ${setup} could not be run (setup)` : ""}`);
+process.exit(bad ? 1 : setup ? 2 : 0);

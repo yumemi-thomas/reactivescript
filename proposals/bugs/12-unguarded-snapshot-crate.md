@@ -14,6 +14,8 @@ export default component App() {
 }
 ```
 
+A control: with no region around any application, it is refused by the crate on both trees.
+
 **On upstream (e650b85).** The crate: `UNGUARDED_SNAPSHOT [R-8] <b> onClick reads v as a snapshot`. `ref/check.ts`: ok (it has no such check).
 
 **Spec.** R-8: a region that holds the value covers the element inside it. The region around `<Saved />` holds `{v}` with its element.

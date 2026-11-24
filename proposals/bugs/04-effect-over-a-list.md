@@ -17,6 +17,8 @@ export default component App() {
 | 0 | mount | `0` | `log([])` |
 | 1 | handler `tags := ["A"]` | `0` | `log(["A"])` |
 
+A list given directly as the input (`effect (tags)`) is right on both trees: what is missed is a store held inside a record.
+
 **On upstream (e650b85).** `expected effects [log(["A"])], got []`. The effect never runs again. The reference's interpreter misses the second write of the same list.
 
 **Spec.** EF-2: the block runs when the value of an input changes.

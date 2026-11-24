@@ -18,6 +18,25 @@ export default component App() {
 | 1 | (effect) | `1 1` |
 | 2 | handler `x := 2` | `2 1` |
 
+The control: where the input changes, the cleanup and the block both run, on both trees. Disposal is the third case to pin.
+
+<!-- frames branch=pass upstream=pass -->
+```rx
+export default component App() {
+  source n := 1
+  effect (n > 0) {
+    log("start", $0)
+    return () => { log("stop", $0) }
+  }
+  <p>{n}</p>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | `1` | `log(start, true)` |
+| 1 | handler `n := 0` | `0` | `log(stop, true); log(start, false)` |
+
 **On upstream (e650b85).** `expected '2 1', got '2 0'`: what the block set up is gone, and nothing sets it up again. The interpreter is right; the oracle and the compiled code are both wrong, so the runners agreed.
 
 **Spec.** EF-5: the cleanup runs before the block's next run, or when its region ends. EF-2: the block runs when an input's value changes.

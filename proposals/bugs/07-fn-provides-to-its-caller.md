@@ -5,25 +5,22 @@
 <!-- frames branch=pass upstream=fail -->
 ```rx
 context d: string = "none"
-fn useOuter(): string { provide d = "in"
-  source n := 0
-  str(n) }
-component Kid() {
-  a = useOuter()
-  b = use d
-  <p>{a} {b}</p>
+fn inner() { provide d = "inner"
+  1 }
+component Child() {
+  result = inner()
+  v = use d
+  <p>{result} {v}</p>
 }
-export default component App() {
-  provide d = "out"
-  <Kid />
-}
+export default component App() { provide d = "outer"
+  <Child /> }
 ```
 
 | instant | action | frame |
-| ------- | ------- | ------- |
-| 0 | mount | `0 out` |
+| --- | --- | --- |
+| 0 | mount | `1 outer` |
 
-**On upstream (e650b85).** `expected '0 out', got '0 in'`. The interpreter is right.
+**On upstream (e650b85).** `expected '1 outer', got '1 inner'`. The interpreter is right.
 
 **Spec.** RG-6a: a call makes a region nested in the caller's. RG-7b.
 

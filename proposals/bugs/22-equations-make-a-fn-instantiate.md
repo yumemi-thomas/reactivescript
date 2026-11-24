@@ -1,6 +1,6 @@
-# A fn that declares only an equation is refused where a lifted fn is accepted
+# A question: a fn that declares only an equation is refused where a lifted fn is accepted
 
-Not fixed in this branch: a question first. See [proposal 15](../15-locals-in-pure-fns.md).
+Not fixed in this branch: a question first. See [proposal 21](../21-locals-in-fns.md).
 
 <!-- check branch=INSTANTIATION_NOT_BOUND upstream=INSTANTIATION_NOT_BOUND says-upstream="declares state" -->
 ```rx
@@ -8,6 +8,15 @@ fn area(w: number, h: number): number { half = w / 2
   half * h }
 export default component App() { source a := 1
   <p>{area(a, 2)}</p> }
+```
+
+A body that declares only a type is refused with the same message:
+
+<!-- check branch=INSTANTIATION_NOT_BOUND upstream=INSTANTIATION_NOT_BOUND -->
+```rx
+fn id(n: number) { type Unused = number
+  n }
+export default component App() { <p>{id(1)}</p> }
 ```
 
 **On upstream (e650b85).** `INSTANTIATION_NOT_BOUND [E-9] area(…) declares state`. It declares no state.

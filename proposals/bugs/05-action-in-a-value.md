@@ -30,6 +30,36 @@ export default component App() {
 }
 ```
 
+Through a record of the caller's own:
+
+<!-- check branch=ACTION_CALLED_IN_OWNED_SCOPE upstream=ok -->
+```rx
+fn mk() {
+  source n := 0
+  action set(v: number) { n := v }
+  { set: set }
+}
+export default component App() {
+  m = mk()
+  box = { nested: m }
+  <p>{box.nested.set(1)}</p>
+}
+```
+
+**Not fixed, on both trees:** an action given by name to JavaScript that calls it at once, while a view computes. It halts, loudly (`ACTION_CALLED_IN_OWNED_SCOPE`). A checker that refused an action there would refuse every deferred callback (`useMutation({ onSuccess: finish })`).
+
+<!-- check branch=ok upstream=ok -->
+```rx
+import { read } from "./kit.js"
+export default component App() {
+  source n := 0
+  action go() { n := 1 }
+  <p>{read(go)}</p>
+}
+-- file: ./kit.d.rx
+export pure fn read(cb: () => void): number
+```
+
 **On upstream (e650b85).** Both checkers accept. Run: `[ACTION_CALLED_IN_OWNED_SCOPE] Calling an action inside an owned scope (component, computation) is not allowed`, and the reactive system halts. The same holds through another module (run).
 
 **Spec.** R-io-3: an `io` value is called in an io scope only. R-io-2: an action is io.

@@ -12,6 +12,14 @@ declare function toast(view: () => unknown): void;
 toast(Saved);
 ```
 
+Beside it: an attribute given to such a component is not refused upstream.
+
+<!-- types branch=TS2322 upstream=ok -->
+```rx
+component NoProps() { <p>hi</p> }
+export default component App() { <NoProps misspelled="a" /> }
+```
+
 **On upstream (e650b85).** `TS2345: Argument of type '(props: any) => Element' is not assignable to parameter of type '() => unknown'`.
 
 **Spec.** 13 TY-3. RG-4b already says that `props` is not bound there.

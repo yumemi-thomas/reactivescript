@@ -43,4 +43,15 @@ export default component App() {
 
 **Fix in this branch.** 179c71c: a fn's `use` is checked above each call, through other fns and modules (a printed signature says `uses(…)`). A fn never called is checked nowhere. A fn that reads a context instantiates, so its call is bound: `<p>{useDensity()}</p>`, accepted upstream, is `INSTANTIATION_NOT_BOUND`.
 
+**Two decisions, not one.** That a fn's `use` is checked above its call is the fix. That a fn which only *uses* a context instantiates, so that its call must be bound, is a second one (E-9 against RG-7b), and it refuses a program that is right on upstream:
+
+<!-- check branch=INSTANTIATION_NOT_BOUND upstream=ok -->
+```rx
+context n: number = 1
+fn read() => use n
+export default component App() { <p>{read()}</p> }
+```
+
+With a provision above it upstream shows the default, `1`. The refusal is kept in the prototype; upstream may rather make the lifted call read the provision. [Bug 07](07-fn-provides-to-its-caller.md) is another fault: which region a provision is put in.
+
 **Test.** S-context-2.
