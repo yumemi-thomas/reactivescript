@@ -27,6 +27,13 @@ try {
   writeFileSync(path.join(tmp, "ssr.mjs"), `import main from "./todo.mjs";\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp(); let html = "";\napp.stream(main(app), { write: s => { html += s; }, end: () => console.log(html) });\n`);
   const html = execFileSync(process.execPath, ["ssr.mjs"], { cwd: tmp }).toString();
   check("todo.rx rendered on the server build", /<main _hk=[^>]*>.*0<!--\/--> left/.test(html), html.slice(0, 120));
+  // AC-3: a guess over a list that is written too, on the release installed here (its server ran a projection over a
+  // pending store at once, solidjs/solid#5097): the page waits and renders the truth
+  writeFileSync(path.join(tmp, "rows.mjs"), `export const load = async () => { await new Promise(r => setTimeout(r, 5)); return [{ id: 1, t: "A" }, { id: 2, t: "B" }]; };\nexport const save = async t => t;\n`);
+  writeFileSync(path.join(tmp, "guess.rx"), `import pure { load } from "./rows.mjs"\nimport { save } from "./rows.mjs"\nexport default component App() {\n  source rows key id = await load()\n  action rename(t: string) {\n    guess rows[0].t := t\n    try { await save(t); rows[0].t := t } catch (e) { refresh rows }\n  }\n  errored fallback(e) { <p>{e.message}</p> } { loading fallback { <p>w</p> } { <ul>{for r in rows { <li>{r.t}</li> }}</ul> } }\n  <button onClick={() => { rename("x") }}>a</button>\n}\n`);
+  writeFileSync(path.join(tmp, "guess.mjs"), Object.values(JSON.parse(compile(path.join(tmp, "guess.rx"), "ssr")).modules)[0].code);
+  const guessed = spawnSync(process.execPath, ["--input-type=module", "-e", `import main from "./guess.mjs";\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp(); let html = "";\napp.stream(main(app), { write: s => { html += s; }, end: () => console.log(html) });\n`], { cwd: tmp, encoding: "utf8" });
+  check("a guess over a list that is written too, rendered on the server (AC-3)", /<li[^>]*>A<\/li><li[^>]*>B<\/li>/.test(guessed.stdout), (guessed.stderr || guessed.stdout).slice(0, 200));
   // the server warns, once, when a stream's first chunk has markup and no hydration key: the compiled modules render
   // with another copy of Solid than the runtime (a bundler inlined one). Two requests each way: with the one copy
   // nothing is said; with the compiled module on its own solid-js and @solidjs/web the page has no keys, and the

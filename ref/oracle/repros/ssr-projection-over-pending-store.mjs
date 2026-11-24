@@ -1,4 +1,4 @@
-// Solid server: a projection over a pending async store, created in a component body with <Loading> below it, throws
+// FIXED in solid main fc0dac0cd (its follow-up is solidjs/solid#5146, repros/proj-hydrate). Solid server: a projection over a pending async store, created in a component body with <Loading> below it, throws
 // NotReadyError out of renderToStream; the client build shows the fallback, then "A". Run from ref/: node oracle/repros/ssr-projection-over-pending-store.mjs (solidjs/solid#5097)
 import { createStore, createProjection, Loading, For, createComponent } from "solid-js";
 import { renderToStream } from "@solidjs/web";

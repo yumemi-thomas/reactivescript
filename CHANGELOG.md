@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Upstream merged (e650b85): `ref/` runs on Solid main 30e7805eb.** The server keeps rendering a guessed list's truth, not
+its guess layer: the layer throws out of the component on the released Solid the runtime is installed with (2.0.3,
+solidjs/solid#5097), and there are no guesses on the server to show.
+
 **A generated declaration refuses nothing an import with none is accepted for** (spec/09 MO-8l; bench/generated.mjs)
 
 - **Fixed: what an import says of a drafted package stands** (`import pure { format } from "dates"`, `fails NotFound`,
