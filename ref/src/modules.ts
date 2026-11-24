@@ -8,7 +8,7 @@ import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
 import { scoped } from "./scope.ts";
 
-export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; declarationIds?: Map<string, string>; printed?: Set<string>; host?: HostView; hosted?: Set<string>; placed?: Set<string>; through?: Set<string>; under?: Set<string> };   // under: MO-14h, in the program's set and the host's — the JS components the declaration says the host renders through, for a fn's `renders(H)`   // through: MO-14f, in the host's own set — the JS components the host renders through, `declaration#Name`   // MO-14: host, the JS host's view above this program (its declaration, and the program that stands for it); hosted: the modules it imports; placed: the components it places, `path#Name`
+export type ModuleSet = { entry: string; /** CP-4c: loaded for the scenario runners, where `fetch` and `fail` are the scenario prelude's: the check and the build read the one mark */ conformance: boolean; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; declarationIds?: Map<string, string>; printed?: Set<string>; host?: HostView; hosted?: Set<string>; placed?: Set<string>; through?: Set<string>; under?: Set<string> };   // under: MO-14h, in the program's set and the host's — the JS components the declaration says the host renders through, for a fn's `renders(H)`   // through: MO-14f, in the host's own set — the JS components the host renders through, `declaration#Name`   // MO-14: host, the JS host's view above this program (its declaration, and the program that stands for it); hosted: the modules it imports; placed: the components it places, `path#Name`
 /** MO-14: a host declaration found above a program — `file`, the `host.d.rx`; `entry`, the module that stands for the
  *  host's view in the checker (never written: the declaration lowered onto a factory's words); `set`, that program. */
 export type HostView = { file: string; entry: string; set: ModuleSet };   // printed: MO-13a, the signatures a JS import's marked `.d.rx` gave, by `.rx` path   // declarationIds: SV-5a, `packageRelative`   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
@@ -151,8 +151,8 @@ export function hostProgram(src: string, ds: JsDecl[], name: string): { rx: stri
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none.
  *  MO-14: with a host declaration at or above the entry's folder, the program that stands for the host's view is loaded
  *  beside it (`host`), with the modules it imports (`hosted`) and the components it places (`placed`). */
-export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
-  const set = loadProgram(entry, read);
+export function loadModules(entry: string, read: (path: string) => string | undefined, conformance = false): ModuleSet {
+  const set = loadProgram(entry, read, conformance);
   const dirs = entry.split("/").slice(0, -1); const lo = entry.startsWith("/") ? 1 : 0; let file: string | undefined; let src: string | undefined;
   for (let i = dirs.length; i >= lo && src === undefined; i--) { file = [...dirs.slice(0, i), HOST_DECLARATION].join("/"); src = read(file); }
   if (src === undefined || file === undefined) return set;
@@ -160,7 +160,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
   const name = file.split("/").pop()!; const lowered = hostProgram(src, ds, name); if (!lowered) return set;
   const hostEntry = `${file}.host.rx`, hostDecl = `${file}.host.d.rx`;
   const over = (p: string) => p === hostEntry ? lowered.rx : p === hostDecl ? lowered.decl : read(p);
-  let hs: ModuleSet; try { hs = loadProgram(hostEntry, over); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(e.message.split(hostEntry).join(file).split(hostDecl).join(file)), { code: e.code }); throw e; }
+  let hs: ModuleSet; try { hs = loadProgram(hostEntry, over, conformance); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(e.message.split(hostEntry).join(file).split(hostDecl).join(file)), { code: e.code }); throw e; }
   const hosted = new Set<string>(), placed = new Set<string>();
   // placed: the imported components the tree names (one it imports and leaves out is still rendered where no one says)
   const host = ds.find(d => d.kind === "host") as Extract<JsDecl, { kind: "host" }>; const named = new Set(src.slice(host.span[1], host.span[2]).split(/[^A-Za-z0-9_$]+/));
@@ -182,7 +182,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
   set.host = { file, entry: hostEntry, set: hs }; set.hosted = hosted; set.placed = placed; set.under = through;
   return set;
 }
-function loadProgram(entry: string, read: (path: string) => string | undefined): ModuleSet {
+function loadProgram(entry: string, read: (path: string) => string | undefined, conformance: boolean): ModuleSet {
   const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>(); const printed = new Set<string>(); const wireIds = new Map<string, string>();   /* SV-5a: each declared error class's wire id (`id#Name`), and the declaration it is */ const declarationIds = new Map<string, string>();
   const state = new Map<string, "busy" | "done">();
   const visit = (path: string, stack: string[]) => {
@@ -232,7 +232,7 @@ function loadProgram(entry: string, read: (path: string) => string | undefined):
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
-  return { entry, programs, order, diags, declarations, signatures, declarationIds, printed };
+  return { entry, conformance, programs, order, diags, declarations, signatures, declarationIds, printed };
 }
 
 /** MO-8t (2026-11-25): a method a declaration gives a row of its own — `export fn toaster.show(…)` beside `export const
@@ -255,7 +255,7 @@ export function nameMethods(p: Program, declarations: Map<string, JsDecl[]>): vo
 }
 
 /** One program with no `.rx` imports — the common case, and every scenario before 09. */
-export function singleModule(p: Program, entry = "main.rx"): ModuleSet { return { entry, programs: new Map([[entry, p]]), order: [entry], diags: [] }; }
+export function singleModule(p: Program, entry = "main.rx"): ModuleSet { return { entry, conformance: true, programs: new Map([[entry, p]]), order: [entry], diags: [] }; }
 
 /** MO-12e: where each context a declaration takes from another module (`export context c from "<module>"`) is declared:
  *  that module's declaration file, found as an import of it from this file would find it (MO-8k, MO-10c), and followed

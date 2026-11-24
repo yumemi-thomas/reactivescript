@@ -20,7 +20,7 @@ function crateProjection(sc: Scenario, src: string): Projected[] {
   const files: Record<string, string> = {};
   const read = (p: string) => { const s = p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) ? readFileSync(p, "utf8") : undefined); if (s !== undefined) files[p] = s; return s; };
   loadModules(sc.entry, read);
-  const out = JSON.parse(execFileSync(rxc, ["project"], { input: JSON.stringify([{ id: 0, entry: sc.entry, files }]), maxBuffer: 1 << 28 }).toString());
+  const out = JSON.parse(execFileSync(rxc, ["project"], { input: JSON.stringify([{ id: 0, entry: sc.entry, files, conformance: true }]), maxBuffer: 1 << 28 }).toString());
   return out.programs[0].files;
 }
 

@@ -38,6 +38,8 @@ pub struct ModuleSet {
     pub hosted: HashSet<String>,
     /// MO-14: the components it places, `path#Name`
     pub placed: HashSet<String>,
+    /// CP-4c: loaded for the scenario runners (`load_conformance`): the check and the build read the one mark
+    pub conformance: bool,
 }
 
 /// MO-14: a host declaration found above a program — `file`, the `host.d.rx`; `entry`, the module that stands for the
@@ -529,17 +531,22 @@ pub fn name_methods(p: &mut Program, declarations: &IndexMap<String, Vec<JsDecl>
 
 /// Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or `None` when there is none.
 pub fn load_modules(entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<ModuleSet, ParseError> {
-    load(entry, read, false)
+    load(entry, read, false, false)
+}
+/// CP-4c, CP-5: a conformance build's load — `fetch` and `fail` are the scenario prelude's. What `ref/`'s runners ask of the
+/// crate (`rxc conform`, `lower`, `project` on stdin, a request with `conformance`); no command that takes a file does.
+pub fn load_conformance(entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<ModuleSet, ParseError> {
+    load(entry, read, false, true)
 }
 /// CP-8e: an editor's load. Each module is parsed recovering (`parse_program_recovering`), its errors in `parse_errors`;
 /// a declaration file that does not parse is still an error.
 pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<ModuleSet, ParseError> {
-    load(entry, read, true)
+    load(entry, read, true, false)
 }
 /// MO-14: with a host declaration at or above the entry's folder, the program that stands for the host's view is loaded
 /// beside the entry's (`host`), with the modules it imports (`hosted`) and the components it places (`placed`).
-fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
-    let mut set = load_program(entry, read, recover)?;
+fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool, conformance: bool) -> Result<ModuleSet, ParseError> {
+    let mut set = load_program(entry, read, recover, conformance)?;
     let dirs: Vec<&str> = entry.split('/').collect();
     let dirs = &dirs[..dirs.len() - 1];
     let lo = if entry.starts_with('/') { 1 } else { 0 };
@@ -558,7 +565,7 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Re
     let host_entry = format!("{file}.host.rx");
     let host_decl = format!("{file}.host.d.rx");
     let over = |p: &str| if p == host_entry { Some(rx.clone()) } else if p == host_decl { Some(decl.clone()) } else { read(p) };
-    let mut hs = load_program(&host_entry, &over, recover).map_err(|e| ParseError(e.0.replace(&host_entry, &file).replace(&host_decl, &file), None, Some(e.2.filter(|f| *f != host_entry && *f != host_decl).unwrap_or_else(|| file.clone())), e.3))?;
+    let mut hs = load_program(&host_entry, &over, recover, conformance).map_err(|e| ParseError(e.0.replace(&host_entry, &file).replace(&host_decl, &file), None, Some(e.2.filter(|f| *f != host_entry && *f != host_decl).unwrap_or_else(|| file.clone())), e.3))?;
     let mut hosted = HashSet::new();
     let mut placed = HashSet::new();
     // placed: the imported components the tree names (one it imports and leaves out is still rendered where no one says)
@@ -600,10 +607,10 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Re
     set.placed = placed;
     Ok(set)
 }
-fn load_program(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
+fn load_program(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool, conformance: bool) -> Result<ModuleSet, ParseError> {
     let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), wire_ids: HashMap::new(), signatures: IndexMap::new(), printed: Default::default(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors, host: None, through: HashSet::new(), under: HashSet::new(), hosted: HashSet::new(), placed: HashSet::new() })
+    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors, host: None, through: HashSet::new(), under: HashSet::new(), hosted: HashSet::new(), placed: HashSet::new(), conformance })
 }
 
 /// E-5a: the module keys that name the hosts (`?rx-lib` imports, CP-4d). A key is the path the program reached the module

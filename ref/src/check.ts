@@ -2,7 +2,7 @@
 // Every diagnostic is an error (CN-1a). Codes keep Solid's names where one exists (CN-1b); `rule`
 // is the spec rule enforced. Names resolve lexically (a component body sees its declaration
 // site, never its caller — RG-7a); provisions resolve through the static application tree (RG-7b).
-import { language, scalar } from "./names.ts";
+import { HARNESS, language, scalar } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
@@ -25,7 +25,7 @@ const DRAFT_CALLBACKS = new Set(["forEach", "map", "filter", "find", "findIndex"
 /** W-1a: an Array's methods that change it in place. */
 const ARRAY_MUTATORS = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]);
 /** The function of the language a name is, where it is mentioned (`names.ts`). */
-const lang = (env: Env, name: string) => language(name, env.lookup(name));
+const lang = (env: Env, name: string) => language(name, env.lookup(name), env.conformance);
 /** `map(…)` is the language's only where nothing binds `map`. */
 const ownMap = (e: Expr, env: Env): boolean => !(e.k === "call" && e.f.k === "id" && !lang(env, e.f.name));
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr) || attr === "ref";                // SC-4; `ref`: called once with the element (07 §4)
@@ -176,8 +176,8 @@ type Sym = {
 const reactiveKinds = new Set<SymKind>(["source", "eq", "props"]);
 
 class Env {
-  vars = new Map<string, Sym>(); parent: Env | null; region: Region;
-  constructor(parent: Env | null, region: Region) { this.parent = parent; this.region = region; }
+  vars = new Map<string, Sym>(); parent: Env | null; region: Region; conformance: boolean;   // CP-4c: loaded for the scenario runners
+  constructor(parent: Env | null, region: Region, conformance = !!parent?.conformance) { this.parent = parent; this.region = region; this.conformance = conformance; }
   lookup(n: string): Sym | undefined { return this.vars.get(n) ?? this.parent?.lookup(n); }
 }
 type Ctx = { scope: "reactive" | "imperative"; inFn?: boolean; lifted?: boolean; inAction?: boolean; server?: boolean };   // server: inside a server function's body (12)
@@ -607,7 +607,7 @@ export type ExportSig =
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig>; hosted?: Hosted[]; hosts?: Record<string, HostSite[]> };   // MO-11u: hosted, the calls of `renders(H)` fns that were given components; hosts, the applications of such an H the module itself roots (its mounted view, a root of a library's own)
-type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string>; placed?: Set<string>; under?: Set<string> };   // placed, under: MO-14h — the components a host's view places (`module#Name`), and the JS components its declaration says the host renders through: a component given to a fn that `renders(H)`, H among them, is checked where the view places it   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string>; placed?: Set<string>; under?: Set<string>; conformance?: boolean };   // placed, under: MO-14h — the components a host's view places (`module#Name`), and the JS components its declaration says the host renders through: a component given to a fn that `renders(H)`, H among them, is checked where the view places it   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return [...c.diags, ...judgeHosted([c.signature(p)], [], !!opts.spa)]; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; advice: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, advice: c.advice, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
@@ -617,7 +617,7 @@ export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: 
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
   const hostSigs: ModSig[] = [];   // MO-11u: the modules of a host's view (MO-14), judged with this program
   const facts: [string, PeekFacts][] = []; const advice: Diagnostic[] = [];   // advice: 99, the advisory rows — about a correct program, never an error
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path), dependency: path !== set.entry, through: set.through, placed: set.placed, under: set.under }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path), dependency: path !== set.entry, through: set.through, placed: set.placed, under: set.under, conformance: set.conformance }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
   // MO-14d: a module the host's declaration imports is one a JS host renders (CP-4d), whatever the build found
   if (whole) { const all = [...new Set([...hosts, ...(set.hosted ?? [])])]; diags.push(...resolvePeeks(facts, set, all)); diags.push(...hostExports(sigs, all, spa, set.placed)); }
   if (set.host) {   // MO-14c: the host's view, checked as a program of its own; what it says is the declaration's
@@ -736,7 +736,7 @@ class Checker {
 
   run(p: Program) {
     { const f = scopeFacts(p); this.argCalls = f.argCalls; this.idCounts = f.mentions; } this.throughPre(p);
-    const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
+    const root = new Env(null, this.region(null, "program"), !!this.opts.conformance); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     // MO-1c: the runtime mounts the entry's default component, and no other module's — a dependency's is applied where an
     // importer applies it. MO-14d: a hosted module's is rendered by the host, where its declaration says
@@ -1857,7 +1857,7 @@ class Checker {
     const l = lang(env, name);
     if (l === "fn") return undefined;
     if (ctx.scope === "imperative" && (l === "log" || /^\$\d+$/.test(name))) return undefined;   // the apply block's parameters; `log` is io and only in imperative scope
-    this.err("UNBOUND", "SCOPE", JS_GLOBALS.has(name) ? `${name} is not declared here: JavaScript's globals are not in scope — export what you use of it from a \`.js\` module, and import that` : `${name} is not declared here (a component sees its declaration site, not its caller — RG-7a)`);
+    this.err("UNBOUND", "SCOPE", HARNESS.has(name) ? `${name} is not declared here${HARNESS.get(name)}` : JS_GLOBALS.has(name) ? `${name} is not declared here: JavaScript's globals are not in scope — export what you use of it from a \`.js\` module, and import that` : `${name} is not declared here (a component sees its declaration site, not its caller — RG-7a)`);
     return undefined;
   }
   /** 12 SF-3/SF-5: what a name may be on this side. In a server body: nothing reactive (captured by kind, not position), and

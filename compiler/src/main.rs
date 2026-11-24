@@ -14,6 +14,8 @@
 //!   rxc model file.rx...   the resolved model (CP-6) of each module, as JSON
 //!   rxc conform            reads `[{id, entry, files: {path: source}}]` on stdin and prints, per program, every module's
 //!                          AST, the diagnostics, the printed signatures and the models: what `ref/crate.ts` compares.
+//!                          `conformance: true` in a request (here, `lower`, `project`): a scenario's program, where
+//!                          `fetch` and `fail` are the scenario prelude's (11 CP-4c)
 //!   rxc lower              reads `[{id, entry, files, extra: [statements], renderer}]` on stdin and prints, per program,
 //!                          each compiled module through Solid's compiler for the universal (over `renderer`), dom and ssr
 //!                          targets, and the stylesheet: what `ref/crate.ts --lower` compares and `ref/compile/run.ts`
@@ -36,7 +38,7 @@ use reactivescript::check::{check_modules, check_modules_hosts};
 use reactivescript::emit::{compile_modules, lower_view, Target};
 use reactivescript::parse::parse_stmts;
 use reactivescript::project::{project_modules, unverified, PRELUDE};
-use reactivescript::modules::load_modules;
+use reactivescript::modules::{load_conformance, load_modules};
 use reactivescript::serve;
 use reactivescript::signature::print_signature;
 use serde_json::{json, Map, Value};
@@ -50,9 +52,14 @@ fn abs(f: &str) -> String {
     std::path::absolute(f).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| f.to_string()).replace('\\', "/")
 }
 
-fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool, whole: bool, hosts: &[String]) -> Value {
+/// A request's program: a conformance build's (CP-4c) where the request says so.
+fn load_request(r: &Value, entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<reactivescript::modules::ModuleSet, reactivescript::parse::ParseError> {
+    if r["conformance"] == json!(true) { load_conformance(entry, read) } else { load_modules(entry, read) }
+}
+
+fn conform_one(r: &Value, entry: &str, files: &HashMap<String, String>, spa: bool, whole: bool, hosts: &[String]) -> Value {
     let read = |p: &str| files.get(p).cloned();
-    let set = match load_modules(entry, &read) {
+    let set = match load_request(r, entry, &read) {
         Ok(s) => s,
         Err(e) => return json!({ "error": e.0 }),
     };
@@ -95,9 +102,9 @@ fn conform_one(entry: &str, files: &HashMap<String, String>, spa: bool, whole: b
 }
 
 /// TY-1c: each module's projection with its mappings onto the `.rx` (CP-8), and how many of them fail to hold (none).
-fn project_one(entry: &str, files: &HashMap<String, String>) -> Value {
+fn project_one(r: &Value, entry: &str, files: &HashMap<String, String>) -> Value {
     let read = |p: &str| files.get(p).cloned();
-    let set = match load_modules(entry, &read) {
+    let set = match load_request(r, entry, &read) {
         Ok(s) => s,
         Err(e) => return json!({ "error": e.0 }),
     };
@@ -118,7 +125,7 @@ fn lower_one(r: &Value) -> Value {
     let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
     let entry = r["entry"].as_str().unwrap();
     let read = |p: &str| files.get(p).cloned();
-    let set = match load_modules(entry, &read) {
+    let set = match load_request(r, entry, &read) {
         Ok(s) => s,
         Err(e) => return json!({ "error": e.0 }),
     };
@@ -200,7 +207,7 @@ fn main() {
                     let spa = r["spa"].as_bool().unwrap_or(false);
                     let whole = r["whole"].as_bool().unwrap_or(false);
                     let hosts: Vec<String> = r["hosts"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
-                    let mut v = std::panic::catch_unwind(|| conform_one(entry, &files, spa, whole, &hosts)).unwrap_or_else(|e| {
+                    let mut v = std::panic::catch_unwind(|| conform_one(r, entry, &files, spa, whole, &hosts)).unwrap_or_else(|e| {
                         let msg = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
                         json!({ "panic": msg })
                     });
@@ -218,7 +225,7 @@ fn main() {
                 .iter()
                 .map(|r| {
                     let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
-                    let mut v = std::panic::catch_unwind(|| project_one(r["entry"].as_str().unwrap(), &files)).unwrap_or_else(|_| json!({ "panic": true }));
+                    let mut v = std::panic::catch_unwind(|| project_one(r, r["entry"].as_str().unwrap(), &files)).unwrap_or_else(|_| json!({ "panic": true }));
                     v["id"] = r["id"].clone();
                     v
                 })

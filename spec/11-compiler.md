@@ -230,6 +230,19 @@ record argued each way; this is the decision.
   `frame` (what the runners observe). Compiled code calls them only in a
   conformance build — the compiler's option for running `scenarios/`
   (CP-5); `ref/compile/emit.ts` always emits one.
+
+  *`fetch` and `fail` are names only there (corrected 2026-11-24).* Both
+  checkers took an unimported `fetch` or `fail` in any program, and an app's
+  compiled code called the harness. The mark is the load's
+  (`ModuleSet.conformance`): the checkers, the emitters and the projection
+  read that one mark, so a check and its build cannot differ. `ref/`'s
+  runners set it for a scenario's program and ask the crate with it
+  (`rxc conform`, `lower` and `project` on stdin, `conformance: true`); no
+  command that takes a file does, nor the Node-API build, the Vite front
+  end, `rx-lib`, the language server or `rx-tsc`. Without the mark an
+  unbound `fetch` or `fail` is `UNBOUND`, as JavaScript's other globals
+  are, and `./prelude` has neither. S-module-46,
+  `compiler/test/names.mjs`.
 - **CP-4d (A JS host's `.rx` components).** A JS module may import an
   `.rx` module for its components rather than mount a program from it:
   `import pages from "./pages.rx?rx-lib"` compiles the module as a

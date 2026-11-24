@@ -117,7 +117,7 @@ class Gen {
     for (const d of decls) if (d.k === "import" && !d.resolved && !d.from.startsWith(".")) {
       if (!d.names.length) { this.top.push(`import ${J(d.from)};`); continue; }   // 07 §1a: for its effect
       const isType = (n: string) => !!d.declared && !!this.mods?.set.declarations?.get(d.declared)?.some(y => y.kind === "type" && y.name === n);   // a type its declaration file declares binds nothing: the JS module exports no such name
-      const names = d.names.filter(n => !inPrelude(d, n.name) && !isType(n.name));
+      const names = d.names.filter(n => !inPrelude(d, n.name, this.mods?.set.conformance) && !isType(n.name));
       if (names.length) this.top.push(`import { ${names.map(n => `${n.name} as w$${n.alias}`).join(", ")} } from ${J(d.from)};`);
     }
   }
@@ -152,7 +152,7 @@ class Gen {
     const env = new Env(null); const pre: string[] = [];
     for (const x of this.modDecls) {
       if (x.k === "import" && !x.resolved) for (const { name, alias } of this.withMethods(x)) {
-        if (inPrelude(x, name)) continue;
+        if (inPrelude(x, name, this.mods?.set.conformance)) continue;
         if (!x.from.startsWith(".")) { env.vars.set(alias, { kind: "val", js: `w$${alias}` }); continue; }   // a package's: module level
         env.vars.set(alias, { kind: "val", js: mg(alias) });
         pre.push(`const ${mg(alias)} = ${x.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : `__rt.api(${J(name)})`};`);
@@ -267,7 +267,7 @@ class Gen {
     }
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
       if (d.declared && this.mods?.set.declarations?.get(d.declared)?.some(y => y.kind === "type" && y.name === name)) continue;   // a type its declaration file declares binds nothing
-      const v = inPrelude(d, name) ? `__B.${name}` : !d.from.startsWith(".") ? (d.declaredErrors?.includes(name) ? `__rt.jsClass(w$${alias}, ${J(`${d.from}#${name}`)}${d.declaredErrorFields?.[name] ? `, ${J(d.declaredErrorFields[name])}` : ""})` : `w$${alias}`) /* SV-5a: a declared JS error class, by its declaration's identity */ : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
+      const v = inPrelude(d, name, this.mods?.set.conformance) ? `__B.${name}` : !d.from.startsWith(".") ? (d.declaredErrors?.includes(name) ? `__rt.jsClass(w$${alias}, ${J(`${d.from}#${name}`)}${d.declaredErrorFields?.[name] ? `, ${J(d.declaredErrorFields[name])}` : ""})` : `w$${alias}`) /* SV-5a: a declared JS error class, by its declaration's identity */ : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       const js = env.lookup(alias)?.kind === "comp" ? cm(alias) : mg(alias);
       out.push(`${pad}const ${js} = ${v};\n${pad}__rt.reg(${J(alias)}, { value: ${js} });`);
@@ -618,7 +618,7 @@ class Gen {
     if (ctx.effect && /^\$\d+$/.test(name)) return `$p[${name.slice(1)}]`;
     const b = env.lookup(name);
     if (!b) {
-      const l = language(name, false); const own = l === "fn" || (l === "log" && (ctx.imp || ctx.dyn)) ? `__B.${name}` : ctx.dyn && (l === "onSettled" || l === "onFlush") ? `__rt.${name}` : null;
+      const l = language(name, false, this.mods?.set.conformance); const own = l === "fn" || (l === "log" && (ctx.imp || ctx.dyn)) ? `__B.${name}` : ctx.dyn && (l === "onSettled" || l === "onFlush") ? `__rt.${name}` : null;
       if (ctx.dyn) return `__rt.dget(${J(name)}${own ? `, ${!ctx.imp}, ${own}` : ctx.imp ? "" : ", true"})`;   // a scenario's row names what the program binds, else the language's function
       if (own) return own;
       throw new CompileError(`unbound ${name}`);

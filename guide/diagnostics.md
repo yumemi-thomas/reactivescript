@@ -322,11 +322,12 @@ A write after an `await` that is computed from a read before it overwrites whate
 `guess` and let the answer replace the guess (AC-3).
 
 ```rx before
+import { post } from "./api.js"
 export default component App() {
   source log := ""
   action add(x: string) {
     let before = log
-    let r = await fetch(x) catch (e) => ""
+    let r = await post(x) catch (e) => ""
     log := before + x
   }
   <button onClick={() => { add("a") }}>log: {log}</button>
@@ -334,10 +335,11 @@ export default component App() {
 ```
 
 ```rx after
+import { post } from "./api.js"
 export default component App() {
   source log := ""
   action add(x: string) {
-    let r = await fetch(x) catch (e) => ""
+    let r = await post(x) catch (e) => ""
     log := v => v + x
   }
   <button onClick={() => { add("a") }}>log: {log}</button>
@@ -355,11 +357,13 @@ action still holds, so the screen loses the edit or shows the row twice. When th
 (a move answers only where it went), re-ask the answers it left and joined with `refresh`.
 
 ```rx before
+import pure { fetchDone } from "./api.js"
+import { postMove } from "./api.js"
 type Card = { id: number; title: string }
 export default component App() {
-  source done = await fetch("done") -> "" catch (e) => ""
+  source done = await fetchDone() -> "" catch (e) => ""
   action finish(card: Card) {
-    let r = await fetch("move") catch (e) => ""
+    let r = await postMove() catch (e) => ""
     done := v => v + card.title
   }
   <button onClick={() => { finish({ id: 1, title: "a" }) }}>{done}</button>
@@ -367,10 +371,12 @@ export default component App() {
 ```
 
 ```rx after
+import pure { fetchDone } from "./api.js"
+import { postMove } from "./api.js"
 export default component App() {
-  source done = await fetch("done") -> "" catch (e) => ""
+  source done = await fetchDone() -> "" catch (e) => ""
   action finish(id: number) {
-    await fetch("move") catch (e) => ""
+    await postMove() catch (e) => ""
     refresh done
   }
   <button onClick={() => { finish(1) }}>{done}</button>
@@ -660,22 +666,24 @@ shows while the work runs (on a source with a question, ST-5c); `onFlush(() => {
 what waits") is the long form.
 
 ```rx before
+import { post } from "./api.js"
 export default component App() {
   source status := ""
   <button onClick={() => {
     status := "saving"
-    let r = await fetch("save") catch (e) => e.message
+    let r = await post() catch (e) => e.message
     status := r
   }}>status: {status}</button>
 }
 ```
 
 ```rx after
+import { post } from "./api.js"
 export default component App() {
   source status := ""
   <button onClick={() => {
     onFlush(() => { status := "saving" })
-    let r = await fetch("save") catch (e) => e.message
+    let r = await post() catch (e) => e.message
     status := r
   }}>status: {status}</button>
 }
@@ -690,21 +698,23 @@ the expression that calls them (E-9, 07 §3). Answer the promise and await the c
 answer in the fn's block (`r = await getUser(id)` then `r`).
 
 ```rx before
+import { checkout } from "./api.js"
 export default component App() {
   source status := ""
   action place() {
-    try { status := `got ${await fetch("checkout")}` } catch {}
+    try { status := `got ${await checkout()}` } catch {}
   }
   <button onClick={() => { place() }}>{status}</button>
 }
 ```
 
 ```rx after
+import { checkout } from "./api.js"
 export default component App() {
   source status := ""
   action place() {
     try {
-      let r = await fetch("checkout")
+      let r = await checkout()
       status := `got ${r}`
     } catch {}
   }
@@ -764,12 +774,13 @@ export default component App() {
 ```
 
 ```rx after
+import { post } from "./api.js"
 export default component App() {
   source draft := "a"
   source saved = "a"
   action save(v: string) {
     guess saved := v
-    await fetch("save:" + v) catch (e) => null
+    await post(v) catch (e) => null
   }
   effect (draft) { save($0) }
   <p>{saved}</p>
@@ -782,21 +793,23 @@ A `deferred` equation is a lagging copy of another value (V-16), so nothing woul
 value it lags.
 
 ```rx before
+import { post } from "./api.js"
 export default component App() {
   source name := "Ann"
   shown = name
   deferred later = shown
-  action fix() { guess later := "Zed"; await fetch("x") catch (e) => null }
+  action fix() { guess later := "Zed"; await post() catch (e) => null }
   <button onClick={() => { fix() }}>{later}</button>
 }
 ```
 
 ```rx after
+import { post } from "./api.js"
 export default component App() {
   source name := "Ann"
   shown = name
   deferred later = shown
-  action fix() { guess shown := "Zed"; await fetch("x") catch (e) => null }
+  action fix() { guess shown := "Zed"; await post() catch (e) => null }
   <button onClick={() => { fix() }}>{later}</button>
 }
 ```
@@ -814,9 +827,10 @@ export default component App() {
 ```
 
 ```rx after
+import pure { fetchBase } from "./api.js"
 export default component App() {
   source id := 1
-  base = await fetch("b:" + id) catch (e) => 0
+  base = await fetchBase(id) catch (e) => 0
   <button onClick={() => { refresh base }}>{base}</button>
 }
 ```
@@ -834,11 +848,12 @@ export default component App() {
 ```
 
 ```rx after
+import { post } from "./api.js"
 export default component App() {
   source total := 0
   action go(n: number) {
     affects total
-    let r = await fetch("add:" + n) catch (e) => 0
+    let r = await post(n) catch (e) => 0
     total := r
   }
   <button onClick={() => { go(1) }}>{pending? total ? "…" : total}</button>
@@ -1140,17 +1155,19 @@ in the page; if the page is in a layout that has one, the declaration places it 
 guide/libraries.md, *File-based routers*).
 
 ```rx before
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user = await fetch("u:" + id)
+  user = await fetchUser(id)
   <p>{user}</p>
 }
 ```
 
 ```rx after
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user = await fetch("u:" + id)
+  user = await fetchUser(id)
   {errored fallback(e) { <p>failed: {e.message}</p> } { <p>{user}</p> }}
 }
 ```
@@ -1162,17 +1179,19 @@ A `catch` follows something other than an `await` (R-f-4). A value that failed i
 the user breaks is a value (`""` or a message), not a failure.
 
 ```rx before
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user = await fetch("u:" + id)
+  user = await fetchUser(id)
   <p>{user catch (e) => "unknown"}</p>
 }
 ```
 
 ```rx after
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user = await fetch("u:" + id)
+  user = await fetchUser(id)
   {errored fallback(e) { <p>unknown</p> } { <p>{user}</p> }}
 }
 ```
@@ -1183,10 +1202,11 @@ An action catches its own failures (R-f-6): a handler cannot, since it does not 
 `try { … } catch (e) { … }` in the body, or `catch (e) => alt` on the `await`.
 
 ```rx before
+import { post } from "./api.js"
 export default component App() {
   source saved := ""
   action save() {
-    let r = await fetch("save")
+    let r = await post()
     saved := r
   }
   <button onClick={() => { save() }}>{saved}</button>
@@ -1194,10 +1214,11 @@ export default component App() {
 ```
 
 ```rx after
+import { post } from "./api.js"
 export default component App() {
   source saved := ""
   action save() {
-    let r = await fetch("save") catch (e) => "failed"
+    let r = await post() catch (e) => "failed"
     saved := r
   }
   <button onClick={() => { save() }}>{saved}</button>
@@ -1210,17 +1231,19 @@ A `catch` or `errored` that names a class narrows to error classes declared with
 or drop the name to take any failure.
 
 ```rx before
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user = await fetch("u:" + id)
+  user = await fetchUser(id)
   {errored fallback(e: Missing) { <p>{e.message}</p> } { <p>{user}</p> }}
 }
 ```
 
 ```rx after
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user = await fetch("u:" + id)
+  user = await fetchUser(id)
   {errored fallback(e) { <p>{e.message}</p> } { <p>{user}</p> }}
 }
 ```
@@ -1231,17 +1254,19 @@ A declared row (`lane`, `fails(…)`) says less than the value does (CN-4a, RG-7
 let the compiler infer it.
 
 ```rx before
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user: lane string = await fetch("u:" + id)
+  user: lane string = await fetchUser(id)
   <p>{user}</p>
 }
 ```
 
 ```rx after
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user: lane pending fails(Error) string = await fetch("u:" + id)
+  user: lane pending fails(Error) string = await fetchUser(id)
   {errored fallback(e) { <p>failed</p> } { <p>{user}</p> }}
 }
 ```
@@ -1255,17 +1280,19 @@ value itself, not only `pending? x`: a probe takes no failure, so a region that 
 on its content when `x` fails, and the click throws.
 
 ```rx before
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user = await fetch("u:" + id)
+  user = await fetchUser(id)
   <button onClick={() => { log(user) }}>show</button>
 }
 ```
 
 ```rx after
+import pure { fetchUser } from "./api.js"
 export default component App() {
   source id := 1
-  user = await fetch("u:" + id)
+  user = await fetchUser(id)
   {errored fallback(e) { <p>failed</p> } {
     {loading fallback { <p>loading…</p> } {
       <button disabled={pending? user} onClick={() => { log(user) }}>{user}</button>
@@ -1291,13 +1318,15 @@ reads `true` (R-12): `onClick={() => { if (!(pending? x)) { flip(it.id) } }}`, o
 of its own.
 
 ```rx before
+import pure { fetchIssue } from "./api.js"
+import { postRename } from "./api.js"
 export default component App() {
   source sel := 1
-  source detail = await fetch("issue:" + sel)
+  source detail = await fetchIssue(sel)
   action rename(t: string) {
     try {
       guess detail := d => d == null ? d : { ...d, title: t }
-      await fetch("rename:" + sel + "," + t)
+      await postRename(sel, t)
       refresh detail
     } catch (e) {
       log(e)
@@ -1314,13 +1343,15 @@ export default component App() {
 ```
 
 ```rx after
+import pure { fetchIssue } from "./api.js"
+import { postRename } from "./api.js"
 export default component App() {
   source sel := 1
-  source detail = await fetch("issue:" + sel)
+  source detail = await fetchIssue(sel)
   action rename(t: string) {
     try {
       guess detail := d => d == null ? d : { ...d, title: t }
-      await fetch("rename:" + sel + "," + t)
+      await postRename(sel, t)
       refresh detail
     } catch (e) {
       log(e)
@@ -1380,9 +1411,10 @@ fallback never shows and the old content stays up with no sign of the wait (CN-3
 read `latest x` there. Solid warns with the same code at run time.
 
 ```rx before
+import pure { fetchData } from "./api.js"
 export default component App() {
   source id := 1
-  data = await fetch("d:" + id)
+  data = await fetchData(id)
   {errored fallback(e) { <p>error: {e.message}</p> } {
     <div>{loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
   }}
@@ -1390,9 +1422,10 @@ export default component App() {
 ```
 
 ```rx after
+import pure { fetchData } from "./api.js"
 export default component App() {
   source id := 1
-  data = await fetch("d:" + id)
+  data = await fetchData(id)
   {errored fallback(e) { <p>error: {e.message}</p> } {
     <div>{loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
   }}
@@ -1426,6 +1459,23 @@ component List(props) {
 }
 export default component App() {
   <List />
+}
+```
+
+A request is made the same way: `fetch` is a global, so a loader is a function of a module of yours.
+
+```rx before
+export default component App() {
+  source id := 1
+  <button onClick={() => { fetch("/seen/" + id) }}>seen</button>
+}
+```
+
+```rx after
+import { markSeen } from "./api.js"      // export const markSeen = id => fetch("/seen/" + id)
+export default component App() {
+  source id := 1
+  <button onClick={() => { markSeen(id) }}>seen</button>
 }
 ```
 

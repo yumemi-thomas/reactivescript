@@ -68,7 +68,7 @@ export default component App() {
 }
 ```
 
-## Accepted variants
+Under another name it is:
 
 ```rx
 -- accept

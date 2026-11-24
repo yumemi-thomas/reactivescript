@@ -24,7 +24,7 @@ export function build(sc: Scenario, src: string, handlers: string[]): Built {
   const files: Record<string, string> = {};
   const read = (p: string) => { const s = p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined); if (s !== undefined) files[p] = s; return s; };
   loadModules(sc.entry, read);
-  const [r] = JSON.parse(execFileSync(rxc, ["lower"], { input: JSON.stringify([{ id: sc.name, entry: sc.entry, files, extra: handlers, renderer: STRING_RENDERER }]), maxBuffer: 1 << 30 }).toString());
+  const [r] = JSON.parse(execFileSync(rxc, ["lower"], { input: JSON.stringify([{ id: sc.name, entry: sc.entry, files, conformance: true, extra: handlers, renderer: STRING_RENDERER }]), maxBuffer: 1 << 30 }).toString());
   if (r.compileError) throw new CompileError(r.compileError);
   if (r.refused || r.error || r.panic) throw new Error(`crate: ${JSON.stringify(r)}`);
   const views = (t: Target) => {

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**`fetch` and `fail` are the test harness's, not an app's** (11 CP-4c; `scenarios/S-module-46`, `compiler/test/names.mjs`)
+
+- **Fixed: an unimported `fetch` or `fail` was accepted in an app**, and compiled to the scenarios' test harness (a request that
+  is never made). It is `UNBOUND`, as `setTimeout` is, in both checkers, the language server, `rx-tsc` and every build, and in a
+  package; the message says what to write. Export a function that makes the request from a `.js` module and import it
+  (`import pure` for a loader). An import, a declaration, a parameter or a local of either name is that binding, as before.
+- **Fixed: `import { fetch } from "./prelude"` in an app** named the harness's too: it is the app's own module, or not found.
+
 **A name is its binding's** (09 MO-1d; `scenarios/S-module-45`, `compiler/test/names.mjs`)
 
 - **Fixed: an import named like a function of the language** (`len`, `str`, `map`, `filter`, `sum`, `fail`, `fetch`, `every`,

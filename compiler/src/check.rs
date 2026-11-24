@@ -11,7 +11,7 @@ use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
-use crate::names::{language, scalar, Lang};
+use crate::names::{harness_reason, language, scalar, Lang};
 use crate::parse::{js_trim, split_top, type_words, JsDecl, Part, Shape as FShape, Words};
 use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, HOLD};
 use indexmap::{IndexMap, IndexSet};
@@ -1945,6 +1945,8 @@ pub struct Opts<'a> {
     /// renders through: a component given to a fn that `renders(H)`, H among them, is checked where the view places it
     pub placed: &'a HashSet<String>,
     pub under: &'a HashSet<String>,
+    /// CP-4c: a program loaded for the scenario runners, where `fetch` and `fail` are the scenario prelude's
+    pub conformance: bool,
 }
 
 pub struct Checker<'a> {
@@ -2189,7 +2191,7 @@ fn check_modules_judged(set: &ModuleSet, spa: bool, whole: bool, hosts: &[String
     let mut advice = vec![];
     let mut plans = Plans::new();
     for path in &set.order {
-        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path), dependency: *path != set.entry, through: &set.through, placed: &set.placed, under: &set.under });
+        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path), dependency: *path != set.entry, through: &set.through, placed: &set.placed, under: &set.under, conformance: set.conformance });
         diags.extend(r.diags);
         advice.extend(r.advice);
         plans.extend(r.plans);
@@ -5078,7 +5080,7 @@ impl<'a> Checker<'a> {
     // ---- expressions ----
     /// The function of the language a name is, where it is mentioned (`names.rs`).
     fn lang(&self, env: EId, name: &str) -> Option<Lang> {
-        language(name, self.lookup(env, name).is_some())
+        language(name, self.lookup(env, name).is_some(), self.opts.conformance)
     }
     /// `map(…)` is the language's only where nothing binds `map`.
     fn maps_into_records(&self, e: &Expr, env: EId) -> bool {
@@ -5099,7 +5101,7 @@ impl<'a> Checker<'a> {
         if ctx.imperative && (lang == Some(Lang::Log) || DOLLAR_PARAM.is_match(name)) {
             return None;
         }
-        let why = if JS_GLOBALS.split(' ').any(|g| g == name) { ": JavaScript's globals are not in scope — export what you use of it from a `.js` module, and import that" } else { " (a component sees its declaration site, not its caller — RG-7a)" };
+        let why = if let Some(why) = harness_reason(name) { why } else if JS_GLOBALS.split(' ').any(|g| g == name) { ": JavaScript's globals are not in scope — export what you use of it from a `.js` module, and import that" } else { " (a component sees its declaration site, not its caller — RG-7a)" };
         self.err("UNBOUND", "SCOPE", format!("{} is not declared here{}", name, why));
         None
     }
@@ -9221,7 +9223,7 @@ mod tests {
 
     fn codes(src: &str, spa: bool) -> Vec<(i64, String)> {
         let read = |p: &str| if p == "/app.rx" { Some(src.to_string()) } else { None };
-        let set = load_modules("/app.rx", &read).unwrap();
+        let set = crate::modules::load_conformance("/app.rx", &read).unwrap();
         check_modules(&set, spa).diags.iter().map(|d| (d.line, d.code.clone())).collect()
     }
 

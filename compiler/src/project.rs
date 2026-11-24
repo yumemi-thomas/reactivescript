@@ -643,10 +643,10 @@ impl Proj<'_> {
         let Decl::Import { names, from, line, resolved, declared, .. } = d else { return };
         let sp = d.span();
         // the prelude's own (`import { log } from "./prelude"`)
-        for n in names.iter().filter(|n| in_prelude(d, &n.name)) {
+        for n in names.iter().filter(|n| in_prelude(d, &n.name, self.set.conformance)) {
             self.used.insert(if n.name == n.alias { n.name.clone() } else { format!("{} as {}", n.name, n.alias) });
         }
-        let rest: Vec<&ImportName> = names.iter().filter(|n| !in_prelude(d, &n.name)).collect();
+        let rest: Vec<&ImportName> = names.iter().filter(|n| !in_prelude(d, &n.name, self.set.conformance)).collect();
         if rest.is_empty() {
             return;
         }
@@ -865,7 +865,7 @@ impl Proj<'_> {
                 Code::new().at(&t, at)
             }
             ExprKind::Id(n) => {
-                if language(n, self.declared.contains(n)).is_some() {
+                if language(n, self.declared.contains(n), self.set.conformance).is_some() {
                     self.used.insert(n.clone());
                 }
                 let at = src_at(n);

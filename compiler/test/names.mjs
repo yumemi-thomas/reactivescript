@@ -2,6 +2,8 @@
 // binding: both checkers agree, the interpreter and the compiled program give what the binding gives (never what the
 // language's function of that name does), a JS import is in the compiled module and in the TSX projection. And a word that
 // begins an expression (`peek`, `latest`) cannot be bound; and nothing but names.rs and names.ts lists the functions.
+// CP-4c: `fetch` and `fail` unimported, wherever a name can stand: the scenario prelude's in a conformance build, UNBOUND in
+// an app; and a compiled app whose imported `fetch` makes its request.
 // Needs the runtime's build and the crate's (rxc, the Node-API build).   node --experimental-strip-types compiler/test/names.mjs
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -9,7 +11,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { NAMES } from "../../ref/src/names.ts";
+import { HARNESS, NAMES } from "../../ref/src/names.ts";
 import { loadModules } from "../../ref/src/modules.ts";
 import { checkModules } from "../../ref/src/check.ts";
 import { Runtime } from "../../ref/src/runtime.ts";
@@ -100,6 +102,54 @@ for (const [what, id] of ${JSON.stringify(tests)}) {
 const ran = spawnSync(process.execPath, ["run.mjs"], { cwd: tmp, encoding: "utf8" });
 for (const l of (ran.stdout + (ran.status ? ran.stderr : "")).split("\n").filter(Boolean)) bad(l.split("\t")[0], `compiled: ${l.split("\t")[1]}`);
 
+// CP-4c: the harness's names, bound by nothing. Each place: refused in an app by both checkers and by every command that takes a
+// file, with the same words; in a conformance build (the mark on the load) neither checker says UNBOUND, and both say the same.
+const PLACES = {
+  "a view": p => app(`  <p>{${p}("/x")}</p>`), "an equation": p => app(`  a = ${p}("/x")\n  <p>{a}</p>`),
+  "an awaited equation": p => app(`  a = await ${p}("/x")\n  errored fallback(e) { <p>e</p> } { <p>{a}</p> }`),
+  "a question": p => app(`  source a = await ${p}("/x")\n  errored fallback(e) { <p>e</p> } { <p>{a}</p> }`),
+  "a handler": p => app(`  <p onClick={() => { ${p}("/x") }}>x</p>`), "a handler's closure": p => app(`  <p onClick={() => { [1].forEach((x) => { ${p}("/x") }) }}>x</p>`),
+  "an effect": p => app(`  source a := 1\n  effect (a) { ${p}("/x") }\n  <p>{a}</p>`),
+  "an action": p => app(`  action go() { await ${p}("/x") catch (e) => null }\n  <p onClick={() => { go() }}>x</p>`),
+  "a server fn": p => app(`  <p onClick={() => { go() }}>x</p>`, `server fn go() { ${p}("/x") }\n`),
+  "a fn": p => app(`  <p>{f()}</p>`, `fn f() { ${p}("/x") }\n`), "a fn nothing calls": p => app(`  <p>x</p>`, `fn f() { ${p}("/x") }\n`), "an exported fn": p => `export fn f() { ${p}("/x") }\n`,
+  "a closure": p => app(`  f = () => ${p}("/x")\n  <p>{f()}</p>`), "a value": p => app(`  f = ${p}\n  <p>{f("/x")}</p>`), "a value in a record": p => app(`  f = { go: ${p} }\n  <p>{f.go("/x")}</p>`),
+  "an argument": p => app(`  <p>{map(["/x"], ${p})}</p>`), "a prop": p => app(`  <C f={${p}} />`, `component C(props: { f: any }) {\n  <p>{props.f("/x")}</p>\n}\n`),
+  "a branch another binding is in": p => app(`  <p>{map([1], (${p}) => ${p})}{${p}("/x")}</p>`),
+};
+const run1 = (...a) => spawnSync(rxc, a, { encoding: "utf8" });
+for (const [place, program] of Object.entries(PLACES)) for (const n of HARNESS.keys()) {
+  const what = `${n} unimported, ${place}`, file = path.join(tmp, "harness.rx"), src = program(n); writeFileSync(file, src);
+  const ref = checkModules(loadModules(file, read({}))).diags, want = `${n} is not declared here${HARNESS.get(n)}`;
+  const says = { ref: ref.map(d => `${d.code} ${d.msg}`), check: JSON.parse(run1("check", "--json", file).stdout).diagnostics.map(d => `${d.code} ${d.message}`), app: (JSON.parse(compile(file, "dom")).diagnostics ?? []).map(d => `${d.code} ${d.msg}`), lib: (JSON.parse(run1("app", file, "--lib").stdout).diagnostics ?? []).map(d => `${d.code} ${d.msg}`),
+    editor: (JSON.parse(spawnSync(rxc, ["serve"], { input: JSON.stringify({ id: 1, method: "analyze", params: { file, overlays: {} } }) + "\n", encoding: "utf8" }).stdout).result.diagnostics).map(d => `${d.code} ${d.message}`) };
+  for (const [who, got] of Object.entries(says)) { if (!got.includes(`UNBOUND ${want}`)) bad(what, `${who}: ${JSON.stringify(got)}`); if (String(got) !== String(says.ref)) bad(what, `${who} says ${got}, ref ${says.ref}`); }
+  if (run1("compile", file, "--out", path.join(tmp, "out")).status === 0) bad(what, "rxc compile compiled it");
+  const held = checkModules(loadModules(file, read({}), true)).diags.map(d => d.code);
+  const [c] = JSON.parse(spawnSync(rxc, ["conform"], { input: JSON.stringify([{ id: 0, entry: file, files: { [file]: src }, conformance: true }]), encoding: "utf8" }).stdout);
+  if (String(held) !== String(c.diags.map(d => d.code)) || held.includes("UNBOUND")) bad(what, `a conformance build: ref says ${held}, the crate ${c.diags.map(d => d.code)}`);
+  if (!held.length) { const [l] = JSON.parse(spawnSync(rxc, ["lower"], { input: JSON.stringify([{ id: 0, entry: file, files: { [file]: src }, conformance: true }]), encoding: "utf8", maxBuffer: 1 << 26 }).stdout); if (!JSON.stringify(l).includes(`__B.${n}`)) bad(what, "a conformance build lost the prelude's"); }
+}
+// the prelude of an app has neither, beside what is the language's
+{ const file = path.join(tmp, "nopre/main.rx"); write("nopre/main.rx", app(`  <p>{len([1])}</p><b onClick={() => { fetch("/x") }}>x</b>`, `import { len } from "./prelude"\nimport { fetch } from "./prelude"\n`).replace("import { len }", "import pure { len }"));
+  const m = JSON.parse(compile(file, "ssr")); if (!/import \{ fetch as \w+\$fetch \} from "\.\/prelude"/.test(m.modules?.[file]?.code ?? "") || /__B\.fetch/.test(m.modules[file].code)) bad("import { fetch } from ./prelude, in an app", JSON.stringify(m).slice(0, 400)); }
+// an .rx module of the program, and a package's
+for (const n of HARNESS.keys()) { write("mod.rx", `export fn go() { ${n}("/x") }\n`); const file = path.join(tmp, "usemod.rx"); write("usemod.rx", app(`  <p>{go()}</p>`, `import { go } from "./mod.rx"\n`));
+  const ref = checkModules(loadModules(file, read({}))).diags.map(d => d.code), crate = JSON.parse(run1("check", "--json", file).stdout).diagnostics.map(d => d.code);
+  if (String(ref) !== String(crate) || !ref.includes("UNBOUND")) bad(`${n} in a module of the program`, `${ref} / ${crate}`); }
+// a compiled app's imported `fetch`, and its own `fail`
+{ const file = path.join(tmp, "net.rx");
+  write("net.js", `export const fetch = async u => (await globalThis.fetch(globalThis.__at + u)).text();\n`);
+  write("net.rx", app(`  a = await fetch("/hello")\n  errored fallback(e) { <p>{e.message}</p> } { loading fallback { <p>…</p> } { <p>{a} {fail("b")}</p> } }`, `import pure { fetch } from "./net.js"\nfn fail(x: string): string => \`own\${x}\`\n`));
+  const m = JSON.parse(compile(file, "ssr")); if (!m.modules) bad("an app's imported fetch", JSON.stringify(m)); else {
+    write("net.mjs", m.modules[file].code);
+    write("netrun.mjs", `import { createServer } from "node:http"; import { createApp } from "@reactivescript/runtime";
+const asked = []; const s = createServer((q, r) => { asked.push(q.url); r.end("world"); }); await new Promise(r => s.listen(0, r)); globalThis.__at = "http://localhost:" + s.address().port;
+let html = ""; const main = (await import("./net.mjs")).default; const a = createApp(); await new Promise(end => a.stream(main(a), { write: x => { html += x; }, end })); s.close();
+console.log(JSON.stringify({ asked, html })); process.exit(0);\n`);
+    const r = spawnSync(process.execPath, ["netrun.mjs"], { cwd: tmp, encoding: "utf8", timeout: 30000 }); let o; try { o = JSON.parse(r.stdout.trim().split("\n").pop()); } catch { o = { asked: [], html: r.stdout + r.stderr }; }
+    if (o.asked[0] !== "/hello" || !/world/.test(o.html) || !/ownb/.test(o.html)) bad("an app's imported fetch", JSON.stringify(o).slice(0, 400)); } }
+
 // a word that begins an expression
 for (const w of ["peek", "latest", "throw", "await"]) for (const [src, ok] of [[`import pure { ${w} } from "./lib.js"`], [`import pure { own as ${w} } from "./lib.js"`], [`import pure ${w} from "./dflt.js"`], [`fn ${w}(x: number): number => x`], [`fn f(${w}: number): number => 1`], [`import pure { ${w} as x } from "./lib.js"`, true]]) {
   const file = path.join(tmp, "w.rx"); writeFileSync(file, app("  <p>a</p>", src + "\n"));
@@ -117,5 +167,5 @@ for (const dir of ["compiler/src", "ref/src", "ref/compile", "ref/oracle", "ref/
   });
 }
 rmSync(tmp, { recursive: true, force: true });
-console.log(fail ? `${fail} failed` : `✓ ${names.length} names × ${Object.keys(KINDS).length} kinds of binding: each is its binding's (${tests.length} programs run compiled)`);
+console.log(fail ? `${fail} failed` : `✓ ${names.length} names × ${Object.keys(KINDS).length} kinds of binding: each is its binding's (${tests.length} programs run compiled); ${HARNESS.size} of the harness × ${Object.keys(PLACES).length} places, in an app and in a conformance build`);
 process.exit(fail ? 1 : 0);

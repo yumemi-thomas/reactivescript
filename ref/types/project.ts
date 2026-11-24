@@ -247,8 +247,8 @@ class Proj {
   private importDecl(d: Extract<Decl, { k: "import" }>, ind: string) {
     const names = d.names.map(n => n.name === "default" ? null : n.name === n.alias ? n.name : `${n.name} as ${n.alias}`).filter(Boolean);
     const dflt = d.names.find(n => n.name === "default")?.alias;
-    for (const n of d.names) if (inPrelude(d, n.name)) this.used.add(n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);   // the prelude's own (`import { log } from "./prelude"`)
-    const rest = d.names.filter(n => !inPrelude(d, n.name)); if (!rest.length) return;
+    for (const n of d.names) if (inPrelude(d, n.name, this.set.conformance)) this.used.add(n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);   // the prelude's own (`import { log } from "./prelude"`)
+    const rest = d.names.filter(n => !inPrelude(d, n.name, this.set.conformance)); if (!rest.length) return;
     if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); }
     let from = d.from;
     if (d.resolved && !isRx(d.from)) from = relativeModule(this.path, d.resolved);   // MO-13d: typed as the .rx module its printed signature stands for (TY-4c: `x.rx.d.ts`, beside it)
@@ -310,7 +310,7 @@ class Proj {
     const go = (x: Expr) => this.expr(x, imp, self);
     switch (e.k) {
       case "lit": return J(e.v);
-      case "id": if (language(e.name, this.declared.has(e.name))) this.used.add(e.name); return e.name;
+      case "id": if (language(e.name, this.declared.has(e.name), this.set.conformance)) this.used.add(e.name); return e.name;
       case "pre": return e.name === self ? (e.init ? `__.pre(${go(e.init)})` : `__.pre<any>()`) : `__.pre<typeof ${e.name}>(${e.init ? go(e.init) : ""})`;
       case "peek": case "latest": return go(e.e);
       case "pending": return `__.pending(${go(e.e)})`;

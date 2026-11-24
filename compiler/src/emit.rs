@@ -465,7 +465,7 @@ impl<'p> Gen<'p> {
                 }
                 // a type its declaration file declares binds nothing: the JS module exports no such name
                 let is_type = |n: &str| declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name, .. } if name == n)));
-                let ns: Vec<(String, String)> = names.iter().filter(|n| !in_prelude(d, &n.name) && !is_type(&n.name)).map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
+                let ns: Vec<(String, String)> = names.iter().filter(|n| !in_prelude(d, &n.name, self.set.conformance) && !is_type(&n.name)).map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
                 if !ns.is_empty() {
                     self.top.push(S::ImportNamed(ns, from.clone()));
                 }
@@ -523,7 +523,7 @@ impl<'p> Gen<'p> {
             match x {
                 Decl::Import { resolved: None, names, from, declared_errors, declared, .. } => {
                     for n in &with_methods(names, declared.as_ref().and_then(|dp| self.set.declarations.get(dp))) {
-                        if in_prelude(x, &n.name) {
+                        if in_prelude(x, &n.name, self.set.conformance) {
                             continue;
                         }
                         if self.js_import(from) {
@@ -835,7 +835,7 @@ impl<'p> Gen<'p> {
                 if declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name: tn, .. } if tn == name))) {
                     continue;
                 }
-                let v = if in_prelude(d, name) {
+                let v = if in_prelude(d, name, self.set.conformance) {
                     dot(id("__B"), name)
                 } else if self.js_import(from) {
                     if declared_errors.as_ref().is_some_and(|e| e.contains(name)) {
@@ -1900,14 +1900,14 @@ impl<'p> Gen<'p> {
         })
     }
     fn lang(&self, env: Env, name: &str) -> Option<Lang> {
-        language(name, self.lookup(env, name).is_some())
+        language(name, self.lookup(env, name).is_some(), self.set.conformance)
     }
     fn reference(&mut self, name: &str, env: Env, ctx: &Ctx) -> R<E> {
         if ctx.effect && name.len() > 1 && name.starts_with('$') && name[1..].bytes().all(|b| b.is_ascii_digit()) {
             return Ok(E::Index(Box::new(id("$p")), Box::new(E::Num(name[1..].parse::<f64>().unwrap())), false));
         }
         let Some(b) = self.lookup(env, name) else {
-            let own = match language(name, false) {
+            let own = match language(name, false, self.set.conformance) {
                 Some(Lang::Fn) => Some(dot(id("__B"), name)),
                 Some(Lang::Log) if ctx.imp || ctx.dynamic => Some(dot(id("__B"), name)),
                 Some(Lang::OnSettled | Lang::OnFlush) if ctx.dynamic => Some(dot(id("__rt"), name)),

@@ -44,7 +44,8 @@ export default component App() {
   drive state.
 - `## Rejected variants`: fences starting `-- reject: RULE` (or `-- warn:
   CODE`), optional `-- handler: stmts` lines, an optional `-- spa` line (checked
-  as a client-only build, 08 CN-3d); `-- types: CODE` is refused
+  as a client-only build, 08 CN-3d) or `-- app` line (checked as an app's
+  program, without the scenario prelude's `fetch` and `fail`, 11 CP-4c); `-- types: CODE` is refused
   by the type layer (TypeScript's `TSnnnn`, or a rule it states as a type,
   such as `WIRE_VALUE`) and checked by `npm run -s types` only.
 - `## Divergences`: `- oracle "<table>" instant N: \`frame\` — why` records
