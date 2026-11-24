@@ -55,13 +55,19 @@ export function exportsOf(signature) {
     else if ((m = /^error\s+([\w$]+)/.exec(s))) out.push([m[1], "error"]);
     else if ((m = /^source\s+([\w$]+)/.exec(s))) out.push([m[1], "accessor"]);
     else if ((m = /^component\s+([\w$]+)/.exec(s))) out.push([m[1], "component"]);
-    else if ((m = /^pure\s+fn\s+([\w$]+)\s*\((.*?)\)\s*(?::[^)]*?)?(?:rejects\([^)]*\))?\s*(instantiates)?\s*(?:uses\([^)]*\))?$/.exec(s))) {
-      const refs = splitTop(m[2]).map(p => /^ref\s/.test(p));
-      out.push([m[1], refs.some(Boolean) || m[3] ? "primitive" : "fn", refs]);
+    else if ((m = /^pure\s+fn\s+([\w$]+)\s*\(/.exec(s))) {
+      const end = closing(s, m[0].length - 1); if (end < 0) continue;
+      const refs = splitTop(s.slice(m[0].length, end)).map(p => /^ref\s/.test(p));
+      out.push([m[1], refs.some(Boolean) || /\sinstantiates(?:\s+uses\([^)]*\))?$/.test(s.slice(end + 1)) ? "primitive" : "fn", refs]);
     }
     else if ((m = /^([\w$]+)\s*(?::.*)?$/.exec(s))) out.push([m[1], "accessor"]);
   }
   return out;
+}
+/** The index of the bracket that closes the one at `i`. */
+function closing(s, i) {
+  for (let depth = 0; i < s.length; i++) if ("({[".includes(s[i])) depth++; else if (")}]".includes(s[i]) && --depth === 0) return i;
+  return -1;
 }
 function splitTop(s) {
   const out = []; let depth = 0, cur = "";
