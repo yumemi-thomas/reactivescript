@@ -165,12 +165,15 @@ function run() {
       files = program.getSourceFileNames();
       if (options.listFiles || options.listFilesOnly) process.stdout.write(files.map(f => f.endsWith(".rx.tsx") ? f.slice(0, -4) : f).join("\n") + "\n");
       found = options.listFilesOnly ? [] : diagnosticsOf(program, options, errors);
-      if (!options.noEmit && !options.listFilesOnly) { const e = program.emit(); emitted = !e.emitSkipped; const more = e.diagnostics.map(plain); found.push(...more.filter(d => !found.some(x => x.code === d.code && x.file === d.file && x.start === d.start))); }
+      if (!options.noEmit && !options.listFilesOnly) { const e = program.emit(); emitted = !e.emitSkipped;
+        // a projection's JavaScript is `x.rx.js`, whatever `jsx` makes of a .tsx's name
+        for (const f of e.emittedFiles) { const m = /\.rx\.jsx(\.map)?$/.exec(f); if (m && fs.existsSync(f)) fs.renameSync(f, f.slice(0, -m[0].length) + `.rx.js${m[1] ?? ""}`); }
+         const more = e.diagnostics.map(plain); found.push(...more.filter(d => !found.some(x => x.code === d.code && x.file === d.file && x.start === d.start))); }
     } finally { dispose(); }
     process.stdout.write(report(found, { pretty }));
     const bad = found.filter(d => d.category === 1).length;
     const rx = crateReport(checker, cfg, parsed, options);
-    return { status: bad ? (emitted ? 2 : 1) : rx ? 1 : 0, watch, files, cfg };
+    return { status: bad ? (options.noEmit || emitted ? 2 : 1) : rx ? 1 : 0, watch, files, cfg };
   } finally { checker.close(); }
 }
 

@@ -106,7 +106,9 @@ function rootOf(pkg, dir) {
 }
 
 function typescriptFor(dir) {
-  try { return createRequire(path.join(dir, "package.json"))("typescript"); } catch { return require("typescript"); }
+  // (TypeScript 7's package has no API in process: types are then read with the one this package depends on)
+  try { const ts = createRequire(path.join(dir, "package.json"))("typescript"); if (typeof ts.createProgram === "function") return ts; } catch { /* none */ }
+  return require("typescript");
 }
 
 /** The draft with each row the .d.rx parser refuses left out as a comment, so one row types put beyond the notation does
@@ -174,6 +176,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     ].join("\n"));
     out.push({ spec, file, status: "written" });
   }
+  if (out.some(x => x.status === "written" || x.status === "failed")) require("./checker.js").closeAll();   // the process that asked may live through the next install
   return out;
 }
 

@@ -21,7 +21,8 @@ connection.listen();
 connection.onInitialize(params => {
   const tsdkPath = params.initializationOptions?.typescript?.tsdk ?? require("node:path").dirname(require.resolve("typescript"));
   for (const f of params.workspaceFolders ?? (params.rootUri ? [{ uri: params.rootUri }] : [])) lookIn(URI.parse(f.uri).fsPath);
-  const tsdk = loadTsdkByPath(tsdkPath, params.locale);
+  // (TypeScript 7's package has no API in process: hover and the rest are then by the one this package depends on)
+  const tsdk = (() => { try { return loadTsdkByPath(tsdkPath, params.locale); } catch (e) { try { return loadTsdkByPath(require("node:path").dirname(require.resolve("typescript")), params.locale); } catch { throw e; } } })();
   return server.initialize(
     params,
     createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({ languagePlugins: [rxLanguagePlugin(tsdk.typescript)] })),

@@ -19,6 +19,12 @@ does for `.tsrx`. Nothing here is a second type system.
   checks it (`strict`, with untyped parameters `any`), and every error is a
   compile error (CN-1a), reported on the `.rx` line of the declaration,
   statement or markup item it came from.
+  The TypeScript that checks is TypeScript 7, as tsrs at the one version the
+  tooling pins implements it (2026-11-24): `rx-tsc`, the build's gate, the
+  check of a draft, TY-6, the editor's type errors and this repository's
+  `npm run types` ask it, and nothing else answers in its place. What
+  TypeScript 7 removed (`baseUrl`, `moduleResolution: node10`, `target: ES5`)
+  is an error of the project's tsconfig.
 - **TY-1b.** The projection is for checking only. It is never run, and its
   order is dependency order (E-7: equations are a system; C-1 makes it a
   DAG).
@@ -258,6 +264,12 @@ does for `.tsrx`. Nothing here is a second type system.
   the `.d.rx` with the project's compiler options
   (`tooling/rx-language-server/src/boundary.js`). Nothing is emitted and
   nothing runs.
+  A row that writes a conditional over its own type parameters is held as
+  an instance of its type (`type __decl_f<__Any = unknown> = <T extends
+  __Any>(…) => …`; 2026-11-24): TypeScript 7.1 does not relate such a type
+  to an instance of it, so a library's signature did not fit the same
+  signature in its declaration (microsoft/TypeScript#64673). It says the
+  same of the row: a parameter bound by `unknown` is bound by nothing.
 - **TY-6f (The record after a props' type, added 2026-11-22).** A
   component whose props are a type and a record (09 MO-8o) is held to
   `P & NoInfer<{ … }>` (TY-6a), and that says nothing of the record: an

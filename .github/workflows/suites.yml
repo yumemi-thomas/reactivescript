@@ -85,7 +85,9 @@ jobs:
       - name: "ref: streamed SSR and hydration in Chromium"
         working-directory: ref
         run: npm run ssr
-      - name: "ref: the TSX projection, checked by TypeScript"
+      - name: The language server's packages (the checker ref's types are asked of, and rx-tsc)
+        run: npm --prefix tooling/rx-language-server ci
+      - name: "ref: the TSX projection, checked by the tooling's checker (tsrs, TypeScript 7)"
         working-directory: ref
         run: npm run types
       - name: "crate against ref/: checked"
