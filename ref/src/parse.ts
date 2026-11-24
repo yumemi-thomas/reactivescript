@@ -1,4 +1,5 @@
 // Hand-rolled scanner/parser for the abstract syntax (spec/02-core.md §1).
+import { isPrelude } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt, Target } from "./ast.ts";
 import type { Shape as ContentShape } from "./content.ts";
 import { contentShapeOf } from "./signature.ts";
@@ -68,6 +69,11 @@ class Cursor {
     if (h) e.code = h[0];
     throw e;
   }
+  /** A name that is bound. */
+  bound(what: string): string { return this.notForm(this.ident() ?? this.fail(what)); }
+  /** A word that begins an expression reads as its form wherever it is mentioned — `peek(x)` is `peek e` — so a binding of
+   *  that name would be passed over without a word. */
+  notForm(n: string): string { return /^(peek|latest|throw|await)$/.test(n) ? this.fail(`\`${n}\` begins an expression (\`${n} e\`), so nothing can be bound to it: use another name (an import's, \`import { ${n} as … }\`)`) : n; }
   ident(): string | null {
     const m = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(this.src.slice(this.i));
     if (!m) return null;
@@ -616,7 +622,7 @@ function parsePattern(c: Cursor): Pat {
       c.ws(); if (c.startsWith("}")) break;
       if (c.startsWith("...")) { const rest = parseRest(c, "}"); c.expect("}"); return { k: "obj", props, rest }; }
       const kline = c.line; const key = c.ident() ?? c.fail("a field name"); c.ws();
-      const pat: Pat = c.eat(":") ? parsePattern(c) : { k: "name", name: key, line: kline }; c.ws();
+      const pat: Pat = c.eat(":") ? parsePattern(c) : { k: "name", name: c.notForm(key), line: kline }; c.ws();
       const dflt = c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">" ? (c.i++, c.ws(), parseExpr(c)) : undefined;
       props.push({ key, pat, dflt }); c.ws();
       if (!c.eat(",")) break;
@@ -692,12 +698,12 @@ function parseDecl(c: Cursor): Decl {
     } const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
     const pure = c.keyword("pure"); c.ws();
     const names: { name: string; alias: string }[] = [];
-    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); c.imported.add(alias); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
-    else { const name = c.ident() ?? c.fail("import name"); names.push({ name: "default", alias: name }); c.imported.add(name); }
+    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.bound("alias"); c.ws(); } c.notForm(alias); names.push({ name, alias }); c.imported.add(alias); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
+    else { const name = c.bound("import name"); names.push({ name: "default", alias: name }); c.imported.add(name); }
     c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
     const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
     const save = c.i; c.ws(false);
-    const sd = side ? { side } : {};
+    const sd = { ...(side ? { side } : {}), ...(isPrelude(from.v as string) ? { prelude: true } : {}) };
     if (c.keyword("fails")) { c.ws(); const fails = parseClasses(c) ?? ["Error"]; return { k: "import", names, from: from.v, pure, line, fails, ...sd }; }   // R-f-8
     c.i = save;
     return { k: "import", names, from: from.v, pure, line, ...sd };
@@ -718,7 +724,7 @@ function parseDecl(c: Cursor): Decl {
     return { k: "typedecl", name, line, text: c.src.slice(t0, c.i) };
   }
   if (c.keyword("source")) {
-    c.ws(); const name = c.ident() ?? c.fail("source name"); const tk = splitKey(optType(c)); const type = tk.type; c.ws();
+    c.ws(); const name = c.bound("source name"); const tk = splitKey(optType(c)); const type = tk.type; c.ws();
     let key: string | undefined = tk.key;
     if (/^key\s+[A-Za-z_$][\w$]*\s*(=|:=)[^=>]/.test(c.src.slice(c.i))) { c.keyword("key"); c.ws(); key = c.ident() ?? c.fail("key name"); c.ws(); }   // ST-4a on a source
     if (c.eat(":=")) { c.ws(); return { k: "source", name, init: parseExpr(c), line, type, key }; }
@@ -733,21 +739,21 @@ function parseDecl(c: Cursor): Decl {
     return { k: "effect", inputs, body: parseBlock(c), line };
   }
   if (c.keyword("deferred")) {
-    c.ws(); const name = c.ident() ?? c.fail("deferred name"); const type = optType(c); c.ws(); c.expect("="); c.ws();
+    c.ws(); const name = c.bound("deferred name"); const type = optType(c); c.ws(); c.expect("="); c.ws();
     return { k: "eq", name, e: parseExpr(c), line, deferred: true, type };
   }
   if (c.keyword("action")) {
-    c.ws(); const name = c.ident() ?? c.fail("action name"); c.ws(); c.expect("("); c.ws();
+    c.ws(); const name = c.bound("action name"); c.ws(); c.expect("("); c.ws();
     const params: string[] = []; const ptypes: (string | undefined)[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith(")")) { params.push(c.bound("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws();
     return { k: "action", name, params, ptypes, body: parseBlock(c), line };
   }
   if (/^server\s+(fn|action)\b/.test(c.src.slice(c.i))) {             // 12 SF-1: `server fn f(a) { … }`
     c.keyword("server"); c.ws(); if (c.keyword("action")) c.fail("`server fn` (SF-1: one form — it is io when its body is; there is no `server action`)"); c.keyword("fn");
-    c.ws(); const name = c.ident() ?? c.fail("server function name"); c.ws(); c.expect("("); c.ws();
+    c.ws(); const name = c.bound("server function name"); c.ws(); c.expect("("); c.ws();
     const params: string[] = []; const ptypes: (string | undefined)[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith(")")) { params.push(c.bound("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); const ret = optType(c, true); c.ws();
     return { k: "server", name, params, ptypes, ret, body: parseBlock(c), line };
   }
@@ -762,9 +768,9 @@ function parseDecl(c: Cursor): Decl {
   }
   if (c.keyword("provide")) { c.ws(); const name = c.ident() ?? c.fail("provide name"); c.ws(); c.expect("="); c.ws(); return { k: "provide", name, e: parseExpr(c), line }; }
   if (c.keyword("fn")) {
-    c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
+    c.ws(); const name = c.bound("fn name"); c.ws(); c.expect("("); c.ws();
     const params: Param[] = [];
-    while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); const pname = c.ident() ?? c.fail("param"); const type = optType(c); params.push({ name: pname, ref, type }); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); const pname = c.bound("param"); const type = optType(c); params.push({ name: pname, ref, type }); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); const ret = optType(c, true); c.ws();
     if (c.eat("=>")) { c.ws(); return { k: "fn", name, params, decls: [], tail: parseExpr(c), line, ret }; }
     c.expect("{");
@@ -777,7 +783,7 @@ function parseDecl(c: Cursor): Decl {
     c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();
     const sig = c.peek() === "{" ? parsePattern(c) : null;           // RG-4b: `component C({ a, b })` — each name a projection of props
     const noneDeclared = !sig && c.peek() === ")";
-    const props = sig || c.peek() === ")" ? "props" : (c.ident() ?? c.fail("props name")); const propsType = optType(c); c.ws(); c.expect(")"); c.ws(); c.expect("{");   // `component C()`: no props (found by S-ai2-tracker)
+    const props = sig || c.peek() === ")" ? "props" : (c.bound("props name")); const propsType = optType(c); c.ws(); c.expect(")"); c.ws(); c.expect("{");   // `component C()`: no props (found by S-ai2-tracker)
     const { decls, body } = parseBlockBody(c);
     if (sig) { const names: { name: string; e: Expr; line: number }[] = []; expandPattern(sig, { k: "id", name: props }, names); decls.unshift(...names.map(n => ({ k: "eq" as const, name: n.name, e: n.e, line: n.line }))); }
     return { k: "component", name, props, decls, view: body, line, propsType, ...(!sig && props === "props" && noneDeclared ? { noProps: true } : {}) };
@@ -844,12 +850,12 @@ function parseStmt0(c: Cursor): Stmt {
       if (!out.length) c.fail("a destructuring that binds nothing");
       c.pendingStmts.push(...out.slice(1)); return out[0];
     }
-    const name = c.ident() ?? c.fail("let name"); const type = optType(c); c.ws(); c.expect("="); c.ws(); return { k: "let", name, e: parseExpr(c), type }; }
+    const name = c.bound("let name"); const type = optType(c); c.ws(); c.expect("="); c.ws(); return { k: "let", name, e: parseExpr(c), type }; }
   if (c.keyword("try")) {                                              // AC-7
     c.ws(); const body = parseBlock(c); c.ws();
     let catchName: string | undefined, handler: Stmt[] | undefined, fin: Stmt[] | undefined;
     let catchClasses: string[] | undefined;
-    if (c.keyword("catch")) { c.ws(); if (c.eat("(")) { c.ws(); catchName = c.ident() ?? c.fail("catch name"); c.ws(false); if (c.eat(":")) catchClasses = parseClasses(c); c.ws(); c.expect(")"); } c.ws(); handler = parseBlock(c); c.ws(); }
+    if (c.keyword("catch")) { c.ws(); if (c.eat("(")) { c.ws(); catchName = c.bound("catch name"); c.ws(false); if (c.eat(":")) catchClasses = parseClasses(c); c.ws(); c.expect(")"); } c.ws(); handler = parseBlock(c); c.ws(); }
     if (c.keyword("finally")) { c.ws(); fin = parseBlock(c); }
     if (!handler && !fin) c.fail("catch or finally");
     return { k: "try", body, catchName, catchClasses, handler, fin };
@@ -866,7 +872,7 @@ function parseStmt0(c: Cursor): Stmt {
   if (c.keyword("for")) {                                              // 07 §5: `for (const x of e) { … }` — a loop over what `e` holds now, its body imperative scope
     c.ws(); c.expect("("); c.ws();
     if (!(c.keyword("const") || c.keyword("let"))) c.fail("`for (const x of e) { … }`: the loop of imperative scope binds one name per turn");
-    c.ws(); const name = c.ident() ?? c.fail("loop variable"); c.ws();
+    c.ws(); const name = c.bound("loop variable"); c.ws();
     if (!c.keyword("of")) c.fail("`of`: the loop of imperative scope is `for (const x of e) { … }`");
     c.ws(); const e = parseExpr(c); c.ws(); c.expect(")"); c.ws();
     return { k: "for", name, e, body: parseBlock(c) };
@@ -898,7 +904,7 @@ export function parseExpr(c: Cursor): Expr {
     const save = c.i; c.ws();
     if (!c.keyword("catch")) { c.i = save; return e; }
     c.ws(); let name: string | undefined, classes: string[] | undefined;
-    if (c.eat("(")) { c.ws(); name = c.ident() ?? c.fail("catch name"); c.ws(false); if (c.eat(":")) classes = parseClasses(c); c.ws(); c.expect(")"); c.ws(); }
+    if (c.eat("(")) { c.ws(); name = c.bound("catch name"); c.ws(false); if (c.eat(":")) classes = parseClasses(c); c.ws(); c.expect(")"); c.ws(); }
     c.expect("=>"); c.ws();
     e = { k: "catch", e, name, classes, alt: parseExprNoCatch(c) };
   }
@@ -917,7 +923,7 @@ function parseExprNoCatch(c: Cursor): Expr {
     if (c.peek() === "(") { c.i++; c.ws(); ok = true; while (!c.startsWith(")")) { const id = c.ident(); if (!id) { ok = false; break; } params.push(id); c.ws(); if (c.startsWith(":") && !c.startsWith(":=")) { c.i++; c.ws(); let t: string; try { t = parseType(c, false, true).trim(); /* a `=>` in it is a function type's (`(g: () => string) => g()`): the arrow's own follows the list's `)` */ } catch (e) { if (!(e instanceof ParseError)) throw e; ok = false; break; } if (!t) { ok = false; break; } ptypes.push(t); c.ws(); } else ptypes.push(undefined); /* `:=` is a write, not a type */ if (!c.eat(",")) break; c.ws(); } if (ok && c.eat(")")) { c.ws(false); ok = c.startsWith("=>"); } else ok = false; }
     else { const id = c.ident(); if (id && !KEYWORDS.has(id)) { params.push(id); c.ws(false); ok = c.startsWith("=>"); } }
     if (ok) {
-      c.expect("=>"); c.ws();
+      params.forEach(p => c.notForm(p)); c.expect("=>"); c.ws();
       if (c.peek() === "{") {                                        // `=> { … }`: a statement body (imperative scope) unless it reads as a record literal
         const at = c.i;
         try { const stmts = parseBlock(c); if (stmts.some(st => !(st.k === "expr" && st.e.k === "id"))) return { k: "fn", params, body: { k: "lit", v: undefined }, stmts, ...(ptypes.some(Boolean) ? { ptypes } : {}) }; } catch (e) { if (!(e instanceof ParseError)) throw e; }
@@ -929,7 +935,7 @@ function parseExprNoCatch(c: Cursor): Expr {
   }
   if (c.keyword("fn")) {
     c.ws(); c.expect("("); c.ws(); const params: string[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith(")")) { params.push(c.bound("param")); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws(); c.expect("=>"); c.ws();
     return { k: "fn", params, body: parseExpr(c) };
   }
@@ -1196,7 +1202,7 @@ function parsePrimary(c: Cursor): Expr {
   if (/^server\s+fn\s*\(/.test(c.src.slice(c.i))) {                   // 12 SF-1d: an anonymous server fn, for whatever wraps it
     c.keyword("server"); c.ws(); c.keyword("fn"); c.ws(); c.expect("("); c.ws();
     const params: string[] = []; const ptypes: (string | undefined)[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith(")")) { params.push(c.bound("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); const ret = optType(c, true); c.ws();
     return { k: "serverfn", params, ptypes, ret, body: parseBlock(c) };
   }
@@ -1318,7 +1324,7 @@ function parseControl(c: Cursor): Markup | null {
       c.ws(); if (!c.keyword("fallback")) c.fail("fallback"); c.ws(false);
       let errName: string | undefined;
       let classes: string[] | undefined;
-      if (c.eat("(")) { c.ws(); errName = c.ident() ?? c.fail("error name"); c.ws(false); if (c.eat(":")) classes = parseClasses(c); c.ws(); c.expect(")"); }   // `fallback(e)` / `fallback(e: A | B)` (R-f-4)
+      if (c.eat("(")) { c.ws(); errName = c.bound("error name"); c.ws(false); if (c.eat(":")) classes = parseClasses(c); c.ws(); c.expect(")"); }   // `fallback(e)` / `fallback(e: A | B)` (R-f-4)
       c.ws(); c.expect("{");
       const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
       const { decls, body } = parseBlockBody(c);
@@ -1335,7 +1341,7 @@ function parseControl(c: Cursor): Markup | null {
     c.i = save;
   }
   if (c.keyword("for")) {
-      c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();
+      c.ws(); const name = c.bound("for name"); c.ws();
       if (!c.keyword("in")) c.fail("in"); c.ws(); const xs = parseExpr(c); c.ws(); c.expect("{");
       const { decls, body } = parseBlockBody(c);
       return { k: "mfor", name, xs, decls, body };

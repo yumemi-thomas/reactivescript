@@ -2,6 +2,7 @@
 // solid-js 2.0 flow components over @solidjs/universal with a string-tree renderer.
 // This is the compiler's back half, run as an interpreter: every form maps to the primitive
 // its rule names (ST-1, ST-4c, ST-6c, AC-3 …). Unsupported shapes throw `Unsupported`.
+import { inPrelude, language } from "../src/names.ts";
 import { classMap } from "../src/style.ts";
 import { inferredAction } from "../src/infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
@@ -256,13 +257,16 @@ export class Oracle {
   /** `refresh x` must re-ask: the key's old promise is forgotten so the next fetch makes a new one. */
   forget(key: string) { this.flights.delete(key); }
 
+  private logFn = (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); };
+  private langFn(name: string): unknown { const l = language(name, false); return l === "fn" ? BUILTINS[name] : l === "log" ? this.logFn : undefined; }
+  private lang(name: string, scope: Scope, env?: Map<string, unknown>) { return language(name, env?.has(name) || scope.lookup(name)); }
   // ---- declarations ----
   declare(decls: Decl[], scope: Scope) {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved); if (!ms) throw new Error(`MO-9: ${d.from} is known by its signature only: there is no body to run`); for (const { name, alias } of d.names) { const b = ms.vars.get(name); if (b) scope.vars.set(alias, b); } continue; }   // MO-1: the module's own bindings
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) this.serverNames.set(sf, d.name); }   // SF-1d
       if (d.k === "import" && isPrims(d.from)) { const prims = primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any }); for (const { name, alias } of d.names) { const x = this.declarations?.get(d.declared ?? "")?.find(y => y.name === name); if (!x || x.kind !== "fn" || !x.instantiates || !prims[name]) throw new Error(`${name} from "${d.from}" is not a declared primitive of the prelude`); scope.vars.set(alias, { k: "jfn", f: prims[name], refs: x.refs ?? [], shape: x.shape ?? "value" }); } continue; }   // MO-10: Solid primitives, as a library writes them
-      if (d.k === "import") for (const { name, alias } of d.names) { const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
+      if (d.k === "import") for (const { name, alias } of d.names) { const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : inPrelude(d, name) ? this.langFn(name) : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined; if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
       if (d.k === "server") scope.vars.set(d.name, { k: "const", value: this.serverFn(d, scope) });
       if (d.k === "error") { const msg = d.msg; scope.vars.set(d.name, { k: "const", value: makeErrorClass(d.name, d.params, args => msg ? String(untrack(() => this.ev(msg, scope, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
       if (d.k === "context") scope.vars.set(d.name, { k: "ctx", ctx: createContext<Binding | undefined>(NO_PROVISION as any, d.name), dflt: d.dflt ?? null, home: scope, dv: null });   // a sentinel default: absence is ours to decide (the default, or RG-7b)
@@ -475,7 +479,7 @@ export class Oracle {
       case "id": {
         if (env?.has(e.name)) return env.get(e.name);
         const b = scope.lookup(e.name);
-        if (!b) { if (e.name in BUILTINS) return BUILTINS[e.name]; throw new Error(`unbound ${e.name}`); }
+        if (!b) { const f = this.langFn(e.name); if (f) return f; throw new Error(`unbound ${e.name}`); }
         switch (b.k) {
           case "const": return b.value;
           case "sig": case "memo": case "store": {
@@ -530,8 +534,8 @@ export class Oracle {
       case "stylemap": return classMap(e.css);                      // 07 CSS-5
       case "call": {
         let f: any, self: any;
-        if (e.f.k === "id" && e.f.name === "until" && !env?.has("until") && !scope.lookup("until")) { const p = e.args[0]; if (p?.k !== "fn") throw new Error("UNTIL_PREDICATE"); return until(() => this.ev(p.body, scope, env)); }   // AC-6: Solid's until
-        if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env?.has(e.f.name) && !scope.lookup(e.f.name)) { const cb = this.ev(e.args[0], scope, env) as () => void; return (e.f.name === "onSettled" ? onSettled : onFlush)(cb); }   // EF-7, EF-8: Solid's own
+        if (e.f.k === "id" && this.lang(e.f.name, scope, env) === "until") { const p = e.args[0]; if (p?.k !== "fn") throw new Error("UNTIL_PREDICATE"); return until(() => this.ev(p.body, scope, env)); }   // AC-6: Solid's until
+        if (e.f.k === "id" && ["onSettled", "onFlush"].includes(this.lang(e.f.name, scope, env)!)) { const cb = this.ev(e.args[0], scope, env) as () => void; return (e.f.name === "onSettled" ? onSettled : onFlush)(cb); }   // EF-7, EF-8: Solid's own
         if (e.f.k === "member") { self = this.ev(e.f.o, scope, env); f = self == null ? undefined : self[e.f.p]; } else f = this.ev(e.f, scope, env);
         const args = e.args.map(a => this.ev(a, scope, env));
         if (f === BUILTINS.fetch) { const fl = this.flight(String(args[0])); return process.env.ORACLE_PROMISES ? fl.first : fl; }
@@ -547,7 +551,6 @@ export class Oracle {
 
   // ---- imperative scope ----
   runStmts(stmts: Stmt[], scope: Scope, env: Map<string, unknown>): unknown {
-    env.set("log", (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); });
     this.imperative++; try { let r: unknown; for (const s of stmts) { r = this.stmt(s, scope, env); if (r instanceof Returned) return r.value; } return r; } finally { this.imperative--; }
   }
   private stmt(s: Stmt, scope: Scope, env: Map<string, unknown>): unknown {
@@ -603,7 +606,6 @@ export class Oracle {
     const self = this;
     const run = action(function* (...args: unknown[]) {
       const env = new Map(outer); params.forEach((p, i) => env.set(p, args[i]));
-      env.set("log", (...a: unknown[]) => { self.log.push(`log(${a.map(fmt).join(", ")})`); });
       const r = yield* self.block(body, scope, env); return r ? r.value : undefined;
     });
     return (...args: unknown[]) => { const p = run(...args); p.catch(e => { self.asyncError = e; }); return p; };
@@ -621,7 +623,6 @@ export class Oracle {
       const fl = question ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
       const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${d.name}: ${msg}`); };
       const env = new Map<string, unknown>(d.params.map((p, i) => [p, wireCopy(args[i], `argument ${p}`, fail)]));
-      env.set("log", (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); });
       const g = this.block(d.body, scope, env);
       const step = (input: unknown, thrown: boolean) => {
         const was = this.currentEq; this.currentEq = null;                    // the body's own flights are not the asking equation's

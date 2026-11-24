@@ -46,6 +46,7 @@ export declare function str(x: unknown): string;
 export declare function map<X, U>(xs: X, f: (x: ElemOf<X>, i: number) => U): U[];
 export declare function filter<X>(xs: X, f: (x: ElemOf<X>) => unknown): ElemOf<X>[];
 export declare function every<X>(xs: X, f: (x: ElemOf<X>) => unknown): boolean;
+export declare function indexOf<X>(xs: X, f: (x: ElemOf<X>) => unknown): number;
 export declare function sum(xs: readonly number[]): number;
 export declare function fail(msg: string): never;
 export declare function fetch(key: string): Promise<any>;

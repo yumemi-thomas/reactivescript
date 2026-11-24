@@ -372,7 +372,11 @@ impl Loader<'_> {
         };
         self.state.insert(path.to_string(), State::Busy);
         for d in p.decls.iter_mut() {
-            let Decl::Import { from, line, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, .. } = d else { continue };
+            let Decl::Import { from, line, resolved, prelude, declared, declared_errors, declared_error_fields, declared_pure, declared_side, .. } = d else { continue };
+            if *prelude {
+                // a module of the program's own, by that name
+                *prelude = !crate::names::PRELUDE_FILES.iter().any(|x| (self.read)(&join_path(path, &format!("{from}{x}"))).is_some());
+            }
             // MO-10c: a package's declaration, beside the file it resolves to
             let pkg_dts = if !is_rx(from) && !from.starts_with('.') && !from.starts_with('/') { declaration_for(path, from, &*self.read) } else { None };
             if !is_rx(from) && (from.starts_with('.') || pkg_dts.is_some()) {
@@ -390,6 +394,7 @@ impl Loader<'_> {
                     }
                 }
                 if self.printed.contains(&rx) {
+                    *prelude = false;
                     *resolved = Some(rx);
                     continue;
                 }
@@ -418,6 +423,7 @@ impl Loader<'_> {
                     if !self.declaration_uses.contains(&u) {
                         self.declaration_uses.push(u);
                     }
+                    *prelude = false;
                     *declared = Some(dts.clone());
                     *declared_errors = Some(ds.iter().filter_map(|x| if let JsDecl::Error { name, .. } = x { Some(name.clone()) } else { None }).collect());
                     let ef: Vec<(String, Vec<String>)> = ds.iter().filter_map(|x| if let JsDecl::Error { name, fields, .. } = x { (!fields.is_empty()).then(|| (name.clone(), fields.clone())) } else { None }).collect();

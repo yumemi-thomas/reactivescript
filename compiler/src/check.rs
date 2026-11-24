@@ -11,6 +11,7 @@ use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
+use crate::names::{language, scalar, Lang};
 use crate::parse::{js_trim, split_top, type_words, JsDecl, Part, Shape as FShape, Words};
 use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, HOLD};
 use indexmap::{IndexMap, IndexSet};
@@ -41,7 +42,6 @@ impl Diagnostic {
     }
 }
 
-const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"];
 /// MO-10k: the builtins that answer a primitive, whatever they are given
 /// MO-10i (closed 2026-11-22): what is called on a draft is a method of plain data, by name — an Array's, a Map's, a
 /// Set's, a string's or a number's. `DRAFT_CALLBACKS` are the ones that call a function they are given, now, with parts of
@@ -55,7 +55,6 @@ const DRAFT_METHODS: &[&str] = &[
 const DRAFT_CALLBACKS: &[&str] = &["forEach", "map", "filter", "find", "findIndex", "findLast", "findLastIndex", "some", "every", "flatMap", "reduce", "reduceRight", "sort", "toSorted"];
 /// W-1a: an Array's methods that change it in place.
 const ARRAY_MUTATORS: &[&str] = &["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"];
-const SCALAR_BUILTINS: &[&str] = &["len", "str", "sum", "every", "indexOf"];
 /// EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one.
 fn returns_closure(f: &Expr) -> bool {
     fn in_stmts(ss: &[Stmt]) -> bool {
@@ -1268,7 +1267,7 @@ fn flows(e: &Expr, bound: &HashSet<String>, locals: &HashMap<String, IndexSet<St
         },
         ExprKind::Call { f, args, .. } => {
             if let ExprKind::Id(n) = &f.k {
-                if SCALAR_BUILTINS.contains(&n.as_str()) && !bound.contains(n) && !locals.contains_key(n) && (builtin.builtin)(n) {
+                if scalar(n, bound.contains(n) || locals.contains_key(n) || !(builtin.builtin)(n)) {
                     return;
                 }
             }
@@ -3046,17 +3045,9 @@ impl<'a> Checker<'a> {
                 if self.syms[s].io {
                     continue;
                 }
-                let mut calls = vec![];
-                for st in body.iter() {
-                    calls_in(Node::S(st), &mut calls);
-                }
-                let hit = calls.into_iter().find(|n| {
-                    !params.contains(n)
-                        && if n == "log" {
-                            self.lookup(env, n).is_none()
-                        } else {
-                            self.lookup(env, n).is_some_and(|t| self.syms[t].io)
-                        }
+                let hit = free_calls(params, body).into_iter().find(|n| match self.lookup(env, n) {
+                    Some(t) => self.syms[t].io,
+                    None => self.lang(env, n) == Some(Lang::Log),
                 });
                 if let Some(h) = hit {
                     self.syms[s].io = true;
@@ -4016,7 +4007,7 @@ impl<'a> Checker<'a> {
                         }
                         c.stmts(body, inner, Ctx::imperative());
                     });
-                    c.run_checks(body, false, &[], false);
+                    c.run_checks(body, env, false, &[], false);
                 });
                 let own = self.own_source_writes(inputs, body, env);
                 self.relay_writes(inputs, body, env, &own);
@@ -4030,7 +4021,7 @@ impl<'a> Checker<'a> {
                 self.comp("action", env, Some(name.clone()), None, |c| c.stmts(body, inner, Ctx { in_action: true, ..Ctx::imperative() }));
                 self.actions.push(ActionRec { name: name.clone(), body, env: inner, line: *line as i64 });
                 let ptypes: Vec<Option<String>> = ptypes.iter().map(|t| t.as_ref().map(|t| if self.scalar_aliases.contains(t.trim()) { "string".to_string() } else { t.clone() })).collect();
-                self.run_checks_with(body, true, params, false, ptypes, Some(inner));
+                self.run_checks_with(body, inner, true, params, false, ptypes, true);
             }
             Decl::Server { name, params, body, line, .. } => {
                 let region = self.reg(env);
@@ -5085,6 +5076,14 @@ impl<'a> Checker<'a> {
     }
 
     // ---- expressions ----
+    /// The function of the language a name is, where it is mentioned (`names.rs`).
+    fn lang(&self, env: EId, name: &str) -> Option<Lang> {
+        language(name, self.lookup(env, name).is_some())
+    }
+    /// `map(…)` is the language's only where nothing binds `map`.
+    fn maps_into_records(&self, e: &Expr, env: EId) -> bool {
+        maps_into_records(e) && !matches!(&e.k, ExprKind::Call { f, .. } if matches!(&f.k, ExprKind::Id(n) if self.lang(env, n).is_none()))
+    }
     fn resolve(&mut self, name: &str, env: EId, ctx: Ctx) -> Option<SId> {
         if let Some(s) = self.lookup(env, name) {
             if let Some(c) = self.syms[s].no_props.clone() {
@@ -5093,10 +5092,11 @@ impl<'a> Checker<'a> {
             self.sided(s, ctx);
             return Some(s);
         }
-        if BUILTINS.contains(&name) {
+        let lang = self.lang(env, name);
+        if lang == Some(Lang::Fn) {
             return None;
         }
-        if ctx.imperative && (name == "log" || DOLLAR_PARAM.is_match(name)) {
+        if ctx.imperative && (lang == Some(Lang::Log) || DOLLAR_PARAM.is_match(name)) {
             return None;
         }
         let why = if JS_GLOBALS.split(' ').any(|g| g == name) { ": JavaScript's globals are not in scope — export what you use of it from a `.js` module, and import that" } else { " (a component sees its declaration site, not its caller — RG-7a)" };
@@ -5902,7 +5902,7 @@ impl<'a> Checker<'a> {
                     ExprKind::Id(n) => match self.lookup(env, n) {
                         Some(s) if self.syms[s].kind == SymKind::Action => Some("ACTION_CALLED_IN_OWNED_SCOPE"),
                         Some(s) if self.syms[s].io => Some("IO_IN_REACTIVE"),
-                        None if n == "log" => Some("IO_IN_REACTIVE"),
+                        None if self.lang(env, n) == Some(Lang::Log) => Some("IO_IN_REACTIVE"),
                         _ => None,
                     },
                     _ if self.void_method(f, env) => Some(if self.provided_action(f, env) { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" }),
@@ -6216,7 +6216,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 if let ExprKind::Id(fname) = &f.k {
-                    if fname == "until" && self.lookup(env, "until").is_none() {
+                    if self.lang(env, fname) == Some(Lang::Until) {
                         if !ctx.imperative {
                             self.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited".into());
                         }
@@ -6232,8 +6232,8 @@ impl<'a> Checker<'a> {
                         return;
                     }
                     // EF-7, EF-8: Solid's onSettled / onFlush, functions of the language
-                    if (fname == "onSettled" || fname == "onFlush") && self.lookup(env, fname).is_none() {
-                        let settled = fname == "onSettled";
+                    if let Some(hook @ (Lang::OnSettled | Lang::OnFlush)) = self.lang(env, fname) {
+                        let settled = hook == Lang::OnSettled;
                         let rule = if settled { "EF-7" } else { "EF-8" };
                         if !ctx.imperative {
                             self.err("IO_IN_REACTIVE", rule, if settled { "onSettled(…) schedules work from imperative scope (a handler, an apply block, an action); in a component body the mount hook is `effect () { … }` (EF-4)".into() } else { "onFlush(…) is called from imperative scope (a handler, an apply block, an action): it starts a run of its own after this flush".into() });
@@ -6258,7 +6258,7 @@ impl<'a> Checker<'a> {
                         Some(s) => (self.syms[s].io, Some(self.syms[s].kind), self.syms[s].side, self.syms[s].io_via.clone(), self.syms[s].instantiating, self.syms[s].arity),
                         None => (false, None, None, None, false, None),
                     };
-                    if !ctx.imperative && (io || (s.is_none() && fname == "log")) {
+                    if !ctx.imperative && (io || self.lang(env, fname) == Some(Lang::Log)) {
                         if ctx.in_fn {
                             self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io; a fn is pure by definition", fname));
                         } else {
@@ -6337,7 +6337,7 @@ impl<'a> Checker<'a> {
                         self.actions.push(ActionRec { name: format!("inferred here (AC-1b: {})", trigger_text(w)), body: ss, env: inner, line: self.line });
                     }
                     if !ctx.server {
-                        self.run_checks(ss, why.is_some(), params, why.is_some());
+                        self.run_checks(ss, inner, why.is_some(), params, why.is_some());
                     }
                     return;
                 }
@@ -6376,11 +6376,12 @@ impl<'a> Checker<'a> {
 
     // ---- imperative scope (SC-2) ----
     /// AC-1c, AC-1d, AC-1e over one imperative run (`crate::infer`).
-    fn run_checks(&mut self, stmts: &[Stmt], action: bool, bound: &[String], inferred: bool) {
-        self.run_checks_with(stmts, action, bound, inferred, vec![], None);
+    fn run_checks(&mut self, stmts: &[Stmt], env: EId, action: bool, bound: &[String], inferred: bool) {
+        self.run_checks_with(stmts, env, action, bound, inferred, vec![], false);
     }
-    /// `answers_in`: a declared action's scope, where AC-1g asks which names are sources with a question.
-    fn run_checks_with(&mut self, stmts: &[Stmt], action: bool, bound: &[String], inferred: bool, ptypes: Vec<Option<String>>, answers_in: Option<EId>) {
+    /// `declared`: a declared action, in whose scope AC-1g asks which names are sources with a question.
+    fn run_checks_with(&mut self, stmts: &[Stmt], env: EId, action: bool, bound: &[String], inferred: bool, ptypes: Vec<Option<String>>, declared: bool) {
+        let answers_in = declared.then_some(env);
         let answered = |n: &str| answers_in.and_then(|env| self.lookup(env, n)).map_or(false, |t| self.syms[t].kind == SymKind::Source && self.syms[t].question);
         let stateful = |n: &str| answers_in.and_then(|env| self.lookup(env, n)).map_or(false, |t| self.syms[t].kind == SymKind::Source || self.syms[t].kind == SymKind::Eq);
         let found = run_findings(stmts, action, bound, inferred, &RunOpts { ptypes, answered: if answers_in.is_some() { Some(&answered) } else { None }, stateful: if answers_in.is_some() { Some(&stateful) } else { None } });
@@ -6398,7 +6399,7 @@ impl<'a> Checker<'a> {
         }
         // AC-3 (2026-11-22): a guess lives over the hold of what its action waits for
         if action {
-            let g = crate::infer::guess_facts(stmts);
+            let g = crate::infer::guess_facts(stmts, &|n| matches!(self.lang(env, n), Some(Lang::Log | Lang::OnSettled | Lang::OnFlush)));
             let line0 = self.line;
             if let Some((n, line)) = g.holdless {
                 self.line = line as i64;
@@ -6692,7 +6693,7 @@ impl<'a> Checker<'a> {
                     }
                     self.comp("action", env, Some("(inline)".into()), None, |c| c.stmts(body, env, Ctx { in_action: true, ..Ctx::imperative() }));
                     self.actions.push(ActionRec { name: "(inline)".into(), body, env, line: self.line });
-                    self.run_checks(body, true, &[], false);
+                    self.run_checks(body, env, true, &[], false);
                 }
                 StmtKind::Sif { c, t, f } => {
                     self.whole_ok.insert(c as *const Expr); // MO-10f: a condition reads no field
@@ -6787,7 +6788,7 @@ impl<'a> Checker<'a> {
                     _ => None,
                 };
                 if let ExprKind::Id(name) = &f.k {
-                    if fs.is_none() && BUILTINS.contains(&name.as_str()) {
+                    if self.lang(env, name) == Some(Lang::Fn) {
                         // a prelude function applies the closures it is given
                         for a in args {
                             let r = res || matches!(a.k, ExprKind::Fn { .. });
@@ -7186,7 +7187,7 @@ impl<'a> Checker<'a> {
                     self.keep(xs, env);
                     self.readers.push(ReaderRec { region, e: xs, env, line: self.line });
                     let src = if let ExprKind::Id(n) = &xs.k { self.lookup(env, n) } else { None };
-                    if src.is_some_and(|s| self.syms[s].maps_records) || maps_into_records(xs) {
+                    if src.is_some_and(|s| self.syms[s].maps_records && self.syms[s].eq_expr.is_some_and(|(e, at)| self.maps_into_records(e, at))) || self.maps_into_records(xs, env) {
                         self.err("UNSTABLE_LIST_IDENTITY", "ST-4b", format!("for {} in …: the rows are rebuilt as fresh records on every change — declare a key (`x key id = …`)", name));
                     }
                     let r = self.region(Some(region), "for", false, None);
@@ -8494,7 +8495,7 @@ impl<'a> Checker<'a> {
             ExprKind::Call { f, args, .. } => {
                 let r = root(f);
                 if let ExprKind::Id(fname) = &f.k {
-                    if fname == "until" && self.lookup(env, "until").is_none() {
+                    if self.lang(env, fname) == Some(Lang::Until) {
                         return match args.first() {
                             Some(Expr { k: ExprKind::Fn { body, stmts: None, .. }, .. }) => self.fails_of(body, env, false, &HashMap::new()).cls,
                             _ => IndexSet::new(),
@@ -9194,17 +9195,6 @@ impl<'a> Checker<'a> {
     }
 }
 
-/// The calls by name in a server fn's body (`callsIn`: every value, a target's path included).
-fn calls_in(n: Node, out: &mut Vec<String>) {
-    if let Node::E(Expr { k: ExprKind::Call { f, .. }, .. }) = n {
-        if let ExprKind::Id(name) = &f.k {
-            out.push(name.clone());
-        }
-    }
-    for c in children(n, true) {
-        calls_in(c, out);
-    }
-}
 /// RG-7e: a context's written rows — the row words before its type.
 fn contract_of(ty: Option<&str>) -> (IndexSet<String>, IndexSet<String>) {
     let mut rows = IndexSet::new();

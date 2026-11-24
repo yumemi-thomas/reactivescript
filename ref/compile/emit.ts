@@ -3,6 +3,7 @@
 // Lexical scopes become JS scopes: every region is a JS function, every declaration a `const`. Names are mangled
 // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
+import { inPrelude, language, scalar } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { instantiates, keptParts } from "../src/ast.ts";
 import { singleModule, isRx, madeComponent, ViewProps, type ModuleSet } from "../src/modules.ts";
@@ -30,7 +31,6 @@ class Env {
 }
 type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean };
 
-const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);
 const isHandler = (a: string) => /^on[A-Z:]/.test(a) || a === "ref";   // `ref`: called once with the element
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
 const mg = (n: string) => `v$${n}`;
@@ -117,7 +117,7 @@ class Gen {
     for (const d of decls) if (d.k === "import" && !d.resolved && !d.from.startsWith(".")) {
       if (!d.names.length) { this.top.push(`import ${J(d.from)};`); continue; }   // 07 §1a: for its effect
       const isType = (n: string) => !!d.declared && !!this.mods?.set.declarations?.get(d.declared)?.some(y => y.kind === "type" && y.name === n);   // a type its declaration file declares binds nothing: the JS module exports no such name
-      const names = d.names.filter(n => !BUILTINS.has(n.name) && n.name !== "log" && !isType(n.name));
+      const names = d.names.filter(n => !inPrelude(d, n.name) && !isType(n.name));
       if (names.length) this.top.push(`import { ${names.map(n => `${n.name} as w$${n.alias}`).join(", ")} } from ${J(d.from)};`);
     }
   }
@@ -152,7 +152,7 @@ class Gen {
     const env = new Env(null); const pre: string[] = [];
     for (const x of this.modDecls) {
       if (x.k === "import" && !x.resolved) for (const { name, alias } of this.withMethods(x)) {
-        if (name === "log" || BUILTINS.has(name)) continue;
+        if (inPrelude(x, name)) continue;
         if (!x.from.startsWith(".")) { env.vars.set(alias, { kind: "val", js: `w$${alias}` }); continue; }   // a package's: module level
         env.vars.set(alias, { kind: "val", js: mg(alias) });
         pre.push(`const ${mg(alias)} = ${x.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : `__rt.api(${J(name)})`};`);
@@ -267,7 +267,7 @@ class Gen {
     }
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
       if (d.declared && this.mods?.set.declarations?.get(d.declared)?.some(y => y.kind === "type" && y.name === name)) continue;   // a type its declaration file declares binds nothing
-      const v = !d.from.startsWith(".") && !BUILTINS.has(name) && name !== "log" ? (d.declaredErrors?.includes(name) ? `__rt.jsClass(w$${alias}, ${J(`${d.from}#${name}`)}${d.declaredErrorFields?.[name] ? `, ${J(d.declaredErrorFields[name])}` : ""})` : `w$${alias}`) /* SV-5a: a declared JS error class, by its declaration's identity */ : name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
+      const v = inPrelude(d, name) ? `__B.${name}` : !d.from.startsWith(".") ? (d.declaredErrors?.includes(name) ? `__rt.jsClass(w$${alias}, ${J(`${d.from}#${name}`)}${d.declaredErrorFields?.[name] ? `, ${J(d.declaredErrorFields[name])}` : ""})` : `w$${alias}`) /* SV-5a: a declared JS error class, by its declaration's identity */ : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       const js = env.lookup(alias)?.kind === "comp" ? cm(alias) : mg(alias);
       out.push(`${pad}const ${js} = ${v};\n${pad}__rt.reg(${J(alias)}, { value: ${js} });`);
@@ -576,13 +576,13 @@ class Gen {
       case "index": return `${rawGo(e.o)}?.[${rawGo(e.i)}]`;                                 // a key is a primitive
       case "stylemap": return this.classMap(e.css, e.line);                                  // 07 CSS-5
       case "call": {
-        if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until") && e.args[0]?.k === "fn") { const p = e.args[0]; return `__rt.until(() => ${this.expr(p.body, env, { imp: false, dyn: ctx.dyn })})`; }   // AC-6: Solid's until; the predicate is reactive scope
-        if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env.lookup(e.f.name)) return `__rt.${e.f.name}(${e.args.map(go).join(", ")})`;   // EF-7, EF-8: Solid's own
+        if (e.f.k === "id" && language(e.f.name, env.lookup(e.f.name)) === "until" && e.args[0]?.k === "fn") { const p = e.args[0]; return `__rt.until(() => ${this.expr(p.body, env, { imp: false, dyn: ctx.dyn })})`; }   // AC-6: Solid's until; the predicate is reactive scope
+        if (e.f.k === "id" && !ctx.dyn && ["onSettled", "onFlush"].includes(language(e.f.name, env.lookup(e.f.name))!)) return `__rt.${e.f.name}(${e.args.map(go).join(", ")})`;   // EF-7, EF-8: Solid's own
         // MO-10i: the closures this call hands a library's draft
         for (const [i, ps] of e.f.k === "id" ? env.lookup(e.f.name)?.drafts ?? [] : this.partDraftsOf(e.f, env) ?? []) { const a = e.args[i]; if (a?.k === "fn") this.draftClosures.set(a, ps); }
         // a method of a draft is the library's own: what it is given goes straight back to it; a builtin that answers a
         // primitive keeps nothing
-        if (((e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env)) || (e.f.k === "id" && ["len", "str", "sum", "every", "indexOf"].includes(e.f.name) && !env.lookup(e.f.name))) for (const a of e.args) this.raw.add(a);
+        if (((e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env)) || (e.f.k === "id" && scalar(e.f.name, env.lookup(e.f.name)))) for (const a of e.args) this.raw.add(a);
         // a closure written for one of a draft's own methods (`d.items.forEach((row) => { … })`) is called by it with
         // places of the draft: its parameters are read as copies, as the draft is (closed 2026-11-22)
         if ((e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env)) for (const a of e.args) if (a.k === "fn" && !this.draftClosures.has(a)) this.draftClosures.set(a, a.params.map((_, i) => i));
@@ -618,9 +618,9 @@ class Gen {
     if (ctx.effect && /^\$\d+$/.test(name)) return `$p[${name.slice(1)}]`;
     const b = env.lookup(name);
     if (!b) {
-      if (BUILTINS.has(name)) return `__B.${name}`;
-      if (ctx.dyn) return name === "log" ? "__B.log" : ctx.imp ? `__rt.dget(${J(name)})` : `__rt.dget(${J(name)}, true)`;
-      if (name === "log" && ctx.imp) return "__B.log";
+      const l = language(name, false); const own = l === "fn" || (l === "log" && (ctx.imp || ctx.dyn)) ? `__B.${name}` : ctx.dyn && (l === "onSettled" || l === "onFlush") ? `__rt.${name}` : null;
+      if (ctx.dyn) return `__rt.dget(${J(name)}${own ? `, ${!ctx.imp}, ${own}` : ctx.imp ? "" : ", true"})`;   // a scenario's row names what the program binds, else the language's function
+      if (own) return own;
       throw new CompileError(`unbound ${name}`);
     }
     if (b.kind === "acc" || b.kind === "src") return ctx.imp ? `__rt.snapshot(${b.js})` : `${b.js}()`;

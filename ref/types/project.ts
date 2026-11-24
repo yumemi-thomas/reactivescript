@@ -5,6 +5,7 @@
 //   which checks `v` against the target; an equation's `await` is `__.await(e)`, its answer's type, and an equation is `__.eq(e)`, never a promise (R-1); a view is JSX over
 //   Solid's JSX types, so a component's props and what a reader may insert are checked where they are written.
 // The projection is for checking only: it is never run, and its order is the dependency order (E-7).
+import { inPrelude, language } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
 import { isRx, relativeModule, ViewProps, type ModuleSet } from "../src/modules.ts";
@@ -12,7 +13,6 @@ import { splitTop, shapeHasRef, type JsDecl, type Shape } from "../src/parse.ts"
 import type { ModSig } from "../src/check.ts";
 
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
-const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until", "onSettled", "onFlush"]);
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 const isHandler = (a: string) => /^on[A-Z:]/.test(a) || a === "ref";
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
@@ -69,6 +69,7 @@ export declare function str(x: unknown): string;
 export declare function map<X, U>(xs: X, f: (x: ElemOf<X>, i: number) => U): U[];
 export declare function filter<X>(xs: X, f: (x: ElemOf<X>) => unknown): ElemOf<X>[];
 export declare function every<X>(xs: X, f: (x: ElemOf<X>) => unknown): boolean;
+export declare function indexOf<X>(xs: X, f: (x: ElemOf<X>) => unknown): number;
 export declare function sum(xs: readonly number[]): number;
 export declare function fail(msg: string): never;
 export declare function fetch(key: string): Promise<any>;
@@ -186,7 +187,7 @@ class Proj {
     const main = p.decls.find(d => d.k === "component" && d.isDefault);
     if (main) this.w.emit(`declare const __main: __.Main; export default __main;`, main.line);   // CP-4a: what JS imports from an entry
     this.w = saved;
-    const prelude = [...this.used].filter(n => !this.declared.has(n));
+    const prelude = [...this.used];
     const types = ["View", "Panic"].filter(n => !this.declared.has(n));
     this.w.emit(`import * as __ from "${this.rel("__prelude.ts")}"; import type { ${types.join(", ")} } from "${this.rel("__prelude.ts")}";${prelude.length ? ` import { ${prelude.join(", ")} } from "${this.rel("__prelude.ts")}";` : ""}`, 0);
     this.w.out.push(...body.out); this.w.lines.push(...body.lines);
@@ -197,7 +198,7 @@ class Proj {
   // ---- declarations, in dependency order (functions are hoisted; values are not) ----
   decls(ds: Decl[], ind: string, top = false) {
     const ex = (d: Decl) => top && (d as { exported?: boolean }).exported ? "export " : "";
-    for (const d of ds) if ("name" in d) this.declared.add(d.name);
+    if (top) for (const d of ds) if (d.k === "import") for (const n of d.names) this.declared.add(n.alias); else if ("name" in d) this.declared.add(d.name);   // what the module binds at its top; a nested name shadows the prelude's where it stands
     for (const d of ds) {
       if (d.k === "import") this.importDecl(d, ind);
       if (d.k === "typedecl") this.w.emit(`${ind}${ex(d)}${d.text ?? `type ${d.name} = any;`}`, d.line);
@@ -246,10 +247,8 @@ class Proj {
   private importDecl(d: Extract<Decl, { k: "import" }>, ind: string) {
     const names = d.names.map(n => n.name === "default" ? null : n.name === n.alias ? n.name : `${n.name} as ${n.alias}`).filter(Boolean);
     const dflt = d.names.find(n => n.name === "default")?.alias;
-    for (const n of d.names) if (BUILTINS.has(n.name)) this.declared.delete(n.alias);   // the prelude's own (`import { log } from "./prelude"`)
-    const prelude = d.names.filter(n => BUILTINS.has(n.name));
-    if (prelude.length) { for (const n of prelude) this.used.add(n.name); }
-    const rest = d.names.filter(n => !BUILTINS.has(n.name)); if (!rest.length) return;
+    for (const n of d.names) if (inPrelude(d, n.name)) this.used.add(n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);   // the prelude's own (`import { log } from "./prelude"`)
+    const rest = d.names.filter(n => !inPrelude(d, n.name)); if (!rest.length) return;
     if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); }
     let from = d.from;
     if (d.resolved && !isRx(d.from)) from = relativeModule(this.path, d.resolved);   // MO-13d: typed as the .rx module its printed signature stands for (TY-4c: `x.rx.d.ts`, beside it)
@@ -311,7 +310,7 @@ class Proj {
     const go = (x: Expr) => this.expr(x, imp, self);
     switch (e.k) {
       case "lit": return J(e.v);
-      case "id": if (BUILTINS.has(e.name) && !this.declared.has(e.name)) this.used.add(e.name); return e.name;
+      case "id": if (language(e.name, this.declared.has(e.name))) this.used.add(e.name); return e.name;
       case "pre": return e.name === self ? (e.init ? `__.pre(${go(e.init)})` : `__.pre<any>()`) : `__.pre<typeof ${e.name}>(${e.init ? go(e.init) : ""})`;
       case "peek": case "latest": return go(e.e);
       case "pending": return `__.pending(${go(e.e)})`;

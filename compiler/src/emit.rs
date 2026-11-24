@@ -9,6 +9,7 @@ use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
 use crate::modules::ModuleSet;
+use crate::names::{in_prelude, language, scalar, Lang};
 use crate::parse::{JsDecl, Part, Shape as FShape};
 use crate::signature::ExportSig;
 use indexmap::{IndexMap, IndexSet};
@@ -22,10 +23,6 @@ fn fail<T>(msg: impl Into<String>) -> R<T> {
     Err(CompileError(msg.into()))
 }
 
-const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"];
-fn builtin(n: &str) -> bool {
-    BUILTINS.contains(&n)
-}
 const VOID_TAGS: &[&str] = &["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"];
 fn mg(n: &str) -> String {
     format!("v${n}")
@@ -468,7 +465,7 @@ impl<'p> Gen<'p> {
                 }
                 // a type its declaration file declares binds nothing: the JS module exports no such name
                 let is_type = |n: &str| declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name, .. } if name == n)));
-                let ns: Vec<(String, String)> = names.iter().filter(|n| !builtin(&n.name) && n.name != "log" && !is_type(&n.name)).map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
+                let ns: Vec<(String, String)> = names.iter().filter(|n| !in_prelude(d, &n.name) && !is_type(&n.name)).map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
                 if !ns.is_empty() {
                     self.top.push(S::ImportNamed(ns, from.clone()));
                 }
@@ -526,7 +523,7 @@ impl<'p> Gen<'p> {
             match x {
                 Decl::Import { resolved: None, names, from, declared_errors, declared, .. } => {
                     for n in &with_methods(names, declared.as_ref().and_then(|dp| self.set.declarations.get(dp))) {
-                        if n.name == "log" || builtin(&n.name) {
+                        if in_prelude(x, &n.name) {
                             continue;
                         }
                         if self.js_import(from) {
@@ -838,7 +835,9 @@ impl<'p> Gen<'p> {
                 if declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name: tn, .. } if tn == name))) {
                     continue;
                 }
-                let v = if self.js_import(from) && !builtin(name) && name != "log" {
+                let v = if in_prelude(d, name) {
+                    dot(id("__B"), name)
+                } else if self.js_import(from) {
                     if declared_errors.as_ref().is_some_and(|e| e.contains(name)) {
                         // SV-5a: a declared JS error class, by its declaration's identity (the same on server and client)
                         let mut a = vec![id(format!("w${alias}")), str(format!("{}#{}", self.class_module(from, declared.as_deref()), name))];
@@ -849,12 +848,8 @@ impl<'p> Gen<'p> {
                     } else {
                         id(format!("w${alias}"))
                     }
-                } else if name == "log" {
-                    dot(id("__B"), "log")
                 } else if declared_errors.as_ref().is_some_and(|e| e.contains(name)) {
                     rtc("jsError", vec![str(name.clone())])
-                } else if builtin(name) {
-                    dot(id("__B"), name)
                 } else if from.ends_with("/api") {
                     rtc("api", vec![str(name.clone())])
                 } else if is_prims(from) {
@@ -1761,13 +1756,13 @@ impl<'p> Gen<'p> {
             ExprKind::Call { f, args, .. } => {
                 // AC-6: Solid's until; the predicate is reactive scope
                 if let (ExprKind::Id(n), Some(Expr { k: ExprKind::Fn { body, .. }, .. })) = (&f.k, args.first()) {
-                    if n == "until" && self.lookup(env, "until").is_none() {
+                    if self.lang(env, n) == Some(Lang::Until) {
                         return Ok(rtc("until", vec![thunk(self.expr(body, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?)]));
                     }
                 }
                 // EF-7, EF-8: Solid's own
                 if let ExprKind::Id(n) = &f.k {
-                    if (n == "onSettled" || n == "onFlush") && self.lookup(env, n).is_none() {
+                    if !ctx.dynamic && matches!(self.lang(env, n), Some(Lang::OnSettled | Lang::OnFlush)) {
                         let mut xs = vec![];
                         for a in args {
                             xs.push(self.expr(a, env, &sub)?);
@@ -1797,7 +1792,7 @@ impl<'p> Gen<'p> {
                         }
                     }
                 }
-                let scalar = matches!(&f.k, ExprKind::Id(n) if ["len", "str", "sum", "every", "indexOf"].contains(&n.as_str()) && self.lookup(env, n).is_none());
+                let scalar = matches!(&f.k, ExprKind::Id(n) if scalar(n, self.lookup(env, n).is_some()));
                 if own || scalar {
                     for a in args {
                         self.raw.insert(a as *const Expr);
@@ -1904,25 +1899,33 @@ impl<'p> Gen<'p> {
             ExprKind::ServerFn { .. } => undef(),
         })
     }
+    fn lang(&self, env: Env, name: &str) -> Option<Lang> {
+        language(name, self.lookup(env, name).is_some())
+    }
     fn reference(&mut self, name: &str, env: Env, ctx: &Ctx) -> R<E> {
         if ctx.effect && name.len() > 1 && name.starts_with('$') && name[1..].bytes().all(|b| b.is_ascii_digit()) {
             return Ok(E::Index(Box::new(id("$p")), Box::new(E::Num(name[1..].parse::<f64>().unwrap())), false));
         }
         let Some(b) = self.lookup(env, name) else {
-            if builtin(name) {
-                return Ok(dot(id("__B"), name));
-            }
+            let own = match language(name, false) {
+                Some(Lang::Fn) => Some(dot(id("__B"), name)),
+                Some(Lang::Log) if ctx.imp || ctx.dynamic => Some(dot(id("__B"), name)),
+                Some(Lang::OnSettled | Lang::OnFlush) if ctx.dynamic => Some(dot(id("__rt"), name)),
+                _ => None,
+            };
             if ctx.dynamic {
-                return Ok(if name == "log" {
-                    dot(id("__B"), "log")
-                } else if ctx.imp {
-                    rtc("dget", vec![str(name)])
-                } else {
-                    rtc("dget", vec![str(name), E::Bool(true)])
-                });
+                // a scenario's row names what the program binds, else the language's function
+                let mut a = vec![str(name)];
+                if let Some(f) = own {
+                    a.push(E::Bool(!ctx.imp));
+                    a.push(f);
+                } else if !ctx.imp {
+                    a.push(E::Bool(true));
+                }
+                return Ok(rtc("dget", a));
             }
-            if name == "log" && ctx.imp {
-                return Ok(dot(id("__B"), "log"));
+            if let Some(f) = own {
+                return Ok(f);
             }
             return fail(format!("unbound {name}"));
         };

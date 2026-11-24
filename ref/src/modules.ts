@@ -1,5 +1,6 @@
 // 09-modules: a program is a set of `.rx` modules. The loader resolves each `.rx` import to a path, parses every module once,
 // and orders them dependencies first (MO-1). A cycle is refused (MO-5): signatures are computed in that order.
+import { PRELUDE_FILES } from "./names.ts";
 import { parseProgram, parseDeclarations, ParseError, type JsDecl } from "./parse.ts";
 import type { Decl, Expr, Program } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
@@ -192,13 +193,14 @@ function loadProgram(entry: string, read: (path: string) => string | undefined):
     try { p = parseProgram(src); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${path}: ${e.message}`), { code: e.code }); throw e; }
     programs.set(path, p); state.set(path, "busy");
     for (const d of p.decls) {
+      if (d.k === "import" && d.prelude && PRELUDE_FILES.some(x => read(joinPath(path, d.from + x)) !== undefined)) delete d.prelude;   // a module of the program's own, by that name
       const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? declarationFor(path, d.from, read) : undefined;   // MO-8k, MO-10c
       if (d.k === "import" && !isRx(d.from) && (d.from.startsWith(".") || pkgDts)) {             // MO-8: a JS module with a declaration file beside it
         const dts = pkgDts ?? besideDeclaration(path, d.from, read);
         // MO-13a: a declaration that says it is a compiled .rx module's printed signature is that module's signature (MO-9b)
         const rx = dts.replace(/\.d\.rx$/, ".rx");
         if (!printed.has(rx) && !declarations.has(dts)) { const src = read(dts); if (src !== undefined && isPrintedSignature(src)) { try { signatures.set(rx, parseSignature(src, rx)); printed.add(rx); } catch (e) { if (e instanceof SignatureError) throw new ParseError(e.message); throw e; } } }
-        if (printed.has(rx)) { d.resolved = rx; continue; }
+        if (printed.has(rx)) { delete d.prelude; d.resolved = rx; continue; }
         if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try {
           const ds = parseDeclarations(src); contextSources(dts, ds, read);
           // SV-5a: the declaration's identity; two that would name an error class alike are not told apart
@@ -212,7 +214,7 @@ function loadProgram(entry: string, read: (path: string) => string | undefined):
           declarations.set(dts, ds); declarationIds.set(dts, id);
         } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; } } }
         const ds = declarations.get(dts);
-        if (ds) { d.declared = dts; d.declaredErrors = ds.filter(x => x.kind === "error").map(x => x.name); const ef = ds.flatMap(x => x.kind === "error" && x.fields ? [[x.name, x.fields]] : []); if (ef.length) d.declaredErrorFields = Object.fromEntries(ef); d.declaredPure = ds.filter(x => x.kind === "fn" && x.pure).map(x => x.name); d.declaredSide = Object.fromEntries(ds.flatMap(x => x.kind === "fn" && x.side ? [[x.name, x.side]] : [])); }
+        if (ds) { delete d.prelude; d.declared = dts; d.declaredErrors = ds.filter(x => x.kind === "error").map(x => x.name); const ef = ds.flatMap(x => x.kind === "error" && x.fields ? [[x.name, x.fields]] : []); if (ef.length) d.declaredErrorFields = Object.fromEntries(ef); d.declaredPure = ds.filter(x => x.kind === "fn" && x.pure).map(x => x.name); d.declaredSide = Object.fromEntries(ds.flatMap(x => x.kind === "fn" && x.side ? [[x.name, x.side]] : [])); }
         continue;
       }
       if (d.k !== "import" || !isRx(d.from)) continue;

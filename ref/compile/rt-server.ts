@@ -222,7 +222,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request
       markSafeError(sent);
       return sent;
     },
-    dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
+    dget(name: string, _live = false, own?: unknown) { if (own !== undefined && !registry.get(name)?.length) return own; const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
 
     // ---- declarations: the same primitives, from the server build. Writes do not happen on the server (SV-2). ----

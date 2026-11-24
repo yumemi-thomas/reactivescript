@@ -2,6 +2,7 @@
 // Every diagnostic is an error (CN-1a). Codes keep Solid's names where one exists (CN-1b); `rule`
 // is the spec rule enforced. Names resolve lexically (a component body sees its declaration
 // site, never its caller — RG-7a); provisions resolve through the static application tree (RG-7b).
+import { language, scalar } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
@@ -9,7 +10,7 @@ import type { ModuleSet } from "./modules.ts";
 import { splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
-import { scopeFacts } from "./scope.ts";
+import { scopeFacts, scoped } from "./scope.ts";
 import { guessFacts, inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 /** MO-10i (closed 2026-11-22): what is called on a draft is a method of plain data, by name — an Array's, a Map's, a Set's,
@@ -23,7 +24,10 @@ const DRAFT_METHODS = new Set([
 const DRAFT_CALLBACKS = new Set(["forEach", "map", "filter", "find", "findIndex", "findLast", "findLastIndex", "some", "every", "flatMap", "reduce", "reduceRight", "sort", "toSorted"]);
 /** W-1a: an Array's methods that change it in place. */
 const ARRAY_MUTATORS = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]);
-const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);   // the scenario prelude; all pure
+/** The function of the language a name is, where it is mentioned (`names.ts`). */
+const lang = (env: Env, name: string) => language(name, env.lookup(name));
+/** `map(…)` is the language's only where nothing binds `map`. */
+const ownMap = (e: Expr, env: Env): boolean => !(e.k === "call" && e.f.k === "id" && !lang(env, e.f.name));
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr) || attr === "ref";                // SC-4; `ref`: called once with the element (07 §4)
 
 // ---------------------------------------------------------------- regions and symbols
@@ -242,8 +246,6 @@ function freeNamesStmts(ss: Stmt[], bound0: Set<string>, out: Set<string>): void
     }
   }
 }
-/** MO-10k: the builtins that answer a primitive, whatever they are given */
-const SCALAR_BUILTINS = new Set(["len", "str", "sum", "every", "indexOf"]);
 /** MO-10k (ruled 2026-11-22): the names an expression's value may come from, **by mention**. One syntactic rule, no values
  *  followed: a value comes from the names written in the expression, except where what is written there cannot be handed
  *  on — an operand of an operator that makes a primitive (arithmetic, a comparison, `!`, `typeof`, a template), a
@@ -373,7 +375,7 @@ function flows(e: Expr, bound: Set<string>, locals: Map<string, Set<string>>, bu
       go(e.o);
       return;
     }
-    case "call": if (e.f.k === "id" && SCALAR_BUILTINS.has(e.f.name) && !bound.has(e.f.name) && !locals.has(e.f.name) && builtin.builtin(e.f.name)) return; go(e.f); e.args.forEach(go); return;
+    case "call": if (e.f.k === "id" && scalar(e.f.name, bound.has(e.f.name) || locals.has(e.f.name) || !builtin.builtin(e.f.name))) return; go(e.f); e.args.forEach(go); return;
     case "arr": e.items.forEach(go); return;
     case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
     case "fn": {
@@ -1009,17 +1011,12 @@ class Checker {
    *  Called in reactive scope it is a question, which may be asked again, so io there is IO_IN_REACTIVE at the call. */
   private serverIo(decls: Decl[], env: Env) {
     const servers = decls.flatMap(d => d.k === "server" ? [d] : d.k === "eq" && unwrapServer(d.e) ? [{ name: d.name, params: unwrapServer(d.e)!.params, body: unwrapServer(d.e)!.body }] : []);
-    const callsIn = (x: unknown, out: string[]): string[] => {
-      if (!x || typeof x !== "object") return out; if (Array.isArray(x)) { x.forEach(y => callsIn(y, out)); return out; }
-      const o = x as Record<string, any>; if (o.k === "call" && o.f?.k === "id") out.push(o.f.name);
-      for (const v of Object.values(o)) callsIn(v, out); return out;
-    };
+    const freeCalls = (d: { params: string[]; body: Stmt[] }): string[] => { const out: string[] = []; scoped({ k: "server", params: d.params, body: d.body }, (o, bound) => { const f = o.f as { k?: string; name: string } | undefined; if (o.k === "call" && f?.k === "id" && !bound.some(b => b.name === f.name)) out.push(f.name); }); return out; };   // what nothing in the body binds
     for (let changed = true; changed;) {
       changed = false;
       for (const d of servers) {
         const sym = env.vars.get(d.name)!; if (sym.io) continue;
-        const local = new Set(d.params);
-        const hit = callsIn(d.body, []).find(n => !local.has(n) && (n === "log" ? !env.lookup(n) : !!env.lookup(n)?.io));
+        const hit = freeCalls(d).find(n => (env.lookup(n)?.io ?? lang(env, n) === "log"));
         if (hit) { sym.io = true; sym.ioVia = `${hit}(…)`; changed = true; }
       }
     }
@@ -1359,7 +1356,7 @@ class Checker {
             d.inputs.forEach((i, n) => inner.vars.set(`$${n}`, { kind: "value", name: `$${n}`, region: env.region, line: this.line, srcs: [{ e: i, env }] }));   // MO-10k: `$n` is the value of the n-th input
             this.stmts(d.body, inner, { scope: "imperative" });
           });
-          this.runChecks(d.body, false, []);
+          this.runChecks(d.body, env, false, []);
         });
         this.relayWrites(d, env, this.ownSourceWrites(d, env));
         return;
@@ -1369,7 +1366,7 @@ class Checker {
         for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line });
         this.comp("action", env, { name: d.name }, () => this.stmts(d.body, inner, { scope: "imperative", inAction: true }));
         this.actions.push({ name: d.name, body: d.body, env: inner, line: d.line });
-        this.runChecks(d.body, true, d.params, false, { ptypes: (d.ptypes ?? d.params.map(() => undefined)).map(t => t && this.scalarAliases.has(t.trim()) ? "string" : t), answered: n => { const t = inner.lookup(n); return !!t && t.kind === "source" && !!t.question; }, stateful: n => { const t = inner.lookup(n); return !!t && (t.kind === "source" || t.kind === "eq"); } });
+        this.runChecks(d.body, inner, true, d.params, false, { ptypes: (d.ptypes ?? d.params.map(() => undefined)).map(t => t && this.scalarAliases.has(t.trim()) ? "string" : t), answered: n => { const t = inner.lookup(n); return !!t && t.kind === "source" && !!t.question; }, stateful: n => { const t = inner.lookup(n); return !!t && (t.kind === "source" || t.kind === "eq"); } });
         return;
       }
       case "server": {                                                                       // 12 SF-1/SF-3/SF-4: a statement block that runs on the server
@@ -1857,8 +1854,9 @@ class Checker {
     const s = env.lookup(name);
     if (s?.noProps) this.err("UNBOUND", "RG-4b", `${name} is not declared here: component ${s.noProps} declares no props — declare what it takes, \`component ${s.noProps}(props: { … })\`, and pass it where it is applied`);
     if (s) { this.sided(s, ctx); return s; }
-    if (BUILTINS.has(name)) return undefined;
-    if (ctx.scope === "imperative" && (name === "log" || /^\$\d+$/.test(name))) return undefined;   // the apply block's parameters; `log` is io and only in imperative scope
+    const l = lang(env, name);
+    if (l === "fn") return undefined;
+    if (ctx.scope === "imperative" && (l === "log" || /^\$\d+$/.test(name))) return undefined;   // the apply block's parameters; `log` is io and only in imperative scope
     this.err("UNBOUND", "SCOPE", JS_GLOBALS.has(name) ? `${name} is not declared here: JavaScript's globals are not in scope — export what you use of it from a \`.js\` module, and import that` : `${name} is not declared here (a component sees its declaration site, not its caller — RG-7a)`);
     return undefined;
   }
@@ -2232,7 +2230,7 @@ class Checker {
   private handlerCalled(e: Expr, env: Env, attr: string) {
     if (e.k === "call") {
       let code: string | undefined;
-      if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io ? "IO_IN_REACTIVE" : !s && e.f.name === "log" ? "IO_IN_REACTIVE" : undefined; }
+      if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io ? "IO_IN_REACTIVE" : lang(env, e.f.name) === "log" ? "IO_IN_REACTIVE" : undefined; }
       else if (this.voidMethod(e.f, env)) code = this.providedAction(e.f, env) ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE";
       else if (this.promiseMethod(e.f, env)) code = "IO_IN_REACTIVE";
       else if (this.ioMember(e.f, env) !== undefined) code = "IO_IN_REACTIVE";
@@ -2353,14 +2351,14 @@ class Checker {
             if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (a method of ${of}, which is io, with no row of its own); a fn is pure by definition`);
             else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): it is a method of ${of}, which is io (an import with no declaration, or a declared \`fn\`), and has no row of its own — call it from a handler or an action; if it only reads, its declaration says so, \`export pure fn ${show(e.f)}(…)\` (MO-8t)`);
           } }
-        if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
+        if (e.f.k === "id" && lang(env, e.f.name) === "until") {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
           if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited");
           const p = e.args[0];
           if (e.args.length !== 1 || !p || p.k !== "fn" || p.params.length) { this.err("UNTIL_PREDICATE", "AC-6", "until takes a predicate, `until(() => e)`: a value would be read once and never change"); e.args.forEach(go); return; }
           this.expr(p, env, { scope: "reactive", server: ctx.server });                         // the predicate is reactive scope: it reads, tracked; it does not write
           return;
         }
-        if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env.lookup(e.f.name)) {   // EF-7, EF-8: Solid's onSettled / onFlush, functions of the language
+        if (e.f.k === "id" && ["onSettled", "onFlush"].includes(lang(env, e.f.name)!)) {   // EF-7, EF-8: Solid's onSettled / onFlush, functions of the language
           const name = e.f.name;
           if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", name === "onSettled" ? "EF-7" : "EF-8", name === "onSettled" ? "onSettled(…) schedules work from imperative scope (a handler, an apply block, an action); in a component body the mount hook is `effect () { … }` (EF-4)" : "onFlush(…) is called from imperative scope (a handler, an apply block, an action): it starts a run of its own after this flush");
           const p = e.args[0];
@@ -2371,7 +2369,7 @@ class Checker {
         }
         if (e.f.k === "id") {
           const s = env.lookup(e.f.name);
-          if (ctx.scope === "reactive" && (s?.io || (!s && e.f.name === "log"))) {
+          if (ctx.scope === "reactive" && (s?.io || lang(env, e.f.name) === "log")) {
             if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${e.f.name}(…) is io; a fn is pure by definition`);
             else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${e.f.name}(…) is io and is called in reactive scope (R-io-3)${s?.ioVia ? ` — its server body calls ${s.ioVia}` : ""}${s?.generated ? ` — its declaration is a draft generated from ${s.generated}'s types, which never guesses \`pure\`: if calling it writes nothing, say so at the import, \`import pure { … }\`, or declare it \`pure fn\` in rx-types/${s.generated}.d.rx (MO-8l)` : ""}`);
           }
@@ -2393,7 +2391,7 @@ class Checker {
           const why = ctx.server ? null : inferredAction(e.stmts);                          // AC-1b: an arrow that guesses, or writes and awaits, is an action
           this.stmts(e.stmts, inner, { scope: "imperative", server: ctx.server, inAction: !!why });
           if (why) this.actions.push({ name: `inferred here (AC-1b: ${triggerText(why)})`, body: e.stmts, env: inner, line: this.line });
-          if (!ctx.server) this.runChecks(e.stmts, !!why, e.params, !!why);
+          if (!ctx.server) this.runChecks(e.stmts, inner, !!why, e.params, !!why);
           return;
         }
         this.expr(e.body, inner, { scope: ctx.scope, inFn: ctx.inFn, server: ctx.server }); return;
@@ -2413,7 +2411,7 @@ class Checker {
   }
 
   /** AC-1c, AC-1d, AC-1e over one imperative run (ref/src/infer.ts). */
-  private runChecks(stmts: Stmt[], action: boolean, bound: string[], inferred = false, opts: RunOpts = {}) {
+  private runChecks(stmts: Stmt[], env: Env, action: boolean, bound: string[], inferred = false, opts: RunOpts = {}) {
     for (const f of runFindings(stmts, action, bound, inferred, opts)) {
       if (f.code === "STALE_CAPTURE") { this.err("STALE_CAPTURE", "AC-1g", `${f.name} := … after an \`await\` writes ${f.via}, which is not the server's: ${f.name} is the server's answer, and after the \`await\` it takes only what the server answered, plain arguments (an id, a title, an index) and its own value at the write (\`${f.name} := rs => …\`, finding rows there by id). A row passed in, or read from a source before the \`await\` or after it, is what the screen showed, and may be stale by now (a rename accepted, a reload, an earlier write declined, a write another action holds) — when the answer alone doesn't say where a row is now, re-ask the answers it left and joined (\`refresh\`)`); continue; }
       if (f.code === "HELD_WRITE") this.err("HELD_WRITE", "AC-1c", `${f.name} := … comes before an \`await\` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, \`guess ${f.name} := …\` (a source with a question, ST-5c); for a reset that lands now, \`onFlush(() => { ${f.name} := … })\` (EF-8); to hold it on purpose, declare the action (\`action name() { … }\`); or write it after the \`await\``);
@@ -2422,7 +2420,7 @@ class Checker {
     }
     // AC-3 (2026-11-22): a guess lives over the hold of what its action waits for
     if (action) {
-      const g = guessFacts(stmts); const line0 = this.line;
+      const g = guessFacts(stmts, n => ["log", "onSettled", "onFlush"].includes(lang(env, n)!)); const line0 = this.line;
       if (g.holdless) { const n = g.holdless.name; this.line = g.holdless.line ?? line0; this.err("GUESS_OUTSIDE_HOLD", "AC-3", `guess ${n} := … in a run that starts nothing to wait for (no \`await\`, no \`refresh\` or \`affects\`, no write, no call that could): the hold it would live over ends with the run, so the guess is taken back in the instant it is made and nothing shows — a guess is for what the run is about to await (\`guess ${n} := …; await save(…)\`); if this is ${n}'s new value, write it (\`${n} := …\`)`); }
       if (g.late) this.advice.push({ code: "GUESS_AFTER_AWAIT", rule: "AC-3", line: g.late.line ?? line0, msg: `guess ${g.late.name} := … is written after \`await ${g.late.awaited}\`: nothing shows until that answers — a guess is what the run shows while it waits, so write it before the \`await\` it is a guess about`, ...(this.opts.file ? { file: this.opts.file } : {}) });
       this.line = line0;
@@ -2534,7 +2532,7 @@ class Checker {
           break;
         }
         case "refresh": case "affects": case "action": if (ctx.server) { this.err("SERVER_CAPTURE", "SF-3", `\`${s.k}${s.k === "action" ? " { … }" : ` ${(s as { name: string }).name}`}\` in a server function's body: it is the client's (do it in the action that awaited the call)`); break; }
-          if (s.k === "action") { this.comp("action", env, { name: "(inline)" }, () => this.stmts(s.body, env, { scope: "imperative", inAction: true })); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); this.runChecks(s.body, true, []); break; }
+          if (s.k === "action") { this.comp("action", env, { name: "(inline)" }, () => this.stmts(s.body, env, { scope: "imperative", inAction: true })); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); this.runChecks(s.body, env, true, []); break; }
           if (s.k === "affects") { const t = this.resolve(s.name, env, ctx); this.model.write(t, "affects"); if (t) this.changed.add(t); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
           { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t) this.changed.add(t); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
         case "sif": this.wholeOk.add(s.c); this.expr(s.c, env, ctx); this.stmts(s.t, env, ctx); this.stmts(s.f, env, ctx); break;   // MO-10f: a condition reads no field
@@ -2574,7 +2572,7 @@ class Checker {
       if (x.k === "member" && x.o.k === "id") { const s = env.lookup(x.o.name); if (s?.kind === "props") { out.push({ kind: "props", name: `${s.name}.${x.p}`, region: s.region, line: s.line, propOf: { comp: s.region, field: x.p } }); return; } }
       if (x.k === "call") {
         const f = x.f.k === "id" ? env.lookup(x.f.name) : undefined;
-        if (x.f.k === "id" && !f && BUILTINS.has(x.f.name)) { x.args.forEach(a => walk(a, res || a.k === "fn")); return; }   // a prelude function applies the closures it is given
+        if (x.f.k === "id" && lang(env, x.f.name) === "fn") { x.args.forEach(a => walk(a, res || a.k === "fn")); return; }   // a prelude function applies the closures it is given
         if (f?.kind === "fn" && f.fnTail && f.fnEnv && !seen.has(f)) {
           seen.add(f); const R = f.fnEnv.region; let inst: Sym | null = null;
           for (const c of this.stored(f.fnTail, f.fnEnv, seen, res)) {
@@ -2721,7 +2719,7 @@ class Checker {
         case "mfor": {
           this.comp("reader", env, { at: "for" }, () => this.expr(m.xs, env, { scope: "reactive" })); this.keep(m.xs, env); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
           const src = m.xs.k === "id" ? env.lookup(m.xs.name) : undefined;
-          if ((src?.mapsRecords) || mapsIntoRecords(m.xs)) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
+          if ((src?.mapsRecords && src.eqExpr && ownMap(src.eqExpr.e, src.eqExpr.env)) || (mapsIntoRecords(m.xs) && ownMap(m.xs, env))) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
           const r = this.region(env.region, "for"); const inner = new Env(env, r);
           inner.vars.set(m.name, { kind: "value", name: m.name, region: r, line: this.line, rowOf: { e: m.xs, env } });   // RG-2b: the row binding is a constant
           this.block(m.decls, m.body, inner, { scope: "reactive" });
@@ -3104,7 +3102,7 @@ class Checker {
       case "if": return new Set([...this.rejects(e.t, env, seen), ...this.rejects(e.f, env, seen)]);
       case "call": {
         const r = root(e.f);
-        if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) { const p = e.args[0]; return p?.k === "fn" && !p.stmts ? new Set(this.failsOf(p.body, env, false, new Map()).cls) : new Set(); }   // AC-6: until rejects with what its predicate fails with
+        if (e.f.k === "id" && lang(env, e.f.name) === "until") { const p = e.args[0]; return p?.k === "fn" && !p.stmts ? new Set(this.failsOf(p.body, env, false, new Map()).cls) : new Set(); }   // AC-6: until rejects with what its predicate fails with
         if (r.k === "id") {
           const s = env.lookup(r.name);
           if (s?.kind === "import") return new Set(s.rejects ?? ["Error"]);

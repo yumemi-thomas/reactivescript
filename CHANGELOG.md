@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+**A name is its binding's** (09 MO-1d; `scenarios/S-module-45`, `compiler/test/names.mjs`)
+
+- **Fixed: an import named like a function of the language** (`len`, `str`, `map`, `filter`, `sum`, `fail`, `fetch`, `every`,
+  `indexOf`, `log`) was compiled as that function and the import dropped, in silence. It is the import. Only an import of
+  `./prelude` names the language's functions, where the program has no module of its own by that name.
+- **Fixed: the projection TypeScript reads** left out such an import (and one of `until`, `onSettled`, `onFlush`), of an `.rx`
+  module too; lost the prelude's function where a nested block declares its name; did not know a prelude import's alias, or
+  `indexOf`.
+- **Fixed: `UNSTABLE_LIST_IDENTITY`, `GUESS_OUTSIDE_HOLD` and a server fn's io** took a declaration or a local named `map`, `log`,
+  `onSettled` or `onFlush` for the language's.
+- **Changed: `peek`, `latest`, `throw` and `await` cannot be bound** (a parse error): `import { latest }` was accepted, and
+  `latest(x)` read as the form `latest x`. `import { latest as newest }`.
+
 **A fn of an `.rx` package hands JavaScript its parts** (09 MO-13i; `scenarios/S-module-44`, `bench/tasks/rx-package`)
 
 - **Changed: what `rx-lib` hands JavaScript.** A fn that answers a record or a tuple handed one accessor of the whole. It hands

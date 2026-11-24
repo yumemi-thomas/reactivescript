@@ -68,6 +68,8 @@ jobs:
       - name: "the runtime as built: both builds, the request's and the render's state, and Solid's contract (the installed release and the pin)"
         working-directory: runtime
         run: SOLID_NEXT="${{ github.workspace }}/../solid-next" node test.mjs
+      - name: "a name is its binding's: every function of the language under every kind of binding (MO-1d)"
+        run: node --experimental-strip-types compiler/test/names.mjs
       - name: "spec: every rule and diagnostic that is named is in it"
         run: node scripts/spec-refs.mjs
       - name: "ref: the interpreter over every scenario"

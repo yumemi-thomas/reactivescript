@@ -50,7 +50,13 @@ Contents: [1 instantiation](#mo-1--instantiation) ·
 - **MO-1d.** A declaration in a nested block may not shadow a name an import
   bound (`SHADOWED_IMPORT`): rename one, `import { filter as keep }`. A
   parameter, a loop's variable or a local may; a name is its binding's by its
-  scope.
+  scope. That holds of the language's functions (11 CP-4: `len`, `filter`,
+  `log`, …): each is the language's only where nothing binds its name, so
+  `import pure { filter } from "./lib.js"` is `lib.js`'s (corrected
+  2026-11-24: it was compiled as the language's, and the import dropped). A
+  word that begins an expression (`peek e`, `latest e`, `throw e`, `await
+  e`) is no name: what would bind it is a parse error (`import { latest as
+  newest }`). S-module-45
 
 ## MO-2 — The value boundary
 

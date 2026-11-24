@@ -1,5 +1,6 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
+import { inPrelude, language } from "./names.ts";
 import { classMap } from "./style.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
@@ -182,13 +183,15 @@ export class Runtime {
     this.view = this.instantiate(program.view, this.root);
   }
 
+  private logFn = Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true });
+  private langFn(name: string): unknown { const l = language(name, false); return l === "fn" ? BUILTINS[name] : l === "log" ? this.logFn : undefined; }
   // ---- declarations (E-1, E-4, E-7, EF-1) ----
   declare(decls: Decl[], region: Region) {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) { const m = this.modules.get(d.resolved); if (!m) throw new RuleError("MO-9", `${d.from} is known by its signature only (${d.from.replace(/\.rx$/, ".d.rx")}): there is no body to run`); for (const { name, alias } of d.names) { const b = m.scope.get(name); if (b) region.scope.set(alias, b); } continue; }   // MO-1: the module's own bindings (a type binds nothing)
       if (d.k === "import" && isPrims(d.from)) { for (const { name, alias } of d.names) { const f = primRx(name); if (!f) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`); region.scope.set(alias, { fn: f, home: this.root }); } continue; }   // MO-10: the prelude's primitives, as the .rx they mean
       if (d.k === "import") for (const { name, alias } of d.names) {                    // R-io-4: a JS import is io unless `pure`; the scenario prelude supplies the values
-        const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined);   // "./api": every function is a flight keyed by its arguments
+        const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : inPrelude(d, name) ? this.langFn(name) : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined;   // "./api": every function is a flight keyed by its arguments
         if (v === undefined) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`);
         region.scope.set(alias, { constant: d.pure || d.declaredPure?.includes(name) || d.declaredErrors?.includes(name) || typeof v !== "function" ? v : Object.assign((...a: unknown[]) => (v as (...a: unknown[]) => unknown)(...a), { io: true }) });
       }
@@ -807,7 +810,7 @@ export class Runtime {
       case "id": {
         if (env?.has(e.name)) return env.get(e.name);
         const b = region.lookup(e.name);
-        if (!b) { if (e.name in BUILTINS) return BUILTINS[e.name]; throw new RuleError("SCOPE", `unbound ${e.name}`); }
+        if (!b) { const f = this.langFn(e.name); if (f) return f; throw new RuleError("SCOPE", `unbound ${e.name}`); }
         if ("constant" in b) return b.constant;
         if ("fn" in b) {
           if (this.isInstantiating(b.fn)) throw new RuleError("E-9", `instantiating fn ${b.fn.name} must be bound: x = ${b.fn.name}(…)`);
@@ -816,7 +819,7 @@ export class Runtime {
           return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
+        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
         { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return v; }   // R-f-7: a snapshot of an error throws it
       }
       case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }
@@ -938,8 +941,9 @@ export class Runtime {
       case "stylemap": return classMap(e.css);                      // 07 CSS-5: a constant
       case "call": {
         let f: unknown, self: unknown;
-        if (e.f.k === "id" && e.f.name === "until" && !env?.has("until") && !region.lookup("until")) return this.until(e.args[0], region, env);   // AC-6
-        if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env?.has(e.f.name) && !region.lookup(e.f.name)) return this.hook(e.f.name, e.args[0], region, env);   // EF-7, EF-8
+        const lang = e.f.k === "id" ? language(e.f.name, env?.has(e.f.name) || region.lookup(e.f.name)) : undefined;
+        if (lang === "until") return this.until(e.args[0], region, env);   // AC-6
+        if (lang === "onSettled" || lang === "onFlush") return this.hook(lang, e.args[0], region, env);   // EF-7, EF-8
         if (e.f.k === "member") { self = this.ev(e.f.o, region, env); if (isAbsent(self)) return self; f = self == null ? undefined : (self as any)[e.f.p]; if (isObj(self)) this.track(self, e.f.p); }   // a method call: `xs.map(f)`, TS verbatim
         else f = this.ev(e.f, region, env);
         const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
@@ -980,7 +984,6 @@ export class Runtime {
       const f = question ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
       const fail = (msg: string): never => { throw new RuleError("WIRE_VALUE", `${d.name}: ${msg}`); };
       const env = new Map<string, unknown>(d.params.map((p, i) => [p, wireCopy(args[i], `argument ${p}`, fail)]));
-      env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));
       this.resume({ frames: [{ stmts: d.body, i: 0, kind: "block" }], region: home, env, change: null, flight: null, action: false, bind: null, settle: { flight: f, name: d.name } });
       return f;
     };
@@ -1044,7 +1047,6 @@ export class Runtime {
   // ---- imperative scope (SC-2) ----
   runStmts(stmts: Stmt[], region: Region, env: Map<string, unknown>, params: unknown[] = [], action = false): unknown {
     params.forEach((p, i) => env.set(`$${i}`, p));
-    env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));
     return this.startRun(stmts, region, env, action);
   }
   /** Start an imperative run (a handler, an apply block, or an action body — AC-1); it may suspend at `await`. */

@@ -194,6 +194,20 @@ impl<'a> Cursor<'a> {
         self.i = save;
         false
     }
+    /// A name that is bound (`ident_or`, `not_form`).
+    fn bound(&mut self, what: &str) -> R<String> {
+        let n = self.ident_or(what)?;
+        self.not_form(&n)?;
+        Ok(n)
+    }
+    /// A word that begins an expression reads as its form wherever it is mentioned — `peek(x)` is `peek e` — so a binding of
+    /// that name would be passed over without a word.
+    fn not_form(&self, n: &str) -> R<()> {
+        if matches!(n, "peek" | "latest" | "throw" | "await") {
+            return self.fail(&format!("`{n}` begins an expression (`{n} e`), so nothing can be bound to it: use another name (an import's, `import {{ {n} as … }}`)"));
+        }
+        Ok(())
+    }
     fn ident_or(&mut self, what: &str) -> R<String> {
         match self.ident() {
             Some(s) => Ok(s),
@@ -2609,7 +2623,7 @@ fn params_typed(c: &mut Cursor) -> R<(Vec<String>, Vec<Option<String>>)> {
     let mut params = vec![];
     let mut ptypes = vec![];
     while !c.starts_with(")") {
-        params.push(c.ident_or("param")?);
+        params.push(c.bound("param")?);
         ptypes.push(opt_type(c, false)?);
         c.ws(true);
         if !c.eat(",") {
@@ -2668,7 +2682,12 @@ fn parse_pattern(c: &mut Cursor) -> R<Pat> {
             let key = c.ident_or("a field name")?;
             let kspan = Span::new(kstart, c.i);
             c.ws(true);
-            let pat = if c.eat(":") { parse_pattern(c)? } else { Pat::Name { name: key.clone(), line: kline, span: kspan } };
+            let pat = if c.eat(":") {
+                parse_pattern(c)?
+            } else {
+                c.not_form(&key)?;
+                Pat::Name { name: key.clone(), line: kline, span: kspan }
+            };
             c.ws(true);
             let dflt = pat_default(c)?;
             props.push((key, pat, dflt));
@@ -2880,7 +2899,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             if from.ends_with(".rx") {
                 return c.fail(&format!("import \"{}\": an .rx module is imported for what it exports, `import {{ … }} from \"{}\"`", from, from));
             }
-            return Ok(Decl::Import { names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None });
+            return Ok(Decl::Import { names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, prelude: false, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None });
         }
         let side = if IMPORT_SIDE.is_match(c.rest()) {
             if c.keyword("server") {
@@ -2904,9 +2923,10 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
                 let mut alias = name.clone();
                 if c.keyword("as") {
                     c.ws(true);
-                    alias = c.ident_or("alias")?;
+                    alias = c.bound("alias")?;
                     c.ws(true);
                 }
+                c.not_form(&alias)?;
                 c.imported.insert(alias.clone());
                 names.push(ImportName { name, alias });
                 if !c.eat(",") {
@@ -2916,7 +2936,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             }
             c.expect("}")?;
         } else {
-            let name = c.ident_or("import name")?;
+            let name = c.bound("import name")?;
             c.imported.insert(name.clone());
             names.push(ImportName { name: "default".into(), alias: name });
         }
@@ -2931,7 +2951,8 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         };
         let save = c.i;
         c.ws(false);
-        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None };
+        let prelude = crate::names::is_prelude(&from);
+        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, prelude, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None };
         if c.keyword("fails") {
             c.ws(true);
             let fails = parse_classes(c)?.unwrap_or_else(|| vec!["Error".to_string()]);
@@ -2996,7 +3017,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
     }
     if c.keyword("source") {
         c.ws(true);
-        let name = c.ident_or("source name")?;
+        let name = c.bound("source name")?;
         let (ty, mut key) = split_key(opt_type(c, false)?);
         c.ws(true);
         if SOURCE_KEY.is_match(c.rest()) {
@@ -3035,7 +3056,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
     }
     if c.keyword("deferred") {
         c.ws(true);
-        let name = c.ident_or("deferred name")?;
+        let name = c.bound("deferred name")?;
         let ty = opt_type(c, false)?;
         c.ws(true);
         c.expect("=")?;
@@ -3045,7 +3066,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
     }
     if c.keyword("action") {
         c.ws(true);
-        let name = c.ident_or("action name")?;
+        let name = c.bound("action name")?;
         c.ws(true);
         c.expect("(")?;
         c.ws(true);
@@ -3063,7 +3084,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         }
         c.keyword("fn");
         c.ws(true);
-        let name = c.ident_or("server function name")?;
+        let name = c.bound("server function name")?;
         c.ws(true);
         c.expect("(")?;
         c.ws(true);
@@ -3109,7 +3130,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
     }
     if c.keyword("fn") {
         c.ws(true);
-        let name = c.ident_or("fn name")?;
+        let name = c.bound("fn name")?;
         c.ws(true);
         c.expect("(")?;
         c.ws(true);
@@ -3117,7 +3138,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         while !c.starts_with(")") {
             let r = c.keyword("ref");
             c.ws(true);
-            let pname = c.ident_or("param")?;
+            let pname = c.bound("param")?;
             let ty = opt_type(c, false)?;
             params.push(Param { name: pname, r#ref: r, ty });
             c.ws(true);
@@ -3160,7 +3181,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         // RG-4b: `component C({ a, b })` — each name a projection of props
         let sig = if c.peek() == '{' { Some(parse_pattern(c)?) } else { None };
         let no_props = sig.is_none() && c.peek() == ')'; // `component C()`: no props (RG-4b)
-        let props = if sig.is_some() || c.peek() == ')' { "props".to_string() } else { c.ident_or("props name")? };
+        let props = if sig.is_some() || c.peek() == ')' { "props".to_string() } else { c.bound("props name")? };
         let props_type = opt_type(c, false)?;
         c.ws(true);
         c.expect(")")?;
@@ -3306,7 +3327,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
             c.pending.extend(out);
             return Ok(first);
         }
-        let name = c.ident_or("let name")?;
+        let name = c.bound("let name")?;
         let ty = opt_type(c, false)?;
         c.ws(true);
         c.expect("=")?;
@@ -3326,7 +3347,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
             c.ws(true);
             if c.eat("(") {
                 c.ws(true);
-                catch_name = Some(c.ident_or("catch name")?);
+                catch_name = Some(c.bound("catch name")?);
                 c.ws(false);
                 if c.eat(":") {
                     catch_classes = parse_classes(c)?;
@@ -3384,7 +3405,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
             return c.fail("`for (const x of e) { … }`: the loop of imperative scope binds one name per turn");
         }
         c.ws(true);
-        let name = c.ident_or("loop variable")?;
+        let name = c.bound("loop variable")?;
         c.ws(true);
         if !c.keyword("of") {
             return c.fail("`of`: the loop of imperative scope is `for (const x of e) { … }`");
@@ -3438,7 +3459,7 @@ pub fn parse_expr(c: &mut Cursor) -> R<Expr> {
         let mut classes = None;
         if c.eat("(") {
             c.ws(true);
-            name = Some(c.ident_or("catch name")?);
+            name = Some(c.bound("catch name")?);
             c.ws(false);
             if c.eat(":") {
                 classes = parse_classes(c)?;
@@ -3547,6 +3568,9 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
             }
         }
         if ok {
+            for p in &params {
+                c.not_form(p)?;
+            }
             c.expect("=>")?;
             c.ws(true);
             if c.peek() == '{' {
@@ -3569,7 +3593,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
         c.ws(true);
         let mut params = vec![];
         while !c.starts_with(")") {
-            params.push(c.ident_or("param")?);
+            params.push(c.bound("param")?);
             c.ws(true);
             if !c.eat(",") {
                 break;
@@ -4123,7 +4147,7 @@ fn parse_control(c: &mut Cursor) -> R<Option<Markup>> {
         let mut classes = None;
         if c.eat("(") {
             c.ws(true);
-            err_name = Some(c.ident_or("error name")?);
+            err_name = Some(c.bound("error name")?);
             c.ws(false);
             if c.eat(":") {
                 classes = parse_classes(c)?;
@@ -4185,7 +4209,7 @@ fn parse_control(c: &mut Cursor) -> R<Option<Markup>> {
     }
     if c.keyword("for") {
         c.ws(true);
-        let name = c.ident_or("for name")?;
+        let name = c.bound("for name")?;
         c.ws(true);
         if !c.keyword("in") {
             return c.fail("in");

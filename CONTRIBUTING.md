@@ -176,6 +176,7 @@ for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confi
 for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done   # git clone -b frontend-resolve https://github.com/yumemi-thomas/solid-vite-plugin && pnpm install && npx rolldown -c
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar
 (cd runtime && node test.mjs)
+node --experimental-strip-types compiler/test/names.mjs   # every function of the language under every kind of binding: a name is its binding's (09 MO-1d)
 (cd tooling/rx-language-server && npm test)   # its suites at once, RX_JOBS at a time (scripts/parallel.mjs); ref's `npm run types` asks its checker too: npm ci there first
 node scripts/spec-refs.mjs       # every rule and diagnostic that is named is in spec/
 node bench/measure.test.mjs      # the benchmark's own counting

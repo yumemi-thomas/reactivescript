@@ -144,7 +144,8 @@ pub struct GuessFacts {
     pub holdless: Option<(String, u32)>,
     pub late: Option<(String, u32, String)>,
 }
-pub fn guess_facts(stmts: &[Stmt]) -> GuessFacts {
+/// `hook`: a name is one of the language's hooks in the run's scope; a name a `let` binds is not.
+pub fn guess_facts(stmts: &[Stmt], hook: &dyn Fn(&str) -> bool) -> GuessFacts {
     struct S {
         first: Option<(String, u32)>,
         late: Option<(String, u32, String)>,
@@ -153,18 +154,24 @@ pub fn guess_facts(stmts: &[Stmt]) -> GuessFacts {
         seen: HashSet<*const Expr>,
     }
     /// a call written in an expression, outside the closures it makes, of anything but a hook of the language
-    fn calls(n: crate::check::Node) -> bool {
+    fn calls(n: crate::check::Node, hook: &dyn Fn(&str) -> bool) -> bool {
         if let crate::check::Node::E(e) = n {
             match &e.k {
                 ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return false,
-                ExprKind::Call { f, .. } if !matches!(&f.k, ExprKind::Id(n) if matches!(n.as_str(), "onFlush" | "onSettled" | "log")) => return true,
+                ExprKind::Call { f, .. } if !matches!(&f.k, ExprKind::Id(n) if hook(n)) => return true,
                 _ => {}
             }
         }
-        crate::check::children(n, true).into_iter().any(calls)
+        crate::check::children(n, true).into_iter().any(|c| calls(c, hook))
     }
-    fn go<'a>(ss: &'a [Stmt], cl: &Closures<'a>, st: &mut S) {
+    fn go<'a>(ss: &'a [Stmt], cl: &Closures<'a>, st: &mut S, hook: &dyn Fn(&str) -> bool) {
         let mut local = cl.clone();
+        let lets: HashSet<&str> = ss.iter().filter_map(|s| match &s.k {
+            StmtKind::Let { name, .. } | StmtKind::For { name, .. } => Some(name.as_str()),
+            StmtKind::Try { catch_name, .. } => catch_name.as_deref(),
+            _ => None,
+        }).collect();
+        let hook: &dyn Fn(&str) -> bool = &|n| !lets.contains(n) && hook(n);
         for s in ss {
             if let Some(c) = closure_of(s) {
                 if let StmtKind::Let { name, .. } = &s.k {
@@ -180,7 +187,7 @@ pub fn guess_facts(stmts: &[Stmt]) -> GuessFacts {
             };
             if let Some(c) = called {
                 if st.seen.insert(c as *const Expr) {
-                    go(fn_parts(c).1, &local, st);
+                    go(fn_parts(c).1, &local, st, hook);
                 }
                 continue;
             }
@@ -208,36 +215,36 @@ pub fn guess_facts(stmts: &[Stmt]) -> GuessFacts {
                     }
                 }
                 StmtKind::Sif { c, t, f } => {
-                    if calls(crate::check::Node::E(c)) {
+                    if calls(crate::check::Node::E(c), hook) {
                         st.starts = true;
                     }
-                    go(t, &local, st);
-                    go(f, &local, st);
+                    go(t, &local, st, hook);
+                    go(f, &local, st, hook);
                 }
                 StmtKind::For { e, body, .. } => {
-                    if calls(crate::check::Node::E(e)) {
+                    if calls(crate::check::Node::E(e), hook) {
                         st.starts = true;
                     }
-                    go(body, &local, st);
+                    go(body, &local, st, hook);
                 }
                 StmtKind::Try { body, handler, fin, .. } => {
-                    go(body, &local, st);
+                    go(body, &local, st, hook);
                     if let Some(h) = handler {
-                        go(h, &local, st);
+                        go(h, &local, st, hook);
                     }
                     if let Some(f) = fin {
-                        go(f, &local, st);
+                        go(f, &local, st, hook);
                     }
                 }
                 _ => {}
             }
-            if !matches!(&s.k, StmtKind::Sif { .. } | StmtKind::For { .. } | StmtKind::Try { .. } | StmtKind::Action(_)) && calls(crate::check::Node::S(s)) {
+            if !matches!(&s.k, StmtKind::Sif { .. } | StmtKind::For { .. } | StmtKind::Try { .. } | StmtKind::Action(_)) && calls(crate::check::Node::S(s), hook) {
                 st.starts = true;
             }
         }
     }
     let mut st = S { first: None, late: None, awaited: None, starts: false, seen: HashSet::new() };
-    go(stmts, &IndexMap::new(), &mut st);
+    go(stmts, &IndexMap::new(), &mut st, hook);
     GuessFacts { holdless: if st.starts { None } else { st.first.clone() }, late: st.late }
 }
 

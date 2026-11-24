@@ -5,6 +5,7 @@
 
 use crate::ast::*;
 use crate::modules::ModuleSet;
+use crate::names::{in_prelude, language};
 use crate::parse::JsDecl;
 use crate::signature::{ExportSig, ModSig};
 use indexmap::{IndexMap, IndexSet};
@@ -20,10 +21,6 @@ static ROW_WORDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^((?:io|pendin
 static SOURCE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^source\s+").unwrap());
 /// MO-10f: a field's row words in a component's props type, after the field's `:` (group 2).
 static PROP_ROWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)").unwrap());
-const BUILTINS: [&str; 13] = ["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf", "log", "until", "onSettled", "onFlush"];
-fn builtin(n: &str) -> bool {
-    BUILTINS.contains(&n)
-}
 
 /// One mapping: `len` bytes at `gen` in the projection are the same text as `len` bytes at `src` in the `.rx`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -436,7 +433,7 @@ impl Proj<'_> {
             self.w.emit(Code::of("declare const __main: __.Main; export default __main;"), *line);
         }
         let body = std::mem::replace(&mut self.w, saved);
-        let prelude: Vec<String> = self.used.iter().filter(|n| !self.declared.contains(*n)).cloned().collect();
+        let prelude: Vec<String> = self.used.iter().cloned().collect();
         let types: Vec<&str> = ["View", "Panic"].into_iter().filter(|n| !self.declared.contains(*n)).collect();
         let rel = self.prelude.map(|p| p.to_string()).unwrap_or_else(|| self.rel("__prelude.ts"));
         let mut head = format!("import * as __ from \"{rel}\"; import type {{ {} }} from \"{rel}\";", types.join(", "));
@@ -463,9 +460,13 @@ impl Proj<'_> {
     // ---- declarations, in dependency order (functions are hoisted; values are not) ----
     fn decls(&mut self, ds: &[Decl], ind: &str, top: bool) {
         let ex = |d: &Decl| if top && d.exported() { "export " } else { "" };
-        for d in ds {
+        // what the module binds at its top; a nested name shadows the prelude's where it stands
+        for d in ds.iter().filter(|_| top) {
             if let Some(n) = d.name() {
                 self.declared.insert(n.to_string());
+            }
+            if let Decl::Import { names, .. } = d {
+                self.declared.extend(names.iter().map(|n| n.alias.clone()));
             }
         }
         for d in ds {
@@ -641,16 +642,11 @@ impl Proj<'_> {
     fn import_decl(&mut self, d: &Decl, ind: &str) {
         let Decl::Import { names, from, line, resolved, declared, .. } = d else { return };
         let sp = d.span();
-        for n in names {
-            if builtin(&n.name) {
-                // the prelude's own (`import { log } from "./prelude"`)
-                self.declared.remove(&n.alias);
-            }
+        // the prelude's own (`import { log } from "./prelude"`)
+        for n in names.iter().filter(|n| in_prelude(d, &n.name)) {
+            self.used.insert(if n.name == n.alias { n.name.clone() } else { format!("{} as {}", n.name, n.alias) });
         }
-        for n in names.iter().filter(|n| builtin(&n.name)) {
-            self.used.insert(n.name.clone());
-        }
-        let rest: Vec<&ImportName> = names.iter().filter(|n| !builtin(&n.name)).collect();
+        let rest: Vec<&ImportName> = names.iter().filter(|n| !in_prelude(d, &n.name)).collect();
         if rest.is_empty() {
             return;
         }
@@ -869,7 +865,7 @@ impl Proj<'_> {
                 Code::new().at(&t, at)
             }
             ExprKind::Id(n) => {
-                if builtin(n) && !self.declared.contains(n) {
+                if language(n, self.declared.contains(n)).is_some() {
                     self.used.insert(n.clone());
                 }
                 let at = src_at(n);

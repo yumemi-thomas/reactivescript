@@ -213,6 +213,8 @@ pub enum Decl {
         fails: Option<Vec<String>>,
         /// an `.rx` import's module key (MO-1, set by the loader)
         resolved: Option<String>,
+        /// the scenario prelude's own module (`names.rs`)
+        prelude: bool,
         /// a JS import's declaration file (MO-8)
         declared: Option<String>,
         declared_errors: Option<Vec<String>>,
@@ -378,6 +380,21 @@ pub struct Program {
 pub fn exprs_mut(p: &mut Program, f: &mut dyn FnMut(&mut Expr, &[String])) {
     let mut w = Scoped { f, bound: vec![] };
     w.block(&mut p.decls, |w| w.markups(&mut p.view));
+}
+/// The names a body calls that nothing in it binds, its parameters included.
+pub fn free_calls(params: &[String], body: &[Stmt]) -> Vec<String> {
+    let mut out = vec![];
+    let mut f = |e: &mut Expr, bound: &[String]| {
+        if let ExprKind::Call { f, .. } = &e.k {
+            if let ExprKind::Id(n) = &f.k {
+                if !bound.contains(n) {
+                    out.push(n.clone());
+                }
+            }
+        }
+    };
+    Scoped { f: &mut f, bound: vec![] }.with(params, |w| w.stmts(&mut body.to_vec()));
+    out
 }
 struct Scoped<'f> {
     f: &'f mut dyn FnMut(&mut Expr, &[String]),
@@ -760,7 +777,7 @@ impl Decl {
                 ("type", os(ty)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, .. } => obj(vec![
+            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, prelude, .. } => obj(vec![
                 ("k", s("import")),
                 ("names", Some(Value::Array(names.iter().map(|n| obj(vec![("name", s(&n.name)), ("alias", s(&n.alias))])).collect()))),
                 ("from", s(from)),
@@ -769,6 +786,7 @@ impl Decl {
                 ("fails", fails.as_ref().map(|f| strs(f))),
                 ("side", side.map(|x| Value::String(x.as_str().into()))),
                 ("resolved", os(resolved)),
+                ("prelude", prelude.then_some(Value::Bool(true))),
                 ("declared", os(declared)),
                 ("declaredErrors", declared_errors.as_ref().map(|f| strs(f))),
                 (
