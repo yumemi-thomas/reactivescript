@@ -1593,8 +1593,8 @@ component that renders them (a route tree, `guide/libraries.md`).
 
 ### INSTANTIATION_NOT_BOUND
 
-A `fn` that declares state makes new state each time it is called, so its result is bound to a name, `x = f(…)`, and
-the name is read (E-9, RG-6).
+A `fn` that declares state makes new state each time it is called, and one that reads a context (`use`) reads it above
+the place it is called, so its result is bound to a name, `x = f(…)`, and the name is read (E-9, RG-6).
 
 ```rx before
 export default component App() {
@@ -1677,7 +1677,8 @@ export default component App() {
 ### CONTEXT_NOT_FOUND
 
 `use x` reads the nearest provision of context `x` above the region, and some path that renders it has none (RG-7b).
-Provide it above the component (`provide x = …`), or give the context a default (`context x: T = v`).
+Provide it above the component (`provide x = …`), or give the context a default (`context x: T = v`). A `fn` that uses
+a context is refused at its call, not at its own line: the provision goes above the component that calls it.
 
 For a JS library's hook (`uses(router)`), the provision is the library's provider. A page a file-based router renders
 has it from the host: `host.d.rx` says so (`provides(router)` on its view, spec/09 MO-14). Reported on `host.d.rx`,

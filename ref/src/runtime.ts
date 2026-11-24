@@ -3,6 +3,7 @@
 import { classMap } from "./style.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
+import { instantiates } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
 
 import { RuleError, CheckError } from "./errors.ts";
@@ -217,7 +218,7 @@ export class Runtime {
   }
   private fnBind(e: Expr, region: Region): { fn: FnDecl; home: Region } | null { if (e.k !== "call" || e.f.k !== "id") return null; const b = region.lookup(e.f.name); return b && "fn" in b ? b : null; }
   private fnOf(e: Expr, region: Region): FnDecl | null { return this.fnBind(e, region)?.fn ?? null; }
-  private isInstantiating(f: FnDecl) { return f.params.some(p => p.ref) || f.decls.length > 0; }
+  private isInstantiating(f: FnDecl) { return instantiates(f); }
   private instantiates(e: Expr, region: Region) { const f = this.fnOf(e, region); return !!f && this.isInstantiating(f); }
   private instantiateFn(call: Extract<Expr, { k: "call" }>, region: Region): Node {   // E-9 / RG-6
     const fb = this.fnBind(call, region)!; const f = fb.fn;

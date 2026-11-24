@@ -1091,7 +1091,7 @@ export discount: pending fails(Error | NotFound)
 export total
 export limit: io
 export pure fn qtyOf(id)
-export pure fn useLabel(ref amount: number, unit): pending fails(Error) rejects(Offline | Timeout) instantiates
+export pure fn useLabel(ref amount: number, unit): pending fails(Error) rejects(Offline | Timeout) instantiates uses(./ui.rx#who)
 export server fn add(id) rejects(Error)
 export server pure fn count()
 export action setCoupon
@@ -1163,7 +1163,9 @@ export component Q(props: { query: takes(data pending fails(Error), result.more 
       (rejects_clause
         (type_identifier)
         (type_identifier))
-      (row_word)))
+      (row_word)
+      (signature_uses
+        (context_key))))
   (signature_export
     (signature_fn
       (side)

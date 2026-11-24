@@ -4,6 +4,7 @@
 // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
+import { instantiates } from "../src/ast.ts";
 import { singleModule, isRx, madeComponent, ViewProps, type ModuleSet } from "../src/modules.ts";
 export { madeComponent };
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
@@ -158,7 +159,7 @@ class Gen {
       }
       if (x.k === "error") { env.vars.set(x.name, { kind: "val", js: mg(x.name) }); pre.push(`const ${mg(x.name)} = g$${x.name}(__rt);`); }
       if (x.k === "server" || (x.k === "eq" && unwrapServer(x.e))) env.vars.set(x.name, { kind: "val", js: this.serverNames.get(x.name)! });
-      if (x.k === "fn" && !x.params.some(p => p.ref) && !x.decls.length) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
+      if (x.k === "fn" && !instantiates(x)) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
     }
     for (const x of this.modDecls) if (x.k === "fn" && env.vars.get(x.name)?.fn === x) pre.push(this.fn(x, env, 0));   // declared again inside: the body is extracted with it (found by S-app-notes)
     const body = this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, 2);
@@ -186,7 +187,7 @@ class Gen {
     const js = mg(alias);
     if (!d) return { kind: "val", js };
     switch (d.k) {
-      case "fn": return { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js, fn: d };
+      case "fn": return { kind: instantiates(d) ? "ifn" : "fn", js, fn: d };
       case "component": return { kind: "comp", js: cm(alias) };
       case "action": return { kind: "act", js };
       case "eq": if (madeComponent(this.mods!.set.programs.get(path)!, name, this.mods!.set.declarations)) return { kind: "comp", js: cm(alias), shape: "comp" }; return { kind: "acc", js };   // MO-11j: a JS component, applied as JSX's <X />
@@ -255,7 +256,7 @@ class Gen {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
       if (d.k === "import") for (const { name, alias } of this.withMethods(d)) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; const dr = { ...(x?.kind === "fn" ? { ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.draftArgs ? { draftArgs: x.draftArgs } : {}) } : {}), ...(d.resolved ? {} : { jsFn: true }) };   /* MO-10i; jsFn: a JS module's name — a draft it is called with is lent, not given */ env.vars.set(alias, x?.kind === "fn" && instance(x, d.declared!, !!d.pure) ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value", ...dr } : x?.kind === "comp" ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client", ...dr }); }   // MO-10a; MO-11a: a JS component is a JSX tag
-      if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
+      if (d.k === "fn") env.vars.set(d.name, { kind: instantiates(d) ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
       if (d.k === "server") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
@@ -414,7 +415,7 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env);
     for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name) });
-    if (!d.params.some(p => p.ref) && !d.decls.length) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
+    if (!instantiates(d)) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
     const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return null;$/.test(l)).join("\n");
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;

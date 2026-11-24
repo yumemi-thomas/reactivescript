@@ -4,7 +4,7 @@
 //! `const`. Names are mangled (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The
 //! module is a tree (`js.rs`), never text (CP-3).
 
-use crate::ast::{Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
+use crate::ast::{instantiates, Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
@@ -537,7 +537,7 @@ impl<'p> Gen<'p> {
                     self.set(env, name, val(js));
                 }
                 // a value fn (SF-3: it reads nothing reactive)
-                Decl::Fn { name, params, decls: ds, .. } if !params.iter().any(|p| p.r#ref) && ds.is_empty() => {
+                Decl::Fn { name, params, decls: ds, tail, .. } if !instantiates(params, ds, tail) => {
                     let mut b = bind(Kind::Fn, mg(name));
                     b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(x as *const Decl) });
                     self.set(env, name, b);
@@ -749,8 +749,8 @@ impl<'p> Gen<'p> {
                         self.set(env, &n.alias, b);
                     }
                 }
-                Decl::Fn { name, params, decls: ds, .. } => {
-                    let mut b = bind(if params.iter().any(|p| p.r#ref) || !ds.is_empty() { Kind::Ifn } else { Kind::Fn }, mg(name));
+                Decl::Fn { name, params, decls: ds, tail, .. } => {
+                    let mut b = bind(if instantiates(params, ds, tail) { Kind::Ifn } else { Kind::Fn }, mg(name));
                     b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                     self.set(env, name, b);
                 }
@@ -1037,8 +1037,8 @@ impl<'p> Gen<'p> {
         }
         let Some(d) = self.set.programs.get(path).and_then(|p| p.decls.iter().find(|x| x.name() == Some(name))) else { return val(js) };
         match d {
-            Decl::Fn { params, decls, .. } => {
-                let mut b = bind(if params.iter().any(|p| p.r#ref) || !decls.is_empty() { Kind::Ifn } else { Kind::Fn }, js);
+            Decl::Fn { params, decls, tail, .. } => {
+                let mut b = bind(if instantiates(params, decls, tail) { Kind::Ifn } else { Kind::Fn }, js);
                 b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                 b
             }
@@ -1377,7 +1377,7 @@ impl<'p> Gen<'p> {
             self.set(inner, &p.name, bind(if p.r#ref { Kind::Acc } else { Kind::Val }, mg(&p.name)));
         }
         let ps: Vec<P> = params.iter().map(|p| P::Id(mg(&p.name))).collect();
-        if !params.iter().any(|p| p.r#ref) && decls.is_empty() {
+        if !instantiates(params, decls, tail) {
             let x = self.expr(tail, inner, &reactive())?;
             return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body: vec![S::Return(Some(x))], is_async: false, generator: false }));
         }

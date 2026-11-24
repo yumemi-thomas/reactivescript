@@ -6662,6 +6662,10 @@
         {
           "type": "signature_rows",
           "named": true
+        },
+        {
+          "type": "signature_uses",
+          "named": true
         }
       ]
     }

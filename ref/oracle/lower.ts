@@ -5,6 +5,7 @@
 import { classMap } from "../src/style.ts";
 import { inferredAction } from "../src/infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
+import { instantiates } from "../src/ast.ts";
 import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver } from "@solidjs/signals";
@@ -336,7 +337,7 @@ export class Oracle {
             break;
           }
           const fnDecl = this.fnOf(d.e, scope);
-          if (fnDecl && (fnDecl.params.some(p => p.ref) || fnDecl.decls.length > 0)) { scope.vars.set(d.name, { k: "memo", get: this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, fnDecl, scope) }); break; }   // RG-6
+          if (fnDecl && instantiates(fnDecl)) { scope.vars.set(d.name, { k: "memo", get: this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, fnDecl, scope) }); break; }   // RG-6
           if (d.e.k === "catch" && d.e.e.k === "await" && !d.deferred) {   // R-f-4 over a tail await: a matching rejection is the answer, where it is awaited (as the compiled `settle`)
             const c = d.e; const classes = this.classValues(c.classes, scope); const compute = this.computeOf(d.name, c.e, scope) as (p: unknown) => unknown;
             const alt = (err: unknown) => { const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return untrack(() => this.ev(c.alt, scope, en)); };

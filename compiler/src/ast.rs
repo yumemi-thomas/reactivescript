@@ -898,3 +898,20 @@ impl Program {
         obj(vec![("decls", Some(decls_json(&self.decls))), ("view", Some(markups_json(&self.view))), ("legacyView", self.legacy_view.map(Value::Bool))])
     }
 }
+
+/// A context read anywhere in it (`use c`, RG-7b).
+fn reads_context(n: crate::check::Node) -> bool {
+    use crate::check::Node;
+    matches!(n, Node::E(Expr { k: ExprKind::Use(_), .. }))
+        || matches!(n, Node::S(Stmt { k: StmtKind::Write { target, .. } | StmtKind::Optimistic { target, .. }, .. }) if target.is_ctx())
+        || crate::check::children(n, true).into_iter().any(reads_context)
+}
+/// E-9, RG-6: a call of a fn happens once, where it is written — it has a `ref` parameter, its body declares, or it reads
+/// a context (RG-7b: the provision above the region of the call, as MO-12b's `uses(c)` on a JS fn).
+pub fn instantiates(params: &[Param], decls: &[Decl], tail: &Expr) -> bool {
+    params.iter().any(|p| p.r#ref) || has_region(decls, tail)
+}
+/// RG-6a: its call is a region of its own.
+pub fn has_region(decls: &[Decl], tail: &Expr) -> bool {
+    !decls.is_empty() || reads_context(crate::check::Node::E(tail))
+}

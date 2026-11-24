@@ -5,6 +5,7 @@
 //   export source products: pending fails(Error) = …        a question (ST-5); `:= …` a plain source
 //   export discount: pending fails(Error)                   an equation; `io` when bound to an io value
 //   export pure fn qtyOf(id) rejects(Offline) instantiates  a fn (`ref` params; RG-6); `rejects(…)` absent: none
+//   export pure fn useForm() instantiates uses(./form.rx#form)   … and the contexts each call reads above it (RG-7b)
 //   export server fn add(id) rejects(Error)                 12 SF-1 (`server pure fn` when no io)
 //   export action setCoupon
 //   export error NotFound(id)
@@ -89,7 +90,7 @@ function line(file: string, name: string, x: ExportSig): string {
   switch (x.kind) {
     case "source": { const r = rows(x.rows, x.fails); return `export source ${name}${r ? `: ${r}` : ""} ${x.question ? "=" : ":="} …`; }
     case "eq": { const r = rows(x.io ? ["io", ...x.rows] : x.rows, x.fails); return `export ${name}${r ? `: ${r}` : ""}`; }
-    case "fn": { const r = rows(x.rows, x.fails); return `export pure fn ${name}(${x.params.map(p => (p.ref ? "ref " : "") + p.name + ((p as { type?: string }).type ? `: ${(p as { type?: string }).type}` : "")).join(", ")})${r ? `: ${r}` : ""}${x.rejects.length ? ` rejects(${x.rejects.join(" | ")})` : ""}${x.instantiating ? " instantiates" : ""}`; }
+    case "fn": { const r = rows(x.rows, x.fails); return `export pure fn ${name}(${x.params.map(p => (p.ref ? "ref " : "") + p.name + ((p as { type?: string }).type ? `: ${(p as { type?: string }).type}` : "")).join(", ")})${r ? `: ${r}` : ""}${x.rejects.length ? ` rejects(${x.rejects.join(" | ")})` : ""}${x.instantiating ? " instantiates" : ""}${x.uses?.length ? ` uses(${x.uses.map(k => relKey(file, k)).join(", ")})` : ""}`; }
     case "server": return `export server ${x.io ? "" : "pure "}fn ${name}(${x.params.join(", ")})${x.rejects.length ? ` rejects(${[...x.rejects].sort().join(" | ")})` : ""}`;
     case "action": return `export action ${name}`;
     case "errclass": return `export error ${name}(${x.params.join(", ")})`;
@@ -173,10 +174,10 @@ export function parseSignature(src: string, file: string): ModSig {
     if ((m = /^error\s+([A-Za-z_$][\w$]*)\s*(?:\(([^)]*)\))?$/.exec(s))) { exports.set(m[1], { kind: "errclass", params: (m[2] ?? "").split(",").map(x => x.trim()).filter(Boolean) }); return; }
     if ((m = /^source\s+([A-Za-z_$][\w$]*)\s*(?::(?!=)\s*(.*?))?\s*(:?=)\s*…$/.exec(s))) { const r = rowWords(m[2] ?? ""); if (r.rest) fail("a source's rows"); exports.set(m[1], { kind: "source", question: m[3] === "=", rows: r.rows, fails: r.fails }); return; }
     if ((m = /^server\s+(pure\s+)?fn\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$/.exec(s))) { exports.set(m[2], { kind: "server", io: !m[1], params: m[3].split(",").map(x => x.trim()).filter(Boolean), rejects: classesOf(m[4] ?? "") }); return; }
-    if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\))\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?$/.exec(s))) {
+    if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\))\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?\s*(?:uses\(([^)]*)\))?$/.exec(s))) {
       const params = split(m[2], ",").map(p0 => { const ref = /^ref\s/.test(p0); const p = ref ? p0.slice(4).trim() : p0; const c = p.indexOf(":"); return { name: (c < 0 ? p : p.slice(0, c)).trim(), ref, ...(c < 0 ? {} : { type: p.slice(c + 1).trim() }) }; });
       const r = rowWords(m[3] ?? ""); if (r.rest) fail("a fn's rows");
-      exports.set(m[1], { kind: "fn", params, instantiating: !!m[5], rows: r.rows, fails: r.fails, rejects: classesOf(m[4] ?? "") }); return;
+      exports.set(m[1], { kind: "fn", params, instantiating: !!m[5], rows: r.rows, fails: r.fails, rejects: classesOf(m[4] ?? ""), ...(m[6] ? { uses: m[6].split(",").map(k => absKey(file, k.trim())) } : {}) }); return;
     }
     if ((m = /^context\s+([A-Za-z_$][\w$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$/.exec(s))) {
       let body = (m[2] ?? "").trim(); const source = /^source\b/.test(body); if (source) body = body.slice(6).trim();

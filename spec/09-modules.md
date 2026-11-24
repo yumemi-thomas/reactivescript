@@ -71,7 +71,7 @@ The checker infers a signature for every export.
 | --- | --- |
 | `source x` | a read-only reactive name; its rows (`pending`, `lane`, `fails(…)`); whether it is a question |
 | `x = e` | its rows, including `io` when it is bound to an io value |
-| `fn f(ref a, b)` | its parameters (value or `ref`, E-9), whether it instantiates (RG-6), its rows, and what a promise it returns rejects with (R-f-8) |
+| `fn f(ref a, b)` | its parameters (value or `ref`, E-9), whether it instantiates (RG-6), its rows, what a promise it returns rejects with (R-f-8), and the contexts a call of it reads above it (RG-7b) |
 | `action f` | `io` (R-io-2); it never fails (R-f-6) |
 | `error C(…)` | an error class (R-f-1) |
 | `component C` | its **summary**, below |
@@ -364,7 +364,8 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   - a source's kind: `export source x … = …` asks a question (ST-5), `:= …`
     does not;
   - a fn's parameters (`ref`, with written types), `rejects(…)` (absent: it
-    returns nothing that rejects) and `instantiates` (RG-6);
+    returns nothing that rejects), `instantiates` (RG-6) and `uses(…)`
+    (RG-7b: the contexts each call reads above the place it is written);
   - `export server fn f(a)` (12 SF-1; `server pure fn` when it is not io);
   - per prop: `catches(*)` where every class is discharged, `provides(…)` for
     children (RG-7b), `unrendered` for a prop only an action reads, and the

@@ -103,6 +103,7 @@ module.exports = grammar(tsx, {
       optional(seq(':', $.signature_rows)),
       optional($.rejects_clause),
       optional(alias('instantiates', $.row_word)),
+      optional($.signature_uses),
     ),
     signature_parameter: $ => seq(optional($.ref_modifier), field('name', $.identifier), optional(seq(':', field('type', $.type)))),
     signature_rows: $ => repeat1(choice('io', 'pending', 'lane', $.fails_row)),

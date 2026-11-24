@@ -11754,6 +11754,18 @@
               "type": "BLANK"
             }
           ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "signature_uses"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         }
       ]
     },

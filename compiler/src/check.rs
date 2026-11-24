@@ -182,6 +182,8 @@ struct Region {
     key: Option<String>,
     /// MO-11u: a declared JS component some fn of its declaration `renders(…)` beneath: `declaration#Name`
     host_key: Option<String>,
+    /// RG-6a: the region of a fn's calls
+    fn_sym: Option<SId>,
 }
 
 #[derive(Clone)]
@@ -1683,6 +1685,7 @@ struct VTree {
     tag: String,
     kids: Vec<VTree>,
 }
+#[derive(Clone)]
 struct UseRec {
     region: RId,
     name: String,
@@ -1948,6 +1951,8 @@ pub struct Checker<'a> {
     line: i64,
     seq: usize,
     uses: Vec<UseRec>,
+    /// the calls of fns that instantiate, each in its region (RG-6a)
+    hook_calls: Vec<(RId, SId, i64, String)>,
     /// MO-10g: closures passed where a declared JS fn takes a callback
     callback_fns: HashSet<*const Expr>,
     /// MO-10i: closures passed where a JS fn's declaration makes their parameters drafts, with those positions
@@ -2347,6 +2352,7 @@ impl<'a> Checker<'a> {
             line: 1,
             seq: 0,
             uses: vec![],
+            hook_calls: vec![],
             callback_fns: HashSet::new(),
             draft_fns: HashMap::new(),
             fn_stack: vec![],
@@ -2432,7 +2438,7 @@ impl<'a> Checker<'a> {
         let r = self.regions.len();
         let depth = parent.map(|p| self.regions[p].depth + 1).unwrap_or(0);
         let comp = if component { Some(r) } else { parent.and_then(|p| self.regions[p].component) };
-        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, kids: None, js: false, sig: None, key: None, host_key: None });
+        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, kids: None, js: false, sig: None, key: None, host_key: None, fn_sym: None });
         self.model.region(id, kind, parent.map(|p| self.regions[p].id), name);
         r
     }
@@ -2811,9 +2817,9 @@ impl<'a> Checker<'a> {
                     sym.io = true; // R-io-2: an action is io
                     sym.arity = Some(params.len()); // AC-1f: its parameters
                 }
-                Decl::Fn { params, decls: fdecls, .. } => {
+                Decl::Fn { params, decls: fdecls, tail, .. } => {
                     sym.params = Some(params.iter().map(|p| SigParam { name: p.name.clone(), r#ref: p.r#ref, ty: p.ty.clone() }).collect());
-                    sym.instantiating = params.iter().any(|p| p.r#ref) || !fdecls.is_empty();
+                    sym.instantiating = instantiates(params, fdecls, tail);
                     sym.fn_decl = Some(d);
                     sym.decl_env = Some(env);
                 }
@@ -3010,13 +3016,14 @@ impl<'a> Checker<'a> {
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s
                 }
-                ExportSig::Fn { params, instantiating, rows, fails, rejects } => {
+                ExportSig::Fn { params, instantiating, rows, fails, rejects, uses } => {
                     let mut s = Sym::new(SymKind::Fn, alias, region, line);
                     s.params = Some(params.clone());
                     s.instantiating = *instantiating;
                     s.rows = Some(RowsT::Fixed(set(rows)));
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s.rejects = Some(set(rejects));
+                    s.needs = uses.clone();
                     s
                 }
                 ExportSig::Action => {
@@ -3570,7 +3577,7 @@ impl<'a> Checker<'a> {
                         Some((t, te)) => self.rejects(t, te, &mut HashSet::new()),
                         None => self.syms[s].rejects.clone().unwrap_or_default(),
                     };
-                    ExportSig::Fn { params: self.syms[s].params.clone().unwrap_or_default(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects) }
+                    ExportSig::Fn { params: self.syms[s].params.clone().unwrap_or_default(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone() }
                 }
                 SymKind::Action => ExportSig::Action,
                 SymKind::Server => {
@@ -3845,11 +3852,9 @@ impl<'a> Checker<'a> {
                                     self.unplaced(args, env, Some(fs)); // MO-11s, MO-11u
                                 }
                                 self.snapshot_args(e, fs, env);
-                                // MO-12b: a hook reads its context where it is called
+                                // RG-7b, MO-12b: a hook reads its context where it is called
                                 let region = self.reg(env);
-                                for k in self.syms[fs].needs.clone() {
-                                    self.uses.push(UseRec { region, name: k, line: self.line, display: format!("{}()", fname) });
-                                }
+                                self.hook_calls.push((region, fs, self.line, format!("{}()", fname)));
                                 let params = self.syms[fs].params.clone().unwrap_or_default();
                                 for (i, a) in args.iter().enumerate() {
                                     if params.get(i).is_some_and(|p| p.r#ref) {
@@ -3946,7 +3951,10 @@ impl<'a> Checker<'a> {
             }
             Decl::Fn { name, params, decls, tail, line, .. } => {
                 let region = self.reg(env);
-                let r = if !decls.is_empty() { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
+                let r = if has_region(decls, tail) { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
+                if r != region {
+                    self.regions[r].fn_sym = self.lookup(env, name);
+                }
                 let inner = self.env(Some(env), r);
                 for p in params {
                     if p.r#ref {
@@ -5929,7 +5937,7 @@ impl<'a> Checker<'a> {
                         None => kind == Some(SymKind::Fn) && instantiating,
                     };
                     if refused {
-                        self.err("INSTANTIATION_NOT_BOUND", "E-9", format!("{}(…) declares state: bind it, `x = {}(…)` (RG-6)", fname, fname));
+                        self.err("INSTANTIATION_NOT_BOUND", "E-9", format!("{}(…) declares state or reads a context: bind it, `x = {}(…)` (RG-6)", fname, fname));
                     }
                     if kind == Some(SymKind::Comp) {
                         self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} called as a function: apply it in a view", fname));
@@ -8280,6 +8288,53 @@ impl<'a> Checker<'a> {
         out
     }
 
+    /// RG-6a: a fn's `use` reads above the region of each call of it, so what it needs is a `use` there (MO-12b for a JS
+    /// hook) — in another fn, that fn's own need; in a component or a view, one like any.
+    fn hook_uses(&mut self) {
+        let own = std::mem::take(&mut self.uses);
+        let mut asked: IndexMap<SId, IndexSet<String>> = IndexMap::new();
+        for u in own {
+            self.ask_use(u, &mut asked);
+        }
+        let calls = self.hook_calls.clone();
+        loop {
+            let mut more = false;
+            for (region, f, line, display) in &calls {
+                let keys: Vec<String> = self.syms[*f].needs.iter().cloned().chain(asked.get(f).into_iter().flatten().cloned()).collect();
+                for k in keys {
+                    let shown = if k == HOLD { display.clone() } else { format!("{} (in {})", key_name(&k), display) };
+                    more |= self.ask_use(UseRec { region: *region, name: k, line: *line, display: shown }, &mut asked);
+                }
+            }
+            if !more {
+                break;
+            }
+        }
+        for (f, ks) in asked {
+            self.syms[f].needs = ks.into_iter().collect();
+            self.syms[f].needs.sort();
+        }
+    }
+    /// A use in its region: whether it is a new need of the fn it is in.
+    fn ask_use(&mut self, u: UseRec, asked: &mut IndexMap<SId, IndexSet<String>>) -> bool {
+        let mut r = Some(u.region);
+        let mut provided = false;
+        while let Some(i) = r {
+            provided |= self.regions[i].provides.contains(&u.name);
+            if let Some(f) = self.regions[i].fn_sym {
+                return !provided && asked.entry(f).or_default().insert(u.name);
+            }
+            if self.regions[i].is_component_root {
+                break;
+            }
+            r = self.regions[i].parent;
+        }
+        if !self.uses.iter().any(|x| x.region == u.region && x.name == u.name && x.line == u.line) {
+            self.uses.push(u);
+        }
+        false
+    }
+
     // ---- R-f-5/6 and RG-7b over the static application tree ----
     fn resolve_tree(&mut self) {
         let readers: Vec<(RId, &'a Expr, EId, i64)> = self.readers.iter().map(|r| (r.region, r.e, r.env, r.line)).collect();
@@ -8294,6 +8349,7 @@ impl<'a> Checker<'a> {
                 self.uses.push(UseRec { region, name: HOLD.into(), line, display: show(e) });
             }
         }
+        self.hook_uses();
         let apps: Vec<(usize, Vec<(String, &'a Expr, EId)>)> = self.apps.iter().enumerate().map(|(i, a)| (i, a.args.clone())).collect();
         let mut arg_r = vec![];
         for (i, args) in &apps {

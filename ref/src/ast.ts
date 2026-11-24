@@ -74,3 +74,11 @@ export type Markup = (
 ) & { line?: number };                                                                   // the source line, for diagnostics
 
 export type Program = { decls: Decl[]; view: Markup[]; legacyView?: boolean };   // a reactive block: declarations, then its view. A module's view is `<App />` for its default component (MO-1c); legacyView: markup written at the top level (refused, TOP_LEVEL_MARKUP)
+
+/** A context read anywhere in it (`use c`, RG-7b). */
+const readsContext = (x: unknown): boolean => x !== null && typeof x === "object" && ((x as { k?: string }).k === "use" || (x as { ctx?: boolean }).ctx === true || Object.values(x).some(readsContext));
+/** E-9, RG-6: a call of it happens once, where it is written — it has a `ref` parameter, its body declares, or it reads a
+ *  context (RG-7b: the provision above the region of the call, as MO-12b's `uses(c)` on a JS fn). */
+export const instantiates = (f: Extract<Decl, { k: "fn" }>): boolean => f.params.some(p => p.ref) || hasRegion(f);
+/** RG-6a: its call is a region of its own. */
+export const hasRegion = (f: Extract<Decl, { k: "fn" }>): boolean => f.decls.length > 0 || readsContext(f.tail);

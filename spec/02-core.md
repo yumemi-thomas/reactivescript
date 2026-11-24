@@ -216,8 +216,8 @@ Function application `f(e…)` covers both language functions and FFI imports;
   inside the body. A call with only value parameters is **lifted** (E-2): it
   is an equation over its arguments' inputs and re-evaluates with them. A call
   to a function with any `ref` parameter, or whose body declares a source,
-  effect, or region, is an **instantiation** (03 RG-6): it happens once at the
-  call site. In an instantiation, value arguments are snapshots (E-4) and ref
+  effect, or region, or reads a context (`use`, 03 RG-7b), is an
+  **instantiation** (03 RG-6): it happens once at the call site. In an instantiation, value arguments are snapshots (E-4) and ref
   arguments are passed as equations.
 - **E-11 (Lazy conditional).** In `c ? a : b` as an expression, only
   the selected arm is demanded; the equation's inputs are `c`'s plus the

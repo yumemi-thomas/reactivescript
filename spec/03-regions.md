@@ -191,6 +191,14 @@ palette = (use theme).palette           // used: in any region beneath — the n
   default, `context density: number = 1`, which is the value where nothing
   above provides it. A component body sees the caller's provisions, never
   the caller's locals.
+  *In a fn (2026-11-24).* A call of a fn is a region of the caller's
+  (RG-6a), so its `use` reads above each place it is called: `fn useForm() {
+  f = use form; f }` is checked at its calls, through other fns, modules and
+  signatures (`uses(…)`, 09 MO-9b), as a JS hook's is (MO-12b), and a fn
+  never called is checked nowhere. A fn that reads a context instantiates
+  (E-9, MO-12b's rule), whether or not its body declares: lifted, its `use`
+  had no region to read above — the client took the default, the server
+  the provision.
 - **RG-7c (Writing through a provision) — withdrawn 2026-10-31.** A
   context is read beneath its provision; `use x := …` is
   `WRITE_TO_NON_SOURCE` (O-4) and `context x: source T` is

@@ -7,6 +7,11 @@
 - **Fixed: an effect lost its listener** (02 EF-5; `scenarios/S-effect-cleanup-1`): when an input was computed again to the
   value the block last received, its cleanup ran and the block did not. The cleanup now runs before the block's next run and
   when its region ends, and at no other time. Upgrade `@reactivescript/runtime`.
+- **Fixed: a fn that reads a context was refused** (03 RG-7b, 02 E-9; `scenarios/S-context-2`): `fn useForm() { f = use form;
+  f }` was `CONTEXT_NOT_FOUND` at its own line whatever its callers provide. It is now checked at each call, through other
+  fns, modules and packages (a printed signature's `uses(…)`, 09 MO-9b), as a JS hook is. **Stricter:** a fn that reads a
+  context and declares nothing (`fn label() => use locale`) instantiates too, so its call is bound: called inline, it read
+  the default in the browser and the provision on the server.
 
 **The language's own constructors, by one table** (tooling/rx-language-server/DECLARATIONS.md, *What a constructor runs*; spec/09 MO-8v)
 

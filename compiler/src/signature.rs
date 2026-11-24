@@ -110,7 +110,8 @@ pub struct SigParam {
 pub enum ExportSig {
     Source { question: bool, rows: Vec<String>, fails: Vec<String> },
     Eq { rows: Vec<String>, fails: Vec<String>, io: bool },
-    Fn { params: Vec<SigParam>, instantiating: bool, rows: Vec<String>, fails: Vec<String>, rejects: Vec<String> },
+    /// `uses`: RG-7b, the contexts a call of it reads above the place it is written (keys)
+    Fn { params: Vec<SigParam>, instantiating: bool, rows: Vec<String>, fails: Vec<String>, rejects: Vec<String>, uses: Vec<String> },
     Action,
     Server { io: bool, params: Vec<String>, rejects: Vec<String> },
     ErrClass { params: Vec<String> },
@@ -304,13 +305,14 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
             }
             with_rows(format!("export {}", name), rows(&rr, fails))
         }
-        ExportSig::Fn { params, instantiating, rows: r, fails, rejects } => {
+        ExportSig::Fn { params, instantiating, rows: r, fails, rejects, uses } => {
             let ps: Vec<String> = params.iter().map(|p| format!("{}{}{}", if p.r#ref { "ref " } else { "" }, p.name, p.ty.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())).collect();
             format!(
-                "{}{}{}",
+                "{}{}{}{}",
                 with_rows(format!("export pure fn {}({})", name, ps.join(", ")), rows(r, fails)),
                 if rejects.is_empty() { String::new() } else { format!(" rejects({})", rejects.join(" | ")) },
-                if *instantiating { " instantiates" } else { "" }
+                if *instantiating { " instantiates" } else { "" },
+                if uses.is_empty() { String::new() } else { format!(" uses({})", uses.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) }
             )
         }
         ExportSig::Server { io, params, rejects } => format!(
@@ -412,7 +414,7 @@ re!(T_ACTION, r"^action\s+([A-Za-z_$][A-Za-z0-9_$]*)$");
 re!(T_ERROR, r"^error\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\(([^)]*)\))?$");
 re!(T_SOURCE, r"^source\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::([^=].*?)?)??\s*(:?=)\s*…$");
 re!(T_SERVER, r"^server\s+(pure\s+)?fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$");
-re!(T_FN, r"^pure\s+fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\))\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?$");
+re!(T_FN, r"^pure\s+fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\))\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?\s*(?:uses\(([^)]*)\))?$");
 re!(T_CONTEXT, r"^context\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$");
 re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(props:\s*(\{.*?\}|\{\})\)(.*)$");
 re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
@@ -586,7 +588,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             if !r.rest.is_empty() {
                 return Err(fail("a fn's rows"));
             }
-            exports.insert(m[1].to_string(), ExportSig::Fn { params, instantiating: m.get(5).is_some(), rows: r.rows, fails: r.fails, rejects: classes_of(m.get(4).map(|x| x.as_str()).unwrap_or("")) });
+            exports.insert(m[1].to_string(), ExportSig::Fn { params, instantiating: m.get(5).is_some(), rows: r.rows, fails: r.fails, rejects: classes_of(m.get(4).map(|x| x.as_str()).unwrap_or("")), uses: m.get(6).map(|u| u.as_str().split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect()).unwrap_or_default() });
             continue;
         }
         if let Some(m) = T_CONTEXT.captures(&s) {

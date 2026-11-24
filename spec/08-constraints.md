@@ -310,7 +310,8 @@ How each enforcer is realised:
   the names available in a region are its own provisions plus, for a
   component, the intersection over every place it is applied; children
   passed to a component are owned where it reads them, so they see its
-  provisions. A component never applied, or applied only recursively, is
+  provisions. What a fn uses and does not provide itself is used at each
+  call of it. A component never applied, or applied only recursively, is
   undecidable and not checked (the runtime's `ContextNotFound` remains).
 
 - **Failures (CN-6)** are recorded during the walk and resolved after it,

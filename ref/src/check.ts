@@ -3,6 +3,7 @@
 // is the spec rule enforced. Names resolve lexically (a component body sees its declaration
 // site, never its caller — RG-7a); provisions resolve through the static application tree (RG-7b).
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
+import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import { splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
@@ -31,6 +32,7 @@ type Region = {
   parent: Region | null;               // lexical
   component: Region | null;            // nearest enclosing component root (possibly self)
   isComponentRoot: boolean;
+  fn?: Sym;                            // RG-6a: the region of a fn's calls
   provParent: Region | null;           // where provisions come from when not a component root (children: the component's root)
   appSites: Region[];                  // component roots: the regions it is applied in
   provides: Set<string>;
@@ -68,6 +70,7 @@ const siteKeyOf = (x: HostSite) => { const ck = (c: Catch) => c === "all" ? "*" 
 const joinCatch = (a: Catch, b: Catch): Catch => a === "all" || b === "all" ? "all" : new Set([...a, ...b]);
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
+type Use = { region: Region; name: string; line: number; display: string };
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
 const addF = (a: Fails, b: Fails) => { for (const x of b.cls) a.cls.add(x); a.props.push(...b.props); return a; };
 const catchOf = (classes?: string[]): Catch => classes ? new Set(classes) : "all";
@@ -574,7 +577,7 @@ const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 export type ExportSig =
   | { kind: "source"; question: boolean; rows: string[]; fails: string[] }
   | { kind: "eq"; rows: string[]; fails: string[]; io: boolean }
-  | { kind: "fn"; params: { name: string; ref: boolean }[]; instantiating: boolean; rows: string[]; fails: string[]; rejects: string[] }
+  | { kind: "fn"; params: { name: string; ref: boolean }[]; instantiating: boolean; rows: string[]; fails: string[]; rejects: string[]; /** RG-7b: the contexts a call of it reads above the place it is written (keys) */ uses?: string[] }
   | { kind: "action" }
   | { kind: "server"; io: boolean; params: string[]; rejects: string[] }   // 12 SF-1c
   | { kind: "errclass"; params: string[] }
@@ -680,7 +683,8 @@ class Checker {
   constructor(opts: Opts = {}) { this.opts = opts; }
   private line = 1;
   private seq = 0;
-  private uses: { region: Region; name: string; line: number; display: string }[] = [];   // name: the context's key
+  private hookCalls: { region: Region; fn: Sym; line: number; display: string }[] = [];   // the calls of fns that instantiate, each in its region (RG-6a)
+  private uses: Use[] = [];   // name: the context's key
   // R-f: recorded during the walk, resolved after it (every symbol's thunks exist by then)
   private readers: { region: Region; e: Expr; env: Env; line: number }[] = [];
   // CN-3e: `loading on(…)` regions (the region made, its `on`) and effect inputs, by where they are
@@ -955,7 +959,7 @@ class Checker {
       if (d.k === "source") sym.question = !!d.question;
       if ((d.k === "source" || d.k === "eq") && d.key !== undefined) sym.rowKey = d.key;   // ST-4d: what its rows are keyed by
       if (d.k === "action") { sym.io = true; sym.arity = d.params.length; }                 // R-io-2: an action is io; AC-1f: its parameters
-      if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
+      if (d.k === "fn") { sym.params = d.params; sym.instantiating = instantiates(d); sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); sym.compRegion.key = `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${sym.compRegion.id}` : ""}`; }   // E-5a
       if (d.k === "eq") sym.eqDecl = d;
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); sym.eqExpr = { e: d.e, env }; sym.val = { e: d.e, env }; }   // MO-10k
@@ -1017,7 +1021,7 @@ class Checker {
       switch (x.kind) {
         case "source": sym = { kind: "source", name: alias, region: env.region, line: d.line, question: x.question, imported: d.from, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
         case "eq": sym = { kind: "eq", name: alias, region: env.region, line: d.line, io: x.io, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
-        case "fn": sym = { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params, instantiating: x.instantiating, rows: rowsOf(x.rows), failsT: failsOf(x.fails), rejects: new Set(x.rejects) }; break;
+        case "fn": sym = { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params, instantiating: x.instantiating, ...(x.uses ? { needs: x.uses } : {}), rows: rowsOf(x.rows), failsT: failsOf(x.fails), rejects: new Set(x.rejects) }; break;
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
@@ -1217,7 +1221,7 @@ class Checker {
       switch (s.kind) {
         case "source": exports.set(d.name, { kind: "source", question: !!s.question, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls) }); break;
         case "eq": exports.set(d.name, { kind: "eq", rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), io: !!s.io }); break;
-        case "fn": exports.set(d.name, { kind: "fn", params: s.params ?? [], instantiating: !!s.instantiating, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), rejects: arr(s.fnTail && s.fnEnv ? this.rejects(s.fnTail, s.fnEnv, new Set()) : s.rejects) }); break;
+        case "fn": exports.set(d.name, { kind: "fn", params: s.params ?? [], instantiating: !!s.instantiating, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), rejects: arr(s.fnTail && s.fnEnv ? this.rejects(s.fnTail, s.fnEnv, new Set()) : s.rejects), ...(s.needs?.length ? { uses: s.needs } : {}) }); break;
         case "action": exports.set(d.name, { kind: "action" }); break;
         case "server": exports.set(d.name, { kind: "server", io: !!s.io, params: (s.params ?? []).map(p => p.name), rejects: arr(s.serverRejects?.()) }); break;
         case "errclass": exports.set(d.name, { kind: "errclass", params: d.k === "error" ? d.params : [] }); break;
@@ -1308,7 +1312,7 @@ class Checker {
         if (d.e.k === "id" || d.e.k === "member" || d.e.k === "index") this.wholeOk.add(d.e);   // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
         { const ps = this.updaterPositions(d.name, d.line, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
           if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
-        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env, f);   /* MO-11s, MO-11u */ this.snapshotArgs(call, f, env); for (const k of f.needs ?? []) this.uses.push({ region: env.region, name: k, line: this.line, display: `${d.e.f.name}()` });   /* MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
+        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env, f);   /* MO-11s, MO-11u */ this.snapshotArgs(call, f, env); this.hookCalls.push({ region: env.region, fn: f, line: this.line, display: `${d.e.f.name}()` });   /* RG-7b, MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
@@ -1356,7 +1360,7 @@ class Checker {
         return;
       }
       case "fn": {
-        const r = d.decls.length ? this.region(env.region, "fn", { name: d.name }) : env.region;                     // RG-6: an instantiating fn is a region
+        const r = hasRegion(d) ? this.region(env.region, "fn", { name: d.name }) : env.region; if (r !== env.region) r.fn = env.lookup(d.name)!;                     // RG-6: an instantiating fn is a region
         const inner = new Env(env, r);
         const me = env.lookup(d.name);
         for (const p of d.params) this.bind(inner, p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line, param: true });
@@ -2265,7 +2269,7 @@ class Checker {
             else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${e.f.name}(…) is io and is called in reactive scope (R-io-3)${s?.ioVia ? ` — its server body calls ${s.ioVia}` : ""}${s?.generated ? ` — its declaration is a draft generated from ${s.generated}'s types, which never guesses \`pure\`: if calling it writes nothing, say so at the import, \`import pure { … }\`, or declare it \`pure fn\` in rx-types/${s.generated}.d.rx (MO-8l)` : ""}`);
           }
           if (s?.side === "client" && ctx.scope === "reactive" && !ctx.server && !this.awaitedCalls.has(e)) this.err("CLIENT_NOT_AWAITED", "SF-5b", `${e.f.name}(…) is \`client\` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now`);
-          if (s?.generated && ctx.scope === "imperative" ? s.makes && !this.refCalls.has(e) : s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
+          if (s?.generated && ctx.scope === "imperative" ? s.makes && !this.refCalls.has(e) : s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state or reads a context: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
           if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.f.name} called as a function: apply it in a view`);
           this.markCallbacks(e.args, s?.cbs);
           if (s?.kind === "action" && s.arity !== undefined && e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
@@ -3061,6 +3065,15 @@ class Checker {
     const firstMemo = new Map<Sym, boolean>();
     const firstHeld = (e: Expr, env: Env) => !!this.opts.spa && this.firstAbsent(e, env, undefined, firstMemo, new Set());   // CN-3d: what the first load surely waits on
     for (const r of this.readers) if (this.rowsThunk(r.e, r.env)().has("client") || firstHeld(r.e, r.env)) this.uses.push({ region: r.region, name: HOLD, line: r.line, display: show(r.e) });   // SV-7b
+    // RG-6a: a fn's `use` reads above the region of each call of it, so what it needs is a `use` there (MO-12b for a JS
+    // hook) — in another fn, that fn's own need; in a component or a view, one like any
+    { const own: Use[] = this.uses.splice(0);
+      const fnAt = (R: Region): { fn: Sym; provides: Set<string> } | null => { const provides = new Set<string>(); for (let r: Region | null = R; r; r = r.parent) { for (const p of r.provides) provides.add(p); if (r.fn) return { fn: r.fn, provides }; if (r.isComponentRoot) return null; } return null; };
+      const asked = new Map<Sym, Set<string>>();
+      const ask = (u: Use): boolean => { const at = fnAt(u.region); if (!at) { if (!this.uses.some(x => x.region === u.region && x.name === u.name && x.line === u.line)) this.uses.push(u); return false; } if (at.provides.has(u.name)) return false; const s = asked.get(at.fn) ?? asked.set(at.fn, new Set()).get(at.fn)!; if (s.has(u.name)) return false; s.add(u.name); return true; };
+      for (const u of own) ask(u);
+      for (let more = true; more;) { more = false; for (const c of this.hookCalls) for (const k of [...(c.fn.needs ?? []), ...(asked.get(c.fn) ?? [])]) if (ask({ region: c.region, name: k, line: c.line, display: k === HOLD ? c.display : `${keyName(k)} (in ${c.display})` })) more = true; }
+      for (const [f, ks] of asked) f.needs = [...ks].sort(); }
     const argR = this.apps.flatMap(a => a.args.filter(x => this.rowsThunk(x.e, x.env)().has("client") || firstHeld(x.e, x.env)).map(x => ({ app: a, field: x.field })));
     const argF = this.apps.flatMap(a => a.args.map(x => ({ app: a, field: x.field, f: this.failsOf(x.e, x.env, false, new Map()) })));
     const actF = this.actions.map(a => ({ ...a, f: this.stmtsFails(a.body, a.env, new Map()) }));
