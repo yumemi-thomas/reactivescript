@@ -768,7 +768,7 @@ const CALLED = /^(get|is|has|can|should|will|to|as|find|make|create|use|on|do|ru
 /** MO-10b, MO-10k: a result's type a step at a time, where the library declares a small object — every field it has, an
  *  accessor `ref`, a function with what it answers — or an instance of a class, by the methods that answer nothing or
  *  a primitive (the object stays the library's own: no accessor part is declared on it). undefined: not such a type. */
-function structural(ts, checker, t, depth = 0, here) {
+function structural(ts, checker, t, depth = 0, here, refs = depth === 0) {   // `refs`: its fields are where `ref` is read
   const at = q => here && CTX.refs ? `${present(checker, t, here)}[${JSON.stringify(q.name)}]` : undefined;
   const u = checker.getNonNullableType(t);
   if (!(u.flags & ts.TypeFlags.Object) || u.getCallSignatures().length || checker.isTupleType(u) || checker.isArrayType(u)) return undefined;
@@ -788,7 +788,7 @@ function structural(ts, checker, t, depth = 0, here) {
     if (isDisposer(ts, checker, qt)) return "() => void";
     const read = accessorOf(ts, checker, qt);
     // MO-10b: only the result's own fields are declared accessors; one nested deeper is a value — the function it is
-    if (read && depth > 0) return `() => ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
+    if (read && !refs) return `() => ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
     if (read) return CALLED.test(q.name) ? `() => ${(st => st ? st + nullish(ts, read) : text(ts, checker, read))(structural(ts, checker, read, depth + 1))}` : `ref ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
     if (isFn(checker, qt)) return fnResultText(ts, checker, qt, at(q));
     const st = depth < 2 ? structural(ts, checker, qt, depth + 1, at(q)) : undefined;
@@ -847,9 +847,11 @@ function resultText(ts, checker, t, todos, generic = false, here, node) {
   if (/^Promise</.test(checker.typeToString(t))) todos.push("what does its promise reject with? add rejects(<classes>) (default Error)");
   else {
     if (ownObject(ts, t, checker)) todos.push("is the result a store with fields that wait or throw when read? a row cannot say so (MO-8r): hand each such field out as a function from a module of the app's own, declared `pending fails(Error) ref` (MO-10l)");
+    // (one that may be absent, `{ … } | null`, is no record to the notation: `ref` is read in the record alone, so its
+    // accessors are the functions they are)
     // what the type does not say as text (it names the library's own types) is said a step at a time
     // MO-8o: a result the library names is written by that name, unless its parts say what the checker reads
-    if (unsaid(ts, checker, t)) { const st = structural(ts, checker, t, 0, here); if (st && !(CTX.decl && !introduced(s) && (introduced(st) || (CTX.whole && byPlace(st)) || (!EVIDENCE.test(st) && (!byPlace(s) || byPlace(st)))))) { s = st + nullish(ts, t); if (/\bref /.test(st)) todos.push("its fields drafted `ref` are read as values (`x.items`); one the app calls instead (`x.items()`) is a function, `() => T` (MO-10b)"); } }
+    if (unsaid(ts, checker, t)) { const st = structural(ts, checker, t, 0, here, !nullish(ts, t)); if (st && !(CTX.decl && !introduced(s) && (introduced(st) || (CTX.whole && byPlace(st)) || (!EVIDENCE.test(st) && (!byPlace(s) || byPlace(st)))))) { s = st + nullish(ts, t); if (/\bref /.test(st)) todos.push("its fields drafted `ref` are read as values (`x.items`); one the app calls instead (`x.items()`) is a function, `() => T` (MO-10b)"); } }
   }
   return s;
 }
