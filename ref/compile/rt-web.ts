@@ -33,11 +33,33 @@ const inputWhole = (v: unknown, seen = new Set<unknown>()): unknown => {
   for (const k of Object.keys(v)) { const d = Object.getOwnPropertyDescriptor(v, k)!; if (d.get || d.value === null || typeof d.value !== "object") continue; const w = inputWhole(d.value, seen); if (w !== d.value) { if (out === v) out = Array.isArray(v) ? [...v] : { ...v }; out[k] = w; } }
   return out;
 };
-/** ST-2a, C-2: the whole of a source or a projection — one store, whose root a write or an answer replaces where it stands. What
- *  an equation keeps of one (`[...(pre seen -> []), tags]`, a companion's last value) is a copy of the root. */
+/** ST-2a, C-2: the whole of a source or a projection — one store, whose root a write or an answer replaces where it stands, and
+ *  whose insides a path write changes. What an equation keeps of one (`[...(pre seen -> []), tags]`, a companion's last
+ *  value) is a copy of it as it is now, read whole, so that a change inside is a change of it. */
 const roots = new WeakSet<object>();
+const byPosition = new WeakSet<object>();                                 // the roots a write replaces by position: a source with no key (ST-4a)
+const unkeyed = (v: unknown): unknown => v !== null && typeof v === "object" && byPosition.has(v) ? whole(v) : v;
 const rooted = <T extends object>(s: T): T => { roots.add(s); return s; };
-const kept = (v: unknown): unknown => v !== null && typeof v === "object" && roots.has(v) ? Array.isArray(v) ? [...v] : { ...v } : v;
+const copiedFrom = new WeakMap<object, object>();                        // a copy, and the store's own value it was made of
+const whole = (v: any, seen = new Map<object, unknown>()): unknown => {
+  if (v === null || typeof v !== "object" || v[$TARGET] === undefined) return v;
+  if (seen.has(v)) return seen.get(v);
+  const out: any = Array.isArray(v) ? [] : {}; seen.set(v, out); copiedFrom.set(out, v);
+  for (const k of Object.keys(v)) out[k] = whole(v[k], seen);
+  return out;
+};
+const kept = (v: unknown): unknown => v !== null && typeof v === "object" && roots.has(v) ? whole(v) : v;
+/** C-2: a kept copy, with what has not changed since as the store's own value (a row of `pre rows` is the row, while it is what it was). */
+const asItWas = (c: any, at = new Map<object, unknown>()): unknown => {
+  const live: any = c !== null && typeof c === "object" ? copiedFrom.get(c) : undefined; if (live === undefined) return c;
+  if (at.has(c)) return at.get(c);
+  at.set(c, live);
+  const keys = Object.keys(c), now: any = {}; let same = !roots.has(live) && Object.keys(live).length === keys.length;
+  for (const k of keys) { now[k] = asItWas(c[k], at); if (!Object.is(now[k], live[k])) same = false; }
+  if (same) return live;
+  const out: any = Array.isArray(c) ? Object.assign([], now) : now; at.set(c, out);
+  return out;
+};
 const latestWhole = (v: unknown) => v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v;
 /** EF-2: effect inputs compare as values: arrays and plain objects (a store's snapshot) by their contents. */
 const sameInput = (a: unknown, b: unknown): boolean => {
@@ -258,7 +280,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     source(name: string, init: unknown, guessed = false, key?: string): [Acc, Writer] {
       oneKeyEach(name, key, init);
       if (typeof init === "object" && init !== null) {
-        const [store, setStore] = createStore(init as any); rooted(store as object); const [get, set] = createSignal<unknown>(store);
+        const [store, setStore] = createStore(init as any); rooted(store as object); if (key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
         const w: Writer = {
           // (ST-4d in development: the rows an updater answers, or leaves in its draft, and the rows a write gives)
           set: v => { if (typeof v === "function") { setStore(DEV && key !== undefined ? ((d: unknown) => { const r = (v as (x: unknown) => unknown)(d); oneKeyEach(name, key, r === undefined ? d : r); return r; }) as any : v as any); set(store); } else if (typeof v === "object" && v !== null) { oneKeyEach(name, key, v); setStore(key !== undefined ? reconcile(v as any, key) as any : () => v as any); set(store); } else set(v); },
@@ -266,7 +288,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
         if (guessed) {                                                    // createOptimisticStore(() => truth) over createStore(v)
-          const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view);
+          const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view); if (key === undefined) byPosition.add(view);
           const acc = () => view; storeAccs.add(acc);
           return [acc, { ...w, guess: guessInto(setView) }];
         }
@@ -328,11 +350,11 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     lend: (v: unknown, to: string): unknown => lent(copyOf(v, new Map()), to),
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
-    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => { const rows = fn(); oneKeyEach(name, key, rows); return rows; }) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); rooted(p as object); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
+    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => { const rows = unkeyed(fn()); oneKeyEach(name, key, rows); return rows; }) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); rooted(p as object); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); rooted(p as object); return () => p; },
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */
-    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: kept(get()), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
+    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: kept(get()), prev: st ? asItWas(st.cur) : undefined })); return () => (m() as { prev: unknown }).prev; },
     kept,
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
     /** `effect (…) { … }`: compute, then apply; fires on a differing value (EF-2); an input that failed doesn't fire it (EF-2a: the failure shows where it's read), and the next answer does; a store enters whole, as a snapshot. */

@@ -57,4 +57,4 @@ export default component App() {
 
 **Fix in this branch.** f9ab9ba: what is kept is a copy of the root (`__rt.kept`). The interpreter computes an equation over its own last value once an instant. Copying costs the length of the list at each change, for an equation that uses `pre` alone.
 
-**Test.** S-pre-1, S-pre-2. For the path write (7068a05): what is kept is read whole and copied, and what has not changed since is handed out as the store's own value (a row of `pre rows` is the row). `pre` of a name for a *part* of a store (`x = value.outer; pre x`) still misses it. (Known gap.)
+**Test.** S-pre-1, S-pre-2. For the path write (7068a05, and the browser runtime in the commit after 12ce308): what is kept is read whole and copied, and what has not changed since is handed out as the store's own value (a row of `pre rows` is the row). `pre` of a name for a *part* of a store (`x = value.outer; pre x`) still misses it. (Known gap.)
