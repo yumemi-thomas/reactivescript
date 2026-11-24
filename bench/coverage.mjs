@@ -36,6 +36,7 @@ const draft = spec => new Promise(res => {
 const cols = [["good", "accepted"], ["types", "types"], ["runtime", "runs"], ["bad", "bad caught"]];   // bad: an entry's own one-line mistakes (`bad` in its use.mjs), judged as a task's are
 
 export async function runCoverage({ filters = [], check = false, strict = false, write = false, shard = null } = {}) {
+  process.env.RX_CHECKERS ??= "1";   // the entries run beside each other already: a draft's readings are checked in turn
   const all = entries();
   // `--shard i/n` (CI: the suite over several machines): every n-th entry, and every n-th module no entry drafts. What
   // an entry drafts and imports is read off its `use.mjs`, so the list (below) is held whole by every shard

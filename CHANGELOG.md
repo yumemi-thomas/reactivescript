@@ -14,7 +14,7 @@
   it writes no `.tsbuildinfo`. An option's error names the option, without its place in the tsconfig.json.
 - **Changed: Node 20.19, 22.12 or later** for `@reactivescript/language-server` (it was 18).
 - **Changed: `rx-tsc --watch` reports what `rx-tsc` reports** (it reported TypeScript's errors alone).
-- **Faster.** `rx-tsc` on a small project: 1.1 s to 0.3 s. `rx-declare @ui-sdk/solid`: 94 s to 30 s. The candidate readings of a large
+- **Faster.** `rx-tsc` on a small project: 0.54 s to 0.25 s; on one with a large library, 1.7 s to 0.6 s. `rx-declare @ui-sdk/solid`: 115 s to 30 s (both on a busy machine). The candidate readings of a large
   draft are checked in parallel (`RX_CHECKERS`: how many workers; the draft is the same for any number).
 - **Known: TypeScript 7.1 beta refuses some correct programs TypeScript 6 accepts** — a value of a generic function type
   that writes a conditional over its own type parameter, assigned to that same type (microsoft/TypeScript#64673, fixed by
