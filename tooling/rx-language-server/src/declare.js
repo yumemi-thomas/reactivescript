@@ -1134,7 +1134,9 @@ function declare(ts, spec, from, options = {}, how = {}) {
     // leaves the fewest `any`s (the earlier of two alike), and the row every draft had where it holds none
     const strip = ls => ls.map(l => l.replace(MARK, ""));
     const group = ls => { const by = new Map(); for (const l of ls) { const n = exportedIn(l); if (n) by.set(n, [...(by.get(n) ?? []), l]); } return by; };
-    const check = r => require("./declare-check.js").failing([...out, ...r.out, ...strip(r.lines)].join("\n") + "\n", out.length + r.out.length, strip(r.lines), spec, from, opts, lib);
+    const { Pool } = require("./declare-pool.js"), pool = new Pool();
+    const start = r => { const rows = strip(r.lines), text = [...out, ...r.out, ...rows].join("\n") + "\n"; return pool.start([text, out.length + r.out.length, rows, spec, from, opts, lib], text.length); };
+    const check = r => start(r)();
     const fall = (r, bad, to) => { const by = group(to); const kept = [], done = new Set(); for (const l of r.lines) { const n = exportedIn(l); if (!n || !bad.has(n)) kept.push(l); else if (!done.has(n)) { done.add(n); kept.push(...(by.get(n) ?? [])); } } return { ...r, lines: kept }; };
     // fewest `any`s of the draft's own (MO-8q: the library's are not the draft's), then fewest parts said by their place
     const anys = (ls, mode) => introduced(ls.join("\n")) * 1000 + (ls.join("\n").match(/\b(?:Parameters|ReturnType)</g) ?? []).length + (mode?.whole ? 500 : 0);   // the last reading says least: only before an `any`
@@ -1144,7 +1146,16 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const MODES = [{ generics: true, paths: true, decl: true, named: true }, { generics: true, paths: true, decl: true }, { generics: true, paths: false, decl: true }, { generics: true, paths: true }, { generics: true, paths: false }, { generics: false, paths: true }, { generics: false, paths: false }, { generics: false, paths: true, decl: true, whole: true }];
     // (a reading is made when it is asked for: where the first holds whole — most modules — the other seven are not)
     const cands = [], bads = [];
-    for (const mode of MODES) { const r = rows(mode); cands.push(r); const b = check(r); if (!b) break; bads.push(b); if (!b.size && bads.length === 1) break; }   // the first reading held whole: it says the most
+    // …and each that is made after it is checked while the next is being read
+    try {
+      const first = rows(MODES[0]); cands.push(first);
+      const b = check(first);   // the first reading held whole: it says the most
+      if (b) bads.push(b);
+      if (b?.size) {
+        const waiting = [];
+        for (const mode of MODES.slice(1)) { const r = rows(mode); cands.push(r); waiting.push(start(r)); }
+        for (const take of waiting) { const bad = take(); if (!bad) break; bads.push(bad); }
+      }
     if (how.readings) while (cands.length < MODES.length) cands.push(rows(MODES[cands.length]));
     // --readings <export>: each reading of that export's row, and what TypeScript says of it
     if (how.readings) cands.forEach((r, i) => { for (const [n, ls] of group(r.lines)) if (how.readings.names.includes(n)) how.readings.out.push({ name: n, reading: JSON.stringify(MODES[i]), rows: ls, bad: bads[i] ? bads[i].get(n) ?? null : "not checked" }); });
@@ -1168,6 +1179,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
       lines = kept.lines; head = kept.out; contexts = kept.contexts;
     }
     else if (how.unheld) how.unheld["*"] = "the draft could not be checked against the module (no crate to read it with): written as every draft was";
+    } finally { pool.close(); }
   }
   out.push(...head);
   // MO-8s: a module of the app's own takes the words of the library rows it hands on (declare-own.js)

@@ -7,22 +7,35 @@
 // second one would be a second set of verdicts, so where tsrs cannot run, the tool that needed it says why and stops.
 //
 // Why the order of things cannot change an answer: a program is checked by one checker, in the order its files are given
-// (tsrs serves the API with one checker a program), and what is checked apart (`parts` of a draft, src/declare-check.js)
-// is cut the same way whatever the number of processes that check it.
+// (tsrs serves the API with one checker a program), and what runs at the same time is whole programs, each in a process of
+// its own (src/declare-pool.js): no program is cut to fit the number of processes.
 const fs = require("node:fs");
 const path = require("node:path");
+const { createRequire } = require("node:module");
 
 const PINNED = require("../package.json").dependencies.tsrs;
 
+/** Folders tsrs may be taken from where it is not installed beside this file (the extension's bundle): a project's. */
+const folders = [];
+const lookIn = dir => { if (!folders.includes(dir)) folders.push(dir); };
+/** What requires tsrs: this file, else the language server a project has installed, else the project. */
+function requirer() {
+  try { require.resolve("tsrs"); return require; } catch { /* not beside this file */ }
+  for (const dir of folders) for (const via of ["@reactivescript/language-server/package.json", undefined]) {
+    try { let r = createRequire(path.join(dir, "package.json")); if (via) r = createRequire(r.resolve(via)); r.resolve("tsrs"); return r; } catch { /* nor there */ }
+  }
+  return require;
+}
 /** tsrs's modules, or an error a person can act on. */
 let loaded;
 function tsrs() {
   if (loaded) return loaded;
   const fail = (why, e) => Object.assign(new Error(`${why}\nReactiveScript type-checks with tsrs ${PINNED} (TypeScript 7), and with nothing else: a check by another TypeScript would give other verdicts.${e ? `\n${e.message}` : ""}`), { code: "RX_NO_CHECKER", cause: e });
   let version, sync, vfs;
-  try { version = require("tsrs"); } catch (e) { throw fail("The package tsrs is not installed beside @reactivescript/language-server: install its dependencies again.", e); }
+  const from = requirer();
+  try { version = from("tsrs"); } catch (e) { throw fail("tsrs is not installed with @reactivescript/language-server: install its dependencies again (in an editor: install @reactivescript/language-server in the project).", e); }
   if (version.version !== PINNED && process.env.RX_TSRS_VERSION !== version.version) throw fail(`tsrs ${version.version} is installed where ${PINNED} is pinned: install again (RX_TSRS_VERSION=${version.version} tries it all the same).`);
-  try { sync = require("tsrs/sync"); vfs = require("tsrs/fs"); } catch (e) {
+  try { sync = from("tsrs/sync"); vfs = from("tsrs/fs"); } catch (e) {
     throw fail(e.code === "ERR_REQUIRE_ESM" ? `tsrs's API needs Node 20.19, 22.12 or later (this is ${process.version}).` : "tsrs's API did not load.", e);
   }
   return (loaded = { ...version, ...sync, ...vfs, fail });
@@ -85,12 +98,14 @@ class Checker {
   /** What was resolved is not kept past a change of the disk. */
   forget() { for (const r of this.resolvers.values()) r.dispose?.(); this.resolvers.clear(); }
   /** The program of `roots` under `options`. `files`: the texts that are not on disk (absolute path → text); `resolutions`:
-   *  the imports that are settled here (`{ moduleName, containingDirectory, result }`), every other as TypeScript resolves it.
+   *  the imports that are settled here (`{ moduleName, containingDirectory, result }`), every other as TypeScript resolves it;
+   *  `fresh`: whatever this checker read before, the files are read again.
    *  Dispose of it when done. */
-  program({ roots, files, options, resolutions, references, configErrors }) {
+  program({ roots, files, options, resolutions, references, configErrors, fresh }) {
     const t = tsrs();
     const resolver = resolutions?.length ? this.api.createModuleResolver(this.options(options), { moduleResolutions: { fallback: "resolve", entries: resolutions } }) : undefined;
     const snapshot = this.api.createSnapshot({
+      ...(fresh ? { fileNotifications: { invalidateAll: true } } : {}),
       ...(files?.size ? { fileSystem: t.createFileSystemLayer([...files]) } : {}),
       createPrograms: [{ rootFiles: roots, compilerOptions: this.options(options), options: { ...(resolver ? { moduleResolver: resolver } : {}), ...(references?.length ? { projectReferences: references } : {}), ...(configErrors?.length ? { configFileParsingDiagnostics: configErrors } : {}) } }],
     });
@@ -150,4 +165,6 @@ function checker(cwd = process.cwd()) {
   return shared.get(k);
 }
 
-module.exports = { Checker, checker, asLibrary, bare, flatten, plain, ordered, versions, versionText, tsrs };
+const closeAll = () => { for (const c of shared.values()) c.close(); shared.clear(); };
+
+module.exports = { Checker, checker, closeAll, lookIn, asLibrary, bare, flatten, plain, ordered, versions, versionText, tsrs };

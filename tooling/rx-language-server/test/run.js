@@ -85,6 +85,7 @@ const hoverText = h => !h ? "" : typeof h.contents === "string" ? h.contents : A
   const dg1 = await server.sendDocumentDiagnosticRequest(cart.uri);
   const ts1 = (dg1.items ?? []).find(d => String(d.code) === "2345" || String(d.code) === "2322");
   check("a type error (`string := 42`) is TypeScript's, on the `42`", ts1 && ts1.range.start.line === at(te, ":= 42").line && ts1.range.start.character === at(te, ":= 42", 3).character, dg1.items);
+  check("...once: the checker's, and not the editor's TypeScript's beside it", (dg1.items ?? []).filter(d => d.source === "ts" && d.severity === 1 && d.range.start.line === ts1?.range.start.line).length === 1, dg1.items);
   const unb = await server.updateTextDocument(cart.uri, [{ range: { start: at(te, ":= 42", 3), end: at(te, ":= 42", 5) }, newText: '""' }]);
   const ut = unb.getText();
   const unb2 = await server.updateTextDocument(cart.uri, [{ range: { start: at(ut, "newest = cart", 9), end: at(ut, "newest = cart", 13) }, newText: "nope" }]);
@@ -92,6 +93,17 @@ const hoverText = h => !h ? "" : typeof h.contents === "string" ? h.contents : A
   const dg2 = await server.sendDocumentDiagnosticRequest(cart.uri);
   const rx = (dg2.items ?? []).find(d => d.source === "rx");
   check("an undeclared name is the crate's diagnostic, with its rule", rx && rx.range.start.line === at(nt, "newest = nope").line && /SCOPE|RG-/.test(rx.message), dg2.items);
+
+  // another module's unsaved text is what its importers are checked against
+  const other = await server.openTextDocument(path.join(ws, "main.rx"), "reactivescript");
+  const clean = ((await server.sendDocumentDiagnosticRequest(other.uri)).items ?? []).filter(d => d.source === "ts" && d.severity === 1).length;
+  const uiDoc = await server.openTextDocument(path.join(ws, "ui.rx"), "reactivescript"), uiText = uiDoc.getText();
+  const where = at(uiText, "product: Product", 9);
+  await server.updateTextDocument(uiDoc.uri, [{ range: { start: where, end: { line: where.line, character: where.character + 7 } }, newText: "number" }]);
+  const after = ((await server.sendDocumentDiagnosticRequest(other.uri)).items ?? []).filter(d => d.source === "ts" && d.severity === 1);
+  check("an unsaved edit of one module is an error in another that imports it", clean === 0 && after.some(d => String(d.code) === "2322"), { clean, after });
+  await server.updateTextDocument(uiDoc.uri, [{ range: { start: where, end: { line: where.line, character: where.character + 6 } }, newText: "Product" }]);
+  check("...and none once it is undone", ((await server.sendDocumentDiagnosticRequest(other.uri)).items ?? []).filter(d => d.source === "ts" && d.severity === 1).length === 0);
 
   console.log("views");
   const main = await server.openTextDocument(path.join(ws, "main.rx"), "reactivescript");
