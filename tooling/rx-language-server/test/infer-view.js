@@ -177,11 +177,6 @@ for (const [name, [code, says]] of Object.entries(MADE_BAD)) { const f = facts(n
 {
   const f = facts("later", "const on = (type, cb) => el => { el.addEventListener(type, cb); };\nexport const later = (el, run) => on(\"x\", run)(el);");
   ok("a callback given to a function a factory made: when that function calls it", f.handler(1).ok === true, JSON.stringify(f.handler(1).uses));
-  const g = facts("stores", "export function stores(make) { return createSignal(0); }\nexport const fromSolid = createMemo;");
-  ok("a result that is a store Solid makes from a function is not shown to be built there", !!facts("projected", "import { createStore } from \"solid-js\";\nexport function projected(load) { const [s] = createStore(load, {}); return s; }").plainWhy);
-  void g;
-  ok("…and a record whose getter only reads a signal made there is", facts("counted", "export function counted() { const [n, setN] = createSignal(0); return { get n() { return n(); }, bump: () => setN(x => x + 1) }; }").plain === true, JSON.stringify(facts("counted", "export function counted() { const [n, setN] = createSignal(0); return { get n() { return n(); }, bump: () => setN(x => x + 1) }; }").plainWhy));
-  ok("…one whose getter calls what it was given is not", facts("lazyRecord", "export function lazyRecord(load) { return { get data() { return load(); } }; }").plain === false);
 }
 
 // ---- the draft ----
@@ -220,10 +215,10 @@ const rowOf = n => draft.split("\n").find(l => new RegExp(`^export (?:pure )?(?:
 ok("the context a row names is declared, by the name the code binds it to", /^export context tabs$/m.test(draft), draft);
 ok("a provider around its children: provides(tabs)", /^export component Tabs\(props: \{ initial: string; children\?: .* \}\) provides\(tabs\)$/.test(rowOf("Tabs")), rowOf("Tabs"));
 ok("a part that reads it on every path, and whose prop is an element's event: uses(tabs), handler", /^export component Tab\(props: \{ onSelect\?: handler \(e: MouseEvent\) => void; children\?: .* \}\) uses\(tabs\)$/.test(rowOf("Tab")), rowOf("Tab"));
-ok("a hook that reads it: uses(tabs), and its question is not asked", /^export pure fn useTabs\(\): .* uses\(tabs\)$/.test(rowOf("useTabs")) && !/TODO useTabs: which context/.test(draft), rowOf("useTabs"));
-ok("a hook that reads a context no row provides: no word — it would refuse every program — and the question stays", !/uses\(/.test(rowOf("useLoose")) && /TODO useLoose: which context does this hook read/.test(draft) && /useLoose: uses not proven — it reads Loose on every path, and no component of this module is shown to provide it/.test(r.stderr), rowOf("useLoose") + r.stderr);
-ok("a hook that reads none: no word, and no question", !/uses\(/.test(rowOf("useNothing")) && !/TODO useNothing: which context/.test(draft), rowOf("useNothing"));
-ok("a hook that reads one on a path only: no word, and the question stays", !/uses\(/.test(rowOf("useSometimes")) && /TODO useSometimes: which context/.test(draft), rowOf("useSometimes"));
+ok("a hook that reads it: uses(tabs), and its question is not asked", /^export pure fn useTabs\(\): .* uses\(tabs\)$/.test(rowOf("useTabs")) && !/TODO useTabs: .*uses/.test(draft), rowOf("useTabs"));
+ok("a hook that reads a context no row provides: no word — it would refuse every program — and one question, by what the code shows", !/uses\(/.test(rowOf("useLoose")) && /TODO useLoose: useLoose reads Loose, and a call with no provider above it is accepted\. `uses\(<context>\)`.*no component here is shown to provide it \(tabs\.jsx:\d+\)/.test(draft) && /useLoose: uses not proven — it reads Loose on every path/.test(r.stderr), rowOf("useLoose") + r.stderr + draft);
+ok("a hook that reads none: no word, and no question", !/uses\(/.test(rowOf("useNothing")) && !/TODO useNothing: .*uses/.test(draft), rowOf("useNothing"));
+ok("a hook that reads one on a path only: no word, and no question — the word says every call", !/uses\(/.test(rowOf("useSometimes")) && !/TODO useSometimes: .*uses/.test(draft), rowOf("useSometimes"));
 ok("a provider around something other than its children: no provides", /^export component Sidebar\(/.test(rowOf("Sidebar")) && !/provides\(/.test(rowOf("Sidebar")), rowOf("Sidebar"));
 ok("a component named …Provider that renders none: the question is answered, no", !/TODO PlainProvider/.test(draft) && !/provides\(/.test(rowOf("PlainProvider")), draft);
 ok("the draft says once which words it read, and no row has a line above it", /^\/\/ Read from the code that runs \(MO-8v\): .*2 uses, 1 provides/m.test(draft) && !/\/\/@ inferred/.test(draft), draft.split("\n")[1]);
@@ -254,31 +249,9 @@ fs.writeFileSync(path.join(ws, "shows.d.ts"), [
 ].join("\n"));
 {
   const d = declare("./shows.jsx", "--why");
-  ok("a component called in a computation the fn makes: rendered where the fn is called — no word, and no question", !/TODO resolveNow: `view` is given a component/.test(d.stdout) && /resolveNow: renders not proven — view: called while the fn runs, or in a computation it makes there/.test(d.stderr), d.stdout + d.stderr);
-  ok("a component kept in the module's state for a host to render: no `renders(Host)` is written — another export hands the same list out — and the question stays", /TODO showLater: `view` is given a component: where does the library render it/.test(d.stdout) && !/renders\(/.test(d.stdout.replace(/\/\/.*$/gm, "")), d.stdout);
-  ok("a component rendered outside the host too (kept, and called where the fn runs): the question stays", /TODO showBoth: `view` is given a component/.test(d.stdout), d.stdout);
-}
-
-// ---- a result whose fields may wait or throw where they are read ----
-console.log("a result whose getter may wait or throw is asked about; one built where it is handed back is not");
-fs.writeFileSync(path.join(ws, "late.js"), [
-  "class NotReadyError extends Error { constructor() { super(\"not ready\"); this.name = \"NotReadyError\"; } }",
-  "export function makeLate() { return { get data() { throw new NotReadyError(); }, get broken() { throw new Error(\"no\"); }, ready: 1 }; }",
-  "export function makeQuiet(load) { return { get data() { return load?.(); } }; }",
-  "export function makePlain() { return { data: \"x\" }; }",
-  "",
-].join("\n"));
-fs.writeFileSync(path.join(ws, "late.d.ts"), [
-  "export interface Late { data: string; broken: string; ready: number }",
-  "export interface Quiet { data: string | undefined }",
-  "export declare function makeLate(): Late;",
-  "export declare function makeQuiet(load?: () => string): Quiet;",
-  "export declare function makePlain(): Quiet;",
-  "",
-].join("\n"));
-{
-  const plain = declare("./late.js").stdout;
-  ok("the draft asks of a result whose getter may wait or throw, and not of one built there", /TODO makeLate: is the result a store with fields that wait or throw/.test(plain) && /TODO makeQuiet: is the result a store with fields that wait or throw/.test(plain) && !/TODO makePlain: is the result/.test(plain), plain);
+  ok("a component called in a computation the fn makes: rendered where the fn is called — no word, and no question", !/TODO resolveNow: `view`/.test(d.stdout), d.stdout + d.stderr);
+  ok("a component kept in the module's state for a host to render: no `renders(Host)` is written — another export hands the same list out — and the question stays", /TODO showLater: `view`: a component given there/.test(d.stdout) && !/renders\(/.test(d.stdout.replace(/\/\/.*$/gm, "")), d.stdout);
+  ok("a component rendered outside the host too (kept, and called where the fn runs): the question stays", /TODO showBoth: `view`: a component given there/.test(d.stdout), d.stdout);
 }
 
 // ---- the audit ----

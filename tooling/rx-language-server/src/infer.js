@@ -331,10 +331,10 @@ function create(ts, options = {}) {
         const r = resolve(o, m);
         if (r.global !== undefined && !isNew) {
           if ((r.global === "window" || r.global === "globalThis" || r.global === "self") && name in LATER_GLOBAL) return { kind: "later", at: [LATER_GLOBAL[name]], listen: name !== "setTimeout" && name !== "queueMicrotask", timer: true, name };
-          if (r.global === "Math") return name === "random" ? { kind: "unknown", why: "Math.random: randomness" } : { kind: "builtin", name: `Math.${name}`, gives: "prim" };
+          if (r.global === "Math") return name === "random" ? { kind: "unknown", why: "Math.random: randomness", effect: true } : { kind: "builtin", name: `Math.${name}`, gives: "prim" };
           if (STATIC[r.global]?.[name]) return { kind: "builtin", name: `${r.global}.${name}`, gives: STATIC[r.global][name], sync: r.global === "Array" && name === "from" };
-          if (r.global === "Date" || r.global === "performance") return { kind: "unknown", why: `${r.global}.${name}: the clock` };
-          if (r.global === "crypto") return { kind: "unknown", why: `crypto.${name}: randomness` };
+          if (r.global === "Date" || r.global === "performance") return { kind: "unknown", why: `${r.global}.${name}: the clock`, effect: true };
+          if (r.global === "crypto") return { kind: "unknown", why: `crypto.${name}: randomness`, effect: true };
         }
         if (r.top?.kind === "ns") return fromBinding(imported(m, r.top.from, name), `${o.text}.${name}`, isNew);
         // a method of an object the module declares: `toaster.show`
@@ -614,13 +614,15 @@ function create(ts, options = {}) {
     }
     return s;
   }
-  const absorb = (s, t, g, at) => { const w = t.pure.find(x => !x.param); if (w) s.pure.push({ why: `it calls ${g.name ?? "a function"}, which is not proven: ${w.why}`, file: w.file, line: w.line, via: place(at) }); s.makes ||= t.makes; for (const x of t.fails) s.fails.add(x); };
+  const absorb = (s, t, g, at) => { const w = t.pure.find(x => x.effect) ?? t.pure.find(x => !x.param); if (w) s.pure.push({ why: `it calls ${g.name ?? "a function"}, which is not proven: ${w.why}`, file: w.file, line: w.line, via: place(at), effect: w.effect }); s.makes ||= t.makes; for (const x of t.fails) s.fails.add(x); };
   function read(f) { const s = optimistic(); walkBody(s, f, f.node.body, false); return s; }
 
   /** Reads `body` as part of the call of `f`: what it writes, calls, throws. */
   function walkBody(s, f, body, isField) {
     const m = f.m, root = f.node;
-    const no = (why, n) => { s.pure.push({ why, ...place(n) }); };
+    // (`effect`: shown to do what `pure` denies — time, chance, the environment, work started — where any other reason is
+    // that the reading stops: the first is an answer, the second a question)
+    const no = (why, n, effect) => { s.pure.push({ why, ...place(n), ...(effect ? { effect: true } : {}) }); };
     const inRoot = fn => { for (let g = fn; g && !ts.isSourceFile(g); g = fnOf(g)) if (g === root) return true; return false; };
     const paramIndex = r => r.fn === root && r.local.inits.length === 1 && r.local.inits[0].param !== undefined ? r.local.inits[0].param : undefined;
     // ---- what a value shares with what the call did not make ----
@@ -775,7 +777,7 @@ function create(ts, options = {}) {
         const r = resolve(e, m);
         if (r.local) {
           const pi = paramIndex(r);
-          if (pi !== undefined) { if (how === "then") no(`it calls back \`${e.text}\` later: the call starts work`, a); else { s.calls.add(pi); addFail("*"); } return; }
+          if (pi !== undefined) { if (how === "then") no(`it calls back \`${e.text}\` later: the call starts work`, a, true); else { s.calls.add(pi); addFail("*"); } return; }
           if (isResolver(r)) return;
           const fnInit = r.local.inits.length === 1 && (r.local.inits[0].fn ?? (r.local.inits[0].expr && isFn(skip(r.local.inits[0].expr)) ? skip(r.local.inits[0].expr) : undefined));
           if (fnInit) { runNamed(fnInit, how === "then"); return; }
@@ -833,7 +835,7 @@ function create(ts, options = {}) {
         case "later": {
           if (c.timer && (c.name === "setTimeout" || c.name === "queueMicrotask")) { as.forEach((a, i) => { if (i === c.at[0]) fnArg(a, "then", n); else expr(a); }); return; }
           if (c.observer) { plain(); return; }   // an observer made observes nothing yet: `.observe(…)` is the call that registers
-          plain(); return no(`${c.name ?? "an observer"}: it registers with the platform`, n);
+          plain(); return no(`${c.name ?? "an observer"}: it registers with the platform`, n, true);
         }
         case "solid": {
           s.makes ||= !!c.api.makes;
@@ -846,7 +848,7 @@ function create(ts, options = {}) {
           const r = c.r; const pi = paramIndex(r);
           for (const a of as) { const e = skip(ts.isSpreadElement(a) ? a.expression : a); if (isFn(e)) kept(e); else expr(e); }
           if (isNew) return no(`new ${r.name}(…): a class that is a value`, n);
-          if (pi !== undefined) { if (depth.later) return no(`it calls back \`${r.name}\` later: the call starts work`, n); s.calls.add(pi); addFail("*"); return; }
+          if (pi !== undefined) { if (depth.later) return no(`it calls back \`${r.name}\` later: the call starts work`, n, true); s.calls.add(pi); addFail("*"); return; }
           if (isResolver(r)) { if (r.local.inits[0].param === 1 && as[0]) addFail(classOf(as[0]), s.fails); return; }
           if (solidLocal(r)) return;
           const fnInit = !r.local.multi && r.local.inits.length === 1 && (r.local.inits[0].fn ?? (r.local.inits[0].expr && isFn(skip(r.local.inits[0].expr)) ? skip(r.local.inits[0].expr) : undefined));
@@ -891,17 +893,17 @@ function create(ts, options = {}) {
             return cb(CALLBACK_SYNC.has(name) ? "run" : "run");
           }
           plain(); addFail("*");
-          if (/^toLocale|^localeCompare$/.test(name)) return no(`.${name}(…): the answer is the locale's and the time zone's`, n);
+          if (/^toLocale|^localeCompare$/.test(name)) return no(`.${name}(…): the answer is the locale's and the time zone's`, n, true);
           return no(`it calls .${name}(…), a method that is not read`, n);
         }
-        default: if (!isNew && c.kind === "unknown" && viaValue(n, as, "a function")) return; plain(); addFail("*"); { const ce = skip(n.expression); if (ts.isCallExpression(ce) || ts.isNewExpression(ce) || ts.isPropertyAccessExpression(ce) || ts.isElementAccessExpression(ce)) expr(ce); } return no(isNew && c.kind === "unknown" && /^new /.test(c.why ?? "") ? `${c.why}: not known to only compute` : `it calls ${c.why ?? "code that is not read"}`, n);
+        default: if (!isNew && c.kind === "unknown" && viaValue(n, as, "a function")) return; plain(); addFail("*"); { const ce = skip(n.expression); if (ts.isCallExpression(ce) || ts.isNewExpression(ce) || ts.isPropertyAccessExpression(ce) || ts.isElementAccessExpression(ce)) expr(ce); } return no(isNew && c.kind === "unknown" && /^new /.test(c.why ?? "") ? `${c.why}: not known to only compute` : `it calls ${c.why ?? "code that is not read"}`, n, c.effect);
       }
     };
     /** A function that is handed back or stored: not run by the call. What it closes over is kept past the call. */
     const kept = fn => { const v = n => { if (ts.isIdentifier(n) && isRef(n)) { const r = resolve(n, m); if (r.local && inRoot(r.fn)) for (const i of localTaint(r)) s.keeps.add(i); } ts.forEachChild(n, v); }; v(fn); };
     const assign = (target, n) => {
       const t = skip(target);
-      if (ts.isIdentifier(t)) { const r = resolve(t, m); if (r.local) { if (!inRoot(r.fn)) no(`it assigns ${t.text}, a variable of the function around it`, n); return; } return no(r.top ? `it assigns ${t.text}, a variable of the module` : `it assigns ${t.text}, a global`, n); }
+      if (ts.isIdentifier(t)) { const r = resolve(t, m); if (r.local) { if (!inRoot(r.fn)) no(`it assigns ${t.text}, a variable of the function around it`, n); return; } return no(r.top ? `it assigns ${t.text}, a variable of the module` : `it assigns ${t.text}, a global`, n, !r.top); }
       if (ts.isPropertyAccessExpression(t) || ts.isElementAccessExpression(t)) { expr(t.expression); if (ts.isElementAccessExpression(t)) expr(t.argumentExpression); return writeTo(t.expression, n, "an assignment"); }
       if (ts.isArrayLiteralExpression(t)) { for (const x of t.elements) if (!ts.isOmittedExpression(x)) assign(ts.isSpreadElement(x) ? x.expression : x, n); return; }
       if (ts.isObjectLiteralExpression(t)) { for (const p of t.properties) { if (ts.isShorthandPropertyAssignment(p)) assign(p.name, n); else if (ts.isPropertyAssignment(p)) assign(p.initializer, n); else if (ts.isSpreadAssignment(p)) assign(p.expression, n); } return; }
@@ -917,7 +919,7 @@ function create(ts, options = {}) {
         if (!isRef(n)) return;
         const r = resolve(n, m);
         if (r.local) { if (!inRoot(r.fn)) freeRead(n, r); return; }
-        if (r.global !== undefined) { if (!GLOBAL_VALUES.has(r.global) && !(r.global in GLOBAL_FNS)) no(r.global === "Date" || r.global === "performance" ? `${r.global}: the clock` : /^(window|document|navigator|location|localStorage|sessionStorage|globalThis|self|process|history|screen)$/.test(r.global) ? `it reads ${r.global}: the environment` : r.global === "console" ? "console: it writes output" : `it reads ${r.global}, a global that is not known to only compute`, n); return; }
+        if (r.global !== undefined) { if (!GLOBAL_VALUES.has(r.global) && !(r.global in GLOBAL_FNS)) no(r.global === "Date" || r.global === "performance" ? `${r.global}: the clock` : /^(window|document|navigator|location|localStorage|sessionStorage|globalThis|self|process|history|screen)$/.test(r.global) ? `it reads ${r.global}: the environment` : r.global === "console" ? "console: it writes output" : `it reads ${r.global}, a global that is not known to only compute`, n, /^(Date|performance|window|document|navigator|location|localStorage|sessionStorage|globalThis|self|process|history|screen|console)$/.test(r.global)); return; }
         return topRead(n, r);
       }
       if (n.kind === K.ThisKeyword) { if (!f.ctor && !isField) no("it reads `this`", n); return; }
@@ -936,14 +938,14 @@ function create(ts, options = {}) {
       if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) {
         // what a bundler writes in for the build: `process.env.NODE_ENV`, `import.meta.env.DEV` — one value for as
         // long as the code runs; `import.meta.env.SSR` is a test of where it runs
-        { const txt = n.getText().replace(/\s+/g, ""); if (txt === "process.env.NODE_ENV" && resolve(skip(skip(n.expression).expression), m).global !== undefined) return; if (/^import\.meta\.env\.(DEV|PROD|MODE)$/.test(txt)) return; if (txt === "import.meta.env.SSR") { if (isTest(n)) { s.env ??= { what: txt, ...place(n) }; return; } return no("it reads import.meta.env.SSR: the environment (where the code runs)", n); } }
+        { const txt = n.getText().replace(/\s+/g, ""); if (txt === "process.env.NODE_ENV" && resolve(skip(skip(n.expression).expression), m).global !== undefined) return; if (/^import\.meta\.env\.(DEV|PROD|MODE)$/.test(txt)) return; if (txt === "import.meta.env.SSR") { if (isTest(n)) { s.env ??= { what: txt, ...place(n) }; return; } return no("it reads import.meta.env.SSR: the environment (where the code runs)", n, true); } }
         const o = skip(n.expression);
         if (ts.isIdentifier(o)) {
           const r = resolve(o, m);
           if (r.global !== undefined && !r.local) { const name = ts.isPropertyAccessExpression(n) ? n.name.text : undefined; if (r.global === "Math" || r.global === "Number" || r.global === "Symbol" || (r.global === "arguments")) { if (ts.isElementAccessExpression(n)) expr(n.argumentExpression); return; } if (r.global === "import" ) return; void name; }
           // Solid's own record of a hydration under way: `sharedConfig.hydrating` is a test of when the code runs, as
           // `isServer` is of where (the server's page stands until the browser's has taken it over)
-          if (r.top && !r.local && r.top.kind === "import" && ts.isPropertyAccessExpression(n)) { const bs = binding(m, o.text); if (bs && bs.length && bs.every(x => x.solid === "sharedConfig")) { if (n.name.text === "hydrating" && isTest(n)) { s.env ??= { what: "sharedConfig.hydrating", ...place(n) }; return; } return no(`it reads sharedConfig.${n.name.text}: Solid's hydration state (the environment)`, n); } }
+          if (r.top && !r.local && r.top.kind === "import" && ts.isPropertyAccessExpression(n)) { const bs = binding(m, o.text); if (bs && bs.length && bs.every(x => x.solid === "sharedConfig")) { if (n.name.text === "hydrating" && isTest(n)) { s.env ??= { what: "sharedConfig.hydrating", ...place(n) }; return; } return no(`it reads sharedConfig.${n.name.text}: Solid's hydration state (the environment)`, n, true); } }
           if (r.top?.kind === "ns") { const name = ts.isPropertyAccessExpression(n) ? n.name.text : undefined; const bs = name ? imported(m, r.top.from, name) : undefined; if (!bs) return no(`it reads ${o.text}.${name ?? "[…]"}: a module that is not read`, n); return bindingRead(bs, n, `${o.text}.${name}`); }
         }
         expr(n.expression); if (ts.isElementAccessExpression(n)) expr(n.argumentExpression); return;
@@ -952,7 +954,7 @@ function create(ts, options = {}) {
       if (ts.isYieldExpression(n)) { no("a generator: it runs when it is asked, not when it is called", n); return expr(n.expression); }
       if (ts.isObjectLiteralExpression(n)) { for (const p of n.properties) { if (ts.isPropertyAssignment(p)) { if (ts.isComputedPropertyName(p.name)) expr(p.name.expression); expr(p.initializer); } else if (ts.isShorthandPropertyAssignment(p)) expr(p.name); else if (ts.isSpreadAssignment(p)) expr(p.expression); else if (isFn(p)) kept(p); } return; }
       if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) { no("it renders (JSX)", n); return; }
-      if (ts.isMetaProperty(n)) { no("import.meta: the environment", n); return; }
+      if (ts.isMetaProperty(n)) { no("import.meta: the environment", n, true); return; }
       ts.forEachChild(n, c => { if (ts.isTypeNode?.(c)) return; expr(c); });
     };
     /** A read of a name of the function that made this one (a closure's free variable): what every call of the made
@@ -969,10 +971,10 @@ function create(ts, options = {}) {
     const bindingRead = (bs, at, name) => {
       for (const x of bs) {
         if (x.solid === "DEV" || x.solid === "isDev") continue;   // the build's: one value for as long as the code runs
-        if (x.solid) { if (x.solid === "isServer" && isTest(at)) { s.env ??= { what: "isServer", ...place(at) }; continue; } if (!SOLID_API[x.solid]) no(`it reads ${x.solid}, of Solid: ${x.solid === "isServer" || x.solid === "isDev" ? "the environment" : "not known to be a constant"}`, at); continue; }
+        if (x.solid) { if (x.solid === "isServer" && isTest(at)) { s.env ??= { what: "isServer", ...place(at) }; continue; } if (!SOLID_API[x.solid]) no(`it reads ${x.solid}, of Solid: ${x.solid === "isServer" || x.solid === "isDev" ? "the environment" : "not known to be a constant"}`, at, x.solid === "isServer"); continue; }
         const b = x.b;
         if (b.kind === "fn" || b.kind === "class") continue;
-        if (b.kind === "var" && b.isConst && b.init && envTest(b.init, x.m, 0)) { if (isTest(at)) { s.env ??= { what: name, ...place(at) }; continue; } no(`it reads ${name}: the environment (where the code runs)`, at); continue; }
+        if (b.kind === "var" && b.isConst && b.init && envTest(b.init, x.m, 0)) { if (isTest(at)) { s.env ??= { what: name, ...place(at) }; continue; } no(`it reads ${name}: the environment (where the code runs)`, at, true); continue; }
         const why = constant(x.m, x.name);
         if (why) no(`it reads ${name}, ${why}`, at);
       }
@@ -1057,7 +1059,7 @@ function create(ts, options = {}) {
       const rets = []; const find = n => { if (isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n)) rets.push(n); ts.forEachChild(n, find); };
       if (ts.isBlock(body)) find(body);
       const data = ts.isBlock(body) ? rets.find(r => r.expression && !fnish(r.expression)) : fnish(body) ? undefined : body;
-      if (data) no(`it tests where it runs (${s.env.what}) and answers data: what it answers may differ between the server and the browser (10 SV-7c)`, data);
+      if (data) no(`it tests where it runs (${s.env.what}) and answers data: what it answers may differ between the server and the browser (10 SV-7c)`, data, true);
     }
   }
 
@@ -1387,88 +1389,6 @@ function create(ts, options = {}) {
     if (field === undefined) { if (ts.isIdentifier(p.name)) { const l = locals(fn).get(p.name.text); if (l) nameRefs({ fn, local: l }, p.name.text, 0); } else use("escape", "taken apart where it is declared", p); }
     else pattern(p.name, 0);
     return done();
-  }
-
-  // ---- what a call hands back ----
-  const plainMemo = new WeakMap();
-  /** Whether everything `f` can hand back is a value the code builds there — a record or a list written out (no
-   *  getter of its own), a function, a primitive, a built-in's instance — and so no store whose fields wait or throw
-   *  where they are read: that is what Solid's store makers and projections hand back, a value the function was given
-   *  may be, and a call into code that is not read may hand back. */
-  function plainResult(f) { return !plainWhy(f); }
-  /** Why what `f` hands back is not shown to be built there — undefined where it is. */
-  function plainWhy(f) {
-    const key = f.env ?? NOENV;
-    if (plainMemo.get(f.node)?.has(key)) return plainMemo.get(f.node).get(key);
-    if (!plainMemo.has(f.node)) plainMemo.set(f.node, new Map());
-    plainMemo.get(f.node).set(key, { why: "it hands back what a call of itself does", ...place(f.node) });   // met again while it is read: not shown
-    const m = f.m, root = f.node;
-    const bad = (why, n) => ({ why, ...place(n) });
-    /** undefined where the expression's value is built there, else why it is not shown to be. */
-    const ok = (e, d = 0) => {
-      e = skip(e); if (!e) return undefined; if (d > 10) return bad("a value handed on further than is followed", e);
-      if (isFn(e) || ts.isClassExpression(e) || ts.isLiteralExpression(e) || ts.isTemplateExpression(e) || ts.isArrayLiteralExpression(e) || ts.isTypeOfExpression(e) || ts.isVoidExpression(e) || ts.isPrefixUnaryExpression(e) || ts.isPostfixUnaryExpression(e)) return undefined;
-      if (e.kind === K.TrueKeyword || e.kind === K.FalseKeyword || e.kind === K.NullKeyword) return undefined;
-      if (ts.isObjectLiteralExpression(e)) { for (const p of e.properties) { if (ts.isSpreadAssignment(p)) { const w = ok(p.expression, d + 1); if (w) return w; } else if (ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p)) { const w = getter(p); if (w) return w; } } return undefined; }
-      if (ts.isConditionalExpression(e)) return ok(e.whenTrue, d + 1) ?? ok(e.whenFalse, d + 1);
-      if (ts.isBinaryExpression(e)) { const k = e.operatorToken.kind; return k === K.BarBarToken || k === K.AmpersandAmpersandToken || k === K.QuestionQuestionToken ? ok(e.left, d + 1) ?? ok(e.right, d + 1) : k === K.CommaToken || (k >= K.FirstAssignment && k <= K.LastAssignment) ? ok(e.right, d + 1) : undefined; }
-      if (ts.isAwaitExpression(e)) return ok(e.expression, d + 1);
-      if (ts.isIdentifier(e)) {
-        if (e.text === "undefined") return undefined;
-        const r = resolve(e, m);
-        if (r.local) { const b = envGet(f.env, r.local); if (b) return b.undef ? undefined : bad(`it hands back ${e.text}, which the function that made it was given`, e); if (r.local.multi || !r.local.inits.length) return bad(`it hands back ${e.text}, a value it was given or binds more than once`, e); for (const i of r.local.inits) { if (i.fn || i.cls || i.none) continue; if (!i.expr) return bad(`it hands back ${e.text}, a value it was given`, e); const w = ok(i.expr, d + 1); if (w) return w; } return undefined; }
-        if (r.top) { const bs = binding(m, e.text); return bs && bs.every(x => x.b && (x.b.kind === "fn" || x.b.kind === "class" || (x.b.kind === "var" && x.b.isConst && x.b.init && !x.m.written.has(x.name) && literal(x.b.init, x.m, 0) !== undefined))) ? undefined : bad(`it hands back ${e.text}, a value of the module that is not a literal`, e); }
-        return bad(`it hands back ${e.text}, a global`, e);
-      }
-      if (ts.isCallExpression(e) || ts.isNewExpression(e)) {
-        const c = callee(e, m);
-        if (c.kind === "builtin") { if (c.gives === "target" || c.gives === "same") { for (const a of e.arguments ?? []) { const w = ok(ts.isSpreadElement(a) ? a.expression : a, d + 1); if (w) return w; } } return undefined; }
-        if (c.kind === "later") return undefined;   // a timer's id, an observer
-        if (c.kind === "solid") {
-          if (c.name === "createSignal" || c.name === "createUniqueId" || c.name === "getOwner") return undefined;
-          // a memo's accessor is a function (what reading it answers is the accessor's: MO-10b); a store made from a
-          // value written out holds that value — one made from a function is a projection, which may wait
-          if (c.name === "createMemo") return undefined;
-          if (c.name === "createStore" || c.name === "createOptimisticStore" || c.name === "createOptimistic") { const a0 = e.arguments[0] && skip(e.arguments[0]); return !a0 || ts.isObjectLiteralExpression(a0) || ts.isArrayLiteralExpression(a0) || ts.isLiteralExpression(a0) ? undefined : bad(`${c.name}(…) of what is not written out there: a store made from a function is a projection, whose fields may wait`, e); }
-          return bad(`it hands back what Solid's ${c.name} makes`, e);
-        }
-        if (c.kind === "method") return (c.name in READ && READ[c.name] !== "elem" && READ[c.name] !== "same") || c.name === "bind" ? undefined : bad(`it hands back what .${c.name}(…) answers, a method that is not read`, e);
-        if (c.kind === "fns") { for (const g of c.fns) { if (g.cls) { if (g.node.members.some(x => ts.isGetAccessorDeclaration(x)) || g.node.heritageClauses?.some(h => h.token === K.ExtendsKeyword && !(ts.isIdentifier(skip(h.types[0].expression)) && skip(h.types[0].expression).text in NEW_OK))) return bad(`it hands back a ${g.name}, a class with getters or a class it extends`, e); } else { const w = plainWhy(g); if (w) return w.via ? w : { ...w, via: place(e) }; } } return undefined; }
-        const g = ts.isCallExpression(e) ? fnValueOf(e.expression, m, f.env) : undefined;
-        if (g) { const w = plainWhy(g); return w ? (w.via ? w : { ...w, via: place(e) }) : undefined; }
-        return bad(`it hands back what ${c.why ?? (c.kind === "local" ? `${c.r.name}(…)` : "a call")} answers${c.kind === "local" ? ", a value it was handed or computed" : ""}`, e);
-      }
-      if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) return bad(`it hands back ${e.getText().slice(0, 40)}, a part of a value that is not followed`, e);
-      return bad("it hands back a value that is computed", e);
-    };
-    /** A getter of a record written out: reading the field runs it. It neither waits nor throws where its body only
-     *  reads — locals, parameters, fields, a signal's or a memo's accessor made there from what is not a promise. */
-    const getter = p => {
-      let why;
-      const quiet = n => {
-        if (why) return;
-        if (isFn(n) && n !== p) return;
-        if (ts.isThrowStatement(n)) { why = bad("a getter of the record it hands back throws", n); return; }
-        if (ts.isAwaitExpression(n) || ts.isNewExpression(n)) { why = bad("a getter of the record it hands back does more than read", n); return; }
-        if (ts.isCallExpression(n)) {
-          const ce = skip(n.expression);
-          // a call of a local made by `createSignal` (its reader) — a signal holds what it was set to, and does not wait
-          const r = ts.isIdentifier(ce) ? resolve(ce, m) : undefined;
-          const sig = r?.local && !r.local.multi && r.local.inits.length === 1 && (() => { let i = r.local.inits[0]; const el = i.el; while (i.part) i = i.part; if (!i.expr) return false; const x = skip(i.expr); if (!ts.isCallExpression(x)) return false; const c = callee(x, m); return c.kind === "solid" && c.name === "createSignal" && el && ts.isArrayBindingPattern(el.parent) && el.parent.elements.indexOf(el) === 0 && !(x.arguments[0] && (isFn(skip(x.arguments[0])) || isAsync(skip(x.arguments[0])))); })();
-          if (!sig) { const c = callee(n, m); if (!(c.kind === "builtin" && !THROWS.has(c.name)) && !(c.kind === "method" && c.name in READ && kind(c.on))) { why = bad(`a getter of the record it hands back calls ${ce.getText().slice(0, 30)}, which may wait or throw where the field is read`, n); return; } }
-        }
-        ts.forEachChild(n, quiet);
-      };
-      if (p.body) quiet(p.body);
-      return why;
-    };
-    const kind = e => { e = skip(e); return ts.isArrayLiteralExpression(e) ? "array" : ts.isStringLiteralLike(e) ? "string" : undefined; };
-    let out;
-    const body = root.body;
-    if (!body) out = bad("its code is not there to read", root);
-    else if (ts.isBlock(body)) { const find = n => { if (out || isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n) && n.expression) out = ok(n.expression); ts.forEachChild(n, find); }; find(body); }
-    else out = ok(body);
-    plainMemo.get(f.node).set(key, out); return out;
   }
 
   // ---- what a function reads from above, and what it provides beneath: Solid's contexts, and JSX ----
@@ -1924,9 +1844,9 @@ function create(ts, options = {}) {
       const ctxName = c => c.name ?? "context";
       const uses = { must: [...reads[0].must.values()].filter(c => reads.every(t => [...t.must.values()].some(x => ctxName(x) === ctxName(c)))), may: reads.flatMap(t => [...t.may.values(), ...[...t.must.values()].filter(c => !reads.every(u => [...u.must.values()].some(x => ctxName(x) === ctxName(c))))]), opaque: reads.flatMap(t => t.opaque) };
       const provides = index => { const ps = fns.map(g => providesOf(g, index)); return { list: ps[0].list.filter(x => ps.every(q => q.list.some(y => ctxName(y.ctx) === ctxName(x.ctx)))).map(x => ({ ctx: x.ctx, inside: ps.flatMap(q => q.list.filter(y => ctxName(y.ctx) === ctxName(x.ctx)).flatMap(y => y.inside)), outside: ps.flatMap(q => q.list.filter(y => ctxName(y.ctx) === ctxName(x.ctx)).flatMap(y => y.outside)) })), clean: ps.every(q => q.clean && !q.list.length) }; };
-      // a factory's component (the function the fn hands back): whether the code shows it to render no provider
-      const madeClean = () => fns.every(g => { const r = returnedFn(g); if (!r) return false; const p = providesOf(r, 0); return p.clean && !p.list.length; });
-      return { files, uses, provides, madeClean, reads: at => fns.every(g => readsPart(g, at)), plain: fns.every(g => plainResult(g)), plainWhy: fns.map(g => plainWhy(g)).find(Boolean), pure: !why.length, why, makes: ss.some(s => s.makes), unbound: () => fns.map(g => g.method && /\bthis\b/.test(g.node.getText()) ? { why: "a method that reads `this`", ...place(g.node) } : unbound(g)).find(Boolean), rejects, rejectsWhy, isAsync: fns.every(g => isAsync(g.node)), fns, handler, draft, draftWhy };
+      /** A factory's component (the function the fn hands back): the contexts the code shows it to provide. */
+      const madeProvides = () => fns.flatMap(g => { const r = returnedFn(g); return r ? providesOf(r, 0).list : []; });
+      return { files, uses, provides, madeProvides, reads: at => fns.every(g => readsPart(g, at)), wrote: index => ss.some(x => x.may.has(index) || x.mutates.has(index)), pure: !why.length, why, makes: ss.some(s => s.makes), unbound: () => fns.map(g => g.method && /\bthis\b/.test(g.node.getText()) ? { why: "a method that reads `this`", ...place(g.node) } : unbound(g)).find(Boolean), rejects, rejectsWhy, isAsync: fns.every(g => isAsync(g.node)), fns, handler, draft, draftWhy };
     });
   }
   /** The context the export `name` of `spec` is (a `createContext(…)` the module hands out), by its key. */

@@ -356,7 +356,7 @@ function draftNow(spec, from, flags) {
   lines.todoBy = todoBy;
   // 09 MO-8q, over the whole draft — every export of the module, not only the rows an app keeps: the `any`s that are the
   // library's own, the ones that are not (each with the draft's cause for it; an `any` no cause answers for is a row of
-  // known.js, written by hand), and the parts said by place
+  // a row written by hand), and the parts said by place
   const anyBy = new Map(); let places = 0;
   for (const l of lines) { const n = exported(l); const k = anysIn(l); if (k) anyBy.set(n ?? l, (anyBy.get(n ?? l) ?? 0) + k); places += tokens(l).filter(t => PLACE.has(t)).length; }
   const rows = [];
@@ -401,7 +401,7 @@ export function anysAgainst(row, vendor) {
   return { inherited, introduced };
 }
 /** What a draft's question is about (the kinds the scorecard counts). */
-export const todoKind = q => /^which context does this hook read beside/.test(q) ? "uses" : /^pure\?/.test(q) ? "pure" : /^is the result a store with fields|^run with no arguments, its fields? /.test(q) ? "store fields" : /called later, outside any computation\?/.test(q) ? "handler" : /signatures in the library's types/.test(q) ? "overloads" : /which context does this hook read|likely read a context|the module's contexts/.test(q) ? "uses" : /its fields drafted `ref`/.test(q) ? "ref fields" : /^does it change /.test(q) ? "draft" : /^what does its promise reject with/.test(q) ? "rejects" : /does it provide a context|does its component provide/.test(q) ? "provides/nests" : /is a class\b/.test(q) ? "class" : /where does the library render/.test(q) ? "renders" : /takes a Solid signal/.test(q) ? "signal" : /`any` here (is|are) the draft's/.test(q) ? "any" : "other";
+export const todoKind = require_("../tooling/rx-language-server/src/questions.js").kindOf;
 const PLACE = new Set(["Parameters", "ReturnType", "ConstructorParameters", "InstanceType"]);
 /** The `any`s a draft's line writes: the word in a type, not the name of what it exports (valibot exports a schema called `any`). */
 const anysIn = line => { const ts = tokens(line); const at = ts.findIndex((t, i) => i > 0 && /^(fn|component|const|type|context|error)$/.test(ts[i - 1]) && ts.slice(0, i).includes("export")); return ts.filter((t, i) => t === "any" && i !== at).length; };

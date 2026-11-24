@@ -1,9 +1,7 @@
 // MO-8v: the words src/infer.js proves from the code, written into a draft's rows. A row takes `pure` before `fn`,
 // `handler` before a callback's function type (a parameter's, a field's of a record parameter, a prop's of a
 // component), `draft` before a parameter the fn changes in place, `rejects(A | B)` after the signature, and
-// `instantiates` where a proven `pure` fn makes Solid nodes; the question the draft asked about each is not written
-// (a question that is answered "no" — a callback called while the call runs, a parameter never changed, a promise
-// that rejects with no class of the module's — goes too). The row is
+// `instantiates` where a proven `pure` fn makes Solid nodes (what is asked of the rest: questions.js). The row is
 // the notation's, with no new word and no new form (MO-8r), and both checkers read it as any row (08 CN-8).
 // MO-8w: `uses(c)` and `provides(c)` are written too, with the `export context` rows they name (a `uses` only beside
 // a `provides` of the same draft), and no row has a line above it: the draft's head says once how many words were
@@ -188,7 +186,7 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
   // or after the provider or the hook that names it first. A module that has context rows already (a module
   // of the app's own that carries a library's) keeps them: nothing is named beside them.
   const hasContexts = lines.some(l => /^export context\b/.test(l));
-  const ctxNames = new Map(), ctxRows = [], namedCtx = new Set();
+  const ctxNames = new Map(), ctxRows = [];
   const taken = new Set(lines.flatMap(l => l.split("\n")).map(l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1]).filter(Boolean));
   const exportedCtx = new Map();   // a context's key → the name the module exports it by
   for (const n of more.contexts ?? []) { try { const k = inf.contextKey(spec, from, n); if (k && !exportedCtx.has(k)) exportedCtx.set(k, n); } catch { /* not read */ } }
@@ -206,19 +204,18 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
     let n = strip(base).replace(/^[^A-Za-z_$]+/, "").replace(/^[A-Z]+(?![a-z])|^[A-Z]+(?=[A-Z][a-z])|^[A-Z]/, w => w.toLowerCase()) || "context";
     // two contexts of one name (a kit's `ItemContext` in two of its files): the second by its file, `ratingItem`
     if (taken.has(n)) { const file = path.basename(c.m.file).replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9]+(.)?/g, (_, ch) => (ch ?? "").toUpperCase()).replace(/^[^A-Za-z_$]+/, "").replace(/^./, ch => ch.toLowerCase()); const q = file && !n.toLowerCase().startsWith(file.toLowerCase()) ? `${file}${n[0].toUpperCase()}${n.slice(1)}` : n; n = q; for (let k = 2; taken.has(n); k++) n = `${q}${k}`; }
-    taken.add(n); ctxNames.set(c.key, n); ctxRows.push(`export context ${n}`); if (exportedCtx.has(c.key)) namedCtx.add(exportedCtx.get(c.key));
+    taken.add(n); ctxNames.set(c.key, n); ctxRows.push(`export context ${n}`);
     return n;
   };
-  const ctxKnown = new Map();   // a row → whether the code shows every context it reads, and what it provides
   const words = {};             // export → the words read from the code (the benchmark's and rx-verify's count)
   const exportedAs = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
   const out = []; const count = { pure: 0, handler: 0, rejects: 0, draft: 0, instantiates: 0, uses: 0, provides: 0, ref: 0 };
   const errors = new Set(lines.map(l => /^export error ([\w$]+)/.exec(l)?.[1]).filter(Boolean));
-  const rel = f => path.relative(from, f).split(path.sep).join("/").replace(/^(?:\.\.\/)+node_modules\//, "").replace(/^node_modules\//, "");
+  // (a package's file by the package: the same wherever it is installed)
+  const rel = f => /[\\/]node_modules[\\/]/.test(f) ? f.split(/[\\/]node_modules[\\/]/).pop().split(path.sep).join("/") : path.relative(from, f).split(path.sep).join("/");
   const at = w => `${rel(w.file)}:${w.line}`;
   const note = (name, word, ok, reason) => { if (why) why.push({ name, word, ok, why: reason }); };
   let unread;
-  lines = lines.flatMap(l => l.split("\n"));   // (a component's question is written in its row's own element)
   const factsOf = new Map();
   const facts = (line, row) => { if (factsOf.has(row.name)) return factsOf.get(row.name); let f; try { f = inf.exportFacts(spec, from, row.name, row.kind === "fn" ? { ...typesOf(row.name), refs: refsOf(line, row) } : {}); } catch (e) { f = { unread: `the code could not be read (${String(e?.message ?? e).slice(0, 120)})` }; } factsOf.set(row.name, f); return f; };
   const viewsOf = new Map(); const views = name => { if (!viewsOf.has(name)) viewsOf.set(name, more.views ? more.views(name) : { has: () => true, outside: () => true, surely: () => false }); return viewsOf.get(name); };
@@ -237,15 +234,14 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
     if (!row || /\bserver\b/.test(row.words)) { out.push(line); continue; }
     const f = facts(line, row);
     if (!f || f.unread) { unread ??= f?.unread; note(row.name, "*", false, f?.unread ?? "no code"); out.push(line); continue; }
-    const took = []; const answered = { pure: false, rejects: false, events: new Set(), drafts: new Set(), draftNames: new Set(), uses: undefined };
+    const took = [];
     // insertions into the row, applied from its end so that the offsets before them stand
     const ins = [];
     // ---- handler: a callback parameter, a callback field of a record parameter, a callback prop
     const ask = (index, field, label, typeAt) => {
       const h = f.handler(index, field);
-      if (h.ok) { ins.push([typeAt, "handler "]); took.push(`handler(${label})`); count.handler++; answered.events.add(field ?? label); note(row.name, `handler(${label})`, true, [...new Set(h.uses.map(u => `${u.why} [${at(u)}]`))].slice(0, 3).join("; ")); return; }
+      if (h.ok) { ins.push([typeAt, "handler "]); took.push(`handler(${label})`); count.handler++; note(row.name, `handler(${label})`, true, [...new Set(h.uses.map(u => `${u.why} [${at(u)}]`))].slice(0, 3).join("; ")); return; }
       const bad = h.uses.find(u => u.how !== "later");
-      if (!h.never && h.uses.every(u => u.how === "sync")) answered.events.add(field ?? label);   // called while the call runs: no handler, and no question
       note(row.name, `handler(${label})`, false, h.never ? "never called in the code that was read" : `${bad.how === "sync" ? "called while the call runs or in a computation" : bad.how === "reentry" ? "kept, and called whenever what holds it is called" : "it goes where it is not followed"}: ${bad.why} [${at(bad)}]`);
     };
     row.params.forEach((part, index) => {
@@ -259,13 +255,13 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
       // ---- draft: a parameter the fn changes in place
       if (row.kind === "fn" && !/\b(ref|draft)\b/.test(p.words) && !fnTypeAt(line, p.type, p.end)) {
         const d = f.draft(index);
-        if (d === "changes") { ins.push([p.nameAt, "draft "]); took.push(`draft(${p.name})`); count.draft++; answered.drafts.add(p.name); const w = f.draftWhy(index); note(row.name, `draft(${p.name})`, true, `${w.why} [${at(w)}]`); }
-        else if (d === "never") { answered.drafts.add(p.name); note(row.name, `draft(${p.name})`, false, "never changed: every use of it only reads"); }
+        if (d === "changes") { ins.push([p.nameAt, "draft "]); took.push(`draft(${p.name})`); count.draft++; const w = f.draftWhy(index); note(row.name, `draft(${p.name})`, true, `${w.why} [${at(w)}]`); }
+        else if (d === "never") note(row.name, `draft(${p.name})`, false, "never changed: every use of it only reads");
       }
     });
     // ---- pure
     if (row.kind === "fn" && !/\bpure\b/.test(row.words)) {
-      if (f.pure) { took.push("pure"); count.pure++; answered.pure = true; note(row.name, "pure", true, f.makes ? "it only computes and makes Solid nodes of its own" : "it only computes"); }
+      if (f.pure) { took.push("pure"); count.pure++; note(row.name, "pure", true, f.makes ? "it only computes and makes Solid nodes of its own" : "it only computes"); }
       else { const w = f.why[0]; note(row.name, "pure", false, `${w.why} [${at(w)}]${w.via ? ` (called at ${at(w.via)})` : ""}`); }
     }
     // ---- rejects
@@ -273,13 +269,12 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
     const promise = /^\s*:\s*Promise</.test(tail);
     if (row.kind === "fn" && promise && !/\brejects\(/.test(tail)) {
       if (f.rejects && f.rejects.every(n => errors.has(n))) {
-        answered.rejects = true;
         if (f.rejects.length) { took.push(`rejects(${f.rejects.join(" | ")})`); count.rejects++; note(row.name, "rejects", true, `every throw the code reaches is of ${f.rejects.join(", ")}`); }
         else note(row.name, "rejects", false, "the code reaches no throw of a class: nothing to name, and the default (Error) stands");
       } else note(row.name, "rejects", false, f.rejects ? `it throws ${f.rejects.filter(n => !errors.has(n)).join(", ")}, which the draft has no \`export error\` row for` : f.rejectsWhy);
     }
     for (const [pos, text] of ins.sort((a, b) => b[0] - a[0])) line = line.slice(0, pos) + text + line.slice(pos);
-    if (answered.pure && f.pure) line = line.replace(/^export\s+((?:(?:server|client)\s+)*)fn\b/, (_, w) => `export ${w}pure fn`);
+    if (took.includes("pure")) line = line.replace(/^export\s+((?:(?:server|client)\s+)*)fn\b/, (_, w) => `export ${w}pure fn`);
     if (took.some(t => t.startsWith("rejects("))) line = `${line} rejects(${f.rejects.join(" | ")})`;
     // a proven `pure` fn that makes nodes is made once where it is bound (MO-10a): the word the draft writes by a name
     // (one that is not `pure`: where it makes what its owner keeps on every path, whatever else it does — MO-10a's word says
@@ -289,59 +284,28 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
     const makes = row.kind === "fn" && !/\binstantiates\b/.test(line) && (more.written || !/\bref\b/.test(line)) && (f.pure || !/^[A-Z]/.test(row.name));
     const not = !makes || f.pure ? undefined : /^\s*:\s*(?:Promise\b|\(\s*\)\s*=>\s*(?:void|undefined)\s*$|VoidFunction\s*$)/.test(tail) ? { why: "it hands back a promise, or what undoes the call: called in a handler or an effect as well" } : f.unbound();
     if (makes && !f.pure) note(row.name, "instantiates", !not, not ? `${not.why}${not.file ? ` [${at(not)}]` : ""}` : "it makes what its owner keeps, on every path that returns");
-    if (makes && (f.pure ? answered.pure && f.makes : !not)) { line = `${line} instantiates`; took.push("instantiates"); count.instantiates++; }
+    if (makes && (f.pure ? took.includes("pure") && f.makes : !not)) { line = `${line} instantiates`; took.push("instantiates"); count.instantiates++; }
     // ---- uses(c): a context every call reads, and throws without; provides(c): a provider around all it is given
-    let usesDone = false, provDone = row.kind !== "component";
     if (!/\b(uses|provides)\(/.test(line.slice(row.close + 1))) {
       const u = f.uses; const must = u.must.filter(c => ownCtx(c) && provided.has(c.key));
       const doubt = [...u.may.map(c => ({ why: `it reads ${c.name ?? "a context"} on some path only, or when what it hands back is called`, ...c.at })), ...u.must.filter(c => !ownCtx(c)).map(c => ({ why: `it reads ${c.name ?? "a context"}, which another module makes`, ...c.at })), ...u.must.filter(c => ownCtx(c) && !provided.has(c.key)).map(c => ({ why: `it reads ${c.name ?? "a context"} on every path, and no component of this module is shown to provide it (its provider is another module's, or one the reading does not get through)`, ...c.at })), ...u.opaque];
       if (must.length) { const ns = must.map(c => nameCtx(c, row.name)); line = `${line.replace(/ instantiates$/, "")} uses(${ns.join(", ")})`; for (const n of ns) { took.push(`uses(${n})`); count.uses++; } note(row.name, `uses(${ns.join(", ")})`, true, must.map(c => `useContext(${c.name ?? "…"}) on every path, with no default to answer [${at(c.at)}]`).join("; ")); }
-      usesDone = !doubt.length;
-      if (!usesDone) note(row.name, "uses", false, `${doubt[0].why} [${at(doubt[0])}]`); else if (!must.length) note(row.name, "uses", false, "it reads no context: every call it makes is read, and none asks for one");
-      answered.uses = must.length ? { partial: !usesDone, why: doubt[0] && `${doubt[0].why} [${at(doubt[0])}]` } : undefined;
+      if (doubt.length) note(row.name, "uses", false, `${doubt[0].why} [${at(doubt[0])}]`); else if (!must.length) note(row.name, "uses", false, "it reads no context: every call it makes is read, and none asks for one");
       if (row.kind === "component") {
         const pv = f.provides(0); const yes = providedBy(row, f).filter(x => pv.list.some(y => y.ctx.key === x.ctx.key));
         for (const x of pv.list) if (!yes.some(y => y.ctx.key === x.ctx.key)) { const o = x.outside.find(q => views(row.name).outside(q)); note(row.name, `provides(${x.ctx.name ?? "…"})`, false, !ownCtx(x.ctx) ? "the context is another module's" : o ? `${o.field === null ? "its props go" : `${o.field} is read`} outside the provider: ${o.why} [${at(o)}]` : "nothing it is given is rendered beneath the provider"); }
         if (yes.length) { const ns = yes.map(x => nameCtx(x.ctx, row.name)); line = `${line} provides(${ns.join(", ")})`; for (const n of ns) { took.push(`provides(${n})`); count.provides++; } note(row.name, `provides(${ns.join(", ")})`, true, yes.map(x => `everything it is given is rendered among <${x.ctx.name ?? "the context"} value>'s children [${at(x.inside[0])}]`).join("; ")); }
-        provDone = pv.list.length ? yes.length === pv.list.length : pv.clean;
       }
-    } else { usesDone = true; provDone = true; }
-    ctxKnown.set(row.name, usesDone && provDone);
-    // the questions above the row that are answered now
-    for (let k = out.length - 1; k >= 0 && out[k].startsWith(`// TODO ${row.name}: `); k--) {
-      const q = out[k].slice(`// TODO ${row.name}: `.length);
-      if (/^pure\?/.test(q) && answered.pure) out.splice(k, 1);
-      else if (/^which context does this hook read\?/.test(q)) { if (usesDone) out.splice(k, 1); else if (answered.uses) out[k] = `// TODO ${row.name}: which context does this hook read beside what its row says? ${answered.uses.why}: add uses(<context>) if that reads one (MO-12b)`; }
-      else if (/^does it provide a context to its children\?/.test(q) && provDone) out.splice(k, 1);
-      // a factory's component: it provides nothing where the code shows the function the fn hands back to render no
-      // provider (and nothing that is not read), and nests nothing where no parameter is a tree of components
-      else if (/^does its component provide a context, or nest what it is given\?/.test(q)) { let clean = false; try { clean = f.madeClean(); } catch { /* not read */ } const nest = more.couldNest ? more.couldNest(row.name) : true; if (clean && !nest) { out.splice(k, 1); note(row.name, "provides", false, "the component it makes renders no provider, and every component it renders is read or the caller's; no parameter is a tree of components to nest"); } else note(row.name, "provides", false, !clean ? "the component it makes is not followed, or renders a component that is not read" : "a parameter is a record of components with a list of records: whether the made component nests them is not read"); }
-      // (a parameter named as a word of the notation is written with a `_` in its row: `fn_`)
-      // a component the fn is given and calls while it runs (or in a computation it makes there) is rendered where the
-      // fn is called: the library keeps it for no component of its own, so `renders(H)` has nothing to name (the
-      // cautious placement stands: a root of its own, MO-11s)
-      else if (/is given a component: where does the library render it\?/.test(q)) { const names = [...q.split(" is given a component")[0].split(" are given a component")[0].matchAll(/`([\w$]+)`/g)].map(x => x[1]); const idx = names.map(n => row.params.findIndex(part => { const pn = named(line, part)?.name; return pn === n || pn === `${n}_`; })); const here = idx.length > 0 && idx.every(i => { if (i < 0) return false; const h = f.handler(i, undefined); return !h.never && h.uses.every(u => u.how === "sync"); }); if (here) { out.splice(k, 1); note(row.name, "renders", false, `${names.join(", ")}: called while the fn runs, or in a computation it makes there — rendered where the fn is called, beneath no component of the library's`); } else { const i = idx.find(j => j >= 0); const h = i !== undefined ? f.handler(i, undefined) : undefined; const bad = h?.uses.find(u => u.how !== "sync"); note(row.name, "renders", false, bad ? `it goes where it is not followed: ${bad.why} [${at(bad)}]` : "where the component goes is not followed"); } }
-      else if (/^what does its promise reject with\?/.test(q) && answered.rejects) out.splice(k, 1);
-      // what it hands back is a value the code builds there (a record written out, a function, a primitive): no store
-      else if (/^is the result a store with fields that wait or throw/.test(q)) { if (f.plain) { out.splice(k, 1); note(row.name, "result", true, "what it hands back is built where it is written: no store whose fields wait or throw"); } else if (f.plainWhy) note(row.name, "result", false, `${f.plainWhy.why} [${at(f.plainWhy)}]${f.plainWhy.via ? ` (called at ${at(f.plainWhy.via)})` : ""}`); }
-      else if (/: called later, outside any computation\?/.test(q)) { const names = q.split(": called later")[0].split(", "); const left = names.filter(n => !answered.events.has(n)); if (!left.length) out.splice(k, 1); else if (left.length < names.length) out[k] = `// TODO ${row.name}: ${left.join(", ")}: called later, outside any computation? mark ${left.length > 1 ? "each" : "it"} \`handler (…) => …\`, so a closure there may write sources (MO-10g)`; }
-      else if (/^does it change /.test(q)) { const names = [...q.split(" in place?")[0].matchAll(/`([\w$]+)`/g)].map(x => x[1]); const left = names.filter(n => !answered.drafts.has(n)); if (!left.length) out.splice(k, 1); else if (left.length < names.length) out[k] = `// TODO ${row.name}: does it change ${left.map(n => `\`${n}\``).join(" or ")} in place? mark that parameter \`draft ${left[0]}\`, and a store's draft is given to it as it is (MO-10i)`; }
     }
-    // (a component's question is written on its row's own element, before the row)
-    if (line.startsWith("// TODO ")) { /* not a row */ }
     if (took.length) words[row.name] = took;
     out.push(line);
   }
-  // a compound component's question — "its parts likely read a context it provides" — is answered where the code
-  // shows what the root provides and what each part reads
-  for (let k = out.length - 1; k >= 0; k--) { const t = /^\/\/ TODO ([\w$.]+): its parts likely read a context it provides/.exec(out[k]); if (!t) continue; const rows = [...ctxKnown].filter(([n]) => n === t[1] || n.startsWith(`${t[1]}.`)); if (rows.length > 1 && rows.every(([, known]) => known)) out.splice(k, 1); }
   if (ctxRows.length) { const at0 = out.findIndex(l => !l.startsWith("//") || /^\/\/ TODO /.test(l)); out.splice(at0 < 0 ? 0 : at0, 0, ...ctxRows); }
-  // a component's row carries its question in the same element (`// TODO X: onA, onB: …\nexport component X…`)
   const total = Object.values(count).reduce((a, b) => a + b, 0);
   // one line for the whole draft (MO-8w): which words were read is not written row by row — it is what the code shows,
   // and `rx-verify` and `rx-declare --why` say it again from the code whenever they are asked
   const head = total ? [`// Read from the code that runs (MO-8v): ${Object.entries(count).filter(([, n]) => n).map(([w, n]) => `${n} ${w}`).join(", ")} — proven, not guessed. Which words, and how: \`rx-declare --why\`; \`rx-verify\` tells them from the words written by hand, and runs each.`] : [];
-  return { lines: out, head, count, words, named: namedCtx, unread: total ? undefined : unread };
+  return { lines: out, head, count, words, unread: total ? undefined : unread, facts: name => factsOf.get(name), provided, outside: (name, o) => views(name).outside(o), at };
 }
 
 module.exports = { apply, paramTypes, viewProps, couldNest, refsOf, parseRow, named, fnTypeAt, records };

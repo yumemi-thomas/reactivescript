@@ -1,11 +1,11 @@
 //@ for @tanstack/solid-router ^2.0.0-rc.10
-// @tanstack/solid-router 2.0 (rc), code-based routes: rx-declare's draft of what the app imports, as it is —
+// @tanstack/solid-router 2.0 (rc), code-based routes: rx-declare's draft of what the app imports —
 // `rx-declare @tanstack/solid-router --only Link,Outlet,createRoute,createRootRoute,createRouter,RouterProvider,useParams`:
 // those exports' rows, the context their words name and the types they name (the library's whole draft has a row for
-// every export, 296 of them). The types' rows, and what known.js says of this release: the router's context, which its
+// every export, 296 of them). By hand, the words the program needs: the router's context, which its
 // provider provides and its hooks, link and outlet read, and that the components `createRoute` and `createRootRoute`
 // are given are rendered beneath <RouterProvider> (09 MO-11u). The types are the package's own, so the route tree
-// registers the router (register.d.ts). No word by hand.
+// registers the router (register.d.ts).
 export context router
 export type ParsedLocation<TSearchObj extends AnySchema = {  }> = import("@tanstack/solid-router").ParsedLocation<TSearchObj>
 export type AnyPathParams = import("@tanstack/solid-router").AnyPathParams

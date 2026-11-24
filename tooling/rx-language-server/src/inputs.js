@@ -72,4 +72,4 @@ function stale(inputs) {
   for (const [p, h] of Object.entries(inputs.dirs ?? {})) { let entries; try { entries = fs.readdirSync(p, { withFileTypes: true }); } catch { return true; } if (listingHash(entries, inputs.takes ?? null) !== h) return true; }
   return false;
 }
-module.exports = { record, stale, contentHash };
+module.exports = { record, stale };

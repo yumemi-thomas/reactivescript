@@ -9,8 +9,8 @@
 // host.d.rx says it — derived from the router main.rx exports (`//@ routes ./main.rx`, 09 MO-14g: rx-declare compiles
 // the module, runs it, and asks the router object for its tree) — so the root layout's regions around its <Outlet />
 // hold its pages (MO-14h). Until 2026-11-25 that program was refused, and each page held its own failure and wait.
-// The declarations are rx-declare's drafts, as they are (no word by hand): the types' rows, what known.js says of the
-// release, and the router's own tree.
+// The declarations are rx-declare's drafts with the words the program needs written by hand (bench/needed.txt), and the
+// router's own tree.
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 const REGIONS = 'errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main><Outlet /></main> }\n  }';

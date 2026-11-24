@@ -1,7 +1,6 @@
 //@ for @ui-sdk/solid ^0.1.0-beta.13
 // UI SDK's Dialog in rows, as `rx-declare @ui-sdk/solid/dialog` drafts it, kept to the parts the app uses. The context
-// the root shares with its parts is what rx-declare knows of the release (known.js, 2026-11-25: each part run alone and
-// inside its root — a part outside it throws "<DialogClose> must be used inside <Dialog>"; the trigger does not, and
+// the root shares with its parts is the app's own claim (each part run alone and inside its root, 2026-11-25 — a part outside it throws "<DialogClose> must be used inside <Dialog>"; the trigger does not, and
 // has no word). By hand: the root's `onOpenChange` is called later (`handler`).
 export context dialog
 export type DialogBackdropState = import("@ui-sdk/solid/dialog").DialogBackdropState

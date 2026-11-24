@@ -116,4 +116,4 @@ function lookup(file, spec) {
 function rows(file, text) {
   return ask("rows", text === undefined ? { file } : { file, text });
 }
-module.exports = { analyze, checkProgram, preludeFor, boundary, declaration, lookup, rows, rxcPath, wasmPath };
+module.exports = { analyze, checkProgram, preludeFor, boundary, declaration, lookup, rows };

@@ -69,4 +69,4 @@ function mutant(mod, rows, kind, s) {
   };
   return Object.fromEntries(Object.keys(mod).map(k => [k, over(mod[k], k)]));
 }
-module.exports = { mutationsOf, falsified, mutant, KINDS };
+module.exports = { mutationsOf, falsified, mutant };

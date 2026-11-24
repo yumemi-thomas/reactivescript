@@ -215,4 +215,4 @@ function sceneRoutes(hostFile, rx) {
   return d.routes.nodes.map(node);
 }
 
-module.exports = { pragmaOf, readRoutes, derive, drift, sync, hostFor, message, sceneRoutes, rowsOf };
+module.exports = { derive, drift, sync, hostFor, message, sceneRoutes, rowsOf };

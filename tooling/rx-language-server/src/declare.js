@@ -1,11 +1,8 @@
 // `rx-declare`: a draft `.d.rx` for a JS module, from its TypeScript types (09 MO-8, MO-10, MO-11, MO-12). What the
 // types show is written as rows: an accessor parameter or result is `ref`, a function of props to a JSX element is a
 // component, a `JSX.Element` prop is a `View`, a component-typed prop or result is `Component`, a tuple result keeps
-// its `ref` parts, an `Error` subclass is an `error`. What types cannot show is left for a person, as a `TODO` comment
-// on the line it concerns: whether a hook reads a context (`uses(…)`), whether an accessor waits or fails where it is
-// read (`pending`,
-// `fails(…)` before its `ref`, MO-10l; a store whose plain fields wait has no row, and a module of the app's own hands
-// each out as an accessor), what a promise rejects with. No word is
+// its `ref` parts, an `Error` subclass is an `error`. What types cannot show is proven from the code (declare-infer.js) or
+// asked, as a `TODO` above the row it concerns (questions.js). No word is
 // written off a name, a shape or a judgment (MO-8v): those the code proves are added by declare-infer.js, and the rest stay
 // off, the row that says least (a fn with no word is io, R-io-4).
 // `rx-tsc` then checks the draft against the same types (spec/13 TY-6).
@@ -532,13 +529,13 @@ function accessorOf(ts, checker, t) {
   return r;
 }
 // Solid's JSX.Element is a union with null and undefined: its name, not its members, says it is an element
-// (by its declaration: the DOM's `Element`, `HTMLElement`, a function of an element, are not)
+// (by where it is declared, a `JSX` namespace or Solid's own packages: the DOM's `Element`, another library's, are not)
 const isJsxElement = (ts, checker, t) => {
   const u = checker.getNonNullableType(t);
   for (const x of [t, u]) {
     const sym = x.aliasSymbol ?? x.symbol;
     const file = sym?.declarations?.[0]?.getSourceFile().fileName ?? "";
-    if (sym?.name === "Element" && !/\/typescript\/lib\/lib\./.test(file)) return true;
+    if (sym?.name === "Element" && (sym.parent?.name === "JSX" || /^(solid-js|@solidjs\/\w+)$/.test(packageOf(path.dirname(file)) ?? ""))) return true;
   }
   return false;
 };
@@ -597,7 +594,7 @@ function propText(ts, checker, p, at, precise = false, obj) {
   // takes props, and TypeScript does not hold a function of one argument where the library calls with none)
   if (CTX.decl && fnSigs.length && fnSigs.every(s => !s.getParameters().length && givesElement(ts, checker, s))) return `${p.name}${opt}: () => View`;
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return `${p.name}${opt}: Component`;
-  if (/^(as|component)$/.test(p.name) && checker.getNonNullableType(t).isUnion?.() && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u))) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
+  if (checker.getNonNullableType(t).isUnion?.() && !isElement(ts, checker, t) && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u)) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.StringLike)) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
   if (isElement(ts, checker, t)) return `${p.name}${opt}: View`;
   if (isFn(checker, t)) return `${p.name}${opt}: ${(precise && fnText(ts, checker, t)) || callbackText(ts, checker, t, here, "callback", annotation(ts, p))}`;   // a callback (MO-10g)
   // MO-11c (2026-11-24): a record or a list of components — each component in the literal the prop is given is applied there
@@ -787,8 +784,6 @@ function atDefaults(ts, checker, sig) {
   if (!rt.text || introduced(rt.text) || checker.getTypePredicateOfSignature?.(sig)) return undefined;
   return `(${ps.join(", ")}) => ${rt.text}`;
 }
-/** A zero-argument function field that is called, by its name (`getPageCount()`, `isActive()`); any other is read as an accessor. */
-const CALLED = /^(get|is|has|can|should|will|to|as|find|make|create|use|on|do|run)[A-Z0-9_]/;
 /** MO-10b, MO-10k: a result's type a step at a time, where the library declares a small object — every field it has, an
  *  accessor `ref`, a function with what it answers — or an instance of a class, by the methods that answer nothing or
  *  a primitive (the object stays the library's own: no accessor part is declared on it). undefined: not such a type. */
@@ -814,7 +809,7 @@ function structural(ts, checker, t, depth = 0, here, refs = depth === 0) {   // 
     // MO-10b: only the result's own fields are declared accessors; one nested deeper is a value — the function it is
     if (read && !refs) return `() => ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
     if (read && refs) shaped(ts, checker, qt, q.name);
-    if (read) return CALLED.test(q.name) ? `() => ${(st => st ? st + nullish(ts, read) : text(ts, checker, read))(structural(ts, checker, read, depth + 1))}` : `ref ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
+    if (read) return `ref ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
     if (isFn(checker, qt)) return fnResultText(ts, checker, qt, at(q));
     const st = depth < 2 ? structural(ts, checker, qt, depth + 1, at(q)) : undefined;
     return st ? st + (CTX.refs ? nullish(ts, qt) : "") : text(ts, checker, qt, at(q), annotation(ts, q));
@@ -841,7 +836,7 @@ const setter = (ts, checker, x, node, at) => { const c = CTX.refs ? callbackText
  *  that answers nothing or a promise. Without one, the type's own name says as much, and is written (MO-8o). */
 const EVIDENCE = /\bref\s|=>\s*(?:void\b|Promise<)/;
 const byPlace = s => /\b(?:Parameters|ReturnType)</.test(s);
-function resultText(ts, checker, t, todos, generic = false, here, node) {
+function resultText(ts, checker, t, generic = false, here, node) {
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return "Component";
   const read = accessorOf(ts, checker, t);
   if (read) shaped(ts, checker, t, "");
@@ -870,14 +865,12 @@ function resultText(ts, checker, t, todos, generic = false, here, node) {
   let s = text(ts, checker, t, here, node);
   // a promise is said to be one, whatever it answers (MO-10b reads it): by its place, else of `any`
   if (CTX.refs && /^Promise</.test(checker.typeToString(t)) && !/^Promise</.test(s)) s = s === here ? `Promise<Awaited<${here}>>` : /^any\u00ab[^\u00bb]*\u00bb$/.test(s) ? `Promise<${s}>` : s;
-  if (/^Promise</.test(checker.typeToString(t))) todos.push("what does its promise reject with? add rejects(<classes>) (default Error)");
-  else {
-    if (ownObject(ts, t, checker)) todos.push("is the result a store with fields that wait or throw when read? a row cannot say so (MO-8r): hand each such field out as a function from a module of the app's own, declared `pending fails(Error) ref` (MO-10l)");
+  if (!/^Promise</.test(checker.typeToString(t))) {
     // (one that may be absent, `{ … } | null`, is no record to the notation: `ref` is read in the record alone, so its
     // accessors are the functions they are)
     // what the type does not say as text (it names the library's own types) is said a step at a time
     // MO-8o: a result the library names is written by that name, unless its parts say what the checker reads
-    if (unsaid(ts, checker, t)) { const st = structural(ts, checker, t, 0, here, !nullish(ts, t)); if (st && !(CTX.decl && !introduced(s) && (introduced(st) || (CTX.whole && byPlace(st)) || (!EVIDENCE.test(st) && (!byPlace(s) || byPlace(st)))))) { s = st + nullish(ts, t); if (/\bref /.test(st)) todos.push("its fields drafted `ref` are read as values (`x.items`); one the app calls instead (`x.items()`) is a function, `() => T` (MO-10b)"); } }
+    if (unsaid(ts, checker, t)) { const st = structural(ts, checker, t, 0, here, !nullish(ts, t)); if (st && !(CTX.decl && !introduced(s) && (introduced(st) || (CTX.whole && byPlace(st)) || (!EVIDENCE.test(st) && (!byPlace(s) || byPlace(st)))))) { s = st + nullish(ts, t); } }
   }
   return s;
 }
@@ -996,7 +989,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     if (!item.member && sym.flags & ts.SymbolFlags.Class) {
       const inst = checker.getDeclaredTypeOfSymbol(sym);
       if (checker.getBaseTypes(inst)?.some(b => /\bError\b/.test(checker.typeToString(b)))) lines.push(`export error ${name}`);
-      else lines.push(`// TODO: ${name} is a class: construct it in a JS helper and declare that fn`);
+      else lines.push(`// ${name} is a class, which no row says: construct it in a module of the app's own, and declare that fn`);
       continue;
     }
     if (!item.member && /^Context</.test(checker.typeToString(t))) { contexts.push(name); continue; }
@@ -1042,14 +1035,10 @@ function declare(ts, spec, from, options = {}, how = {}) {
       // (MO-11t: and a prop that takes a view, other than `children` — a component given to it by name is applied there)
       // (MO-11c: and a prop that holds components in a record or a list, with its component fields alone)
       if (named) props = props.filter(x => /^[\w$]+\??: (?:Component$|string \| Component$|\(.*=>)/.test(x.replace(MARK, "")) || /^(?!children\b)[\w$]+\??: (?:View|View \| undefined|string \| View)$/.test(x.replace(MARK, "")) || HELD_ONLY.has(x.replace(MARK, ""))).map(x => HELD_ONLY.get(x.replace(MARK, "")) ?? x);
-      // MO-10g: a prop's function type is pure unless it says `handler`, whatever its name, so an event-like name is only
-      // a suggestion here, never the word
-      const events = [...new Set(props.map(x => /^(on[A-Z][\w$]*)\??\s*:\s*\(/.exec(x)?.[1]).filter(Boolean))];
       // only the parameters a prop names are the row's (the element parameter of a polymorphic `as` is not one)
       const ctpsUsed = ctps ? typeParams(ts, checker, csig.getTypeParameters().map(q => q.symbol), `${named ?? ""} ${props.join("; ")}`) : "";
       CTX.scope = new Set();
-      const row = `export component ${as}${ctpsUsed}(props: ${named ? `${named}${props.length ? ` & { ${props.join("; ")} }` : ""}` : `{ ${props.join("; ")} }`})`;
-      return events.length ? `// TODO ${as}: ${events.join(", ")}: called later, outside any computation? mark ${events.length > 1 ? "each" : "it"} \`handler (…) => …\`, so a closure there may write sources (MO-10g)\n${row}` : row;
+      return `export component ${as}${ctpsUsed}(props: ${named ? `${named}${props.length ? ` & { ${props.join("; ")} }` : ""}` : `{ ${props.join("; ")} }`})`;
     };
     // MO-11q: a kit's compound parts on one object (`Dialog.Trigger`), the object a component itself or not
     const members = /^[A-Z]/.test(name) ? t.getProperties().filter(q => /^[A-Z]/.test(q.name)).map(q => [q.name, checker.getTypeOfSymbolAtLocation(q, imp)]).filter(([, mt]) => isComponent(ts, checker, mt)) : [];
@@ -1061,9 +1050,8 @@ function declare(ts, spec, from, options = {}, how = {}) {
       continue;
     }
     if (!item.member && (/^[A-Z]/.test(name) || name === "default") && isComponent(ts, checker, t)) {   // (a default export has no capital to go by: it is a component by what it is)
-      if (/Provider$/.test(name)) lines.push(`// TODO ${name}: does it provide a context to its children? add provides(<context>) (MO-12c)`);
       lines.push(componentOf(name, t));
-      if (members.length) { lines.push(`// TODO ${name}: its parts likely read a context it provides: add provides(<context>) to it and uses(<context>) to them (MO-12)`); memberLines(); }
+      memberLines();
       continue;
     }
     const shortest = [...sigs].sort((a, b) => a.getParameters().length - b.getParameters().length)[0];   // the shortest overload: the common form
@@ -1085,33 +1073,22 @@ function declare(ts, spec, from, options = {}, how = {}) {
       : tps && mode.decl && sigs.filter(g => takes(g, tpNames.length)).length === 1 ? `typeof import(${real}).${name}<${tpNames.join(", ")}>`
       : sigs.length === 1 || last ? `typeof import(${real}).${name}` : undefined;   // `last`: of several signatures, the one TypeScript reads `Parameters<typeof f>` from
     const ps = params.map((p, i) => isRest(p) ? `...${p.name}: ${(refs && (whole(ts, checker, checker.getTypeOfSymbolAtLocation(p, imp), undefined, annotation(ts, p)))) || `${ANY("rest")}[]`}` : paramText(ts, checker, p, imp, generic, place && !params.some(isRest) ? `Parameters<${place}>[${i}]` : undefined));   // MO-8h: a rest parameter (`pipe(...items)`)
-    // MO-10g: a function type is pure unless marked `handler`; one named like an event is likely called later — a
-    // suggestion for a person, not a row (the name is a convention, not a fact)
-    { const sg = params.filter(p => signalOf(ts, checker, checker.getTypeOfSymbolAtLocation(p, imp))); if (sg.length) todos.push(`${sg.map(p => `\`${p.name}\``).join(", ")} takes a Solid signal (a getter and a setter), and an .rx program has none to pass: make it in a module of the app's own, \`export const x = (init, …) => ${name}(createSignal(init), …)\`, and declare that — its result is a reader and a setter (MO-10c)`); }
-    const events = [...ps.join("; ").matchAll(/(?:^|[\s{;,(])(on[A-Z][\w$]*)\??\s*:\s*\(/g)].map(m => m[1]);
-    if (events.length) todos.push(`${[...new Set(events)].join(", ")}: called later, outside any computation? mark ${events.length > 1 ? "each" : "it"} \`handler (…) => …\`, so a closure there may write sources (MO-10g)`);
+    { const sg = params.filter(p => signalOf(ts, checker, checker.getTypeOfSymbolAtLocation(p, imp))); if (sg.length) todos.push({ ask: "note", text: `${sg.map(p => `\`${p.name}\``).join(", ")} takes a Solid signal (a getter and a setter), and an .rx program has none to pass: make it in a module of the app's own, \`export const x = (init, …) => ${name}(createSignal(init), …)\`, and declare that — its result is a reader and a setter (MO-10c)` }); }
     if (!shapedBy.has(name)) shapedBy.set(name, new Set()); CTX.shaped = shapedBy.get(name);
-    const ret = resultText(ts, checker, sig.getReturnType(), todos, generic, place && `ReturnType<${place}>`, sig.declaration?.type);
+    const ret = resultText(ts, checker, sig.getReturnType(), generic, place && `ReturnType<${place}>`, sig.declaration?.type);
     CTX.shaped = undefined; CTX.scope = new Set();
-    const primitive = /^(create|use)[A-Z]/.test(leafName);
-    const config = /^define[A-Z]|[a-z]Options$/.test(leafName);   // a config helper (`defineRoute`, `queryOptions`): pure by convention
-    if (/^use[A-Z]/.test(leafName)) todos.unshift("which context does this hook read? add uses(<context>) (MO-12b)");
     const factory = ret === "Component";
     // MO-11u: a fn that is given a component (as a parameter, or in a record it takes) renders it somewhere: types do
     // not say where, so it is asked
     { const viewFn = x => { const r = accessorOf(ts, checker, x); return !!r && isElement(ts, checker, r); };   // a function of nothing giving an element: rendered, as a component with no props is
       const isC = x => viewFn(x) || (isComponent(ts, checker, x) && !isElement(ts, checker, x) && checker.getNonNullableType(x).getCallSignatures().every(g => g.getParameters().length === 1));
       const given = params.filter(p => { const pt = checker.getTypeOfSymbolAtLocation(p, imp); const o = checker.getNonNullableType(pt); return isC(pt) || (!o.getCallSignatures().length && !!(o.flags & ts.TypeFlags.Object) && !checker.isArrayType(o) && o.getProperties().length <= 80 && o.getProperties().some(q => isC(checker.getTypeOfSymbolAtLocation(q, imp)))); });
-      if (given.length && !factory) todos.push(`${given.map(p => `\`${p.name}\``).join(", ")} ${given.length > 1 ? "are" : "is"} given a component: where does the library render it? If beneath a component this module exports, name that component, \`renders(<Component>)\` (MO-11u); with no word it is checked under a root of its own, where nothing above the call reaches it (MO-11s)`); }
-    if (factory) todos.unshift("does its component provide a context, or nest what it is given? add provides(<context>), nests(<kids> in <component>) (MO-12c, MO-11i)");
-    // RFC 26: a name is a convention, not a fact, so it suggests `pure` (a TODO for a person) and never writes it: a draft
-    // states only what the types show, and an unreviewed row stays io, the checker's cautious reading (R-io-4)
-    if (primitive || factory || config) todos.push(`pure? its name is a ${factory ? "factory's" : config ? "config helper's" : "primitive's"} (${factory ? "it hands back a Component" : config ? "define…/…Options" : "create…/use…"}): if calling it writes nothing but its own state, write \`pure fn\` (MO-8a)`);
+      if (given.length && !factory) todos.push({ ask: "renders", params: given.map(p => p.name) }); }
     // MO-10i (2026-11-22): a fn that answers nothing and takes an array or a record can only act by changing what it is
     // given (or the world): whether it does is not in its type, so it is asked
     if (sig.getReturnType().flags & ts.TypeFlags.Void) {
       const mutable = params.filter(p => { const pt = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)); return !isFn(checker, pt) && !accessorOf(ts, checker, pt) && !!(pt.flags & (ts.TypeFlags.Object | ts.TypeFlags.TypeParameter)) && !/^(readonly |Readonly(Array)?<)/.test(checker.typeToString(pt)); });
-      if (mutable.length) todos.push(`does it change ${mutable.map(p => `\`${p.name}\``).join(" or ")} in place? mark that parameter \`draft ${mutable[0].name}\`, and a store's draft is given to it as it is (MO-10i)`);
+      if (mutable.length) todos.push({ ask: "draft", params: mutable.map(p => p.name) });
     }
     return `export fn ${name}${tps}(${ps.join(", ")}): ${ret}`;   // (`instantiates` is read from the code, never off a name: declare-infer.js)
     };
@@ -1126,7 +1103,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
       const note = `${sigs.length} signatures in the library's types: this row is one of them (an export has one row, MO-8b); a call is typed by the library's own`;
       const shapes = new Set(sigs.map(g => { try { return shapeOf(rowOf(g, []).replace(MARK, "")); } catch { return "?"; } }));
       CTX.scope = new Set();
-      if (shapes.size > 1) todos.push(note); else if (how.notes) how.notes.push(`${name}: ${note}`);
+      if (shapes.size > 1) todos.push({ ask: "overloads", n: sigs.length }); else if (how.notes) how.notes.push(`${name}: ${note}`);
     }
     // MO-8q: where the signatures' rows would hold an `any` of the draft's (a bound with no name, so nothing to range
     // over), the fn is the one signature that can be said without: the shortest alone, else its last signature, each
@@ -1137,10 +1114,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
       if (!introduced(alone) && !mode.whole) { fnRows = [alone]; todos = t1; }
       else if (lastRow && !introduced(lastRow)) { fnRows = [lastRow]; todos = t2; }
     }
-    // MO-8t: a method that answers a value is read as one unless its row says `fn`, and a draft never guesses `pure`:
-    // the row is io as drafted, and the question is asked where the name suggests a read
-    if (item.member && /^(get|is|has|peek|read|list|count|find)([A-Z]|$)/.test(leafName) && !(sigs[0].getReturnType().flags & ts.TypeFlags.Void)) todos.push("pure? its name is a read's (get…/is…/has…): if calling it writes nothing, write `pure fn` — as drafted it is io, called from a handler or an action (MO-8t)");
-    for (const t of todos) lines.push(`// TODO ${name}: ${t}`);   // on lines of their own: a declaration's line is read to its end
+    for (const t of todos) lines.push(`// TODO ${name}: ${JSON.stringify(t)}`);   // (what questions.js may ask about the row)
     lines.push(...fnRows);
     if (!item.member) work.splice(wi + 1, 0, ...methodsOf(name, t));   // MO-8t: a fn's own methods (`toast.success`), each a row
   }
@@ -1218,16 +1192,17 @@ function declare(ts, spec, from, options = {}, how = {}) {
   out.push(...head);
   // a part only shaped as an accessor is `ref` where the code shows a reader (declare-infer.js), else the function it is
   const unshaped = (line, name, reads) => [...shapedBy.get(name) ?? []].reduce((l, at) => reads(at) ? l : withWaits(l, { [at]: "" }), line);
-  if (how.infer === false) lines = lines.map(l => { const n = exportedIn(l); return n ? l.split("\n").map(x => x.startsWith("export ") ? unshaped(x, n, () => false) : x).join("\n") : l; });
-  // MO-8v: the words the code that runs proves — `pure`, `handler`, `draft`, `rejects(E)` — written into the rows;
-  // the question each answers is not asked (declare-infer.js, infer.js)
+  if (how.infer === false) lines = lines.map(l => { const n = exportedIn(l); return n && l.startsWith("export ") ? unshaped(l, n, () => false) : l; });
+  // MO-8v: the words the code that runs proves — `pure`, `handler`, `draft`, `rejects(E)` — written into the rows
+  // (declare-infer.js, infer.js), and what is left to a person asked (questions.js): of a draft a person keeps
+  const di = require("./declare-infer.js"), types = name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } };
+  let r = { facts: () => undefined };
   if (how.infer !== false) {
-    const di = require("./declare-infer.js");
-    const r = di.apply(ts, spec, from, lines, name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } }, how.why, { unshaped, contexts, written: how.written, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } }, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
+    r = di.apply(ts, spec, from, lines, types, how.why, { unshaped, contexts, written: how.written, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
     lines = r.lines; out.push(...r.head);
-    contexts = contexts.filter(c => !r.named.has(c));   // (a context a row names is declared: no question about it)
     if (how.inferred) Object.assign(how.inferred, r.count, { unread: r.unread, words: r.words });
   }
+  lines = how.written ? lines.filter(l => !/^\/\/ TODO /.test(l)) : require("./questions.js").ask(lines, r.facts, types, { ...r, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } } });
   // why each `any` left is one (--explain): what the type holds that the row cannot say; in a row of an overloaded fn,
   // where a type with no name would else be said by its place, that the fn has no one signature to take it from
   if (how.causes) for (const l of lines) { const n = exportedIn(l); for (const m of l.matchAll(/any\u00ab([^\u00bb]*)\u00bb/g)) how.causes.push({ name: n, cause: how.refs !== false && overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(m[1]) ? "overload" : m[1] }); }
@@ -1237,14 +1212,13 @@ function declare(ts, spec, from, options = {}, how = {}) {
   if (how.places) for (const l of lines) { const n = exportedIn(l); const k = (l.match(/\b(?:Parameters|ReturnType)</g) ?? []).length; if (n && k) how.places[n] = (how.places[n] ?? 0) + k; }
   // MO-8q: an `any` the draft wrote where the library has a type is said on the row it is in, with why: it is for a
   // person to name (or the row to leave out), not a type the library has
-  if (how.refs !== false) for (let i = lines.length - 1; i >= 0; i--) {
+  if (how.refs !== false && !how.written) for (let i = lines.length - 1; i >= 0; i--) {
     const n = exportedIn(lines[i]); if (!n || lines[i].startsWith("//")) continue;
     const why = [...lines[i].matchAll(/any\u00ab([^\u00bb]*)\u00bb/g)].map(m => m[1]).filter(c => c !== "vendor-any");
     if (why.length) lines.splice(i, 0, `// TODO ${n}: ${why.length} \`any\` here ${why.length === 1 ? "is" : "are"} the draft's, not the library's (${[...new Set(why.map(c => overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(c) ? "overload" : c))].join(", ")}): name the type, or leave the row out (MO-8q)`);
   }
   for (let i = 0; i < lines.length; i++) lines[i] = lines[i].replace(/\u00ab[^\u00bb]*\u00bb/g, "");
-  if (contexts.length) out.push(`// TODO: the module's contexts (${contexts.join(", ")}): name each with \`export context <name>\` and add uses(<name>) to the hooks that read it (MO-12)`);
   return [...out, ...lines].join("\n") + "\n";
 }
 
-module.exports = { declare, withWaits, isElement, isComponent, givesElement };
+module.exports = { declare, isElement, isComponent, givesElement };

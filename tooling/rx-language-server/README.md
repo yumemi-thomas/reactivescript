@@ -117,7 +117,7 @@ npx rx-declare ./api.js --why
 
 You may not need to run it: for a package nothing declares, the language server, rx-tsc and the Vite plugin draft one
 themselves from its types (`src/generate.js`, MO-8l) into `node_modules/.rx-types/`, redrafted when the package's
-version changes. Those drafts don't run the package, so a hook's context and a field that waits or throws go unchecked
+version changes, with no questions. Those drafts don't run the package, so a hook's context and a field that waits or throws go unchecked
 there; write the `rx-types/` file (this command, then its TODOs) to check them. `RX_GENERATE=0` turns drafting off.
 
 What the types show becomes rows: an accessor parameter or result is `ref`, a function of props to a JSX element is a
@@ -125,12 +125,10 @@ component (its JSX props are `View`, its component props `Component`), a tuple k
 subclass is an `error`, a function that hands back a component is a factory. A method of an exported object, or of
 an exported function, that the library's own types declare is a row of its own after its object's (`export fn
 toaster.show(…)`, 09 MO-8t), and a module's default export the row named `default` (MO-8u: `export fn default(…)`,
-`export component default(…)`). Every fn is drafted io: a `create*`,
-`use*`, `define*` or `*Options` name (Solid's convention for primitives and config helpers) only suggests `pure`, as a
-`// TODO`, as an `on…` callback suggests `handler`; a name is a convention, not a fact, so a person decides. What types
-cannot show is a `// TODO` line above the declaration it concerns: which context a hook reads (`uses(…)`), whether a
-result is a store whose fields wait or throw (no row says it: a module of the app's own hands each out as an accessor,
-09 MO-8r), what a promise rejects with. `rx-tsc` then checks the draft against
+`export component default(…)`). Every fn is drafted io unless its code
+proves more; no word and no question is chosen by a name. What is left to a person is a `// TODO` above the row it
+concerns, asked only where the answer changes what a checker does (`src/questions.js`: what the row does now, what the
+word changes, why it is not proven, with its place). `rx-tsc` then checks the draft against
 the same types (spec/13 TY-6).
 
 A type the draft cannot restate is named where the library declares it rather than written `any` (spec/09 MO-8m): the

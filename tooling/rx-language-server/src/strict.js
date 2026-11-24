@@ -92,4 +92,4 @@ function checkStrict(file) {
   return out;
 }
 
-module.exports = { writeRecord, checkStrict, recordOf, claimsOf, unanswered, RECORD_VERSION };
+module.exports = { writeRecord, checkStrict, claimsOf, unanswered };

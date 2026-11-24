@@ -10,7 +10,7 @@ offsets into its own lines (`src/declare-infer.js`).
 
 | tool | what it does | code |
 | --- | --- | --- |
-| `rx-declare <module>` | a draft from the types, with the words the code proves and a `// TODO` for each thing left to a person | `declare.js`, `declare-check.js`; `infer.js`, `declare-infer.js` |
+| `rx-declare <module>` | a draft from the types, with the words the code proves and a `// TODO` for each thing left to a person | `declare.js`, `declare-check.js`; `infer.js`, `declare-infer.js`; `questions.js` |
 | `--why`, `--explain`, `--causes`, `--readings` | why a word was written or not, why an `any`, which reading of a row TypeScript held | |
 | `--audit <file.d.rx>` | every word a declaration has: proven, contradicted (exit 1), unproven | `declare-audit.js` |
 | `--host`, `--host --routes\|--sync\|--check` | a host declaration, by hand or from a router's tree | `declare-host.js`, `host-routes.js`, a reader for each router in `routes/` |
@@ -37,7 +37,7 @@ part switched off in turn:
 | … through JSX (an element's attribute or spread; a component of the module) | 0 | 0 | 0 |
 | `uses`, `provides` (contexts) | 46 | −22 | 10 |
 | a value made by a call | 38 | −13 | 6 |
-| the remainder: `pure` and the rest (`draft`, `rejects`, `instantiates`, a result built there) | 369 | −187 | 80 |
+| the remainder: `pure` and the rest (`draft`, `rejects`, `instantiates`) | 369 | −187 | 80 |
 | the original source (`--source`, 360 lines) | none: it wrote comments | 30 of 731 had one beside it; 16 of 192 packages ship source to read | 0 |
 
 Following a prop through a component of the module, and `--source`, were deleted on that. An element's own event
@@ -495,23 +495,34 @@ is a mismatch that says the reading is wrong — a defect of
 word and never establish it (RFC 28): the proof is the reading, and
 this is its test.
 
-**The questions.** A question the reading answers is not written —
-answered yes (the word is in the row) or no (a callback called while
-the fn runs has no `handler` and no question; a parameter never
-changed has no `draft` and none; a promise that rejects with no class
-has no `rejects` and none). Two more went with it. *"Is the result a
-store with fields that wait or throw?"* was asked of every fn that
-hands back a record of the library's; it is asked now only where the
-code does not show what is handed back to be a value built there (a
-record or a list written out, with no getter of its own; a function; a
-built-in's instance; the result of one of the module's functions that
-is such) — a store, a projection, a value the fn was given, the result
-of code that is not read can still wait where they are read, and are
-still asked about. *"N signatures in the library's types"* asked
-nothing: it is a note, written among the questions only where the
-signatures differ in what the checker reads (a callback in one
-position in one and another in the other, a reader for a result in
-one), and otherwise said by `--explain`.
+**The questions** (`src/questions.js`). One rule, and no name: a question
+is asked only where its answer changes what a checker does.
+- A word the code proves is written, and one it refutes (a callback
+  called while the fn runs; for `pure`, a clock, chance, the environment,
+  work started, data it was given changed) is not: neither is asked.
+- A word that leaves the row's *reading* as it is, is not: `pure` and
+  `rejects` of a row that instantiates, `handler` in an io fn's row (a
+  closure given there is given where it may write already), `rejects` with
+  no `export error` to name, and what no word says (a store's field that
+  waits). `bench/generated.mjs` holds the reading: rows with one reading
+  get one verdict from both checkers in every use.
+- Where the code was read, a word is asked about only on a sign of it: for
+  `pure`, an answer, with no effect shown; for `instantiates`, something
+  made; for `handler`, a callback that answers nothing, kept or not
+  followed; for `draft`, the argument written; for `uses` and `provides`,
+  a context every call reads that no row is shown to provide (one question
+  a context). Where it was not read, the words whose absence refuses a
+  correct program are asked: `pure`, `handler`, `draft`.
+
+A question says what the row does now, what the word changes and why it is
+not proven (file:line); of a row, the words whose absence refuses a correct
+program come first. Several signatures are asked about only where they
+differ in what the checker reads. A generated declaration has no questions.
+A method's row with no word is drafted all the same (MO-8t): a declared
+`const`'s type is the library's, which the checkers do not read, so the row
+is what makes a method that answers nothing io; and a fn's method with no
+row takes no component (`toast.custom(Card)`). Dropping them was tried
+(2026-11-24).
 
 **What it does not reach**, each a refusal with its reason in `--why`,
 and each still a person's word where it is true: a value made by a
@@ -616,22 +627,7 @@ to declare — made in the package's own files; for a relative module,
 in the file itself. **`uses(c)` is
 written only beside a `provides(c)` of the same draft**: a context no
 row is shown to provide would refuse every program that calls the
-hook, the correct ones with them, so the question stays instead.
-
-**Questions answered, yes or no.** As MO-8v: a question the reading
-answers is not written. "Which context does this hook read?" — none,
-where every call it makes is read and none asks for one. "Does it
-provide a context to its children?" — no, where it renders no provider
-and nothing that is not read. "Does its component provide a context,
-or nest what it is given?" — no, where the function the fn hands back
-renders no provider and no parameter is a tree of components. "Where
-does the library render it?" — where the fn is called, with no word,
-where the component it is given is called while the fn runs or in a
-computation it makes there (MO-11s's cautious placement stands).
-"Is the result a store with fields that wait or throw?" — no, also
-where a getter of a record written out only reads a signal made
-there; and a store Solid makes from a *function* (a projection) is no
-longer taken for a value built there, which it was.
+hook, the correct ones with them, so it is asked instead.
 
 **The audit: every word, whoever wrote it.** `rx-declare --audit
 <file.d.rx>` asks the same reading about the words a declaration
@@ -681,7 +677,7 @@ mounted alone must fail and inside its provider must not).
   MO-12e): which declaration owns it is not the draft's to choose;
 - a function a context's value holds (`useContext(C).router.push()`):
   its code is its provider's, and may read another context — the word
-  for `C` is written, and the question stays;
+  for `C` is written;
 - `renders(H)` and `nests(…)` themselves: a component kept in the
   module's state and rendered by another export (`toast(message)` →
   an observer's list → `<Toaster>`) goes through a value that other

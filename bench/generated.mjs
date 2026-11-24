@@ -2,6 +2,7 @@
 // program is read by both checkers with no declaration and with the generated one, and what is refused only with the
 // second is on the list below, with its reason, or fails.
 //   - one use of each kind (USES) of each kind of export (bench/generated/kinds), under each thing an import may say
+//   - rows that differ by a word (READINGS): those with one reading (questions.js) get one verdict in every use
 //   - the good program of every task and coverage entry, its rx-types/ taken away: as written, and with `import pure`
 //   node --experimental-strip-types bench/generated.mjs [--kinds] [--shard i/n]    (the programs need bench/.out/ws installed)
 //   node --experimental-strip-types bench/generated.mjs --package <spec> <dir>     the kinds' uses over a package
@@ -16,6 +17,8 @@ import { readDisk } from "../ref/disk.ts";
 import { loadModules } from "../ref/src/modules.ts";
 import { checkModules } from "../ref/src/check.ts";
 const require_ = createRequire(import.meta.url);
+const { reading } = require_("../tooling/rx-language-server/src/questions.js");
+const { rowsOf } = require_("../tooling/rx-language-server/src/rows.js");
 const { ensureDeclarations } = require_("../tooling/rx-language-server/src/generate.js");
 const ts = require_("../tooling/rx-language-server/node_modules/typescript");
 const args = process.argv.slice(2);
@@ -105,6 +108,25 @@ function kinds(spec, names, dir) {
     if (!sameDiags(base[form]) || !sameDiags(now)) fail(`${spec} (${form}): the checkers differ`);
   }
 }
+// ---- a word that leaves a row's reading as it is changes no verdict, in either checker ----
+const SIGS = ["(v: any): number", "(v: any): Promise<number>", "(v?: any): number instantiates", "(v: any): Promise<number> instantiates", "(v: any): ref number", "(ref v: any): number", "(v: any): [ref number, (n: number) => void]", "(C: Component): Component", "(run: () => void): number", "(name: string, run: () => void): () => void", "(o: { onChange: () => void }): number", "(run: () => void): number instantiates", "(run: (v: number) => void, o: { onChange: () => void }): ref number"];
+const READINGS = SIGS.flatMap(s => ["", "pure "].flatMap(p => [["pure ", s], [p, s.replace(/: \(/, ": handler (")], [p, `${s} rejects(Nope2)`], [p, `${s} instantiates`]].map(([q, t]) => [p + "fn makes" + s, q + "fn makes" + t]))).filter(([a, b]) => a !== b);
+function readings(at) {
+  mkdirSync(path.join(at, "rx-types"), { recursive: true });
+  const f = path.join(at, "main.rx"), file = path.join(at, "rx-types/kinds.d.rx");
+  const w = "() => { n := 2 }", calls = [`<button onClick={() => { makes_("k", ${w}) }}>a</button>`, ...[`"k", ${w}`, w, `{ onChange: ${w} }`, `${w}, { onChange: ${w} }`].flatMap(a => [`y = makes_(${a})\n<p>{y}</p>`, `[a, b] = makes_(${a})\n<p>{a}</p>`])].map((b, i) => `component X${i}() {\n  source n := 1\n${b}\n}`).join("\n");
+  writeFileSync(f, program("kinds", ["makes"], "plain").text.replace("component Inner(", `${calls}\ncomponent Inner(`));
+  const said = new Map(), of = row => {
+    if (said.has(row)) return said.get(row);
+    const src = `export error Nope2\nexport ${row}\n`; let r; try { r = reading(rowsOf("x.d.rx", src)[1].facts); } catch { /* the notation refuses it */ }
+    let d; if (r) { writeFileSync(file, src); const ds = both(f); if (!sameDiags(ds)) fail(`readings: the checkers differ over ${row}`); if (ds.flat().some(x => x.line === 0 || x.code === "PARSE")) fail(`readings: no program over ${row}`, ds.flat()[0]); d = JSON.stringify(ds.map(x => [...new Set(x.map(y => y.line))].sort())); }
+    said.set(row, { r, d }); return said.get(row);
+  };
+  let same = 0, changed = 0;
+  for (const [a, b] of READINGS) { const x = of(a), y = of(b); if (!x.r || !y.r) continue; if (x.r !== y.r) changed++; else if (++same && x.d !== y.d) fail(`readings: one reading, two verdicts: ${a}  /  ${b}`); }
+  if (!same || !changed) fail("readings: nothing compared"); checked += same;
+  console.log(`readings: ${same} pairs of rows with one reading, one verdict each; ${changed} pairs with two`);
+}
 if (args.includes("--package")) {
   const [spec, dir] = args.slice(args.indexOf("--package") + 1), at = path.resolve(dir, "use"); rmSync(at, { recursive: true, force: true }); mkdirSync(at, { recursive: true });
   const f = path.join(at, "x.ts"); writeFileSync(f, `import * as N from "${spec}"; N;`);
@@ -119,6 +141,7 @@ if (args.includes("--package")) {
   cpSync(path.join(here, "generated/kinds"), path.join(at, "node_modules/kinds"), { recursive: true });
   kinds("kinds", "plain proven load rejecting NotFound Cart limit client double Side Merged OnlyType sortInPlace later each on makes makesFn makesRef makesPair Ctx useCtx Provider Card Dialog toast mapped default".split(" "), at);
   rmSync(path.join(at, "node_modules/.rx-types"), { recursive: true, force: true });
+  readings(at);
 }
 
 // ---- the tasks' and the coverage entries' good programs ----

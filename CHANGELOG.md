@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+**A draft asks only what changes a verdict** (tooling/rx-language-server/DECLARATIONS.md, *The questions*; spec/09 MO-8v)
+
+- **Changed: a `// TODO` in a draft is asked only where its answer changes what a checker does**, by one rule and no name
+  (`create…`, `use…`, `on…`, `…Provider`): 753 over the coverage libraries' modules (924), each with what the row does
+  now, what the word changes and why it is not proven (file:line). A fn under any name that answers a value is asked
+  about; a row that instantiates is not. A generated declaration has none.
+- **Changed: a result's field typed `Accessor` is drafted `ref` whatever its name** (`isActive`, `canUndo`: they were
+  `() => T`). Read it, `x.isActive`; `x.isActive()` is TypeScript's error now, as of any accessor. `as` and `component`
+  are no longer the only props drafted `string | Component`, and another library's own `Element` is no `View`. Drafts are
+  made again once (draft 15).
+
 **Upstream merged (e650b85): `ref/` runs on Solid main 30e7805eb.** The server keeps rendering a guessed list's truth, not
 its guess layer: the layer throws out of the component on the released Solid the runtime is installed with (2.0.3,
 solidjs/solid#5097), and there are no guesses on the server to show.
@@ -81,8 +92,6 @@ solidjs/solid#5097), and there are no guesses on the server to show.
   Generated declarations are drafted again once (draft 10).
 - **Changed: `rx-declare` checks a row only where a reading could say more than one that holds.** `@wardic/solid` takes
   17 s of CPU (146 s), `@ui-sdk/solid` 24 s (137 s).
-- **Removed: `rx-verify` no longer reads `//@ inferred` lines.** It reads which words the code proves from the code.
-  Delete the lines your declarations have.
 - **Changed: the suites run several at a time, reported in order**: `ref`'s SSR scenarios, the
   language server's suites and the benchmark's tasks run (`RX_JOBS`, `BENCH_JOBS`).
 
@@ -130,12 +139,9 @@ solidjs/solid#5097), and there are no guesses on the server to show.
 - **New: `rx-declare --audit <file.d.rx>`.** Every behaviour word the declaration has — `pure`, `handler`, `draft`,
   `rejects(E)`, `uses(c)`, `provides(c)`, `nests(…)`, `renders(H)` — whoever wrote it: *proven* by the code,
   *contradicted* by it (exit 1), or neither, with the first thing the reading stops at. `--json` for a tool.
-- **Changed: a draft has no `//@ inferred` lines.** Its second line counts the words it read; `rx-declare --why`,
-  `--audit` and `rx-verify` say which, from the code. **You can delete the `//@ inferred` lines your declarations
-  have**; one that is left is still read (it asks `rx-verify` for the stricter run of the words it names).
 - **Changed: `rx-verify` reads the code first.** A word the code contradicts is a mismatch — `createSorted: pure is
   contradicted by the code: it changes its argument `list` in place (.sort())` — whether a tool or a person wrote
-  it; a word the code proves is run against what was read, with no mark needed; the last line counts both and the
+  it; a word the code proves is run against what was read; the last line counts both and the
   rest. **If `rx-verify` fails after this on a word you wrote:** the message says what the code does and where.
   Take the word off, or call the function from a module of your own that does not reach that branch.
 - **Generated declarations take the new words** (`node_modules/.rx-types/`, MO-8l; the draft rule is 9, so they are
@@ -147,9 +153,6 @@ solidjs/solid#5097), and there are no guesses on the server to show.
   is read and none asks for one; "does it provide a context?" where the component renders no provider and nothing
   that is not read; "where does the library render it?" where the component a function is given is called while the
   function runs; "is the result a store?" where a getter of the record only reads a signal made there.
-- **`rx-declare --run` names the fields it saw wait or throw.** For a function its draft asks about and that runs
-  with no arguments, each field of the result is read once: one that waits (Solid's `NotReadyError`) or throws is
-  named in the question. None seen is no proof, and the question then stays as it was.
 - **Fixed: a store made from a function was taken for a plain value.** `createStore(fn, …)` is a projection, whose
   fields may wait; a function that hands one back is asked about again.
 - **Fixed (the benchmark's own declarations): `@solid-primitives/sortable`'s `createSorted` is not `pure`.** Under
@@ -165,8 +168,6 @@ solidjs/solid#5097), and there are no guesses on the server to show.
   behind a listener, a timer, an observer, a promise or an `await`, `rejects(E)` where every `throw` it reaches is of
   a class the module exports. Anything it cannot see through is left as it was: io, no `handler`, `Error`, and the
   question asked.
-- **New: `//@ inferred <export>: <words>`** on the line above a row that took a word from the code. It is a comment
-  to both checkers; keep it with the row, and `rx-verify` runs each such word against what was read.
 - **New: `rx-declare --why`** — for every row, what proved each word, or the first thing in the way with its file and
   line. **`--no-infer`** (or `RX_DECLARE_INFER=0`) drafts from the types alone.
 - **Generated declarations take the proven words too** (`node_modules/.rx-types/`, MO-8l; the draft rule is 8, so they
@@ -180,7 +181,7 @@ solidjs/solid#5097), and there are no guesses on the server to show.
   module's). *"Is the result a store with fields that wait or throw?"* is asked only where the code does not show
   the result to be a value built there. *"N signatures in the library's types"* was never a question: it is a note
   for `--explain`, and stays among the questions only where the signatures differ in what the checker reads.
-- **`rx-verify` checks more, for a row marked `//@ inferred`:** a `pure` function must change nothing it is given,
+- **`rx-verify` checks more, for a word the code proves:** a `pure` function must change nothing it is given,
   leave no global and ask neither the clock nor for a random number while it is called; a `handler` must not be
   called while the function's own call is running; a `rejects(E)` must reject with a class of its row under the
   probe's arguments. A verified record is version 7 (`rx-verify --record` again).
@@ -461,10 +462,7 @@ solidjs/solid#5097), and there are no guesses on the server to show.
   solid-primitives' `createSSE`, `createGeolocationWatcher`, a GraphQL query; TanStack Query's `data` through a hook
   of your own), and the five checks the query tasks gave up are back. Before a plain field the words are still
   refused, now with this form as what to write.
-- **`rx-declare`** drafts the words where it knows them: for a release they were read off (`known.js`:
-  `@solid-primitives/sse`'s `createSSE`, `@solid-primitives/geolocation`'s `createGeolocationWatcher`), and with
-  `--run` for a hook it could run whose accessor's first read is not ready (`pending`; `fails(…)` is yours to add).
-  It no longer drafts a placement word for TanStack Router: its context, hooks and provider only.
+- **`rx-declare`** no longer drafts a placement word for TanStack Router: its context, hooks and provider only.
 - **`rx-verify`** reads a `pending`/`fails(…)` `ref` part as declared, runs `fails(C)` with the probe's failing
   arguments, and points out an accessor that waited without saying so (no mismatch: the row says less). Its placement
   checks are a factory's and `nests(children in component)`.
@@ -506,7 +504,6 @@ solidjs/solid#5097), and there are no guesses on the server to show.
   `pending`); a `ref` part that holds is not one.
 - CI: the benchmark ran 31 minutes in one job once the coverage suite joined it; it is four jobs now (the tasks, and
   the coverage suite in three shards, `node bench/run.mjs --coverage-only --shard i/3`).
-  `compiler/test/ssr-held.mjs` is gone with the form it ran.
 
 **Four libraries, whole** (spec/archive/rfc-declaration-types-2026-11-22.md, *A fifth round*; bench/coverage/)
 
@@ -669,9 +666,7 @@ went, none of them released; a row written with one is refused by name, with wha
 - `rx-declare` types a result a step at a time: a disposer as `() => void`, a small object by its fields (an accessor
   `ref`, a function by what it answers), a class instance by the methods that answer nothing or a promise; an accessor of
   an options object lists its callbacks; the module's own types are named; a generic type is declared with its
-  parameters. For `@tanstack/solid-router`, `@solidjs/router` and `@tanstack/solid-query` it also drafts what types
-  cannot show (`renders(later)`, `nests(…)`, contexts, `pending fails(Error)`, `handler`, `pure`), from
-  `src/known.js`, for the version range each entry was checked against. Generated declarations stay types-only.
+  parameters. Generated declarations stay types-only.
 - A function field of a declared result that answers a promise (`mutate`, `refetch`) and is not awaited in reactive
   scope is `IO_IN_REACTIVE` (09 MO-10b): `{rename.mutate(v)}` in a view started the mutation on every computation.
 - A `draft(…)` equation with a declared type types its draft by it (`sel: Record<string, boolean> = draft({}) { … }`

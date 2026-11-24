@@ -64,13 +64,12 @@ const has = line => draft.split("\n").includes(line);
 check("an Error subclass is an error", has("export error NotFound"), draft);
 check("an accessor parameter and result are ref", has("export fn createDebounced(ref source: string, ms: number): ref string"), draft);
 check("a tuple keeps its ref part and its setter (instantiates is inferred from the ref)", has("export fn createToggle(initial: boolean): [ref boolean, (v: boolean) => void]"), draft);
-check("a plain result gets no store TODO", !/TODO useTheme: is the result a store/.test(draft), draft);
-check("a hook is io until a person writes `pure` (a TODO suggests it), with a TODO for its context", has("export fn useTheme(): string") && /\/\/ TODO useTheme: pure\? its name is a primitive's/.test(draft) && /\/\/ TODO useTheme: which context does this hook read\?/.test(draft), draft);
+check("a fn that answers a value is io until a person writes `pure`, asked of whatever its name; a context it may read is not asked of its name", has("export fn useTheme(): string") && /\/\/ TODO useTheme: io as drafted, refused in a view or an equation\. `pure fn` if it only computes\. Not read: /.test(draft) && !/uses\(/.test(draft), draft);
 check("a component's JSX children are a View", has("export component Card(props: { title: string; children?: View })"), draft);
 check("a function-typed children prop is a render prop (MO-11k)", has("export component List(props: { items: string[]; children: (item: string, index: number) => View })"), draft);
 check("a callback parameter is a function type; an optional one keeps its `?` (MO-8e)", has("export fn onIdle(run: () => void, delay?: number): void"), draft);
-check("a function type is drafted pure, with `handler` suggested for one named like an event (MO-10g)", /\/\/ TODO watch: onChange: called later, outside any computation\? mark it `handler/.test(draft) && !/handler \(/.test(draft.split("\n").filter(l => !l.startsWith("//")).join("\n")), draft);
-check("a component's on… prop is drafted pure too, with `handler` only suggested (MO-10g)", /\/\/ TODO Toggle: onToggle: called later, outside any computation\? mark it `handler/.test(draft) && has("export component Toggle(props: { on: boolean; onToggle: (v: boolean) => void })"), draft);
+check("a callback of an io fn is not asked about: a closure there may write already (MO-10g)", !/TODO (watch|onIdle)/.test(draft) && !/handler \(/.test(draft.split("\n").filter(l => !l.startsWith("//")).join("\n")), draft);
+check("a component's callback that answers nothing is asked about; one that gives a view is not", /\/\/ TODO Toggle: onToggle: a closure there may not write a source\. `handler/.test(draft) && !/TODO List/.test(draft) && has("export component Toggle(props: { on: boolean; onToggle: (v: boolean) => void })"), draft);
 
 // what a result is, a step at a time (EF-5a, MO-10b, MO-10k): a disposer through the library's own name for it, a small
 // object by its fields, a class instance by the methods that answer nothing or a promise, the module's own types by name
@@ -358,8 +357,8 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   ].join("\n"));
   const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./kit.js"], { cwd: app, encoding: "utf8" });
   const text = r.stdout + r.stderr; const rows = text.split("\n").filter(l => /^export /.test(l));
-  check("rx-declare drafts a row for each method of an exported object, after the object's (09 MO-8t): io as drafted, a component it is given asked about", JSON.stringify(rows.filter(l => /toaster/.test(l))) === JSON.stringify(["export const toaster: typeof import(\"./kit.js\").toaster", "export fn toaster.show(toast: Component<{ id: number; }>): number", "export fn toaster.dismiss(id: number): void", "export fn toaster.getCount(): number"]) && /TODO toaster\.show: `toast` is given a component/.test(text), text);
-  check("...asks where a method's name reads as one (never `pure` by a guess)", /TODO toaster\.getCount: pure\? its name is a read's/.test(text) && !/pure fn toaster/.test(text), text);
+  check("rx-declare drafts a row for each method of an exported object, after the object's (09 MO-8t): io as drafted; where a component it is given is rendered is not asked, the module having no component to name", JSON.stringify(rows.filter(l => /toaster/.test(l))) === JSON.stringify(["export const toaster: typeof import(\"./kit.js\").toaster", "export fn toaster.show(toast: Component<{ id: number; }>): number", "export fn toaster.dismiss(id: number): void", "export fn toaster.getCount(): number"]) && !/TODO toaster\.show: `toast`: a component given there/.test(text), text);
+  check("...and asks `pure` of each that answers, whatever its name (never written by a guess)", /TODO toaster\.getCount: io as drafted/.test(text) && /TODO toaster\.show: io as drafted/.test(text) && !/TODO toaster\.dismiss: io/.test(text) && !/pure fn toaster/.test(text), text);
   check("...and for each method of an exported function, after the function's; a member that is a component is no method, and an array's own are not the library's", JSON.stringify(rows.filter(l => /\btoast\b/.test(l) && !/toaster/.test(l))) === JSON.stringify(["export fn toast(message: string): number", "export fn toast.success(message: string, options?: { onDismiss?: () => void }): number"]) && !/sizes\./.test(text) && !/toaster\.words/.test(text), text);
   fs.writeFileSync(path.join(app, "kit.d.rx"), rows.join("\n") + "\n");
   const read = require("../src/rxc").rows(path.join(app, "kit.d.rx"));
@@ -504,9 +503,9 @@ fs.writeFileSync(path.join(ws, "kit.d.ts"), [
   const kit = rk.stdout; const hasKit = line => kit.split("\n").includes(line);
   if (process.env.VERBOSE) console.log(kit);
   check("a parameter that is a component is written `Component<P>` (MO-11c)", hasKit("export fn show(toast: Component<{ toastId: number; }>, ms?: number): number"), kit);
-  check("…and the draft asks where the library renders it (MO-11u)", /\/\/ TODO show: `toast` is given a component: where does the library render it\? If beneath a component this module exports, name that component, `renders\(<Component>\)`/.test(kit), kit);
-  check("a view, or a function of nothing giving one, is no accessor: the fn is called, not instantiated", hasKit("export fn toast(message: View | (() => View)): number") && /\/\/ TODO toast: `message` is given a component/.test(kit), kit);
-  check("a component in a record a fn takes is asked about too", /\/\/ TODO createPage: `options` is given a component/.test(kit), kit);
+  check("…and the draft asks where the library renders it (MO-11u)", /\/\/ TODO show: `toast`: a component given there is checked under a root of its own\. `renders\(<Component>\)`/.test(kit), kit);
+  check("a view, or a function of nothing giving one, is no accessor: the fn is called, not instantiated", hasKit("export fn toast(message: View | (() => View)): number") && /\/\/ TODO toast: `message`: a component given there/.test(kit), kit);
+  check("a component in a record a fn takes is asked about too", /\/\/ TODO createPage: `options`: a component given there/.test(kit), kit);
   check("a prop that holds components in a record is written with its component fields, after the type the library names", hasKit("export component Markdown(props: MarkdownProps & { builtins: { Heading?: Component; Paragraph?: Component }; components?: Record<string, Component> })"), kit);
   check("…and a list of components, in a record the row writes whole", hasKit("export component Tabs(props: { panels: Component[]; labels: string[] })"), kit);
   fs.writeFileSync(path.join(ws, "kit.d.rx"), kit.replace("export fn show(toast: Component<{ toastId: number; }>, ms?: number): number", "export fn show(toast: Component<{ toastId: number; }>, ms?: number): number renders(Toaster)"));

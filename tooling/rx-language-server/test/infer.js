@@ -270,23 +270,24 @@ const above = n => { const ls = draft.split("\n"); const i = ls.findIndex(l => n
 ok("a loader that only computes and waits: `pure`, and what it rejects with", rowOf("fetchPerson") === "export pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)", rowOf("fetchPerson") + r.stderr);
 ok("…with no line above it (MO-8w): which words were read is said once, at the head of the draft, and again by --audit and rx-verify from the code", !/\/\/@ inferred/.test(draft), above("fetchPerson"));
 ok("…and neither question is asked", !/TODO fetchPerson/.test(draft));
-ok("one that writes and fetches is io, and its question stays", rowOf("savePerson") === "export fn savePerson(id: string, name: string): Promise<Response>" && /TODO savePerson: what does its promise reject with/.test(draft), rowOf("savePerson"));
+ok("one that writes and fetches is io, and its question stays", rowOf("savePerson") === "export fn savePerson(id: string, name: string): Promise<Response>" && /TODO savePerson: io as drafted, .*\n\/\/ TODO savePerson: its promise rejects with Error as far as/.test(draft), rowOf("savePerson"));
 ok("a callback given to a listener: `handler`", rowOf("onKey") === "export fn onKey(key: string, run: handler () => void): () => void", rowOf("onKey"));
 ok("a callback called while the call runs: no `handler` — and the fn is `pure`, as a fn that only calls the pure function it is given is", rowOf("each") === "export pure fn each(list: number[], visit: (n: number) => void): void", rowOf("each"));
 ok("a record's callbacks, each by what the code does with it", rowOf("watch") === "export fn watch(opts: { onStart: () => void; onChange: handler (n: number) => void }): void", rowOf("watch"));
-ok("…and the question about them is not asked: one is a handler, the other is called while the call runs", !/TODO watch: on/.test(draft), draft.split("\n").filter(l => /TODO watch/.test(l)).join("\n"));
+ok("…and the question about them is not asked: one is a handler, the other is called while the call runs", !/TODO watch/.test(draft), draft.split("\n").filter(l => /TODO watch/.test(l)).join("\n"));
 ok("a parameter changed in place: `draft`, and no question", rowOf("moveItem") === "export fn moveItem<T>(draft list: T[], from: number, to: number): void" && !/TODO moveItem/.test(draft), rowOf("moveItem"));
 ok("a parameter only read: `pure`, no `draft`", rowOf("total") === "export pure fn total(list: number[]): number", rowOf("total"));
-ok("a parameter never changed, in a fn that answers nothing: the question is not asked", rowOf("log") === "export fn log(list: number[]): void" && !/TODO log: does it change/.test(draft), draft.split("\n").filter(l => /TODO log/.test(l)).join("\n"));
-ok("a primitive by its name that only computes: `pure`, and the name's question is not asked", /^export pure fn createCounter\(/.test(rowOf("createCounter")) && !/TODO createCounter: pure\?/.test(draft), rowOf("createCounter"));
+ok("a parameter never changed, in a fn that answers nothing: the question is not asked", rowOf("log") === "export fn log(list: number[]): void" && !/TODO log/.test(draft), draft.split("\n").filter(l => /TODO log/.test(l)).join("\n"));
+ok("a primitive by its name that only computes: `pure`, and the name's question is not asked", /^export pure fn createCounter\(/.test(rowOf("createCounter")) && !/TODO createCounter/.test(draft), rowOf("createCounter"));
 ok("the draft says how many words were read from the code", /^\/\/ Read from the code that runs \(MO-8v\): 5 pure, 2 handler, 1 rejects, 1 draft/m.test(draft), draft.split("\n")[1]);
 ok("several signatures that are one row to the checker: a note for --explain, not a question", !/TODO fmt/.test(draft) && /rx-declare: fmt: 2 signatures in the library's types/.test(r.stderr), draft + r.stderr);
-ok("…and a question where they differ in what the checker reads (a callback first in one, second in the other)", /TODO sub: 2 signatures in the library's types/.test(draft), draft);
+ok("…and a question where they differ in what the checker reads (a callback first in one, second in the other)", /TODO sub: one of 2 signatures/.test(draft), draft);
 ok("--why: each word proven with what shows it", /fetchPerson: pure proven/.test(r.stderr) && /onKey: handler\(run\) proven — .*\[api\.js:6\]/.test(r.stderr), r.stderr);
 ok("…and each refused with the first thing in the way, and its place", /savePerson: pure not proven — .*saves.*\[api\.js:5\]/.test(r.stderr) && /each: handler\(visit\) not proven — called while the call runs/.test(r.stderr), r.stderr);
 {
   const plain = declare("./api.js", "--no-infer");
-  ok("--no-infer: the draft from the types alone, every question asked", !/\/\/@ inferred|^export pure fn|: handler \(|rejects\(N|draft list:/m.test(plain.stdout) && /TODO fetchPerson: what does its promise reject with/.test(plain.stdout) && /TODO createCounter: pure\?/.test(plain.stdout), plain.stdout);
+  ok("--no-infer: the draft from the types alone, every question asked", !/\/\/@ inferred|^export pure fn|: handler \(|rejects\(N|draft list:/m.test(plain.stdout) && /TODO fetchPerson: its promise rejects/.test(plain.stdout) && /TODO total: io as drafted, refused in a view or an equation/.test(plain.stdout), plain.stdout);
+  ok("the same module is drafted to the same bytes, from a process of its own", declare("./api.js").stdout === draft && declare("./api.js", "--no-infer").stdout === plain.stdout, draft);
   const only = declare("./api.js", "--only", "onKey");
   ok("--only keeps the row, words and all", /^export fn onKey\(key: string, run: handler \(\) => void\)/m.test(only.stdout) && !/fetchPerson/.test(only.stdout), only.stdout);
 }

@@ -1,7 +1,7 @@
-// @kobalte/core's toast, in rows: the ones this app uses of rx-declare's draft, as it writes them — no word by hand.
+// @kobalte/core's toast, in rows: the ones this app uses of rx-declare's draft, with the words its program needs.
 // The region's context, which the list and a toast read; the toast's own, which its title and its close button read;
 // and the toaster. `toaster.show` is a method of an object, with a row of its own (09 MO-8t): it is io, and the
-// component it is given is rendered beneath the list (`renders(Toast.List)`, MO-11u; known.js says it of the release).
+// component it is given is rendered beneath the list (`renders(Toast.List)`, MO-11u).
 // Until 2026-11-25 a row named an export and nothing below it, and the app handed the method out from a module of its
 // own (src/toasts.js, three lines and a declaration): that module is gone.
 //@ for @kobalte/core ^2.0.0-alpha.5

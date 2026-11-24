@@ -7,9 +7,9 @@ at every use; the JavaScript itself is not checked (it's the library's).
 ## Declare it
 
 To start from a draft, run `npx rx-declare <package> --out <name>.d.rx` (the language server's package): it writes
-what the package's TypeScript types show, the words the package's code proves (below), and leaves a `// TODO` line for
-each row only you can decide. For the routers (`@tanstack/solid-router`, `@solidjs/router`) and TanStack Query it also
-writes the rows types cannot show.
+what the package's TypeScript types show, the words the package's code proves (below), and leaves a `// TODO` line
+where an answer only you have changes what the checker does: what the row does now, what the word changes, and why the
+code does not prove it, with its place.
 
 **Words read from the code.** Six words are in no type: `pure`, `handler` on a callback, `draft` on a parameter a
 function changes in place, `rejects(E)`, and a context's `uses(c)` and `provides(c)`. `rx-declare` reads the
@@ -39,7 +39,7 @@ export pure fn sortedBy<T>(ref list: T[], comparator: (a: T, b: T) => number): r
   another component, it gets no word.
 - `uses(c)`: `useContext(C)` runs on **every** path of the call and `C` has no default (or the code throws on its
   `null`) — and a component of the same draft is shown to provide it. A context read only when a prop says so, or
-  inside a function the hook hands back, is not one every call needs: no word, and the question stays.
+  inside a function the hook hands back, is not one every call needs: no word.
 - `provides(c)`: the component renders `<C value={…}>` and everything it is given that may be a view is written among
   that provider's children. `props.children` read before the provider, beside it, or on a branch without it: no word.
 - A value made by a call (`export const useKeys = createSingletonRoot(() => …)`, a component made by a factory) is
@@ -62,7 +62,8 @@ rx-declare: each: handler(visit) not proven — called while the call runs or in
 ```
 
 `--no-infer` drafts from the types alone. Where a word is not proven the draft is what it always was — the function
-is io, the callback is pure, the promise rejects with `Error` — and the question is asked.
+is io, the callback is pure, the promise rejects with `Error` — and the question is asked where its answer
+changes what the checker does.
 
 The draft's types are the library's own, by name: `import("@tanstack/solid-query").QueryClient`, a generic row's type
 parameters, a callback's signature. You rarely need to touch them, and never need to restate them: TypeScript checks
@@ -142,7 +143,7 @@ A draft says only what types show:
 
 To say those, write `rx-types/<package>.d.rx` (it wins over the draft): `npx rx-declare <package> --out
 rx-types/<package>.d.rx` starts from the same draft, with a `// TODO` for each question the code did not answer
-(`pure`, `handler`, a hook's context); `npx rx-verify rx-types/<package>.d.rx` runs your rows against the package (`--record` keeps the result for `rx-tsc --rx-strict`).
+(`pure`, `handler`, a context); `npx rx-verify rx-types/<package>.d.rx` runs your rows against the package (`--record` keeps the result for `rx-tsc --rx-strict`).
 A part of a result that takes nothing and answers a value is drafted `ref` where the library's type is Solid's
 `Accessor`, or its code shows a reader; any other is the function it is (`size: () => number`), and you write `ref` where
 you know it is read.
@@ -472,8 +473,8 @@ export default component App() {
   line of the call. With no `<Toaster>` anywhere, the component is held to what `Toaster` itself uses and provides.
   A `<Toaster />` in a layout that a router renders is where the router's provider is: what you provide above the
   provider is above the layout, and so above the toaster.
-  `rx-declare` asks the question of every function that is given a component, and writes the word for the releases it
-  was run against (solid-sonner's `toast`, TanStack Router's `createRoute`, Kobalte's `toaster.show`). Where the
+  `rx-declare` asks it of a function that is given a component and does not call it while it runs; the word is yours to
+  write. Where the
   library's function is a method of an object, the method has a row of its own (*Methods*, below): `export fn
   toaster.show(toast: Component<ToastComponentProps>): number renders(Toast.List)`, and you call the library's
   `toaster.show(Saved)` as its documentation does (`bench/tasks/kobalte-toast`: no word by hand, and no module of the
