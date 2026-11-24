@@ -2508,7 +2508,7 @@ impl<'a> Checker<'a> {
 
     fn err(&mut self, code: &str, rule: &str, msg: String) {
         let line = self.line;
-        if !self.diags.iter().any(|d| d.code == code && d.line == line && d.msg == msg) {
+        if !self.diags.iter().any(|d| d.line == line && d.code == code && d.msg == msg) {
             self.diags.push(Diagnostic { code: code.into(), rule: rule.into(), line, msg, file: self.opts.file.clone() });
         }
     }

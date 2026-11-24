@@ -177,7 +177,7 @@ fn parse_error_text(f: &str, e: &reactivescript::parse::ParseError) -> String {
     };
     format!("{}:{}: error {} [{}] {}", v["file"].as_str().unwrap_or(f), at, e.3, v["rule"].as_str().unwrap_or("07"), msg)
 }
-/// A parse error as `diagnostic_json` writes a diagnostic: from where the parser stopped to the end of that line.
+/// A parse error as `serve::Diagnostics` writes a diagnostic: from where the parser stopped to the end of that line.
 fn parse_error_json(f: &str, e: &reactivescript::parse::ParseError) -> Value {
     let file = e.2.clone().unwrap_or_else(|| abs(f));
     let src = read_disk(&file);
@@ -371,11 +371,12 @@ fn main() {
                         continue;
                     }
                 };
+                let mut ranges = serve::Diagnostics::new(&set);
                 let checked = check_modules_hosts(&set, spa, whole, &reactivescript::modules::hosts_as_keys(&set, &hosts));
                 for d in &checked.diags {
                     bad += 1;
                     if as_json {
-                        found.push(serve::diagnostic_json(&set, d));
+                        found.push(ranges.json(d));
                     } else {
                         eprintln!("{}:{}: error {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
                     }
@@ -383,7 +384,7 @@ fn main() {
                 // 99, the advisory rows: advice about a correct program — printed, never counted
                 for d in &checked.advice {
                     if as_json {
-                        advice.push(serve::diagnostic_json(&set, d));
+                        advice.push(ranges.json(d));
                     } else {
                         eprintln!("{}:{}: advice {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
                     }

@@ -46,8 +46,9 @@ class Cursor {
   imported = new Set<string>();        // the names this module imports so far (a hook's pair is a habit only when it is not one of them)
   temps = 0;                           // `$$n`: the bound value of a destructuring whose right side is not a name (RG-4b)
   src: string;
-  constructor(src: string) { this.src = src; }
-  get line() { return this.src.slice(0, this.i).split("\n").length; }
+  lineAt: number[];                    // each character's line: a line is asked for at every statement, and is not counted from the top
+  constructor(src: string) { this.src = src; let n = 1; this.lineAt = Array.from({ length: src.length + 1 }, (_, i) => src[i - 1] === "\n" ? ++n : n); }
+  get line() { return this.lineAt[Math.min(this.i, this.src.length)]; }
   eof() { return this.i >= this.src.length; }
   peek(n = 0) { return this.src[this.i + n] ?? ""; }
   ws(newlines = true) {

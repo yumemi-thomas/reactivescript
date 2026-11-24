@@ -87,18 +87,15 @@ fn ex(start: usize, k: ExprKind, c: &Cursor) -> Expr {
     Expr::new(k, Span::new(start, c.i))
 }
 /// A statement from `start` to where the cursor is.
-/// The line a statement that starts at `start` is on.
-fn st_line(start: usize, c: &Cursor) -> u32 {
-    (c.src[..start.min(c.src.len())].bytes().filter(|b| *b == b'\n').count() + 1) as u32
-}
 fn st(start: usize, k: StmtKind, c: &Cursor) -> Stmt {
-    Stmt { k, span: Span::new(start, c.i), line: st_line(start, c) }
+    Stmt { k, span: Span::new(start, c.i), line: c.lines.line(start) as u32 }
 }
 
 /// A position in the source, in bytes, always on a char boundary. `peek` at the end is `'\0'` (the reference's `""`).
 pub struct Cursor<'a> {
     pub src: &'a str,
     pub i: usize,
+    lines: crate::spans::Lines<'a>,
     /// an editor's parse (CP-8e): a missing member name or expression is an error recorded in `errors`, and the parse goes
     /// on with an empty one, so that what is being typed still projects
     pub recover: bool,
@@ -127,7 +124,7 @@ enum Known {
 }
 impl<'a> Cursor<'a> {
     pub fn new(src: &'a str) -> Self {
-        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], temps: 0, imported: std::collections::HashSet::new(), names: ["props", "true", "false", "null", "undefined"].into_iter().chain(crate::names::NAMES.iter().map(|(n, _)| *n)).map(String::from).collect(), known: Known::No, type_args: false, form_calls: vec![] }
+        Cursor { src, i: 0, lines: crate::spans::Lines::new(src), recover: false, errors: vec![], pending: vec![], temps: 0, imported: std::collections::HashSet::new(), names: ["props", "true", "false", "null", "undefined"].into_iter().chain(crate::names::NAMES.iter().map(|(n, _)| *n)).map(String::from).collect(), known: Known::No, type_args: false, form_calls: vec![] }
     }
     /// What `fail` would return, recorded instead (`recover`).
     fn note(&mut self, msg: &str) {
@@ -144,7 +141,7 @@ impl<'a> Cursor<'a> {
         self.ident_or("member")
     }
     pub fn line(&self) -> usize {
-        self.src[..self.i].bytes().filter(|b| *b == b'\n').count() + 1
+        self.lines.line(self.i)
     }
     pub fn eof(&self) -> bool {
         self.i >= self.src.len()
@@ -2013,6 +2010,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
     let mut c = Cursor::new(src);
     let mut out = vec![];
     let mut starts = vec![];
+    let mut fns: HashSet<String> = HashSet::new();
     let mut hosts: Vec<(String, String, usize)> = vec![]; // MO-11u: each `renders(H)` — the fn, H, and where the word's `(` is
     let mut members: Vec<(String, usize)> = vec![]; // MO-8t: each fn named as a method (`toaster.show`), and where its name ends
     loop {
@@ -2487,7 +2485,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, makes, uses, provides, tparams, nests, held, cbs, opts, waits, drafts, part_drafts, draft_args, renders };
         // one row an export: a fn with several signatures (TypeScript's overloads) is declared by one of them, and the
         // library's own types say the rest (13 TY-4b)
-        if out.iter().any(|d| matches!(d, JsDecl::Fn { .. }) && d.name() == row.name()) {
+        if !fns.insert(row.name().to_string()) {
             return c.fail(&format!("fn {} is declared again: an export has one row. A fn with several signatures is declared by one of them (its words are the fn's), and TypeScript reads the others from the library's own types (MO-8b)", row.name()));
         }
         out.push(row);
@@ -3448,7 +3446,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
             let mut names = vec![];
             expand_pattern(&pat, base, &mut names, true);
             for (name, e, _, span) in names {
-                out.push(Stmt { k: StmtKind::Let { name, e, ty: None }, span, line: st_line(start, c) });
+                out.push(Stmt { k: StmtKind::Let { name, e, ty: None }, span, line: c.lines.line(start) as u32 });
             }
             if out.is_empty() {
                 return c.fail("a destructuring that binds nothing");

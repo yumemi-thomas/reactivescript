@@ -19,16 +19,30 @@ pub fn request(method: &str, params: &Value, disk: &dyn Fn(&str) -> Option<Strin
 
 /// `rxc check --json`: a diagnostic with its range (CP-8), for an editor or an agent. Lines are 1-based, columns 0-based in
 /// UTF-16 code units, as LSP counts; `start`/`end` are byte offsets; `rule` names the spec rule (spec/99).
-pub fn diagnostic_json(set: &crate::modules::ModuleSet, d: &crate::check::Diagnostic) -> Value {
-    let file = d.file.clone().unwrap_or_else(|| set.entry.clone());
-    let mut v = json!({ "file": file, "line": d.line, "code": d.code, "rule": d.rule, "message": d.msg });
-    if let (Some(src), Some(p)) = (set.sources.get(&file), set.programs.get(&file)) {
-        if let Some(r) = crate::spans::line_range(src, p, d.line.max(1) as usize) {
-            let ((l0, c0), (l1, c1)) = (crate::spans::line_col(src, r.start), crate::spans::line_col(src, r.end));
-            v["range"] = json!({ "start": { "line": l0, "column": c0 }, "end": { "line": l1, "column": c1 }, "offsets": [r.start, r.end] });
-        }
+pub struct Diagnostics<'a> {
+    set: &'a crate::modules::ModuleSet,
+    ranges: HashMap<String, crate::spans::Ranges<'a>>,
+}
+impl<'a> Diagnostics<'a> {
+    pub fn new(set: &'a crate::modules::ModuleSet) -> Self {
+        Diagnostics { set, ranges: HashMap::new() }
     }
-    v
+    pub fn json(&mut self, d: &crate::check::Diagnostic) -> Value {
+        let set = self.set;
+        let file = d.file.clone().unwrap_or_else(|| set.entry.clone());
+        let mut v = json!({ "file": file, "line": d.line, "code": d.code, "rule": d.rule, "message": d.msg });
+        if let (Some(src), Some(p)) = (set.sources.get(&file), set.programs.get(&file)) {
+            let ranges = self.ranges.entry(file).or_insert_with(|| crate::spans::Ranges::new(src, p));
+            if let Some(r) = ranges.of(d.line.max(1) as usize) {
+                v["range"] = range_json(&ranges.lines, r.start as usize, r.end as usize);
+            }
+        }
+        v
+    }
+}
+fn range_json(lines: &crate::spans::Lines, start: usize, end: usize) -> Value {
+    let ((l0, c0), (l1, c1)) = (lines.line_col(start), lines.line_col(end));
+    json!({ "start": { "line": l0, "column": c0 }, "end": { "line": l1, "column": c1 }, "offsets": [start, end] })
 }
 
 /// A parse error's message without the `file: line n:` it carries (the diagnostic's own fields say where).
@@ -37,16 +51,16 @@ pub fn parse_message(e: &crate::parse::ParseError) -> &str {
 }
 
 pub fn parse_error_in(file: &str, e: &crate::parse::ParseError, src: Option<&str>) -> Value {
+    parse_error_at(file, e, src.map(crate::spans::Lines::new).as_ref())
+}
+fn parse_error_at(file: &str, e: &crate::parse::ParseError, lines: Option<&crate::spans::Lines>) -> Value {
     static RULE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\b([A-Z]+-\d+[a-z]?)\b").unwrap());
     let rule = RULE.captures(&e.0).map(|c| c[1].to_string()).unwrap_or_else(|| "07".into());
     let mut v = json!({ "file": file, "code": e.3, "rule": rule, "message": parse_message(e) });
-    if let (Some(at), Some(src)) = (e.1, src) {
-        let at = at.min(src.len());
-        let end = src[at..].find('\n').map(|j| at + j).unwrap_or(src.len());
-        let end = at + src[at..end].trim_end().len();
-        let ((l0, c0), (l1, c1)) = (crate::spans::line_col(src, at as u32), crate::spans::line_col(src, end as u32));
-        v["line"] = json!(l0);
-        v["range"] = json!({ "start": { "line": l0, "column": c0 }, "end": { "line": l1, "column": c1 }, "offsets": [at, end] });
+    if let (Some(at), Some(lines)) = (e.1, lines) {
+        let (at, end) = lines.rest(at);
+        v["line"] = json!(lines.line(at));
+        v["range"] = range_json(lines, at, end);
     }
     v
 }
@@ -95,10 +109,20 @@ pub fn analyze(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     let all = params["all"].as_bool().unwrap_or(false);
     let hosts: Vec<String> = params["hosts"].as_array().map(|a| a.iter().filter_map(|h| h.as_str().map(|h| h.replace('\\', "/"))).collect()).unwrap_or_default();
     let hosts = crate::modules::hosts_as_keys(&set, &hosts);
+    let mut ranges = Diagnostics::new(&set);
     let own: Vec<Value> = if set.parse_errors.iter().any(|e| all || e.2.as_deref() == Some(file.as_str())) {
-        set.parse_errors.iter().filter(|e| all || e.2.as_deref() == Some(file.as_str())).map(|e| { let f = e.2.clone().unwrap_or_else(|| file.clone()); let src = set.sources.get(&f).cloned(); parse_error_in(&f, e, src.as_deref()) }).collect()
+        let mut lines: HashMap<&str, crate::spans::Lines> = HashMap::new();
+        set.parse_errors
+            .iter()
+            .filter(|e| all || e.2.as_deref() == Some(file.as_str()))
+            .map(|e| {
+                let f = e.2.as_deref().unwrap_or(&file);
+                let lines = set.sources.get(f).map(|src| &*lines.entry(f).or_insert_with(|| crate::spans::Lines::new(src)));
+                parse_error_at(f, e, lines)
+            })
+            .collect()
     } else {
-        crate::check::check_modules_hosts(&set, params["spa"].as_bool().unwrap_or(false), params["whole"].as_bool().unwrap_or(false), &hosts).diags.iter().map(|d| diagnostic_json(&set, d)).filter(|d| all || d["file"] == json!(file)).collect()
+        crate::check::check_modules_hosts(&set, params["spa"].as_bool().unwrap_or(false), params["whole"].as_bool().unwrap_or(false), &hosts).diags.iter().map(|d| ranges.json(d)).filter(|d| all || d["file"] == json!(file)).collect()
     };
     // MO-5, per module: a cycle is found where it closes, so its diagnostic sits on the import that closes it — in another
     // module than the one an editor (or per-module rx-tsc) analyses, which then passed in silence. Each module on the
@@ -115,7 +139,7 @@ pub fn analyze(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
             }));
             let Some(line) = line else { continue };
             let mine = crate::check::Diagnostic { code: d.code.clone(), rule: d.rule.clone(), line, msg: d.msg.clone(), file: Some(file.clone()) };
-            own.push(diagnostic_json(&set, &mine));
+            own.push(ranges.json(&mine));
             break;
         }
     }
