@@ -15,7 +15,7 @@
 //        node bench/run.mjs --check --strict  and when a failure is not one the task's `known` gives a reason for
 //        node bench/run.mjs --write           writes bench/scorecard.json and bench/scorecard.txt from this run
 //        node bench/run.mjs --tasks-only | --coverage-only [--shard i/n]
-//                                             the tasks alone; the coverage suite alone, or its i-th n-th (CI runs them apart)
+//                                             the tasks alone; the coverage suite alone; or the i-th n-th of it (CI)
 //        VERBOSE=1                            prints every check, not only the failures
 // Needs: the crate (`cargo build --release` in compiler/), the runtime (`npm run build` in runtime/), the language
 // server's packages (`npm ci` in tooling/rx-language-server), Node 22.6+, and the network once (bench/package.json).
@@ -24,7 +24,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { runCoverage } from "./coverage.mjs";
-import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit } from "./harness.mjs";
+import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
  *  it, and the habits it names), or a name resolves to nothing. */
@@ -196,13 +196,13 @@ if (cover) {
 workspace();
 const filters = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard");
 const ids = readdirSync(path.join(here, "tasks"), { withFileTypes: true }).filter(e => e.isDirectory() && existsSync(path.join(here, "tasks", e.name, "task.mjs"))).map(e => e.name).sort().filter(id => !filters.length || filters.some(f => id.includes(f)));
-const results = [];
-for (const id of flag("--coverage-only") ? [] : ids) {
-  const out = path.join(ws, "tasks", `${id}.result.json`);
-  const r = spawnSync(process.execPath, [path.join(here, "run.mjs"), "--task", id], { stdio: ["ignore", "inherit", "inherit"], timeout: 600000 });
-  let res; try { res = JSON.parse(readFileSync(out, "utf8")); } catch { res = { id, crash: `no result (exit ${r.status}${r.signal ? `, ${r.signal}` : ""})` }; }
-  results.push(res);
-}
+// tasks are independent programs in folders of their own: several at once (harness.mjs `jobs`), reported in their order
+const shard = args.includes("--shard") ? args[args.indexOf("--shard") + 1].split("/").map(Number) : null;   // `--shard 2/3`: every third task, entry and module, from the second (CI)
+if (shard && !(shard.length === 2 && shard[0] >= 1 && shard[0] <= shard[1])) { console.error("--shard i/n: 1 ≤ i ≤ n"); process.exit(2); }
+const mine = flag("--coverage-only") ? [] : ids.filter((id, k) => !shard || k % shard[1] === shard[0] - 1);
+const tasksOf = new Map(await Promise.all(mine.map(async id => [id, (await import(pathToFileURL(path.join(here, "tasks", id, "task.mjs")).href)).default])));
+const ran = await pool(mine, id => alone(["--task", id], id, crash => ({ id, crash })), id => !!tasksOf.get(id).prepare || (tasksOf.get(id).bad ?? []).some(b => b.build));
+const results = ran.map(([r, err]) => { if (err) process.stderr.write(err); return r; });
 
 // ---- the scorecard ----
 const cols = [["good", "good accepted"], ["types", "types kept"], ["runtime", "runtime ok"], ["bad", "bad caught"], ["unrep", "unrepresentable"]];
@@ -266,12 +266,10 @@ const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.leng
 console.log("\n" + card + inferCard + wholeCard);
 
 // the coverage suite (bench/coverage.mjs): every package of the libraries it lists, drafted whole and used once
-const shard = args.includes("--shard") ? args[args.indexOf("--shard") + 1].split("/").map(Number) : null;   // `--shard 2/3`: the coverage suite's second third (CI)
-if (shard && !(shard.length === 2 && shard[0] >= 1 && shard[0] <= shard[1])) { console.error("--shard i/n: 1 ≤ i ≤ n"); process.exit(2); }
 const coverage = flag("--tasks-only") ? { problems: [] } : await runCoverage({ filters, check: flag("--check"), strict: flag("--strict"), write: flag("--write"), shard });
 
 const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, inferred: r.decl.inferred ?? 0, claims: r.decl.claims, todos: r.decl.todos ?? 0, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places, draft: r.decl.draft } }]));
-if (flag("--write") && !flag("--coverage-only")) {
+if (flag("--write") && !flag("--coverage-only") && !shard) {
   writeFileSync(path.join(here, "scorecard.json"), compact(snapshot));
   writeFileSync(path.join(here, "scorecard.txt"), (card + inferCard + wholeCard).replaceAll(ws, "bench/.out/ws") + "\n");
   // 09 MO-8w: the audit, word by word — what a reviewer has left to check
@@ -310,8 +308,8 @@ if (flag("--check")) {
   // 09 MO-8q: an `any` where the library has a type is on the allowlist, by name and count, or it fails
   for (const x of introducedRows) { if (!x.entry) problems.push(`${x.id}/${x.file} · ${x.name}: ${x.introduced} \`any\` written where the library has a type (09 MO-8q): name its type, or add it to bench/any-allowlist.json with the reason`); else if (x.introduced > x.entry.count) problems.push(`${x.id}/${x.file} · ${x.name}: ${x.introduced} introduced \`any\`s, ${x.entry.count} allowed in bench/any-allowlist.json`); }
   for (const x of wholeRows) { if (!x.entry) problems.push(`${x.id} · whole draft of ${x.spec} · ${x.name}: ${x.introduced} \`any\` the draft wrote where the library has a type (09 MO-8q; ${x.causes.join(", ")}): fix rx-declare, or add it to bench/any-allowlist.json (\`draft\`: the module) with the reason and what blocks naming it`); else if (x.introduced > x.entry.count) problems.push(`${x.id} · whole draft of ${x.spec} · ${x.name}: ${x.introduced} introduced \`any\`s, ${x.entry.count} allowed in bench/any-allowlist.json`); }
-  if (!filters.length) for (const a of allowDrafts) if (!wholeRows.some(x => x.entry === a)) problems.push(`bench/any-allowlist.json: ${a.task} · whole draft of ${a.draft} · ${a.name} holds no introduced \`any\` now (remove the entry)`);
-  if (!filters.length) for (const a of allow) if (!introducedRows.some(x => x.entry === a)) problems.push(`bench/any-allowlist.json: ${a.task}/${a.file} · ${a.name} holds no introduced \`any\` now (remove the entry)`);
+  if (!filters.length && !shard) for (const a of allowDrafts) if (!wholeRows.some(x => x.entry === a)) problems.push(`bench/any-allowlist.json: ${a.task} · whole draft of ${a.draft} · ${a.name} holds no introduced \`any\` now (remove the entry)`);
+  if (!filters.length && !shard) for (const a of allow) if (!introducedRows.some(x => x.entry === a)) problems.push(`bench/any-allowlist.json: ${a.task}/${a.file} · ${a.name} holds no introduced \`any\` now (remove the entry)`);
   problems.push(...coverage.problems);
   if (problems.length) { console.log(`\n--check: ${problems.length} problem(s)\n${problems.map(p => `  ${p}`).join("\n")}`); exit = 1; } else console.log("\n--check: as bench/scorecard.json, or better; every failure is a documented one");
 }

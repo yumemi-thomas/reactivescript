@@ -80,13 +80,13 @@ const onlyAt = args.indexOf("--only");
 function only(text, names) {
   const nameOf = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
   const lines = text.split("\n"); const keep = new Set(); const want = n => names.includes(n) || names.some(x => n.startsWith(`${x}.`));
-  lines.forEach((l, i) => { const n = nameOf(l); if (n && !/^export\s+(?:type|context)\b/.test(l) && want(n)) keep.add(i); const t = /^\/\/(?: TODO|@ inferred) ([\w$.]+):/.exec(l)?.[1]; if (t && want(t)) keep.add(i); });
+  lines.forEach((l, i) => { const n = nameOf(l); if (n && !/^export\s+(?:type|context)\b/.test(l) && want(n)) keep.add(i); const t = /^\/\/ TODO ([\w$.]+):/.exec(l)?.[1]; if (t && want(t)) keep.add(i); });
   const missing = names.filter(x => !lines.some((l, i) => keep.has(i) && (nameOf(l) === x || nameOf(l)?.startsWith(`${x}.`))));
   for (let grew = true; grew;) {   // the types and contexts the kept rows name, to a fixed point
     grew = false; const said = new Set(lines.filter((l, i) => keep.has(i) && !l.startsWith("//")).flatMap(l => l.match(/[A-Za-z_$][\w$]*/g) ?? []));
     lines.forEach((l, i) => { if (keep.has(i) || !/^export\s+(?:type|context)\b/.test(l)) return; if (said.has(nameOf(l))) { keep.add(i); grew = true; } });
   }
-  const first = lines.findIndex(l => nameOf(l) || /^\/\/(?: TODO |@ inferred )/.test(l));
+  const first = lines.findIndex(l => nameOf(l) || /^\/\/ TODO /.test(l));
   return { text: lines.filter((l, i) => keep.has(i) || (i < first && l.trim()) || /^\/\/ (?:Known of|Carried from)/.test(l)).join("\n") + "\n", missing };
 }
 const ctxAt = args.indexOf("--context");   // the name for a context the module reads but does not export (MO-12a)

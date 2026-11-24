@@ -7,8 +7,8 @@
 // second one would be a second set of verdicts, so where tsrs cannot run, the tool that needed it says why and stops.
 //
 // Why the order of things cannot change an answer: a program is checked by one checker, in the order its files are given
-// (tsrs serves the API with one checker a program), and what runs at the same time is whole programs, each in a process of
-// its own (src/declare-pool.js): no program is cut to fit the number of processes.
+// (tsrs serves the API with one checker a program), and no program is cut to fit a number of
+// processes.
 const fs = require("node:fs");
 const path = require("node:path");
 const { createRequire } = require("node:module");

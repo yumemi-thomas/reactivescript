@@ -14,11 +14,24 @@
   it writes no `.tsbuildinfo`. An option's error names the option, without its place in the tsconfig.json.
 - **Changed: Node 20.19, 22.12 or later** for `@reactivescript/language-server` (it was 18).
 - **Changed: `rx-tsc --watch` reports what `rx-tsc` reports** (it reported TypeScript's errors alone).
-- **Faster.** `rx-tsc` on a small project: 0.54 s to 0.25 s; on one with a large library, 1.7 s to 0.6 s. `rx-declare @ui-sdk/solid`: 115 s to 30 s (both on a busy machine). The candidate readings of a large
-  draft are checked in parallel (`RX_CHECKERS`: how many workers; the draft is the same for any number).
+- **Faster.** @@FAST@@
 - **Known: TypeScript 7.1 beta refuses some correct programs TypeScript 6 accepts** — a value of a generic function type
   that writes a conditional over its own type parameter, assigned to that same type (microsoft/TypeScript#64673, fixed by
   #64307, not merged). A declaration's row is not concerned: it is checked as an instance of its type, which relates.
+
+**Drafts are short, and the tools faster** (tooling/rx-language-server/DECLARATIONS.md, MO-8o)
+
+- **Changed: a component whose props no module names, more than 24 of them, is drafted by its place**, `props:
+  Parameters<typeof import("kit").Part>[0] & { … }`, with only the fields the checker reads after it (every attribute of
+  its element was written out: 24 KB a row). `@ui-sdk/solid` drafts to 0.23 MB, from 4.46 MB. No fact a checker reads is
+  lost, no `any` is added, and an app's types are the library's own as before; a declaration you keep needs no change.
+  Generated declarations are drafted again once (draft 10).
+- **Changed: `rx-declare` checks a row only where a reading could say more than one that holds.** `@wardic/solid` takes
+  17 s of CPU (146 s), `@ui-sdk/solid` 24 s (137 s).
+- **Removed: `rx-verify` no longer reads `//@ inferred` lines.** It reads which words the code proves from the code.
+  Delete the lines your declarations have.
+- **Changed: the suites run several at a time, reported in order**: `ref`'s SSR scenarios, the
+  language server's suites and the benchmark's tasks run (`RX_JOBS`, `BENCH_JOBS`).
 
 **What an independent review found, acted on** (spec/09, rewritten to its rules; spec/archive/; tooling/rx-language-server/DECLARATIONS.md)
 

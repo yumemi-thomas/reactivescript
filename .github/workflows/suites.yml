@@ -6,15 +6,19 @@
 # (compiler/test/runtime-resolve.mjs).
 #
 # ref/ runs on Solid built from source at ref/SOLID_NEXT (ref/scripts/solid-next.sh: pnpm, and a Rust build of Solid's
-# native compiler). That build is kept in a cache keyed by the pin, so it is made once per pin and restored after.
+# native compiler). That build is kept in a cache keyed by the pin, so it is made once per pin and restored after
+# (.github/actions/solid-next; editor.yml's job reads the same one).
+#
+# ref/'s runners are one job, not several: with Solid restored and the SSR scenarios run by several processes it is about
+# four minutes, half of them the setup each job of a split would do again (Solid, the crate, Chromium, the runtime).
 name: suites
 
 on:
   push:
     branches: [main]
-    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml", ".github/actions/solid-next/**"]
   pull_request:
-    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml", ".github/actions/solid-next/**"]
   workflow_dispatch:
 
 jobs:
@@ -47,15 +51,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-      - name: Solid next, from the cache
-        id: solid
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/../solid-next
-          key: solid-next-${{ runner.os }}-${{ hashFiles('ref/SOLID_NEXT', 'ref/scripts/solid-next.sh') }}
-      - name: Solid next, built at the pin
-        if: steps.solid.outputs.cache-hit != 'true'
-        run: sh ref/scripts/solid-next.sh
+      - name: Solid next, at the pin
+        uses: ./.github/actions/solid-next
       - name: ref/ (links ../solid-next), and Chromium
         run: |
           npm --prefix ref install
@@ -84,27 +81,15 @@ jobs:
         run: npm run compiled
       - name: "ref: streamed SSR and hydration in Chromium"
         working-directory: ref
-        run: npm run ssr
+        run: RX_JOBS=4 npm run ssr   # it waits more than it works
       - name: The language server's packages (the checker ref's types are asked of, and rx-tsc)
         run: npm --prefix tooling/rx-language-server ci
       - name: "ref: the TSX projection, checked by the tooling's checker (tsrs, TypeScript 7)"
         working-directory: ref
         run: npm run types
-      - name: "crate against ref/: checked"
+      - name: "crate against ref/: checked, client-only (--spa), the whole program (--whole-program), lowered (--lower), projected (--project)"
         working-directory: ref
-        run: npm run crate
-      - name: "crate against ref/: client-only (--spa)"
-        working-directory: ref
-        run: npm run crate -- --spa
-      - name: "crate against ref/: the whole program (--whole-program)"
-        working-directory: ref
-        run: npm run crate -- --whole-program
-      - name: "crate against ref/: lowered (--lower)"
-        working-directory: ref
-        run: npm run crate -- --lower
-      - name: "crate against ref/: projected (--project)"
-        working-directory: ref
-        run: npm run crate -- --project
+        run: RX_JOBS=4 node ../scripts/parallel.mjs "npm run -s crate" "npm run -s crate -- --spa" "npm run -s crate -- --whole-program" "npm run -s crate -- --lower" "npm run -s crate -- --project"
       - name: "the guarantees, run: drafts (MO-10i)"
         run: node compiler/test/drafts.mjs
       - name: "the library build: a package written in .rx (MO-13e)"

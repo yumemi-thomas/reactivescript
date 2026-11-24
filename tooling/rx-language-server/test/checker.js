@@ -1,6 +1,5 @@
 // The checker (src/checker.js): its version, what it says where tsrs cannot run, the order of what it answers, TypeScript
-// 7.1's differences the tooling stands on (each a minimal program, with what TypeScript 6.0.3 says of it), and a draft that
-// is the same for any number of workers.
+// 7.1's differences the tooling stands on (each a minimal program, with what TypeScript 6.0.3 says of it).
 //   node test/checker.js
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -66,14 +65,6 @@ const errors = text => { const f = path.join(ws, "probe.ts"); return ck.check({ 
     check(`...and a row that says ${what} does not`, held(row).some(d => d.code === 2322), held(row));
 }
 
-// the same draft for any number of workers; the checks are big enough to go to them
-{
-  const many = Array.from({ length: 260 }, (_, i) => `export declare function use${i}<T extends { id: string; n${i}: number }>(a: T, b: Internal<T>, c: { [K in keyof T]?: (v: T[K], at: ${i}) => void }): Internal<T> & { last: T };\nexport declare const part${i}: { open: (o: { ${Array.from({ length: 12 }, (_, k) => `field${k}?: (v: Hidden${i % 7}, n: ${k}) => Hidden${(i + k) % 7} | undefined`).join("; ")} }) => Hidden${i % 7} };`).join("\n");
-  fs.writeFileSync(path.join(ws, "big.js"), "export const x = 1;\n");
-  fs.writeFileSync(path.join(ws, "big.d.ts"), `interface Internal<T> { value: T; map<U>(f: (v: T) => U): Internal<U> }\n${Array.from({ length: 7 }, (_, i) => `interface Hidden${i} { kind: ${i}; of: Hidden${(i + 1) % 7}[] }`).join("\n")}\n${many}\nexport {};\n`);
-  const drafts = [1, 2, 4, 8].map(n => node([path.join(root, "bin/declare.js"), "./big.js", "--no-infer"], { RX_CHECKERS: String(n) }));
-  check("a draft is the same for 1, 2, 4 and 8 workers", drafts.every(d => d.status === 0 && d.out.length > 10_000 && d.out === drafts[0].out), drafts.map(d => [d.status, d.out.length, d.err.slice(0, 300)]));
-}
 C.closeAll();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

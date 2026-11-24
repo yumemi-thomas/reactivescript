@@ -72,7 +72,9 @@ A component's props can be the library's own type, with only the fields that car
 `export component Dialog(props: import("@ui-sdk/solid/dialog").DialogProps & { onOpenChange?: handler (open: boolean,
 details: DialogOpenChangeDetails) => void }) provides(dialog)`. A function with several signatures (TypeScript's
 overloads) has one row, as every export has: one of its signatures, with the words, which are the function's — your
-calls are typed by the library's own overloads either way. A field in that record is the library's prop written again: `rx-tsc` refuses one the
+calls are typed by the library's own overloads either way. A part whose props no module
+names, with every attribute of its element among them, is drafted by its place, `props: Parameters<typeof
+import("@ui-sdk/solid").DatePickerClear>[0] & { … }`: the record shows what the checker reads, and your editor the rest. A field in that record is the library's prop written again: `rx-tsc` refuses one the
 props' type has no prop for, or one given another type than the library's (it may be narrower). Don't write `any` where the library has a type: name the type (`rx-declare --explain`
 says which `any`s are the library's own and which are the draft's).
 

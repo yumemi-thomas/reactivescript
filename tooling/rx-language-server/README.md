@@ -50,9 +50,8 @@ to it: files and options in, diagnostics with positions out, in order. It is a p
 API; a projection or a boundary check is given with the question and is no file on disk.
 
 - **One answer.** A program is checked by one checker, in the order its files are given, so what is reported does not
-  depend on a number of threads. What runs at the same time is whole programs: the candidate readings of a draft, one
-  worker each (`src/declare-pool.js`; `RX_CHECKERS`, by default half the cores and at most 4). No program is cut to fit the
-  workers: a row near TypeScript's depth limit (TS2589) is not the same row beside others.
+  depend on a number of threads. No program is cut to run in parallel: a row near TypeScript's depth limit (TS2589) is not the
+  same row beside others.
 - **No other checker stands in.** tsrs has a binary for macOS, Linux (glibc and musl) and Windows, on x64 and arm64, as
   optional packages npm picks from. Where none is installed (`--omit=optional`, a lockfile from another platform, another
   platform), or another version is, `rx-tsc` exits 2 and `rx-declare` writes nothing, each with the reason. `TSRS_BINARY`
@@ -102,8 +101,7 @@ event, through spreads, `omit`, `merge` and the module's own components), `draft
 during the call, kept nowhere), `rejects(A | B)` (every `throw` reached is of a class the module exports), `uses(c)`
 (`useContext(C)` on every path, no default to answer) and `provides(c)` (a provider around everything the component
 is given), with the `export context` rows they name (MO-8w). A value made by a call is read as the function its
-factory hands back. The draft's second line counts the words it read; no row is marked (it was, `//@ inferred`, a
-line a row): `rx-declare --audit <file.d.rx>` and `rx-verify` read the code again and say, of every word a
+factory hands back. The draft's second line counts the words it read; no row is marked: `rx-declare --audit <file.d.rx>` and `rx-verify` read the code again and say, of every word a
 declaration has, whether the code proves it, contradicts it or neither (`src/declare-audit.js`). The question each
 word answers is not asked, and nor is one answered "no". `--why` prints, for every row, what proved each word or the first thing in the
 way with its file and line; `--no-infer` (or `RX_DECLARE_INFER=0`) drafts from the types alone.
@@ -212,8 +210,7 @@ outside tracking, as a handler, and is a mismatch if it calls it inside a comput
 
 `rx-verify` first holds every word of the file against what the code shows (MO-8w, the audit `rx-declare --audit`
 prints): a word the code contradicts is a mismatch as it stands, and the last line counts the words read from the
-code, contradicted, and neither. A word the code proves (it was: a row marked `//@ inferred`, a line that is still
-read where a file has one) is then held to what that reading claims: a
+code, contradicted, and neither. A word the code proves is then held to what that reading claims: a
 `pure` fn is called and must change nothing it was given, leave no new global and ask neither `Date.now()`,
 `performance.now()` nor `Math.random()` while it is called; a `handler` must not be called while the fn's own call
 is still running; a `rejects(E)`, under the probe's arguments and its failing ones, must reject with a class of its

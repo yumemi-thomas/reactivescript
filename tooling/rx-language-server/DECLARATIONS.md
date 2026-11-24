@@ -248,9 +248,36 @@ field at a time, or by its place. So:
   written, as they are held to the module (MO-8m). S-module-32, the unit
   `a_props_record_is_held_to_the_props_type` in both checkers.
 
+- *Props with no name, and many of them, are their place.* A part made
+  by a factory (`PartComponent<Primitive, "clear", "button">`) has props
+  computed from parameters no row can write: its own few beside every
+  attribute of its element (177 for a button). Over 24 props, the row is
+  `component DatePickerClear(props: Parameters<typeof
+  import("@ui-sdk/solid").DatePickerClear>[0] & { render?: … })`, at the
+  row's type parameters where it has some, with the fields the checker
+  reads, as after a name. Written out such a row was 24 KB, 178 of them
+  in one draft, each naming the place three times or more. A reader
+  gains a row that fits a line and shows what the checker reads; they
+  lose the list of the part's plain props, which the library's types
+  (an editor's hover, `rx-tsc`) give. Twenty-four or fewer are still
+  written out. `@ui-sdk/solid` 4.46 MB to 0.23 MB, the 193 modules of
+  the coverage suite 9.43 MB to 0.96 MB, the longest row 27 KB to 14 KB
+  (an event listener component: each prop is a callback); the median
+  line is 95 characters, as it was.
+
 Every row is still held against the module before the draft is written
 (MO-8m): a row TypeScript does not hold this way is written as MO-8m
 wrote it, and one it does not hold that way either as every draft was.
+
+**What is checked, and how often.** The first reading of the whole draft
+is checked once. Where TypeScript holds it whole (most modules), that is
+all. Otherwise the other readings are made of the rows it left something
+to say of, and a row is checked in a reading only if that reading would
+say more than one already held; the best untried reading of every such
+row is checked together with the others', beside the rows it stands on.
+So a draft takes one whole check and a few small ones, where it took
+eight whole ones and a ninth of the rows picked (`@wardic/solid`: 146 s
+of CPU to 17 s, the same draft). A file is parsed once for the draft.
 
 ## `any` is the library's (MO-8q)
 

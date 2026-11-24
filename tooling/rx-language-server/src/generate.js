@@ -21,10 +21,10 @@ const IMPORT = /^\s*import\b([^"'`;]*?)\bfrom\s*["']([^"']+)["']/gm;
 const GENERATED = /^\/\/@ generated (\S+)@(\S+) \(MO-8l, draft (\d+)(?:, types ([0-9a-f]+))?\)/;
 const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, under any rule
 // The drafting rules a generated file was written under. A draft is kept only while the package's version and this both
-// stand, so a change of rule (2: no fn is guessed `pure`; 3: a result is typed a step at a time, a disposer as `() => void`; 4: the library's types are named where a draft wrote `any`, MO-8m; 5: types are written as the library's declaration writes them, props by their type, a row for each signature, MO-8o to MO-8q; 6: no `any` is the draft's — a place at the row's type parameters, the last reading, MO-8q over whole drafts; 7: an export has one row, of several signatures the shortest, and no row says `signal` or `tracked` — the vocabulary pruned, MO-8i; 8: the words the package's code proves are written, each on a row marked `//@ inferred`, and a property that may be absent is no method's row, MO-8v) redrafts what an earlier rule wrote. Bump it with any change to
+// stand, so a change of rule (2: no fn is guessed `pure`; 3: a result is typed a step at a time, a disposer as `() => void`; 4: the library's types are named where a draft wrote `any`, MO-8m; 5: types are written as the library's declaration writes them, props by their type, a row for each signature, MO-8o to MO-8q; 6: no `any` is the draft's — a place at the row's type parameters, the last reading, MO-8q over whole drafts; 7: an export has one row, of several signatures the shortest, and no row says `signal` or `tracked` — the vocabulary pruned, MO-8i; 8: the words the package's code proves are written, and a property that may be absent is no method's row, MO-8v) redrafts what an earlier rule wrote. Bump it with any change to
 // what a draft says. (9: the words read from JSX and from contexts — `handler` on a prop, `uses(c)`, `provides(c)` with their
-// `export context` rows — and no `//@ inferred` line, MO-8w.)
-const FORMAT = 9;
+// `export context` rows, MO-8w. 10: a component's props of many fields with no name are their place, MO-8o)
+const FORMAT = 10;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
@@ -167,8 +167,8 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     text = parsing(text, file);
     writeWhole(file, [
       `//@ generated ${pkg}@${version} (MO-8l, draft ${FORMAT}${stamp ? `, types ${stamp}` : ""}): drafted from ${spec}'s TypeScript types, the package not run. Its fns are io`,
-      `// (no draft guesses \`pure\`: a word is written only where the package's code proves it, on a row marked \`//@ inferred\`,`,
-      `// MO-8v); a component it is given is checked under a root of its own (MO-11s); a hook's context and`,
+      `// (no draft guesses \`pure\`: a word is written only where the package's code proves it, MO-8v);`,
+      `// a component it is given is checked under a root of its own (MO-11s); a hook's context and`,
       `// a field that waits or throws are not checked. To say them, write rx-types/${spec}.d.rx, which comes first (MO-8k):`,
       `// npx rx-declare ${spec} --out rx-types/${spec}.d.rx (add --run to run the package and find the contexts).`,
       text.trimEnd(),

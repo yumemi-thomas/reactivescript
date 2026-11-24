@@ -41,9 +41,7 @@ function failing(text, first, rows, spec, from, options, lib) {
 /** TypeScript's diagnostics of a check the crate wrote: a package a row names is the one the library imports (MO-8o),
  *  resolved from the library's location, as rx-tsc holds it. The check is one file, and one checker's: cut into several
  *  it would cost more than it saves (what a row costs is mostly the library's types, which every part reads again), and
- *  a row near TypeScript's depth limit is not the same row beside others (TS2589 depends on what a checker has read: one
- *  of the coverage suite's 305 checks loses it when it is cut in three). The cores go to whole checks, one a candidate
- *  reading (src/declare-pool.js). */
+ *  a row near TypeScript's depth limit is not the same row beside others (TS2589 depends on what a checker has read). */
 function diagnostics(code, from, options, lib) {
   const ck = checker(from);
   const u = asLibrary(ck, { name: "__rx_declare__.rx-boundary.ts", code, beside: from, lib }, options);

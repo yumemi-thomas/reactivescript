@@ -381,6 +381,27 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   check("rx-tsc holds that row against the module in each layout (TY-6 resolves what a row names from the library too)", [hoisted, nested, skewed].every(l => l.tsc.status === 0 && l.tsc.out.trim() === ""), [hoisted.tsc, nested.tsc, skewed.tsc]);
 }
 
+// MO-8o: props of more fields than a reader can use, of a type no module exports (a part's own beside an element's
+// attributes), are the library's by their place — at the row's type parameters — with the fields the checker reads after it;
+// a few such props are written out
+{
+  fs.writeFileSync(path.join(ws, "wide.js"), "export const Part = props => null;\nexport const Pick = props => null;\nexport const Small = props => null;\n");
+  fs.writeFileSync(path.join(ws, "wide.d.ts"), [
+    "import type { JSX } from \"@solidjs/web\";",
+    `type Attrs = { ${Array.from({ length: 30 }, (_, i) => `a${i}?: string | { k: ${i} }`).join("; ")} };`,
+    "interface Comp<S, N> { (props: Omit<Attrs, keyof N> & N & { render?: (state: S) => JSX.Element; icon?: JSX.Element; onPick?: (v: string) => void; onAbort?: ((e: Event) => void) | { handle: 1 }; children?: JSX.Element | ((s: S) => JSX.Element) }): JSX.Element }",
+    "export declare const Part: Comp<{ open: boolean }, { value?: string }>;",
+    "interface Gen<N> { <T extends string = string>(props: Attrs & N & { value?: T; onPick?: (v: T) => void }): JSX.Element }",
+    "export declare const Pick: Gen<{ b?: string }>;",
+    "interface Few<N> { (props: N & { onPick: (v: string) => void }): JSX.Element }",
+    "export declare const Small: Few<{ a: string }>;", "export {};", ""].join("\n"));
+  const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./wide.js", "--out", "wide.d.rx"], { cwd: ws, encoding: "utf8" });
+  const text = fs.readFileSync(path.join(ws, "wide.d.rx"), "utf8"), row = n => text.split("\n").find(l => l.startsWith(`export component ${n}`));
+  check("a component's many unnamed props are their place, and the fields the checker reads", row("Part") === 'export component Part(props: Parameters<typeof import("./wide.js").Part>[0] & { render?: Component; icon?: View; onPick?: (v: string) => void })', text + r.stderr);
+  check("...at the row's type parameters, a generic component's", row("Pick") === 'export component Pick<T extends string = string>(props: Parameters<typeof import("./wide.js").Pick<T>>[0] & { onPick?: (v: T) => void })', text);
+  check("...and a few are written out", row("Small") === "export component Small(props: { a: string; onPick: (v: string) => void })", text);
+}
+
 // a draft the crate cannot read is an error, with the line and the parser's reason — not `any` for every row and nothing
 // said (a `readonly` prop the parser refused did that to a whole library)
 {
