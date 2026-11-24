@@ -106,7 +106,10 @@ module.exports = grammar(tsx, {
       optional($.signature_uses),
     ),
     signature_parameter: $ => seq(optional($.ref_modifier), field('name', $.identifier), optional(seq(':', field('type', $.type)))),
-    signature_rows: $ => repeat1(choice('io', 'pending', 'lane', $.fails_row)),
+    signature_rows: $ => repeat1(choice('io', 'pending', 'lane', $.fails_row, $.signature_parts)),
+    // `{ set: io; pair.1: io }`: the parts of a value that are actions (MO-9b)
+    signature_parts: $ => seq('{', $.signature_part, repeat(seq(';', $.signature_part)), '}'),
+    signature_part: $ => seq(alias(token(prec(1, /[\w$]+(\.[\w$]+)*/)), $.part_path), ':', 'io'),
 
     // `export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) uses(./ui.rx#who) shape(roots section)`
     signature_component: $ => seq(

@@ -109,9 +109,10 @@ pub struct SigParam {
 #[derive(Debug, Clone)]
 pub enum ExportSig {
     Source { question: bool, rows: Vec<String>, fails: Vec<String> },
-    Eq { rows: Vec<String>, fails: Vec<String>, io: bool },
+    /// `actions`: R-io-3, the parts of its value (a fn's: of its result) that are actions, as paths ("": the value)
+    Eq { rows: Vec<String>, fails: Vec<String>, io: bool, actions: Vec<String> },
     /// `uses`: RG-7b, the contexts a call of it reads above the place it is written (keys)
-    Fn { params: Vec<SigParam>, instantiating: bool, rows: Vec<String>, fails: Vec<String>, rejects: Vec<String>, uses: Vec<String> },
+    Fn { params: Vec<SigParam>, instantiating: bool, rows: Vec<String>, fails: Vec<String>, rejects: Vec<String>, uses: Vec<String>, actions: Vec<String> },
     Action,
     Server { io: bool, params: Vec<String>, rejects: Vec<String> },
     ErrClass { params: Vec<String> },
@@ -291,6 +292,22 @@ fn hosts_of(file: &str, text: &str) -> IndexMap<String, Vec<HostSite>> {
     }
     out
 }
+/// R-io-3: the parts of a value that are actions, `{ set: io; 1: io }`; `io`: the value itself.
+fn with_actions(r: String, ps: &[String]) -> String {
+    let a = if ps.is_empty() {
+        return r;
+    } else if ps.iter().any(|p| p.is_empty()) {
+        "io".to_string()
+    } else {
+        format!("{{ {} }}", ps.iter().map(|p| format!("{p}: io")).collect::<Vec<_>>().join("; "))
+    };
+    if r.is_empty() { a } else { format!("{r} {a}") }
+}
+fn actions_of(rest: &str) -> Option<Vec<String>> {
+    let inner = rest.strip_prefix('{')?.strip_suffix('}')?;
+    let ps = split(inner, ';').iter().map(|p| P_PART.captures(p).map(|m| m[1].to_string())).collect::<Option<Vec<_>>>()?;
+    (!ps.is_empty()).then_some(ps)
+}
 fn with_rows(head: String, r: String) -> String {
     if r.is_empty() { head } else { format!("{}: {}", head, r) }
 }
@@ -298,18 +315,18 @@ fn with_rows(head: String, r: String) -> String {
 fn line(file: &str, name: &str, x: &ExportSig) -> String {
     match x {
         ExportSig::Source { question, rows: r, fails } => format!("{} {} …", with_rows(format!("export source {}", name), rows(r, fails)), if *question { "=" } else { ":=" }),
-        ExportSig::Eq { rows: r, fails, io } => {
+        ExportSig::Eq { rows: r, fails, io, actions } => {
             let mut rr = r.clone();
             if *io {
                 rr.insert(0, "io".into());
             }
-            with_rows(format!("export {}", name), rows(&rr, fails))
+            with_rows(format!("export {}", name), with_actions(rows(&rr, fails), if *io { &[] } else { actions }))
         }
-        ExportSig::Fn { params, instantiating, rows: r, fails, rejects, uses } => {
+        ExportSig::Fn { params, instantiating, rows: r, fails, rejects, uses, actions } => {
             let ps: Vec<String> = params.iter().map(|p| format!("{}{}{}", if p.r#ref { "ref " } else { "" }, p.name, p.ty.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())).collect();
             format!(
                 "{}{}{}{}",
-                with_rows(format!("export pure fn {}({})", name, ps.join(", ")), rows(r, fails)),
+                with_rows(format!("export pure fn {}({})", name, ps.join(", ")), with_actions(rows(r, fails), actions)),
                 if rejects.is_empty() { String::new() } else { format!(" rejects({})", rejects.join(" | ")) },
                 if *instantiating { " instantiates" } else { "" },
                 if uses.is_empty() { String::new() } else { format!(" uses({})", uses.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) }
@@ -414,9 +431,10 @@ re!(T_ACTION, r"^action\s+([A-Za-z_$][A-Za-z0-9_$]*)$");
 re!(T_ERROR, r"^error\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\(([^)]*)\))?$");
 re!(T_SOURCE, r"^source\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::([^=].*?)?)??\s*(:?=)\s*…$");
 re!(T_SERVER, r"^server\s+(pure\s+)?fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$");
-re!(T_FN, r"^pure\s+fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\))\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?\s*(?:uses\(([^)]*)\))?$");
+re!(T_FN, r"^pure\s+fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\)|\{[^}]*\})\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?\s*(?:uses\(([^)]*)\))?$");
 re!(T_CONTEXT, r"^context\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$");
 re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(props:\s*(\{.*?\}|\{\})\)(.*)$");
+re!(P_PART, r"^([A-Za-z0-9_$.-]+)\s*:\s*io$");
 re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
@@ -585,10 +603,11 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                 })
                 .collect();
             let r = row_words(m.get(3).map(|x| x.as_str()).unwrap_or(""));
-            if !r.rest.is_empty() {
+            let actions = if r.rows.iter().any(|x| x == "io") { Some(vec![String::new()]) } else { actions_of(&r.rest) };
+            if !r.rest.is_empty() && actions.is_none() {
                 return Err(fail("a fn's rows"));
             }
-            exports.insert(m[1].to_string(), ExportSig::Fn { params, instantiating: m.get(5).is_some(), rows: r.rows, fails: r.fails, rejects: classes_of(m.get(4).map(|x| x.as_str()).unwrap_or("")), uses: m.get(6).map(|u| u.as_str().split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect()).unwrap_or_default() });
+            exports.insert(m[1].to_string(), ExportSig::Fn { params, instantiating: m.get(5).is_some(), actions: actions.unwrap_or_default(), rows: r.rows.into_iter().filter(|x| x != "io").collect(), fails: r.fails, rejects: classes_of(m.get(4).map(|x| x.as_str()).unwrap_or("")), uses: m.get(6).map(|u| u.as_str().split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect()).unwrap_or_default() });
             continue;
         }
         if let Some(m) = T_CONTEXT.captures(&s) {
@@ -690,11 +709,12 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
         }
         if let Some(m) = T_EQ.captures(&s) {
             let r = row_words(m.get(2).map(|x| x.as_str()).unwrap_or(""));
-            if !r.rest.is_empty() {
+            let actions = actions_of(&r.rest);
+            if !r.rest.is_empty() && actions.is_none() {
                 return Err(fail("an equation's rows"));
             }
             let io = r.rows.iter().any(|x| x == "io");
-            exports.insert(m[1].to_string(), ExportSig::Eq { rows: r.rows.into_iter().filter(|x| x != "io").collect(), fails: r.fails, io });
+            exports.insert(m[1].to_string(), ExportSig::Eq { rows: r.rows.into_iter().filter(|x| x != "io").collect(), fails: r.fails, io, actions: actions.unwrap_or_default() });
             continue;
         }
         return Err(fail("not an export"));

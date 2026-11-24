@@ -366,6 +366,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   - a fn's parameters (`ref`, with written types), `rejects(…)` (absent: it
     returns nothing that rejects), `instantiates` (RG-6) and `uses(…)`
     (RG-7b: the contexts each call reads above the place it is written);
+  - the parts of a fn's result, or of an equation's value, that are actions
+    (R-io-3): `export pure fn createPage(first): { set: io; pair.1: io }
+    instantiates`, a path of fields and items each; `: io`, the whole;
   - `export server fn f(a)` (12 SF-1; `server pure fn` when it is not io);
   - per prop: `catches(*)` where every class is discharged, `provides(…)` for
     children (RG-7b), `unrendered` for a prop only an action reads, and the
@@ -906,7 +909,7 @@ is the signature the compiler printed.
   | | a printed signature (marked; MO-9b) | a JS module's declaration (MO-8) |
   | --- | --- | --- |
   | `rejects(…)` absent on a fn | the fn returns nothing that rejects | `rejects(Error)` |
-  | a fn's purity | `pure fn`, with `io` among its rows (`: io pending`) | `pure fn` is pure, `fn` is io |
+  | a fn's purity | `pure fn`; `io` among its rows is its result's (MO-9b) | `pure fn` is pure, `fn` is io |
   | `export source x … = …` / `:= …`, `export x: pending fails(E)` | a reactive name, read-only to the importer, with its rows; `=` a question, `:=` not | no such row: a JS value is `export const x: T`, never reactive |
   | `export action f` | an action: io, it never fails, `ACTION_CALLED_IN_OWNED_SCOPE` where called in reactive scope | no such row |
   | `export server fn f(a)` | a server function (12 SF-1), `server pure fn` when it is not io | `server` is a side: a JS function that exists on the server only (12 SF-5) |

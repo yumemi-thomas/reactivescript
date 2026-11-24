@@ -11839,9 +11839,75 @@
           {
             "type": "SYMBOL",
             "name": "fails_row"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "signature_parts"
           }
         ]
       }
+    },
+    "signature_parts": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "{"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "signature_part"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": ";"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "signature_part"
+              }
+            ]
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "}"
+        }
+      ]
+    },
+    "signature_part": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "TOKEN",
+            "content": {
+              "type": "PREC",
+              "value": 1,
+              "content": {
+                "type": "PATTERN",
+                "value": "[\\w$]+(\\.[\\w$]+)*"
+              }
+            }
+          },
+          "named": true,
+          "value": "part_path"
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        },
+        {
+          "type": "STRING",
+          "value": "io"
+        }
+      ]
     },
     "signature_component": {
       "type": "SEQ",

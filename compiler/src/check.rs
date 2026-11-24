@@ -284,6 +284,8 @@ struct Sym<'a> {
     /// MO-10g: where a declared JS fn takes callbacks, by parameter
     cbs: Vec<Option<(bool, Vec<String>)>>,
     /// MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
+    /// R-io-3: an import — the parts of its value (a fn's: of its result) that are actions, as paths
+    action_parts: Vec<String>,
     needs: Vec<String>,
     /// MO-12c: the JS contexts a declared factory's component provides to what it renders
     gives: Vec<String>,
@@ -393,6 +395,7 @@ impl<'a> Sym<'a> {
             held: vec![],
             waits: None,
             cbs: vec![],
+            action_parts: vec![],
             needs: vec![],
             gives: vec![],
             nests: None,
@@ -1734,6 +1737,8 @@ enum Later<'a> {
     Provide { name: String, e: &'a Expr, env: EId, line: i64, contract: (IndexSet<String>, IndexSet<String>) },
     RowFails { name: String, env: EId, fw: Option<String>, written: String, line: i64 },
     Escape { target: &'a Target, e: &'a Expr, tsym: Option<SId>, env: EId, line: i64 },
+    /// R-io-3: a call in reactive scope that may be of an action a value carries
+    Carried { e: &'a Expr, env: EId, line: i64, attr: Option<String>, in_fn: bool },
 }
 
 /// E-5a: whether a value can change: by what this module sees (`yes`), or only if one of `deps` does — a prop of a component
@@ -1953,6 +1958,7 @@ pub struct Checker<'a> {
     uses: Vec<UseRec>,
     /// the calls of fns that instantiate, each in its region (RG-6a)
     hook_calls: Vec<(RId, SId, i64, String)>,
+    parts_memo: HashMap<SId, IndexSet<String>>,
     /// MO-10g: closures passed where a declared JS fn takes a callback
     callback_fns: HashSet<*const Expr>,
     /// MO-10i: closures passed where a JS fn's declaration makes their parameters drafts, with those positions
@@ -2353,6 +2359,7 @@ impl<'a> Checker<'a> {
             seq: 0,
             uses: vec![],
             hook_calls: vec![],
+            parts_memo: HashMap::new(),
             callback_fns: HashSet::new(),
             draft_fns: HashMap::new(),
             fn_stack: vec![],
@@ -2675,6 +2682,18 @@ impl<'a> Checker<'a> {
     fn run_later(&mut self, job: Later<'a>) {
         match job {
             Later::Content { ms, env, anc } => self.content_check(ms, env, &anc),
+            Later::Carried { e, env, line, attr, in_fn } => {
+                let ExprKind::Call { f, .. } = &e.k else { return };
+                if !self.action_parts(f, env).contains("") {
+                    return;
+                }
+                self.line = line;
+                match attr {
+                    Some(attr) => self.called_handler("ACTION_CALLED_IN_OWNED_SCOPE", e, &attr),
+                    None if in_fn => self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io (an action); a fn is pure by definition", show(f))),
+                    None => self.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", format!("{}(…) is an action, called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action", show(f))),
+                }
+            }
             Later::Escape { target, e, tsym, env, line } => {
                 self.line = line;
                 self.escape(target, e, tsym, env);
@@ -3009,14 +3028,15 @@ impl<'a> Checker<'a> {
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s
                 }
-                ExportSig::Eq { rows, fails, io } => {
+                ExportSig::Eq { rows, fails, io, actions } => {
                     let mut s = Sym::new(SymKind::Eq, alias, region, line);
                     s.io = *io;
+                    s.action_parts = actions.clone();
                     s.rows = Some(RowsT::Fixed(set(rows)));
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s
                 }
-                ExportSig::Fn { params, instantiating, rows, fails, rejects, uses } => {
+                ExportSig::Fn { params, instantiating, rows, fails, rejects, uses, actions } => {
                     let mut s = Sym::new(SymKind::Fn, alias, region, line);
                     s.params = Some(params.clone());
                     s.instantiating = *instantiating;
@@ -3024,6 +3044,7 @@ impl<'a> Checker<'a> {
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s.rejects = Some(set(rejects));
                     s.needs = uses.clone();
+                    s.action_parts = actions.clone();
                     s
                 }
                 ExportSig::Action => {
@@ -3568,7 +3589,7 @@ impl<'a> Checker<'a> {
                 SymKind::Eq => {
                     let rows = if self.syms[s].rows.is_some() { self.sym_rows(s) } else { IndexSet::new() };
                     let fails = if self.syms[s].fails_t.is_some() { self.sym_fails(s).cls } else { IndexSet::new() };
-                    ExportSig::Eq { rows: arr(rows), fails: arr(fails), io: self.syms[s].io }
+                    ExportSig::Eq { rows: arr(rows), fails: arr(fails), io: self.syms[s].io, actions: self.sorted_parts(self.syms[s].val) }
                 }
                 SymKind::Fn => {
                     let rows = if self.syms[s].rows.is_some() { self.sym_rows(s) } else { IndexSet::new() };
@@ -3577,7 +3598,7 @@ impl<'a> Checker<'a> {
                         Some((t, te)) => self.rejects(t, te, &mut HashSet::new()),
                         None => self.syms[s].rejects.clone().unwrap_or_default(),
                     };
-                    ExportSig::Fn { params: self.syms[s].params.clone().unwrap_or_default(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone() }
+                    ExportSig::Fn { params: self.syms[s].params.clone().unwrap_or_default(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone(), actions: self.sorted_parts(self.syms[s].fn_tail) }
                 }
                 SymKind::Action => ExportSig::Action,
                 SymKind::Server => {
@@ -5565,6 +5586,103 @@ impl<'a> Checker<'a> {
         }
         cur
     }
+    /// R-io-3 (2026-11-24): the parts of a value that are actions, as paths ("": the value itself) — carrying an action is
+    /// not a call, and the value's type carries the row: through the names and the fns it goes by, as far as their literals
+    /// say.
+    fn action_parts(&mut self, e: &'a Expr, env: EId) -> IndexSet<String> {
+        fn at(o: IndexSet<String>, k: Option<&str>) -> IndexSet<String> {
+            let Some(k) = k else { return IndexSet::new() };
+            o.iter().filter_map(|p| if p == k { Some(String::new()) } else { p.strip_prefix(k).and_then(|r| r.strip_prefix('.')).map(String::from) }).collect()
+        }
+        fn put(out: &mut IndexSet<String>, k: &str, v: IndexSet<String>) {
+            out.retain(|p| p != k && !p.strip_prefix(k).is_some_and(|r| r.starts_with('.')));
+            if !k.contains('.') {
+                out.extend(v.into_iter().map(|p| if p.is_empty() { k.to_string() } else { format!("{k}.{p}") }));
+            }
+        }
+        match &e.k {
+            ExprKind::Id(n) => match self.lookup(env, n) {
+                Some(s) if self.syms[s].kind == SymKind::Action => [String::new()].into_iter().collect(),
+                Some(s) if !self.syms[s].action_parts.is_empty() => self.syms[s].action_parts.iter().cloned().collect(),
+                Some(s) if matches!(self.syms[s].kind, SymKind::Eq | SymKind::Value) => self.named_parts(s, self.syms[s].val),
+                _ => IndexSet::new(),
+            },
+            ExprKind::Member { o, p, .. } => at(self.action_parts(o, env), Some(p)),
+            ExprKind::Index { o, i, .. } => at(self.action_parts(o, env), lit_key(i).as_deref()),
+            ExprKind::Rec(fields) => {
+                let mut out = IndexSet::new();
+                for f in fields {
+                    match f {
+                        Field::Spread(x) => out = self.action_parts(x, env),
+                        Field::Kv { key, v } => {
+                            let v = self.action_parts(v, env);
+                            put(&mut out, key, v);
+                        }
+                    }
+                }
+                out
+            }
+            ExprKind::Arr(items) => {
+                let mut out = IndexSet::new();
+                for (i, x) in items.iter().enumerate() {
+                    if matches!(x.k, ExprKind::Spread(_)) {
+                        break;
+                    }
+                    let v = self.action_parts(x, env);
+                    put(&mut out, &i.to_string(), v);
+                }
+                out
+            }
+            ExprKind::If { t, f, .. } => {
+                let mut out = self.action_parts(t, env);
+                out.extend(self.action_parts(f, env));
+                out
+            }
+            ExprKind::Peek(x) => self.action_parts(x, env),
+            ExprKind::Call { f, .. } => {
+                let ExprKind::Id(n) = &f.k else { return IndexSet::new() };
+                match self.lookup(env, n) {
+                    Some(s) if self.syms[s].kind == SymKind::Fn && !self.syms[s].action_parts.is_empty() => self.syms[s].action_parts.iter().cloned().collect(),
+                    Some(s) if self.syms[s].kind == SymKind::Fn => self.named_parts(s, self.syms[s].fn_tail),
+                    _ => IndexSet::new(),
+                }
+            }
+            _ => IndexSet::new(),
+        }
+    }
+    /// What a name, or a fn's result, holds; one being read by itself adds nothing.
+    fn named_parts(&mut self, s: SId, v: Option<(&'a Expr, EId)>) -> IndexSet<String> {
+        if let Some(m) = self.parts_memo.get(&s) {
+            return m.clone();
+        }
+        self.parts_memo.insert(s, IndexSet::new());
+        let Some((e, env)) = v else { return IndexSet::new() };
+        let r = self.action_parts(e, env);
+        self.parts_memo.insert(s, r.clone());
+        r
+    }
+    fn sorted_parts(&mut self, v: Option<(&'a Expr, EId)>) -> Vec<String> {
+        let mut ps: Vec<String> = v.map(|(e, env)| self.action_parts(e, env).into_iter().collect()).unwrap_or_default();
+        ps.sort();
+        ps
+    }
+    /// R-io-3: a call of an action that a value carries, in reactive scope — judged once every fn's result is known.
+    /// `attr`: SC-4, a handler attribute's value.
+    fn carried_action(&mut self, e: &'a Expr, env: EId, attr: Option<&str>, in_fn: bool) {
+        let ExprKind::Call { f, .. } = &e.k else { return };
+        let skip = match &f.k {
+            ExprKind::Id(n) => self.lookup(env, n).is_some_and(|s| self.syms[s].kind == SymKind::Action || self.syms[s].io),
+            ExprKind::Member { .. } | ExprKind::Index { .. } => false,
+            _ => true,
+        };
+        if !skip {
+            self.later.push(Later::Carried { e, env, line: self.line, attr: attr.map(String::from), in_fn });
+        }
+    }
+    fn called_handler(&mut self, code: &str, e: &Expr, attr: &str) {
+        let ExprKind::Call { f, .. } = &e.k else { return };
+        self.err(code, "SC-4", format!("{attr}={{{}}} calls {}(…) while the view computes, and gives the handler what it answers: a handler is a function, called when its event happens — `{attr}={{() => {{ {} }}}}`", show(e), show(f), show(e)));
+    }
     /// SC-4 (2026-11-22): a handler is a function, called when its event happens. An attribute that takes one, given a
     /// call of something that is io — an action, an io import, a setter, a method declared to answer nothing — would make
     /// that call while the view computes, and hand the handler its result: `onClick={save()}` for `onClick={() => {
@@ -5584,8 +5702,9 @@ impl<'a> Checker<'a> {
                     _ if self.io_member(f, env).is_some() => Some("IO_IN_REACTIVE"),
                     _ => None,
                 };
-                if let Some(code) = code {
-                    self.err(code, "SC-4", format!("{attr}={{{}}} calls {}(…) while the view computes, and gives the handler what it answers: a handler is a function, called when its event happens — `{attr}={{() => {{ {} }}}}`", show(e), show(f), show(e)));
+                match code {
+                    Some(code) => self.called_handler(code, e, attr),
+                    None => self.carried_action(e, env, Some(attr), false),
                 }
             }
             ExprKind::If { t, f, .. } => {
@@ -5861,6 +5980,10 @@ impl<'a> Checker<'a> {
                     } else {
                         self.err("IO_IN_REACTIVE", "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers a promise, so calling it starts work, here on every computation, with nothing waiting for it — call it from a handler or an action; if it only asks, `await` it", show(f)));
                     }
+                }
+                // R-io-3: …and an action that a value carries (a fn's result, a record of this module's) is one wherever it is called
+                if !ctx.imperative && !self.void_method(f, env) {
+                    self.carried_action(e, env, None, ctx.in_fn);
                 }
                 // MO-8t: a method of an io import, with no row of its own, is io as its object is
                 if !ctx.imperative && !self.void_method(f, env) && !self.promise_method(f, env) {

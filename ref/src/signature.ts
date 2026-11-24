@@ -5,6 +5,7 @@
 //   export source products: pending fails(Error) = …        a question (ST-5); `:= …` a plain source
 //   export discount: pending fails(Error)                   an equation; `io` when bound to an io value
 //   export pure fn qtyOf(id) rejects(Offline) instantiates  a fn (`ref` params; RG-6); `rejects(…)` absent: none
+//   export pure fn useCart(): { add: io; 1: io } instantiates   … and the parts of its result that are actions (R-io-3)
 //   export pure fn useForm() instantiates uses(./form.rx#form)   … and the contexts each call reads above it (RG-7b)
 //   export server fn add(id) rejects(Error)                 12 SF-1 (`server pure fn` when no io)
 //   export action setCoupon
@@ -34,6 +35,9 @@ type Catch = Set<string> | "all";
 const HOLD = "$hold";
 const cls = (c: Catch) => c === "all" ? "*" : c.size ? [...c].sort().join(" | ") : "nothing";
 const rows = (r: string[], fails: string[]) => [...["io", "pending", "lane"].filter(x => r.includes(x)), ...(fails.length ? [`fails(${[...fails].sort().join(" | ")})`] : [])].join(" ");
+/** R-io-3: the parts of a value that are actions, `{ set: io; 1: io }`; `io`: the value itself. */
+const actionsText = (ps: string[] | undefined) => !ps?.length ? "" : ps.includes("") ? "io" : `{ ${ps.map(p => `${p}: io`).join("; ")} }`;
+const actionsOf = (rest: string): string[] | undefined => { const m = /^\{(.*)\}$/.exec(rest); const ps = m ? split(m[1], ";").map(p => /^([\w$.-]+)\s*:\s*io$/.exec(p)?.[1]) : []; return ps.length && ps.every(p => p !== undefined) ? ps as string[] : undefined; };
 const dir = (p: string) => p.split("/").slice(0, -1).join("/");
 /** O-3: the props a component stores where they outlive it, and where. */
 const retainsText = (file: string, st?: Record<string, string[]>) => {
@@ -89,8 +93,8 @@ function hostsOf(file: string, text: string): Record<string, HostSite[]> {
 function line(file: string, name: string, x: ExportSig): string {
   switch (x.kind) {
     case "source": { const r = rows(x.rows, x.fails); return `export source ${name}${r ? `: ${r}` : ""} ${x.question ? "=" : ":="} …`; }
-    case "eq": { const r = rows(x.io ? ["io", ...x.rows] : x.rows, x.fails); return `export ${name}${r ? `: ${r}` : ""}`; }
-    case "fn": { const r = rows(x.rows, x.fails); return `export pure fn ${name}(${x.params.map(p => (p.ref ? "ref " : "") + p.name + ((p as { type?: string }).type ? `: ${(p as { type?: string }).type}` : "")).join(", ")})${r ? `: ${r}` : ""}${x.rejects.length ? ` rejects(${x.rejects.join(" | ")})` : ""}${x.instantiating ? " instantiates" : ""}${x.uses?.length ? ` uses(${x.uses.map(k => relKey(file, k)).join(", ")})` : ""}`; }
+    case "eq": { const r = [rows(x.io ? ["io", ...x.rows] : x.rows, x.fails), x.io ? "" : actionsText(x.actions)].filter(Boolean).join(" "); return `export ${name}${r ? `: ${r}` : ""}`; }
+    case "fn": { const r = [rows(x.rows, x.fails), actionsText(x.actions)].filter(Boolean).join(" "); return `export pure fn ${name}(${x.params.map(p => (p.ref ? "ref " : "") + p.name + ((p as { type?: string }).type ? `: ${(p as { type?: string }).type}` : "")).join(", ")})${r ? `: ${r}` : ""}${x.rejects.length ? ` rejects(${x.rejects.join(" | ")})` : ""}${x.instantiating ? " instantiates" : ""}${x.uses?.length ? ` uses(${x.uses.map(k => relKey(file, k)).join(", ")})` : ""}`; }
     case "server": return `export server ${x.io ? "" : "pure "}fn ${name}(${x.params.join(", ")})${x.rejects.length ? ` rejects(${[...x.rejects].sort().join(" | ")})` : ""}`;
     case "action": return `export action ${name}`;
     case "errclass": return `export error ${name}(${x.params.join(", ")})`;
@@ -174,10 +178,10 @@ export function parseSignature(src: string, file: string): ModSig {
     if ((m = /^error\s+([A-Za-z_$][\w$]*)\s*(?:\(([^)]*)\))?$/.exec(s))) { exports.set(m[1], { kind: "errclass", params: (m[2] ?? "").split(",").map(x => x.trim()).filter(Boolean) }); return; }
     if ((m = /^source\s+([A-Za-z_$][\w$]*)\s*(?::(?!=)\s*(.*?))?\s*(:?=)\s*…$/.exec(s))) { const r = rowWords(m[2] ?? ""); if (r.rest) fail("a source's rows"); exports.set(m[1], { kind: "source", question: m[3] === "=", rows: r.rows, fails: r.fails }); return; }
     if ((m = /^server\s+(pure\s+)?fn\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$/.exec(s))) { exports.set(m[2], { kind: "server", io: !m[1], params: m[3].split(",").map(x => x.trim()).filter(Boolean), rejects: classesOf(m[4] ?? "") }); return; }
-    if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\))\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?\s*(?:uses\(([^)]*)\))?$/.exec(s))) {
+    if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\)|\{[^}]*\})\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?\s*(?:uses\(([^)]*)\))?$/.exec(s))) {
       const params = split(m[2], ",").map(p0 => { const ref = /^ref\s/.test(p0); const p = ref ? p0.slice(4).trim() : p0; const c = p.indexOf(":"); return { name: (c < 0 ? p : p.slice(0, c)).trim(), ref, ...(c < 0 ? {} : { type: p.slice(c + 1).trim() }) }; });
-      const r = rowWords(m[3] ?? ""); if (r.rest) fail("a fn's rows");
-      exports.set(m[1], { kind: "fn", params, instantiating: !!m[5], rows: r.rows, fails: r.fails, rejects: classesOf(m[4] ?? ""), ...(m[6] ? { uses: m[6].split(",").map(k => absKey(file, k.trim())) } : {}) }); return;
+      const r = rowWords(m[3] ?? ""); const acts = r.rows.includes("io") ? [""] : actionsOf(r.rest); if (r.rest && !acts) fail("a fn's rows");
+      exports.set(m[1], { kind: "fn", params, instantiating: !!m[5], rows: r.rows.filter(x => x !== "io"), fails: r.fails, rejects: classesOf(m[4] ?? ""), ...(acts ? { actions: acts } : {}), ...(m[6] ? { uses: m[6].split(",").map(k => absKey(file, k.trim())) } : {}) }); return;
     }
     if ((m = /^context\s+([A-Za-z_$][\w$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$/.exec(s))) {
       let body = (m[2] ?? "").trim(); const source = /^source\b/.test(body); if (source) body = body.slice(6).trim();
@@ -211,7 +215,7 @@ export function parseSignature(src: string, file: string): ModSig {
       sig.shape = contentShapeOf(/\bshape\(([^)]*)\)/.exec(tail)?.[1]);
       exports.set(m[1], { kind: "comp", sig }); return;
     }
-    if ((m = /^([A-Za-z_$][\w$]*)\s*(?::\s*(.*))?$/.exec(s))) { const r = rowWords(m[2] ?? ""); if (r.rest) fail("an equation's rows"); exports.set(m[1], { kind: "eq", rows: r.rows.filter(x => x !== "io"), fails: r.fails, io: r.rows.includes("io") }); return; }
+    if ((m = /^([A-Za-z_$][\w$]*)\s*(?::\s*(.*))?$/.exec(s))) { const r = rowWords(m[2] ?? ""); const acts = actionsOf(r.rest); if (r.rest && !acts) fail("an equation's rows"); exports.set(m[1], { kind: "eq", rows: r.rows.filter(x => x !== "io"), fails: r.fails, io: r.rows.includes("io"), ...(acts ? { actions: acts } : {}) }); return; }
     fail("not an export");
   });
   return { file, exports, ...(hosted.length ? { hosted } : {}), ...(hosts ? { hosts } : {}) };

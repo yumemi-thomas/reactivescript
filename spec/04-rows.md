@@ -28,6 +28,12 @@ and where they may not go.
   bin S — Solid's runtime `ACTION_CALLED_IN_OWNED_SCOPE` has no runtime
   form here). Carrying an `io` value (storing it, passing it) is not a
   call; its type carries the row: `io (n: number) => Promise<void>`.
+  *An action a value carries (2026-11-24).* What a name, a field, an item
+  or a fn's result holds is followed through the literals that say it: an
+  action handed back by a fn (`{ n: n, set: set }`, `[n, set]`, `set`), of
+  this module or another (`set: io` in the signature, 09 MO-9b), is one
+  where it is called (`ACTION_CALLED_IN_OWNED_SCOPE`). What no literal says
+  (a parameter, a source) is not followed.
 - **R-io-4 (The boundary).** Every JS import is `io`. `import pure { f }
   from …` is the one assertion that lowers taint, and it is unchecked for
   JS (checked when the imported module is `.rx`, where it must agree with

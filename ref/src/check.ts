@@ -134,6 +134,7 @@ type Sym = {
   cbs?: ([boolean, string[]] | null)[];   // MO-10g: where a declared JS fn takes callbacks
   held?: [string, boolean, string[]][];   // MO-10l: a JS fn's result parts — `ref` items of its tuple, `ref` fields of its record — that wait or fail where they are read (part, holds, classes); on a binding of its result too. MO-10f: the same of a prop's fields, by the component's props type
   waits?: [boolean, string[]];   // MO-10l: a JS fn whose whole result is an accessor that waits or fails (holds, classes)
+  actionParts?: string[];              // R-io-3: an import — the parts of its value (a fn's: of its result) that are actions, as paths
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
   generated?: string;                  // MO-8l: a JS fn declared by a generated draft (node_modules/.rx-types): its package's specifier
@@ -576,8 +577,8 @@ const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 /** MO-3: what an importer sees of each export — rows, parameters, and for a component its summary. Never its body. */
 export type ExportSig =
   | { kind: "source"; question: boolean; rows: string[]; fails: string[] }
-  | { kind: "eq"; rows: string[]; fails: string[]; io: boolean }
-  | { kind: "fn"; params: { name: string; ref: boolean }[]; instantiating: boolean; rows: string[]; fails: string[]; rejects: string[]; /** RG-7b: the contexts a call of it reads above the place it is written (keys) */ uses?: string[] }
+  | { kind: "eq"; rows: string[]; fails: string[]; io: boolean; actions?: string[] }
+  | { kind: "fn"; params: { name: string; ref: boolean }[]; instantiating: boolean; rows: string[]; fails: string[]; rejects: string[]; /** R-io-3: the parts of its result that are actions, as paths ("": the result) */ actions?: string[]; /** RG-7b: the contexts a call of it reads above the place it is written (keys) */ uses?: string[] }
   | { kind: "action" }
   | { kind: "server"; io: boolean; params: string[]; rejects: string[] }   // 12 SF-1c
   | { kind: "errclass"; params: string[] }
@@ -1020,8 +1021,8 @@ class Checker {
       let sym: Sym;
       switch (x.kind) {
         case "source": sym = { kind: "source", name: alias, region: env.region, line: d.line, question: x.question, imported: d.from, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
-        case "eq": sym = { kind: "eq", name: alias, region: env.region, line: d.line, io: x.io, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
-        case "fn": sym = { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params, instantiating: x.instantiating, ...(x.uses ? { needs: x.uses } : {}), rows: rowsOf(x.rows), failsT: failsOf(x.fails), rejects: new Set(x.rejects) }; break;
+        case "eq": sym = { kind: "eq", name: alias, region: env.region, line: d.line, io: x.io, ...(x.actions ? { actionParts: x.actions } : {}), rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
+        case "fn": sym = { ...(x.actions ? { actionParts: x.actions } : {}), kind: "fn", name: alias, region: env.region, line: d.line, params: x.params, instantiating: x.instantiating, ...(x.uses ? { needs: x.uses } : {}), rows: rowsOf(x.rows), failsT: failsOf(x.fails), rejects: new Set(x.rejects) }; break;
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
@@ -1214,14 +1215,15 @@ class Checker {
   signature(p: Program): ModSig {
     const exports = new Map<string, ExportSig>(); const env = this.rootEnv!;
     const arr = (x?: Set<string>) => [...(x ?? [])];
+    const actions = (e?: Expr, en?: Env) => { const ps = e && en ? [...this.actionParts(e, en)].sort() : []; return ps.length ? { actions: ps } : {}; };
     for (const d of p.decls) {
       if (!(d as { exported?: boolean }).exported || !("name" in d)) continue;
       if (d.k === "typedecl") { exports.set(d.name, { kind: "type" }); continue; }
       const s = env.vars.get(d.name); if (!s) continue;
       switch (s.kind) {
         case "source": exports.set(d.name, { kind: "source", question: !!s.question, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls) }); break;
-        case "eq": exports.set(d.name, { kind: "eq", rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), io: !!s.io }); break;
-        case "fn": exports.set(d.name, { kind: "fn", params: s.params ?? [], instantiating: !!s.instantiating, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), rejects: arr(s.fnTail && s.fnEnv ? this.rejects(s.fnTail, s.fnEnv, new Set()) : s.rejects), ...(s.needs?.length ? { uses: s.needs } : {}) }); break;
+        case "eq": exports.set(d.name, { kind: "eq", rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), io: !!s.io, ...actions(s.val?.e, s.val?.env) }); break;
+        case "fn": exports.set(d.name, { kind: "fn", params: s.params ?? [], instantiating: !!s.instantiating, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), rejects: arr(s.fnTail && s.fnEnv ? this.rejects(s.fnTail, s.fnEnv, new Set()) : s.rejects), ...actions(s.fnTail, s.fnEnv), ...(s.needs?.length ? { uses: s.needs } : {}) }); break;
         case "action": exports.set(d.name, { kind: "action" }); break;
         case "server": exports.set(d.name, { kind: "server", io: !!s.io, params: (s.params ?? []).map(p => p.name), rejects: arr(s.serverRejects?.()) }); break;
         case "errclass": exports.set(d.name, { kind: "errclass", params: d.k === "error" ? d.params : [] }); break;
@@ -2123,6 +2125,32 @@ class Checker {
     const ps = this.provided.get(x.e.name);
     return !!ps?.length && ps.every(e => { const v = e.k === "rec" ? recField(e.fields, field) : undefined; return v?.k === "id" && this.actionNames.has(v.name); });
   }
+  /** R-io-3 (2026-11-24): the parts of a value that are actions, as paths ("": the value itself) — carrying an action is not
+   *  a call, and the value's type carries the row: through the names and the fns it goes by, as far as their literals say. */
+  private partsMemo = new Map<Sym, Set<string>>();
+  private actionParts(e: Expr, env: Env): Set<string> {
+    const out = new Set<string>();
+    const go = (x: Expr) => this.actionParts(x, env);
+    const named = (s: Sym, v: { e?: Expr; env?: Env }): Set<string> => { const m = this.partsMemo.get(s); if (m) return new Set(m); this.partsMemo.set(s, out); if (!v.e || !v.env) return out; const r = this.actionParts(v.e, v.env); this.partsMemo.set(s, r); return new Set(r); };   // one being read by itself adds nothing
+    const at = (o: Set<string>, k: string | undefined) => { if (k !== undefined) for (const p of o) if (p === k) out.add(""); else if (p.startsWith(`${k}.`)) out.add(p.slice(k.length + 1)); return out; };
+    const put = (k: string, v: Expr) => { for (const p of [...out]) if (p === k || p.startsWith(`${k}.`)) out.delete(p); if (!k.includes(".")) for (const p of go(v)) out.add(p === "" ? k : `${k}.${p}`); };
+    switch (e.k) {
+      case "id": { const s = env.lookup(e.name); if (!s) return out; if (s.kind === "action") return out.add(""); if (s.actionParts) return new Set(s.actionParts); return (s.kind === "eq" || s.kind === "value") && s.val ? named(s, s.val) : out; }
+      case "member": return at(go(e.o), e.p);
+      case "index": return at(go(e.o), litKey(e.i));
+      case "rec": for (const f of e.fields) if ("spread" in f) { out.clear(); for (const p of go(f.spread)) out.add(p); } else put(f.key, f.v); return out;
+      case "arr": for (const [i, x] of e.items.entries()) { if (x.k === "spread") break; put(String(i), x); } return out;
+      case "if": for (const x of [e.t, e.f]) for (const p of go(x)) out.add(p); return out;
+      case "peek": return go(e.e);
+      case "call": { const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined; return f?.kind !== "fn" ? out : f.actionParts ? new Set(f.actionParts) : named(f, { e: f.fnTail, env: f.fnEnv }); }
+      default: return out;
+    }
+  }
+  /** R-io-3: a call of an action that a value carries, in reactive scope — judged once every fn's result is known. */
+  private carriedAction(e: Extract<Expr, { k: "call" }>, env: Env, say: () => void) {
+    if (e.f.k === "id" ? env.lookup(e.f.name)?.kind === "action" || env.lookup(e.f.name)?.io : e.f.k !== "member" && e.f.k !== "index") return;
+    const line = this.line; this.later.push(() => { if (this.actionParts(e.f, env).has("")) { this.line = line; say(); } });
+  }
   /** SC-4 (2026-11-22): a handler is a function, called when its event happens. An attribute that takes one, given a call
    *  of something that is io — an action, an io import, a setter, a method declared to answer nothing — would make that
    *  call while the view computes, and hand the handler its result: `onClick={save()}` for `onClick={() => { save() }}`.
@@ -2134,7 +2162,8 @@ class Checker {
       else if (this.voidMethod(e.f, env)) code = this.providedAction(e.f, env) ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE";
       else if (this.promiseMethod(e.f, env)) code = "IO_IN_REACTIVE";
       else if (this.ioMember(e.f, env) !== undefined) code = "IO_IN_REACTIVE";
-      if (code) this.err(code, "SC-4", `${attr}={${show(e)}} calls ${show(e.f)}(…) while the view computes, and gives the handler what it answers: a handler is a function, called when its event happens — \`${attr}={() => { ${show(e)} }}\``);
+      const say = (code: string) => this.err(code, "SC-4", `${attr}={${show(e)}} calls ${show(e.f)}(…) while the view computes, and gives the handler what it answers: a handler is a function, called when its event happens — \`${attr}={() => { ${show(e)} }}\``);
+      if (code) say(code); else this.carriedAction(e, env, () => say("ACTION_CALLED_IN_OWNED_SCOPE"));
     } else if (e.k === "if") { this.handlerCalled(e.t, env, attr); this.handlerCalled(e.f, env, attr); }
     else if (e.k === "bin" && (e.op === "&&" || e.op === "||" || e.op === "??")) { if (e.op !== "&&") this.handlerCalled(e.l, env, attr); this.handlerCalled(e.r, env, attr); }
   }
@@ -2240,6 +2269,8 @@ class Checker {
           if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (its declaration says it answers a promise: calling it starts work); a fn is pure by definition`);
           else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers a promise, so calling it starts work, here on every computation, with nothing waiting for it — call it from a handler or an action; if it only asks, \`await\` it`);
         }
+        // R-io-3: …and an action that a value carries (a fn's result, a record of this module's) is one wherever it is called
+        if (ctx.scope !== "imperative" && !this.voidMethod(e.f, env)) this.carriedAction(e, env, () => ctx.inFn ? this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (an action); a fn is pure by definition`) : this.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${show(e.f)}(…) is an action, called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action`));
         // MO-8t: a method of an io import, with no row of its own, is io as its object is
         { const of = ctx.scope !== "imperative" && !this.voidMethod(e.f, env) && !this.promiseMethod(e.f, env) ? this.ioMember(e.f, env) : undefined;
           if (of !== undefined) {

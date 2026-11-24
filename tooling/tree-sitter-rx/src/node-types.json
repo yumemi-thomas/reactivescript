@@ -6752,6 +6752,36 @@
     }
   },
   {
+    "type": "signature_part",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "part_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "signature_parts",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "signature_part",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "signature_prop",
     "named": true,
     "fields": {
@@ -6912,6 +6942,10 @@
       "types": [
         {
           "type": "fails_row",
+          "named": true
+        },
+        {
+          "type": "signature_parts",
           "named": true
         }
       ]
@@ -8662,6 +8696,10 @@
   {
     "type": "override",
     "named": false
+  },
+  {
+    "type": "part_path",
+    "named": true
   },
   {
     "type": "peek",
