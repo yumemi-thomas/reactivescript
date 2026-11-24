@@ -5,7 +5,7 @@
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
-import { splitTop, fieldRows, type JsDecl, type Shape } from "./parse.ts";
+import { splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { scopeFacts } from "./scope.ts";
@@ -134,6 +134,7 @@ type Sym = {
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
   generated?: string;                  // MO-8l: a JS fn declared by a generated draft (node_modules/.rx-types): its package's specifier
+  makes?: boolean;                     // MO-8l: …whose row is `instantiates`, read as a fn
   undeclared?: string;                 // MO-8k: a JS import with no declaration in any of the four places: its specifier
   pureFn?: boolean;                    // MO-11g: a JS fn declared or imported `pure` that makes nothing: among a factory's arguments it hands the components it is given on
   drafts?: [number, number[]][];       // MO-10i: a JS fn's callbacks whose parameters are its drafts (argument index, parameter positions)
@@ -1045,7 +1046,7 @@ class Checker {
    *  `fails` is refused, and a name it does not declare is not exported. */
   private importDeclared(d: Extract<Decl, { k: "import" }>, env: Env) {
     const decls = this.opts.declarations?.get(d.declared!) ?? []; const file = d.declared!.split("/").pop();
-    const generated = /(^|\/)node_modules\/\.rx-types\//.test(d.declared!) ? d.from : undefined;   // MO-8l
+    const generated = isGenerated(d.declared!) ? d.from : undefined;   // MO-8l
     const jsKeys = (names?: string[]) => (names ?? []).map(n => {                          // MO-12a: a JS context's key is its declaration file's
       const c = decls.find(y => y.kind === "context" && y.name === n);
       if (!c || c.kind !== "context") { this.err("NOT_EXPORTED", "MO-12", `${file} names context ${n} in uses(…) or provides(…) but declares none: add \`export context ${n}\``); return `${d.declared}#${n}`; }
@@ -1054,7 +1055,10 @@ class Checker {
       this.err("NOT_EXPORTED", "MO-12", `${file} takes context ${n} from "${c.from}", whose declaration declares none: it is declared there as \`export context ${n}\`, in the \`.d.rx\` an import of "${c.from}" finds (MO-12e)`);
       return `${d.declared}#${n}`;
     });
-    if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
+    // MO-8l: what a draft does not say is not known, so what the import says of it stands, as with no declaration
+    const stated = generated !== undefined && !!d.pure;
+    const unsaid = (alias: string): Sym => ({ kind: "import", name: alias, region: env.region, line: d.line, undeclared: d.from, io: !d.pure, ...(d.pure ? { pureFn: true } : {}), rejects: new Set(d.fails ?? ["Error"]), side: d.side });
+    if (d.fails && !generated) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
     const undoes = (ret: string) => tyUndoes(ret, n => { const y = decls.find(y => y.kind === "type" && y.name === n); return y?.kind === "type" && y.text !== undefined ? aliasText(y.text) : undefined; });   // EF-5a
     const bindComp = (x: Extract<JsDecl, { kind: "comp" }>, alias: string) => {   // MO-11a: a Solid component — its declaration is its summary
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders
@@ -1068,10 +1072,11 @@ class Checker {
     const bindFn = (x: Extract<JsDecl, { kind: "fn" }>, alias: string, name: string, base: boolean) => {
       // MO-11u: `renders(H)` — H is a component of the same declaration; what H itself uses and provides is above everything it renders
       const rendersIn = (): Pick<Sym, "rendersIn"> => { if (x.kind !== "fn" || x.renders === undefined) return {}; const h = decls.find(y => y.kind === "comp" && y.name === x.renders); return { rendersIn: { key: `${d.declared}#${x.renders}`, name: x.renders, credit: h?.kind === "comp" ? [...new Set([...jsKeys(h.uses), ...jsKeys(h.provides)])] : [] } }; };
-      if (base && d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
-      if (base && d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.waits ? { waits: x.waits } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.ret } : {}), ...rendersIn() }); return; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, ...(x.kind === "fn" && x.pure ? { pureFn: true } : {}), ...(x.kind === "fn" && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(x.rejects ?? ["Error"]), side: x.side, ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...rendersIn(),  ...(generated ? { generated } : {}) });
+      const pure = x.pure || stated;
+      if (base && d.pure && !pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
+      if (base && d.side && !generated && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
+      if (instance(x, d.declared!, !!d.pure)) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, ...(generated ? { generated } : {}), foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.waits ? { waits: x.waits } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.ret } : {}), ...rendersIn() }); return; }   // MO-10a: a primitive is an instantiation (RG-6)
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !pure, ...(x.kind === "fn" && pure ? { pureFn: true } : {}), ...(x.kind === "fn" && !generated && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(d.fails ?? x.rejects ?? ["Error"]), side: x.side ?? (generated && (base || d.side === "server") ? d.side : undefined), ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...rendersIn(),  ...(x.instantiates ? { makes: true } : {}), ...(generated ? { generated } : {}) });
     };
     for (const { name, alias } of d.names) {
       const x = decls.find(y => y.name === name);
@@ -1079,9 +1084,10 @@ class Checker {
       const members = decls.filter((y): y is Extract<JsDecl, { kind: "comp" }> => y.kind === "comp" && y.name.startsWith(name + "."));
       for (const m of members) bindComp(m, alias + m.name.slice(name.length));
       if (!x && members.length) { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]) }); continue; }   // the object itself: a value
-      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)${generated ? `; ${file} was drafted from ${d.from}'s types (MO-8l): a build redrafts it when they change, or declare ${d.from} in rx-types/${d.from}.d.rx` : ""}`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
+      if (generated && (!x || x.kind === "context")) { this.bind(env, alias, unsaid(alias)); continue; }   // MO-8l: a name the draft has no row for
+      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
       if (x.kind === "type" || x.kind === "context") continue;   // MO-12a: a JS context is named only by its declaration file's rows
-      if (x.kind === "value") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]), ...(x.type !== undefined ? { constTy: x.type } : {}) });   // MO-8g: a value, read as any import, never io
+      if (x.kind === "value") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set(["Error"]), ...(generated && d.side ? { side: d.side } : {}), ...(stated ? { pureFn: true } : x.type !== undefined ? { constTy: x.type } : {}) });   // MO-8g: a value, read as any import, never io
         for (const m of decls) if (m.kind === "fn" && m.name.startsWith(name + ".")) bindFn(m, alias + m.name.slice(name.length), m.name, false);   // MO-8t: `export fn toaster.show(…)`, a method of the value, a fn named as it is written
         continue; }
       if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
@@ -1959,6 +1965,7 @@ class Checker {
   private updaters = new Set<Expr>();                                    // MO-10i: a draft path's updater (`d.n := v => v + 1`): applied where it is written, not a closure that runs later
   private draftCbs: number[] = [];                                       // MO-10i: the draft callbacks being walked, innermost last (their fnStack ids)
   private wholeOk = new Set<Expr>();                                     // MO-10f, MO-10i: expressions written where a result with held fields, or one with draft parts, may stand whole
+  private refCalls = new Set<Expr>();                                    // MO-8l: what a `ref` attribute is, or lists: a call there runs as the element is made, under the region's owner
   private calleeIds = new Set<Expr>();                                   // MO-10i: expressions written as what a call calls
   private fnSrcs = new Map<Expr, { e: Expr; env: Env }[]>();             // MO-10k: a closure literal's other arguments in the call it is given to
   private chFns = new Set<Expr>();                                       // E-5a: the closures chOf is reading through a call of them
@@ -2255,10 +2262,10 @@ class Checker {
           const s = env.lookup(e.f.name);
           if (ctx.scope === "reactive" && (s?.io || (!s && e.f.name === "log"))) {
             if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${e.f.name}(…) is io; a fn is pure by definition`);
-            else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${e.f.name}(…) is io and is called in reactive scope (R-io-3)${s?.ioVia ? ` — its server body calls ${s.ioVia}` : ""}${s?.generated ? ` — its declaration is a draft generated from ${s.generated}'s types, which never guesses \`pure\`: if calling it writes nothing, declare it \`pure fn\` in rx-types/${s.generated}.d.rx (MO-8l)` : ""}`);
+            else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${e.f.name}(…) is io and is called in reactive scope (R-io-3)${s?.ioVia ? ` — its server body calls ${s.ioVia}` : ""}${s?.generated ? ` — its declaration is a draft generated from ${s.generated}'s types, which never guesses \`pure\`: if calling it writes nothing, say so at the import, \`import pure { … }\`, or declare it \`pure fn\` in rx-types/${s.generated}.d.rx (MO-8l)` : ""}`);
           }
           if (s?.side === "client" && ctx.scope === "reactive" && !ctx.server && !this.awaitedCalls.has(e)) this.err("CLIENT_NOT_AWAITED", "SF-5b", `${e.f.name}(…) is \`client\` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now`);
-          if (s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
+          if (!(s?.generated && this.refCalls.has(e)) && ((s?.kind === "fn" && s.instantiating) || (s?.makes && ctx.scope === "imperative"))) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
           if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.f.name} called as a function: apply it in a view`);
           this.markCallbacks(e.args, s?.cbs);
           if (s?.kind === "action" && s.arity !== undefined && e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
@@ -2544,6 +2551,7 @@ class Checker {
         case "read": if (this.throughReads.has(m)) { this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break; }   // MO-14f: no expression of the program's
           this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.keep(m.e, env); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
+          for (const a of m.attrs) if (a.name === "ref") for (const x of a.e.k === "arr" ? a.e.items : [a.e]) this.refCalls.add(x);
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? unknownJsComponent(m.tag, s.undeclared) : `<${m.tag}> is not a component declared here`); }

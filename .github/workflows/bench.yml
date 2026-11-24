@@ -54,6 +54,9 @@ jobs:
           (cd bench/.out/ws && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock && npx playwright install --with-deps chromium)
       - name: The benchmark's own counting
         run: RXC=$GITHUB_WORKSPACE/compiler/target/release/rxc node bench/measure.test.mjs
+      - name: A generated declaration refuses nothing an import with none is accepted for
+        if: startsWith(matrix.name, 'tasks')
+        run: node --experimental-strip-types --no-warnings bench/generated.mjs --shard ${{ endsWith(matrix.name, '1/2') && '1/2' || '2/2' }}
       - name: The benchmark, against bench/scorecard.json and bench/coverage/coverage.json
         env:
           BENCH_JOBS: 4   # the machine is this job's alone: every core (by default, half)

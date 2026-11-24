@@ -185,7 +185,7 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
   const inf = require("./infer.js").create(ts, { solid: process.env.RX_INFER_SOLID !== "0" });
   // ---- contexts (MO-8w): a context a row names is declared by an `export context` row of the draft's own. One the
   // module exports is named after its export (`RouterContext` → router), any other after the name the code binds it to,
-  // or after the provider or the hook that names it first. A module that has context rows already (known.js, a module
+  // or after the provider or the hook that names it first. A module that has context rows already (a module
   // of the app's own that carries a library's) keeps them: nothing is named beside them.
   const hasContexts = lines.some(l => /^export context\b/.test(l));
   const ctxNames = new Map(), ctxRows = [], namedCtx = new Set();

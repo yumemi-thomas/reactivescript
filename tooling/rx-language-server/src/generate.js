@@ -4,7 +4,7 @@
 // call `ensureDeclarations(entry)` before they read the program; `RX_GENERATE=0` (or the plugin's `generate: false`) turns
 // it off. The draft is rx-declare's, from types alone (the package is not run). Its fns are io: a name is a convention, not
 // a fact, so no draft guesses `pure` (an import nothing reviewed cannot make the checker accept more). What types cannot
-// show is left out. Where a component renders what it is given then takes the cautious reading
+// show is left out, and what the import says of it (`pure`, `fails …`, a side) stands. Where a component renders what it is given then takes the cautious reading
 // (MO-11s); a hook's context (`uses`) and a field that waits or throws (`pending`, `fails`) go unchecked, failing at run
 // time as they would in TypeScript, until a project declaration says them. Strict mode counts no generated row verified.
 // A draft is redone when the installed version, the drafting rules or the types it was made from change; one that cannot be
@@ -156,7 +156,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     let text;
     // MO-8v: with the words the package's code proves (`pure`, `handler`, `draft`, `rejects(E)`), each marked: they are
     // read, not guessed, so an import nothing reviewed still makes the checker accept nothing the code does not show
-    try { text = declare(typescriptFor(dir), spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0" }); }   // from the types alone (MO-8l): what known.js says of a library is for a draft a person reviews
+    try { text = declare(typescriptFor(dir), spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0" }); }
     catch (e) {
       // a draft written for another version or under other rules is not kept when it cannot be redone: its rows (an
       // earlier rule's guessed `pure`) would still be read, so the import falls back to undeclared, the cautious reading
@@ -169,10 +169,10 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     text = parsing(text, file);
     writeWhole(file, [
       `//@ generated ${pkg}@${version} (MO-8l, draft ${FORMAT}${stamp ? `, types ${stamp}` : ""}): drafted from ${spec}'s TypeScript types, the package not run. Its fns are io`,
-      `// (no draft guesses \`pure\`: a word is written only where the package's code proves it, MO-8v);`,
+      `// (no draft guesses \`pure\`: a word is written only where the package's code proves it, MO-8v; \`import pure\` says it);`,
       `// a component it is given is checked under a root of its own (MO-11s); a hook's context and`,
       `// a field that waits or throws are not checked. To say them, write rx-types/${spec}.d.rx, which comes first (MO-8k):`,
-      `// npx rx-declare ${spec} --out rx-types/${spec}.d.rx (add --run to run the package and find the contexts).`,
+      `// npx rx-declare ${spec} --out rx-types/${spec}.d.rx.`,
       text.trimEnd(),
       "",
     ].join("\n"));

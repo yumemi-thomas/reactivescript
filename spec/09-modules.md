@@ -173,7 +173,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   (SV-5a); its identity is its declaration. A file that begins `//@
   signature` is not a JS module's declaration (MO-13a).
 - **MO-8b (The file is the row).** With a declaration, an import that names an
-  undeclared export is `NOT_EXPORTED`; `pure` on the import must agree
+  undeclared export is `NOT_EXPORTED` (not of a draft, MO-8l); `pure` on the import must agree
   (`IMPORT_ROW_MISMATCH` for an io export); `fails` on the import is refused.
   Without one, a JS import is what R-io-4 and R-f-8 say: io unless `pure`,
   `fails(Error)` unless narrowed at the import. An export has **one row**: a
@@ -268,9 +268,26 @@ export component Save(props: { v: unrendered action go catches(nothing) })
 - **MO-8l (Generated declarations).** A package with no declaration in the
   first three places gets one drafted by the tooling before the program is
   read, with a first line `//@ generated <package>@<version> …`, under
-  `node_modules/.rx-types/` only. It is read as any declaration. It says no
-  more than types show and code proves: every other fn is io, every other
-  callback pure, every component given away cautiously placed (MO-11s). Under
+  `node_modules/.rx-types/` only. It says no more than types show and code
+  proves: every other fn is io, every other callback pure, every component
+  given away cautiously placed (MO-11s). It is read as any declaration, but a
+  word it does not have is not known, so **a program accepted with no
+  declaration is accepted with it**, save where a word it holds shows a
+  mistake:
+  - what the import says stands (R-io-4, R-f-8, SF-5), in place of MO-8b's
+    mismatch: `pure`, for its methods too; `fails …`, over a `rejects(…)`; a
+    side. A name it has no row for is an undeclared import, not
+    `NOT_EXPORTED`. `DISPOSER_DROPPED`, read off a type alone, is not asked.
+  - `instantiates` stands against `pure`: the call has no owner in a handler,
+    an action, an effect's block or a server fn (`INSTANTIATION_NOT_BOUND`).
+    In reactive scope an import that says `pure` is called anywhere, as
+    undeclared, unless its row has a `ref`, a draft or a component for its
+    call to be bound to. In a `ref` attribute (`ref={tap(…)}`) the call is
+    owned, and is not refused.
+  - a `draft` parameter stands (MO-10i), and so do a type's row, which is no
+    value, and a component's, which is applied.
+
+  The benchmark holds it (bench/generated.mjs). Under
   strict declarations no generated row is verified. `RX_GENERATE=0`, or
   `rx({ generate: false })`, turns it off. A draft is per installed copy.
 - **MO-8m**, **MO-8o (A row's types are the library's).** A row's types are

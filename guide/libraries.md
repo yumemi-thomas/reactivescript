@@ -126,23 +126,23 @@ package that has none from it.
 A package you import with no declaration anywhere gets one drafted for you. Before a build (and in the editor), the
 plugin reads the package's TypeScript types and writes `node_modules/.rx-types/<package>.d.rx`: its components with
 their props, its functions as io, accessors as `ref`. A draft never guesses that a function is `pure` (a name like
-`useX` is a convention, not a fact): it writes the word where the package's code proves it (a row marked `//@
-inferred`, above), and calling any other function where a component computes is refused until you say it is — the
-error says where. It's redrafted when you upgrade
-the package. So `import { Badge } from "some-solid-kit"` just works.
+`useX` is a convention, not a fact): it writes the word where the package's code proves it (`npx rx-declare <package>
+--why` says how), and calling any other function where a component computes is refused until you say it is. Say it at
+the import, as for a package with no declaration: `import pure { format } from "dates"`, `import pure { getUser,
+NotFound } from "api" fails NotFound`. What an import says of a draft stands; of a declaration someone wrote, it must
+agree. A draft is made again when you upgrade the package. So `import { Badge } from "some-solid-kit"` just works.
 
 A draft says only what types show:
 
 - a component you hand to one of its functions is checked under a root of its own (MO-11s): give it its own
   `errored`/`loading` and the contexts it reads;
 - a hook's provider and a field that suspends or throws are **not** checked: as in TypeScript, they fail at run time;
-- a function is io unless its code proves it `pure`, or a person writes the word for it.
+- a function is io unless its code proves it `pure`, or you say so at the import or in `rx-types/`;
+- an export it could not write a row for (a class) is imported as if undeclared.
 
 To say those, write `rx-types/<package>.d.rx` (it wins over the draft): `npx rx-declare <package> --out
 rx-types/<package>.d.rx` starts from the same draft, with a `// TODO` for each question the code did not answer
-(`pure`, `handler`, a hook's context);
-`npx rx-verify
-rx-types/<package>.d.rx` runs your rows against the package (`--record` keeps the result for `rx-tsc --rx-strict`).
+(`pure`, `handler`, a hook's context); `npx rx-verify rx-types/<package>.d.rx` runs your rows against the package (`--record` keeps the result for `rx-tsc --rx-strict`).
 A part of a result that takes nothing and answers a value is drafted `ref` where the library's type is Solid's
 `Accessor`, or its code shows a reader; any other is the function it is (`size: () => number`), and you write `ref` where
 you know it is read.

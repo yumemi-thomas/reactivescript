@@ -716,11 +716,11 @@ impl<'p> Gen<'p> {
         for d in decls {
             match d {
                 Decl::Import { resolved: Some(_), .. } => {}
-                Decl::Import { names, side, declared_side, declared, .. } => {
+                Decl::Import { names, pure, side, declared_side, declared, .. } => {
                     for n in &with_methods(names, declared.as_ref().and_then(|dp| self.set.declarations.get(dp))) {
                         // MO-10a: a declared primitive
                         let x = declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).and_then(|ds| ds.iter().find(|y| y.name() == n.name));
-                        if let Some(JsDecl::Fn { params, refs, shape, instantiates: true, drafts, part_drafts, .. }) = x {
+                        if let Some(JsDecl::Fn { params, refs, shape, drafts, part_drafts, .. }) = x.filter(|x| x.instance(declared.as_deref().unwrap_or(""), *pure)) {
                             let mut b = bind(Kind::Jfn, mg(&n.alias));
                             b.f = Some(FnRef { params: params.iter().enumerate().map(|(i, p)| (p.clone(), refs.get(i).copied().unwrap_or(false))).collect(), decl: None });
                             b.shape = Some(shape.clone());

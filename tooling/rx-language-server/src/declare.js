@@ -910,8 +910,7 @@ function shapeOf(row) {
   const ret = /^ref\b/.test(tail) ? "ref" : /^Promise</.test(tail) ? "promise" : /^void\b/.test(tail) ? "void" : /^Component\b/.test(tail) ? "component" : /^\(/.test(tail) ? "fn" : /^[[{]/.test(tail) ? (/\bref\b/.test(tail) ? "parts-ref" : "parts") : "value";
   return `${ps.join(",")}|${ret}|${/\binstantiates\b/.test(tail) ? "i" : ""}`;
 }
-/** @returns {string} the draft `.d.rx` for `spec`, imported from `from` (a directory). `how.known: false`: from the types
- *  alone, without what known.js says of the library (a generated declaration, MO-8l: nothing a person reviewed). */
+/** @returns {string} the draft `.d.rx` for `spec`, imported from `from` (a directory). */
 function declare(ts, spec, from, options = {}, how = {}) {
   const host = ts.createCompilerHost({ strict: true, skipLibCheck: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options });
   const entry = path.join(from, "__rx_declare__.ts");
@@ -1232,8 +1231,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   // why each `any` left is one (--explain): what the type holds that the row cannot say; in a row of an overloaded fn,
   // where a type with no name would else be said by its place, that the fn has no one signature to take it from
   if (how.causes) for (const l of lines) { const n = exportedIn(l); for (const m of l.matchAll(/any\u00ab([^\u00bb]*)\u00bb/g)) how.causes.push({ name: n, cause: how.refs !== false && overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(m[1]) ? "overload" : m[1] }); }
-  // …and for each row, every `any` it writes in the order it writes them, with its cause (null: written by hand, a
-  // row of known.js): what tells, place by place, the library's own `any`s from the others (`--causes`: `rows`)
+  // …and for each row, every `any` it writes in the order it writes them, with its cause (null: written by hand): what tells, place by place, the library's own `any`s from the others (`--causes`: `rows`)
   if (how.anyRows) for (const l of lines) { if (!exportedIn(l) || l.startsWith("//")) continue; const text = l.replace(/^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+[\w$.]+/, "").split(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/).filter((_, i) => i % 2 === 0).join("\"\""); how.anyRows.push({ name: exportedIn(l), row: l.replace(/\u00ab[^\u00bb]*\u00bb/g, "").trim(), anys: [...text.matchAll(/\bany\b(?:\u00ab([^\u00bb]*)\u00bb)?/g)].map(m => m[1] ?? null) }); }
   // MO-8q: the parts of each row said by their place in the library's declaration, counted apart
   if (how.places) for (const l of lines) { const n = exportedIn(l); const k = (l.match(/\b(?:Parameters|ReturnType)</g) ?? []).length; if (n && k) how.places[n] = (how.places[n] ?? 0) + k; }

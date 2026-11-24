@@ -599,7 +599,18 @@ pub struct JsProp {
     /// there, with no arguments
     pub view: bool,
 }
+/// MO-8l: a declaration the tooling drafted.
+pub fn is_generated(declaration: &str) -> bool {
+    declaration.starts_with("node_modules/.rx-types/") || declaration.contains("/node_modules/.rx-types/")
+}
 impl JsDecl {
+    /// MO-10a: whether an import of this row is a primitive the checker binds (`instantiates`). MO-8l: of a draft, an
+    /// import that says `pure` is read as with no declaration, where the row has no part only a primitive has (a `ref`,
+    /// a draft, a component it makes) to read.
+    pub fn instance(&self, declaration: &str, import_pure: bool) -> bool {
+        let JsDecl::Fn { instantiates: true, refs, shape, part_drafts, held, waits, .. } = self else { return false };
+        !(import_pure && is_generated(declaration)) || refs.contains(&true) || shape.has_ref() || *shape == Shape::Comp || !part_drafts.is_empty() || !held.is_empty() || waits.is_some()
+    }
     pub fn name(&self) -> &str {
         match self {
             JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } | JsDecl::Comp { name, .. } | JsDecl::Context { name, .. } | JsDecl::Value { name, .. } => name,

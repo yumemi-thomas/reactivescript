@@ -1,0 +1,4 @@
+{
+"wardic-values/main.rx: SNAPSHOT_ARGUMENT: percent = createTransform(props.progress, (p: number) => p * 100)": "a `ref` (the gain): a reader is read by the name its call is bound to",
+"cover-wardic-values/main.rx: SNAPSHOT_ARGUMENT: percent = createTransform(progress, (p: number) => p * 100)": "a `ref` (the gain): a reader is read by the name its call is bound to"
+}

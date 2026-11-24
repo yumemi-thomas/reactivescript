@@ -308,6 +308,8 @@ struct Sym<'a> {
     pure_fn: bool,
     /// MO-8l: a JS fn declared by a generated draft (node_modules/.rx-types): its package's specifier
     generated: Option<String>,
+    /// MO-8l: …whose row is `instantiates`, read as a fn
+    makes: bool,
     /// MO-10i: a JS fn's callbacks whose parameters are its drafts (argument index, parameter positions)
     drafts: Vec<(usize, Vec<usize>)>,
     /// MO-10i (2026-11-22): a declared JS fn's parameters marked `draft`: changed in place by the call
@@ -400,6 +402,7 @@ impl<'a> Sym<'a> {
             undeclared: None,
             pure_fn: false,
             generated: None,
+            makes: false,
             drafts: vec![],
             draft_args: vec![],
             row_key: None,
@@ -1973,6 +1976,8 @@ pub struct Checker<'a> {
     whole_ok: HashSet<*const Expr>,
     /// MO-10i: names written as what a call calls
     callee_ids: HashSet<*const Expr>,
+    /// MO-8l: what a `ref` attribute is, or lists: a call there runs as the element is made, under the region's owner
+    ref_calls: HashSet<*const Expr>,
     /// MO-10k: a closure literal's other arguments in the call it is given to (its parameters may be any of them)
     fn_srcs: HashMap<*const Expr, Vec<(&'a Expr, EId)>>,
     /// MO-11k: declared JS components' render props (fields typed as a function giving a View), by region
@@ -2356,6 +2361,7 @@ impl<'a> Checker<'a> {
             taint_cut: 0,
             whole_ok: HashSet::new(),
             callee_ids: HashSet::new(),
+            ref_calls: HashSet::new(),
             fn_srcs: HashMap::new(),
             fn_seq: 0,
             render_props: HashMap::new(),
@@ -3077,12 +3083,13 @@ impl<'a> Checker<'a> {
     /// MO-8: bind a JS import's names from its declaration file.
     fn import_declared(&mut self, d: &'a Decl, env: EId) {
         let Decl::Import { names, from, pure, line, fails, side, declared, .. } = d else { return };
+        let (d_pure, d_side) = (pure, side);
         let region = self.reg(env);
         let line = *line as i64;
         let declared = declared.as_ref().unwrap();
         let decls: &[JsDecl] = self.opts.declarations.get(declared).map(|v| v.as_slice()).unwrap_or(&[]);
         let file = declared.split('/').last().unwrap_or("").to_string();
-        let generated = (declared.starts_with("node_modules/.rx-types/") || declared.contains("/node_modules/.rx-types/")).then(|| from.clone()); // MO-8l
+        let generated = crate::parse::is_generated(declared).then(|| from.clone()); // MO-8l
         // MO-12a: a JS context's key is its declaration file's
         let js_keys = |c: &mut Self, ns: &[String]| -> Vec<String> {
             ns.iter()
@@ -3101,7 +3108,18 @@ impl<'a> Checker<'a> {
                 })
                 .collect()
         };
-        if fails.is_some() {
+        // MO-8l: what a draft does not say is not known, so what the import says of it stands, as with no declaration
+        let stated = generated.is_some().then_some(*pure);
+        let unsaid = |alias: &str| {
+            let mut s = Sym::new(SymKind::Import, alias, region, line);
+            s.undeclared = Some(from.clone());
+            s.io = !pure;
+            s.pure_fn = *pure;
+            s.rejects = Some(fails.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
+            s.side = *side;
+            s
+        };
+        if fails.is_some() && generated.is_none() {
             self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{}'s rows are declared in {}: `fails` on the import cannot restate them", from, file));
         }
         // MO-11a: a Solid component — its declaration is its summary (MO-11q: a member too, bound by its written name)
@@ -3182,9 +3200,14 @@ impl<'a> Checker<'a> {
                 self.bind(env, alias, s);
                 continue;
             }
-            let Some(x) = decls.iter().find(|y| y.name() == name) else {
-                let hint = if generated.is_some() { format!("; {file} was drafted from {from}'s types (MO-8l): a build redrafts it when they change, or declare {from} in rx-types/{from}.d.rx") } else { String::new() };
-                self.err("NOT_EXPORTED", "MO-8", format!("{} declares no export {} (declare it, or it is not {}'s){}", file, name, from, hint));
+            let x = decls.iter().find(|y| y.name() == name);
+            // MO-8l: a name the draft has no row for
+            if generated.is_some() && matches!(x, None | Some(JsDecl::Context { .. })) {
+                self.bind(env, alias, unsaid(alias));
+                continue;
+            }
+            let Some(x) = x else {
+                self.err("NOT_EXPORTED", "MO-8", format!("{} declares no export {} (declare it, or it is not {}'s)", file, name, from));
                 let mut s = Sym::new(SymKind::Import, alias, region, line);
                 s.io = true;
                 self.bind(env, alias, s);
@@ -3195,7 +3218,9 @@ impl<'a> Checker<'a> {
                 JsDecl::Value { ty, .. } => {
                     // MO-8g: a value, read as any import, never io
                     let mut s = Sym::new(SymKind::Import, alias, region, line);
-                    s.const_ty = ty.clone(); // MO-8t: its type says what its function fields answer
+                    s.const_ty = if stated == Some(true) { None } else { ty.clone() }; // MO-8t: its type says what its function fields answer
+                    s.pure_fn = stated == Some(true);
+                    s.side = side.filter(|_| generated.is_some());
                     s.io = false;
                     s.rejects = Some(["Error".to_string()].into_iter().collect());
                     self.bind(env, alias, s);
@@ -3221,14 +3246,15 @@ impl<'a> Checker<'a> {
                         }
                         Some((format!("{}#{}", declared, h), h.clone(), credit.into_iter().collect()))
                     };
-                    if *instantiates {
+                    if x.instance(declared, *d_pure) {
                         // MO-10a: a primitive is an instantiation (RG-6)
-                        if *pure && !xpure {
+                        if *pure && !xpure && generated.is_none() {
                             self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{} is declared io in {} (`export fn`, not `export pure fn`); `pure` on the import cannot lower it", name, file));
                         }
                         let mut s = Sym::new(SymKind::Fn, alias, region, line);
                         s.params = Some(xparams.iter().enumerate().map(|(i, n)| SigParam { name: n.clone(), r#ref: refs.get(i).copied().unwrap_or(false), ty: None }).collect());
                         s.instantiating = true;
+                        s.generated = generated.clone();
                         s.foreign = Some(shape.clone());
                         s.rows = Some(RowsT::Fixed(IndexSet::new()));
                         s.fails_t = Some(FailsT::Fixed(IndexSet::new()));
@@ -3246,11 +3272,12 @@ impl<'a> Checker<'a> {
                         self.bind(env, alias, s);
                         continue;
                     }
+                    let xpure = &(*xpure || stated == Some(true));
                     if *pure && !xpure {
                         self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{} is declared io in {} (`export fn`, not `export pure fn`); `pure` on the import cannot lower it", name, file));
                     }
                     if let Some(sd) = side {
-                        if *xside != Some(*sd) {
+                        if generated.is_none() && *xside != Some(*sd) {
                             self.err(
                                 "IMPORT_ROW_MISMATCH",
                                 "SF-5",
@@ -3260,14 +3287,16 @@ impl<'a> Checker<'a> {
                     }
                     let mut s = Sym::new(SymKind::Import, alias, region, line);
                     s.io = !xpure;
-                    s.disposer = xret.as_deref().and_then(|t| ty_undoes(t, &|n| decls.iter().find_map(|y| match y { JsDecl::Type { name, text, .. } if name == n => alias_text(text), _ => None })));
-                    s.rejects = Some(rejects.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
-                    s.side = *xside;
+                    // (EF-5a reads it off a type alone, which a draft may hold of any fn that answers a fn)
+                    s.disposer = xret.as_deref().filter(|_| generated.is_none()).and_then(|t| ty_undoes(t, &|n| decls.iter().find_map(|y| match y { JsDecl::Type { name, text, .. } if name == n => alias_text(text), _ => None })));
+                    s.rejects = Some(fails.clone().or_else(|| rejects.clone()).unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
+                    s.side = xside.or(if generated.is_some() { side.or(d_side.filter(|s| *s == Side::Server)) } else { None });
                     s.cbs = xcbs.clone();
                     s.drafts = xdrafts.clone();
                     s.draft_args = xdraft_args.clone();
                     s.part_drafts = xpart_drafts.clone();
                     s.pure_fn = *xpure;
+                    s.makes = *instantiates;
                     s.renders_in = renders_in(self);
                     s.generated = generated.clone();
                     self.bind(env, alias, s);
@@ -5882,7 +5911,7 @@ impl<'a> Checker<'a> {
                             self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io; a fn is pure by definition", fname));
                         } else {
                             let code = if kind == Some(SymKind::Action) { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" };
-                            let gen = s.and_then(|s| self.syms[s].generated.clone()).map(|g| format!(" — its declaration is a draft generated from {g}'s types, which never guesses `pure`: if calling it writes nothing, declare it `pure fn` in rx-types/{g}.d.rx (MO-8l)")).unwrap_or_default();
+                            let gen = s.and_then(|s| self.syms[s].generated.clone()).map(|g| format!(" — its declaration is a draft generated from {g}'s types, which never guesses `pure`: if calling it writes nothing, say so at the import, `import pure {{ … }}`, or declare it `pure fn` in rx-types/{g}.d.rx (MO-8l)")).unwrap_or_default();
                             self.err(code, "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3){}{}", fname, io_via.map(|v| format!(" — its server body calls {}", v)).unwrap_or_default(), gen));
                         }
                     }
@@ -5893,7 +5922,8 @@ impl<'a> Checker<'a> {
                             format!("{}(…) is `client` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now", fname),
                         );
                     }
-                    if kind == Some(SymKind::Fn) && instantiating {
+                    let drafted = s.is_some_and(|s| self.syms[s].generated.is_some()) && self.ref_calls.contains(&(e as *const Expr));
+                    if !drafted && ((kind == Some(SymKind::Fn) && instantiating) || (ctx.imperative && s.is_some_and(|s| self.syms[s].makes))) {
                         self.err("INSTANTIATION_NOT_BOUND", "E-9", format!("{}(…) declares state: bind it, `x = {}(…)` (RG-6)", fname, fname));
                     }
                     if kind == Some(SymKind::Comp) {
@@ -6626,6 +6656,10 @@ impl<'a> Checker<'a> {
                     self.readers.push(ReaderRec { region, e, env, line: self.line });
                 }
                 MarkupKind::El { tag, attrs, children } => {
+                    for a in attrs.iter().filter(|a| a.name == "ref") {
+                        let made = if let ExprKind::Arr(xs) = &a.e.k { &xs[..] } else { std::slice::from_ref(&a.e) };
+                        self.ref_calls.extend(made.iter().map(|e| e as *const Expr));
+                    }
                     if is_upper_tag(tag) {
                         let s = self.lookup(env, tag);
                         let is_comp = s.is_some_and(|s| self.syms[s].kind == SymKind::Comp);

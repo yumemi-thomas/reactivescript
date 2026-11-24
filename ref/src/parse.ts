@@ -137,6 +137,15 @@ export function parseProgram(src: string): Program {
 
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
+/** MO-8l: a declaration the tooling drafted. */
+export const isGenerated = (declaration: string): boolean => /(^|\/)node_modules\/\.rx-types\//.test(declaration);
+/** MO-10a: whether an import of this row is a primitive the checker binds (`instantiates`). MO-8l: of a draft, an import
+ *  that says `pure` is read as with no declaration, where the row has no part only a primitive has (a `ref`, a draft, a
+ *  component it makes) to read. */
+export function instance(x: JsDecl, declaration: string, importPure: boolean): boolean {
+  if (x.kind !== "fn" || !x.instantiates) return false;
+  return !(importPure && isGenerated(declaration)) || !!x.refs?.some(Boolean) || shapeHasRef(x.shape) || x.shape === "comp" || !!x.partDrafts || !!x.held || !!x.waits;
+}
 export type JsDecl =
   | { kind: "fn"; name: string; pure: boolean; params: string[]; draftArgs?: number[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; uses?: string[]; provides?: string[]; tparams?: string;  nests?: { kids: string; inside: string }; renders?: string; held?: [string, boolean, string[]][]; waits?: [boolean, string[]]; cbs?: ([boolean, string[]] | null)[]; opts?: boolean[]; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]> }   // drafts, partDrafts: MO-10i   // opts: MO-8e, parameters a caller may leave out   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
   | { kind: "error"; name: string; line: number; fields?: string[] }   // fields: SV-5a, what of an instance is sent (`export error HttpError(status, code?)`; `code?`: it may be absent)

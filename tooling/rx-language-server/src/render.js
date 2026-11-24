@@ -1,4 +1,4 @@
-// What rx-verify and `rx-declare --run` mount with: Solid's browser build where there is a document (`--dom`,
+// What rx-verify mounts with: Solid's browser build where there is a document (`--dom`,
 // happy-dom's globals), else a universal renderer over plain nodes. One place, so every check renders alike.
 
 /** Plain nodes for @solidjs/universal: enough of a tree for a component to render into. */

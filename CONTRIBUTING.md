@@ -183,6 +183,7 @@ node bench/run.mjs --check     # BENCH_JOBS processes (default: half the cores);
 node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)
 BENCH_WORDS=1 node bench/run.mjs <task>   # each row of the task's declarations written by hand, beside rx-declare's row of the same export; and each row with an inferred word that rx-verify did not run
 node bench/needed.mjs --write             # the hand-written words no tool has shown, and the diagnostic a program gets without each (--apply takes off those none needs)
+node --experimental-strip-types bench/generated.mjs   # no program is refused by a generated declaration that is accepted with none (MO-8l); --package <spec> <dir>: the same over one package
 npx rx-declare <module> --why             # each word read from the code: what proved it, or the first thing in the way with its file and line
 npx rx-declare --audit <file.d.rx>        # every word a declaration has, whoever wrote it: proven by the code, contradicted by it (exit 1), or neither — with what to check (09 MO-8w); the benchmark writes the lists (bench/audit.txt, bench/coverage/audit.txt)
 # a task under a file-based router generates the router's tree before any checker reads the program (its `prepare`: a

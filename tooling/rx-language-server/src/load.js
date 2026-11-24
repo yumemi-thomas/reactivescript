@@ -1,4 +1,4 @@
-// The module a declaration declares, and what it takes to run it: what rx-declare (--run, --audit) and rx-verify share.
+// The module a declaration declares, and what it takes to run it: what rx-declare (--audit) and rx-verify share.
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");

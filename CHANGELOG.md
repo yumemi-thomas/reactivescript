@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+**A generated declaration refuses nothing an import with none is accepted for** (spec/09 MO-8l; bench/generated.mjs)
+
+- **Fixed: what an import says of a drafted package stands** (`import pure { format } from "dates"`, `fails NotFound`,
+  `client`, `server`). It was `IMPORT_ROW_MISMATCH`, and the call `IO_IN_REACTIVE`: upstream's R-io-4 programs, refused
+  once the tooling drafted the package. A hand-written or shipped declaration is held to as before.
+- **Fixed, of a drafted package:** a class or any other export the draft could not write, and a context, are imported as
+  undeclared (`NOT_EXPORTED`, `UNBOUND`); an imported `pure` object's methods are pure; a primitive called in a `ref`
+  attribute (`ref={tap(…)}`) is owned (`INSTANTIATION_NOT_BOUND`); a fn proven `instantiates` whose row has no `ref` is
+  called anywhere where the import says `pure` (a handler, an action and an effect's block are still refused: nothing
+  owns what it makes); `DISPOSER_DROPPED` is not asked of a type alone.
+
 **`instantiates` read from the code** (spec/09 MO-8v, MO-10a; tooling/rx-language-server/DECLARATIONS.md, *`instantiates` without `pure`*)
 
 - **Changed: `rx-declare` writes `instantiates` on a fn that makes what its owner keeps on every path that returns**,
