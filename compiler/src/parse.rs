@@ -24,6 +24,9 @@ macro_rules! re {
 }
 re!(IDENT, r"^[A-Za-z_$][A-Za-z0-9_$]*");
 re!(TAG, r"^[A-Za-z_$][A-Za-z0-9_$:.\-]*");
+re!(TYPE_BEGINS, r"(^|[|&]|=>)\s*$");
+re!(ARROW, r"^[ \t]*=>[ \t]*");
+re!(FN_PARAMS, r"^\s*($|(\.\.\.\s*)?[A-Za-z_$][A-Za-z0-9_$]*\s*\??\s*:)");
 re!(SPLIT_KEY, r"^([\s\S]*?)\s+key\s+([A-Za-z_$][A-Za-z0-9_$]*)$");
 re!(SOURCE_KEY, r"^key\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(=|:=)[^=>]");
 re!(EQ_KEY, r"^key\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=[^=>]");
@@ -199,12 +202,51 @@ impl<'a> Cursor<'a> {
 }
 
 /// A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `brace_stops`). 07 §2.
+/// The index past the bracket that closes the one at `i`; strings are skipped.
+fn closes(src: &str, mut i: usize) -> Option<usize> {
+    let b = src.as_bytes();
+    let mut depth = 0;
+    while i < b.len() {
+        match b[i] {
+            q @ (b'"' | b'\'' | b'`') => {
+                i += 1;
+                while i < b.len() && b[i] != q && b[i] != b'\n' {
+                    i += if b[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
 /// A type's text, up to where the declaration goes on. `=>` inside brackets is a function type, as it is anywhere in
 /// a type alias (`arrows`); elsewhere at the top it starts a body (`fn f(): T => …`).
 fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
     let start = c.i;
     let mut depth: i64 = 0;
     while !c.eof() {
+        // a result's own record or function type, where a type begins: `fn f(): { a: number } { … }`, `fn f(): (x: T) => U => …`
+        if brace_stops && depth == 0 && (c.peek() == '{' || c.peek() == '(') && TYPE_BEGINS.is_match(&c.src[start..c.i]) {
+            if let Some(end) = closes(&c.src, c.i) {
+                if c.peek() == '{' {
+                    c.i = end;
+                    continue;
+                }
+                let arrow = ARROW.find(&c.src[end..]).map(|m| m.end());
+                if let Some(n) = arrow.filter(|_| FN_PARAMS.is_match(&c.src[c.i + 1..end - 1])) {
+                    c.i = end + n;
+                    continue;
+                }
+            }
+        }
         if c.starts_with("=>") && (depth > 0 || arrows) {
             c.bump();
             c.bump();
@@ -261,7 +303,7 @@ fn opt_type(c: &mut Cursor, brace_stops: bool) -> R<Option<String>> {
     if c.peek() == ':' && c.peek_at(1) != '=' {
         c.bump();
         c.ws(true);
-        return Ok(Some(parse_type(c, brace_stops, false)?));
+        return Ok(Some(parse_type(c, brace_stops, !brace_stops)?));
     }
     Ok(None)
 }

@@ -26,6 +26,9 @@
   `@reactivescript/runtime`: compiled programs call `__rt.kept`.
 - **Fixed: an `await` in what an instantiating fn answers compiles** (`scenarios/S-await-2`). In a fn that declares nothing, and in
   a closure of reactive scope, it was accepted and never compiled: `AWAIT_IN_EXPRESSION`, with what to write.
+- **Fixed: a record or a function type is read wherever a type is written** (07 §2; `scenarios/S-types-2`): as a fn's result
+  (`fn k(): { a: number } { … }`, `fn k(a): () => number => …`, which projected to invalid TypeScript), and as a parameter's, a
+  source's or an equation's (`fn f(cb: (x: number) => void)`). A printed signature writes a type of several lines on one.
 
 **The language's own constructors, by one table** (tooling/rx-language-server/DECLARATIONS.md, *What a constructor runs*; spec/09 MO-8v)
 

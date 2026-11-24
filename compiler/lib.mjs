@@ -65,7 +65,7 @@ export function exportsOf(signature) {
 }
 function splitTop(s) {
   const out = []; let depth = 0, cur = "";
-  for (const ch of s) { if ("({[<".includes(ch)) depth++; if (")}]>".includes(ch)) depth--; if (ch === "," && depth === 0) { out.push(cur.trim()); cur = ""; } else cur += ch; }
+  for (const ch of s) { if ("({[<".includes(ch)) depth++; if (")}]>".includes(ch) && !(ch === ">" && cur.endsWith("="))) depth--; if (ch === "," && depth === 0) { out.push(cur.trim()); cur = ""; } else cur += ch; }
   if (cur.trim()) out.push(cur.trim());
   return out;
 }

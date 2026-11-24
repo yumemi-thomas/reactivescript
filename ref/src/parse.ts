@@ -88,12 +88,28 @@ class Cursor {
 }
 
 /** A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `braceStops`). 07 §2. */
+/** The index past the bracket that closes the one at `i`; strings are skipped. */
+function closes(src: string, i: number): number | undefined {
+  for (let depth = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '"' || ch === "'" || ch === "`") { const q = ch; for (i++; i < src.length && src[i] !== q && src[i] !== "\n"; i++) if (src[i] === "\\") i++; continue; }
+    if (ch === "(" || ch === "[" || ch === "{") depth++; else if ((ch === ")" || ch === "]" || ch === "}") && --depth === 0) return i + 1;
+  }
+  return undefined;
+}
 /** A type's text, up to where the declaration goes on. `=>` inside brackets is a function type, as it is anywhere in a
  *  type alias (`arrows`); elsewhere at the top it starts a body (`fn f(): T => …`). */
 function parseType(c: Cursor, braceStops = false, arrows = false): string {
   const start = c.i; let depth = 0;
   while (!c.eof()) {
     const ch = c.peek();
+    // a result's own record or function type, where a type begins: `fn f(): { a: number } { … }`, `fn f(): (x: T) => U => …`
+    if (braceStops && depth === 0 && (ch === "{" || ch === "(") && /(^|[|&]|=>)\s*$/.test(c.src.slice(start, c.i))) {
+      const end = closes(c.src, c.i);
+      if (end !== undefined && ch === "{") { c.i = end; continue; }
+      const arrow = end === undefined ? null : /^[ \t]*=>[ \t]*/.exec(c.src.slice(end));
+      if (arrow && /^\s*($|(\.\.\.\s*)?[A-Za-z_$][\w$]*\s*\??\s*:)/.test(c.src.slice(c.i + 1, end! - 1))) { c.i = end! + arrow[0].length; continue; }
+    }
     if (c.startsWith("=>") && (depth > 0 || arrows)) { c.i += 2; continue; }
     if (depth === 0) {
       if (c.startsWith("//") || c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
@@ -109,7 +125,7 @@ function parseType(c: Cursor, braceStops = false, arrows = false): string {
 }
 /** `x: T key k = …` (ST-4): the type ends where the key begins (found by the type layer: the key was read as type text). */
 function splitKey(type: string | undefined): { type?: string; key?: string } { const m = type ? /^([\s\S]*?)\s+key\s+([A-Za-z_$][\w$]*)$/.exec(type) : null; return m ? { type: m[1], key: m[2] } : { type }; }
-function optType(c: Cursor, braceStops = false): string | undefined { c.ws(false); if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); return parseType(c, braceStops); } return undefined; }
+function optType(c: Cursor, braceStops = false): string | undefined { c.ws(false); if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); return parseType(c, braceStops, !braceStops); } return undefined; }
 
 /** R-f: `A | B` — error class names. `Error` (or TS's `unknown`/`any`) is every failure: undefined. */
 function parseClasses(c: Cursor): string[] | undefined {

@@ -1690,6 +1690,16 @@ struct VTree {
     tag: String,
     kids: Vec<VTree>,
 }
+/// A type's text on one line, as a signature's row is (MO-9b): a line's end between two members is their `;`.
+fn one_line(t: &str) -> String {
+    t.split('\n').map(js_trim).filter(|x| !x.is_empty()).fold(String::new(), |a, b| {
+        if a.is_empty() {
+            return b.to_string();
+        }
+        let glue = if a.ends_with(['{', '(', '[', '<', '|', '&', ',', ';', ':', '>']) || b.starts_with(['}', ')', ']', '>', '|', '&']) { " " } else { "; " };
+        a + glue + b
+    })
+}
 #[derive(Clone)]
 struct UseRec {
     region: RId,
@@ -3600,7 +3610,7 @@ impl<'a> Checker<'a> {
                         Some((t, te)) => self.rejects(t, te, &mut HashSet::new()),
                         None => self.syms[s].rejects.clone().unwrap_or_default(),
                     };
-                    ExportSig::Fn { params: self.syms[s].params.clone().unwrap_or_default(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone(), actions: self.sorted_parts(self.syms[s].fn_tail) }
+                    ExportSig::Fn { params: self.syms[s].params.iter().flatten().map(|p| SigParam { ty: p.ty.as_deref().map(one_line), ..p.clone() }).collect(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone(), actions: self.sorted_parts(self.syms[s].fn_tail) }
                 }
                 SymKind::Action => ExportSig::Action,
                 SymKind::Server => {

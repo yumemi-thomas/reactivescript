@@ -466,7 +466,7 @@ fn split(s: &str, sep: char) -> Vec<String> {
         if "({[<".contains(ch) {
             depth += 1;
         }
-        if ")}]>".contains(ch) {
+        if ")}]>".contains(ch) && !(ch == '>' && cur.ends_with('=')) {
             depth -= 1;
         }
         if ch == sep && depth == 0 {

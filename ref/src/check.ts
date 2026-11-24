@@ -70,6 +70,8 @@ const siteKeyOf = (x: HostSite) => { const ck = (c: Catch) => c === "all" ? "*" 
 const joinCatch = (a: Catch, b: Catch): Catch => a === "all" || b === "all" ? "all" : new Set([...a, ...b]);
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
+/** A type's text on one line, as a signature's row is (MO-9b): a line's end between two members is their `;`. */
+const oneLine = (t: string) => t.split("\n").map(x => x.trim()).filter(Boolean).reduce((a, b) => a === "" ? b : a + (/[{([<|&,;:>]$/.test(a) || /^[})\]>|&]/.test(b) ? " " : "; ") + b, "");
 type Use = { region: Region; name: string; line: number; display: string };
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
 const addF = (a: Fails, b: Fails) => { for (const x of b.cls) a.cls.add(x); a.props.push(...b.props); return a; };
@@ -1223,7 +1225,7 @@ class Checker {
       switch (s.kind) {
         case "source": exports.set(d.name, { kind: "source", question: !!s.question, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls) }); break;
         case "eq": exports.set(d.name, { kind: "eq", rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), io: !!s.io, ...actions(s.val?.e, s.val?.env) }); break;
-        case "fn": exports.set(d.name, { kind: "fn", params: s.params ?? [], instantiating: !!s.instantiating, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), rejects: arr(s.fnTail && s.fnEnv ? this.rejects(s.fnTail, s.fnEnv, new Set()) : s.rejects), ...actions(s.fnTail, s.fnEnv), ...(s.needs?.length ? { uses: s.needs } : {}) }); break;
+        case "fn": exports.set(d.name, { kind: "fn", params: (s.params ?? []).map(q => "type" in q && typeof q.type === "string" ? { ...q, type: oneLine(q.type) } : q), instantiating: !!s.instantiating, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), rejects: arr(s.fnTail && s.fnEnv ? this.rejects(s.fnTail, s.fnEnv, new Set()) : s.rejects), ...actions(s.fnTail, s.fnEnv), ...(s.needs?.length ? { uses: s.needs } : {}) }); break;
         case "action": exports.set(d.name, { kind: "action" }); break;
         case "server": exports.set(d.name, { kind: "server", io: !!s.io, params: (s.params ?? []).map(p => p.name), rejects: arr(s.serverRejects?.()) }); break;
         case "errclass": exports.set(d.name, { kind: "errclass", params: d.k === "error" ? d.params : [] }); break;

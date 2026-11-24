@@ -135,7 +135,7 @@ const catchOf = (s: string): Catch => s.trim() === "*" ? "all" : new Set(classes
 /** Split on `sep` outside parentheses and braces. */
 function split(s: string, sep: string): string[] {
   const out: string[] = []; let depth = 0, cur = "";
-  for (const ch of s) { if ("({[<".includes(ch)) depth++; if (")}]>".includes(ch)) depth--; if (ch === sep && depth === 0) { out.push(cur); cur = ""; } else cur += ch; }
+  for (const ch of s) { if ("({[<".includes(ch)) depth++; if (")}]>".includes(ch) && !(ch === ">" && cur.endsWith("="))) depth--; if (ch === sep && depth === 0) { out.push(cur); cur = ""; } else cur += ch; }
   if (cur.trim()) out.push(cur); return out.map(x => x.trim()).filter(Boolean);
 }
 /** Leading row words; the rest of the text (a context's type). */

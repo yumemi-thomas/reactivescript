@@ -98,7 +98,10 @@ error NotFound(id: number) => `no user ${id}`   // R-f-1: an error class; `NotFo
 
 - Types are TypeScript's, after the name. On a source they type the value;
   on an equation, the value it holds; on `fn`/`action`/`component`
-  parameters as in TS.
+  parameters as in TS. A fn's result type may be a record or a function
+  type (2026-11-24): `{`, and `(…) =>` with no parameters or named and
+  typed ones, are the type's where a type begins (first, or after `|`,
+  `&`, `=>`); the next `{` or `=>` is the body's (S-types-2).
 - `source x = e` (not `:=`) is the only place `=` declares something that
   can be written.
 - `pre x -> init` is `pre x` with the value for the first instant (C-2a).
