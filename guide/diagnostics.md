@@ -685,6 +685,10 @@ export default component App() {
 
 In imperative code a run suspends only at a statement (AC-1). Bind the answer first, `let v = await e`, then use `v`.
 
+In reactive scope the same code is an `await` in a fn that declares nothing, or in a closure: what they compute is part of
+the expression that calls them (E-9, 07 §3). Answer the promise and await the call (`fn load(id) => getUser(id)`, `user = await load(id)`), or name the
+answer in the fn's block (`r = await getUser(id)` then `r`).
+
 ```rx before
 export default component App() {
   source status := ""

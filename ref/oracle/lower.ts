@@ -458,6 +458,7 @@ export class Oracle {
       if (p.ref) { const b = arg?.k === "id" ? scope.lookup(arg.name) : undefined; if (b && (b.k === "sig" || b.k === "memo" || b.k === "store")) s2.vars.set(p.name, b); else s2.vars.set(p.name, { k: "memo", get: createMemo(() => arg ? this.ev(arg, scope) : undefined) }); }
       else s2.vars.set(p.name, { k: "const", value: arg ? untrack(() => this.ev(arg, scope)) : undefined });
     });
+    if (nonTailAwaits(f.tail, false).length) { this.declare([...f.decls, { k: "eq", name: "result$", e: f.tail, line: f.line }], s2); return (s2.lookup("result$") as { get: () => unknown }).get; }   // the result is an equation, with its flights
     this.declare(f.decls, s2);
     const tb = f.tail.k === "id" ? s2.lookup(f.tail.name) : undefined;
     if (tb && (tb.k === "memo" || tb.k === "sig")) return tb.get;

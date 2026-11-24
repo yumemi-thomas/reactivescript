@@ -418,6 +418,8 @@ class Gen {
     for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name), ...(p.ref && this.u.prevOf.has(p.name) ? { prev: `p$${p.name}` } : {}) });
     if (!instantiates(d)) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
+    // an `await` in the result: the result is an equation (RG-6a), and its flights are that equation's (07 §3)
+    if (nonTailAwaits(d.tail, false).length) { const result = { k: "eq", name: "result$", e: d.tail, line: d.line } as Decl; return this.fn({ ...d, decls: [...d.decls, result], tail: { k: "id", name: "result$" } }, env, ind); }
     const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return null;$/.test(l)).join("\n");
     const prevs = d.params.filter(p => p.ref && this.u.prevOf.has(p.name)).map(p => `${pad}  const p$${p.name} = __rt.pre(${mg(p.name)});\n`).join("");
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;

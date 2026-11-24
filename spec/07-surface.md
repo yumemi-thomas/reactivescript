@@ -164,7 +164,12 @@ Added:
 equation, a reader `{…}`, an attribute or prop, an `if` condition, a `for`
 collection, an effect's input, a provision; the compiler lifts each one to
 its own flight (04 R-1), asked only while the conditions that reach it hold
-(E-11; S-await-1). In imperative scope a run suspends only at a statement
+(E-11; S-await-1). So may it in what an instantiating fn answers, an
+equation of its call's region (RG-6a). A closure of reactive scope, and a
+fn that declares nothing (lifted into what calls it, E-9), have no flight
+of their own: an `await` there is `AWAIT_IN_EXPRESSION` (2026-11-24;
+S-await-2) — such a fn answers the promise, and its call is awaited. In
+imperative scope a run suspends only at a statement
 (06 AC-1): `await e`, `let v = await e`, either followed by `catch (x: C)
 => alt`. `yield` is not an expression; a stream is `await*`.
 

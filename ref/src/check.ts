@@ -171,7 +171,7 @@ class Env {
   constructor(parent: Env | null, region: Region) { this.parent = parent; this.region = region; }
   lookup(n: string): Sym | undefined { return this.vars.get(n) ?? this.parent?.lookup(n); }
 }
-type Ctx = { scope: "reactive" | "imperative"; inFn?: boolean; inAction?: boolean; server?: boolean };   // server: inside a server function's body (12)
+type Ctx = { scope: "reactive" | "imperative"; inFn?: boolean; lifted?: boolean; inAction?: boolean; server?: boolean };   // server: inside a server function's body (12)
 
 // ---------------------------------------------------------------- free names
 /** Free identifiers of an expression (`pre:x` for `pre x`), minus names bound inside it. */
@@ -1366,7 +1366,7 @@ class Checker {
         const inner = new Env(env, r);
         const me = env.lookup(d.name);
         for (const p of d.params) this.bind(inner, p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line, param: true });
-        this.comp("fn", env, { name: d.name }, () => { this.block(d.decls, [], inner, { scope: "reactive", inFn: true }); this.expr(d.tail, inner, { scope: "reactive", inFn: true }); });
+        this.comp("fn", env, { name: d.name }, () => { this.block(d.decls, [], inner, { scope: "reactive", inFn: true }); this.expr(d.tail, inner, { scope: "reactive", inFn: true, lifted: !instantiates(d) }); });
         { const sym = env.lookup(d.name)!; sym.fnTail = d.tail; sym.fnEnv = inner; sym.failsT = this.failsThunk(d.tail, inner); sym.rows = this.rowsThunk(d.tail, inner); }
         return;
       }
@@ -2209,6 +2209,8 @@ class Checker {
       case "await":
         this.awaited.add(e.e);                                                               // MO-10b: a promise that is awaited is asked for
         if (ctx.scope === "imperative" && !this.stmtAwaits.has(e)) this.err("AWAIT_IN_EXPRESSION", "AC-1", `\`${show(e)}\` inside an expression of imperative scope: a run suspends only at a statement — bind it first, \`let v = ${show(e)}\` (a \`catch (e) => alt\` may follow it)`);
+        // R-1, 07 §3: an `await` is a flight of the expression it is written in; a closure's and a lifted fn's (E-9) body is computed wherever it is called
+        else if (ctx.scope === "reactive" && (ctx.lifted || this.fnStack.length)) this.err("AWAIT_IN_EXPRESSION", "R-1", ctx.lifted && !this.fnStack.length ? `\`${show(e)}\` in a fn that declares nothing: its call is a part of the expression that calls it (E-9), and has no flight of its own — answer the promise and await it at the call (\`fn f(…) => ${show(e.e)}\`, \`x = await f(…)\`), or name the answer in the block, \`r = ${show(e)}\` then \`r\`, with each parameter it follows declared \`ref\`` : `\`${show(e)}\` in a closure of reactive scope: a closure is called where it is called, and has no flight of its own — await in an equation, and use its name`);
         // MO-10i: the draft is the callback's only while the library's call of it runs
         if (this.draftCbs.length && this.draftCbs[this.draftCbs.length - 1] === this.fnStack[this.fnStack.length - 1]) this.err("DRAFT_ESCAPES", "MO-10i", "an `await` in a callback that is handed a library's draft: the callback ends when the library's call of it does, and what runs after the `await` would write a draft the library has taken back — await first, then call the setter with what was answered");
         this.awaitedCalls.add(e.e); go(e.e); if (e.init) go(e.init); return;

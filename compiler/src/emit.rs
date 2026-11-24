@@ -302,6 +302,8 @@ struct Gen<'p> {
     raw: HashSet<*const Expr>,
     /// C-2: a whole store read there is copied
     kept: HashSet<*const Expr>,
+    /// declarations the lowering made
+    made: Vec<std::rc::Rc<Decl>>,
     /// MO-10i: the arguments of a JS fn's call, with the fn's name: a draft read there is lent (`__rt.lend`)
     lent: HashMap<*const Expr, String>,
     /// MO-10i: closures written where a JS fn hands their parameters a draft, with those positions
@@ -376,6 +378,7 @@ impl<'p> Gen<'p> {
             style_ids: 0,
             raw: HashSet::new(),
             kept: HashSet::new(),
+            made: vec![],
             lent: HashMap::new(),
             draft_closures: HashMap::new(),
             arg_calls: HashMap::new(),
@@ -1394,6 +1397,16 @@ impl<'p> Gen<'p> {
         if !instantiates(params, decls, tail) {
             let x = self.expr(tail, inner, &reactive())?;
             return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body: vec![S::Return(Some(x))], is_async: false, generator: false }));
+        }
+        // an `await` in the result: the result is an equation (RG-6a), and its flights are that equation's (07 §3)
+        if !non_tail_awaits(tail, false).is_empty() {
+            let mut d2 = d.clone();
+            let Decl::Fn { decls, tail, line, span, .. } = &mut d2 else { unreachable!() };
+            let t = std::mem::replace(tail, Expr { k: ExprKind::Id("result$".into()), span: tail.span });
+            decls.push(Decl::Eq { name: "result$".into(), e: t, line: *line, span: *span, deferred: false, key: None, ty: None, exported: false });
+            let d2 = std::rc::Rc::new(d2);
+            self.made.push(d2.clone()); // its expressions are known by their places while the program is lowered
+            return self.fn_decl(&d2, env);
         }
         // an instantiating fn (RG-6): called once, returns the accessor of its tail
         let mut body: Vec<S> = params.iter().filter(|p| p.r#ref && self.u.prev_of.contains(&p.name)).map(|p| konst(format!("p${}", p.name), rtc("pre", vec![id(mg(&p.name))]))).collect();

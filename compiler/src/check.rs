@@ -442,6 +442,8 @@ struct Env {
 struct Ctx {
     imperative: bool,
     in_fn: bool,
+    /// E-9: in the result of a fn that declares nothing
+    lifted: bool,
     in_action: bool,
     server: bool,
 }
@@ -3991,7 +3993,7 @@ impl<'a> Checker<'a> {
                 }
                 self.comp("fn", env, Some(name.clone()), None, |c| {
                     c.block(decls, &[], inner, Ctx { in_fn: true, ..Ctx::reactive() });
-                    c.expr(tail, inner, Ctx { in_fn: true, ..Ctx::reactive() }, None);
+                    c.expr(tail, inner, Ctx { in_fn: true, lifted: !instantiates(params, decls, tail), ..Ctx::reactive() }, None);
                 });
                 let s = self.lookup(env, name).unwrap();
                 let sym = &mut self.syms[s];
@@ -5829,6 +5831,16 @@ impl<'a> Checker<'a> {
                         "AC-1",
                         format!("`{}` inside an expression of imperative scope: a run suspends only at a statement — bind it first, `let v = {}` (a `catch (e) => alt` may follow it)", sh, sh),
                     );
+                } else if !ctx.imperative && (ctx.lifted || !self.fn_stack.is_empty()) {
+                    // R-1, 07 §3: an `await` is a flight of the expression it is written in; a closure's and a lifted fn's
+                    // (E-9) body is computed wherever it is called
+                    let (sh, p) = (show(e), show(inner));
+                    let msg = if ctx.lifted && self.fn_stack.is_empty() {
+                        format!("`{sh}` in a fn that declares nothing: its call is a part of the expression that calls it (E-9), and has no flight of its own — answer the promise and await it at the call (`fn f(…) => {p}`, `x = await f(…)`), or name the answer in the block, `r = {sh}` then `r`, with each parameter it follows declared `ref`")
+                    } else {
+                        format!("`{sh}` in a closure of reactive scope: a closure is called where it is called, and has no flight of its own — await in an equation, and use its name")
+                    };
+                    self.err("AWAIT_IN_EXPRESSION", "R-1", msg);
                 }
                 // MO-10i: the draft is the callback's only while the library's call of it runs
                 if self.draft_cbs.last().is_some() && self.draft_cbs.last() == self.fn_stack.last() {
@@ -6123,7 +6135,7 @@ impl<'a> Checker<'a> {
                     }
                     return;
                 }
-                self.expr(body, inner, Ctx { imperative: ctx.imperative, in_fn: ctx.in_fn, server: ctx.server, in_action: false }, None);
+                self.expr(body, inner, Ctx { imperative: ctx.imperative, in_fn: ctx.in_fn, server: ctx.server, in_action: false, lifted: false }, None);
             }
             ExprKind::Draft { seed, body } => {
                 self.expr(seed, env, ctx, None);

@@ -24,6 +24,8 @@
   n: n })`, and an input an equation makes of one.
 - **Fixed: `pre x` of a `ref` parameter or an import was accepted and not compiled**; `pre props` is `PRE_OF_NON_REACTIVE`. Upgrade
   `@reactivescript/runtime`: compiled programs call `__rt.kept`.
+- **Fixed: an `await` in what an instantiating fn answers compiles** (`scenarios/S-await-2`). In a fn that declares nothing, and in
+  a closure of reactive scope, it was accepted and never compiled: `AWAIT_IN_EXPRESSION`, with what to write.
 
 **The language's own constructors, by one table** (tooling/rx-language-server/DECLARATIONS.md, *What a constructor runs*; spec/09 MO-8v)
 
