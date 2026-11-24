@@ -105,6 +105,7 @@ pub struct SigParam {
     pub name: String,
     pub r#ref: bool,
     pub ty: Option<String>,
+    pub opt: bool,
 }
 #[derive(Debug, Clone)]
 pub enum ExportSig {
@@ -403,7 +404,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 None if actions.iter().any(|p| p.is_empty()) => "ref io".to_string(),
                 None => actions_text(actions),
             };
-            let ps: Vec<String> = params.iter().map(|p| format!("{}{}{}", if p.r#ref { "ref " } else { "" }, p.name, p.ty.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())).collect();
+            let ps: Vec<String> = params.iter().map(|p| format!("{}{}{}{}", if p.r#ref { "ref " } else { "" }, p.name, if p.opt { "?" } else { "" }, p.ty.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())).collect();
             format!(
                 "{}{}{}{}",
                 with_rows(format!("export pure fn {}({})", name, ps.join(", ")), words([rows(r, fails), parts, String::new()])),
@@ -682,10 +683,12 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                 .map(|p0| {
                     let r = REF_PARAM.is_match(&p0);
                     let p = if r { crate::parse::js_trim(&p0[4..]).to_string() } else { p0.clone() };
-                    match p.find(':') {
-                        None => SigParam { name: crate::parse::js_trim(&p).to_string(), r#ref: r, ty: None },
-                        Some(c) => SigParam { name: crate::parse::js_trim(&p[..c]).to_string(), r#ref: r, ty: Some(crate::parse::js_trim(&p[c + 1..]).to_string()) },
-                    }
+                    let (n, ty) = match p.find(':') {
+                        None => (crate::parse::js_trim(&p), None),
+                        Some(c) => (crate::parse::js_trim(&p[..c]), Some(crate::parse::js_trim(&p[c + 1..]).to_string())),
+                    };
+                    let opt = n.ends_with('?');
+                    SigParam { name: n.trim_end_matches('?').to_string(), r#ref: r, ty, opt }
                 })
                 .collect();
             let r = row_words(t.get(1).map(|x| x.as_str()).unwrap_or(""));

@@ -3228,8 +3228,15 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             let r = c.keyword("ref");
             c.ws(true);
             let pname = c.bound("param")?;
+            let opt = c.peek() == '?' && c.eat("?");
+            if opt && r {
+                return c.fail("a `ref` parameter is not optional (E-9a): a value parameter may be left out");
+            }
+            if !opt && params.iter().any(|p: &Param| p.opt) {
+                return c.fail("an optional parameter is the last (E-9a): a required one follows");
+            }
             let ty = opt_type(c, false)?;
-            params.push(Param { name: pname, r#ref: r, ty });
+            params.push(Param { name: pname, r#ref: r, ty, opt });
             c.ws(true);
             if !c.eat(",") {
                 break;

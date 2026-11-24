@@ -34,6 +34,7 @@ label = `${user.name} (${count})`
 rows key id = items                        // a keyed collection (rows keep identity by `id`)
 { name, age = 0 } = user                   // destructuring: one equation per name, each keeps updating
 fn area(w: number, h: number): number => w * h       // a pure function
+fn cut(s: string, n?: number): string => s.slice(0, n ?? 80)   // `cut(s)`: n is undefined. Last, never `ref`, no default
 action save(n: string) { … }               // writes and awaits (async.md)
 component Row(props: { item: Item }) { … }
 error NotFound(id: number) => `no issue ${id}`       // an error class; `NotFound(3)` makes one

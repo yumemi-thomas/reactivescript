@@ -105,7 +105,7 @@ module.exports = grammar(tsx, {
       optional(alias('instantiates', $.row_word)),
       optional($.signature_uses),
     ),
-    signature_parameter: $ => seq(optional($.ref_modifier), field('name', $.identifier), optional(seq(':', field('type', $.type)))),
+    signature_parameter: $ => seq(optional($.ref_modifier), field('name', $.identifier), optional('?'), optional(seq(':', field('type', $.type)))),
     signature_rows: $ => repeat1(choice('io', 'pending', 'lane', 'ref', 'value', $.fails_row, $.signature_parts, $.signature_tuple)),
     // `{ n: ref pending; set: io; max: value }`, `[ref, io]`: the parts of a fn's result (MO-13i); `{ set: io; pair.1: io; … }`:
     // those of one value that are actions (MO-9b)
