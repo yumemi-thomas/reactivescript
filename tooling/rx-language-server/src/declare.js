@@ -1223,7 +1223,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   // the question each answers is not asked (declare-infer.js, infer.js)
   if (how.infer !== false) {
     const di = require("./declare-infer.js");
-    const r = di.apply(ts, spec, from, lines, name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } }, how.why, { unshaped, contexts, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } }, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
+    const r = di.apply(ts, spec, from, lines, name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } }, how.why, { unshaped, contexts, written: how.written, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } }, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
     lines = r.lines; out.push(...r.head);
     contexts = contexts.filter(c => !r.named.has(c));   // (a context a row names is declared: no question about it)
     if (how.inferred) Object.assign(how.inferred, r.count, { unread: r.unread, words: r.words });

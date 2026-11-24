@@ -25,8 +25,8 @@ const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, unde
 // what a draft says. (9: the words read from JSX and from contexts — `handler` on a prop, `uses(c)`, `provides(c)` with their
 // `export context` rows, MO-8w. 10: a component's props of many fields with no name are their place, MO-8o. 11: no `ref` in
 // a record that may be absent, MO-10b. 12: no word off a name or a shape — `ref` and `instantiates` are the types' `Accessor` or
-// proven by the code, MO-8v. 13: `instantiates` where the code makes what its owner keeps on every path)
-const FORMAT = 13;
+// proven by the code, MO-8v. 13: `instantiates` where the code makes what its owner keeps on every path. 14: that word beside a `ref`, MO-8l)
+const FORMAT = 14;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
@@ -156,7 +156,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     let text;
     // MO-8v: with the words the package's code proves (`pure`, `handler`, `draft`, `rejects(E)`), each marked: they are
     // read, not guessed, so an import nothing reviewed still makes the checker accept nothing the code does not show
-    try { text = declare(typescriptFor(dir), spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0" }); }
+    try { text = declare(typescriptFor(dir), spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0", written: true }); }
     catch (e) {
       // a draft written for another version or under other rules is not kept when it cannot be redone: its rows (an
       // earlier rule's guessed `pure`) would still be read, so the import falls back to undeclared, the cautious reading

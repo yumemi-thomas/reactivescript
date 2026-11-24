@@ -278,8 +278,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     mismatch: `pure`, for its methods too; `fails …`, over a `rejects(…)`; a
     side. A name it has no row for is an undeclared import, not
     `NOT_EXPORTED`. `DISPOSER_DROPPED`, read off a type alone, is not asked.
-  - `instantiates` stands against `pure`: the call has no owner in a handler,
-    an action, an effect's block or a server fn (`INSTANTIATION_NOT_BOUND`).
+  - `instantiates` or `uses(c)`, written, stands against `pure`: the call has
+    no owner in a handler, an action, an effect's block or a server fn
+    (`INSTANTIATION_NOT_BOUND`). A `ref` or a `Component` alone is a type's,
+    and refuses no call there.
     In reactive scope an import that says `pure` is called anywhere, as
     undeclared, unless its row has a `ref`, a draft or a component for its
     call to be bound to. In a `ref` attribute (`ref={tap(…)}`) the call is

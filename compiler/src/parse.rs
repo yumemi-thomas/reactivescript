@@ -556,7 +556,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, waits: Option<(bool, Vec<String>)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, draft_args: Vec<usize>, /** MO-11u: `renders(H)` — the components the fn is given are rendered beneath an application of H, a component this file declares */ renders: Option<String> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, /** MO-8l: the row says so itself — the word, or a context read — and not its types alone */ makes: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, waits: Option<(bool, Vec<String>)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, draft_args: Vec<usize>, /** MO-11u: `renders(H)` — the components the fn is given are rendered beneath an application of H, a component this file declares */ renders: Option<String> },
     /// SV-5a: `fields`, what of an instance is sent to the client (`export error HttpError(status, code)`); none, name and message only
     Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
@@ -2298,7 +2298,8 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         let part_drafts = draft_parts(ret.as_deref());
         let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_draft(&t)))).collect();
         let ret = ret.map(|t| strip_handler(&strip_draft(&t)));
-        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, uses, provides, tparams, nests, held, cbs, opts, waits, drafts, part_drafts, draft_args, renders };
+        let makes = written || !uses.is_empty();
+        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, makes, uses, provides, tparams, nests, held, cbs, opts, waits, drafts, part_drafts, draft_args, renders };
         // one row an export: a fn with several signatures (TypeScript's overloads) is declared by one of them, and the
         // library's own types say the rest (13 TY-4b)
         if out.iter().any(|d| matches!(d, JsDecl::Fn { .. }) && d.name() == row.name()) {

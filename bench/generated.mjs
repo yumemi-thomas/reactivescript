@@ -74,18 +74,19 @@ function program(spec, names, form) {
 }
 /** Why a use that is refused only with the row is refused: what the row proves, or the gain it is. Undefined: it should not be. */
 function reason(d, u, row) {
-  const makes = /\binstantiates\b/.test(row) || /\bref\b|\buses\(/.test(row), ref = /[(,[{:]\s*ref\s/.test(row);
+  const makes = /\s(instantiates\b|uses\()/.test(row), ref = /[(,[{:]\s*(readonly )?ref\s/.test(row), made = /\): Component\b/.test(row);
   if (/^export type /.test(row) && ["UNBOUND", "NOT_AN_ERROR_CLASS", "UNCAUGHT_ACTION_FAILURE"].includes(d.code)) return "a type: the module exports no such value";
   if (/^export component /.test(row) && ["COMPONENT_AS_VALUE", "SERVER_CAPTURE", "NOT_AN_ERROR_CLASS", "UNCAUGHT_ACTION_FAILURE", "INSTANTIATION_NOT_BOUND"].includes(d.code)) return "a component: applied in a view, not called or kept as a value";
   if (makes && d.code === "INSTANTIATION_NOT_BOUND" && /^(handler|action|effect|server|thrown|caught)/.test(u.use)) return "proven `instantiates`: the call makes what its owner keeps, and a handler, an action, an effect's block and a server fn have no owner";
-  if (makes && ["NOT_AN_ERROR_CLASS", "UNCAUGHT_ACTION_FAILURE"].includes(d.code)) return "proven `instantiates`: no error class";
-  if (ref && ["INSTANTIATION_NOT_BOUND", "SNAPSHOT_ARGUMENT", "IO_IN_REACTIVE"].includes(d.code)) return "a `ref` (the gain): a reader is read by the name its call is bound to";
+  if ((makes || ref || made) && ["NOT_AN_ERROR_CLASS", "UNCAUGHT_ACTION_FAILURE"].includes(d.code)) return "a primitive: no error class";
+  if (ref && ["INSTANTIATION_NOT_BOUND", "SNAPSHOT_ARGUMENT", "IO_IN_REACTIVE"].includes(d.code) && !/^(handler|action|effect|server)/.test(u.use)) return "a `ref` (the gain): a reader is read by the name its call is bound to";
+  if (made && ["INSTANTIATION_NOT_BOUND", "SNAPSHOT_ARGUMENT", "COMPONENT_AS_VALUE", "IO_IN_REACTIVE"].includes(d.code) && !/^(handler|action|effect|server)/.test(u.use)) return "a component the call makes (the gain): it is bound, and applied";
   if (/\bdraft /.test(row) && d.code === "MUTATION_IN_PLACE") return "proven `draft`: the fn changes the value it is given in place";
 }
 function kinds(spec, names, dir) {
   mkdirSync(dir, { recursive: true });
   const files = Object.fromEntries(Object.keys(FORMS).map(form => { const p = program(spec, names, form), f = path.join(dir, `${form}.rx`); writeFileSync(f, p.text); return [form, { f, ...p }]; }));
-  let root = dir; while (!existsSync(path.join(root, "node_modules", ...spec.split("/")))) { if (root === path.dirname(root)) throw new Error(`${spec} is not installed`); root = path.dirname(root); }
+  let root = dir; while (!existsSync(path.join(root, "node_modules", ...spec.split("/").slice(0, spec[0] === "@" ? 2 : 1)))) { if (root === path.dirname(root)) throw new Error(`${spec} is not installed`); root = path.dirname(root); }
   const gen = `${path.join(root, "node_modules/.rx-types", spec)}.d.rx`; rmSync(gen, { force: true });
   const base = Object.fromEntries(Object.entries(files).map(([form, x]) => [form, both(x.f)]));
   ensureDeclarations(files.plain.f);

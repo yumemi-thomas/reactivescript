@@ -15,7 +15,8 @@ solidjs/solid#5097), and there are no guesses on the server to show.
   undeclared (`NOT_EXPORTED`, `UNBOUND`); an imported `pure` object's methods are pure; a primitive called in a `ref`
   attribute (`ref={tap(…)}`) is owned (`INSTANTIATION_NOT_BOUND`); a fn proven `instantiates` whose row has no `ref` is
   called anywhere where the import says `pure` (a handler, an action and an effect's block are still refused: nothing
-  owns what it makes); `DISPOSER_DROPPED` is not asked of a type alone.
+  owns what it makes), and one whose row has a `ref` or makes a component by its type alone is called in a handler;
+  `DISPOSER_DROPPED` is not asked of a type alone. Drafts are made again once (draft 14: `instantiates` beside a `ref`).
 
 **`instantiates` read from the code** (spec/09 MO-8v, MO-10a; tooling/rx-language-server/DECLARATIONS.md, *`instantiates` without `pure`*)
 

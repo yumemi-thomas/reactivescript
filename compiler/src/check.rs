@@ -308,7 +308,7 @@ struct Sym<'a> {
     pure_fn: bool,
     /// MO-8l: a JS fn declared by a generated draft (node_modules/.rx-types): its package's specifier
     generated: Option<String>,
-    /// MO-8l: …whose row is `instantiates`, read as a fn
+    /// MO-8l: …whose row says itself that a call makes something (`JsDecl::Fn::makes`)
     makes: bool,
     /// MO-10i: a JS fn's callbacks whose parameters are its drafts (argument index, parameter positions)
     drafts: Vec<(usize, Vec<usize>)>,
@@ -3234,7 +3234,7 @@ impl<'a> Checker<'a> {
                     bind_comp(self, x, alias);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, uses: xuses, provides: xprovides, nests: xnests, held: xheld, waits: xwaits, cbs: xcbs, drafts: xdrafts, part_drafts: xpart_drafts, ret: xret, draft_args: xdraft_args, renders: xrenders, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, makes: xmakes, uses: xuses, provides: xprovides, nests: xnests, held: xheld, waits: xwaits, cbs: xcbs, drafts: xdrafts, part_drafts: xpart_drafts, ret: xret, draft_args: xdraft_args, renders: xrenders, .. } => {
                     // MO-11u: `renders(H)` — H is a component of the same declaration; what H itself uses and provides is
                     // above everything it renders
                     let renders_in = |c: &mut Self| -> Option<(String, String, Vec<String>)> {
@@ -3255,6 +3255,7 @@ impl<'a> Checker<'a> {
                         s.params = Some(xparams.iter().enumerate().map(|(i, n)| SigParam { name: n.clone(), r#ref: refs.get(i).copied().unwrap_or(false), ty: None }).collect());
                         s.instantiating = true;
                         s.generated = generated.clone();
+                        s.makes = *xmakes;
                         s.foreign = Some(shape.clone());
                         s.rows = Some(RowsT::Fixed(IndexSet::new()));
                         s.fails_t = Some(FailsT::Fixed(IndexSet::new()));
@@ -3296,7 +3297,7 @@ impl<'a> Checker<'a> {
                     s.draft_args = xdraft_args.clone();
                     s.part_drafts = xpart_drafts.clone();
                     s.pure_fn = *xpure;
-                    s.makes = *instantiates;
+                    s.makes = *xmakes;
                     s.renders_in = renders_in(self);
                     s.generated = generated.clone();
                     self.bind(env, alias, s);
@@ -5922,8 +5923,12 @@ impl<'a> Checker<'a> {
                             format!("{}(…) is `client` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now", fname),
                         );
                     }
-                    let drafted = s.is_some_and(|s| self.syms[s].generated.is_some()) && self.ref_calls.contains(&(e as *const Expr));
-                    if !drafted && ((kind == Some(SymKind::Fn) && instantiating) || (ctx.imperative && s.is_some_and(|s| self.syms[s].makes))) {
+                    // MO-8l: of a draft, where nothing owns the call, for what the row itself says the call makes
+                    let refused = match s.filter(|&s| self.syms[s].generated.is_some() && ctx.imperative) {
+                        Some(s) => self.syms[s].makes && !self.ref_calls.contains(&(e as *const Expr)),
+                        None => kind == Some(SymKind::Fn) && instantiating,
+                    };
+                    if refused {
                         self.err("INSTANTIATION_NOT_BOUND", "E-9", format!("{}(…) declares state: bind it, `x = {}(…)` (RG-6)", fname, fname));
                     }
                     if kind == Some(SymKind::Comp) {

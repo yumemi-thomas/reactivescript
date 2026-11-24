@@ -284,8 +284,9 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
     // a proven `pure` fn that makes nodes is made once where it is bound (MO-10a): the word the draft writes by a name
     // (one that is not `pure`: where it makes what its owner keeps on every path, whatever else it does — MO-10a's word says
     // where the call is made, not what it changes. One that hands back an undo, or a promise, is called elsewhere
-    // too; a capital is a component's, by 07 §4)
-    const makes = row.kind === "fn" && !/\b(?:instantiates|ref)\b/.test(line) && (f.pure || !/^[A-Z]/.test(row.name));
+    // too; a capital is a component's, by 07 §4). A `ref` implies the word; a generated declaration writes it where it
+    // is proven, since a type alone refuses no call in a handler there (MO-8l)
+    const makes = row.kind === "fn" && !/\binstantiates\b/.test(line) && (more.written || !/\bref\b/.test(line)) && (f.pure || !/^[A-Z]/.test(row.name));
     const not = !makes || f.pure ? undefined : /^\s*:\s*(?:Promise\b|\(\s*\)\s*=>\s*(?:void|undefined)\s*$|VoidFunction\s*$)/.test(tail) ? { why: "it hands back a promise, or what undoes the call: called in a handler or an effect as well" } : f.unbound();
     if (makes && !f.pure) note(row.name, "instantiates", !not, not ? `${not.why}${not.file ? ` [${at(not)}]` : ""}` : "it makes what its owner keeps, on every path that returns");
     if (makes && (f.pure ? answered.pure && f.makes : !not)) { line = `${line} instantiates`; took.push("instantiates"); count.instantiates++; }
