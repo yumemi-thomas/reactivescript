@@ -5769,7 +5769,9 @@ impl<'a> Checker<'a> {
                 let s = self.resolve(name, env, ctx);
                 if let Some(s) = s {
                     self.read(s, ctx, true, None);
-                    if !self.syms[s].kind.reactive() {
+                    if self.syms[s].kind == SymKind::Props {
+                        self.err("PRE_OF_NON_REACTIVE", "C-2", format!("pre of {0}: props are not a value of their own — name the field, `x = {0}.x`, and read `pre x`", name));
+                    } else if !self.syms[s].kind.reactive() {
                         self.err("PRE_OF_NON_REACTIVE", "C-2", format!("pre of {}, which is not reactive", name));
                     }
                 }

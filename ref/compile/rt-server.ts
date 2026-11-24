@@ -256,6 +256,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; request
     keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); return () => p; },
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
     pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
+    kept: (v: unknown): unknown => v,   // nothing is written here (SV-2): a kept value stays what it was
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
     /** SV-2: the apply half runs on the client, after hydration. The compute half is reactive scope — Solid's server runs it;
      *  an input's failure is an answer (E-12), not a server error. */

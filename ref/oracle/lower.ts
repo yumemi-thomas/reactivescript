@@ -5,7 +5,7 @@
 import { classMap } from "../src/style.ts";
 import { inferredAction } from "../src/infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { instantiates } from "../src/ast.ts";
+import { instantiates, keptParts } from "../src/ast.ts";
 import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver } from "@solidjs/signals";
@@ -54,6 +54,22 @@ function assignDraft(draft: any, v: unknown) {
   Object.assign(draft, v);
 }
 
+const isPlain = (v: object) => { const p = Object.getPrototypeOf(v); return p === Object.prototype || p === Array.prototype || p === null; };
+/** EF-2: what an effect's input is — a store whole, as a snapshot, wherever the input holds one (`{ tags: tags, n: n }`, a
+ *  list of rows): its contents are what is compared. A getter (a JS result's parts, `lazy`) is not read. */
+const inputWhole = (v: unknown, seen = new Set<unknown>()): unknown => {
+  if (v === null || typeof v !== "object") return v;
+  if ((v as any)[$TARGET] !== undefined) return readCopy(v);
+  if (!isPlain(v) || seen.has(v)) return v;
+  seen.add(v); let out: any = v;
+  for (const k of Object.keys(v)) { const d = Object.getOwnPropertyDescriptor(v, k)!; if (d.get || d.value === null || typeof d.value !== "object") continue; const w = inputWhole(d.value, seen); if (w !== d.value) { if (out === v) out = Array.isArray(v) ? [...v] : { ...v }; out[k] = w; } }
+  return out;
+};
+/** ST-2a, C-2: the whole of a source or a projection — one store, whose root a write or an answer replaces where it stands. What
+ *  an equation keeps of one (`[...(pre seen -> []), tags]`, a companion's last value) is a copy of the root. */
+const roots = new WeakSet<object>();
+const rooted = <T extends object>(s: T): T => { roots.add(s); return s; };
+const kept = (v: unknown): unknown => v !== null && typeof v === "object" && roots.has(v) ? Array.isArray(v) ? [...v] : { ...v } : v;
 /** EF-2: effect inputs compare as values: arrays and plain objects (a store's snapshot) by their contents. */
 const sameInput = (a: unknown, b: unknown): boolean => {
   if (Object.is(a, b)) return true;
@@ -270,13 +286,13 @@ export class Oracle {
             if (this.optimisticTargets.has(d.name) && this.pathTargets.has(d.name) && this.plainTargets.has(d.name)) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
               const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; return landDraft(draft, v, d.key); };
               const seed = () => d.key && (d.init ?? d.e)?.k !== "rec" ? [] : {};
-              const [truth, setTruth] = (createStore as any)(derive, seed(), d.key ? { key: d.key } : undefined);
-              const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), d.key ? { key: d.key } : undefined);
+              const [truth, setTruth] = (createStore as any)(derive, seed(), d.key ? { key: d.key } : undefined); rooted(truth);
+              const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), d.key ? { key: d.key } : undefined); rooted(view);
               scope.vars.set(d.name, { k: "store", get: () => view, set: (v: unknown) => setTruth((x: any) => typeof v === "function" ? (v as (y: unknown) => unknown)(x) : v), setPath: setTruth, question: true, setGuess: setView, truth: () => truth });   // AC-4: `refresh` re-asks the truth
             }
             else if (this.optimisticTargets.has(d.name) && this.pathTargets.has(d.name)) {   // AC-3 path targets over ST-5 structured: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
               const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; return landDraft(draft, v, d.key); };
-              const [store, setStore] = (createOptimisticStore as any)(derive, d.key && (d.init ?? d.e)?.k !== "rec" ? [] : {}, d.key ? { key: d.key } : undefined);
+              const [store, setStore] = (createOptimisticStore as any)(derive, d.key && (d.init ?? d.e)?.k !== "rec" ? [] : {}, d.key ? { key: d.key } : undefined); rooted(store);
               const plain = () => { throw new Unsupported("a plain write to an optimistic store"); };
               scope.vars.set(d.name, { k: "store", get: () => store, set: plain, setPath: plain, question: true, setGuess: setStore });
             }
@@ -290,10 +306,10 @@ export class Oracle {
           } else {
             const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
-              const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
+              const [store, setStore] = createStore(init as any); rooted(store as object); const [get, set] = createSignal<unknown>(store);
               const w = { set: (v: unknown) => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v); set(store); } else set(v); }, setPath: setStore };   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
               if (this.optimisticTargets.has(d.name)) {                     // AC-3 over a := store: createOptimisticStore(() => truth) over createStore(v); writes go to the truth, guesses to the layer
-                const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {});
+                const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view);
                 scope.vars.set(d.name, { k: "store", get: () => view, ...w, question: false, setGuess: setView });
               } else scope.vars.set(d.name, { k: "store", get, ...w, question: false });
             }
@@ -306,13 +322,14 @@ export class Oracle {
           break;
         }
         case "eq": {
+          for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x);
           if (this.foreign(d, scope)) break;
           if (d.e.k !== "draft") this.hoistAwaits(d.name, d.e, scope);
           if (d.e.k === "draft") {                                      // ST-3: createProjection((draft) => …, seed)
             const seedE = d.e.seed; if (seedE.k !== "pre" || seedE.name !== d.name || !seedE.init) throw new Unsupported("draft seed must be `pre self -> seed`");
             const seed = untrack(() => this.ev(seedE.init!, scope));
             const body = d.e.body;
-            const proj = createProjection((draft: any) => { const s2 = new Scope(scope); s2.vars.set("d", { k: "const", value: draft }); this.runDraft(body, s2); }, seed as any);
+            const proj = createProjection((draft: any) => { const s2 = new Scope(scope); s2.vars.set("d", { k: "const", value: draft }); this.runDraft(body, s2); }, seed as any); rooted(proj as object);
             scope.vars.set(d.name, { k: "memo", get: () => proj });
             break;
           }
@@ -321,7 +338,7 @@ export class Oracle {
             const plain = () => { throw new Unsupported("a plain write to an equation"); };
             if (this.pathTargets.has(d.name) || d.key) {
               const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; return landDraft(draft, v, d.key); };
-              const [store, setStore] = (createOptimisticStore as any)(derive, d.key && (d.init ?? d.e)?.k !== "rec" ? [] : {}, d.key ? { key: d.key } : undefined);
+              const [store, setStore] = (createOptimisticStore as any)(derive, d.key && (d.init ?? d.e)?.k !== "rec" ? [] : {}, d.key ? { key: d.key } : undefined); rooted(store);
               scope.vars.set(d.name, { k: "store", get: () => store, set: plain, setPath: plain, question: true, setGuess: setStore });
             } else {
               const [get, setGuess] = createOptimistic(compute as any, this.loadingValue(d.e, scope) as any);
@@ -332,7 +349,7 @@ export class Oracle {
           if (d.key) {                                                  // ST-4: a keyed projection
             const compute = this.computeOf(d.name, d.e, scope);
             const src = createMemo(() => compute(undefined) as any, this.loadingValue(d.e, scope) as any);   // the answer (sync, or the tail await's) is a memo; the projection reconciles it by key (found by S-ai2-search)
-            const proj = createProjection(() => src() as any, [] as any, { key: d.key } as any);
+            const proj = createProjection(() => src() as any, [] as any, { key: d.key } as any); rooted(proj as object);
             scope.vars.set(d.name, { k: "memo", get: () => proj, truth: src } as any);   // AC-4: `refresh` re-asks the memo under the projection (S-keyed-refresh)
             break;
           }
@@ -364,7 +381,7 @@ export class Oracle {
           let last: unknown[] | null = null, node: any = null, cleanup: (() => void) | undefined;
           const undo = () => { const c = cleanup; cleanup = undefined; c?.(); };   // EF-5: a pass that fires nothing keeps the cleanup
           const ended = () => { if (!node || isDisposed(node)) undo(); };
-          createEffect(() => (node = getOwner(), inputs).map(e => { const v = this.ev(e, scope); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v; }), {   // a store enters whole, as a snapshot
+          createEffect(() => (node = getOwner(), inputs).map(e => inputWhole(this.ev(e, scope))), {   // a store enters whole, as a snapshot
             effect: (vals: unknown[]) => { if (!last || last.length !== vals.length || !vals.every((v, i) => sameInput(v, last![i]))) { last = vals; undo(); cleanup = apply(vals); } return cleanup && ended; },   // EF-3: fires when an input changed (an error in between is a change)
             error: () => { last = null; },   // EF-2a: a failed input doesn't fire the apply; the next answer does
           } as any);
@@ -397,7 +414,7 @@ export class Oracle {
     if (!b) {
       let def: Scope | null = scope; while (def && !def.vars.has(name)) def = def.parent;   // cache on the scope that declares `name`, not a per-compute scope
       const home = def ?? scope;
-      const get = runWithOwner(home.owner ?? null, () => createMemo((st: any) => { const cur = this.ev({ k: "id", name }, home); return { cur, prev: st ? st.cur : undefined }; }))!;   // owned by the declaring scope, not by whichever computation first read it
+      const get = runWithOwner(home.owner ?? null, () => createMemo((st: any) => { const cur = kept(this.ev({ k: "id", name }, home)); return { cur, prev: st ? st.cur : undefined }; }))!;   // owned by the declaring scope, not by whichever computation first read it
       b = { k: "memo", get: () => (get() as { prev: unknown }).prev }; home.vars.set(key, b);
     }
     return (b as { get: () => unknown }).get;
@@ -448,7 +465,9 @@ export class Oracle {
   }
 
   // ---- expressions (reactive scope: tracked by whatever computation is running) ----
-  ev(e: Expr, scope: Scope, env?: Map<string, unknown>): unknown {
+  private keptExprs = new Set<Expr>();                                   // C-2: a whole store read there is copied
+  ev(e: Expr, scope: Scope, env?: Map<string, unknown>): unknown { const v = this.ev0(e, scope, env); return this.keptExprs.has(e) ? kept(v) : v; }
+  private ev0(e: Expr, scope: Scope, env?: Map<string, unknown>): unknown {
     switch (e.k) {
       case "lit": return e.v;
       case "id": {

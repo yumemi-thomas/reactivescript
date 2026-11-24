@@ -18,6 +18,12 @@
   in a handler is accepted as before.
 - **Fixed: `UNGUARDED_SNAPSHOT` on a handler whose component is applied inside `loading` and `errored`** (04 R-8): the crate
   looked no further than the component's root. `ref/` has no such check.
+- **Fixed: a list kept by `pre` was the live list** (02 C-2; `scenarios/S-pre-1`): `sequence = [...(pre sequence -> []), keys]`
+  missed writes of `keys` and held only the latest, and `pre keys` was never set. What is kept is a copy of the root.
+- **Fixed: an effect whose input holds a list missed its writes** (02 EF-2; `scenarios/S-effect-store-3`): `effect ({ tags: tags,
+  n: n })`, and an input an equation makes of one.
+- **Fixed: `pre x` of a `ref` parameter or an import was accepted and not compiled**; `pre props` is `PRE_OF_NON_REACTIVE`. Upgrade
+  `@reactivescript/runtime`: compiled programs call `__rt.kept`.
 
 **The language's own constructors, by one table** (tooling/rx-language-server/DECLARATIONS.md, *What a constructor runs*; spec/09 MO-8v)
 

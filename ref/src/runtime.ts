@@ -3,7 +3,7 @@
 import { classMap } from "./style.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
-import { instantiates } from "./ast.ts";
+import { instantiates, keptParts, readsOwn } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
 
 import { RuleError, CheckError } from "./errors.ts";
@@ -54,7 +54,7 @@ export class Node {
   value: unknown = undefined; hasValue = false;        // in-flight (σ′)
   committed: unknown = undefined; hasCommitted = false; // committed (σ)
   changedSinceCommit = false;
-  prev: unknown = undefined; hasPrev = false;           // C-2 (ruled 2026-10-23, DV-5): the value before the most recent change
+  prev: unknown = undefined; hasPrev = false; own: unknown = undefined; hasOwn = false; ownPre = false;   // ownPre: its expression reads it; own: the last value the node had when the instant began (`pre x` in x's own equation, however often the instant computes it)           // C-2 (ruled 2026-10-23, DV-5): the value before the most recent change
   state: "clean" | "check" | "dirty" = "dirty";
   changed = false; demanded = false; evaluated = false; // this instant
   deps = new Map<Target, Set<string>>();
@@ -198,7 +198,7 @@ export class Runtime {
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) this.serverNames.set(sf, d.name); }   // SF-1d: its flights are named by the equation
       if (d.k === "fn") region.scope.set(d.name, { fn: d, home: region }); if (d.k === "component") region.scope.set(d.name, { comp: d, home: region }); if (d.k === "action") region.scope.set(d.name, { action: d, home: region }); }
     for (const d of decls) {                                           // E-7: equations are a system
-      if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
+      if (d.k === "eq" && !this.instantiates(d.e, region)) { for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x); const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.ownPre = readsOwn(d.e, d.name); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
       if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(this.ctxNamed(d.name, region), b instanceof Node ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
       if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
       else if (d.k === "source") { const n = this.mkNode("source", d.name, region); n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
@@ -210,7 +210,7 @@ export class Runtime {
         if (isReactive(d.init, region)) throw new RuleError("SNAPSHOT_INITIALIZER", `source ${d.name} := … reads a reactive value: write the snapshot as peek(…) (E-4, DV-6)`);
         n.value = this.demandMode && !this.currentRun ? this.unsubscribed(() => this.evalExpr(d.init, region)) : this.snapshot(d.init, region); n.hasValue = true; n.state = "clean"; n.changed = true; n.changedSinceCommit = true;   // E-4
       } else if (d.k === "effect") {
-        const computes = d.inputs.map((e, i) => this.mkNode("eq", `effect#${i}`, region, rt => rt.evalExpr(e, region)));
+        const computes = d.inputs.map((e, i) => this.mkNode("eq", `effect#${i}`, region, rt => rt.whole(rt.evalExpr(e, region))));
         const rec: EffectRec = { computes, body: d.body, region, ran: false, alive: true, last: [] };
         region.effects.push(rec); this.effects.push(rec);
       }
@@ -400,7 +400,7 @@ export class Runtime {
     for (const n of this.allNodes()) {
       if (n.heldBy !== null && this.find(n.heldBy) === g) {
         n.heldBy = null;
-        if (n.kind === "source") this.notify(n, "");                   // readers served the old committed value re-run
+        if (n.kind === "source") for (const s of this.subs.get(n)?.get("") ?? []) if (!s.ownPre) this.markDirty(s);   // not one that builds on its own value: readers served the old committed value re-run
       }
       const stillHeld = n.heldBy !== null && this.openChanges.has(this.find(n.heldBy)) && this.find(n.heldBy) !== g;
       const openTaint = [...n.taint].some(t => this.openChanges.has(this.find(t)) && this.find(t) !== g);
@@ -694,7 +694,7 @@ export class Runtime {
       if (n.keyBy && Array.isArray(v) && Array.isArray(n.value)) v = this.reconcile(n.value, v, n.keyBy);   // ST-4a: rows with the same key keep their identity and receive per-key updates
       const ch = new Set<Path>();
       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
-      if (ch.size > 0) { if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
+      if (ch.size > 0) { if (!n.changed) { if (n.hasValue && !isAbsent(n.value)) { n.own = n.value; n.hasOwn = true; } else if (!n.hasValue) n.hasOwn = false; if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
       n.hasValue = true;
       if (n.hasGuess && !n.questionMoved && !isAbsent(v) && (ch.size > 0 || landed)) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (guessedAt(n, dg)) { for (const e of n.guessEntries) if (guessedAt({ guessPaths: [e.path] }, dg)) e.spent = true; if (n.guessEntries.some(e => !e.spent)) this.rebuildGuess(n, v); else n.guess = v; n.corrected = true; n.answerCorrected = true; } }   // D-34: a new answer different from the guess at a guessed key corrects the graph now (derivations; `latest x` of a shown guess keeps it, D-22); equal there confirms silently (the screen keeps the guess's world until the commit)
       if (!(v instanceof PendingVal)) n.answered = true;   // H-12: an error is an answer (a first load ends with it — found by S-ai2-search)
@@ -784,7 +784,24 @@ export class Runtime {
     if (e.k === "latest") return this.nodeOf(e.e, region, env);
     return null;
   }
-  private ev(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
+  /** C-2: the parts of an equation that its result keeps while it builds on its own last value: a whole source there is a
+   *  copy of its root, which a write replaces (ST-2a). */
+  private keptExprs = new Set<Expr>();
+  private ev(e: Expr, region: Region, env?: Map<string, unknown>): unknown { const v = this.ev0(e, region, env); return this.keptExprs.has(e) ? this.keep(v) : v; }
+  private keep(v: unknown): unknown {
+    if (!isObj(v) || ![...this.allNodes()].some(n => n.value === v && (n.kind === "source" || n.question || n.keyBy !== null))) return v;
+    for (const k of Object.keys(v)) this.track(v, k);
+    if (Array.isArray(v)) this.track(v, "length");
+    return Array.isArray(v) ? [...v] : { ...v };
+  }
+  /** EF-2: an effect's input is its value, whole: what it holds is read, and what the block received stays what it was. */
+  private whole(v: unknown): unknown {
+    if (!isObj(v) || ![Object.prototype, Array.prototype, null].includes(Object.getPrototypeOf(v))) return v;
+    for (const k of Object.keys(v)) this.track(v, k);
+    if (Array.isArray(v)) { this.track(v, "length"); return v.map(x => this.whole(x)); }
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, this.whole(x)]));
+  }
+  private ev0(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
     switch (e.k) {
       case "lit": return e.v;
       case "id": {
@@ -808,7 +825,7 @@ export class Runtime {
       case "pre": {                                                    // C-2 (DV-5, Solid's): the value before the most recent change
         const b = region.lookup(e.name);
         if (!b || !(b instanceof Node)) throw new RuleError("C-2", `pre of non-reactive ${e.name}`);
-        if (this.tracking === b || (b.question && this.tracking === b)) { if (b.hasValue && !(b.value instanceof PendingVal)) return b.value; return e.init ? this.ev(e.init, region, env) : undefined; }   // own equation: the value before this recompute (the memo's `prev`); no edge
+        if (this.tracking === b || (b.question && this.tracking === b)) { if (b.changed || isAbsent(b.value)) { if (b.hasOwn) return b.own; } else if (b.hasValue) return b.value; return e.init ? this.ev(e.init, region, env) : undefined; }   // own equation: the value before this recompute (the memo's `prev`); no edge
         if (this.tracking && this.demandMode) { this.track(b, ""); this.pull(b); }                                    // another node: an input of it
         if (b.hasPrev) return b.prev;
         return e.init ? this.ev(e.init, region, env) : undefined;

@@ -4,7 +4,7 @@
 // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { instantiates } from "../src/ast.ts";
+import { instantiates, keptParts } from "../src/ast.ts";
 import { singleModule, isRx, madeComponent, ViewProps, type ModuleSet } from "../src/modules.ts";
 export { madeComponent };
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
@@ -249,7 +249,7 @@ class Gen {
       if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${isRx(d.from) ? J(this.mods!.out(d.resolved)) : this.depVar(d.resolved) /* MO-13c: keyed by its factory, as a bundler's build keys a module */}, ${this.depVar(d.resolved)});`);
       for (const { name, alias } of d.names) {
         if (this.mods!.set.programs.get(d.resolved)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(d.resolved)?.exports.get(name)?.kind === "type") continue;   // a type binds nothing
-        const ib = this.importBind(d.resolved, name, alias); env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];`);
+        const ib = this.importBind(d.resolved, name, alias); if (ib.kind === "acc" && this.u.prevOf.has(alias)) ib.prev = `p$${alias}`; env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];${ib.prev ? `\n${pad}const ${ib.prev} = __rt.pre(${ib.js});` : ""}`);
       }
     }
     // names first: hoisted functions and components; every other declaration is a const
@@ -363,6 +363,7 @@ class Gen {
       return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
     }
     if (d.k !== "eq") throw new CompileError("unreachable");
+    for (const x of keptParts(d.e, d.name)) this.kept.add(x);
     if (this.guessedEq(d)) {                                                                   // AC-3 over an equation: createOptimistic(fn) / createOptimisticStore(fn, seed) — derived, its setter only guesses
       const lv = this.loadingValue(d.e, env);
       const mode = `{ optimistic: true, structured: ${this.u.paths.has(d.name) || !!d.key}, derived: true, record: ${d.e.k === "rec"} }`;
@@ -414,13 +415,14 @@ class Gen {
   private fn(d: FnDecl, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env);
-    for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name) });
+    for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name), ...(p.ref && this.u.prevOf.has(p.name) ? { prev: `p$${p.name}` } : {}) });
     if (!instantiates(d)) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
     const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return null;$/.test(l)).join("\n");
+    const prevs = d.params.filter(p => p.ref && this.u.prevOf.has(p.name)).map(p => `${pad}  const p$${p.name} = __rt.pre(${mg(p.name)});\n`).join("");
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;
     const tail = tb && (tb.kind === "acc" || tb.kind === "src") ? tb.js : `__rt.memo(null, () => ${this.expr(d.tail, inner, { imp: false })})`;
-    return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${body}\n${pad}  return ${tail};\n${pad}}`;
+    return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${prevs}${body}\n${pad}  return ${tail};\n${pad}}`;
   }
   /** MO-10: `x = f(…)` over a declared primitive — called once (RG-6), a ref argument as an accessor, a value one untracked;
    *  and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to its value. */
@@ -476,6 +478,7 @@ class Gen {
    *  written to a draft's path, the callback's result, an argument of a draft's own method), or consumed by an operator
    *  that makes a primitive of them. */
   private raw = new Set<Expr>();
+  private kept = new Set<Expr>();   // C-2: a whole store read there is copied
   /** MO-10i: the arguments of a JS fn's call, with the fn's name: a draft read there is lent (`__rt.lend`). */
   private lent = new Map<Expr, string>();
   /** MO-10i: closures written where a JS fn hands their parameters a draft, with those positions. */
@@ -528,7 +531,7 @@ class Gen {
    *  what `.rx` holds of a draft is never the library's own object. Not where it is handed straight back to the library,
    *  or consumed by an operator that makes a primitive of it (`raw`). */
   expr(e: Expr, env: Env, ctx: Ctx): string {
-    const x = this.expr0(e, env, ctx);
+    const x0 = this.expr0(e, env, ctx), x = this.kept.has(e) ? `__rt.kept(${x0})` : x0;
     if (this.raw.has(e) || !this.draftChain(e, env)) return x;
     // a JS fn called with a read of a draft is lent a copy (in a development build one that refuses to be changed: a
     // change to it would be lost, MO-10i); its `draft` parameters are given the draft itself (`raw`)

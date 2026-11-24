@@ -4,7 +4,7 @@
 //! `const`. Names are mangled (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The
 //! module is a tree (`js.rs`), never text (CP-3).
 
-use crate::ast::{instantiates, Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
+use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
@@ -300,6 +300,8 @@ struct Gen<'p> {
     /// written to a draft's path, the callback's result, an argument of a draft's own method), or consumed by an operator
     /// that makes a primitive of them
     raw: HashSet<*const Expr>,
+    /// C-2: a whole store read there is copied
+    kept: HashSet<*const Expr>,
     /// MO-10i: the arguments of a JS fn's call, with the fn's name: a draft read there is lent (`__rt.lend`)
     lent: HashMap<*const Expr, String>,
     /// MO-10i: closures written where a JS fn hands their parameters a draft, with those positions
@@ -373,6 +375,7 @@ impl<'p> Gen<'p> {
             frames: vec![],
             style_ids: 0,
             raw: HashSet::new(),
+            kept: HashSet::new(),
             lent: HashMap::new(),
             draft_closures: HashMap::new(),
             arg_calls: HashMap::new(),
@@ -705,10 +708,16 @@ impl<'p> Gen<'p> {
                 if is_type {
                     continue; // a type binds nothing
                 }
-                let ib = self.import_bind(r, &n.name, &n.alias);
-                let js = ib.js.clone();
+                let mut ib = self.import_bind(r, &n.name, &n.alias);
+                if ib.kind == Kind::Acc && self.u.prev_of.contains(&n.alias) {
+                    ib.prev = Some(format!("p${}", n.alias));
+                }
+                let (js, prev) = (ib.js.clone(), ib.prev.clone());
                 self.set(env, &n.alias, ib);
-                out.push(konst(js, E::Index(Box::new(id(iv.clone())), Box::new(str(n.name.clone())), false)));
+                out.push(konst(js.clone(), E::Index(Box::new(id(iv.clone())), Box::new(str(n.name.clone())), false)));
+                if let Some(p) = prev {
+                    out.push(konst(p, rtc("pre", vec![id(js)])));
+                }
             }
             at(&mut out, n0, d.line());
         }
@@ -1176,6 +1185,9 @@ impl<'p> Gen<'p> {
             }
         };
         let pair = || Pat::Arr(vec![b.js.clone(), b.w.clone().unwrap()]);
+        if let Decl::Eq { name, e, .. } = d {
+            self.kept.extend(kept_parts(e, name).into_iter().map(|x| x as *const Expr));
+        }
         match d {
             Decl::Source { name, init, question: false, key, .. } => {
                 let x = self.expr(init, env, &reactive())?;
@@ -1374,7 +1386,9 @@ impl<'p> Gen<'p> {
         let Decl::Fn { name, params, decls, tail, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
         for p in params {
-            self.set(inner, &p.name, bind(if p.r#ref { Kind::Acc } else { Kind::Val }, mg(&p.name)));
+            let mut b = bind(if p.r#ref { Kind::Acc } else { Kind::Val }, mg(&p.name));
+            b.prev = (p.r#ref && self.u.prev_of.contains(&p.name)).then(|| format!("p${}", p.name));
+            self.set(inner, &p.name, b);
         }
         let ps: Vec<P> = params.iter().map(|p| P::Id(mg(&p.name))).collect();
         if !instantiates(params, decls, tail) {
@@ -1382,7 +1396,8 @@ impl<'p> Gen<'p> {
             return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body: vec![S::Return(Some(x))], is_async: false, generator: false }));
         }
         // an instantiating fn (RG-6): called once, returns the accessor of its tail
-        let mut body = self.block(decls, &[], inner, None, false)?;
+        let mut body: Vec<S> = params.iter().filter(|p| p.r#ref && self.u.prev_of.contains(&p.name)).map(|p| konst(format!("p${}", p.name), rtc("pre", vec![id(mg(&p.name))]))).collect();
+        body.append(&mut self.block(decls, &[], inner, None, false)?);
         strip_return_null(&mut body);
         let tb = if let ExprKind::Id(n) = &tail.k { self.lookup(inner, n) } else { None };
         let t = match tb {
@@ -1568,7 +1583,10 @@ impl<'p> Gen<'p> {
     /// be kept: what `.rx` holds of a draft is never the library's own object. Not where it is handed straight back to
     /// the library, or consumed by an operator that makes a primitive of it (`raw`).
     fn expr(&mut self, e: &Expr, env: Env, ctx: &Ctx) -> R<E> {
-        let x = self.expr0(e, env, ctx)?;
+        let mut x = self.expr0(e, env, ctx)?;
+        if self.kept.contains(&(e as *const Expr)) {
+            x = rtc("kept", vec![x]);
+        }
         if !self.raw.contains(&(e as *const Expr)) && self.draft_chain(e, env) {
             // a JS fn called with a read of a draft is lent a copy (in a development build one that refuses to be
             // changed: a change to it would be lost, MO-10i); its `draft` parameters are given the draft itself (`raw`)

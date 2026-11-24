@@ -915,3 +915,48 @@ pub fn instantiates(params: &[Param], decls: &[Decl], tail: &Expr) -> bool {
 pub fn has_region(decls: &[Decl], tail: &Expr) -> bool {
     !decls.is_empty() || reads_context(crate::check::Node::E(tail))
 }
+
+fn reads_own(n: crate::check::Node, me: &str) -> bool {
+    matches!(n, crate::check::Node::E(Expr { k: ExprKind::Pre { name, .. }, .. }) if name == me) || crate::check::children(n, true).into_iter().any(|c| reads_own(c, me))
+}
+/// C-2: the places of an equation that builds on its own last value (`pre self`) whose value the result may hold: an item,
+/// a field, an arm, an argument, what a draft's write gives. A whole store held there is a copy (`kept`), as a write of its
+/// source replaces the root (ST-2a) and what the equation holds is the value it was.
+pub fn kept_parts<'a>(e: &'a Expr, me: &str) -> Vec<&'a Expr> {
+    fn go<'a>(x: &'a Expr, out: &mut Vec<&'a Expr>) {
+        match &x.k {
+            ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. } | ExprKind::Use(_) | ExprKind::Peek(_) | ExprKind::Latest(_) => out.push(x),
+            ExprKind::Arr(xs) => xs.iter().for_each(|x| go(x, out)),
+            ExprKind::Rec(fs) => fs.iter().for_each(|f| {
+                if let Field::Kv { v, .. } = f {
+                    go(v, out)
+                }
+            }),
+            ExprKind::If { t, f, .. } => {
+                go(t, out);
+                go(f, out);
+            }
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "&&" | "||" | "??") => {
+                go(l, out);
+                go(r, out);
+            }
+            ExprKind::Call { args, .. } => args.iter().for_each(|x| go(x, out)),
+            ExprKind::Await { e, .. } => go(e, out),
+            ExprKind::Catch { e, alt, .. } => {
+                go(e, out);
+                go(alt, out);
+            }
+            ExprKind::Draft { body, .. } => body.iter().for_each(|s| {
+                if let StmtKind::Write { e, .. } = &s.k {
+                    go(e, out)
+                }
+            }),
+            _ => {}
+        }
+    }
+    let mut out = vec![];
+    if reads_own(crate::check::Node::E(e), me) {
+        go(e, &mut out);
+    }
+    out
+}

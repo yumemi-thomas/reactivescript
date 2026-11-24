@@ -82,3 +82,27 @@ const readsContext = (x: unknown): boolean => x !== null && typeof x === "object
 export const instantiates = (f: Extract<Decl, { k: "fn" }>): boolean => f.params.some(p => p.ref) || hasRegion(f);
 /** RG-6a: its call is a region of its own. */
 export const hasRegion = (f: Extract<Decl, { k: "fn" }>): boolean => f.decls.length > 0 || readsContext(f.tail);
+
+/** C-2: `pre self` somewhere in it. */
+export const readsOwn = (x: unknown, self: string): boolean => x !== null && typeof x === "object" && (((x as { k?: string }).k === "pre" && (x as { name?: string }).name === self) || Object.values(x).some(v => readsOwn(v, self)));
+/** C-2: the places of an equation that builds on its own last value (`pre self`) whose value the result may hold: an item,
+ *  a field, an arm, an argument, what a draft's write gives. A whole store held there is a copy (`kept`), as a write of its
+ *  source replaces the root (ST-2a) and what the equation holds is the value it was. */
+export function keptParts(e: Expr, self: string, out: Expr[] = []): Expr[] {
+  if (!readsOwn(e, self)) return out;
+  const stmts = (ss: Stmt[]): void => { for (const s of ss) if (s.k === "write") go(s.e); };
+  const go = (x: Expr): void => {
+    switch (x.k) {
+      case "id": case "member": case "index": case "use": case "peek": case "latest": out.push(x); return;
+      case "arr": x.items.forEach(go); return;
+      case "rec": for (const f of x.fields) if (!("spread" in f)) go(f.v); return;
+      case "if": go(x.t); go(x.f); return;
+      case "bin": if (x.op === "&&" || x.op === "||" || x.op === "??") { go(x.l); go(x.r); } return;
+      case "call": x.args.forEach(go); return;
+      case "await": go(x.e); return;
+      case "catch": go(x.e); go(x.alt); return;
+      case "draft": stmts(x.body); return;
+    }
+  };
+  go(e); return out;
+}

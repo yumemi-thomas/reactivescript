@@ -167,6 +167,7 @@ record argued each way; this is the decision.
   | `memo(name, fn, opts)` | an equation (E-1), a hoisted `await` (R-1) | `createMemo` |
   | `deferred(name, fn, opts)` | `deferred x = e` (H-1) | `createDeferred` |
   | `keyed(name, key, fn)` | `x key k = e` (ST-4) | `createMemo` + `createProjection` |
+  | `kept(v)` | a value an equation keeps beside `pre self` (C-2): a whole source or projection, copied at its root | none |
   | `draft(seed, body)` | `x = draft(pre x -> s) { … }` (ST-3) | `createProjection` |
   | `pre(get)`, `preOr(v, init)` | `pre y -> i` of another node (C-2) | `createMemo` |
   | `firstPaint(f)` | `await e -> v` (R-7) | the `loadingValue` option |

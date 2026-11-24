@@ -22,6 +22,22 @@ const readWhole = (v: unknown) => { if (v !== null && typeof v === "object") Ref
 /** A store's whole value, copied by reading through the store (so a guess still in flight shows, as R-12 asks of
  *  `latest`); Solid's `deep(v)` serves the landed frame and would drop the guess (found by desk9-rx-7). */
 const readCopy = (v: unknown): unknown => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(readCopy) : Object.fromEntries(Object.keys(v).map(k => [k, readCopy((v as any)[k])]));
+const isPlain = (v: object) => { const p = Object.getPrototypeOf(v); return p === Object.prototype || p === Array.prototype || p === null; };
+/** EF-2: what an effect's input is — a store whole, as a snapshot, wherever the input holds one (`{ tags: tags, n: n }`, a
+ *  list of rows): its contents are what is compared. A getter (a JS result's parts, `lazy`) is not read. */
+const inputWhole = (v: unknown, seen = new Set<unknown>()): unknown => {
+  if (v === null || typeof v !== "object") return v;
+  if ((v as any)[$TARGET] !== undefined) return readCopy(v);
+  if (!isPlain(v) || seen.has(v)) return v;
+  seen.add(v); let out: any = v;
+  for (const k of Object.keys(v)) { const d = Object.getOwnPropertyDescriptor(v, k)!; if (d.get || d.value === null || typeof d.value !== "object") continue; const w = inputWhole(d.value, seen); if (w !== d.value) { if (out === v) out = Array.isArray(v) ? [...v] : { ...v }; out[k] = w; } }
+  return out;
+};
+/** ST-2a, C-2: the whole of a source or a projection — one store, whose root a write or an answer replaces where it stands. What
+ *  an equation keeps of one (`[...(pre seen -> []), tags]`, a companion's last value) is a copy of the root. */
+const roots = new WeakSet<object>();
+const rooted = <T extends object>(s: T): T => { roots.add(s); return s; };
+const kept = (v: unknown): unknown => v !== null && typeof v === "object" && roots.has(v) ? Array.isArray(v) ? [...v] : { ...v } : v;
 const latestWhole = (v: unknown) => v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v;
 /** EF-2: effect inputs compare as values: arrays and plain objects (a store's snapshot) by their contents. */
 const sameInput = (a: unknown, b: unknown): boolean => {
@@ -236,7 +252,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     source(name: string, init: unknown, guessed = false, key?: string): [Acc, Writer] {
       oneKeyEach(name, key, init);
       if (typeof init === "object" && init !== null) {
-        const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
+        const [store, setStore] = createStore(init as any); rooted(store as object); const [get, set] = createSignal<unknown>(store);
         const w: Writer = {
           // (ST-4d in development: the rows an updater answers, or leaves in its draft, and the rows a write gives)
           set: v => { if (typeof v === "function") { setStore(DEV && key !== undefined ? ((d: unknown) => { const r = (v as (x: unknown) => unknown)(d); oneKeyEach(name, key, r === undefined ? d : r); return r; }) as any : v as any); set(store); } else if (typeof v === "object" && v !== null) { oneKeyEach(name, key, v); setStore(key !== undefined ? reconcile(v as any, key) as any : () => v as any); set(store); } else set(v); },
@@ -244,7 +260,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
         if (guessed) {                                                    // createOptimisticStore(() => truth) over createStore(v)
-          const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {});
+          const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view);
           const acc = () => view; storeAccs.add(acc);
           return [acc, { ...w, guess: guessInto(setView) }];
         }
@@ -265,14 +281,14 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
       const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => land(draft, r instanceof Flight ? await r.first : await r))(); return land(draft, r); };
       const seed = () => key && !mode.record ? [] : {};
       if (mode.optimistic && mode.structured && mode.plain && !mode.derived) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
-        const [truth, setTruth] = (createStore as any)(derive, seed(), key ? { key } : undefined);
+        const [truth, setTruth] = (createStore as any)(derive, seed(), key ? { key } : undefined); rooted(truth);
         const tacc = () => truth; storeAccs.add(tacc);
-        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), key ? { key } : undefined);
+        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), key ? { key } : undefined); rooted(view);
         const get = () => view; storeAccs.add(get); truthOf.set(get, tacc);   // AC-4: `refresh x` re-asks the truth
         return [get, { set: v => setTruth((d: any) => typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v), path: pathWrite(setTruth), guess: guessInto(setView) }];
       }
       if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
-        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), key ? { key } : undefined);
+        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), key ? { key } : undefined); rooted(store);
         const get = () => store; storeAccs.add(get);
         const plain = () => { throw new Error("a plain write to an equation"); };
         return [get, { set: plain, path: plain, guess: guessInto(setStore) }];
@@ -289,7 +305,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
         return [get, { set: setTruth as any, path: () => { throw new Error("optimistic path writes are not lowered yet"); }, guess: setGuess as any }];
       }
       if (mode.structured) {
-        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});
+        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}); rooted(store); rooted(store);
         const get = () => store; storeAccs.add(get);
         return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
       }
@@ -306,11 +322,12 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     lend: (v: unknown, to: string): unknown => lent(copyOf(v, new Map()), to),
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
-    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => { const rows = fn(); oneKeyEach(name, key, rows); return rows; }) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
+    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => { const rows = fn(); oneKeyEach(name, key, rows); return rows; }) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); rooted(p as object); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
-    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
+    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); rooted(p as object); return () => p; },
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */
-    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
+    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: kept(get()), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
+    kept,
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
     /** `effect (…) { … }`: compute, then apply; fires on a differing value (EF-2); an input that failed doesn't fire it (EF-2a: the failure shows where it's read), and the next answer does; a store enters whole, as a snapshot. */
     effect(n: number, inputs: () => unknown[], apply: (p: unknown[]) => unknown) {
@@ -319,7 +336,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
       // apply answered whenever an input is computed again, so a pass that fires nothing hands it back, not run.
       const undo = () => { const c = cleanup; cleanup = undefined; c?.(); };
       const ended = () => { if (!node || isDisposed(node)) undo(); };
-      createEffect((() => { node = getOwner(); return inputs().map(latestWhole); }) as any, { effect: (vals: unknown[]) => {
+      createEffect((() => { node = getOwner(); return inputs().map(v => inputWhole(v)); }) as any, { effect: (vals: unknown[]) => {
         if (!last || last.length !== vals.length || !vals.every((v, i) => sameInput(v, last![i]))) { last = vals; undo(); const r = apply(vals); cleanup = typeof r === "function" ? r as () => void : undefined; }
         return cleanup && ended;
       }, error: () => { last = null; } } as any);

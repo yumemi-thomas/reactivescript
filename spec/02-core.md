@@ -432,6 +432,16 @@ Function application `f(e…)` covers both language functions and FFI imports;
   (The first draft, frame-indexed `pre`, moved on unrelated instants —
   S-core-1's old `prev 2` at an equal write — and could not be lowered
   without a frame clock.)
+  *What is kept (2026-11-24).* The value is the one `x` had, and what an
+  equation builds on its own last value (`[...(pre seen -> []), tags]`)
+  holds the values it was made of: a write of `tags` replaces its root
+  (ST-2a) and changes no list kept before it. Solid writes a store's root
+  where it stands, so what is kept of a whole source or projection — an
+  item, a field, an argument beside `pre self`, a companion's last value —
+  is a copy of its root (`__rt.kept`, 11). What is below the root keeps its
+  identity. One instant replaces `x` once, however often it is computed
+  there. `pre` is of any equation or source, a `ref` parameter and an
+  import included; of `props`, name the field.
 - **C-2a (Initial value).** `pre x -> e` is `pre x` where that is defined and
   `e` otherwise. `pre x` has type `T | undefined`; `pre x -> e` with `e : T`
   has type `T`. This is the only way to discharge the `undefined`; there is no
@@ -522,6 +532,9 @@ Function application `f(e…)` covers both language functions and FFI imports;
   has settled (§4). An `eᵢ` that derives from a guess or a lane value
   (H-7, H-11) fires with the lane's reveal — now, not at the hold's commit —
   and again when the guess reverts (S-ai-feed instant 4; both runners).
+  A store is part of the value that holds it (2026-11-24): an input
+  `{ tags: tags, n: n }`, or an equation that makes one, changes when the
+  list does, by a write of the whole or of an item (S-effect-store-3).
 - **EF-2a (A failure doesn't fire).** [2026-11-19, from Ryan's rule that a failure
   is shown where it's read] An instant in which some `eᵢ` is an error (E-12) does
   not run `B`: the failure is shown by the region that reads it (R-f-5), and an
