@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { viteDir } from "./vite-dir.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = path.resolve(here, "..");
@@ -28,7 +29,8 @@ function npmPlugin() {
 }
 const pluginDir = process.env.SOLID_VITE_PLUGIN ? path.resolve(process.env.SOLID_VITE_PLUGIN) : loadsRx(installed) ? installed : npmPlugin();
 const deps = path.resolve(installed, "../..");   // the installed plugin's node_modules: vite, solid-js, @solidjs/web
-const vite = await import(pathToFileURL(path.join(deps, "vite/dist/node/index.js")).href);
+const vitePkg = viteDir(deps);
+const vite = await import(pathToFileURL(path.join(vitePkg, "dist/node/index.js")).href);
 const solid = (await import(pathToFileURL(path.join(pluginDir, "dist/esm/index.mjs")).href)).default;
 const { chromium } = createRequire(import.meta.url)("playwright");
 const runtime = path.join(repo, "runtime");   // @reactivescript/runtime, built (`npm run build` there)
@@ -73,7 +75,7 @@ function project(name, entry) {
   // the project's node_modules: the plugin's (vite, solid-js, @solidjs/web) and this package, installed
   const nm = path.join(dir, "node_modules"); mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
   for (const d of readdirSync(deps)) {
-    if (!d.startsWith("@")) { symlinkSync(path.join(deps, d), path.join(nm, d)); continue; }
+    if (!d.startsWith("@")) { symlinkSync(d === "vite" ? vitePkg : path.join(deps, d), path.join(nm, d)); continue; }
     mkdirSync(path.join(nm, d), { recursive: true });
     for (const e of readdirSync(path.join(deps, d))) symlinkSync(path.join(deps, d, e), path.join(nm, d, e));
   }

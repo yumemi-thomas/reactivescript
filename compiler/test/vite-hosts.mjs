@@ -9,6 +9,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { viteDir } from "./vite-dir.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = path.resolve(here, "..");
@@ -16,7 +17,8 @@ const repo = path.resolve(pkg, "..");
 const store = path.resolve(process.env.SOLID_NEXT ?? path.resolve(repo, "../solid-next"), "node_modules/.pnpm")   // the checkout beside the repository, or $SOLID_NEXT (as ref/scripts/solid-next.sh);
 const installed = path.join(store, readdirSync(store).filter(d => d.startsWith("@solidjs+vite-plugin@")).sort().pop(), "node_modules/@solidjs/vite-plugin");
 const deps = path.resolve(installed, "../..");
-const vite = await import(pathToFileURL(path.join(deps, "vite/dist/node/index.js")).href);
+const vitePkg = viteDir(deps);
+const vite = await import(pathToFileURL(path.join(vitePkg, "dist/node/index.js")).href);
 const { default: rx } = await import(pathToFileURL(path.join(pkg, "vite.mjs")).href);
 const withResolve = process.env.SOLID_VITE_PLUGIN ? path.resolve(process.env.SOLID_VITE_PLUGIN) : undefined;
 const without = path.join(here, ".out/.plugin/node_modules/@solidjs/vite-plugin");
@@ -26,7 +28,7 @@ function project() {
   const dir = path.join(here, ".out/vite-hosts"); rmSync(dir, { recursive: true, force: true }); mkdirSync(path.join(dir, "src/pages"), { recursive: true });
   const nm = path.join(dir, "node_modules"); mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
   for (const d of readdirSync(deps)) {
-    if (!d.startsWith("@")) { symlinkSync(path.join(deps, d), path.join(nm, d)); continue; }
+    if (!d.startsWith("@")) { symlinkSync(d === "vite" ? vitePkg : path.join(deps, d), path.join(nm, d)); continue; }
     mkdirSync(path.join(nm, d), { recursive: true });
     for (const e of readdirSync(path.join(deps, d))) symlinkSync(path.join(deps, d, e), path.join(nm, d, e));
   }

@@ -59,10 +59,10 @@
     "solid-js": "^2.0.0"
   },
   "devDependencies": {
-    "@solidjs/signals": "2.0.2",
-    "@solidjs/web": "2.0.2",
+    "@solidjs/signals": "2.0.3",
+    "@solidjs/web": "2.0.3",
     "esbuild": "^0.28.2",
-    "solid-js": "2.0.2",
+    "solid-js": "2.0.3",
     "typescript": "^6.0.3"
   }
 }

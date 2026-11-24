@@ -81,7 +81,11 @@ SOLID_VITE_PLUGIN=<that checkout> node test/vite-watch.mjs   # vite build --watc
 
 (`vite-watch` polls, and makes an edit again until a rebuild has started for it: Rolldown's watcher takes a file's
 state some time after the build that named it has ended, and on macOS an edit made before that was never seen. Run at
-`27e56ed` of that branch, 2026-11-23, and again with 09 MO-14f in the crate: `vite-hosts` 6/6, `vite-watch` 7/7.)
+`27e56ed` of that branch, 2026-11-23, and again with 09 MO-14f in the crate: `vite-hosts` 6/6, `vite-watch` 7/7. The
+three suites run the Vite `bench/package.json` pins, from its workspace (`test/vite-dir.mjs`; they ran the one in Solid's
+checkout until 2026-11-24): read and run at 8.3.8, three times each. Its source still writes the two spellings below
+(`getImportModule` and the hot update's `replacedUrl`) — `test/vite.mjs context` fails with `__rxKey` taken away — and
+still takes a build watcher's polling from `watch.chokidar` alone (`convertToWatcherOptions`).)
 
 What happens to a `.rx` module in Vite:
 

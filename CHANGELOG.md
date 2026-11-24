@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**The suites run on Vite 8.3.8 and Solid 2.0.3** (bench, examples, the runtime's own tests)
+
+- **Changed: what the benchmark, the examples and the runtime's tests install** — Vite 8.1.5 to 8.3.8 (Rolldown 1.2),
+  Solid 2.0.2 to 2.0.3. The published peer ranges are as they were. Solid 2.0.3 adds `markRaw` to `solid-js` and nothing
+  else in the packages used here; its compiler is unchanged since the crate's pin, and `ref/SOLID_NEXT` is ahead of it.
+- **Fixed: the dev-server suites ran the Vite in Solid's checkout**, not the one an app gets. They run the benchmark's.
+
 **The tooling's TypeScript is tsrs 7.1.0-beta.tsrs5 (TypeScript 7.1 beta)** (spec/13 TY-1; tooling/rx-language-server/README.md, *The checker*)
 
 - **Changed: every verdict about types is tsrs's** — `rx-tsc`, the Vite build's gate, the check `rx-declare` makes of its

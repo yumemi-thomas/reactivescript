@@ -8,6 +8,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { viteDir } from "./vite-dir.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = path.resolve(here, "..");
@@ -18,14 +19,15 @@ const deps = path.resolve(installed, "../..");
 const pluginDir = process.env.SOLID_VITE_PLUGIN ? path.resolve(process.env.SOLID_VITE_PLUGIN) : undefined;
 const hasBuildStart = dir => { try { return /frontend\.buildStart/.test(readFileSync(path.join(dir, "dist/esm/index.mjs"), "utf8")); } catch { return false; } };
 if (!pluginDir || !hasBuildStart(pluginDir)) { console.error("set SOLID_VITE_PLUGIN to a built @solidjs/vite-plugin that calls front ends at each build's start (Frontend.buildStart)"); process.exit(2); }
-const vite = await import(pathToFileURL(path.join(deps, "vite/dist/node/index.js")).href);
+const vitePkg = viteDir(deps);
+const vite = await import(pathToFileURL(path.join(vitePkg, "dist/node/index.js")).href);
 const solid = (await import(pathToFileURL(path.join(pluginDir, "dist/esm/index.mjs")).href)).default;
 const { default: rx } = await import(pathToFileURL(path.join(pkg, "vite.mjs")).href);
 
 const dir = path.join(here, ".out/vite-watch"); rmSync(dir, { recursive: true, force: true }); mkdirSync(path.join(dir, "src"), { recursive: true });
 const nm = path.join(dir, "node_modules"); mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
 for (const d of readdirSync(deps)) {
-  if (!d.startsWith("@")) { symlinkSync(path.join(deps, d), path.join(nm, d)); continue; }
+  if (!d.startsWith("@")) { symlinkSync(d === "vite" ? vitePkg : path.join(deps, d), path.join(nm, d)); continue; }
   mkdirSync(path.join(nm, d), { recursive: true });
   for (const e of readdirSync(path.join(deps, d))) symlinkSync(path.join(deps, d, e), path.join(nm, d, e));
 }
