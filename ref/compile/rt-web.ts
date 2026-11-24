@@ -74,6 +74,29 @@ export { flush };
 export type Acc = () => unknown;
 export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown, keys?: (string | number)[]) => void };
 export type Entry = { get?: Acc; w?: Writer; value?: unknown };
+/** A signal of `init`. `createSignal(f)` of a function is Solid's derived signal, so a source that begins as a function (a
+ *  value like any other) is a signal of a box: a plain signal still, written and held as one is. */
+const boxOf = new WeakMap<Acc, Acc>();
+const signalOf = (init: unknown): [Acc, (v: unknown) => void] => {
+  if (typeof init !== "function") return createSignal<unknown>(init) as never;
+  const [box, set] = createSignal<{ v: unknown }>({ v: init }, { equals: (a, b) => a.v === b.v });
+  const get = () => box().v; boxOf.set(get, box);
+  return [get, v => { set(b => ({ v: typeof v === "function" ? v(b.v) : v })); }];
+};
+/** W-6 for a source whose first value was an array or a record (ST-1: a store behind a signal slot): an updater is given the
+ *  slot as it stands, which is not the store once something else was written (`null`), and what it answers is stored,
+ *  whatever it is. `replace` puts an object in the store; `edit` runs an updater on it. */
+const rootSet = (store: unknown, set: (v: (at: unknown) => unknown) => void, replace: (v: object) => void, edit: (f: (d: unknown) => unknown) => void) => {
+  const put = (v: unknown) => { if (typeof v === "object" && v !== null) { replace(v); set(() => store); } else set(() => v); };
+  return (v: unknown) => {
+    if (typeof v !== "function") return put(v);
+    let at: unknown; set(p => (at = p));
+    if (at !== store) return put(v(at));
+    let other: { v: unknown } | undefined;
+    edit(d => { const r = v(d); if (r === undefined || (typeof r === "object" && r !== null)) return r; other = { v: r }; });
+    set(() => other ? other.v : store);
+  };
+};
 
 // ---------------------------------------------------------------- values
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
@@ -283,7 +306,9 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
         const [store, setStore] = createStore(init as any); rooted(store as object); if (key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
         const w: Writer = {
           // (ST-4d in development: the rows an updater answers, or leaves in its draft, and the rows a write gives)
-          set: v => { if (typeof v === "function") { setStore(DEV && key !== undefined ? ((d: unknown) => { const r = (v as (x: unknown) => unknown)(d); oneKeyEach(name, key, r === undefined ? d : r); return r; }) as any : v as any); set(store); } else if (typeof v === "object" && v !== null) { oneKeyEach(name, key, v); setStore(key !== undefined ? reconcile(v as any, key) as any : () => v as any); set(store); } else set(v); },
+          set: rootSet(store, set as never,
+            v => { oneKeyEach(name, key, v); setStore(key !== undefined ? reconcile(v as any, key) as any : () => v as any); },
+            f => setStore((DEV && key !== undefined ? (d: unknown) => { const r = f(d); oneKeyEach(name, key, r === undefined ? d : r); return r; } : f) as any)),
           path: pathWrite(setStore),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
@@ -294,7 +319,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
         }
         return [get, w];
       }
-      const [get, set] = createSignal(init);
+      const [get, set] = signalOf(init);
       if (guessed) {                                                      // createOptimistic(() => truth()) over createSignal(v)
         const [view, setGuess] = createOptimistic(() => get());
         return [view as Acc, { set: set as (v: unknown) => void, path: () => { throw new Error("a path write to an atomic source"); }, guess: setGuess as any }];
@@ -420,7 +445,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     onSettled: (f: () => void) => onSettled(f),                             // EF-7
     onFlush: (f: () => void) => onFlush(f),                                 // EF-8
     refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedOf.get(get) ?? []) refresh(h as any); const t = truthOf.get(get) ?? get; refresh((storeAccs.has(t) ? t() : t) as any); },
-    affects: (get: Acc) => affects((storeAccs.has(get) ? get() : get) as any),   // a structured source's accessor wraps its store: Solid takes the store (#50), as `refresh` above
+    affects: (get: Acc) => affects((storeAccs.has(get) ? get() : boxOf.get(get) ?? get) as any),   // a structured source's accessor wraps its store: Solid takes the store (#50), as `refresh` above
     preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
     // ---- modules (09 MO-1): a dependency's factory runs once per app; its exports are shared by every importer ----

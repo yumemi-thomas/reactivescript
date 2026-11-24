@@ -64,7 +64,7 @@ class Cursor {
   expect(s: string) { if (!this.eat(s)) this.fail(`expected '${s}'`); }
   fail(msg: string): never {
     const h = hint(this.src, this.i, msg);
-    const near = this.src.slice(this.i, this.i + 20).split("\n")[0];
+    const near = [...this.src.slice(this.i, this.i + 40)].slice(0, 20).join("").split("\n")[0];
     const e = new ParseError(`line ${this.line}: ${msg} ${near.trim() ? `near '${near}'` : "at the end of the line"}${h ? ` — ${h[1]}` : ""}`);
     if (h) e.code = h[0];
     throw e;
@@ -1297,6 +1297,7 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     }
     if (!inElement) { const ctl = parseControl(c); if (ctl) { out.push({ ...ctl, line }); continue; } }
     if (closeTag === null && looksLikeDecl(c)) c.fail("declaration after markup: a block is declarations, then its view");
+    if (inElement && c.peek() === "}") c.fail("expected a declaration or markup");   // a `}` that closes nothing: no text is read there, again and again
     // text up to < { } or newline; a line's trailing whitespace is not text (JSX)
     let s = "";
     while (!c.eof() && !"<{}\n".includes(c.peek())) { s += c.peek(); c.i++; }

@@ -2,7 +2,7 @@
 
 Not fixed in this branch: a question first. See [proposal 21](../21-locals-in-fns.md).
 
-<!-- check branch=INSTANTIATION_NOT_BOUND upstream=INSTANTIATION_NOT_BOUND says-upstream="declares state" -->
+<!-- check prototype=ok branch=INSTANTIATION_NOT_BOUND upstream=INSTANTIATION_NOT_BOUND says-upstream="declares state" -->
 ```rx
 fn area(w: number, h: number): number { half = w / 2
   half * h }

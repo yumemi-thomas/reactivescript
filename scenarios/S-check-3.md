@@ -367,7 +367,7 @@ export default component App() {
     if (hits > 100) { off(); return () => { sub.unsubscribe(); for (const s of stops) { s() } } }
     return () => { off(); sub.unsubscribe(); for (const s of stops) { s() } }
   }
-  <button onClick={() => { held := onShortcut("j", () => { hits := 0 }) }}>on</button>
+  <button onClick={() => { let stop = onShortcut("j", () => { hits := 0 }); held := () => stop }}>on</button>
   <button onClick={() => { if (held) { held() }; held := null }}>{hits}</button>
 }
 ```

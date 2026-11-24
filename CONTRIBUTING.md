@@ -164,7 +164,7 @@ npm run oracle                 # the same scenarios lowered onto Solid
 npm run compiled               # compiled modules
 npm run ssr                    # streamed SSR + hydration in Chromium (several processes: RX_JOBS, default 4)
 npm run types                  # TSX projection checked by TypeScript
-npm run crate                  # the Rust crate against ref/ (also --spa, --whole-program, --lower, --project)
+npm run crate                  # the Rust crate against ref/ (also --spa, --whole-program, --lower, --project; --text, alone or with the last two: the programs again with é, 漢, 😀, CRLF, cut short)
 ```
 
 The crate, the plugin, the runtime and the tooling, from the repository's root:

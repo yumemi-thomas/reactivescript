@@ -11,6 +11,7 @@
 //!   export context theme: source pending Theme = …          rows, then the written type; `= …` a default
 //!   export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) fails(Error) uses(…) shape(…)
 
+use crate::parse::JsTrim;
 use crate::content::Shape;
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
@@ -321,7 +322,7 @@ fn balanced(s: &str, at: usize) -> Option<&str> {
 fn hosts_of(file: &str, text: &str) -> IndexMap<String, Vec<HostSite>> {
     let mut out: IndexMap<String, Vec<HostSite>> = IndexMap::new();
     for part in split(text, ';') {
-        let key = part.split_whitespace().next().unwrap_or("").to_string();
+        let key = part.split(crate::parse::js_ws).filter(|w| !w.is_empty()).next().unwrap_or("").to_string();
         let rest = &part[key.len()..];
         let f = P_CATCHES.captures(rest).map(|c| catch_of(&c[2])).unwrap_or_else(|| Catch::Set(IndexSet::new()));
         let p = match P_PROVIDES.captures(rest) {
@@ -497,7 +498,7 @@ pub struct SignatureError(pub String);
 
 macro_rules! re {
     ($name:ident, $pat:expr) => {
-        static $name: LazyLock<Regex> = LazyLock::new(|| Regex::new($pat).unwrap());
+        static $name: LazyLock<Regex> = LazyLock::new(|| crate::parse::js_regex($pat));
     };
 }
 re!(ROW, r"^(io|pending|lane|fails\(([^)]*)\))$");
@@ -589,7 +590,7 @@ pub fn content_shape_of(s: Option<&str>) -> Result<Shape, String> {
     let mut sh = Shape::default();
     let Some(s) = s else { return Ok(sh) };
     for p in s.split(';').map(crate::parse::js_trim).filter(|x| !x.is_empty()) {
-        let ws: Vec<String> = p.split(char::is_whitespace).filter(|x| !x.is_empty()).map(String::from).collect();
+        let ws: Vec<String> = p.split(crate::parse::js_ws).filter(|x| !x.is_empty()).map(String::from).collect();
         let (w, rest) = (ws[0].as_str(), ws[1..].to_vec());
         match w {
             "roots" => sh.roots = rest,
@@ -738,9 +739,9 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     // `takes(data pending fails(Error), result.more pending)`
                     for part in split(&t[2], ',') {
                         let part = crate::parse::js_trim(&part);
-                        let path = part.split_whitespace().next().unwrap_or("").to_string();
+                        let path = part.split(crate::parse::js_ws).filter(|w| !w.is_empty()).next().unwrap_or("").to_string();
                         let holds = P_PENDING.is_match(part);
-                        let fails = P_FAILS.captures(part).map(|f| f[1].split('|').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect()).unwrap_or_default();
+                        let fails = P_FAILS.captures(part).map(|f| f[1].split('|').map(|c| c.js_trim().to_string()).filter(|c| !c.is_empty()).collect()).unwrap_or_default();
                         if !path.is_empty() {
                             v.takes.push((path, holds, fails));
                         }

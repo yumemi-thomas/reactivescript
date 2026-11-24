@@ -19,8 +19,30 @@ type R<T> = Result<T, ParseError>;
 
 macro_rules! re {
     ($name:ident, $pat:expr) => {
-        static $name: LazyLock<Regex> = LazyLock::new(|| Regex::new($pat).unwrap());
+        static $name: LazyLock<Regex> = LazyLock::new(|| js_regex($pat));
     };
+}
+/// A pattern as JavaScript reads it without its `u` flag, so that the reference's regular expressions and these say one
+/// thing of one text: `\s` is JavaScript's white space (U+FEFF is, U+0085 is not), `\w`, `\d` and `\b` are ASCII's, and `.`
+/// stops at each of JavaScript's line ends.
+pub fn js_regex(pat: &str) -> Regex {
+    let (mut out, mut cs, mut class) = (String::with_capacity(pat.len()), pat.chars(), false);
+    while let Some(c) = cs.next() {
+        match (c, if c == '\\' { cs.next() } else { None }) {
+            (_, Some('s')) => out.push_str(r"[\t-\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]"),
+            (_, Some('S')) => out.push_str(r"[^\t-\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]"),
+            (_, Some('w')) => out.push_str("[A-Za-z0-9_]"),
+            (_, Some('d')) => out.push_str("[0-9]"),
+            (_, Some('b')) => out.push_str(r"(?-u:\b)"),
+            (_, Some(x)) => out.extend(['\\', x]),
+            ('.', _) if !class => out.push_str(r"[^\n\r\u{2028}\u{2029}]"),
+            _ => {
+                class = c == '[' || (class && c != ']');
+                out.push(c)
+            }
+        }
+    }
+    Regex::new(&out).unwrap()
 }
 re!(IDENT, r"^[A-Za-z_$][A-Za-z0-9_$]*");
 re!(TAG, r"^[A-Za-z_$][A-Za-z0-9_$:.\-]*");
@@ -183,7 +205,7 @@ impl<'a> Cursor<'a> {
     pub fn fail<T>(&self, msg: &str) -> R<T> {
         let near: String = self.rest().chars().take(20).collect();
         let near = near.split('\n').next().unwrap_or("");
-        let near = if near.trim().is_empty() { "at the end of the line".to_string() } else { format!("near '{}'", near) };
+        let near = if js_trim(near).is_empty() { "at the end of the line".to_string() } else { format!("near '{}'", near) };
         let h = hint(self.src, self.i, msg);
         let tail = h.as_ref().map(|(_, t)| format!(" — {}", t)).unwrap_or_default();
         Err(ParseError(format!("line {}: {} {}{}", self.line(), msg, near, tail), Some(self.i), None, h.map(|(c, _)| c).unwrap_or("PARSE")))
@@ -317,11 +339,28 @@ fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
     }
     Ok(t)
 }
+/// JavaScript's `trim`, `trimStart`, `trimEnd`.
+pub trait JsTrim {
+    fn js_trim(&self) -> &str;
+    fn js_trim_start(&self) -> &str;
+    fn js_trim_end(&self) -> &str;
+}
+impl JsTrim for str {
+    fn js_trim(&self) -> &str {
+        self.trim_matches(js_ws)
+    }
+    fn js_trim_start(&self) -> &str {
+        self.trim_start_matches(js_ws)
+    }
+    fn js_trim_end(&self) -> &str {
+        self.trim_end_matches(js_ws)
+    }
+}
 pub fn js_trim(s: &str) -> &str {
     s.trim_matches(js_ws)
 }
-fn js_ws(c: char) -> bool {
-    c.is_whitespace() || c == '\u{feff}'
+pub fn js_ws(c: char) -> bool {
+    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
 /// `x: T key k = …` (ST-4): the type ends where the key begins.
 fn split_key(ty: Option<String>) -> (Option<String>, Option<String>) {
@@ -373,11 +412,11 @@ re!(OP_ASSIGN, r"^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*/%])=)");
 pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
     let i = i.min(src.len());
     let rest = &src[i..];
-    let at = if !rest.is_empty() && !rest.split('\n').next().unwrap_or("").trim().is_empty() { i as i64 } else { src[..i].trim_end().len() as i64 - 1 };
-    let p = at.max(0) as usize;
+    // the failing line, or, where nothing is left of it, the last character before: an offset of a character, not of a byte in it
+    let p = if !js_trim(rest.split('\n').next().unwrap_or("")).is_empty() { i } else { src[..i].trim_end_matches(js_ws).char_indices().next_back().map_or(0, |(j, _)| j) };
     let start = if p == 0 { 0 } else { src[..p].rfind('\n').map(|j| j + 1).unwrap_or(0) };
     let end = src[p..].find('\n').map(|j| p + j).unwrap_or(src.len());
-    let line = src[start..end].trim();
+    let line = js_trim(&src[start..end]);
     let before = &src[src[..i].rfind('\n').map(|j| j + 1).unwrap_or(0)..i];
     let name = NAME_BEFORE.captures(before).map(|c| c[1].to_string()).unwrap_or_else(|| "x".into());
     if msg.starts_with("W-2") && rest.starts_with(":=") && ARROW_BEFORE.is_match(before) {
@@ -518,7 +557,7 @@ fn skip_line(c: &mut Cursor) {
             Some(j) => c.i += j + 1,
         }
         let ch = c.peek();
-        if !ch.is_whitespace() && ch != '}' && ch != '\0' {
+        if !js_ws(ch) && ch != '}' && ch != '\0' {
             return;
         }
     }
@@ -628,8 +667,8 @@ fn field_name(k: &str) -> String {
 fn shape_of(t: &str) -> Shape {
     // MO-10b: a read-only tuple is a tuple (`as const` results)
     if let Some(rest) = t.strip_prefix("readonly ") {
-        if rest.trim_start().starts_with('[') {
-            return shape_of(rest.trim_start());
+        if rest.js_trim_start().starts_with('[') {
+            return shape_of(rest.js_trim_start());
         }
     }
     if t.starts_with('[') && t.ends_with(']') && t.len() >= 2 {
@@ -826,7 +865,7 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
 /// MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`).
 /// MO-10i: a function type's parameter list (`(a: A, b: B) => R` → `a: A, b: B`), or None.
 fn fn_params_text(t: &str) -> Option<String> {
-    let t = t.trim();
+    let t = t.js_trim();
     if !t.starts_with('(') {
         return None;
     }
@@ -840,7 +879,7 @@ fn fn_params_text(t: &str) -> Option<String> {
             depth -= 1;
             if depth == 0 {
                 let rest: String = cs[i + 1..].iter().collect();
-                return if rest.trim_start().starts_with("=>") { Some(cs[1..i].iter().collect()) } else { None };
+                return if rest.js_trim_start().starts_with("=>") { Some(cs[1..i].iter().collect()) } else { None };
             }
         }
     }
@@ -859,7 +898,7 @@ fn drafts_of_fn(t: &str) -> Vec<(usize, Vec<usize>)> {
         .enumerate()
         .filter_map(|(i, p)| {
             let ds = match p.find(':') {
-                Some(c) => draft_params(Some(p[c + 1..].trim())),
+                Some(c) => draft_params(Some(p[c + 1..].js_trim())),
                 None => vec![],
             };
             (!ds.is_empty()).then_some((i, ds))
@@ -880,7 +919,7 @@ fn draft_parts(ret: Option<&str>) -> Vec<(String, Vec<(usize, Vec<usize>)>)> {
     } else if t.starts_with('{') && t.ends_with('}') {
         for f in split_top(&t[1..t.len() - 1], ",;") {
             if let Some(c) = f.find(':') {
-                let d = drafts_of_fn(f[c + 1..].trim());
+                let d = drafts_of_fn(f[c + 1..].js_trim());
                 if !d.is_empty() {
                     out.push((field_name(&f[..c]), d));
                 }
@@ -891,7 +930,7 @@ fn draft_parts(ret: Option<&str>) -> Vec<(String, Vec<(usize, Vec<usize>)>)> {
 }
 /// Where a type begins: a word there is the `.d.rx`'s, and a field or a method of that name is not.
 fn type_at(t: &str, at: usize) -> bool {
-    let b = t[..at].trim_end();
+    let b = t[..at].js_trim_end();
     b.is_empty() || b.ends_with([':', '|', '&', '?', '(', '<', '[']) || b.ends_with("=>")
 }
 /// MO-10g: `handler` before a type that is no function's.
@@ -920,7 +959,7 @@ fn strip_handler(t: &str) -> String {
 }
 /// MO-10g: a function type marked `handler` (revised 2026-11-21): only such a type is a callback.
 fn is_handler(t: &str) -> bool {
-    t.strip_prefix("handler").is_some_and(|r| r.starts_with(char::is_whitespace) && js_trim(r).starts_with('('))
+    t.strip_prefix("handler").is_some_and(|r| r.starts_with(js_ws) && js_trim(r).starts_with('('))
 }
 /// `tracked` was a word before a function type (a callback the library calls inside a computation of its own). A function
 /// type without `handler` is a pure function already (MO-10g), which is all the checker read of it: the word is refused,
@@ -992,9 +1031,9 @@ fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
     let word_ch = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$' || c >= 0x80;
     while j < b.len() {
         let ch = b[j];
-        if ch.is_ascii_whitespace() {
+        if let Some(w) = s[j..].chars().next().filter(|w| js_ws(*w)) {
             brk |= ch == b'\n';
-            j += 1;
+            j += w.len_utf8();
             continue;
         }
         nl.push(brk);
@@ -1553,7 +1592,7 @@ impl<'t> TyP<'t> {
 /// Field and parameter names are not mentions, nor is a string literal (masked, `___`).
 fn names_type(text: &str, values: &std::collections::HashSet<String>) -> bool {
     let t = masked_strings(text);
-    let own: Vec<&str> = UNTYPED_ARROW.captures_iter(&t).flat_map(|m| m.get(1).unwrap().as_str().split(',').map(|x| x.trim())).collect();
+    let own: Vec<&str> = UNTYPED_ARROW.captures_iter(&t).flat_map(|m| m.get(1).unwrap().as_str().split(',').map(|x| x.js_trim())).collect();
     let b = t.as_bytes();
     let word = |x: u8| x.is_ascii_alphanumeric() || x == b'_' || x == b'$';
     let mut i = 0;
@@ -1567,10 +1606,10 @@ fn names_type(text: &str, values: &std::collections::HashSet<String>) -> bool {
             i += 1;
         }
         let w = &t[at..i];
-        let after = t[i..].trim_start();
+        let after = t[i..].js_trim_start();
         let field = after.strip_prefix('?').map(str::trim_start).unwrap_or(after).starts_with(':');
         let dollar = w.len() > 1 && w.starts_with('$') && w[1..].bytes().all(|x| x.is_ascii_digit());
-        if !b[at].is_ascii_digit() && !field && !dollar && w.bytes().any(|x| x != b'_') && !t[..at].trim_end().ends_with('.') && !own.contains(&w) && !values.contains(w) {
+        if !b[at].is_ascii_digit() && !field && !dollar && w.bytes().any(|x| x != b'_') && !t[..at].js_trim_end().ends_with('.') && !own.contains(&w) && !values.contains(w) {
             return true;
         }
     }
@@ -1595,7 +1634,7 @@ fn type_args_at(s: &str) -> Option<(String, usize)> {
         } else if b")]}".contains(&ch) || (ch == b'>' && (j == 0 || b[j - 1] != b'=')) {
             depth -= 1;
             if depth == 0 {
-                let text = s[1..j].trim();
+                let text = s[1..j].js_trim();
                 return if ch == b'>' && b.get(j + 1) == Some(&b'(') && looks_like_types(text) { Some((text.to_string(), j + 1)) } else { None };
             }
         }
@@ -1614,7 +1653,7 @@ fn is_view_type(t: &str) -> bool {
 /// A function type holds none, and a `Component` itself is MO-11c's own case. `ref/src/parse.ts` `holdsComponent`.
 pub fn holds_component(t: &str, inside: bool, depth: usize) -> bool {
     let t = js_trim(t);
-    let t = t.strip_prefix("readonly").filter(|r| r.starts_with(char::is_whitespace)).map(js_trim).unwrap_or(t);
+    let t = t.strip_prefix("readonly").filter(|r| r.starts_with(js_ws)).map(js_trim).unwrap_or(t);
     if t.is_empty() || depth > 8 {
         return false;
     }
@@ -1665,7 +1704,7 @@ fn is_component_type(t: &str) -> bool {
     }
     match t.strip_prefix("Component") {
         Some(r) => {
-            let r = r.trim_start();
+            let r = r.js_trim_start();
             if r.is_empty() {
                 return true;
             }
@@ -1715,7 +1754,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         c.expect(":")?;
         c.ws(true);
         // MO-8o: `props: import("kit").SelectProps<Option> & { onChange?: handler (v: Option) => void }`
-        if !c.starts_with("{") || !closes_props(c.src.as_bytes(), c.i) {
+        if !c.starts_with("{") || !closes_props(c.src, c.i) {
             props_type = Some(props_type_of(c)?);
         }
         let record = c.eat("{");
@@ -1782,7 +1821,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
                 ty = (!t.is_empty()).then(|| t.to_string());
             }
             // MO-11o, withdrawn (MO-8r, 2026-11-23): `router: renders any`
-            if ty.as_deref().is_some_and(|t| t.strip_prefix("renders").is_some_and(|r| r.starts_with(char::is_whitespace))) {
+            if ty.as_deref().is_some_and(|t| t.strip_prefix("renders").is_some_and(|r| r.starts_with(js_ws))) {
                 return c.fail(gone("renders(later)"));
             }
             if ty.as_deref().is_some_and(tracked_word) {
@@ -1887,7 +1926,8 @@ fn skip_string_at(b: &[u8], mut j: usize) -> usize {
     j + 1
 }
 /// Whether the record that opens at `j` closes a component's props: its `}` is followed by the `)` of the parameter.
-fn closes_props(b: &[u8], j: usize) -> bool {
+fn closes_props(src: &str, j: usize) -> bool {
+    let b = src.as_bytes();
     let (mut k, mut braces) = (j, 0i32);
     while k < b.len() {
         let x = b[k];
@@ -1905,11 +1945,7 @@ fn closes_props(b: &[u8], j: usize) -> bool {
         }
         k += 1;
     }
-    let mut e = k + 1;
-    while e < b.len() && b[e].is_ascii_whitespace() {
-        e += 1;
-    }
-    e < b.len() && b[e] == b')'
+    src.get(k + 1..).is_some_and(|r| r.js_trim_start().starts_with(')'))
 }
 fn props_type_of(c: &mut Cursor) -> R<String> {
     let t0 = c.i;
@@ -1929,7 +1965,7 @@ fn props_type_of(c: &mut Cursor) -> R<String> {
             while j < b.len() && b[j].is_ascii_whitespace() {
                 j += 1;
             }
-            if j < b.len() && b[j] == b'{' && closes_props(b, j) {
+            if j < b.len() && b[j] == b'{' && closes_props(c.src, j) {
                 end = Some((c.i, j));
             }
         }
@@ -2003,7 +2039,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         starts.push(line);
         // MO-14: a host declaration (`host.d.rx`) — the `.rx` components a JS host renders, imported as an `.rx` module
         // imports them, and the view it makes of them (`export default component … = <tree>`)
-        if c.starts_with("import") && c.src[c.i + 6..].chars().next().is_some_and(|ch| ch.is_whitespace() || ch == '{') {
+        if c.starts_with("import") && c.src[c.i + 6..].chars().next().is_some_and(|ch| js_ws(ch) || ch == '{') {
             let start = c.i;
             c.keyword("import");
             c.ws(true);
@@ -2146,7 +2182,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                     c.i += ch.len_utf8();
                 }
                 // SV-5a: an optional field keeps its `?` (`code?`): an instance may come without it
-                fields = split_top(&c.src[t0..c.i - 1], ",").iter().map(|f| f.split(':').next().unwrap_or("").chars().filter(|ch| !ch.is_whitespace()).collect::<String>()).filter(|f| !f.is_empty() && f != "?").collect();
+                fields = split_top(&c.src[t0..c.i - 1], ",").iter().map(|f| f.split(':').next().unwrap_or("").chars().filter(|ch| !js_ws(*ch)).collect::<String>()).filter(|f| !f.is_empty() && f != "?").collect();
             }
             out.push(JsDecl::Error { name, line, fields });
             continue;
@@ -2284,8 +2320,8 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             let t = code_of(&line0).to_string(); // words in a `// comment` are not rows
             let m = masked(&t); // nor words in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`)
             let r1 = REJECTS.find(&m).map(|x| x.end() - "rejects(".len());
-            let r2 = INSTANTIATES.find(&m).map(|x| x.start() + if m[x.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "under(", "joins(", "methods("].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
+            let r2 = INSTANTIATES.captures(&m).map(|x| x.get(1).unwrap().end());
+            let r3 = CTX_WORD.captures(&m).map(|x| x.get(2).unwrap().start()); // MO-12
             let r4 = GONE_WORD.captures(&m).map(|x| x.get(1).unwrap().start());
             let r = [r1, r2, r3, r4].into_iter().flatten().min();
             let head = match r {
@@ -2623,7 +2659,7 @@ pub(crate) fn type_words(t: &str, at: Words) -> Option<TypeWords> {
                     if m.get(1).is_some() {
                         holds = true;
                     } else {
-                        fails = m[2].split('|').map(|y| y.trim().to_string()).filter(|y| !y.is_empty()).collect();
+                        fails = m[2].split('|').map(|y| y.js_trim().to_string()).filter(|y| !y.is_empty()).collect();
                     }
                     i += m[0].len() - 1; // the character after the word is the type's
                 }
@@ -3322,11 +3358,15 @@ pub fn parse_block(c: &mut Cursor) -> R<Vec<Stmt>> {
     c.ws(true);
     let mut out = vec![];
     while !c.starts_with("}") {
+        let at = c.i;
         out.push(parse_stmt(c)?);
         out.append(&mut c.pending);
         c.ws(true);
         c.eat(";");
         c.ws(true);
+        if c.i == at {
+            return c.fail("expression"); // an editor's parse reads a missing expression as an empty one: no statement is there
+        }
     }
     c.expect("}")?;
     Ok(out)
@@ -3627,7 +3667,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
                     c.bump();
                     c.ws(true);
                     match parse_type(c, false, true) {
-                        Ok(t) if !t.trim().is_empty() => ptypes.push(Some(t.trim().to_string())),
+                        Ok(t) if !t.js_trim().is_empty() => ptypes.push(Some(t.js_trim().to_string())),
                         _ => {
                             ok = false;
                             break;
@@ -4127,12 +4167,11 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
         }
         if !in_element {
             if js_trim(&s).is_empty() {
+                if c.peek() == '}' {
+                    return c.fail("expected a declaration or markup");
+                }
                 if c.peek() == '\n' {
                     c.bump();
-                }
-                if c.i == start {
-                    // the reference loops here forever (a stray `}`); this ends it
-                    return c.fail("expected a declaration or markup");
                 }
                 continue;
             }
@@ -4149,7 +4188,7 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
             out.push(Markup { kind: MarkupKind::Text(s), line: None, span });
         }
         if c.i == start {
-            // the reference loops here forever (a stray `}` in an element); this ends it
+            // a stray `}` in an element
             return c.fail("expected a declaration or markup");
         }
     }
@@ -4433,6 +4472,36 @@ fn parse_element(c: &mut Cursor) -> R<Markup> {
     Ok(mk(MarkupKind::El { tag, attrs, children }))
 }
 
+#[cfg(test)]
+mod text {
+    use super::*;
+
+    /// A parse error beside a character of several bytes: an offset is a character's (`hint` read the last byte of the
+    /// text before; a declaration's words were looked for one byte on).
+    #[test]
+    fn a_failure_beside_a_wide_character_is_a_parse_error() {
+        for ch in ["é", "漢", "😀", "e\u{301}", "\u{feff}", "\u{2028}", "\u{85}"] {
+            for src in [format!("x = \"{ch}"), format!("x = \"{ch}\n"), format!("{ch}"), format!("<p>{ch}"), format!("x = 1 + /* {ch}"), format!("x = `{ch}"), format!("{ch}=")] {
+                let refused = parse_program(&src).is_err();
+                let (_, errors) = parse_program_recovering(&src);
+                assert!((refused && !errors.is_empty()) || ch.chars().all(js_ws), "{src:?}"); // (white space is a program)
+            }
+            for word in ["uses(c)", "instantiates", "provides(c)", "rejects(E)", "renders(H)"] {
+                let _ = parse_declarations(&format!("export context c from \"./c.js\"\nexport fn f(): number {ch}{word}\n"));
+            }
+        }
+    }
+    /// An editor's parse of a block that is not closed ends: a missing expression is an empty one, and no statement.
+    #[test]
+    fn an_open_block_ends() {
+        for src in ["action a() {", "effect () {", "action a() { if (x) {", "export default component App() { <p onClick={() => {", "x = draft(1) {", "action a() { try {", "action a() { for (const x of xs) {", "server fn f() {"] {
+            for tail in ["", "\n", "é", " let", " let x =", " n :=", " x.", " ;"] {
+                let (_, errors) = parse_program_recovering(&format!("{src}{tail}"));
+                assert!(!errors.is_empty(), "{src}{tail}");
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod recovering {
     use super::*;

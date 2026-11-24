@@ -6,6 +6,7 @@
 //! and failure thunks over symbols, and a resolution over the application tree after the walk — so that its verdicts,
 //! messages and their order are the reference's (`ref/crate.ts` diffs them on every scenario program).
 
+use crate::parse::JsTrim;
 use crate::ast::*;
 use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
@@ -92,9 +93,9 @@ fn split_rows(s: &str) -> Vec<String> {
     let mut k = 0;
     while k < chars.len() {
         let (_, c) = chars[k];
-        if c.is_whitespace() {
+        if crate::parse::js_ws(c) {
             let mut j = k;
-            while j < chars.len() && chars[j].1.is_whitespace() {
+            while j < chars.len() && crate::parse::js_ws(chars[j].1) {
                 j += 1;
             }
             let after = if j < chars.len() { &s[chars[j].0..] } else { "" };
@@ -2850,8 +2851,8 @@ impl<'a> Checker<'a> {
                 }
                 Decl::TypeDecl { name, text, .. } => {
                     // AC-1g: a local alias of a plain value
-                    let rhs = text.splitn(2, '=').nth(1).map(|r| r.trim());
-                    if text.trim_start().starts_with("type") && rhs.map_or(false, scalar_type) {
+                    let rhs = text.splitn(2, '=').nth(1).map(|r| r.js_trim());
+                    if text.js_trim_start().starts_with("type") && rhs.map_or(false, scalar_type) {
                         self.scalar_aliases.insert(name.clone());
                     }
                     continue;
@@ -4031,7 +4032,7 @@ impl<'a> Checker<'a> {
                 }
                 self.comp("action", env, Some(name.clone()), None, |c| c.stmts(body, inner, Ctx { in_action: true, ..Ctx::imperative() }));
                 self.actions.push(ActionRec { name: name.clone(), body, env: inner, line: *line as i64 });
-                let ptypes: Vec<Option<String>> = ptypes.iter().map(|t| t.as_ref().map(|t| if self.scalar_aliases.contains(t.trim()) { "string".to_string() } else { t.clone() })).collect();
+                let ptypes: Vec<Option<String>> = ptypes.iter().map(|t| t.as_ref().map(|t| if self.scalar_aliases.contains(t.js_trim()) { "string".to_string() } else { t.clone() })).collect();
                 self.run_checks_with(body, inner, true, params, false, ptypes, true);
             }
             Decl::Server { name, params, body, line, .. } => {
@@ -9399,7 +9400,7 @@ mod tests {
         let set = load_modules("/app/many.rx", &|p: &str| (p == "/app/many.rx").then(|| src.to_string())).unwrap();
         let sig = &check_modules(&set, false).sigs["/app/many.rx"];
         let text = crate::signature::print_signature(sig);
-        let rows: Vec<&str> = text.trim().split('\n').skip(1).map(|l| &l["export pure fn ".len()..]).collect();
+        let rows: Vec<&str> = text.js_trim().split('\n').skip(1).map(|l| &l["export pure fn ".len()..]).collect();
         assert_eq!(rows, ["many(ref n: number, first: number, cb: () => void): { x: ref; alias: ref; act: io; data-x: ref; first: value; sum: value; obj: ref; cb: value; f: value; list: [ref, value]; cond: ref io; u: ref } instantiates", "nested(ref n: number): pending fails(Error) { m: io; … } instantiates", "handed(ref n: number): { y: { m: io; r: ref; deep: value; far: ref }; q: [ref io] } instantiates", "waits(ref n: number): pending fails(Error) { q: ref pending fails(Error); x: ref pending fails(Error); n: ref } instantiates", "asks(ref n: number): pending fails(Error) instantiates", "own(ref n: number) instantiates", "nothing(ref n: number): value instantiates", "self(ref n: number): { s: ref; n: ref } instantiates", "only(): io rejects(Error) instantiates", "picked(ref n: number): ref io rejects(Error) instantiates", "plain(n: number)"]);
         // read back, it is what was printed: the parts, and those that are actions
         let back = crate::signature::parse_signature(&text, "/app/many.rx").unwrap();

@@ -1,6 +1,7 @@
 //! 09-modules: a program is a set of `.rx` modules (`ref/src/modules.ts`). The loader resolves each `.rx` import to a path,
 //! parses every module once, and orders them dependencies first (MO-1). A cycle is refused (MO-5).
 
+use crate::parse::JsTrim;
 use crate::ast::{Decl, Expr, ExprKind, Program};
 use crate::check::Diagnostic;
 use crate::parse::{parse_declarations, parse_program, JsDecl, ParseError};
@@ -97,13 +98,13 @@ pub struct DeclarationUse {
 /// MO-8k), not as a JS module's declaration.
 pub fn is_printed_signature(src: &str) -> bool {
     for raw in src.split('\n') {
-        let t = raw.trim();
+        let t = raw.js_trim();
         if t.is_empty() {
             continue;
         }
         if let Some(rest) = t.strip_prefix("//@") {
-            if let Some(after) = rest.trim_start().strip_prefix("signature") {
-                if after.is_empty() || after.starts_with(char::is_whitespace) {
+            if let Some(after) = rest.js_trim_start().strip_prefix("signature") {
+                if after.is_empty() || after.starts_with(crate::parse::js_ws) {
                     return true;
                 }
             }

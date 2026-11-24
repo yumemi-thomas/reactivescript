@@ -89,9 +89,9 @@ jobs:
       - name: "ref: the TSX projection, checked by the tooling's checker (tsrs, TypeScript 7)"
         working-directory: ref
         run: npm run types
-      - name: "crate against ref/: checked, client-only (--spa), the whole program (--whole-program), lowered (--lower), projected (--project)"
+      - name: "crate against ref/: checked, client-only (--spa), the whole program (--whole-program), lowered (--lower), projected (--project), and each again with characters of several bytes (--text)"
         working-directory: ref
-        run: RX_JOBS=4 node ../scripts/parallel.mjs "npm run -s crate" "npm run -s crate -- --spa" "npm run -s crate -- --whole-program" "npm run -s crate -- --lower" "npm run -s crate -- --project"
+        run: RX_JOBS=4 node ../scripts/parallel.mjs "npm run -s crate" "npm run -s crate -- --spa" "npm run -s crate -- --whole-program" "npm run -s crate -- --lower" "npm run -s crate -- --project" "npm run -s crate -- --text" "npm run -s crate -- --text --lower" "npm run -s crate -- --text --project"
       - name: "the guarantees, run: drafts (MO-10i)"
         run: node compiler/test/drafts.mjs
       - name: "the library build: a package written in .rx (MO-13e)"

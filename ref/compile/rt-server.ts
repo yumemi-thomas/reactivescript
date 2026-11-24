@@ -235,7 +235,8 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     source(name: string, init: unknown, guessed = false, _key?: string): [Acc, Writer] {   // guessed: the client's optimistic layer over the writable (AC-3), so the owner trees (and hydration keys) match
       void name;
       if (typeof init === "object" && init !== null) { const [store] = createStore(init as any); const [get] = createSignal<unknown>(store); if (guessed) { const [view] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); return ro(() => view); } return ro(get as Acc); }
-      const [get] = createSignal(init); if (guessed) { const [view] = createOptimistic(() => (get as Acc)()); return ro(view as Acc); } return ro(get as Acc);
+      const get: Acc = typeof init === "function" ? () => init : createSignal(init)[0] as Acc;   // Solid's createSignal(f) is a derived signal, which takes an id of its own: a source that begins as a function is a plain one on both sides
+      if (guessed) { const [view] = createOptimistic(() => (get as Acc)()); return ro(view as Acc); } return ro(get as Acc);
     },
     question(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);

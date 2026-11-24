@@ -785,7 +785,8 @@ impl Proj<'_> {
                 StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
                     let t = self.target(target, sp, &mut at);
                     let v = self.expr(e, true, None);
-                    self.w.emit(Code::of(&format!("{ind}__.set(")).c(t).t(")(").c(v).t(");").from(sp), 0);
+                    let set = if target.path.is_empty() { "set" } else { "setAt" };
+                    self.w.emit(Code::of(&format!("{ind}__.{set}(")).c(t).t(")(").c(v).t(");").from(sp), 0);
                 }
                 StmtKind::Refresh(n) | StmtKind::Affects(n) => {
                     let nm = self.name(n, sp, &mut at);

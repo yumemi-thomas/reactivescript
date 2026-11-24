@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Runs every program of proposals/ that is marked to be run, and compares the verdicts the documents state.
-//   node proposals/check.mjs [--upstream <an exported, built origin/main>] [--only <text in a file's name>] [-v]
+//   node proposals/check.mjs [--upstream <an exported, built origin/main>] [--prototype <proto-all, built>] [--only <text in a file's name>] [-v]
 // With --upstream, the verdicts stated for upstream are compared as well. Its export is built once (README.md says how).
 //
 // A block to run is a fenced program after a comment of one of these kinds. `-- file: ./x` lines divide a fence into
@@ -17,6 +17,8 @@
 // What cannot be run — no build, no Chromium, a module not installed — is `setup`: it is counted apart and is no verdict.
 //   <!-- types  branch=ok upstream=TS2345 -->         rx-tsc over the files: its codes, checkers' codes included
 //   <!-- tsx    branch=ok upstream=TS2345 -->         types, where main.tsx is what uses the .rx
+// `prototype=` is a verdict of the prototype of 19, 20 and 21, a local branch that is not published: this tree does not run
+// it. `--prototype <folder>` runs the programs so marked there.
 // `says-branch="text"` and `says-upstream="text"` ask that the output hold the text. `files=<dir>` copies a folder of proposals/ beside.
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -25,8 +27,8 @@ import { dirname, join, relative, resolve } from "node:path";
 
 const here = import.meta.dirname, repo = dirname(here);
 const arg = n => { const i = process.argv.indexOf(n); return i < 0 ? undefined : process.argv[i + 1]; };
-const verbose = process.argv.includes("-v"), only = arg("--only"), up = arg("--upstream");
-const roots = { branch: repo, ...(up ? { upstream: resolve(up) } : {}) };
+const verbose = process.argv.includes("-v"), only = arg("--only"), up = arg("--upstream"), proto = arg("--prototype");
+const roots = { branch: repo, ...(up ? { upstream: resolve(up) } : {}), ...(proto ? { prototype: resolve(proto) } : {}) };
 for (const [name, root] of Object.entries(roots)) for (const f of ["compiler/target/release/rxc", "ref/node_modules/solid-js", "runtime/dist/web.js", "tooling/rx-language-server/node_modules"]) if (!existsSync(join(root, f))) { console.log(`SETUP ${name}: no ${f} in ${root} (README.md says how it is built)`); process.exit(2); }
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "rx-proposals-")));
 const node = (args, cwd, env = {}) => { const r = spawnSync(process.execPath, args, { cwd, encoding: "utf8", env: { ...process.env, ...env } }); return (r.stdout ?? "") + (r.stderr ?? ""); };
@@ -117,7 +119,8 @@ const noSetup = out => /ERR_MODULE_NOT_FOUND|Cannot find (module|package) '(?!\.
 let ran = 0, bad = 0, setup = 0;
 const docs = [...readdirSync(here).filter(f => f.endsWith(".md")).map(f => join(here, f)), ...readdirSync(join(here, "bugs")).filter(f => f.endsWith(".md")).map(f => join(here, "bugs", f))].filter(f => !only || f.includes(only)).sort();
 for (const d of docs) for (const b of blocks(d)) for (const [name, root] of Object.entries(roots)) {
-  const want = b.attrs[name]; if (want === undefined) { console.log(`${relative(repo, d)}:${b.line}: no verdict stated for ${name}`); bad++; continue; }
+  const want = b.attrs[name]; if (want === undefined && name === "prototype") continue;
+  if (want === undefined) { console.log(`${relative(repo, d)}:${b.line}: no verdict stated for ${name}`); bad++; continue; }
   if (want === "-") continue;
   const r = kinds[b.kind](root, b, name), out = r.out, text = b.attrs[`says-${name}`]; let got = r.got;
   if (got !== want && (noSetup(out) || !out.trim() || (b.kind === "frames" && !/^(PASS|FAIL|SKIP) S-proposal-1/m.test(out)))) { setup++; console.log(`SETUP ${relative(repo, d)}:${b.line} ${b.kind} ${name}: not run — ${(out.split("\n").find(l => noSetup(l)) ?? "no output").trim().slice(0, 200)}`); continue; }

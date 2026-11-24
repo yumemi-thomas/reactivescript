@@ -391,7 +391,10 @@ Function application `f(e…)` covers both language functions and FFI imports;
   the instant* — after the writes before it in the same instant — rather
   than to σ. Writes to one slot from several imperative runs in one
   instant therefore compose in run order; value writes still replace. A
-  path target applies `f` to the path's value. Solid: the setter's updater
+  path target applies `f` to the path's value. A function is applied
+  whatever the slot holds: one that holds a function, as it may from its
+  initializer on, is written another with `x := () => f`, and
+  `x := f` is refused by its type (TY-2; S-function-source). Solid: the setter's updater
   form, `setX(f)`. (Found by S-region-7: two fields registering with their
   form in the same instant each read σ and the second value write erased
   the first.)

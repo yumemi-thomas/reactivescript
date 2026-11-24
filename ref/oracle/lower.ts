@@ -137,6 +137,29 @@ function makePortal<N>(R: { createElement: (t: string) => N; insertNode: (p: N, 
 }
 export const serialize = (n: N): string => n.kind === "text" ? n.text : n.children.map(serialize).join("");
 
+/** A signal of `init`. `createSignal(f)` of a function is Solid's derived signal, so a source that begins as a function (a
+ *  value like any other) is a signal of a box: a plain signal still, written and held as one is. */
+const boxOf = new WeakMap<() => unknown, () => unknown>();
+const signalOf = (init: unknown): [() => unknown, (v: unknown) => void] => {
+  if (typeof init !== "function") return createSignal<unknown>(init) as never;
+  const [box, set] = createSignal<{ v: unknown }>({ v: init }, { equals: (a, b) => a.v === b.v });
+  const get = () => box().v; boxOf.set(get, box);
+  return [get, v => { set(b => ({ v: typeof v === "function" ? v(b.v) : v })); }];
+};
+/** W-6 for a source whose first value was an array or a record (ST-1: a store behind a signal slot): an updater is given the
+ *  slot as it stands, which is not the store once something else was written (`null`), and what it answers is stored,
+ *  whatever it is. `replace` puts an object in the store; `edit` runs an updater on it. */
+const rootSet = (store: unknown, set: (v: (at: unknown) => unknown) => void, replace: (v: object) => void, edit: (f: (d: unknown) => unknown) => void) => {
+  const put = (v: unknown) => { if (typeof v === "object" && v !== null) { replace(v); set(() => store); } else set(() => v); };
+  return (v: unknown) => {
+    if (typeof v !== "function") return put(v);
+    let at: unknown; set(p => (at = p));
+    if (at !== store) return put(v(at));
+    let other: { v: unknown } | undefined;
+    edit(d => { const r = v(d); if (r === undefined || (typeof r === "object" && r !== null)) return r; other = { v: r }; });
+    set(() => other ? other.v : store);
+  };
+};
 const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(x => isView(x))) || (typeof v === "object" && v !== null && "kind" in (v as object) && ("tag" in (v as object) || "text" in (v as object)));
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
 export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
@@ -333,17 +356,17 @@ export class Oracle {
             const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
               const [store, setStore] = createStore(init as any); rooted(store as object); if (d.key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
-              const w = { set: (v: unknown) => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v); set(store); } else set(v); }, setPath: setStore };   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
+              const w = { set: rootSet(store, set as never, v => setStore(() => v as any), f => setStore(f as any)), setPath: setStore };   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
               if (this.optimisticTargets.has(d.name)) {                     // AC-3 over a := store: createOptimisticStore(() => truth) over createStore(v); writes go to the truth, guesses to the layer
                 const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view); if (d.key === undefined) byPosition.add(view);
                 scope.vars.set(d.name, { k: "store", get: () => view, ...w, question: false, setGuess: setView });
               } else scope.vars.set(d.name, { k: "store", get, ...w, question: false });
             }
             else if (this.optimisticTargets.has(d.name)) {                  // AC-3 over a := signal: createOptimistic(() => truth()) over createSignal(v)
-              const [truth, set] = createSignal(init); const [get, setGuess] = createOptimistic(() => truth());
+              const [truth, set] = signalOf(init); const [get, setGuess] = createOptimistic(() => truth());
               scope.vars.set(d.name, { k: "sig", get, set: set as any, setGuess: setGuess as any, question: false, optimistic: true });
             }
-            else { const [get, set] = createSignal(init); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: false, optimistic: false }); }
+            else { const [get, set] = signalOf(init); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: false, optimistic: false }); }
           }
           break;
         }
@@ -590,7 +613,7 @@ export class Oracle {
       case "throw": throw untrack(() => this.ev(s.e, scope, env));
       case "action": this.lowerAction([], s.body, scope, env)(); return;
       case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); const d = Scope.all.find(x => x.vars.get(s.name) === b); for (const h of (d && this.hoistedByName.get(d)?.get(s.name)) ?? []) refresh(h as any); refresh((b.k === "store" ? (b.truth ?? b.get)() : ((b.k === "sig" || b.k === "memo") && (b as any).truth) || b.get) as any); return; }
-      case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects((b.k === "store" ? b.get() : b.get) as any); return; }   // a store binding's get wraps the store: Solid takes the store (#50)
+      case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects((b.k === "store" ? b.get() : boxOf.get(b.get) ?? b.get) as any); return; }   // a store binding's get wraps the store: Solid takes the store (#50)
       case "optimistic": case "write": {
         const b = s.target.ctx ? this.provision(s.target.name, scope) : scope.lookup(s.target.name);
         const v = untrack(() => this.ev(s.e, scope, env));          // W-6: a function value is Solid's updater form — the setters take it as is

@@ -25,7 +25,7 @@ of `main` with its smallest program. Nothing here has been sent or opened as an 
 
 ```sh
 node proposals/check.mjs                        # every marked program, on this branch: both checkers, the compiled code, rx-tsc, the tools
-node proposals/check.mjs --upstream <folder>    # … and on an exported, built upstream
+node proposals/check.mjs --upstream <folder>    # … and on an exported, built upstream; `--prototype <folder>`: what is marked `prototype=` (19, 20, 21), on `proto-all` (local, not published)
 node proposals/words.mjs                        # each word taken off the benchmark's declarations (after bench/run.mjs)
 node proposals/survey.mjs                       # the solid-primitives survey, counted again
 node bench/run.mjs --check                      # the benchmark, held in CI
@@ -38,7 +38,7 @@ build, no Chromium for bug 15) is reported as `SETUP`, apart, and is no verdict.
 
 ## Bugs of `main`, in the order to take them
 
-Each was run on e650b85. 21, and a question.
+Each was run on e650b85. 25, and a question.
 
 1. [03](bugs/03-effect-loses-cleanup.md) an effect's cleanup tears a live listener down, in silence
 2. [05](bugs/05-action-in-a-value.md) an action in a value
@@ -46,10 +46,10 @@ Each was run on e650b85. 21, and a question.
 4. [15](bugs/15-server-text-escaped-twice.md) server text escaped twice
 5. [01](bugs/01-builtin-named-imports.md) an import named as a builtin
 
-Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bugs/08-pre-of-a-list.md), [17](bugs/17-write-a-function-to-a-path.md), [07](bugs/07-fn-provides-to-its-caller.md),
+Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bugs/08-pre-of-a-list.md), [17](bugs/17-write-a-function-to-a-path.md), [07](bugs/07-fn-provides-to-its-caller.md), [25](bugs/25-source-that-holds-a-function.md), [26](bugs/26-updater-of-a-replaced-record.md),
 [02](bugs/02-unimported-fetch-fail.md), [13](bugs/13-relative-api.md). Correct and refused: [06](bugs/06-fn-reads-a-context.md), [12](bugs/12-unguarded-snapshot-crate.md) (crate),
 [16](bugs/16-component-without-props.md), [11](bugs/11-record-and-function-types.md). Accepted and not compiled: [09](bugs/09-pre-of-a-ref-parameter.md), [10](bugs/10-await-as-a-result.md). Tests and tools:
-[14](bugs/14-scenario-sections-unread.md), [19](bugs/19-missing-file-is-ok.md), [20](bugs/20-custom-element-with-a-dot.md), [21](bugs/21-messages.md). A question: [22](bugs/22-equations-make-a-fn-instantiate.md).
+[14](bugs/14-scenario-sections-unread.md), [19](bugs/19-missing-file-is-ok.md), [20](bugs/20-custom-element-with-a-dot.md), [21](bugs/21-messages.md), [23](bugs/23-panic-beside-a-wide-character.md), and an editor that never answers, [24](bugs/24-open-block-in-an-editor.md). A question: [22](bugs/22-equations-make-a-fn-instantiate.md).
 
 ## Proposals, in the order they depend on each other
 
@@ -79,9 +79,9 @@ Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bug
 | **packages and fns** | | | |
 | [17](17-packages.md) packages | **reverses MO-1b**: to be ruled first | weak | – |
 | [18](18-fn-parts.md) a fn's parts | | weak | 17 |
-| [19](19-optional-parameters.md) optional parameters | design only | weak | 17 |
-| [20](20-generic-fns.md) generic fns | design only | weak | 17 |
-| [21](21-locals-in-fns.md) locals in fns | a question | – | – |
+| [19](19-optional-parameters.md) optional parameters | prototyped (`proto-optional` 3a4847ec, not published) | weak to medium: 34 of 192, no facade line | 17 |
+| [20](20-generic-fns.md) generic fns | prototyped (`proto-generic` b36ab25d, not published) | weak to medium: about 18 of 192, no facade line | 17 |
+| [21](21-locals-in-fns.md) locals in fns | a question; prototyped (`proto-locals` a1c93632, not published) | – | – |
 | **tooling** | | | |
 | [22](22-generated-drafts.md) drafts | for a person to review | medium | 03 |
 | [23](23-rx-verify.md) `rx-verify` | refutes; no gate | medium | 03 |
@@ -95,7 +95,7 @@ kept; each file says which placement its word names, and 14 says where that is o
 - **Packages.** 128 packages are pinned in `bench/package.json`. 122 are stable releases, most of them solid-primitives'. 6 are pre-releases: TanStack Query, Router and Start (release candidates), UI SDK and its core (beta), Kobalte (alpha).
 - **Overlap.** The 40 variants of `nests` are one set, over a factory and six host declarations (14). They were counted under two proposals before.
 - **Handler.** "26 programs refused without it" counted programs as they are written; an action's name is accepted in the same places.
-- **63 and 26** (19, 20) include primitives with rest parameters, which neither proposes.
+- **63 and 26** (19, 20) were counted with rest parameters and optional accessors. The prototypes' counts, 34, 18 and 11, are in those files.
 - **192** surveyed primitives need JavaScript beside their `.rx`; 188 of them also for a host object or a global.
 - **350** verification claims and **10,967** generated-declaration checks are of programs and rows the author chose.
 - The table `words.mjs` prints:
@@ -134,6 +134,7 @@ Programs it accepts that go wrong when run. Each was found, and is left because 
 - A method's io through an alias another module exports: [06](06-method-rows.md).
 - `pre` of a name for a part of a store: [bug 08](bugs/08-pre-of-a-list.md). Rows taken out of a source with no key, in a keyed equation: [bug 18](bugs/18-keyed-list-replaced-by-position.md).
 - `provides(c)` on a component that reads a `View` prop before its provider: [12](12-context-rows.md).
+- A guess on a source that began as a record and is written `null`: [bug 26](bugs/26-updater-of-a-replaced-record.md).
 - A component with no `shape` is not held to HTML's nesting: [01](01-foreign-tags.md).
 
 And correct programs it refuses: an unbound call of a fn that uses a context with a default ([bug 06](bugs/06-fn-reads-a-context.md)); an unbound call of a declared fn whose result is the bare type `Component` ([13](13-factories.md)); a method of an undeclared import, in a view ([06](06-method-rows.md)).
@@ -141,7 +142,7 @@ And correct programs it refuses: an unbound call of a fn that uses a context wit
 ## Compatibility with upstream's programs
 
 Over the 305 `.rx` modules of upstream's repository (both binaries, `rxc check` and `rxc app`): **none that upstream accepts is refused**. 63 differ, compared by line: they get more `UNBOUND` (an unimported `fetch` or `fail`) or more `CATCH_NOT_ON_AWAIT`,
-and each was refused already. Of the accepted ones, 123 have other code: the fixes of bugs 01 to 18 and Solid's compiler at the pin, read by kind of line. Upstream's scenarios, run by this branch's runners, hold, but for five files that the stricter reader of scenarios refuses (bug 14).
+and each was refused already. Of the accepted ones, 123 have other code: the fixes of bugs 01 to 18 (25 and 26 change the runtime alone) and Solid's compiler at the pin, read by kind of line. Upstream's scenarios, run by this branch's runners, hold, but for five files that the stricter reader of scenarios refuses (bug 14).
 
 ## Cost, all of it together
 

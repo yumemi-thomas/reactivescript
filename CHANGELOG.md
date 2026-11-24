@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**A source that holds a function, and text that is not ASCII** (S-function-source, `ref/crate.ts --text`; proposals/bugs/23 to 26)
+
+- **Fixed: a source that begins as a function** held what the function answers, compiled (Solid's `createSignal(f)` is a derived signal).
+- **Fixed: an updater of a source that began as a record** was given the last record after `null` was written, and an answer that is no
+  record was dropped.
+- **`x := f` with a function is refused by its type** (TS2322, TS2345), whatever `x` holds: W-6 applies it. Another function is written `x := () => f`.
+- **Fixed: the crate panicked** on a parse error beside a character of several bytes, and **an editor's parse of a block that is not closed never ended**.
+
 **After a sceptical review** (`proposals/`, S-surface-11, S-pre-2, S-keyed-alias, S-check-2, S-check-3, S-module-22, S-module-42)
 
 - **No form of this branch changes a program `main` accepts.** `a<b>(c)`, `f(a<b, c>(d))` and `a<1>(c)` are comparisons again; a binding
