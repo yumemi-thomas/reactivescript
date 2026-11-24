@@ -1790,3 +1790,27 @@ export pure fn toast.history(): string[]
       (type_annotation
         (array_type
           (predefined_type))))))
+
+================================================================================
+A printed signature's type parameters
+================================================================================
+
+//@ signature a.rx
+export pure fn f<T>(ref a: T) instantiates
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (signature_parameter
+        (ref_modifier)
+        (identifier)
+        (type_identifier))
+      (row_word))))

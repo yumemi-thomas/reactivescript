@@ -4,8 +4,10 @@ export declare function await_<T>(v: T): Awaited<T>;
 export declare function awaitS<T>(v: T): T extends AsyncIterable<infer U> ? U : Awaited<T>;
 /** R-1: Solid's memo consumes a promise or a stream its function returns, so an equation's value is never one — `await` says
  *  where it enters (`any`: not known here; Solid still consumes it). */
-type Async<T> = 0 extends (1 & T) ? false : true extends (T extends PromiseLike<any> | AsyncIterable<any> ? true : false) ? true : false;
-export declare function eq<T>(v: T, ok: Async<T> extends true ? "MISSING_AWAIT: an equation's value is a promise or a stream, which Solid consumes; write await e (or await* e for a stream)" : true): T;
+/** [1]: a promise or a stream. Read by its length, so that a type parameter's, which is not known, is neither (TY-2): TypeScript
+ *  takes `true` for a conditional it cannot decide when no instance of its check is sure to match. */
+type Async<T> = 0 extends (1 & T) ? [] : true extends (T extends PromiseLike<any> | AsyncIterable<any> ? true : false) ? [1] : [];
+export declare function eq<T>(v: T, ok: [...Async<T>]["length"] extends 1 ? "MISSING_AWAIT: an equation's value is a promise or a stream, which Solid consumes; write await e (or await* e for a stream)" : true): T;
 export declare function first<T, I>(v: T, init: I): T | I;
 export declare function pre<T>(init?: T): T;
 export declare function pending(v: unknown): boolean;

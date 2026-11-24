@@ -597,7 +597,7 @@ export type Result =
 export type ExportSig =
   | { kind: "source"; question: boolean; rows: string[]; fails: string[] }
   | { kind: "eq"; rows: string[]; fails: string[]; io: boolean; actions?: string[] }
-  | { kind: "fn"; params: { name: string; ref: boolean }[]; instantiating: boolean; rows: string[]; fails: string[]; rejects: string[]; /** MO-13i: the parts of its result, where they are known */ result?: Result; /** R-io-3: the parts of its result that are actions, as paths ("": the result) */ actions?: string[]; /** RG-7b: the contexts a call of it reads above the place it is written (keys) */ uses?: string[] }
+  | { kind: "fn"; /** 07 §2: `<T>`, as text */ tparams?: string; params: { name: string; ref: boolean }[]; instantiating: boolean; rows: string[]; fails: string[]; rejects: string[]; /** MO-13i: the parts of its result, where they are known */ result?: Result; /** R-io-3: the parts of its result that are actions, as paths ("": the result) */ actions?: string[]; /** RG-7b: the contexts a call of it reads above the place it is written (keys) */ uses?: string[] }
   | { kind: "action" }
   | { kind: "server"; io: boolean; params: string[]; rejects: string[] }   // 12 SF-1c
   | { kind: "errclass"; params: string[] }
@@ -1241,7 +1241,7 @@ class Checker {
       switch (s.kind) {
         case "source": exports.set(d.name, { kind: "source", question: !!s.question, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls) }); break;
         case "eq": exports.set(d.name, { kind: "eq", rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), io: !!s.io, ...actions(s.val?.e, s.val?.env) }); break;
-        case "fn": exports.set(d.name, { kind: "fn", params: (s.params ?? []).map(q => "type" in q && typeof q.type === "string" ? { ...q, type: oneLine(q.type) } : q), instantiating: !!s.instantiating, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), rejects: arr(s.fnTail && s.fnEnv ? this.rejects(s.fnTail, s.fnEnv, new Set()) : s.rejects), ...actions(s.fnTail, s.fnEnv), ...(() => { const r = this.fnResult(s); return r && r.k === "leaf" && r.reader ? {} : r ? { result: r } : {}; })(), ...(s.needs?.length ? { uses: s.needs } : {}) }); break;
+        case "fn": exports.set(d.name, { kind: "fn", ...(d.k === "fn" && d.tparams ? { tparams: oneLine(d.tparams) } : {}), params: (s.params ?? []).map(q => "type" in q && typeof q.type === "string" ? { ...q, type: oneLine(q.type) } : q), instantiating: !!s.instantiating, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), rejects: arr(s.fnTail && s.fnEnv ? this.rejects(s.fnTail, s.fnEnv, new Set()) : s.rejects), ...actions(s.fnTail, s.fnEnv), ...(() => { const r = this.fnResult(s); return r && r.k === "leaf" && r.reader ? {} : r ? { result: r } : {}; })(), ...(s.needs?.length ? { uses: s.needs } : {}) }); break;
         case "action": exports.set(d.name, { kind: "action" }); break;
         case "server": exports.set(d.name, { kind: "server", io: !!s.io, params: (s.params ?? []).map(p => p.name), rejects: arr(s.serverRejects?.()) }); break;
         case "errclass": exports.set(d.name, { kind: "errclass", params: d.k === "error" ? d.params : [] }); break;

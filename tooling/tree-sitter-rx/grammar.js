@@ -99,6 +99,7 @@ module.exports = grammar(tsx, {
       optional($.pure),
       'fn',
       field('name', $.identifier),
+      optional(field('type_parameters', $.type_parameters)),
       '(', commaSep($.signature_parameter), ')',
       optional(seq(':', $.signature_rows)),
       optional($.rejects_clause),
@@ -290,6 +291,7 @@ module.exports = grammar(tsx, {
     fn_declaration: $ => seq(
       'fn',
       field('name', $._binding_name),
+      optional(field('type_parameters', $.type_parameters)),
       field('parameters', $.formal_parameters),
       optional(field('return_type', $.type_annotation)),
       choice(

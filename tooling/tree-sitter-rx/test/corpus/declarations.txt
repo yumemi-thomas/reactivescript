@@ -530,3 +530,27 @@ server fn load(id: number): Row
           (identifier)
           (arguments
             (identifier)))))))
+
+================================================================================
+A generic fn
+================================================================================
+
+fn first<T>(xs: T[]): T => xs
+
+--------------------------------------------------------------------------------
+
+(program
+  (fn_declaration
+    (identifier)
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (formal_parameters
+      (required_parameter
+        (identifier)
+        (type_annotation
+          (array_type
+            (type_identifier)))))
+    (type_annotation
+      (type_identifier))
+    (identifier)))

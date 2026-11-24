@@ -3109,7 +3109,7 @@ impl<'a> Checker<'a> {
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s
                 }
-                ExportSig::Fn { params, instantiating, rows, fails, rejects, uses, actions, result } => {
+                ExportSig::Fn { params, instantiating, rows, fails, rejects, uses, actions, result, .. } => {
                     let mut s = Sym::new(SymKind::Fn, alias, region, line);
                     s.params = Some(params.clone());
                     s.instantiating = *instantiating;
@@ -3672,7 +3672,7 @@ impl<'a> Checker<'a> {
                         Some((t, te)) => self.rejects(t, te, &mut HashSet::new()),
                         None => self.syms[s].rejects.clone().unwrap_or_default(),
                     };
-                    ExportSig::Fn { params: self.syms[s].params.iter().flatten().map(|p| SigParam { ty: p.ty.as_deref().map(one_line), ..p.clone() }).collect(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone(), actions: self.sorted_parts(self.syms[s].fn_tail), result: self.fn_result(s).map(|p| p.res()).filter(|r| !r.is_reader()) }
+                    ExportSig::Fn { tparams: if let Decl::Fn { tparams, .. } = d { tparams.as_deref().map(one_line) } else { None }, params: self.syms[s].params.iter().flatten().map(|p| SigParam { ty: p.ty.as_deref().map(one_line), ..p.clone() }).collect(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone(), actions: self.sorted_parts(self.syms[s].fn_tail), result: self.fn_result(s).map(|p| p.res()).filter(|r| !r.is_reader()) }
                 }
                 SymKind::Action => ExportSig::Action,
                 SymKind::Server => {
@@ -9392,6 +9392,30 @@ mod tests {
 
     /// 06 AC-3 (2026-11-22): a guess in a run that starts nothing to wait for has no hold, and the first guess written
     /// after an `await` is advised. `ref/units.ts` holds the same cases.
+    #[test]
+    fn a_generic_fns_type_parameters_are_text_and_printed() {
+        // 07 §2, MO-9b; `ref/units.ts` holds the same cases
+        let says = |s: &str| match crate::parse::parse_program(&format!("fn f{s} => 1\n")) {
+            Ok(p) => match &p.decls[0] {
+                Decl::Fn { tparams, params, .. } => format!("{} {}", tparams.as_deref().unwrap_or("-"), params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(",")),
+                _ => String::new(),
+            },
+            Err(_) => "PARSE".to_string(),
+        };
+        assert_eq!(
+            ["(a)", "<T>(a: T)", "<T extends (x: number) => string, U = T>(a: T)", "<const T extends { a: Array<Array<number>> }>(a)", "<T>\n  (a)", "<T", "<T>", "(a)<T>"].map(says),
+            ["- a", "<T> a", "<T extends (x: number) => string, U = T> a", "<const T extends { a: Array<Array<number>> }> a", "<T> a", "PARSE", "PARSE", "PARSE"]
+        );
+        let src = "export fn f<T>(xs: T[], by: (x: T) => number) => 1\nexport fn g<\n  T extends (x: Array<Array<number>>) => string,\n  U = T\n>(ref a: T) { x = a == null\n  x }\nexport fn h(a) => 1\n";
+        let set = load_modules("/a.rx", &|p: &str| (p == "/a.rx").then(|| src.to_string())).unwrap();
+        let text = crate::signature::print_signature(&check_modules(&set, false).sigs["/a.rx"]);
+        assert_eq!(
+            text.trim().split('\n').skip(1).collect::<Vec<_>>(),
+            ["export pure fn f<T>(xs: T[], by: (x: T) => number)", "export pure fn g< T extends (x: Array<Array<number>>) => string, U = T >(ref a: T) instantiates", "export pure fn h(a)"]
+        );
+        assert_eq!(crate::signature::print_signature(&crate::signature::parse_signature(&text, "/a.rx").unwrap()), text);
+    }
+
     #[test]
     fn the_parts_of_what_a_fn_answers_are_in_its_signature() {
         // MO-13i, MO-9b

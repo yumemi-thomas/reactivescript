@@ -99,6 +99,12 @@ function balanced(s: string, at: number): string | undefined {
   let depth = 0; for (let i = at; i < s.length; i++) { if (s[i] === "(") depth++; else if (s[i] === ")" && --depth === 0) return s.slice(at + 1, i); }
   return undefined;
 }
+/** 07 §2: a fn's row without its type parameters, `pure fn f<T>(…)`, and those, as text. */
+function typeParamsOf(s: string): { text: string; tparams?: string } {
+  const at = /^pure\s+fn\s+[A-Za-z_$][\w$]*\s*</.exec(s)?.[0].length; if (at === undefined) return { text: s };
+  let i = at, depth = 1; for (; i < s.length && depth; i++) if (s[i] === "<") depth++; else if (s[i] === ">" && s[i - 1] !== "=") depth--;
+  return { text: s.slice(0, at - 1) + s.slice(i), tparams: s.slice(at - 1, i) };
+}
 function hostsOf(file: string, text: string): Record<string, HostSite[]> {
   const out: Record<string, HostSite[]> = {};
   for (const part of split(text, ";")) {
@@ -112,7 +118,7 @@ function line(file: string, name: string, x: ExportSig): string {
   switch (x.kind) {
     case "source": { const r = rows(x.rows, x.fails); return `export source ${name}${r ? `: ${r}` : ""} ${x.question ? "=" : ":="} …`; }
     case "eq": { const r = [rows(x.io ? ["io", ...x.rows] : x.rows, x.fails), x.io ? "" : actionsText(x.actions)].filter(Boolean).join(" "); return `export ${name}${r ? `: ${r}` : ""}`; }
-    case "fn": { const a = x.result ? resultText(x.result) : x.actions?.includes("") ? "ref io" : actionsText(x.actions); const r = [rows(x.rows, x.fails), a].filter(Boolean).join(" "); return `export pure fn ${name}(${x.params.map(p => (p.ref ? "ref " : "") + p.name + ((p as { type?: string }).type ? `: ${(p as { type?: string }).type}` : "")).join(", ")})${r ? `: ${r}` : ""}${x.rejects.length ? ` rejects(${x.rejects.join(" | ")})` : ""}${x.instantiating ? " instantiates" : ""}${x.uses?.length ? ` uses(${x.uses.map(k => relKey(file, k)).join(", ")})` : ""}`; }
+    case "fn": { const a = x.result ? resultText(x.result) : x.actions?.includes("") ? "ref io" : actionsText(x.actions); const r = [rows(x.rows, x.fails), a].filter(Boolean).join(" "); return `export pure fn ${name}${x.tparams ?? ""}(${x.params.map(p => (p.ref ? "ref " : "") + p.name + ((p as { type?: string }).type ? `: ${(p as { type?: string }).type}` : "")).join(", ")})${r ? `: ${r}` : ""}${x.rejects.length ? ` rejects(${x.rejects.join(" | ")})` : ""}${x.instantiating ? " instantiates" : ""}${x.uses?.length ? ` uses(${x.uses.map(k => relKey(file, k)).join(", ")})` : ""}`; }
     case "server": return `export server ${x.io ? "" : "pure "}fn ${name}(${x.params.join(", ")})${x.rejects.length ? ` rejects(${[...x.rejects].sort().join(" | ")})` : ""}`;
     case "action": return `export action ${name}`;
     case "errclass": return `export error ${name}(${x.params.join(", ")})`;
@@ -196,15 +202,16 @@ export function parseSignature(src: string, file: string): ModSig {
     if ((m = /^error\s+([A-Za-z_$][\w$]*)\s*(?:\(([^)]*)\))?$/.exec(s))) { exports.set(m[1], { kind: "errclass", params: (m[2] ?? "").split(",").map(x => x.trim()).filter(Boolean) }); return; }
     if ((m = /^source\s+([A-Za-z_$][\w$]*)\s*(?::(?!=)\s*(.*?))?\s*(:?=)\s*…$/.exec(s))) { const r = rowWords(m[2] ?? ""); if (r.rest) fail("a source's rows"); exports.set(m[1], { kind: "source", question: m[3] === "=", rows: r.rows, fails: r.fails }); return; }
     if ((m = /^server\s+(pure\s+)?fn\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$/.exec(s))) { exports.set(m[2], { kind: "server", io: !m[1], params: m[3].split(",").map(x => x.trim()).filter(Boolean), rejects: classesOf(m[4] ?? "") }); return; }
-    if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\(/.exec(s))) {
-      const ps = balanced(s, m[0].length - 1); if (ps === undefined) fail("a fn's parameters");
+    const g = typeParamsOf(s);
+    if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\(/.exec(g.text))) {
+      const s = g.text; const ps = balanced(s, m[0].length - 1); if (ps === undefined) fail("a fn's parameters");
       const t = /^\s*(?::\s*(.*?))?\s*(?:\brejects\(([^)]*)\))?\s*(\binstantiates)?\s*(?:\buses\(([^)]*)\))?$/.exec(s.slice(m[0].length + ps!.length + 1)); if (!t) return fail("a fn's rows");
       const params = split(ps!, ",").map(p0 => { const ref = /^ref\s/.test(p0); const p = ref ? p0.slice(4).trim() : p0; const c = p.indexOf(":"); return { name: (c < 0 ? p : p.slice(0, c)).trim(), ref, ...(c < 0 ? {} : { type: p.slice(c + 1).trim() }) }; });
       const r = rowWords(t[1] ?? ""); const text = r.rows.includes("io") ? "io" : r.rest;
       const open = text && text !== "io" ? actionsOf(text) : undefined;   // some parts of one value are actions: what else it holds is not said
       const result = text && !open ? resultOf(text) : undefined; if (text && !open && !result) fail("a fn's rows");
       const acts = open ?? (result ? resultActions(result) : []); const one = result?.k === "leaf" && result.reader;
-      exports.set(m[1], { kind: "fn", params, instantiating: !!t[3], rows: r.rows.filter(x => x !== "io"), fails: r.fails, rejects: classesOf(t[2] ?? ""), ...(acts.length ? { actions: acts } : {}), ...(result && !one ? { result } : {}), ...(t[4] ? { uses: t[4].split(",").map(k => absKey(file, k.trim())) } : {}) }); return;
+      exports.set(m[1], { kind: "fn", ...(g.tparams ? { tparams: g.tparams } : {}), params, instantiating: !!t[3], rows: r.rows.filter(x => x !== "io"), fails: r.fails, rejects: classesOf(t[2] ?? ""), ...(acts.length ? { actions: acts } : {}), ...(result && !one ? { result } : {}), ...(t[4] ? { uses: t[4].split(",").map(k => absKey(file, k.trim())) } : {}) }); return;
     }
     if ((m = /^context\s+([A-Za-z_$][\w$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$/.exec(s))) {
       let body = (m[2] ?? "").trim(); const source = /^source\b/.test(body); if (source) body = body.slice(6).trim();

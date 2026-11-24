@@ -111,6 +111,7 @@ does for `.tsrx`. Nothing here is a second type system.
 | `x = e` (an equation) | a `const` of `e`'s type; with `x: T = e`, of `T` (row words such as `pending` are not types, CN-4a) |
 | `source x := e`, `source x = e` | with a written type, that type — not what the initializer narrows it to; without one, the initializer's type widened: a literal to its primitive, `null`, `undefined` and `[]` to `any` (they say nothing about later writes) |
 | `x := v`, `x.a := v` | `v` (or a function of the slot, W-6) checked against the target's type |
+| in a generic fn, an equation whose type is a type parameter's | not held to R-1a: what `T` is, is the call's to say, and the caller's equation is held |
 | `await e` | the answer's type (`Awaited`); `await* e` the stream's element type; `-> v` adds `v`'s type |
 | `e catch (x: A \| B) => alt` | `e`'s type or `alt`'s; `x` is `A \| B` (untyped: `Error`) |
 | `pre x -> i`, `latest e`, `peek e` | the node's own type; `pending? e` is `boolean` |
