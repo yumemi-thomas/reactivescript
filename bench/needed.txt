@@ -1,56 +1,26 @@
 Hand-written words no tool has shown, in the declarations of the tasks and of the coverage entries (bench/needed.mjs): each is the app author's own claim, in the app's own declaration. None is in a generated declaration, which holds only words the code proves.
 
-47 a correct program is refused without (31 instantiates, 12 pure, 4 provides; by diagnostic: 42 IO_IN_REACTIVE, 4 CONTEXT_NOT_FOUND, 2 SNAPSHOT_KEPT, 1 SNAPSHOT_ARGUMENT):
-  cover-primitives-a11y/rx-types/@solid-primitives/a11y.d.rx: createAnnounce: instantiates — without it: IO_IN_REACTIVE main.rx:7
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-analytics/rx-types/@solid-primitives/analytics.d.rx: createAnalytics: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-async/rx-types/@solid-primitives/async.d.rx: createAbortable: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-broadcast-channel/rx-types/@solid-primitives/broadcast-channel.d.rx: createBroadcastChannel: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: the code does not show a pure fn that makes Solid nodes
+27 a correct program is refused without (12 pure, 11 instantiates, 4 provides; by diagnostic: 22 IO_IN_REACTIVE, 4 CONTEXT_NOT_FOUND, 2 SNAPSHOT_KEPT):
   cover-primitives-deep/rx-types/@solid-primitives/deep.d.rx: trackDeep: pure — without it: IO_IN_REACTIVE main.rx:7
       not proven: it calls traverse, which is not proven: it calls .has(…), a method that is not read [@solid-primitives/deep/dist/track-deep.js:29]
-  cover-primitives-event-bus/rx-types/@solid-primitives/event-bus.d.rx: createEventBus: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-event-dispatcher/rx-types/@solid-primitives/event-dispatcher.d.rx: createEventDispatcher: instantiates — without it: SNAPSHOT_KEPT main.rx:5
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-event-props/rx-types/@solid-primitives/event-props.d.rx: createEventProps: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [@solid-primitives/event-dispatcher/dist/index.js:15]
   cover-primitives-filesystem/rx-types/@solid-primitives/filesystem.d.rx: createFileSystem: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [@solid-primitives/filesystem/dist/reactive.js:195]
   cover-primitives-filesystem/rx-types/@solid-primitives/filesystem.d.rx: makeVirtualFileSystem: pure — without it: IO_IN_REACTIVE main.rx:5
       not proven: it calls .getItem(…), a method that is not read [@solid-primitives/filesystem/dist/adapter-vfs.js:14]
-  cover-primitives-flux-store/counter.d.rx: createCounter: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-idle/rx-types/@solid-primitives/idle.d.rx: createIdleTimer: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
   cover-primitives-input-mask/rx-types/@solid-primitives/input-mask.d.rx: createInputMask: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-keyboard/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: instantiates — without it: IO_IN_REACTIVE main.rx:7
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [@solid-primitives/input-mask/dist/index.js:67]
   cover-primitives-map/map.d.rx: makeMap: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-marker/marker.d.rx: createHighlighter: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-masonry/rx-types/@solid-primitives/masonry.d.rx: createMasonry: instantiates — without it: IO_IN_REACTIVE main.rx:7
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [map.js:2]
   cover-primitives-mutable/cart.d.rx: createCart: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-resize-observer/rx-types/@solid-primitives/resize-observer.d.rx: createWindowSize: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-script-loader/rx-types/@solid-primitives/script-loader.d.rx: createScriptLoader: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [cart.js:2]
   cover-primitives-set/set.d.rx: makeSet: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [set.js:2]
   cover-primitives-url/rx-types/@solid-primitives/url.d.rx: createURL: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-websocket/rx-types/@solid-primitives/websocket.d.rx: createWS: instantiates — without it: IO_IN_REACTIVE main.rx:5, SNAPSHOT_ARGUMENT main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
-  cover-primitives-workers/worker.d.rx: createSquarer: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [@solid-primitives/url/dist/url.js:74]
   cover-solid-use-server-value/ticket.d.rx: useTicket: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [ticket.js:2]
   cover-ui-sdk-utilities/rx-types/@ui-sdk/solid/date.d.rx: addDays: pure — without it: IO_IN_REACTIVE main.rx:9
       not proven: it calls clampDays, which is not proven: it reads firstDay, a value made by code that runs when the module loads: not known to be a constant [@ui-sdk/core/dist/foundation/date/plain-date.js:130]
   cover-ui-sdk-utilities/rx-types/@ui-sdk/solid/date.d.rx: formatDate: pure — without it: IO_IN_REACTIVE main.rx:9
@@ -63,22 +33,14 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
       not proven: it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
   file-routes/src/router.d.rx: Router: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10
       not proven: children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
-  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: createForm: instantiates — without it: IO_IN_REACTIVE main.rx:12
-      not proven: the code does not show a pure fn that makes Solid nodes
-  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: createForm: instantiates — without it: IO_IN_REACTIVE main.rx:12
-      not proven: the code does not show a pure fn that makes Solid nodes
-  primitives-listeners/rx-types/@solid-primitives/event-bus.d.rx: createEventBus: instantiates — without it: IO_IN_REACTIVE main.rx:15
-      not proven: the code does not show a pure fn that makes Solid nodes
-  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: instantiates — without it: IO_IN_REACTIVE main.rx:15
-      not proven: the code does not show a pure fn that makes Solid nodes
   query-mutation/api.d.rx: dehydrated: pure — without it: IO_IN_REACTIVE main.rx:20
       not proven: it reads document: the environment [api.js:24]
   query-mutation/api.d.rx: fetchTodo: pure — without it: IO_IN_REACTIVE main.rx:10
       not proven: it reads seen, a value made by code that runs when the module loads: not known to be a constant [api.js:8]
   query-mutation/api.d.rx: makeClient: instantiates — without it: IO_IN_REACTIVE main.rx:25
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [api.js:20]
   router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRouter: instantiates — without it: IO_IN_REACTIVE main.rx:30, SNAPSHOT_KEPT main.rx:30
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [@tanstack/solid-router/dist/source/router.js:8]
   router-data/people.d.rx: getPerson: pure — without it: IO_IN_REACTIVE main.rx:18
       not proven: it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
   router-provider/src/router.d.rx: AppRouter: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:9, CONTEXT_NOT_FOUND host.d.rx:9
@@ -86,14 +48,12 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
   router-rx-routes/src/router.d.rx: AppRouter: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:11, CONTEXT_NOT_FOUND host.d.rx:11, CONTEXT_NOT_FOUND host.d.rx:11, CONTEXT_NOT_FOUND host.d.rx:11
       not proven: it renders a component that is not read, or its props go where they are not followed
   solid-use-primitives/use.d.rx: useTicket: instantiates — without it: IO_IN_REACTIVE main.rx:20
-      not proven: the code does not show a pure fn that makes Solid nodes
+      not proven: it returns without making what its owner keeps [use.js:6]
   ssr-divergence/env.d.rx: whereAmI: pure — without it: IO_IN_REACTIVE main.rx:6
       not proven: it tests where it runs (typeof window) and answers data: what it answers may differ between the server and the browser (10 SV-7c) [env.js:2]
   start-mode/src/people.d.rx: getPerson: pure — without it: IO_IN_REACTIVE [id].rx:6, IO_IN_REACTIVE [id].rx:6, IO_IN_REACTIVE [id].rx:6
       not proven: it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
   start-mode/src/router.d.rx: Router: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10
       not proven: children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
-  wardic-motion/rx-types/@wardic/solid.d.rx: ward: instantiates — without it: IO_IN_REACTIVE main.rx:11
-      not proven: the code does not show a pure fn that makes Solid nodes
 
 0 no program needs.

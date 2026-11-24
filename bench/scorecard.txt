@@ -4,15 +4,15 @@ context-provider      1/1 ✓          5/5 ✓          4/4 ✓          7/7 ✓
 duplicate-keys        1/1 ✓          3/3 ✓          3/3 ✓          2/2 ✓          —                —                   —               —              —                —                 —            
 effect-derived        1/1 ✓          3/3 ✓          4/4 ✓          5/5 ✓          —                0                   0               0              0                0                 0            
 file-routes           2/2 ✓          5/5 ✓          8/8 ✓          14/14 ✓        —                22                  0               4              0                0                 0            
-formisch-field-array  1/1 ✓          6/6 ✓          7/7 ✓          5/5 ✓          —                1                   6               9              11               0                 0            
-formisch-field-path   1/1 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            1                   6               5              11               0                 0            
+formisch-field-array  1/1 ✓          6/6 ✓          7/7 ✓          5/5 ✓          —                0                   7               9              11               0                 0            
+formisch-field-path   1/1 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            0                   7               5              11               0                 0            
 frozen-read           1/1 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                0                   2               0              0                0                 0            
 keyed-edits           1/1 ✓          4/4 ✓          7/7 ✓          6/6 ✓          —                —                   —               —              —                —                 —            
 kobalte-toast         1/1 ✓          5/5 ✓          10/10 ✓        12/12 ✓        —                12                  7               3              0                0                 1            
 listener-cleanup      1/1 ✓          3/3 ✓          4/4 ✓          4/4 ✓          —                0                   1               0              0                0                 0            
 optimistic-todo       1/1 ✓          4/4 ✓          6/6 ✓          6/6 ✓          —                —                   —               —              —                —                 —            
-primitives-listeners  1/1 ✓          5/5 ✓          6/6 ✓          7/7 ✓          —                5                   6               1              0                0                 2            
-primitives-sensors    1/1 ✓          6/6 ✓          8/8 ✓          6/6 ✓          1/1 ✓            1                   1               6              0                0                 0            
+primitives-listeners  1/1 ✓          5/5 ✓          6/6 ✓          7/7 ✓          —                4                   8               0              0                0                 2            
+primitives-sensors    1/1 ✓          6/6 ✓          8/8 ✓          6/6 ✓          1/1 ✓            0                   2               6              0                0                 0            
 primitives-state      1/1 ✓          5/5 ✓          8/8 ✓          8/8 ✓          —                1                   4               3              0                0                 4            
 primitives-virtual    1/1 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            2                   7               2              0                0                 0            
 projection-selection  1/1 ✓          4/4 ✓          4/4 ✓          4/4 ✓          —                —                   —               —              —                —                 —            
@@ -35,10 +35,10 @@ store-updater         1/1 ✓          5/5 ✓          5/5 ✓          5/5 ✓
 table-pagination      1/1 ✓          8/8 ✓          10/10 ✓        3/3 ✓          —                41                  2               2              0                0                 0            
 ui-sdk-dialog         1/1 ✓          6/6 ✓          9/9 ✓          6/6 ✓          1/1 ✓            21                  2               2              7                0                 3            
 ui-sdk-forms          1/1 ✓          5/5 ✓          5/5 ✓          4/4 ✓          2/2 ✓            8                   1               2              6                0                 3            
-wardic-motion         1/1 ✓          6/6 ✓          10/10 ✓        6/6 ✓          1/1 ✓            13                  0               1              0                0                 0            
+wardic-motion         1/1 ✓          6/6 ✓          10/10 ✓        6/6 ✓          1/1 ✓            12                  1               1              0                0                 0            
 wardic-values         1/1 ✓          5/5 ✓          4/4 ✓          6/6 ✓          —                13                  1               3              0                0                 0            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-total                 44/44          186/186        268/268        246/246        13/13            387                 71              88             55               0                 17           
+total                 44/44          186/186        268/268        246/246        13/13            382                 77              87             55               0                 17           
 
 All green.
 
@@ -48,20 +48,20 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   file-routes/src/host.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   file-routes/src/people.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   file-routes/src/router.d.rx: 14 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
+  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   formisch-field-array/rx-types/valibot.d.rx: 0 words by hand, 11 `any` inherited, 0 introduced, 0 by place
-  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
+  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   formisch-field-path/rx-types/valibot.d.rx: 0 words by hand, 11 `any` inherited, 0 introduced, 0 by place
   frozen-read/label.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: 12 words by hand, 0 `any` inherited, 0 introduced, 1 by place
   kobalte-toast/sync.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   listener-cleanup/keys.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  primitives-listeners/rx-types/@solid-primitives/event-bus.d.rx: 5 words by hand, 0 `any` inherited, 0 introduced, 2 by place
+  primitives-listeners/rx-types/@solid-primitives/event-bus.d.rx: 4 words by hand, 0 `any` inherited, 0 introduced, 2 by place
   primitives-listeners/rx-types/@solid-primitives/focus.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-listeners/rx-types/@solid-primitives/raf.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-listeners/rx-types/@solid-primitives/scheduled.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-sensors/rx-types/@solid-primitives/connectivity.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
+  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-sensors/rx-types/@solid-primitives/media.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-sensors/rx-types/@solid-primitives/mouse.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-state/rx-types/@solid-primitives/memo.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 2 by place
@@ -117,16 +117,16 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   ui-sdk-forms/rx-types/@ui-sdk/solid/checkbox.d.rx: 1 word by hand, 2 `any` inherited, 0 introduced, 1 by place
   ui-sdk-forms/rx-types/@ui-sdk/solid/radio.d.rx: 7 words by hand, 3 `any` inherited, 0 introduced, 1 by place
   wardic-motion/rx-types/@wardic/dom.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  wardic-motion/rx-types/@wardic/solid.d.rx: 13 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  wardic-motion/rx-types/@wardic/solid.d.rx: 12 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   wardic-values/rx-types/@wardic/dom.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   wardic-values/rx-types/@wardic/solid.d.rx: 13 words by hand, 0 `any` inherited, 0 introduced, 0 by place
 
 Introduced `any`s (09 MO-8q: none, or on bench/any-allowlist.json): none
 
-Read from the code that runs (09 MO-8v): 71 words in the rows the tasks keep, counted apart from the 387 written by hand; 0 contradicted
-  the claims those rows make (one a word of a row): 181 — 71 proven by the generator, 92 held by a probe that fails over a module changed to make the claim false, 18 the author's own (bench/needed.txt: a program needs each), 0 mismatched (draft 2 proven + 0 held + 0 the author's, fails 0 proven + 2 held + 0 the author's, handler 11 proven + 5 held + 0 the author's, host 0 proven + 15 held + 0 the author's, instantiates 4 proven + 0 held + 8 the author's, nests 0 proven + 1 held + 0 the author's, pending ref 0 proven + 2 held + 0 the author's, provides 2 proven + 8 held + 4 the author's, pure 39 proven + 0 held + 6 the author's, ref 0 proven + 27 held + 0 the author's, rejects 6 proven + 3 held + 0 the author's, renders 0 proven + 4 held + 0 the author's, uses 7 proven + 25 held + 0 the author's)
-  whole drafts: 1380 words read (787 pure, 534 handler, 27 draft, 14 instantiates, 7 provides, 6 uses, 5 rejects); 991 questions asked (334 pure, 228 store fields, 149 uses, 54 draft, 54 class, 49 rejects, 43 overloads, 27 handler, 25 provides/nests, 14 renders, 14 ref fields)
-  the audit (09 MO-8w: every behaviour word of the tasks' declarations held against the code): 71 proven, 0 contradicted, 56 the code neither shows nor refutes (bench/audit.txt lists each with what to check)
+Read from the code that runs (09 MO-8v): 77 words in the rows the tasks keep, counted apart from the 382 written by hand; 0 contradicted
+  the claims those rows make (one a word of a row): 182 — 77 proven by the generator, 92 held by a probe that fails over a module changed to make the claim false, 13 the author's own (bench/needed.txt: a program needs each), 0 mismatched (draft 2 proven + 0 held + 0 the author's, fails 0 proven + 2 held + 0 the author's, handler 11 proven + 5 held + 0 the author's, host 0 proven + 15 held + 0 the author's, instantiates 9 proven + 0 held + 3 the author's, nests 0 proven + 1 held + 0 the author's, pending ref 0 proven + 2 held + 0 the author's, provides 2 proven + 8 held + 4 the author's, pure 40 proven + 0 held + 6 the author's, ref 0 proven + 27 held + 0 the author's, rejects 6 proven + 3 held + 0 the author's, renders 0 proven + 4 held + 0 the author's, uses 7 proven + 25 held + 0 the author's)
+  whole drafts: 1498 words read (790 pure, 534 handler, 129 instantiates, 27 draft, 7 provides, 6 uses, 5 rejects); 988 questions asked (331 pure, 228 store fields, 149 uses, 54 draft, 54 class, 49 rejects, 43 overloads, 27 handler, 25 provides/nests, 14 renders, 14 ref fields)
+  the audit (09 MO-8w: every behaviour word of the tasks' declarations held against the code): 77 proven, 0 contradicted, 56 the code neither shows nor refutes (bench/audit.txt lists each with what to check)
 
 Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 76 drafts, 4911 rows): 627 `any` the libraries' own, 0 introduced, 400 by place
   effect-derived · ./page.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place

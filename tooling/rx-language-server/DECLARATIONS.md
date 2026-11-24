@@ -451,9 +451,34 @@ two sides (SV-7c) is run on an inferred `pure` as on any.
 | --- | --- | --- |
 | `ref` on a result or a part of it | the library's type is Solid's own `Accessor<T>` (`SourceAccessor<T>`, a union with one, an alias of one); or, for a part only shaped as one (`() => T`), every `return` hands out what `createMemo` gives, a signal's getter, or a function of nothing that only computes and writes nothing the call made (`readsPart` in infer.js) | the shape alone: of 148 such parts in the 193 modules 7 were false — an abort signal made anew at each read, an id counted, a `FormData`, a clipboard read, a ref callback — and 10 are proven; the rest are the functions they are |
 | `ref` on a parameter | the type is Solid's own accessor | the shape alone: a callback of nothing is a function type |
-| `instantiates` | a proven `pure` fn makes nodes of its own | a name: 248 rows had it |
+| `instantiates` | a proven `pure` fn makes nodes of its own; or the call makes what its owner keeps on every path that returns (below) | a name: 248 rows had it |
 
 `Component`, `error` and `View` are the types' own, as the types of a row are.
+
+**`instantiates` without `pure`** (MO-10a). The word says where a call is made: once, where it is bound, in the caller's
+region, under an owner whose cleanups run with it. Both checkers give a row with it the same verdicts with `pure` and
+without (they read `pure` again only for `import pure`). That making it writes no reactive state but its own is what `pure`
+says. So the reading proves only that the call makes something its owner keeps — one of Solid's nodes, a cleanup, a
+context read — **on every path that returns**, itself or through a function it calls that does. What else it does (a
+listener, the network, a write) blocks `pure`, as strict as it was, and is not asked here.
+
+The word also refuses: a call that is not bound, or from a handler or an effect (`INSTANTIATION_NOT_BOUND`), and a changing
+value argument (`SNAPSHOT_ARGUMENT`). So it is not written where a correct call may be one of those:
+
+| refused | why |
+| --- | --- |
+| a path that returns without it; one behind `&&`, `??`, `?.`, in a loop, a `switch`, a callback | it makes nodes sometimes |
+| made later, after an `await`, in a function handed back | there is no owner there |
+| under `createRoot`, `runWithOwner`; `onSettled` alone | these need no owner (or name another) |
+| `getOwner() ? onCleanup(fn) : fn`, where its answer or `fn` is handed back | made to be called with no owner too |
+| a result that is a promise or an undo (`() => void`); a name with a capital (07 §4: a component's) | called in an action or an effect; written in a view |
+| plain objects, classes, `new Map` (`createMap`, a router, a headless controller of no Solid node) | nothing of it is the owner's |
+
+Not asked: a path taken only on the server (`isServer`, `typeof window`), which has no handlers; a first `if (…) return;`
+that does nothing and answers nothing; what a JSX expression makes is made when it is read, and is no evidence.
+`test/infer-owner.js` has each refused form beside its honest twin.
+Tried and left out (2026-11-24): proving that each listener, timer and observer is undone under the same owner
+(130 lines, 90 cases) — nothing a checker accepts rests on it, and it wrote the word on 4 rows where this writes it on 120.
 
 **`rx-verify` runs each.** A row with a word the code proves is held to what
 the reading claims, which is more than the word: a `pure` fn is called

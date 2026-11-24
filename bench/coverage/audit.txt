@@ -1,6 +1,6 @@
 The coverage entries' declarations, every behaviour word held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-38 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
+55 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: the code shows the opposite.
 36 the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.
   primitives/context/counter.d.rx: CounterProvider: provides(counter) — not read: CounterProvider is not a function the code shows (a value made by a call that is not followed, or assigned again) in counter.js

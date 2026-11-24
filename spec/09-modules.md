@@ -330,7 +330,7 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   words a file already has against the same reading (`--audit`: proven,
   contradicted, unproven). No word is written off a name, a shape, a run or a
   list of libraries (ruled 2026-11-24): `ref` is the types' own `Accessor`, or
-  proven by the code, as `instantiates` is. Nothing in a checker knows where a word came from.
+  proven by the code, as `instantiates` is (the call makes what its owner keeps on every path that returns). Nothing in a checker knows where a word came from.
   What proves each, and what is refused, is in DECLARATIONS.md.
 
 ## MO-9 — A signature read in place of its module

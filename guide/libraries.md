@@ -96,7 +96,11 @@ export pure fn createEventListener(target: EventTarget, type: string, handler: (
 - **Anything else is a value.** A store a library returns is a value whose fields track, as in Solid.
 - **`instantiates`** says the call creates state and must run once. It is inferred from any `ref`, so you write it
   only for a primitive with no `ref` on either side (one that registers a listener, or returns a store).
-- `pure fn` is right for a primitive: making it writes nothing but its own state.
+- `pure fn` is right for a primitive: making it writes nothing but its own state. `instantiates` alone says only where the
+  call is made; the checkers take it with `pure` or without.
+- `rx-declare` writes `instantiates` where the code makes something its owner keeps on every path (a signal, an effect, a
+  cleanup, a context read). A function that does so sometimes, or hands back a promise or its own undo, is left without it:
+  call that one in an action or an effect, or write the word yourself.
 
 Where the file goes:
 

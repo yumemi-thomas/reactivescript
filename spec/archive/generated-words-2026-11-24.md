@@ -8,7 +8,7 @@ word means what it means upstream (no default is changed, no word is added). Wha
 | --- | --- | --- |
 | `known.js`: 9 libraries' rows and words by hand, each for a version range | a judgment, and the ranges were wider than the releases it was made on | `uses(toast)` on Kobalte's `Toast.ProgressTrack` (and `ProgressTrack`), contradicted by the code; `fails(Error)` on `createSSE`'s `data`, which fails with the browser's Event |
 | `ref` off the shape `() => T` (a result's part, a parameter) | the shape of a call that does something is the same | 7: `makeAbortable`, `createAbortable` (0), `makeClipboard` (1), `createForm` (formData), `createPresence` (bindDone), `createIdGenerator`, `createOverlays` (attachHost) |
-| `instantiates` off `create…` / `use…` | a name | not shown false by running, and 248 rows had nothing else for it |
+| `instantiates` off `create…` / `use…` | a name (read from the code since: the last section) | not shown false by running, and 248 rows had nothing else for it |
 | `rx-declare --run`, `--dom`, `--context`: `uses(c)`, `provides(c)`, `pending` off a run with nothing provided | a run that fails says something is missing, not what; a run refutes and does not prove (rx-verify's) | — |
 | `declare-own.js` (MO-8s): an app module's row copied the words of the library rows it hands on | where those are a person's, it made generated words of them | — |
 
@@ -75,3 +75,20 @@ none and 6 (what is left is `paths`, a function with a member for each
 route, kept as a value), the Kobalte toaster's 21 to none
 (`tooling/rx-language-server/src/declare-own.js`, `test/declare.js`).
 
+
+## `instantiates`, read from the code (later the same day)
+
+Of 1baf03b's drafts (197 modules), 301 rows (211 functions, a package's modules counted once; counted by text as 226 before) had the word off a name
+and no `ref`. With the rule of DECLARATIONS.md (*`instantiates` without `pure`*) 115 of them (93 functions) have it again, proven, 37 (29) are
+`pure` alone, and 149 (89) have neither and are io: by function and package, 73 make nothing an owner keeps on any path read
+(45 of them headless controllers of @ui-sdk/core, plain objects; the others collections, URLs, histories, a router), 16
+make it on some path only, and 3 are not read to a function or hand back an undo. In all 120 rows of 31 packages gained it
+and none lost it.
+
+The other direction, what the word newly refuses: no program of the 44 tasks and 123 entries, no bad variant accepted.
+Five functions rest on owner-free state alone (a signal or a store: `createCompass`, `createFluxStore`,
+`createLocationSearchParams`, `createToggleState`, `createTrigger`): a call of one in a handler is refused, where Solid has no objection.
+
+Run, outside the tool: of the 120, 38 were made under a root with rough arguments and each left a child or a cleanup of
+it; 14 left none (context reads, and signals, which an owner does not hold); 68 needed a provider or arguments.
+rx-verify over the 197 drafts: 0 mismatches (2 modules not run, as before).

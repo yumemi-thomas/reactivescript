@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**`instantiates` read from the code** (spec/09 MO-8v, MO-10a; tooling/rx-language-server/DECLARATIONS.md, *`instantiates` without `pure`*)
+
+- **Changed: `rx-declare` writes `instantiates` on a fn that makes what its owner keeps on every path that returns**,
+  `pure` or not: 120 rows of the drafts of 31 packages, which a component may call again. `pure` is as strict as it was.
+  Not on a fn that does so sometimes, later, or under an owner of its own, nor on one that hands back a promise or its
+  undo. Read now too: `const f = c ? g : h`, and the methods of a rest parameter. Drafts in `node_modules/.rx-types/` are
+  made again once (draft 13). **If a call in a handler is now `INSTANTIATION_NOT_BOUND`**, bind it in the component, or
+  write the row without the word in `rx-types/`.
+
 **A generated declaration holds only words its code proves** (spec/09 MO-8v, ruled 2026-11-24; tooling/rx-language-server/DECLARATIONS.md; spec/archive/generated-words-2026-11-24.md)
 
 - **Changed: `rx-declare` writes no word off a name, a shape, a run or a list of libraries.** Gone: the list of words it
