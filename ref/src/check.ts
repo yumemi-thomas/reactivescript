@@ -498,14 +498,11 @@ export function subExprs(e: Expr): Expr[] {
   return out;
 }
 /** E-5a: the outermost `peek`s of an expression, outside closures (a closure's body is read when it is called). */
-/** MO-11q, 07 §4: `<wardic.div>` — a tag that begins with a small letter is an element's, and no element's name has a `.`
- *  (a custom element's has a `-`): it was compiled as an HTML element named `wardic.div`, with no word said. A member
- *  component is applied through a name with a capital. `bound`: the head is a name of this module. */
-export function memberTagLowercase(tag: string, bound: boolean): string {
+/** MO-11q, 07 §4: `<wardic.div>`, where wardic is a name of the module — a tag that begins with a small letter is an
+ *  element's, and a member component is applied through a name with a capital. */
+export function memberTagLowercase(tag: string): string {
   const head = tag.slice(0, tag.indexOf(".")); const cap = head[0].toUpperCase() + head.slice(1); const rest = tag.slice(head.length);
-  return bound
-    ? `<${tag}> is not ${head}'s member ${rest.slice(1)}: a tag is a component's by its capital (07 §4), so this is an element named "${tag}", which no element is — import ${head} under a capital, \`import { ${head} as ${cap} }\`, and apply the member, <${cap}${rest}> (declared \`export component ${tag}(…)\`, MO-11q)`
-    : `<${tag}> is no element (no element's name has a \`.\`) and no component: a tag is a component's by its capital (07 §4) — a member component is applied through a name with a capital, <${cap}${rest}>`;
+  return `<${tag}> is not ${head}'s member ${rest.slice(1)}: a tag is a component's by its capital (07 §4), so this is an element named "${tag}", which no element is — import ${head} under a capital, \`import { ${head} as ${cap} }\`, and apply the member, <${cap}${rest}> (declared \`export component ${tag}(…)\`, MO-11q)`;
 }
 /** MO-11a, MO-8k: what UNKNOWN_COMPONENT says for a JS import — where its declaration goes, and for a package how to draft one. */
 export function unknownJsComponent(tag: string, from?: string): string {
@@ -2697,7 +2694,7 @@ class Checker {
             } else this.markup(m.children, env);
             break;
           }
-          { const dot = m.tag.indexOf("."); if (dot > 0) { const head = m.tag.slice(0, dot); const bound = !!env.lookup(head); if (bound || !m.tag.includes("-")) this.err("UNKNOWN_COMPONENT", "MO-11q", memberTagLowercase(m.tag, bound)); } }
+          { const dot = m.tag.indexOf("."); if (dot > 0) { const head = m.tag.slice(0, dot); const bound = !!env.lookup(head); if (bound) this.err("UNKNOWN_COMPONENT", "MO-11q", memberTagLowercase(m.tag)); } }
           for (const a of m.attrs) { if (isHandler(a.name) && a.name !== "ref") this.handlerCalled(a.e, env, a.name); this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.keep(a.e, env); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
           this.markup(m.children, env);
           break;

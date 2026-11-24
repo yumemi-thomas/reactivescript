@@ -1810,19 +1810,14 @@ fn peeks_in<'a>(n: Node<'a>, out: &mut Vec<&'a Expr>) {
         }
     }
 }
-/// MO-11q, 07 §4: `<wardic.div>` — a tag that begins with a small letter is an element's, and no element's name has a `.`
-/// (a custom element's has a `-`). A member component is applied through a name with a capital. `bound`: the head is a
-/// name of this module.
-fn member_tag_lowercase(tag: &str, bound: bool) -> String {
+/// MO-11q, 07 §4: `<wardic.div>`, where wardic is a name of the module — a tag that begins with a small letter is an
+/// element's, and a member component is applied through a name with a capital.
+fn member_tag_lowercase(tag: &str) -> String {
     let dot = tag.find('.').unwrap_or(tag.len());
     let (head, rest) = tag.split_at(dot);
     let mut cs = head.chars();
     let cap: String = cs.next().map(|c| c.to_uppercase().collect::<String>() + cs.as_str()).unwrap_or_default();
-    if bound {
-        format!("<{tag}> is not {head}'s member {}: a tag is a component's by its capital (07 §4), so this is an element named \"{tag}\", which no element is — import {head} under a capital, `import {{ {head} as {cap} }}`, and apply the member, <{cap}{rest}> (declared `export component {tag}(…)`, MO-11q)", rest.trim_start_matches('.'))
-    } else {
-        format!("<{tag}> is no element (no element's name has a `.`) and no component: a tag is a component's by its capital (07 §4) — a member component is applied through a name with a capital, <{cap}{rest}>")
-    }
+    format!("<{tag}> is not {head}'s member {}: a tag is a component's by its capital (07 §4), so this is an element named \"{tag}\", which no element is — import {head} under a capital, `import {{ {head} as {cap} }}`, and apply the member, <{cap}{rest}> (declared `export component {tag}(…)`, MO-11q)", rest.trim_start_matches('.'))
 }
 /// MO-11a, MO-8k: what UNKNOWN_COMPONENT says for a JS import — where its declaration goes, and for a package how to draft one.
 pub fn unknown_js_component(tag: &str, from: Option<&str>) -> String {
@@ -7129,12 +7124,12 @@ impl<'a> Checker<'a> {
                         }
                         continue;
                     }
-                    // MO-11q, 07 §4: `<wardic.div>` is no element (none has a `.` without a `-`) and, by its small letter, no
-                    // member component: it was compiled as an element of that name, silently
+                    // MO-11q, 07 §4: `<wardic.div>`, where wardic is bound, is no member component by its small letter: it was
+                    // compiled as an element of that name, silently. Where the head is no name, it is an element (07 §4)
                     if let Some(dot) = tag.find('.').filter(|d| *d > 0) {
                         let bound = self.lookup(env, &tag[..dot]).is_some();
-                        if bound || !tag.contains('-') {
-                            self.err("UNKNOWN_COMPONENT", "MO-11q", member_tag_lowercase(tag, bound));
+                        if bound {
+                            self.err("UNKNOWN_COMPONENT", "MO-11q", member_tag_lowercase(tag));
                         }
                     }
                     for a in attrs {

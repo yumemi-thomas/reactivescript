@@ -138,7 +138,12 @@ falls back to them: `a<b && c>(d)`, `a<b + c>(d)`, `a<b ? c : d>(d)` and
 `a<b[c+1]>(d)` (an index holding an addition is not an indexed access
 type), ``a<`x${c+1}`>(d)`` and `a<-"1">(d)` are all `a < …` compared with `(d)` (S-surface-7). The decision no
 longer rests on a list of operators a type never has, which could miss an
-expression inside brackets.
+expression inside brackets. Nor is a list type arguments where every name in
+it is a value's: `a<b>(c)`, `a<b.c>(d)` and `f(a<b, c>(d))` are comparisons
+where the module binds `b` and `c` (an import binds its name), and `a<1>(c)`
+and `a<"x">(c)`, which name nothing, are always (revised 2026-11-24: they
+were calls, of a program that compared). A list with a name that is no
+value's (`f<string>(x)`, `f<Todos>(x)`) compared would be `UNBOUND`.
 
 Added:
 

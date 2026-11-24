@@ -1,7 +1,7 @@
 // 09 MO-1d, 11 CP-4: a name is its binding's. Every function of the language (compiler/src/names.rs), under every kind of
 // binding: both checkers agree, the interpreter and the compiled program give what the binding gives (never what the
 // language's function of that name does), a JS import is in the compiled module and in the TSX projection. And a word that
-// begins an expression (`peek`, `latest`) cannot be bound; and nothing but names.rs and names.ts lists the functions.
+// begins an expression (`peek`, `latest`) is not called where the module binds it; and nothing but names.rs and names.ts lists the functions.
 // CP-4c: `fetch` and `fail` unimported, wherever a name can stand: the scenario prelude's in a conformance build, UNBOUND in
 // an app; and a compiled app whose imported `fetch` makes its request.
 // Needs the runtime's build and the crate's (rxc, the Node-API build).   node --experimental-strip-types compiler/test/names.mjs
@@ -151,11 +151,11 @@ console.log(JSON.stringify({ asked, html })); process.exit(0);\n`);
     if (o.asked[0] !== "/hello" || !/world/.test(o.html) || !/ownb/.test(o.html)) bad("an app's imported fetch", JSON.stringify(o).slice(0, 400)); } }
 
 // a word that begins an expression
-for (const w of ["peek", "latest", "throw", "await"]) for (const [src, ok] of [[`import pure { ${w} } from "./lib.js"`], [`import pure { own as ${w} } from "./lib.js"`], [`import pure ${w} from "./dflt.js"`], [`fn ${w}(x: number): number => x`], [`fn f(${w}: number): number => 1`], [`import pure { ${w} as x } from "./lib.js"`, true]]) {
-  const file = path.join(tmp, "w.rx"); writeFileSync(file, app("  <p>a</p>", src + "\n"));
+for (const w of ["peek", "latest", "throw", "await"]) for (const [src, ok] of [[`import pure { ${w} } from "./lib.js"`], [`import pure { own as ${w} } from "./lib.js"`], [`import pure ${w} from "./dflt.js"`], [`fn ${w}(x: number): number => x`], [`fn f(${w}: number): number => ${w}(1)`], [`import pure { ${w} as x } from "./lib.js"`, true], [`fn ${w}(x: number): number => x`, true, "<p>a</p>"], [`fn f(${w}: number): number => 1`, true, "<p>a</p>"], [`export fn ${w}(x: number): number => x`, true, "<p>a</p>"]]) {
+  const file = path.join(tmp, "w.rx"); writeFileSync(file, app(`  ${src.includes(" as x ") ? "<p>a</p>" : ok ? "<p>a</p>" : `<p>{${w}(1)}</p>`}`, src + "\n"));
   let ref = ""; try { loadModules(file, read({})); } catch (e) { ref = e.message; }
   const crate = JSON.parse(spawnSync(rxc, ["check", "--json", file], { encoding: "utf8" }).stdout).diagnostics.map(d => d.message).join(" ");
-  for (const [who, said] of [["ref", ref], ["the crate", crate]]) if (said.includes("begins an expression") === !!ok) bad(src, `${who} says "${said}"`);
+  for (const [who, said] of [["ref", ref], ["the crate", crate]]) if (said.includes("is the form") === !!ok) bad(src, `${who} says "${said}"`);
 }
 
 // one list: a comparison of a name with one of the functions', outside names.rs and names.ts, is a place that does not ask by scope

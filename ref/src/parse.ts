@@ -1,5 +1,5 @@
 // Hand-rolled scanner/parser for the abstract syntax (spec/02-core.md §1).
-import { isPrelude } from "./names.ts";
+import { NAMES, isPrelude } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt, Target } from "./ast.ts";
 import type { Shape as ContentShape } from "./content.ts";
 import { contentShapeOf } from "./signature.ts";
@@ -69,11 +69,15 @@ class Cursor {
     if (h) e.code = h[0];
     throw e;
   }
+  /** The names bound so far, in any scope. `known`: those of the whole module, on the second parse (`parseProgram`). */
+  names = new Set<string>(["props", "true", "false", "null", "undefined", ...NAMES.keys()]);
+  known?: Set<string>;
+  typeArgs = false;                                                      // a call was read with type arguments
+  formCalls: [string, number][] = [];                                    // `peek(`, `latest(`, … : a form's word, written as a call
   /** A name that is bound. */
-  bound(what: string): string { return this.notForm(this.ident() ?? this.fail(what)); }
-  /** A word that begins an expression reads as its form wherever it is mentioned — `peek(x)` is `peek e` — so a binding of
-   *  that name would be passed over without a word. */
-  notForm(n: string): string { return /^(peek|latest|throw|await)$/.test(n) ? this.fail(`\`${n}\` begins an expression (\`${n} e\`), so nothing can be bound to it: use another name (an import's, \`import { ${n} as … }\`)`) : n; }
+  bound(what: string): string { return this.binds(this.ident() ?? this.fail(what)); }
+  binds(n: string): string { this.names.add(n); return n; }
+  form(w: string): boolean { if (!this.keyword(w)) return false; if (this.peek() === "(") this.formCalls.push([w, this.i - w.length]); return true; }
   ident(): string | null {
     const m = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(this.src.slice(this.i));
     if (!m) return null;
@@ -146,6 +150,12 @@ const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "late
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
+  let p: Program | undefined;
+  try { p = program(c); } catch (e) { if (!c.typeArgs) throw e; }
+  if (p && !c.typeArgs) return p;
+  const again = new Cursor(src); again.known = c.names; return program(again);   // 07 §3: what `f<a>(b)` is depends on what the module binds
+}
+function program(c: Cursor): Program {
   const decls: Decl[] = [];
   c.ws();
   while (!c.eof() && looksLikeDecl(c)) { decls.push(...parseDecls1(c)); c.ws(); c.eat(";"); c.ws(); }
@@ -153,6 +163,8 @@ export function parseProgram(src: string): Program {
   const view = parseMarkup(c, null);
   c.ws();
   if (!c.eof()) c.fail("expected a declaration or markup");
+  // a word that begins an expression reads as its form wherever it is mentioned: `peek(x)` is `peek e`, and a binding of the name would be passed over without a word
+  for (const [w, at] of c.formCalls) if (c.names.has(w)) { c.i = at; c.fail(`\`${w}(…)\` is the form \`${w} e\`, and not a call of the ${w} this module binds: use another name (an import's, \`import { ${w} as … }\`)`); }
   const dflt = decls.filter(d => d.k === "component" && d.isDefault);
   if (dflt.length > 1) c.fail("two default components: a module has one entry");
   if (view.length === 0 && dflt.length) return { decls, view: [{ k: "el", tag: (dflt[0] as { name: string }).name, attrs: [], children: [], line: dflt[0].line }] };   // MO-1c: the mounted view is the default component, applied
@@ -253,7 +265,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     c.expect(")");
     if (pure && draftArgs.length) c.fail(`${name}: a fn that changes what it is given (\`draft ${params[draftArgs[0]]}\`) is not \`pure\` (MO-10i)`);
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined; let waits: [boolean, string[]] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\brenders\b|\bcarries\b|\bunder\(|\btrusted\b|\bforwards\b|\bjoins\(|\bmethods\(/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`) */ if (/(^|[:,\[{]\s*)holds\b/.test(r ? t.slice(0, r.index) : t)) c.fail(gone("holds")); const fr = typeWords(r ? t.slice(0, r.index) : t, "result"); if (!fr) c.fail(gone("pending"));   /* MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r 2026-11-23) they are refused by name, wherever in the result they are written */ held = fr.held; waits = fr.whole; shape = fr.parts ? shapeOf(fr.parts) : undefined; ret = fr.text || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bprovides\(|\bnests\(|\bunder\(|\bjoins\(|\bmethods\(|(?<=[\w$)\]}>"'`]\s+)(renders|carries|trusted|forwards)\b/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`) */ if (/(^|[:,\[{]\s*)holds\s+[A-Za-z_$({\["']/.test(r ? t.slice(0, r.index) : t)) c.fail(gone("holds")); const fr = typeWords(r ? t.slice(0, r.index) : t, "result"); if (!fr) c.fail(gone("pending"));   /* MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r 2026-11-23) they are refused by name, wherever in the result they are written */ held = fr.held; waits = fr.whole; shape = fr.parts ? shapeOf(fr.parts) : undefined; ret = fr.text || undefined; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
     let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders: string | undefined;
@@ -294,6 +306,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     const partDrafts = draftParts(ret);
     for (const t of [...ptypes, ret]) if (t && TRACKED_WORD.test(maskedStrings(t))) c.fail(gone("tracked"));
     for (const t of [...ptypes, ret]) if (t && HANDLER_MISPLACED.test(maskedStrings(t))) c.fail(`\`handler\` on fn ${name}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`);
+    for (const t of ptypes) if (t && PENDING_MISPLACED.test(maskedStrings(t))) c.fail(`\`pending\` and \`fails(…)\` on fn ${name}: they go before a \`ref\` part of the result, and say how it is read (MO-10l)`);
     const cbs = callbacks(ptypes);   // MO-10g: before the word is taken out — only a function type marked `handler` is a callback
     for (let i = 0; i < ptypes.length; i++) ptypes[i] = stripHandler(stripDraft(ptypes[i])); ret = stripHandler(stripDraft(ret));
     const row: Extract<JsDecl, { kind: "fn" }> = { kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(draftArgs.length ? { draftArgs } : {}), ...(drafts.length ? { drafts } : {}), ...(partDrafts ? { partDrafts } : {}), ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(written || uses ? { makes: true } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(nests ? { nests } : {}), ...(renders !== undefined ? { renders } : {}),  ...(held ? { held } : {}), ...(waits ? { waits } : {}), ...(cbs ? { cbs } : {}), ...(opts.some(Boolean) ? { opts } : {}) };
@@ -373,7 +386,7 @@ export function typeWords(src: string, at: "result" | "props"): TypeWords | unde
   };
   const part = (a: number, b: number, path: string | null, depth: number) => {
     let i = a; let holds = false; let fails: string[] = []; let any = false;
-    if (at === "result" || depth > 0) for (let m; (m = /^(pending\b|fails\(([^)]*)\))\s*/.exec(t.slice(i, b))); i += m[0].length) { any = true; if (m[1] === "pending") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
+    if (at === "result" || depth > 0) for (let m; (m = /^(pending(?=\s+[A-Za-z_$({\["'])|fails\(([^)]*)\)(?=\s*[A-Za-z_$({\["']))\s*/.exec(t.slice(i, b))); i += m[0].length) { any = true; if (m[1] === "pending") holds = true; else fails = m[2].split("|").map(y => y.trim()).filter(Boolean); }
     if (any) rows.push([a, i]);
     const rest = t.slice(i, b); const record = rest.length >= 2 && rest.startsWith("{") && rest.endsWith("}");
     if (at === "props") { if (any) held.push([path ?? "", holds, fails]); if (record) fields(i, b, path === null ? "" : path + ".", depth); return; }
@@ -479,14 +492,16 @@ const gone = (word: string): string => GONE.find(g => g[0] === word)![1];
 /** `tracked` was a word before a function type (a callback the library calls inside a computation of its own). A function
  *  type without `handler` is a pure function already (MO-10g), which is all the checker read of it: the word is refused, so
  *  that a row written with it is not read by the prop's name instead. */
-const TRACKED_WORD = /\btracked\s+(?=\()/;
+const TYPE_AT = "(?<=^\\s*|[:|&?(<\\[]\\s*|=>\\s*)";   // where a type begins: a word there is the .d.rx's, and a field or a method of that name is not
+const TRACKED_WORD = new RegExp(`${TYPE_AT}tracked\\s+(?=\\()`);
+const PENDING_MISPLACED = new RegExp(`${TYPE_AT}(pending\\s+[A-Za-z_$({\\["']|fails\\([^)]*\\)\\s*[A-Za-z_$({\\["'])`);
 const RENDERS_HOST = "renders(H): H is a component this file declares, named as its tag is (`renders(Toaster)`, `renders(Toast.List)`) — the components the fn is given are rendered later, beneath an application of it (MO-11u). `renders(later)` and `renders(root, …)` are not words of a declaration";
 /** MO-10g: `handler` before a function type — the library calls it later, outside any computation (an event, a mutation's
  *  `onSuccess`), so a closure passed there is a handler's: imperative scope. The word is the .d.rx's, not TypeScript's. */
-const HANDLER_MISPLACED = /\bhandler\s+(?!\()/;
+const HANDLER_MISPLACED = new RegExp(`${TYPE_AT}handler\\s+[A-Za-z_$0-9{\\["'\`]`);
 /** `t` without what `re` finds outside its string literals: a word of the type's own text (`"handler (x)"`) is not the `.d.rx`'s. */
 const cutWords = (t: string | undefined, re: RegExp) => { if (t === undefined) return t; let out = ""; let at = 0; for (const m of maskedStrings(t).matchAll(re)) { out += t.slice(at, m.index); at = m.index + m[0].length; } return out + t.slice(at); };
-const stripHandler = (t: string | undefined) => cutWords(t, /\bhandler\s+(?=\()/g);
+const stripHandler = (t: string | undefined) => cutWords(t, new RegExp(`${TYPE_AT}handler\\s+(?=\\()`, "g"));
 const stripDraft = (t: string | undefined) => cutWords(t, /\bdraft\s+(?=[A-Za-z_$][\w$]*\s*[?:,)])/g);
 
 /** MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`. */
@@ -610,7 +625,7 @@ export function shapeHasRef(s?: Shape): boolean { return !!s && (s === "ref" || 
 /** RG-4b, 07 §5: a destructuring pattern, `{ a, b: c, d = 1, e: { f }, ...rest }` or `[a, , b, ...rest]`. */
 type Pat = { k: "name"; name: string; line: number } | { k: "obj"; props: { key: string; pat: Pat; dflt?: Expr }[]; rest?: Pat } | { k: "arr"; items: ({ pat: Pat; dflt?: Expr } | null)[]; rest?: Pat };
 function parseRest(c: Cursor, close: string): Pat {
-  c.i += 3; c.ws(); const line = c.line; const name = c.ident(); if (!name || KEYWORDS.has(name)) c.fail("a name for the rest"); c.ws();
+  c.i += 3; c.ws(); const line = c.line; const name = c.ident(); if (!name || KEYWORDS.has(name)) c.fail("a name for the rest"); c.binds(name!); c.ws();
   if (!c.startsWith(close)) c.fail(`a rest element is last, with no default: \`...${name}${close}\``);
   return { k: "name", name: name!, line };
 }
@@ -622,7 +637,7 @@ function parsePattern(c: Cursor): Pat {
       c.ws(); if (c.startsWith("}")) break;
       if (c.startsWith("...")) { const rest = parseRest(c, "}"); c.expect("}"); return { k: "obj", props, rest }; }
       const kline = c.line; const key = c.ident() ?? c.fail("a field name"); c.ws();
-      const pat: Pat = c.eat(":") ? parsePattern(c) : { k: "name", name: c.notForm(key), line: kline }; c.ws();
+      const pat: Pat = c.eat(":") ? parsePattern(c) : { k: "name", name: c.binds(key), line: kline }; c.ws();
       const dflt = c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">" ? (c.i++, c.ws(), parseExpr(c)) : undefined;
       props.push({ key, pat, dflt }); c.ws();
       if (!c.eat(",")) break;
@@ -642,7 +657,7 @@ function parsePattern(c: Cursor): Pat {
     }
     c.ws(); c.expect("]"); return { k: "arr", items };
   }
-  const line = c.line; const name = c.ident(); if (!name || KEYWORDS.has(name)) c.fail("a name to bind");
+  const line = c.line; const name = c.ident(); if (!name || KEYWORDS.has(name)) c.fail("a name to bind"); c.binds(name!);
   return { k: "name", name: name!, line };
 }
 /** Each name a pattern binds, with its projection of `base` (a default applies when the field is `undefined`, as in JS).
@@ -698,7 +713,7 @@ function parseDecl(c: Cursor): Decl {
     } const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
     const pure = c.keyword("pure"); c.ws();
     const names: { name: string; alias: string }[] = [];
-    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.bound("alias"); c.ws(); } c.notForm(alias); names.push({ name, alias }); c.imported.add(alias); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
+    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.bound("alias"); c.ws(); } c.binds(alias); names.push({ name, alias }); c.imported.add(alias); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
     else { const name = c.bound("import name"); names.push({ name: "default", alias: name }); c.imported.add(name); }
     c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
     const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
@@ -796,7 +811,7 @@ function parseDecl(c: Cursor): Decl {
   if (name && !KEYWORDS.has(name) && /^key\s+[A-Za-z_$][\w$]*\s*=[^=>]/.test(c.src.slice(c.i))) { c.keyword("key"); c.ws(); key = c.ident() ?? c.fail("key name"); c.ws(false); }   // ST-4: `x key k = e`
   if (name && !KEYWORDS.has(name) && c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">") {
     c.i++; c.ws();
-    return { k: "eq", name, e: parseExpr(c), line, key, type };
+    return { k: "eq", name: c.binds(name), e: parseExpr(c), line, key, type };
   }
   c.i = save;
   if (c.peekIdent() && /^[A-Za-z_$][A-Za-z0-9_$.\[\]]*\s*:=/.test(c.src.slice(c.i)))
@@ -814,6 +829,7 @@ export function parseBlock(c: Cursor): Stmt[] {
 
 export function parseStmts(src: string): Stmt[] {
   const c = new Cursor(src);
+  c.known = { has: () => true } as unknown as Set<string>;             // the scope is not in sight: a comparison
   const out: Stmt[] = [];
   c.ws();
   while (!c.eof()) { out.push(parseStmt(c), ...c.pendingStmts.splice(0)); c.ws(); c.eat(";"); c.ws(); }
@@ -860,7 +876,7 @@ function parseStmt0(c: Cursor): Stmt {
     if (!handler && !fin) c.fail("catch or finally");
     return { k: "try", body, catchName, catchClasses, handler, fin };
   }
-  if (c.keyword("throw")) { c.ws(); return { k: "throw", e: parseExpr(c) }; }
+  if (c.form("throw")) { c.ws(); return { k: "throw", e: parseExpr(c) }; }
   if (c.keyword("return")) { c.ws(false); if (c.peek() === "}" || c.peek() === ";" || c.peek() === "\n" || c.eof()) return { k: "return" }; return { k: "return", e: parseExpr(c) }; }
   if (c.keyword("if")) {                                               // imperative `if (c) { … } else { … }`
     c.ws(); c.expect("("); c.ws(); const cond = parseExpr(c); c.ws(); c.expect(")"); c.ws();
@@ -869,9 +885,9 @@ function parseStmt0(c: Cursor): Stmt {
     if (c.keyword("else")) { c.ws(); f = c.peek() === "{" ? parseBlock(c) : [parseStmt(c), ...c.pendingStmts.splice(0)]; }
     return { k: "sif", c: cond, t, f };
   }
-  if (c.keyword("for")) {                                              // 07 §5: `for (const x of e) { … }` — a loop over what `e` holds now, its body imperative scope
+  if (/^for\s*\(\s*(const|let)\b/.test(c.src.slice(c.i)) && c.keyword("for")) {                                              // 07 §5: `for (const x of e) { … }` — a loop over what `e` holds now, its body imperative scope
     c.ws(); c.expect("("); c.ws();
-    if (!(c.keyword("const") || c.keyword("let"))) c.fail("`for (const x of e) { … }`: the loop of imperative scope binds one name per turn");
+    c.keyword("const") || c.keyword("let");
     c.ws(); const name = c.bound("loop variable"); c.ws();
     if (!c.keyword("of")) c.fail("`of`: the loop of imperative scope is `for (const x of e) { … }`");
     c.ws(); const e = parseExpr(c); c.ws(); c.expect(")"); c.ws();
@@ -923,7 +939,7 @@ function parseExprNoCatch(c: Cursor): Expr {
     if (c.peek() === "(") { c.i++; c.ws(); ok = true; while (!c.startsWith(")")) { const id = c.ident(); if (!id) { ok = false; break; } params.push(id); c.ws(); if (c.startsWith(":") && !c.startsWith(":=")) { c.i++; c.ws(); let t: string; try { t = parseType(c, false, true).trim(); /* a `=>` in it is a function type's (`(g: () => string) => g()`): the arrow's own follows the list's `)` */ } catch (e) { if (!(e instanceof ParseError)) throw e; ok = false; break; } if (!t) { ok = false; break; } ptypes.push(t); c.ws(); } else ptypes.push(undefined); /* `:=` is a write, not a type */ if (!c.eat(",")) break; c.ws(); } if (ok && c.eat(")")) { c.ws(false); ok = c.startsWith("=>"); } else ok = false; }
     else { const id = c.ident(); if (id && !KEYWORDS.has(id)) { params.push(id); c.ws(false); ok = c.startsWith("=>"); } }
     if (ok) {
-      params.forEach(p => c.notForm(p)); c.expect("=>"); c.ws();
+      params.forEach(p => c.binds(p)); c.expect("=>"); c.ws();
       if (c.peek() === "{") {                                        // `=> { … }`: a statement body (imperative scope) unless it reads as a record literal
         const at = c.i;
         try { const stmts = parseBlock(c); if (stmts.some(st => !(st.k === "expr" && st.e.k === "id"))) return { k: "fn", params, body: { k: "lit", v: undefined }, stmts, ...(ptypes.some(Boolean) ? { ptypes } : {}) }; } catch (e) { if (!(e instanceof ParseError)) throw e; }
@@ -971,14 +987,14 @@ function parseUnary(c: Cursor): Expr {
     if (c.eat("->")) { c.ws(); return { k: "pre", name, init: parseUnary(c) }; }
     return { k: "pre", name };
   }
-  if (c.keyword("peek")) { c.ws(); return { k: "peek", e: parseUnary(c) }; }
-  if (c.keyword("await")) {
+  if (c.form("peek")) { c.ws(); return { k: "peek", e: parseUnary(c) }; }
+  if (c.form("await")) {
     const stream = c.eat("*"); c.ws(); const e = parseUnary(c); c.ws(false);   // `await*`: the latest answer of a stream (ST-6b)
     if (c.eat("->")) { c.ws(); return { k: "await", e, init: parseUnary(c), stream }; }
     return { k: "await", e, stream };
   }
-  if (c.keyword("latest")) { c.ws(); return { k: "latest", e: parseUnary(c) }; }
-  if (c.keyword("throw")) { c.ws(); return { k: "throw", e: parseUnary(c) }; }   // R-f-3: a throw expression (TC39's shape)
+  if (c.form("latest")) { c.ws(); return { k: "latest", e: parseUnary(c) }; }
+  if (c.form("throw")) { c.ws(); return { k: "throw", e: parseUnary(c) }; }   // R-f-3: a throw expression (TC39's shape)
   if (c.keyword("use")) { c.ws(); return { k: "use", name: c.ident() ?? c.fail("context name") }; }
   if (c.startsWith("pending?")) { c.i += 8; c.ws(); return { k: "pending", e: parseUnary(c) }; }
   return parsePostfix(c);
@@ -1166,6 +1182,14 @@ function tyGrammar(text: string, one: boolean): boolean {
   };
   return (one ? ty() : list()) && i === t.length;
 }
+/** 07 §3: whether `text` holds a name that is no value's: then `f<text>(…)` is no comparison of values, and is a call. A
+ *  list whose every name is bound in the module (`a<b>(c)`, `f(a<b, c>(d))`), or that has none (`a<1>(c)`), is compared.
+ *  Field and parameter names are not mentions, nor is a string literal (masked, `___`). */
+function namesType(text: string, values: Set<string>): boolean {
+  const t = maskedStrings(text), own = new Set([...t.matchAll(/\(([\w$\s,]*)\)\s*=>/g)].flatMap(m => m[1].split(",").map(x => x.trim())));
+  for (const m of t.matchAll(/(\.\s*)?(?<![\w$])([A-Za-z_$][\w$]*)(?=(\s*\??\s*:)?)/g)) if (!m[1] && m[3] === undefined && !/^(\$\d+|_+)$/.test(m[2]) && !own.has(m[2]) && !values.has(m[2])) return true;
+  return false;
+}
 function typeArgsAt(s: string, i: number): { text: string; end: number } | null {
   if (s[i] !== "<") return null; let depth = 0;
   for (let j = i; j < s.length; j++) {
@@ -1181,7 +1205,7 @@ function typeArgsAt(s: string, i: number): { text: string; end: number } | null 
 function parsePostfix(c: Cursor): Expr {
   let e = parsePrimary(c); let targs: string | undefined;
   for (;;) {
-    if (c.peek() === "<" && (e.k === "id" || e.k === "member")) { const t = typeArgsAt(c.src, c.i); if (!t) return e; c.i = t.end; targs = t.text; continue; }
+    if (c.peek() === "<" && (e.k === "id" || e.k === "member")) { const t = typeArgsAt(c.src, c.i); if (!t || (c.known && !namesType(t.text, c.known))) return e; c.typeArgs = true; c.i = t.end; targs = t.text; continue; }
     if (c.eat("?.")) { if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i, opt: true }; } else e = { k: "member", o: e, p: c.ident() ?? c.fail("member"), opt: true }; }
     else if (c.eat(".")) e = { k: "member", o: e, p: c.ident() ?? c.fail("member") };
     else if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i }; }
@@ -1335,7 +1359,7 @@ function parseControl(c: Cursor): Markup | null {
     if (c.keyword("view")) {
       c.ws(); let prop: string | undefined; if (!c.startsWith("(")) { const n = c.ident(); if (n && !KEYWORDS.has(n)) { prop = n; c.ws(); } }   // a named render prop
       const params: string[] = []; let ok = c.eat("(");
-      while (ok) { c.ws(); if (c.eat(")")) break; const n = c.ident(); if (!n || KEYWORDS.has(n)) { ok = false; break; } params.push(n); c.ws(); if (!c.eat(",") && !c.startsWith(")")) ok = false; }
+      while (ok) { c.ws(); if (c.eat(")")) break; const n = c.ident(); if (!n || KEYWORDS.has(n)) { ok = false; break; } params.push(c.binds(n)); c.ws(); if (!c.eat(",") && !c.startsWith(")")) ok = false; }
       if (ok) { c.ws(); if (c.eat("{")) { const { decls, body } = parseBlockBody(c); return { k: "mview", ...(prop ? { prop } : {}), params, decls, body }; } }
     }
     c.i = save;

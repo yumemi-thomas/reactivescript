@@ -55,8 +55,9 @@ Contents: [1 instantiation](#mo-1--instantiation) ·
   `import pure { filter } from "./lib.js"` is `lib.js`'s (corrected
   2026-11-24: it was compiled as the language's, and the import dropped). A
   word that begins an expression (`peek e`, `latest e`, `throw e`, `await
-  e`) is no name: what would bind it is a parse error (`import { latest as
-  newest }`). S-module-45
+  e`) reads as its form wherever it is mentioned: where the module binds the
+  word, `latest(x)` is a parse error (`import { latest as newest }`). A
+  binding that is not called so is accepted (revised 2026-11-24). S-module-45
 
 ## MO-2 — The value boundary
 

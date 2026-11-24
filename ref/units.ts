@@ -133,7 +133,7 @@ export const units: [string, () => void][] = [
     for (const t of ["`x${\"}\" + 1}`", "`x${\"}\"`"]) deepStrictEqual([t, looksLikeTypes(t)], [t, false]);
   }],
   ["a_brace_in_a_string_type_argument_keeps_the_call", () => {   // R4
-    for (const [src, targs] of [["x = f<`k${\"}\"}`>(1)\n", "`k${\"}\"}`"], ["x = f<\"}\">(1)\n", "\"}\""], ["x = f<{ a: `${'}'}` }>(1)\n", "{ a: `${'}'}` }"]]) {
+    for (const [src, targs] of [["x = f<`k${\"}\"}` | T>(1)\n", "`k${\"}\"}` | T"], ["x = f<\"}\", T>(1)\n", "\"}\", T"], ["x = f<{ a: `${'}'}`; b: T }>(1)\n", "{ a: `${'}'}`; b: T }"]]) {
       const json = JSON.stringify(parseProgram(src));
       if (!json.includes(`"targs":${JSON.stringify(targs)}`)) throw new Error(`${src}: ${json}`);
     }

@@ -30,6 +30,8 @@ re!(ARROW, r"^[ \t]*=>[ \t]*");
 re!(FN_PARAMS, r"^\s*($|(\.\.\.\s*)?[A-Za-z_$][A-Za-z0-9_$]*\s*\??\s*:)");
 re!(SPLIT_KEY, r"^([\s\S]*?)\s+key\s+([A-Za-z_$][A-Za-z0-9_$]*)$");
 re!(SOURCE_KEY, r"^key\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(=|:=)[^=>]");
+re!(FOR_OF, r"^for\s*\(\s*(const|let)\b");
+re!(UNTYPED_ARROW, r"\(([\w$\s,]*)\)\s*=>");
 re!(EQ_KEY, r"^key\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=[^=>]");
 re!(IMPORT_SIDE, r"^(server|client)\s+(pure[^A-Za-z0-9_]|pure$|\{)");
 re!(ERROR_DECL, r"^error\s+[A-Z]");
@@ -85,10 +87,25 @@ pub struct Cursor<'a> {
     pub temps: usize,
     /// the names this module imports so far (a hook's pair is a habit only when it is not one of them)
     pub imported: std::collections::HashSet<String>,
+    /// the names bound so far, in any scope (`binds`)
+    names: std::collections::HashSet<String>,
+    /// 07 §3: what `f<a>(b)` is — on the first parse a call, where the list can be types; then by the names the module binds
+    known: Known,
+    /// a call was read with type arguments
+    type_args: bool,
+    /// `peek(`, `latest(`, …: a form's word, written as a call
+    form_calls: Vec<(String, usize)>,
+}
+enum Known {
+    /// not yet read
+    No,
+    Names(std::collections::HashSet<String>),
+    /// the scope is not in sight (a scenario's statements): a comparison
+    All,
 }
 impl<'a> Cursor<'a> {
     pub fn new(src: &'a str) -> Self {
-        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], temps: 0, imported: std::collections::HashSet::new() }
+        Cursor { src, i: 0, recover: false, errors: vec![], pending: vec![], temps: 0, imported: std::collections::HashSet::new(), names: ["props", "true", "false", "null", "undefined"].into_iter().chain(crate::names::NAMES.iter().map(|(n, _)| *n)).map(String::from).collect(), known: Known::No, type_args: false, form_calls: vec![] }
     }
     /// What `fail` would return, recorded instead (`recover`).
     fn note(&mut self, msg: &str) {
@@ -194,19 +211,21 @@ impl<'a> Cursor<'a> {
         self.i = save;
         false
     }
-    /// A name that is bound (`ident_or`, `not_form`).
+    /// A name that is bound.
     fn bound(&mut self, what: &str) -> R<String> {
         let n = self.ident_or(what)?;
-        self.not_form(&n)?;
-        Ok(n)
+        Ok(self.binds(n))
     }
-    /// A word that begins an expression reads as its form wherever it is mentioned — `peek(x)` is `peek e` — so a binding of
-    /// that name would be passed over without a word.
-    fn not_form(&self, n: &str) -> R<()> {
-        if matches!(n, "peek" | "latest" | "throw" | "await") {
-            return self.fail(&format!("`{n}` begins an expression (`{n} e`), so nothing can be bound to it: use another name (an import's, `import {{ {n} as … }}`)"));
+    fn binds(&mut self, n: String) -> String {
+        self.names.insert(n.clone());
+        n
+    }
+    fn form(&mut self, w: &str) -> bool {
+        let is = self.keyword(w);
+        if is && self.peek() == '(' {
+            self.form_calls.push((w.to_string(), self.i - w.len()));
         }
-        Ok(())
+        is
     }
     fn ident_or(&mut self, what: &str) -> R<String> {
         match self.ident() {
@@ -387,19 +406,30 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
 
 pub fn parse_program(src: &str) -> R<Program> {
     let mut c = Cursor::new(src);
+    let p = program(&mut c);
+    if !c.type_args {
+        return p;
+    }
+    // 07 §3: what `f<a>(b)` is depends on what the module binds
+    let mut again = Cursor::new(src);
+    again.known = Known::Names(c.names);
+    program(&mut again)
+}
+fn program(c: &mut Cursor) -> R<Program> {
     let mut decls = vec![];
     c.ws(true);
-    while !c.eof() && looks_like_decl(&mut c) {
-        decls.extend(parse_decls1(&mut c)?);
+    while !c.eof() && looks_like_decl(c) {
+        decls.extend(parse_decls1(c)?);
         c.ws(true);
         c.eat(";");
         c.ws(true);
     }
-    let view = parse_markup(&mut c, Close::Top)?;
+    let view = parse_markup(c, Close::Top)?;
     c.ws(true);
     if !c.eof() {
         return c.fail("expected a declaration or markup");
     }
+    form_calls(c)?;
     let dflt: Vec<&Decl> = decls.iter().filter(|d| matches!(d, Decl::Component { is_default: true, .. })).collect();
     if dflt.len() > 1 {
         return c.fail("two default components: a module has one entry");
@@ -416,11 +446,24 @@ pub fn parse_program(src: &str) -> R<Program> {
     Ok(Program { decls, view, legacy_view: Some(legacy) })
 }
 
+/// A word that begins an expression reads as its form wherever it is mentioned — `peek(x)` is `peek e` — and a binding of
+/// the name would be passed over without a word.
+fn form_calls(c: &mut Cursor) -> R<()> {
+    if let Some((w, at)) = c.form_calls.iter().find(|(w, _)| c.names.contains(w)).cloned() {
+        c.i = at;
+        return c.fail(&format!("`{w}(…)` is the form `{w} e`, and not a call of the {w} this module binds: use another name (an import's, `import {{ {w} as … }}`)"));
+    }
+    Ok(())
+}
+
 /// CP-8e: an editor's parse. A declaration that does not parse is left out (the error recorded, the parse resumed at the
 /// next line that starts at column 0), and a missing member name or expression is an empty one, so the rest of the file
 /// still projects. Never used to compile: `parse_program` is the language.
 pub fn parse_program_recovering(src: &str) -> (Program, Vec<ParseError>) {
+    let mut first = Cursor::new(src);
+    let _ = program(&mut first);
     let mut c = Cursor::new(src);
+    c.known = Known::Names(first.names);
     c.recover = true;
     let mut decls = vec![];
     c.ws(true);
@@ -553,18 +596,20 @@ pub(crate) fn split_top(s: &str, seps: &str) -> Vec<String> {
 re!(REF_PART, r"^ref\s");
 re!(FN_PART, r"\)\s*=>");
 re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
-re!(ROW_WORD, r"^(pending\b|fails\(([^)]*)\))\s*");
+re!(ROW_WORD, r#"^(?:(pending)\s+|fails\(([^)]*)\)\s*)[A-Za-z_$({\["']"#);
 re!(READONLY_TUPLE, r"^readonly\s+\[");
 re!(REF_AT, r"^ref\s+");
 // MO-10f: a row word written before a type where no record field took it (a tuple's part, a member of a union, a type argument)
 re!(STRAY_ROW_WORD, r#"\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']"#);
-re!(OLD_HOLDS, r"(^|[:,\[{]\s*)holds\b");
+re!(OLD_HOLDS, r#"(^|[:,\[{]\s*)holds\s+[A-Za-z_$({\["']"#);
 re!(RENDER_TYPE, r"=>\s*View\s*$");
 re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
 re!(TRACKED_WORD, r"\btracked\s+\(");
 re!(HANDLER_WORD, r"\bhandler\s+");
 re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
-re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|renders\b|carries\b|under\(|trusted\b|forwards\b|joins\(|methods\()");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|under\(|joins\(|methods\()");
+// a word that can be a type's name is a row word after a type alone
+re!(GONE_WORD, r#"[\w$)\]}>"'`]\s+((?:renders|carries|trusted|forwards)\b)"#);
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
@@ -844,17 +889,28 @@ fn draft_parts(ret: Option<&str>) -> Vec<(String, Vec<(usize, Vec<usize>)>)> {
     }
     out
 }
-/// MO-10g: `handler` not followed by a function type (`(`).
+/// Where a type begins: a word there is the `.d.rx`'s, and a field or a method of that name is not.
+fn type_at(t: &str, at: usize) -> bool {
+    let b = t[..at].trim_end();
+    b.is_empty() || b.ends_with([':', '|', '&', '?', '(', '<', '[']) || b.ends_with("=>")
+}
+/// MO-10g: `handler` before a type that is no function's.
 fn handler_misplaced(t: &str) -> bool {
-    HANDLER_WORD.find_iter(&masked_strings(t)).any(|m| !t[m.end()..].starts_with('('))
+    let m = masked_strings(t);
+    HANDLER_WORD.find_iter(&m).any(|x| type_at(&m, x.start()) && m[x.end()..].starts_with(|c: char| c.is_ascii_alphanumeric() || "_$[{\"'`".contains(c)))
+}
+fn pending_misplaced(t: &str) -> bool {
+    let m = masked_strings(t);
+    STRAY_ROW_WORD.find_iter(&m).any(|x| type_at(&m, x.start()))
 }
 /// MO-10g: the type without the `.d.rx`'s `handler` word.
 /// A word of the type's own text — in a string literal (`"handler (x)"`) — is not the `.d.rx`'s.
 fn strip_handler(t: &str) -> String {
     let mut out = String::new();
     let mut at = 0;
-    for m in HANDLER_WORD.find_iter(&masked_strings(t)) {
-        if t[m.end()..].starts_with('(') {
+    let masked = masked_strings(t);
+    for m in HANDLER_WORD.find_iter(&masked) {
+        if type_at(&masked, m.start()) && t[m.end()..].starts_with('(') {
             out.push_str(&t[at..m.start()]);
             at = m.end();
         }
@@ -870,7 +926,8 @@ fn is_handler(t: &str) -> bool {
 /// type without `handler` is a pure function already (MO-10g), which is all the checker read of it: the word is refused,
 /// so that a row written with it is not read by the prop's name instead.
 fn tracked_word(t: &str) -> bool {
-    TRACKED_WORD.is_match(&masked_strings(t))
+    let m = masked_strings(t);
+    TRACKED_WORD.find_iter(&m).any(|x| type_at(&m, x.start()))
 }
 const RENDERS_HOST: &str = "renders(H): H is a component this file declares, named as its tag is (`renders(Toaster)`, `renders(Toast.List)`) — the components the fn is given are rendered later, beneath an application of it (MO-11u). `renders(later)` and `renders(root, …)` are not words of a declaration";
 /// The words and forms a declaration had and has no more, each with what says it now: a row written with one is
@@ -1490,6 +1547,34 @@ impl<'t> TyP<'t> {
         // a member with no type is `any` in a declaration but not in an object type literal
         false
     }
+}
+/// 07 §3: whether `text` holds a name that is no value's: then `f<text>(…)` is no comparison of values, and is a call. A
+/// list whose every name is bound in the module (`a<b>(c)`, `f(a<b, c>(d))`), or that has none (`a<1>(c)`), is compared.
+/// Field and parameter names are not mentions, nor is a string literal (masked, `___`).
+fn names_type(text: &str, values: &std::collections::HashSet<String>) -> bool {
+    let t = masked_strings(text);
+    let own: Vec<&str> = UNTYPED_ARROW.captures_iter(&t).flat_map(|m| m.get(1).unwrap().as_str().split(',').map(|x| x.trim())).collect();
+    let b = t.as_bytes();
+    let word = |x: u8| x.is_ascii_alphanumeric() || x == b'_' || x == b'$';
+    let mut i = 0;
+    while i < b.len() {
+        if !word(b[i]) {
+            i += 1;
+            continue;
+        }
+        let at = i;
+        while i < b.len() && word(b[i]) {
+            i += 1;
+        }
+        let w = &t[at..i];
+        let after = t[i..].trim_start();
+        let field = after.strip_prefix('?').map(str::trim_start).unwrap_or(after).starts_with(':');
+        let dollar = w.len() > 1 && w.starts_with('$') && w[1..].bytes().all(|x| x.is_ascii_digit());
+        if !b[at].is_ascii_digit() && !field && !dollar && w.bytes().any(|x| x != b'_') && !t[..at].trim_end().ends_with('.') && !own.contains(&w) && !values.contains(w) {
+            return true;
+        }
+    }
+    false
 }
 fn type_args_at(s: &str) -> Option<(String, usize)> {
     let b = s.as_bytes();
@@ -2200,8 +2285,9 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             let m = masked(&t); // nor words in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`)
             let r1 = REJECTS.find(&m).map(|x| x.end() - "rejects(".len());
             let r2 = INSTANTIATES.find(&m).map(|x| x.start() + if m[x.start()..].starts_with("instantiates") { 0 } else { 1 });
-            let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "renders", "carries", "under(", "trusted", "forwards", "joins(", "methods("].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
-            let r = [r1, r2, r3].into_iter().flatten().min();
+            let r3 = CTX_WORD.find(&m).map(|x| x.start() + if ["uses(", "provides(", "nests(", "under(", "joins(", "methods("].iter().any(|w| m[x.start()..].starts_with(w)) { 0 } else { 1 }); // MO-12
+            let r4 = GONE_WORD.captures(&m).map(|x| x.get(1).unwrap().start());
+            let r = [r1, r2, r3, r4].into_iter().flatten().min();
             let head = match r {
                 Some(at) => &t[..at],
                 None => &t[..],
@@ -2351,6 +2437,9 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             if handler_misplaced(t) {
                 return c.fail(&format!("`handler` on fn {}: it goes before a function type, one the library calls later, outside any computation (MO-10g)", name));
             }
+        }
+        if ptypes.iter().flatten().any(|t| pending_misplaced(t)) {
+            return c.fail(&format!("`pending` and `fails(…)` on fn {}: they go before a `ref` part of the result, and say how it is read (MO-10l)", name));
         }
         let cbs = callbacks(&ptypes);
         // MO-10i: callbacks whose parameters are a library's drafts, by position; the word is the .d.rx's, not TypeScript's
@@ -2531,12 +2620,12 @@ pub(crate) fn type_words(t: &str, at: Words) -> Option<TypeWords> {
             if self.at == Words::Result || depth > 0 {
                 while let Some(m) = ROW_WORD.captures(&self.t[i..b]) {
                     any = true;
-                    if &m[1] == "pending" {
+                    if m.get(1).is_some() {
                         holds = true;
                     } else {
                         fails = m[2].split('|').map(|y| y.trim().to_string()).filter(|y| !y.is_empty()).collect();
                     }
-                    i += m[0].len();
+                    i += m[0].len() - 1; // the character after the word is the type's
                 }
             }
             if any {
@@ -2646,7 +2735,7 @@ fn parse_rest(c: &mut Cursor, close: &str) -> R<Pat> {
     c.ws(true);
     let (line, start) = (c.line(), c.i);
     let name = match c.ident() {
-        Some(n) if !is_kw(&n) => n,
+        Some(n) if !is_kw(&n) => c.binds(n),
         _ => return c.fail("a name for the rest"),
     };
     let span = Span::new(start, c.i);
@@ -2685,7 +2774,7 @@ fn parse_pattern(c: &mut Cursor) -> R<Pat> {
             let pat = if c.eat(":") {
                 parse_pattern(c)?
             } else {
-                c.not_form(&key)?;
+                c.binds(key.clone());
                 Pat::Name { name: key.clone(), line: kline, span: kspan }
             };
             c.ws(true);
@@ -2733,7 +2822,7 @@ fn parse_pattern(c: &mut Cursor) -> R<Pat> {
     let (line, start) = (c.line(), c.i);
     let name = c.ident();
     match name {
-        Some(n) if !is_kw(&n) => Ok(Pat::Name { name: n, line, span: Span::new(start, c.i) }),
+        Some(n) if !is_kw(&n) => Ok(Pat::Name { name: c.binds(n), line, span: Span::new(start, c.i) }),
         _ => c.fail("a name to bind"),
     }
 }
@@ -2926,7 +3015,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
                     alias = c.bound("alias")?;
                     c.ws(true);
                 }
-                c.not_form(&alias)?;
+                c.binds(alias.clone());
                 c.imported.insert(alias.clone());
                 names.push(ImportName { name, alias });
                 if !c.eat(",") {
@@ -3218,7 +3307,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.bump();
         c.ws(true);
         let e = parse_expr(c)?;
-        return Ok(Decl::Eq { name: name.unwrap(), e, line, span: Span::NONE, deferred: false, key, ty, exported: false });
+        return Ok(Decl::Eq { name: c.binds(name.unwrap()), e, line, span: Span::NONE, deferred: false, key, ty, exported: false });
     }
     c.i = save;
     if c.peek_ident().is_some() && WRITE_AHEAD.is_match(c.rest()) {
@@ -3245,6 +3334,7 @@ pub fn parse_block(c: &mut Cursor) -> R<Vec<Stmt>> {
 
 pub fn parse_stmts(src: &str) -> R<Vec<Stmt>> {
     let mut c = Cursor::new(src);
+    c.known = Known::All;
     let mut out = vec![];
     c.ws(true);
     while !c.eof() {
@@ -3368,7 +3458,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
         }
         return Ok(st(start, StmtKind::Try { body, catch_name, catch_classes, handler, fin }, c));
     }
-    if c.keyword("throw") {
+    if c.form("throw") {
         c.ws(true);
         return Ok(st(start, StmtKind::Throw(parse_expr(c)?), c));
     }
@@ -3397,13 +3487,11 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
         return Ok(st(start, StmtKind::Sif { c: cond, t, f }, c));
     }
     // 07 §5: `for (const x of e) { … }` — a loop over what `e` holds now, its body imperative scope
-    if c.keyword("for") {
+    if FOR_OF.is_match(c.rest()) && c.keyword("for") {
         c.ws(true);
         c.expect("(")?;
         c.ws(true);
-        if !(c.keyword("const") || c.keyword("let")) {
-            return c.fail("`for (const x of e) { … }`: the loop of imperative scope binds one name per turn");
-        }
+        let _ = c.keyword("const") || c.keyword("let");
         c.ws(true);
         let name = c.bound("loop variable")?;
         c.ws(true);
@@ -3569,7 +3657,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
         }
         if ok {
             for p in &params {
-                c.not_form(p)?;
+                c.binds(p.clone());
             }
             c.expect("=>")?;
             c.ws(true);
@@ -3667,11 +3755,11 @@ fn parse_unary(c: &mut Cursor) -> R<Expr> {
         }
         return Ok(ex(start, ExprKind::Pre { name, init: None }, c));
     }
-    if c.keyword("peek") {
+    if c.form("peek") {
         c.ws(true);
         return Ok(ex(start, ExprKind::Peek(Box::new(parse_unary(c)?)), c));
     }
-    if c.keyword("await") {
+    if c.form("await") {
         let stream = c.eat("*");
         c.ws(true);
         let e = parse_unary(c)?;
@@ -3683,11 +3771,11 @@ fn parse_unary(c: &mut Cursor) -> R<Expr> {
         }
         return Ok(ex(start, ExprKind::Await { e: Box::new(e), init: None, stream }, c));
     }
-    if c.keyword("latest") {
+    if c.form("latest") {
         c.ws(true);
         return Ok(ex(start, ExprKind::Latest(Box::new(parse_unary(c)?)), c));
     }
-    if c.keyword("throw") {
+    if c.form("throw") {
         c.ws(true);
         return Ok(ex(start, ExprKind::Throw(Box::new(parse_unary(c)?)), c));
     }
@@ -3732,7 +3820,9 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
         } else if c.peek() == '<' && matches!(e.k, ExprKind::Id(_) | ExprKind::Member { .. }) {
             // 07 §3: type arguments at a call, `f<T>(…)`; else `a < b` stays a comparison
             match type_args_at(&c.src[c.i..]) {
+                Some((text, _)) if match &c.known { Known::No => false, Known::Names(n) => !names_type(&text, n), Known::All => true } => return Ok(e),
                 Some((text, len)) => {
+                    c.type_args = true;
                     c.i += len;
                     targs = Some(text);
                     continue;
@@ -4186,7 +4276,7 @@ fn parse_control(c: &mut Cursor) -> R<Option<Markup>> {
                     break;
                 }
                 match c.ident() {
-                    Some(n) if !KEYWORDS.contains(n.as_str()) => params.push(n),
+                    Some(n) if !KEYWORDS.contains(n.as_str()) => params.push(c.binds(n)),
                     _ => {
                         ok = false;
                         break;
@@ -4602,7 +4692,7 @@ mod recovering {
     #[test]
     fn a_brace_in_a_string_type_argument_keeps_the_call() {
         // R4 (RFC 11): `}` inside a string, in a template literal type or as a type argument, is not a closer
-        for (src, targs) in [("x = f<`k${\"}\"}`>(1)\n", "`k${\"}\"}`"), ("x = f<\"}\">(1)\n", "\"}\""), ("x = f<{ a: `${'}'}` }>(1)\n", "{ a: `${'}'}` }")] {
+        for (src, targs) in [("x = f<`k${\"}\"}` | T>(1)\n", "`k${\"}\"}` | T"), ("x = f<\"}\", T>(1)\n", "\"}\", T"), ("x = f<{ a: `${'}'}`; b: T }>(1)\n", "{ a: `${'}'}`; b: T }")] {
             let p = parse_program(src).expect("parses");
             let json = serde_json::to_string(&p.to_json()).unwrap();
             assert!(json.contains(&format!("\"targs\":{}", serde_json::to_string(targs).unwrap())), "{src}: {json}");

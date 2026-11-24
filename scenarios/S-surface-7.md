@@ -43,7 +43,8 @@ export default component App() {
 | 2       | handler `f := -2`   | `not both nonew v`    |
 | 3       | handler `g := 1`    | `not both noneno w no v` |
 
-Instant 0: `1 < 2` and `3 > 0`. Instant 1: `5 < 2` is false. Read as type
+A list that is types by its text is compared too, where it names values
+alone (S-surface-11). Instant 0: `1 < 2` and `3 > 0`. Instant 1: `5 < 2` is false. Read as type
 arguments, `x` and `y` would have been `a` called with `d`. A template
 literal type's substitution must be a type, and a type has a `-` only
 before a number: ``f<`x${c+1}`>(g)`` is ``(f < `x${c + 1}`) > g`` and
