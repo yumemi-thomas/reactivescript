@@ -179,6 +179,7 @@ for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/te
 node --experimental-strip-types compiler/test/names.mjs   # every function of the language under every kind of binding: a name is its binding's (09 MO-1d)
 (cd tooling/rx-language-server && npm test)   # its suites at once, RX_JOBS at a time (scripts/parallel.mjs); ref's `npm run types` asks its checker too: npm ci there first
 node scripts/spec-refs.mjs       # every rule and diagnostic that is named is in spec/
+node proposals/check.mjs         # every program in proposals/ has the verdict stated for it (--upstream <an exported, built main>: there too); not in CI
 node bench/measure.test.mjs      # the benchmark's own counting
 node bench/run.mjs --check     # BENCH_JOBS processes (default: half the cores); the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
 node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)

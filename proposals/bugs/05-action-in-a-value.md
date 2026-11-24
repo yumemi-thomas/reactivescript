@@ -1,0 +1,41 @@
+# An action handed back by a fn can be called in a view
+
+The action is a field of a record. Called by its own name it is refused; called as a field, it is accepted and throws.
+
+<!-- check branch=ACTION_CALLED_IN_OWNED_SCOPE upstream=ok -->
+```rx
+fn mk() {
+  source n := 0
+  action set(v: number) { n := v }
+  { n: n, set: set }
+}
+export default component App() {
+  m = mk()
+  <p>{m.set(2)}</p>
+}
+```
+
+A tuple's item, the same:
+
+<!-- check branch=ACTION_CALLED_IN_OWNED_SCOPE upstream=ok -->
+```rx
+fn mk() {
+  source n := 0
+  action set(v: number) { n := v }
+  [n, set]
+}
+export default component App() {
+  [n, set] = mk()
+  <p>{set(2)}</p>
+}
+```
+
+**On upstream (e650b85).** Both checkers accept. Run: `[ACTION_CALLED_IN_OWNED_SCOPE] Calling an action inside an owned scope (component, computation) is not allowed`, and the reactive system halts. The same holds through another module (run).
+
+**Spec.** R-io-3: an `io` value is called in an io scope only. R-io-2: an action is io.
+
+**Cause.** The checkers give a fn's result no row for its parts.
+
+**Fix in this branch.** aae73ab: the checkers know which parts of a fn's result are actions, through names, fns and modules. A printed signature says them (`: { set: io }`, MO-9b). A call in a handler is accepted as before.
+
+**Test.** S-action-5.
