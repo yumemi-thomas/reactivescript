@@ -5620,10 +5620,9 @@ impl<'a> Checker<'a> {
             ExprKind::Peek(x) | ExprKind::Latest(x) => go(x),
             ExprKind::Pre { name, .. } => named(name, env),
             ExprKind::Call { f, args, .. } => match &f.k {
-                ExprKind::Id(n) if self.lookup(env, n).is_none() => match n.as_str() {
-                    "map" => steps.is_empty(),
-                    "filter" => steps.is_empty() || args.first().is_some_and(go),
-                    _ => false,
+                ExprKind::Id(n) => match crate::names::list_of(n, self.lookup(env, n).is_some()) {
+                    Some(own) => steps.is_empty() || (own && args.first().is_some_and(go)),
+                    None => false,
                 },
                 ExprKind::Member { o, p, .. } => match p.as_str() {
                     "filter" | "slice" | "concat" | "toSorted" | "toReversed" | "toSpliced" => go(o),

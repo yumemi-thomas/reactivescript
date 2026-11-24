@@ -48,6 +48,15 @@ pub fn language(name: &str, bound: bool, conformance: bool) -> Option<Lang> {
 pub fn scalar(name: &str, bound: bool) -> bool {
     !bound && matches!(name, "len" | "str" | "sum" | "every" | "indexOf")
 }
+/// W-1a: a function of the language that answers a list — of rows made anew (`Some(false)`), or of its argument's own.
+pub fn list_of(name: &str, bound: bool) -> Option<bool> {
+    match name {
+        _ if bound => None,
+        "map" => Some(false),
+        "filter" => Some(true),
+        _ => None,
+    }
+}
 /// UNBOUND's reason, for a name of the harness an app has not declared.
 pub fn harness_reason(name: &str) -> Option<&'static str> {
     match name {

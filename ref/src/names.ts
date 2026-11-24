@@ -15,6 +15,8 @@ export const language = (name: string, bound: unknown, conformance = true): Lang
 const SCALAR = new Set(["len", "str", "sum", "every", "indexOf"]);
 /** MO-10k: a function of the language that answers a primitive, whatever it is given. */
 export const scalar = (name: string, bound: unknown): boolean => !bound && SCALAR.has(name);
+/** W-1a: a function of the language that answers a list — of rows made anew, or of its argument's own. */
+export const listOf = (name: string, bound: unknown): "made" | "argument" | undefined => bound ? undefined : name === "map" ? "made" : name === "filter" ? "argument" : undefined;
 /** What `import { name } from "./prelude"` names, in an import of the prelude. */
 export const inPrelude = (d: Extract<Decl, { k: "import" }>, name: string, conformance = true): boolean => { const l = d.prelude ? language(name, false, conformance) : undefined; return l === "fn" || l === "log"; };
 /** The scenario prelude's own module, as a specifier. The loader takes the mark off where the program has such a module

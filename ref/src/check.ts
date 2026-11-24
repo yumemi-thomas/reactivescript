@@ -2,7 +2,7 @@
 // Every diagnostic is an error (CN-1a). Codes keep Solid's names where one exists (CN-1b); `rule`
 // is the spec rule enforced. Names resolve lexically (a component body sees its declaration
 // site, never its caller — RG-7a); provisions resolve through the static application tree (RG-7b).
-import { HARNESS, language, scalar } from "./names.ts";
+import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
@@ -2108,7 +2108,7 @@ class Checker {
       case "peek": case "latest": return go(e.e);
       case "pre": return go({ k: "id", name: e.name });
       case "call":
-        if (e.f.k === "id" && !env.lookup(e.f.name)) return e.f.name === "map" ? !steps.length : e.f.name === "filter" && (!steps.length || (!!e.args[0] && go(e.args[0])));
+        { const l = e.f.k === "id" ? listOf(e.f.name, env.lookup(e.f.name)) : undefined; if (l) return !steps.length || (l === "argument" && !!e.args[0] && go(e.args[0])); }
         if (e.f.k !== "member" || !["filter", "slice", "concat", "toSorted", "toReversed", "toSpliced", "map", "flatMap"].includes(e.f.p)) return false;
         return e.f.p === "map" || e.f.p === "flatMap" ? !steps.length && go(e.f.o, env, []) : go(e.f.o);
       case "id": {
