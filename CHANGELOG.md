@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+**Drafts are short, and the tools faster** (tooling/rx-language-server/DECLARATIONS.md, MO-8o)
+
+- **Changed: a component whose props no module names, more than 24 of them, is drafted by its place**, `props:
+  Parameters<typeof import("kit").Part>[0] & { … }`, with only the fields the checker reads after it (every attribute of
+  its element was written out: 24 KB a row). `@ui-sdk/solid` drafts to 0.23 MB, from 4.46 MB. No fact a checker reads is
+  lost, no `any` is added, and an app's types are the library's own as before; a declaration you keep needs no change.
+  Generated declarations are drafted again once (draft 10).
+- **Changed: `rx-declare` checks a row only where a reading could say more than one that holds.** `@wardic/solid` takes
+  17 s of CPU (146 s), `@ui-sdk/solid` 24 s (137 s).
+- **Removed: `rx-verify` no longer reads `//@ inferred` lines.** It reads which words the code proves from the code.
+  Delete the lines your declarations have.
+- **Changed: the suites run several at a time, reported in order**: `ref`'s SSR scenarios, the
+  language server's suites and the benchmark's tasks run (`RX_JOBS`, `BENCH_JOBS`).
+
 **What an independent review found, acted on** (spec/09, rewritten to its rules; spec/archive/; tooling/rx-language-server/DECLARATIONS.md)
 
 - **Fixed: strict declarations certified claims nothing had tested.** Each claim of a row has a name and a result of its

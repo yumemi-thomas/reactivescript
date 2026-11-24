@@ -132,10 +132,11 @@ holds it as it holds the scorecard: an entry that was green may not turn red, it
 words nor hold more `any`s, no draft may write an `any` of its own (or say more by place than recorded), and the list
 itself is held — every module `libraries.json` names is drafted, every one it says a program must import is imported
 by an entry, each package is at its recorded version in `bench/package.json` and still accepts Solid 2. Entries run
-several at once (`BENCH_JOBS`, 8 by default); a module no entry's program imports is drafted in a process of its own.
+several at once (`BENCH_JOBS`, half the cores by default); a module no entry's program imports is drafted in a process of its own.
 `--shard i/n` runs every n-th entry and drafts every n-th such module, and holds the whole list (what an entry drafts
-and imports is read off its `use.mjs`): in one CI job with the tasks the run took 31 minutes, 7 of them the tasks', so
-`.github/workflows/bench.yml` runs the tasks and three shards as four jobs.
+and imports is read off its `use.mjs`); `.github/workflows/bench.yml`
+runs the tasks and three shards as four jobs. The tasks run several at once too, those that build with Vite at most two
+at a time; what is reported does not depend on the number, nor does its order.
 
 To add a package: its name and version in `bench/package.json` (and the lock), its modules in `libraries.json`, and an
 entry. `use(import.meta, { pkg, title, ssr: /what the server's render says/, dom: /what the page says/ | async (h,

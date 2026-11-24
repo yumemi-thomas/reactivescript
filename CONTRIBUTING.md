@@ -142,7 +142,7 @@ cd ref
 npm test                       # interpreter over every scenario
 npm run oracle                 # the same scenarios lowered onto Solid
 npm run compiled               # compiled modules
-npm run ssr                    # streamed SSR + hydration in Chromium
+npm run ssr                    # streamed SSR + hydration in Chromium (several processes: RX_JOBS, default 4)
 npm run types                  # TSX projection checked by TypeScript
 npm run crate                  # the Rust crate against ref/ (also --spa, --whole-program, --lower, --project)
 ```
@@ -156,10 +156,10 @@ for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confi
 for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done   # git clone -b frontend-resolve https://github.com/yumemi-thomas/solid-vite-plugin && pnpm install && npx rolldown -c
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar
 (cd runtime && node test.mjs)
-(cd tooling/rx-language-server && npm test)
+(cd tooling/rx-language-server && npm test)   # its suites at once, RX_JOBS at a time (scripts/parallel.mjs)
 node scripts/spec-refs.mjs       # every rule and diagnostic that is named is in spec/
 node bench/measure.test.mjs      # the benchmark's own counting
-node bench/run.mjs --check     # the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
+node bench/run.mjs --check     # BENCH_JOBS processes (default: half the cores); the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
 node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)
 BENCH_WORDS=1 node bench/run.mjs <task>   # each row of the task's declarations written by hand, beside rx-declare's row of the same export; and each row with an inferred word that rx-verify did not run
 npx rx-declare <module> --why             # each word read from the code: what proved it, or the first thing in the way with its file and line
