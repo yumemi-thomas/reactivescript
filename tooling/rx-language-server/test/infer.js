@@ -288,6 +288,10 @@ ok("…and each refused with the first thing in the way, and its place", /savePe
   const plain = declare("./api.js", "--no-infer");
   ok("--no-infer: the draft from the types alone, every question asked", !/\/\/@ inferred|^export pure fn|: handler \(|rejects\(N|draft list:/m.test(plain.stdout) && /TODO fetchPerson: its promise rejects/.test(plain.stdout) && /TODO total: io as drafted, refused in a view or an equation/.test(plain.stdout), plain.stdout);
   ok("the same module is drafted to the same bytes, from a process of its own", declare("./api.js").stdout === draft && declare("./api.js", "--no-infer").stdout === plain.stdout, draft);
+  fs.writeFileSync(path.join(ws, "ask.js"), "import { isServer } from \"solid-js\";\nimport { mystery } from \"kit\";\nexport function stamp(n) { return n + Date.now(); }\nexport function title(n) { return document.title + n; }\nexport function unsure(n) { return mystery(n); }\nexport function where(n) { return isServer ? 1 : n; }\nexport function acts(n) { mystery(n); }\n");
+  fs.writeFileSync(path.join(ws, "ask.d.ts"), ["stamp", "title", "unsure", "where"].map(n => `export declare function ${n}(n: number): number;\n`).join("") + "export declare function acts(n: number): void;\n");
+  const asked = [...declare("./ask.js").stdout.matchAll(/^\/\/ TODO (\w+): io as drafted/gm)].map(m => m[1]).join();
+  ok("`pure` is asked where the reading stops, not where an effect is shown (the clock, the environment) nor of a fn that answers nothing", asked === "unsure,where", asked);
   const only = declare("./api.js", "--only", "onKey");
   ok("--only keeps the row, words and all", /^export fn onKey\(key: string, run: handler \(\) => void\)/m.test(only.stdout) && !/fetchPerson/.test(only.stdout), only.stdout);
 }

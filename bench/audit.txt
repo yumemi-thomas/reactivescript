@@ -4,7 +4,7 @@ The tasks' declarations, every behaviour word (pure, handler, draft, rejects, us
 0 contradicted: the code shows the opposite.
 56 the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.
   file-routes/rx-types/@solidjs/router.d.rx: useParams: uses(router) — it reads RouterContextObj on some path only, or when what it hands back is called [@solidjs/router/dist/routing.js:37]
-  file-routes/src/people.d.rx: getPerson: pure — it calls getCache, which is not proven: it tests where it runs (isServer) and answers data: what it answers may differ between the server and the browser (10 SV-7c) [@solidjs/router/dist/data/query.js:88]
+  file-routes/src/people.d.rx: getPerson: pure — it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
   file-routes/src/people.d.rx: getPerson: rejects(NotFound) — a call, a callback or a thrown value whose class the code does not show adds `Error`
   file-routes/src/router.d.rx: Router: provides(router) — children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: Toast: provides(toast) — onKeyDown is read outside the provider: onKeyDown is read [@kobalte/core/dist/toast/BZZ7jdbA.jsx:293] — check that onKeyDown holds no view, or (a function) is called only among the provider's children
@@ -24,7 +24,7 @@ The tasks' declarations, every behaviour word (pure, handler, draft, rejects, us
   router-code-routes/rx-types/@tanstack/solid-router.d.rx: RouterProvider: provides(router) — it renders a component that is not read, or its props go where they are not followed
   router-code-routes/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — it calls nearestMatch, which holds a context's value or another package's [@tanstack/solid-router/dist/source/useMatch.jsx:13]
   router-code-routes/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — it calls a value that is computed [@tanstack/router-core/dist/esm/utils.js:212]
-  router-data/people.d.rx: getPerson: pure — it calls getCache, which is not proven: it tests where it runs (isServer) and answers data: what it answers may differ between the server and the browser (10 SV-7c) [@solidjs/router/dist/data/query.js:88]
+  router-data/people.d.rx: getPerson: pure — it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
   router-data/people.d.rx: getPerson: rejects(NotFound) — a call, a callback or a thrown value whose class the code does not show adds `Error`
   router-data/rx-types/@solidjs/router.d.rx: createRouter: nests(children in component) — how a component the fn makes nests what it is given is not read
   router-data/rx-types/@solidjs/router.d.rx: createRouter: provides(router) — a fn's row: what the component it makes provides is not read
@@ -40,7 +40,7 @@ The tasks' declarations, every behaviour word (pure, handler, draft, rejects, us
   router-rx-routes/src/router.d.rx: AppRouter: provides(router) — it renders a component that is not read, or its props go where they are not followed
   ssr-divergence/env.d.rx: whereAmI: pure — it tests where it runs (typeof window) and answers data: what it answers may differ between the server and the browser (10 SV-7c) [env.js:2]
   start-mode/rx-types/@solidjs/router.d.rx: useParams: uses(router) — it reads RouterContextObj on some path only, or when what it hands back is called [@solidjs/router/dist/routing.js:37]
-  start-mode/src/people.d.rx: getPerson: pure — it calls getCache, which is not proven: it tests where it runs (isServer) and answers data: what it answers may differ between the server and the browser (10 SV-7c) [@solidjs/router/dist/data/query.js:88]
+  start-mode/src/people.d.rx: getPerson: pure — it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
   start-mode/src/people.d.rx: getPerson: rejects(NotFound) — a call, a callback or a thrown value whose class the code does not show adds `Error`
   start-mode/src/router.d.rx: Router: provides(router) — children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
   start-route/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — it calls hasOwn, a value made by code that is not read [../../deps/start-route/node_modules/@tanstack/router-core/dist/esm/utils.js:24]

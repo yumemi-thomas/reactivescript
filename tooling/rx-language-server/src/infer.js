@@ -1059,7 +1059,7 @@ function create(ts, options = {}) {
       const rets = []; const find = n => { if (isFn(n) || ts.isClassLike(n)) return; if (ts.isReturnStatement(n)) rets.push(n); ts.forEachChild(n, find); };
       if (ts.isBlock(body)) find(body);
       const data = ts.isBlock(body) ? rets.find(r => r.expression && !fnish(r.expression)) : fnish(body) ? undefined : body;
-      if (data) no(`it tests where it runs (${s.env.what}) and answers data: what it answers may differ between the server and the browser (10 SV-7c)`, data, true);
+      if (data) no(`it tests where it runs (${s.env.what}) and answers data: what it answers may differ between the server and the browser (10 SV-7c)`, data);
     }
   }
 

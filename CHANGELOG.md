@@ -5,7 +5,7 @@
 **A draft asks only what changes a verdict** (tooling/rx-language-server/DECLARATIONS.md, *The questions*; spec/09 MO-8v)
 
 - **Changed: a `// TODO` in a draft is asked only where its answer changes what a checker does**, by one rule and no name
-  (`create…`, `use…`, `on…`, `…Provider`): 753 over the coverage libraries' modules (924), each with what the row does
+  (`create…`, `use…`, `on…`, `…Provider`): 757 over the coverage libraries' modules (924), each with what the row does
   now, what the word changes and why it is not proven (file:line). A fn under any name that answers a value is asked
   about; a row that instantiates is not. A generated declaration has none.
 - **Changed: a result's field typed `Accessor` is drafted `ref` whatever its name** (`isActive`, `canUndo`: they were
