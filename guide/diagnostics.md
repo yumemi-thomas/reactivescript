@@ -1404,7 +1404,8 @@ export default component App() {
 ### UNBOUND
 
 The name is not declared where it is read. A component sees its declaration site, not its caller (RG-7a): pass the
-value as a prop, provide it in a context, or import it.
+value as a prop, provide it in a context, or import it. JavaScript's globals (`Math`, `JSON`, `document`) are not in scope:
+export what you use of one from a `.js` module, and import that.
 
 ```rx before
 component Row(props) { <p>{caption}</p> }

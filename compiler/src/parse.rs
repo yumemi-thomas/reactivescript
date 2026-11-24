@@ -24,6 +24,7 @@ macro_rules! re {
 }
 re!(IDENT, r"^[A-Za-z_$][A-Za-z0-9_$]*");
 re!(TAG, r"^[A-Za-z_$][A-Za-z0-9_$:.\-]*");
+re!(IN_PARAMS, r"\b(fn|action)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]*$");
 re!(TYPE_BEGINS, r"(^|[|&]|=>)\s*$");
 re!(ARROW, r"^[ \t]*=>[ \t]*");
 re!(FN_PARAMS, r"^\s*($|(\.\.\.\s*)?[A-Za-z_$][A-Za-z0-9_$]*\s*\??\s*:)");
@@ -348,6 +349,9 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
     let name = NAME_BEFORE.captures(before).map(|c| c[1].to_string()).unwrap_or_else(|| "x".into());
     if msg.starts_with("W-2") && rest.starts_with(":=") && ARROW_BEFORE.is_match(before) {
         return Some(("REACTIVE_WRITE_IN_OWNED_SCOPE", format!("an arrow that writes takes a braced body, `() => {{ {} := … }}`: an expression-bodied arrow is a pure function (SC-3)", name)));
+    }
+    if rest.starts_with('=') && !rest[1..].starts_with('=') && !rest[1..].starts_with('>') && IN_PARAMS.is_match(before) {
+        return Some(("PARSE", format!("a parameter has no default: give every argument at the call, and say what an absent one means in the body, `{} ?? …` (E-9, AC-1f)", name)));
     }
     if OP_ASSIGN.is_match(rest) || (rest.starts_with('=') && !rest[1..].starts_with('=') && !rest[1..].starts_with('>')) {
         return Some(("ASSIGNMENT", format!("a source is written with `:=`, as a statement in a handler or action: `{n} := {n} + 1`, or `{n} := v => v + 1` (W-1, W-6); .rx has no `=`, `+=` or `++` on state", n = name)));

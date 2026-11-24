@@ -1690,6 +1690,7 @@ struct VTree {
     tag: String,
     kids: Vec<VTree>,
 }
+const JS_GLOBALS: &str = "Math JSON Date Number String Boolean Array Object Promise Set Map WeakMap WeakSet Symbol RegExp BigInt Intl URL console document window globalThis navigator localStorage sessionStorage location history setTimeout setInterval clearTimeout clearInterval requestAnimationFrame queueMicrotask structuredClone parseInt parseFloat isNaN crypto performance alert";
 /// A type's text on one line, as a signature's row is (MO-9b): a line's end between two members is their `;`.
 fn one_line(t: &str) -> String {
     t.split('\n').map(js_trim).filter(|x| !x.is_empty()).fold(String::new(), |a, b| {
@@ -5038,7 +5039,8 @@ impl<'a> Checker<'a> {
         if ctx.imperative && (name == "log" || DOLLAR_PARAM.is_match(name)) {
             return None;
         }
-        self.err("UNBOUND", "SCOPE", format!("{} is not declared here (a component sees its declaration site, not its caller — RG-7a)", name));
+        let why = if JS_GLOBALS.split(' ').any(|g| g == name) { ": JavaScript's globals are not in scope — export what you use of it from a `.js` module, and import that" } else { " (a component sees its declaration site, not its caller — RG-7a)" };
+        self.err("UNBOUND", "SCOPE", format!("{} is not declared here{}", name, why));
         None
     }
     /// 12 SF-3/SF-5: what a name may be on this side.

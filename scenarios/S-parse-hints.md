@@ -93,3 +93,21 @@ export default component App() {
   <button onClick={() => n := n + 1}>{n}</button>
 }
 ```
+
+A default is no assignment, and a global is no caller's name:
+
+```
+-- reject: PARSE
+fn f(a: number, b = 3): number => a + b
+export default component App() {
+  <p>{f(1, 2)}</p>
+}
+```
+
+```
+-- reject: UNBOUND
+export default component App() {
+  source n := 1.5
+  <p>{Math.round(n)}</p>
+}
+```

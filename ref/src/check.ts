@@ -70,6 +70,7 @@ const siteKeyOf = (x: HostSite) => { const ck = (c: Catch) => c === "all" ? "*" 
 const joinCatch = (a: Catch, b: Catch): Catch => a === "all" || b === "all" ? "all" : new Set([...a, ...b]);
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
+const JS_GLOBALS = new Set("Math JSON Date Number String Boolean Array Object Promise Set Map WeakMap WeakSet Symbol RegExp BigInt Intl URL console document window globalThis navigator localStorage sessionStorage location history setTimeout setInterval clearTimeout clearInterval requestAnimationFrame queueMicrotask structuredClone parseInt parseFloat isNaN crypto performance alert".split(" "));
 /** A type's text on one line, as a signature's row is (MO-9b): a line's end between two members is their `;`. */
 const oneLine = (t: string) => t.split("\n").map(x => x.trim()).filter(Boolean).reduce((a, b) => a === "" ? b : a + (/[{([<|&,;:>]$/.test(a) || /^[})\]>|&]/.test(b) ? " " : "; ") + b, "");
 type Use = { region: Region; name: string; line: number; display: string };
@@ -1842,7 +1843,7 @@ class Checker {
     if (s) { this.sided(s, ctx); return s; }
     if (BUILTINS.has(name)) return undefined;
     if (ctx.scope === "imperative" && (name === "log" || /^\$\d+$/.test(name))) return undefined;   // the apply block's parameters; `log` is io and only in imperative scope
-    this.err("UNBOUND", "SCOPE", `${name} is not declared here (a component sees its declaration site, not its caller — RG-7a)`);
+    this.err("UNBOUND", "SCOPE", JS_GLOBALS.has(name) ? `${name} is not declared here: JavaScript's globals are not in scope — export what you use of it from a \`.js\` module, and import that` : `${name} is not declared here (a component sees its declaration site, not its caller — RG-7a)`);
     return undefined;
   }
   /** 12 SF-3/SF-5: what a name may be on this side. In a server body: nothing reactive (captured by kind, not position), and

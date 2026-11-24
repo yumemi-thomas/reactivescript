@@ -19,6 +19,8 @@ export function hint(src: string, i: number, msg: string): [string, string] | nu
   const name = /([A-Za-z_$][A-Za-z0-9_$.]*)\s*$/.exec(before)?.[1] ?? "x";
   if (msg.startsWith("W-2") && rest.startsWith(":=") && /=>\s*[A-Za-z_$][A-Za-z0-9_$.]*\s*$/.test(before))
     return ["REACTIVE_WRITE_IN_OWNED_SCOPE", `an arrow that writes takes a braced body, \`() => { ${name} := … }\`: an expression-bodied arrow is a pure function (SC-3)`];
+  if (/^=(?![=>])/.test(rest) && /\b(fn|action)\s+[A-Za-z_$][\w$]*\s*\([^)]*$/.test(before))
+    return ["PARSE", `a parameter has no default: give every argument at the call, and say what an absent one means in the body, \`${name} ?? …\` (E-9, AC-1f)`];
   if (/^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*\/%])=|=(?![=>]))/.test(rest))
     return ["ASSIGNMENT", `a source is written with \`:=\`, as a statement in a handler or action: \`${name} := ${name} + 1\`, or \`${name} := v => v + 1\` (W-1, W-6); .rx has no \`=\`, \`+=\` or \`++\` on state`];
   if (/^(export\s+)?(default\s+)?(async\s+)?function\b/.test(line))
