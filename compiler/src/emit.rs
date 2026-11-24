@@ -1418,6 +1418,10 @@ impl<'p> Gen<'p> {
             _ => rtc("memo", vec![E::Null, thunk(self.expr(tail, inner, &reactive())?)]),
         };
         body.push(S::Return(Some(t)));
+        // RG-6a: what it provides is for what its call instantiates, not for the caller's region: an owner of the call's own
+        if decls.iter().any(|x| matches!(x, Decl::Provide { .. })) {
+            body = vec![S::Return(Some(rtc("inst", vec![arrow_block(vec![], body, false)])))];
+        }
         Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }))
     }
     /// MO-10: `x = f(…)` over a declared primitive — called once (RG-6), a ref argument as an accessor, a value one

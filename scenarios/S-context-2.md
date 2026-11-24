@@ -54,6 +54,30 @@ export default component App() {
 | 1 | handler `bad := true` | `a-x!10b-y.20` |
 | 2 | handler `by := 3` | `a-x!10b-y.30` |
 
+## Variant: what a fn provides is its call's
+
+```rx
+context d: string
+fn useInner(): string { v = use d
+  v }
+fn useOuter(): string { provide d = "in"
+  v = useInner()
+  v }
+component Kid() {
+  a = useOuter()
+  b = use d
+  <p>{a} {b}</p>
+}
+export default component App() {
+  provide d = "out"
+  <Kid />
+}
+```
+
+| instant | action | frame |
+| ------- | ------ | ----- |
+| 0 | mount | `in out` |
+
 ## Accepted variants
 
 A fn's own provision, a fn nobody calls, and a hook called in a branch beneath its provision:

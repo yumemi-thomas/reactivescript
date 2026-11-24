@@ -424,7 +424,8 @@ class Gen {
     const prevs = d.params.filter(p => p.ref && this.u.prevOf.has(p.name)).map(p => `${pad}  const p$${p.name} = __rt.pre(${mg(p.name)});\n`).join("");
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;
     const tail = tb && (tb.kind === "acc" || tb.kind === "src") ? tb.js : `__rt.memo(null, () => ${this.expr(d.tail, inner, { imp: false })})`;
-    return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${prevs}${body}\n${pad}  return ${tail};\n${pad}}`;
+    const own = d.decls.some(x => x.k === "provide");   // RG-6a: what it provides is for what its call instantiates, not for the caller's region: an owner of the call's own
+    return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {${own ? " return __rt.inst(() => {" : ""}\n${prevs}${body}\n${pad}  return ${tail};\n${pad}${own ? "}); }" : "}"}`;
   }
   /** MO-10: `x = f(…)` over a declared primitive — called once (RG-6), a ref argument as an accessor, a value one untracked;
    *  and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to its value. */

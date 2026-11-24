@@ -11,7 +11,7 @@ import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver } from "@solidjs/signals";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
-  createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, isDisposed, runWithOwner, $TARGET, createErrorBoundary, omit, merge
+  createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, isDisposed, createOwner, runWithOwner, $TARGET, createErrorBoundary, omit, merge
 } from "@solidjs/signals";
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
@@ -451,7 +451,8 @@ export class Oracle {
   }
   private fnOf(e: Expr, scope: Scope) { if (e.k !== "call" || e.f.k !== "id") return null; const b = scope.lookup(e.f.name); return b && b.k === "fn" ? b.decl : null; }
   private fnHome(e: Expr, scope: Scope): Scope { const b = e.k === "call" && e.f.k === "id" ? scope.lookup(e.f.name) : undefined; return b && b.k === "fn" ? b.home : scope; }
-  private instantiateFn(call: Extract<Expr, { k: "call" }>, f: Extract<Decl, { k: "fn" }>, scope: Scope) {
+  private instantiateFn(call: Extract<Expr, { k: "call" }>, f: Extract<Decl, { k: "fn" }>, scope: Scope, own = false): () => unknown {
+    if (f.decls.some(x => x.k === "provide") && !own) return runWithOwner(createOwner(), () => this.instantiateFn(call, f, scope, true))!;   // RG-6a: what it provides is for what its call instantiates
     const s2 = new Scope(this.fnHome(call, scope));                   // names from the declaration; arguments from the call
     f.params.forEach((p, i) => {
       const arg = call.args[i];

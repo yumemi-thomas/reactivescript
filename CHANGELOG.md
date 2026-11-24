@@ -12,6 +12,7 @@
   fns, modules and packages (a printed signature's `uses(…)`, 09 MO-9b), as a JS hook is. **Stricter:** a fn that reads a
   context and declares nothing (`fn label() => use locale`) instantiates too, so its call is bound: called inline, it read
   the default in the browser and the provision on the server.
+- **Fixed: what a fn provides stays in its call** (03 RG-6a): compiled, `provide` in a fn's block provided to the caller's region.
 - **Fixed, stricter: an action handed back by a fn was callable in a view** (04 R-io-3; `scenarios/S-action-5`): `m = mk()`,
   `{m.set(2)}` threw when it ran. It is `ACTION_CALLED_IN_OWNED_SCOPE`, as a tuple's item, through other names, fns and
   modules, and through a package (the printed signature names the parts that are actions, `: { set: io }`, 09 MO-9b). A call
