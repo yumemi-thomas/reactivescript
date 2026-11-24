@@ -10,7 +10,7 @@ import { Show, For, Loading, Errored, DEV } from "solid-js";
 import {
   reconcile,
   createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, createOwner, $TARGET, createErrorBoundary, omit,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, isDisposed, runWithOwner, createOwner, $TARGET, createErrorBoundary, omit,
 } from "@solidjs/signals";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -290,9 +290,15 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
     /** `effect (…) { … }`: compute, then apply; fires on a differing value (EF-2); an input that failed doesn't fire it (EF-2a: the failure shows where it's read), and the next answer does; a store enters whole, as a snapshot. */
     effect(n: number, inputs: () => unknown[], apply: (p: unknown[]) => unknown) {
-      const run = (vals: unknown[]) => { const r = apply(vals); return typeof r === "function" ? (r as () => void) : undefined; };
-      let last: unknown[] | null = null;
-      createEffect((() => inputs().map(latestWhole)) as any, { effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last![i]))) return; last = vals; return run(vals); }, error: () => { last = null; } } as any);
+      let last: unknown[] | null = null, node: ReturnType<typeof getOwner> = null, cleanup: (() => void) | undefined;
+      // EF-5: the cleanup runs before the next run of the block and when the region ends. Solid calls what the last
+      // apply answered whenever an input is computed again, so a pass that fires nothing hands it back, not run.
+      const undo = () => { const c = cleanup; cleanup = undefined; c?.(); };
+      const ended = () => { if (!node || isDisposed(node)) undo(); };
+      createEffect((() => { node = getOwner(); return inputs().map(latestWhole); }) as any, { effect: (vals: unknown[]) => {
+        if (!last || last.length !== vals.length || !vals.every((v, i) => sameInput(v, last![i]))) { last = vals; undo(); const r = apply(vals); cleanup = typeof r === "function" ? r as () => void : undefined; }
+        return cleanup && ended;
+      }, error: () => { last = null; } } as any);
     },
     /** `action f(…) { … }` (AC-1): a generator; a statement-level `await` is a hold-safe yield. */
     action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {

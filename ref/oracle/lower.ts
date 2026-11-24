@@ -10,7 +10,7 @@ import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver } from "@solidjs/signals";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
-  createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary, omit, merge
+  createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, isDisposed, runWithOwner, $TARGET, createErrorBoundary, omit, merge
 } from "@solidjs/signals";
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
@@ -360,9 +360,11 @@ export class Oracle {
         case "effect": {                                                // EF: createEffect(compute, apply)
           const inputs = d.inputs; for (const e of inputs) this.hoistAwaits(null, e, scope, false);
           const apply = (vals: unknown[]) => { const env = new Map<string, unknown>(); vals.forEach((v, i) => env.set(`$${i}`, v)); const r = this.runStmts(d.body, scope, env); return typeof r === "function" ? (r as () => void) : undefined; };
-          let last: unknown[] | null = null;
-          createEffect(() => inputs.map(e => { const v = this.ev(e, scope); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v; }), {   // a store enters whole, as a snapshot
-            effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last![i]))) return; last = vals; return apply(vals); },   // EF-3: fires when an input changed (an error in between is a change)
+          let last: unknown[] | null = null, node: any = null, cleanup: (() => void) | undefined;
+          const undo = () => { const c = cleanup; cleanup = undefined; c?.(); };   // EF-5: a pass that fires nothing keeps the cleanup
+          const ended = () => { if (!node || isDisposed(node)) undo(); };
+          createEffect(() => (node = getOwner(), inputs).map(e => { const v = this.ev(e, scope); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v; }), {   // a store enters whole, as a snapshot
+            effect: (vals: unknown[]) => { if (!last || last.length !== vals.length || !vals.every((v, i) => sameInput(v, last![i]))) { last = vals; undo(); cleanup = apply(vals); } return cleanup && ended; },   // EF-3: fires when an input changed (an error in between is a change)
             error: () => { last = null; },   // EF-2a: a failed input doesn't fire the apply; the next answer does
           } as any);
           break;

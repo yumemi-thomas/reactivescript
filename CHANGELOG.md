@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Bugs found by writing solid-primitives in `.rx`** (2026-11-24)
+
+- **Fixed: an effect lost its listener** (02 EF-5; `scenarios/S-effect-cleanup-1`): when an input was computed again to the
+  value the block last received, its cleanup ran and the block did not. The cleanup now runs before the block's next run and
+  when its region ends, and at no other time. Upgrade `@reactivescript/runtime`.
+
 **The language's own constructors, by one table** (tooling/rx-language-server/DECLARATIONS.md, *What a constructor runs*; spec/09 MO-8v)
 
 - **Changed: `rx-declare` writes `pure` on a fn that makes a `Proxy` and hands it back**, or keeps it in what it hands back:
