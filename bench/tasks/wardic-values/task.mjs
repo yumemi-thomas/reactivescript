@@ -16,7 +16,7 @@ export default {
     { name: "the cycle turned while the view computes", edit: ['<p class="label">', '<p class="label">{next()}'], expect: "IO_IN_REACTIVE" },
     { name: "the transform's function writes", edit: ["(p: number) => p * 100", "(p: number) => { seen := p; return p * 100 }"], edit2: ["  percent = createTransform", "  source seen: number := 0\n  percent = createTransform"], expect: "REACTIVE_WRITE_IN_OWNED_SCOPE" },
     { name: "the derived value written", edit: ["onClick={() => { next() }}", "onClick={() => { percent := 100 }}"], expect: "WRITE_TO_NON_SOURCE" },
-    { name: "the derived value kept in a source by an effect", edit: ["  [size, next] = createCycle", "  source shown: number := 0\n  effect (percent) { shown := $0 }\n  [size, next] = createCycle"], expect: "EFFECT_RELAY_TEAR" },
+    { name: "the derived value kept in a source by an effect", edit: ["  [size, next] = createCycle", "  source shown: number := 0\n  effect (percent) { shown := $0 }\n  [size, next] = createCycle"], advise: "EFFECT_RELAY_TEAR" },
   ],
   async run(h) {
     const base = await h.serve(); const page = await h.open(base);

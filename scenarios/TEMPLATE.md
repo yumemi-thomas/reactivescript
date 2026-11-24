@@ -60,7 +60,8 @@ export default component App() {
   instant, then override; with their own program fence, prefix rows only
   drive state.
 - `## Accepted variants`: fences starting `-- accept` (the checker says
-  nothing, module by module) or `-- accept: whole-program` (E-5a); both may
+  nothing, module by module) `-- accept: advice CODE` (accepted, with that advice: 99, the advisory
+  rows) or `-- accept: whole-program` (E-5a); all may
   also stand under `## Rejected variants`, beside what they are the other
   side of. `npm run -s types` checks each one's types; a `-- untyped` line
   says TypeScript refuses it, and the text why.

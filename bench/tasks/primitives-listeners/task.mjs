@@ -9,8 +9,8 @@ export default {
     { name: "the listener's callback is given a boolean", edit: ["(isActive: boolean) => { focused := isActive }", "(isActive: string) => { focused := isActive == \"yes\" }"], expect: /TS2345/ },
   ],
   bad: [
-    { name: "the focus listener's disposer dropped in the effect", edit: ["let unlisten = makeFocusListener($0, (isActive: boolean) => { focused := isActive })\n      return () => { unlisten() }", "makeFocusListener($0, (isActive: boolean) => { focused := isActive })"], expect: "DISPOSER_DROPPED" },
-    { name: "the disposer kept in a local, and never called nor returned", edit: ["return () => { unlisten() }", "log(\"listening\")"], expect: "DISPOSER_DROPPED" },
+    { name: "the focus listener's disposer dropped in the effect", edit: ["let unlisten = makeFocusListener($0, (isActive: boolean) => { focused := isActive })\n      return () => { unlisten() }", "makeFocusListener($0, (isActive: boolean) => { focused := isActive })"], advise: "DISPOSER_DROPPED" },
+    { name: "the disposer kept in a local, and never called nor returned", edit: ["return () => { unlisten() }", "log(\"listening\")"], advise: "DISPOSER_DROPPED" },
     { name: "a debounced function made in a handler: a new one, with its own timer, on every input", edit: ["onInput={() => { let next = typed + 1; typed := next; save(next) }}", "onInput={() => { debounce((n: number) => { saved := n }, 80) }}"], expect: "INSTANTIATION_NOT_BOUND" },
     { name: "the source read after its own write: the save is given the old count", edit: ["let next = typed + 1; typed := next; save(next)", "typed := n => n + 1; save(typed + 1)"], expect: "STALE_OWN_READ" },
     { name: "the loop started while the view computes", edit: ['<p class="loop">', '<p class="loop">{start()}'], expect: "IO_IN_REACTIVE" },

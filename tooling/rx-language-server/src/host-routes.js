@@ -18,6 +18,7 @@
 //     other host's own tooling can write.
 const fs = require("node:fs");
 const path = require("node:path");
+const { projectTop } = require("./beside.js");
 const { rel, code, posix, stripExt, componentsOf, rxReach } = require("./routes/common.js");
 // the readers of a router's tree, each `{ takes(source, text), read(source, text) }`, the first that takes a source:
 // what knows a router is in its own file, and answers one tree (`readRoutes`)
@@ -190,9 +191,10 @@ function drift(hostFile) {
   if (!problems.length) problems.push(`its rows are not the ones ${p.source} gives`);
   return { stale: true, problems, expected: d.text, line: p.line };
 }
-/** The nearest `host.d.rx` from a module's folder upward (as the checkers' loader finds it). */
+/** The nearest `host.d.rx` from a module's folder upward, up to the project's (as the checkers' loader finds it). */
 function hostFor(file) {
-  for (let dir = path.dirname(path.resolve(file)); ; dir = path.dirname(dir)) { const f = path.join(dir, "host.d.rx"); if (fs.existsSync(f)) return f; if (path.dirname(dir) === dir) return undefined; }
+  const from = path.dirname(path.resolve(file)), top = projectTop(from);
+  for (let dir = from; ; dir = path.dirname(dir)) { const f = path.join(dir, "host.d.rx"); if (fs.existsSync(f)) return f; if (dir === top || path.dirname(dir) === dir) return undefined; }
 }
 /** Writes a stale declaration again from its source. True when it wrote. A source that cannot be read leaves the file. */
 function sync(hostFile) {

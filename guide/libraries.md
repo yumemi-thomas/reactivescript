@@ -211,7 +211,7 @@ What the compiler catches:
 | `<p>{createMediaQuery(q)}</p>` | `INSTANTIATION_NOT_BOUND`: bind it, `wide = createMediaQuery(q)` |
 | `onClick={setOn(true)}`, `onNext={table.nextPage()}` | `IO_IN_REACTIVE`: a handler is passed, not called: `onClick={() => { setOn(true) }}` |
 | `rows.push(x)` on a source, `props.items.sort()` | `MUTATION_IN_PLACE`: write it (`rows := rs => [...rs, x]`), or take a copy (`toSorted()`) |
-| `listen(…)` as a statement, when `listen` is declared `(): () => void` | `DISPOSER_DROPPED`: keep what it answers and call it in the effect's cleanup |
+| `listen(…)` as a statement, when `listen` is declared `(): () => void` | `DISPOSER_DROPPED`, advice: keep what it answers and call it in the effect's cleanup |
 
 ## What stays the library's
 

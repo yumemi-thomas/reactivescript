@@ -262,7 +262,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
 - **MO-8k (Where a package's declaration is found).** The first of these that
   exists:
   1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or one
-     above it (a subpath is a folder);
+     above it, up to the project's folder (a subpath is a folder): the nearest
+     one whose `package.json` has a name, as SV-5a finds it (revised
+     2026-11-24: it was any folder above);
   2. the package's own, beside the file the import resolves to (MO-10c); for a
      package written in `.rx`, a printed signature (MO-13);
   3. a shared one, `node_modules/@rx-types/<scope>__<name>/index.d.rx` (a
@@ -360,6 +362,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   list of libraries (ruled 2026-11-24): `ref` is the types' own `Accessor`, or
   proven by the code, as `instantiates` is (the call makes what its owner keeps on every path that returns). Nothing in a checker knows where a word came from.
   What proves each, and what is refused, is in DECLARATIONS.md.
+  Another name of the object is the object (2026-11-24): `t = toast`,
+  `{ success } = t` and a field of a record written here call the same
+  method, by its row. An alias another module exports is not followed.
 
 ## MO-9 — A signature read in place of its module
 
@@ -795,7 +800,7 @@ export default component App() {
   | a view lambda, for a prop typed as a function giving a view | the same, with its parameters | MO-11k |
   | in the arguments of a fn handing back a `Component` | inside the made component, where that is applied | MO-11f |
   | … in a record of one that `nests(children in component)` | each entry among its parent's component's children, there | MO-11i |
-  | in the arguments of a fn that `renders(H)` | among H's children, at every application of H | MO-11u |
+  | in the arguments of a fn that `renders(H)` | among H's children, at an application of H | MO-11u |
   | … and placed by the host declaration that renders through H | where the host's view places it | MO-14h |
   | in the arguments of a fn with no word, or of an undeclared one | under a root of its own, with nothing above | MO-11s |
   | named by a host declaration's view | where the view says | MO-14 |
@@ -831,9 +836,12 @@ export default component App() {
   ```
 
   *What is checked.* Each such component, as applied with no arguments among
-  H's children, at **every** place the program applies H: what H `provides`
-  and what is above that place reach it, and H's own `uses` is credited too
-  (what H reads is above H). What it lets out of all of that is the program's
+  H's children: what H `provides` and what is above a place the program
+  applies H reach it, and H's own `uses` is credited too (what H reads is
+  above H). With several places, which of them a call is for is the library's
+  to say, so a need that one of them meets is let be (revised 2026-11-24; a
+  call for the one without it then fails when it runs, as Solid's own does).
+  What no place meets is the program's
   error, on the line of the call: `CONTEXT_NOT_FOUND`, `UNHANDLED_FAILURE`,
   `CLIENT_QUESTION_UNHELD` or `ASYNC_OUTSIDE_LOADING_BOUNDARY`. The content
   model is not checked against H.
@@ -1075,7 +1083,7 @@ its file name puts it in. No `.rx` module applies those components, so a
 has. Without one, each is checked under a root of its own (11 CP-4d, MO-11s).
 
 - **MO-14a (The file).** `host.d.rx`, in the folder of a program's entry or one
-  above it (the nearest). It has two kinds of row besides MO-8's: imports of
+  above it, up to the project's folder (MO-8k; the nearest). It has two kinds of row besides MO-8's: imports of
   the `.rx` components the host renders, by name from a relative `.rx` module
   (a module's default component by its own name), and one view (MO-14b). It
   declares the contexts its view names (`export context router`, or MO-12e's

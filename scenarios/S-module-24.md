@@ -105,8 +105,7 @@ export default component App() {
 ```
 
 A tag is a component's by its capital (07 §4), so `<wardic.div>` is not
-`wardic`'s member: it would be an HTML element named `wardic.div`, and no
-element's name has a `.`. It is refused, with the spelling that works: an
+`wardic`'s member: it would be an HTML element named `wardic.div`. It is refused, with the spelling that works: an
 object exported under a small letter is imported under a capital,
 
 ```rx
@@ -117,12 +116,13 @@ export default component App() {
 }
 ```
 
-and a dotted tag whose head is no name of the module is refused the same
-way; a custom element's name has a `-` (and the app's own types, in
-TypeScript: there it is no known element).
+A dotted tag whose head is no name of the module is an element, as any tag
+with a small letter is (07 §4; revised 2026-11-24); its type is the app's to
+declare, in TypeScript: there it is no known element.
 
 ```rx
--- reject: UNKNOWN_COMPONENT
+-- accept
+-- untyped
 export default component App() {
   <motion.div>moves</motion.div>
 }

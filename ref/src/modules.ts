@@ -73,8 +73,16 @@ export function packageDeclaration(fromFile: string, spec: string, read: (path: 
   return undefined;
 }
 
+/** MO-8k, MO-14a: a project's folder, as how many of `dirs` lead to it: the nearest one whose package.json has a name (a
+ *  `{"type":"module"}` scope is passed over, as in SV-5a); with none, the outermost folder there is. */
+export function projectTop(dirs: string[], lo: number, read: (path: string) => string | undefined): number {
+  for (let i = dirs.length; i >= lo; i--) { const t = read([...dirs.slice(0, i), "package.json"].join("/")); if (t !== undefined) try { const v = JSON.parse(t); if (typeof v?.name === "string" && v.name) return i; } catch { /* unnamed */ } }
+  return lo;
+}
+
 /** MO-8k: where a package import's declaration is found, first match wins:
- *  1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or one above it (it overrides a shipped one);
+ *  1. the project's, `rx-types/<spec>.d.rx` in the importer's directory or one above it, no higher than the project's folder
+ *     (`projectTop`; it overrides a shipped one);
  *  2. the package's own, beside the file the import resolves to (MO-10c);
  *  3. a shared one, `node_modules/@rx-types/<scope>__<name>/<subpath or index>.d.rx`, as `@types` is for TypeScript;
  *  4. a generated one, `node_modules/.rx-types/<spec>.d.rx`, which the tooling drafts from the package's types (MO-8l).
@@ -82,10 +90,10 @@ export function packageDeclaration(fromFile: string, spec: string, read: (path: 
 export function declarationFor(fromFile: string, spec: string, read: (path: string) => string | undefined): string | undefined {
   const seg = spec.split("/"); const n = spec.startsWith("@") ? 2 : 1; if (seg.length < n || seg.some(x => !x || x === "." || x === "..")) return undefined;
   const dirs = fromFile.split("/").slice(0, -1); const lo = fromFile.startsWith("/") ? 1 : 0;
-  const up = (rel: string): string | undefined => { for (let i = dirs.length; i >= lo; i--) { const f = [...dirs.slice(0, i), rel].join("/"); if (read(f) !== undefined) return f; } return undefined; };
+  const up = (rel: string, top = lo): string | undefined => { for (let i = dirs.length; i >= top; i--) { const f = [...dirs.slice(0, i), rel].join("/"); if (read(f) !== undefined) return f; } return undefined; };
   const shared = seg.slice(0, n).join("/").replace(/^@/, "").replace("/", "__"); const sub = seg.slice(n).join("/") || "index";
   const shipped = packageDeclaration(fromFile, spec, read);
-  return up(`rx-types/${spec}.d.rx`) ?? (shipped !== undefined && read(shipped) !== undefined ? shipped : undefined) ?? up(`node_modules/@rx-types/${shared}/${sub}.d.rx`) ?? up(`node_modules/.rx-types/${spec}.d.rx`);
+  return up(`rx-types/${spec}.d.rx`, projectTop(dirs, lo, read)) ?? (shipped !== undefined && read(shipped) !== undefined ? shipped : undefined) ?? up(`node_modules/@rx-types/${shared}/${sub}.d.rx`) ?? up(`node_modules/.rx-types/${spec}.d.rx`);
 }
 
 /** SV-5a (ruled 2026-11-22): what a declared error class is identified by. It is read from the declaration's own place and
@@ -127,7 +135,7 @@ export function besideDeclaration(importer: string, from: string, read: (path: s
   return paths.find(p => read(p) !== undefined) ?? paths[paths.length - 1];
 }
 
-/** MO-14: the name a host declaration has, looked for in the entry's folder and each one above it (the nearest wins). */
+/** MO-14: the name a host declaration has, looked for in the entry's folder and each one above it, up to the project's (the nearest wins). */
 export const HOST_DECLARATION = "host.d.rx";
 /** MO-14c: a host declaration as the program the checker walks — the declaration's own imports, its tree given to a
  *  factory with the row's words (MO-11f, MO-11i, MO-12c), and that factory's component applied as the app's view. Text
@@ -153,8 +161,8 @@ export function hostProgram(src: string, ds: JsDecl[], name: string): { rx: stri
  *  beside it (`host`), with the modules it imports (`hosted`) and the components it places (`placed`). */
 export function loadModules(entry: string, read: (path: string) => string | undefined, conformance = false): ModuleSet {
   const set = loadProgram(entry, read, conformance);
-  const dirs = entry.split("/").slice(0, -1); const lo = entry.startsWith("/") ? 1 : 0; let file: string | undefined; let src: string | undefined;
-  for (let i = dirs.length; i >= lo && src === undefined; i--) { file = [...dirs.slice(0, i), HOST_DECLARATION].join("/"); src = read(file); }
+  const dirs = entry.split("/").slice(0, -1); const lo = entry.startsWith("/") ? 1 : 0; let file: string | undefined; let src: string | undefined; const top = projectTop(dirs, lo, read);
+  for (let i = dirs.length; i >= top && src === undefined; i--) { file = [...dirs.slice(0, i), HOST_DECLARATION].join("/"); src = read(file); }
   if (src === undefined || file === undefined) return set;
   let ds: JsDecl[]; try { ds = parseDeclarations(src); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${file}: ${e.message}`), { code: e.code }); throw e; }
   const name = file.split("/").pop()!; const lowered = hostProgram(src, ds, name); if (!lowered) return set;

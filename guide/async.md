@@ -261,7 +261,7 @@ compiler refuses it (`STALE_OWN_READ`). Keep the value in a local: `let n = coun
 
 `effect (a, b) { … }` runs its block with the inputs' values as `$0`, `$1`. Prefer an equation for anything that is
 a value; an effect is for sending a value somewhere else (a parent's `on…` handler, `log`, a JS module). The compiler
-holds you to it: a block that writes a source declared beside it from what it reads (`effect (a) { b := $0 * 2 }`) is
+says so, as advice: a block that writes a source declared beside it from what it reads (`effect (a) { b := $0 * 2 }`) is
 `EFFECT_RELAY_TEAR` — write `b = a * 2`. And the block sees only what the effect names: a changing value it reads that
 is not an input is read as it stood then (the compiler says so, as advice); read it through `$n`, or say `peek(x)`.
 

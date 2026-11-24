@@ -479,7 +479,7 @@ export const units: [string, () => void][] = [
     const diags = (name: string, spa = false) => { const entry = `/app/${name}.rx`; return checkModules(loadModules(entry, fs), spa).diags.map(x => `${x.code}@${(x.file ?? entry).split("/").pop()}:${x.line}`); };
     deepStrictEqual(diags("good"), []);   // a toast that reads the app's context and the library's region, under the app's provision and a toaster in its region
     deepStrictEqual(diags("beside"), ["CONTEXT_NOT_FOUND@beside.rx:8"]);   // the context provided above the call, not above the toaster
-    deepStrictEqual(diags("two"), ["CONTEXT_NOT_FOUND@two.rx:11"]);   // two toasters, one without the provision: every application is held to it
+    deepStrictEqual(diags("two"), []);   // two toasters, one without the provision: which one the call is for is the library's to say
     deepStrictEqual(diags("nosite"), ["CONTEXT_NOT_FOUND@nosite.rx:8"]);   // no toaster in the program: held to what the toaster itself uses (the region's context is credited, the app's is not)
     deepStrictEqual(diags("noword"), ["CONTEXT_NOT_FOUND@noword.rx:4", "CONTEXT_NOT_FOUND@noword.rx:4"]);   // the row without the word: a root of its own (MO-11s), nothing credited
     deepStrictEqual(diags("route"), []);   // a `pure` fn with the word is a constructor (`instantiates` inferred), bound at the module's top

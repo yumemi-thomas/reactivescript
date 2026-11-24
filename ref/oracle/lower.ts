@@ -66,11 +66,33 @@ const inputWhole = (v: unknown, seen = new Set<unknown>()): unknown => {
   for (const k of Object.keys(v)) { const d = Object.getOwnPropertyDescriptor(v, k)!; if (d.get || d.value === null || typeof d.value !== "object") continue; const w = inputWhole(d.value, seen); if (w !== d.value) { if (out === v) out = Array.isArray(v) ? [...v] : { ...v }; out[k] = w; } }
   return out;
 };
-/** ST-2a, C-2: the whole of a source or a projection — one store, whose root a write or an answer replaces where it stands. What
- *  an equation keeps of one (`[...(pre seen -> []), tags]`, a companion's last value) is a copy of the root. */
+/** ST-2a, C-2: the whole of a source or a projection — one store, whose root a write or an answer replaces where it stands, and
+ *  whose insides a path write changes. What an equation keeps of one (`[...(pre seen -> []), tags]`, a companion's last
+ *  value) is a copy of it as it is now, read whole, so that a change inside is a change of it. */
 const roots = new WeakSet<object>();
+const byPosition = new WeakSet<object>();                                 // the roots a write replaces by position: a source with no key (ST-4a)
+const unkeyed = (v: unknown): unknown => v !== null && typeof v === "object" && byPosition.has(v) ? whole(v) : v;
 const rooted = <T extends object>(s: T): T => { roots.add(s); return s; };
-const kept = (v: unknown): unknown => v !== null && typeof v === "object" && roots.has(v) ? Array.isArray(v) ? [...v] : { ...v } : v;
+const copiedFrom = new WeakMap<object, object>();                        // a copy, and the store's own value it was made of
+const whole = (v: any, seen = new Map<object, unknown>()): unknown => {
+  if (v === null || typeof v !== "object" || v[$TARGET] === undefined) return v;
+  if (seen.has(v)) return seen.get(v);
+  const out: any = Array.isArray(v) ? [] : {}; seen.set(v, out); copiedFrom.set(out, v);
+  for (const k of Object.keys(v)) out[k] = whole(v[k], seen);
+  return out;
+};
+const kept = (v: unknown): unknown => v !== null && typeof v === "object" && roots.has(v) ? whole(v) : v;
+/** C-2: a kept copy, with what has not changed since as the store's own value (a row of `pre rows` is the row, while it is what it was). */
+const asItWas = (c: any, at = new Map<object, unknown>()): unknown => {
+  const live: any = c !== null && typeof c === "object" ? copiedFrom.get(c) : undefined; if (live === undefined) return c;
+  if (at.has(c)) return at.get(c);
+  at.set(c, live);
+  const keys = Object.keys(c), now: any = {}; let same = !roots.has(live) && Object.keys(live).length === keys.length;
+  for (const k of keys) { now[k] = asItWas(c[k], at); if (!Object.is(now[k], live[k])) same = false; }
+  if (same) return live;
+  const out: any = Array.isArray(c) ? Object.assign([], now) : now; at.set(c, out);
+  return out;
+};
 /** EF-2: effect inputs compare as values: arrays and plain objects (a store's snapshot) by their contents. */
 const sameInput = (a: unknown, b: unknown): boolean => {
   if (Object.is(a, b)) return true;
@@ -310,10 +332,10 @@ export class Oracle {
           } else {
             const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
-              const [store, setStore] = createStore(init as any); rooted(store as object); const [get, set] = createSignal<unknown>(store);
+              const [store, setStore] = createStore(init as any); rooted(store as object); if (d.key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
               const w = { set: (v: unknown) => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v); set(store); } else set(v); }, setPath: setStore };   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
               if (this.optimisticTargets.has(d.name)) {                     // AC-3 over a := store: createOptimisticStore(() => truth) over createStore(v); writes go to the truth, guesses to the layer
-                const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view);
+                const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view); if (d.key === undefined) byPosition.add(view);
                 scope.vars.set(d.name, { k: "store", get: () => view, ...w, question: false, setGuess: setView });
               } else scope.vars.set(d.name, { k: "store", get, ...w, question: false });
             }
@@ -352,7 +374,7 @@ export class Oracle {
           }
           if (d.key) {                                                  // ST-4: a keyed projection
             const compute = this.computeOf(d.name, d.e, scope);
-            const src = createMemo(() => compute(undefined) as any, this.loadingValue(d.e, scope) as any);   // the answer (sync, or the tail await's) is a memo; the projection reconciles it by key (found by S-ai2-search)
+            const src = createMemo(() => unkeyed(compute(undefined)) as any, this.loadingValue(d.e, scope) as any);   // the answer (sync, or the tail await's) is a memo; the projection reconciles it by key (found by S-ai2-search)
             const proj = createProjection(() => src() as any, [] as any, { key: d.key } as any); rooted(proj as object);
             scope.vars.set(d.name, { k: "memo", get: () => proj, truth: src } as any);   // AC-4: `refresh` re-asks the memo under the projection (S-keyed-refresh)
             break;
@@ -418,7 +440,7 @@ export class Oracle {
     if (!b) {
       let def: Scope | null = scope; while (def && !def.vars.has(name)) def = def.parent;   // cache on the scope that declares `name`, not a per-compute scope
       const home = def ?? scope;
-      const get = runWithOwner(home.owner ?? null, () => createMemo((st: any) => { const cur = kept(this.ev({ k: "id", name }, home)); return { cur, prev: st ? st.cur : undefined }; }))!;   // owned by the declaring scope, not by whichever computation first read it
+      const get = runWithOwner(home.owner ?? null, () => createMemo((st: any) => { const cur = kept(this.ev({ k: "id", name }, home)); return { cur, prev: st ? asItWas(st.cur) : undefined }; }))!;   // owned by the declaring scope, not by whichever computation first read it
       b = { k: "memo", get: () => (get() as { prev: unknown }).prev }; home.vars.set(key, b);
     }
     return (b as { get: () => unknown }).get;

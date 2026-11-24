@@ -55,7 +55,7 @@ export class Node {
   value: unknown = undefined; hasValue = false;        // in-flight (σ′)
   committed: unknown = undefined; hasCommitted = false; // committed (σ)
   changedSinceCommit = false;
-  prev: unknown = undefined; hasPrev = false; own: unknown = undefined; hasOwn = false; ownPre = false;   // ownPre: its expression reads it; own: the last value the node had when the instant began (`pre x` in x's own equation, however often the instant computes it)           // C-2 (ruled 2026-10-23, DV-5): the value before the most recent change
+  prev: unknown = undefined; hasPrev = false; own: unknown = undefined; hasOwn = false; was: unknown = undefined; wasAt = -1; ownPre = false;   // ownPre: its expression reads it; own: the last value the node had when the instant began (`pre x` in x's own equation, however often the instant computes it)           // C-2 (ruled 2026-10-23, DV-5): the value before the most recent change
   state: "clean" | "check" | "dirty" = "dirty";
   changed = false; demanded = false; evaluated = false; // this instant
   deps = new Map<Target, Set<string>>();
@@ -791,18 +791,24 @@ export class Runtime {
    *  copy of its root, which a write replaces (ST-2a). */
   private keptExprs = new Set<Expr>();
   private ev(e: Expr, region: Region, env?: Map<string, unknown>): unknown { const v = this.ev0(e, region, env); return this.keptExprs.has(e) ? this.keep(v) : v; }
-  private keep(v: unknown): unknown {
-    if (!isObj(v) || ![...this.allNodes()].some(n => n.value === v && (n.kind === "source" || n.question || n.keyBy !== null))) return v;
-    for (const k of Object.keys(v)) this.track(v, k);
-    if (Array.isArray(v)) this.track(v, "length");
-    return Array.isArray(v) ? [...v] : { ...v };
-  }
-  /** EF-2: an effect's input is its value, whole: what it holds is read, and what the block received stays what it was. */
-  private whole(v: unknown): unknown {
+  private keep(v: unknown): unknown { return isObj(v) && [...this.allNodes()].some(n => n.value === v && this.isRoot(n)) ? this.whole(v) : v; }
+  private isRoot(n: Node): boolean { return isObj(n.value) && (n.kind === "source" || n.question || n.keyBy !== null); }
+  private copiedFrom = new WeakMap<object, object>();
+  /** A copy of a value's contents, read whole. EF-2: what an effect's input is. */
+  private whole(v: unknown, seen = new Map<unknown, unknown>()): unknown {
     if (!isObj(v) || ![Object.prototype, Array.prototype, null].includes(Object.getPrototypeOf(v))) return v;
-    for (const k of Object.keys(v)) this.track(v, k);
-    if (Array.isArray(v)) { this.track(v, "length"); return v.map(x => this.whole(x)); }
-    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, this.whole(x)]));
+    if (seen.has(v)) return seen.get(v);
+    const out: any = Array.isArray(v) ? [] : {}; seen.set(v, out); this.copiedFrom.set(out, v);
+    for (const k of Object.keys(v)) { this.track(v, k); out[k] = this.whole(v[k], seen); }
+    if (Array.isArray(v)) this.track(v, "length");
+    return out;
+  }
+  /** A copy, with what has not changed since as the value itself. */
+  private asItWas(c: any, top = true): unknown {
+    const live: any = isObj(c) ? this.copiedFrom.get(c) : undefined; if (live === undefined) return c;
+    const keys = Object.keys(c), now: any = {}; let same = !top && Object.keys(live).length === keys.length;
+    for (const k of keys) { now[k] = this.asItWas(c[k], false); if (!Object.is(now[k], live[k])) same = false; }
+    return same ? live : Array.isArray(c) ? Object.assign([], now) : now;
   }
   private ev0(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
     switch (e.k) {
@@ -830,7 +836,12 @@ export class Runtime {
         if (!b || !(b instanceof Node)) throw new RuleError("C-2", `pre of non-reactive ${e.name}`);
         if (this.tracking === b || (b.question && this.tracking === b)) { if (b.changed || isAbsent(b.value)) { if (b.hasOwn) return b.own; } else if (b.hasValue) return b.value; return e.init ? this.ev(e.init, region, env) : undefined; }   // own equation: the value before this recompute (the memo's `prev`); no edge
         if (this.tracking && this.demandMode) { this.track(b, ""); this.pull(b); }                                    // another node: an input of it
-        if (b.hasPrev) return b.prev;
+        if (this.isRoot(b)) {                                                                                          // a store: what it was before its last change, at any depth
+          const cur = this.whole(b.value), last = b.was, d = new Set<Path>();
+          if (last !== undefined) { diffPaths(last, cur, "", d); if (d.size && b.wasAt !== this.instant) { b.prev = last; b.hasPrev = true; b.wasAt = this.instant; } }
+          b.was = cur;
+          if (b.hasPrev) return this.asItWas(b.prev);
+        } else if (b.hasPrev) return b.prev;
         return e.init ? this.ev(e.init, region, env) : undefined;
       }
       case "peek": return this.demandMode ? this.unsubscribed(() => this.ev(e.e, region, env)) : this.untracked(() => this.ev(e.e, region, env));   // E-5: in reactive scope, the pass's own values with no input; imperative reads see σ (H-10)

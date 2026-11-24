@@ -235,7 +235,7 @@ is where the toast renders: Solid's `useContext` walks the owners above
 `<Toaster>`, and finds none.
 
 ```rx
--- reject: CONTEXT_NOT_FOUND
+-- accept
 import { Toaster, toast } from "./sonner.js"
 context accent: string
 component Saved() {
@@ -252,8 +252,11 @@ export default component App() {
 }
 ```
 
-Two toasters, one with the provision above it and one without: either may
-render the toast, so every application of H is held to it.
+Two toasters, one with the provision above it and one without: which one
+renders the toast is the library's to say (an id, the nearest), so what one
+of them meets is let be (revised 2026-11-24: every application was held to
+it, and a call for the right one was refused). With the provision above
+neither, the call is refused (above).
 
 ```rx
 -- reject: CONTEXT_NOT_FOUND

@@ -24,4 +24,11 @@ function jsOf(file, exists = fs.existsSync) {
   if (NAMED.some(x => base.endsWith(x)) && exists(base)) return base;               // `old.cjs.d.rx` → `old.cjs`
   return JS.map(x => base + x).find(f => exists(f) && declarationOf(f, exists) === file);   // `old.d.rx` → `old.cjs`, unless `old.cjs.d.rx` is its own
 }
-module.exports = { declarationOf, declarationNames, jsOf, NAMED, JS };
+/** MO-8k, MO-14a: a project's folder, the nearest at or above `from` whose package.json has a name (the crate's `project_top`). */
+function projectTop(from) {
+  for (let dir = from; ; dir = path.dirname(dir)) {
+    try { const v = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")); if (typeof v?.name === "string" && v.name) return dir; } catch { /* none here */ }
+    if (path.dirname(dir) === dir) return dir;
+  }
+}
+module.exports = { projectTop, declarationOf, declarationNames, jsOf, NAMED, JS };

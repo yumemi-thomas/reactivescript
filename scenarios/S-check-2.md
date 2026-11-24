@@ -73,7 +73,7 @@ export default component App() {
 Nested statements are still the apply's own.
 
 ```rx
--- reject: EFFECT_RELAY_TEAR
+-- accept: advice EFFECT_RELAY_TEAR
 export default component App() {
   source qty := 1
   source total := 0
@@ -88,7 +88,7 @@ input: once, when the effect is declared, and never again. It is the
 equation `total = qty * 5`.
 
 ```rx
--- reject: EFFECT_RELAY_TEAR
+-- accept: advice EFFECT_RELAY_TEAR
 export default component App() {
   source qty := 1
   source total := 0
@@ -102,7 +102,7 @@ The same with the input named: one frame shows the new `qty` beside the
 old `total`, and the server never computes it.
 
 ```rx
--- reject: EFFECT_RELAY_TEAR
+-- accept: advice EFFECT_RELAY_TEAR
 export default component App() {
   source n := 1
   source history := []
@@ -116,7 +116,7 @@ Through a local, and building on its own value: `history = [...(pre
 history -> []), n]`, or the write in the handler that changes `n`.
 
 ```rx
--- reject: EFFECT_RELAY_TEAR
+-- accept: advice EFFECT_RELAY_TEAR
 export default component App() {
   source picked := 1
   source selected := {}

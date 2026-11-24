@@ -13,7 +13,7 @@ export default {
     { name: "the atom's setter called while the view computes", edit: ["<Badge count={count} />", "<Badge count={count} />{setCount(1)}"], expect: "IO_IN_REACTIVE" },
     { name: "the atom's value written as a source is", edit: ["onClick={() => { setCount(count + 1) }}", "onClick={() => { count := count + 1 }}"], expect: "WRITE_TO_NON_SOURCE" },
     { name: "an atom made in a handler", edit: ["onClick={() => { dark := true }}", "onClick={() => { createAtom(1) }}"], expect: "INSTANTIATION_NOT_BOUND" },
-    { name: "the count copied into a source by an effect", edit: ["  [count, setCount] = createAtom(0)", "  [count, setCount] = createAtom(0)\n  source doubled: number := 0\n  effect (count) { doubled := $0 * 2 }"], expect: "EFFECT_RELAY_TEAR" },
+    { name: "the count copied into a source by an effect", edit: ["  [count, setCount] = createAtom(0)", "  [count, setCount] = createAtom(0)\n  source doubled: number := 0\n  effect (count) { doubled := $0 * 2 }"], advise: "EFFECT_RELAY_TEAR" },
     { name: "the atom seeded from state, read once", edit: ["createAtom(0)", "createAtom(dark ? 1 : 0)"], expect: "SNAPSHOT_ARGUMENT" },
   ],
   async run(h) {

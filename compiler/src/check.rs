@@ -332,6 +332,8 @@ struct Sym<'a> {
     /// MO-10i: the closure whose parameter the draft is (its `fn_stack` id)
     draft_fn: Option<usize>,
     /// every equation's expression (E-10: whether it ever changes)
+    /// W-1a: what a source or an equation is made from, and the type written on it
+    made: Option<(&'a Expr, EId, Option<&'a str>)>,
     eq_expr: Option<(&'a Expr, EId)>,
     /// MO-10k: the expression a name is bound to — an equation's, a local's
     val: Option<(&'a Expr, EId)>,
@@ -420,6 +422,7 @@ impl<'a> Sym<'a> {
             js_draft: false,
             handed: false,
             draft_fn: None,
+            made: None,
             eq_expr: None,
             val: None,
             srcs: vec![],
@@ -2033,7 +2036,8 @@ pub struct Checker<'a> {
     /// …and the arguments so written that a draft-handing call took as its callback
     updater_ok: HashSet<*const Expr>,
     /// W-1a: the functions of functional writes of a source (`x := xs => …`): their parameter is the slot's value
-    write_fns: HashSet<*const Expr>,
+    /// W-1a: a functional write's function, and the source it writes
+    write_fns: HashMap<*const Expr, (String, EId)>,
     /// 99, the advisory rows: what the checker says about a correct program
     pub advice: Vec<Diagnostic>,
     /// E-10: equations decided constant (None while being decided)
@@ -2265,7 +2269,8 @@ fn check_modules_judged(set: &ModuleSet, spa: bool, whole: bool, hosts: &[String
 /// MO-11u: a fn declared `renders(H)` hands the components it is given to H, which renders them later, any number of
 /// times, among its children. So each is checked as applied there, with no arguments, at every application of H in the
 /// program: what it lets out of H's children (its failures, the contexts it uses, a first load it waits on) must be
-/// discharged above each one. With no application of H anywhere, nothing renders them yet, and they are held to the
+/// discharged above one of them: which application a call is for is the library's to say (an id, the nearest), so a need
+/// that one application meets is let be (revised 2026-11-24). With no application of H anywhere, nothing renders them yet, and they are held to the
 /// least H could have above it: what H itself uses and provides (already taken off), under a root of its own (MO-11s).
 pub fn judge_hosted(sigs: &[&ModSig], extra: &[IndexMap<String, Vec<HostSite>>], spa: bool) -> Vec<Diagnostic> {
     let mut sites: IndexMap<String, Vec<HostSite>> = IndexMap::new();
@@ -2327,12 +2332,12 @@ pub fn judge_hosted(sigs: &[&ModSig], extra: &[IndexMap<String, Vec<HostSite>>],
             let wh = if none {
                 format!("{f}() is declared `renders({n})`, and the program applies <{n}> nowhere: what it is given is checked under a root of its own, with what <{n}> itself uses and provides (MO-11u, MO-11s)")
             } else {
-                format!("{f}() is declared `renders({n})`: what it is given is rendered beneath <{n}>, and is checked among its children at every place the program applies it (MO-11u)")
+                format!("{f}() is declared `renders({n})`: what it is given is rendered beneath <{n}>, and no place the program applies it has that above it (MO-11u)")
             };
-            let above = if none { "it".to_string() } else { format!("an application of <{n}>") };
+            let above = if none { "it".to_string() } else { format!("any application of <{n}>") };
             let file = (!s.file.is_empty()).then(|| s.file.clone());
             for cls in &h.fails {
-                if xs.iter().any(|x| !x.f.caught(cls)) {
+                if xs.iter().all(|x| !x.f.caught(cls)) {
                     out.push(Diagnostic {
                         code: "UNHANDLED_FAILURE".into(),
                         rule: "R-f-5".into(),
@@ -2346,7 +2351,7 @@ pub fn judge_hosted(sigs: &[&ModSig], extra: &[IndexMap<String, Vec<HostSite>>],
                 }
             }
             for k in &h.requires {
-                if !xs.iter().any(|x| !match &x.p { Catch::All => true, Catch::Set(p) => p.contains(k) }) {
+                if xs.iter().any(|x| match &x.p { Catch::All => true, Catch::Set(p) => p.contains(k) }) {
                     continue;
                 }
                 if k == HOLD {
@@ -2454,7 +2459,7 @@ impl<'a> Checker<'a> {
             through_names: HashSet::new(),
             named_lits: IndexMap::new(),
             updater_ok: HashSet::new(),
-            write_fns: HashSet::new(),
+            write_fns: HashMap::new(),
             advice: vec![],
             prop_held: HashMap::new(),
             const_eqs: HashMap::new(),
@@ -2504,6 +2509,13 @@ impl<'a> Checker<'a> {
         let line = self.line;
         if !self.diags.iter().any(|d| d.code == code && d.line == line && d.msg == msg) {
             self.diags.push(Diagnostic { code: code.into(), rule: rule.into(), line, msg, file: self.opts.file.clone() });
+        }
+    }
+    /// 99, the advisory rows: about a program that is accepted.
+    fn advise(&mut self, code: &str, rule: &str, msg: String) {
+        let line = self.line;
+        if !self.advice.iter().any(|d| d.code == code && d.line == line && d.msg == msg) {
+            self.advice.push(Diagnostic { code: code.into(), rule: rule.into(), line, msg, file: self.opts.file.clone() });
         }
     }
     fn region(&mut self, parent: Option<RId>, kind: &'static str, component: bool, name: Option<String>) -> RId {
@@ -2895,7 +2907,8 @@ impl<'a> Checker<'a> {
             let mut server_expr = None;
             match d {
                 Decl::Server { params, .. } => sym.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None }).collect()),
-                Decl::Source { question, key, .. } => {
+                Decl::Source { question, key, init, ty, .. } => {
+                    sym.made = Some((init, env, ty.as_deref()));
                     sym.question = *question;
                     sym.row_key = key.clone(); // ST-4d: what its rows are keyed by
                 }
@@ -2918,7 +2931,8 @@ impl<'a> Checker<'a> {
                     let nested = if self.regions[region].parent.is_some() { format!("@{}", self.regions[r].id) } else { String::new() };
                     self.regions[r].key = Some(format!("{}#{}{}", file, name, nested));
                 }
-                Decl::Eq { e, key, deferred, .. } => {
+                Decl::Eq { e, key, deferred, ty, .. } => {
+                    sym.made = Some((e, env, ty.as_deref()));
                     sym.row_key = key.clone();
                     sym.eq_decl = Some(*deferred);
                     sym.maps_records = key.is_none() && maps_into_records(e);
@@ -4150,7 +4164,7 @@ impl<'a> Checker<'a> {
 
     /// C-3a (2026-11-22): state derived through an effect. An apply block's own write of a source declared beside the
     /// effect (in its block), with a value or a path computed from reactive values — the effect's inputs (`$n`, or an
-    /// input read by its name), another source, an equation, a prop — is `EFFECT_RELAY_TEAR`: it is an equation written
+    /// input read by its name), another source, an equation, a prop — is `EFFECT_RELAY_TEAR`, advice: it is an equation written
     /// the long way, a frame late where the effect names what it reads, and never again where it does not. What is not
     /// derived stays an apply's to write: a constant, the target's own value, what an io call answers (a measurement, a
     /// JS module's state), a reading under `peek(…)`, and every write of a closure the apply creates (a later event).
@@ -4286,7 +4300,7 @@ impl<'a> Checker<'a> {
                             names.iter().cloned().collect::<Vec<_>>().join(", ")
                         ),
                     };
-                    self.err("EFFECT_RELAY_TEAR", "C-3a", msg);
+                    self.advise("EFFECT_RELAY_TEAR", "C-3a", msg);
                 }
                 StmtKind::Expr(e) | StmtKind::Throw(e) => self.relay_snapshot(e, inputs, ins, env, &locals, advised),
                 StmtKind::Return(e) => {
@@ -5565,6 +5579,76 @@ impl<'a> Checker<'a> {
         }
         None
     }
+    /// W-1a: whether `e`, read down `steps`, is an array by what the program writes: a type (`string[]`), a list, or a
+    /// call that answers one. A record's own `push` (`router.push("/a")`) is a method of its own, and what nothing says
+    /// is an array is let be.
+    fn is_list(&self, e: &Expr, env: EId, steps: &[TStep], depth: usize) -> bool {
+        if depth > 32 {
+            return false;
+        }
+        let typed = |t: Option<String>| steps.iter().fold(t, |t, s| ty_step(&t?, s)).is_some_and(|t| ty_list(&t));
+        let named = |n: &str, en: EId| self.is_list(&Expr::made(ExprKind::Id(n.to_string())), en, steps, depth + 1);
+        let go = |x: &Expr| self.is_list(x, env, steps, depth + 1);
+        let down = |x: &Expr, en: EId, s: TStep| self.is_list(x, en, &[&[s][..], steps].concat(), depth + 1);
+        if typed(self.decl_ty(e, env, 0)) {
+            return true;
+        }
+        match &e.k {
+            ExprKind::Arr(items) => {
+                steps.is_empty()
+                    || (matches!(steps[0], TStep::Elem)
+                        && !items.is_empty()
+                        && items.iter().all(|x| match &x.k {
+                            ExprKind::Spread(s) => go(s),
+                            _ => self.is_list(x, env, &steps[1..], depth + 1),
+                        }))
+            }
+            ExprKind::Rec(fields) => match steps.first() {
+                Some(TStep::Field(k)) => fields.iter().rev().find_map(|f| match f {
+                    Field::Kv { key, v } if key == k => Some(v),
+                    _ => None,
+                }).is_some_and(|v| self.is_list(v, env, &steps[1..], depth + 1)),
+                _ => false,
+            },
+            ExprKind::Member { o, p, .. } => down(o, env, TStep::Field(p.clone())),
+            ExprKind::Index { o, i, .. } => match (&i.k, lit_key(i)) {
+                (ExprKind::Lit(Lit::Num(_)), _) | (_, None) => down(o, env, TStep::Elem),
+                (_, Some(k)) => down(o, env, TStep::Field(k)),
+            },
+            ExprKind::If { t, f, .. } => go(t) && go(f),
+            ExprKind::Bin { op, l, r } => (op == "??" || op == "||") && go(l) && go(r),
+            ExprKind::Peek(x) | ExprKind::Latest(x) => go(x),
+            ExprKind::Pre { name, .. } => named(name, env),
+            ExprKind::Call { f, args, .. } => match &f.k {
+                ExprKind::Id(n) if self.lookup(env, n).is_none() => match n.as_str() {
+                    "map" => steps.is_empty(),
+                    "filter" => steps.is_empty() || args.first().is_some_and(go),
+                    _ => false,
+                },
+                ExprKind::Member { o, p, .. } => match p.as_str() {
+                    "filter" | "slice" | "concat" | "toSorted" | "toReversed" | "toSpliced" => go(o),
+                    "map" | "flatMap" => steps.is_empty() && go(o),
+                    _ => false,
+                },
+                _ => false,
+            },
+            ExprKind::Id(n) => {
+                let Some(s) = self.lookup(env, n) else { return false };
+                let sy = &self.syms[s];
+                if let Some((list, lenv)) = sy.row_of {
+                    return down(list, lenv, TStep::Elem);
+                }
+                if let Some((n, en)) = sy.of_fn.and_then(|f| self.write_fns.get(&f)) {
+                    return named(n, *en);
+                }
+                if let Some((x, en, ty)) = sy.made {
+                    return typed(ty.map(String::from)) || self.is_list(x, en, steps, depth + 1);
+                }
+                sy.val.is_some_and(|(x, en)| self.is_list(x, en, steps, depth + 1))
+            }
+            _ => false,
+        }
+    }
     fn reactive_place(&self, e: &Expr, env: EId, depth: usize) -> Option<String> {
         if depth > 32 {
             return None;
@@ -5583,7 +5667,7 @@ impl<'a> Checker<'a> {
                         if let Some((list, lenv)) = sy.row_of {
                             return self.reactive_place(list, lenv, depth + 1).map(|w| format!("a row of {}", w.trim_start_matches("a row of ")));
                         }
-                        if sy.of_fn.is_some_and(|f| self.write_fns.contains(&f)) {
+                        if sy.of_fn.is_some_and(|f| self.write_fns.contains_key(&f)) {
                             return Some(format!("the value the write is given ({n})"));
                         }
                         if sy.handed {
@@ -5610,12 +5694,65 @@ impl<'a> Checker<'a> {
     /// a declared JS result, a component's props or what a context provides: it is called for what it does.
     /// MO-8t (2026-11-25): a method, one step from an import that is io — an undeclared one (R-io-4), or a declared `fn` —
     /// with no row of its own: it is io as its object is. (A declared value's method is read by its type; a `pure`
-    /// import's is pure; one with a row is that row's fn, by the name the loader gave it.)
-    fn io_member(&self, f: &Expr, env: EId) -> Option<String> {
-        let ExprKind::Member { o, .. } = &f.k else { return None };
-        let ExprKind::Id(n) = &o.k else { return None };
-        let s = self.lookup(env, n)?;
-        (self.syms[s].kind == SymKind::Import && self.syms[s].io).then(|| n.clone())
+    /// import's is pure; one with a row is that row's fn, by the name the loader gave it.) Through another name of the
+    /// import it is the same method, and its row is read (2026-11-24): `t = toast`, `{ success } = t`, a field of a
+    /// record written here.
+    fn io_member(&self, f: &Expr, env: EId, depth: usize) -> Option<String> {
+        if depth > 32 {
+            return None;
+        }
+        match &f.k {
+            ExprKind::Id(n) => {
+                let sy = &self.syms[self.lookup(env, n)?];
+                if !matches!(sy.kind, SymKind::Eq | SymKind::Value) || sy.io || sy.row_of.is_some() {
+                    return None;
+                }
+                let (v, venv) = sy.val?;
+                self.io_member(v, venv, depth + 1)
+            }
+            ExprKind::Member { o, p, .. } => {
+                let (s, senv) = self.import_of(o, env, 0)?;
+                let sy = &self.syms[s];
+                let io = self.lookup(senv, &format!("{}.{p}", sy.name)).map(|r| self.syms[r].io).unwrap_or(sy.io);
+                io.then(|| sy.name.clone())
+            }
+            _ => None,
+        }
+    }
+    /// The import `e` is, as far as the names and the records written here say.
+    fn import_of(&self, e: &Expr, env: EId, depth: usize) -> Option<(SId, EId)> {
+        if depth > 32 {
+            return None;
+        }
+        match &e.k {
+            ExprKind::Peek(x) => self.import_of(x, env, depth + 1),
+            ExprKind::Id(n) => {
+                let s = self.lookup(env, n)?;
+                let sy = &self.syms[s];
+                match sy.kind {
+                    SymKind::Import => Some((s, env)),
+                    SymKind::Eq | SymKind::Value if sy.row_of.is_none() => {
+                        let (v, venv) = sy.val?;
+                        self.import_of(v, venv, depth + 1)
+                    }
+                    _ => None,
+                }
+            }
+            ExprKind::Member { o, p, .. } => {
+                let ExprKind::Id(n) = &o.k else { return None };
+                let sy = &self.syms[self.lookup(env, n)?];
+                if !matches!(sy.kind, SymKind::Eq | SymKind::Value) {
+                    return None;
+                }
+                let (v, venv) = sy.val?;
+                let ExprKind::Rec(fields) = &v.k else { return None };
+                match fields.iter().rev().find(|f| match f { Field::Spread(_) => true, Field::Kv { key, .. } => key == p })? {
+                    Field::Kv { v, .. } => self.import_of(v, venv, depth + 1),
+                    Field::Spread(_) => None,
+                }
+            }
+            _ => None,
+        }
     }
     fn void_method(&self, f: &Expr, env: EId) -> bool {
         matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| matches!(ty_clean(&r), "void" | "Promise<void>"))
@@ -5898,13 +6035,13 @@ impl<'a> Checker<'a> {
                 let code = match &f.k {
                     ExprKind::Id(n) => match self.lookup(env, n) {
                         Some(s) if self.syms[s].kind == SymKind::Action => Some("ACTION_CALLED_IN_OWNED_SCOPE"),
-                        Some(s) if self.syms[s].io => Some("IO_IN_REACTIVE"),
+                        Some(s) if self.syms[s].io || self.io_member(f, env, 0).is_some() => Some("IO_IN_REACTIVE"),
                         None if self.lang(env, n) == Some(Lang::Log) => Some("IO_IN_REACTIVE"),
                         _ => None,
                     },
                     _ if self.void_method(f, env) => Some(if self.provided_action(f, env) { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" }),
                     _ if self.promise_method(f, env) => Some("IO_IN_REACTIVE"),
-                    _ if self.io_member(f, env).is_some() => Some("IO_IN_REACTIVE"),
+                    _ if self.io_member(f, env, 0).is_some() => Some("IO_IN_REACTIVE"),
                     _ => None,
                 };
                 match code {
@@ -6153,7 +6290,7 @@ impl<'a> Checker<'a> {
                 // `rows.push(x)` changes the array every reader holds and tells none of them
                 if let ExprKind::Member { o, p, .. } = &f.k {
                     if ARRAY_MUTATORS.contains(&p.as_str()) && !self.draft_chain(o, env) {
-                        if let Some(what) = self.reactive_place(o, env, 0) {
+                        if let Some(what) = self.is_list(o, env, &[], 0).then(|| self.reactive_place(o, env, 0)).flatten() {
                             let fix = match p.as_str() {
                                 "sort" => format!("`{}.toSorted(…)` gives a sorted copy", show(o)),
                                 "reverse" => format!("`{}.toReversed()` gives a reversed copy", show(o)),
@@ -6204,11 +6341,11 @@ impl<'a> Checker<'a> {
                 }
                 // MO-8t: a method of an io import, with no row of its own, is io as its object is
                 if !ctx.imperative && !self.void_method(f, env) && !self.promise_method(f, env) {
-                    if let Some(of) = self.io_member(f, env) {
+                    if let Some(of) = self.io_member(f, env, 0) {
                         if ctx.in_fn {
-                            self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io (a method of {of}, which is io, with no row of its own); a fn is pure by definition", show(f)));
+                            self.err("IO_IN_FN", "R-io-2", format!("{}(…) is io (a method of {of}, which no row says is `pure`); a fn is pure by definition", show(f)));
                         } else {
-                            self.err("IO_IN_REACTIVE", "IO-2", format!("{0}(…) is io and is called in reactive scope (R-io-3): it is a method of {of}, which is io (an import with no declaration, or a declared `fn`), and has no row of its own — call it from a handler or an action; if it only reads, its declaration says so, `export pure fn {0}(…)` (MO-8t)", show(f)));
+                            self.err("IO_IN_REACTIVE", "IO-2", format!("{0}(…) is io and is called in reactive scope (R-io-3): it is a method of {of}, which is io (an import with no declaration, or a declared `fn`), and no row says it is `pure` — call it from a handler or an action; if it only reads, its declaration says so, `export pure fn {of}.<method>(…)` (MO-8t)", show(f)));
                         }
                     }
                 }
@@ -6479,7 +6616,7 @@ impl<'a> Checker<'a> {
                                 _ => Some("the call is a statement, and what it answers is dropped".to_string()),
                             };
                             if let Some(why) = dropped {
-                                self.err("DISPOSER_DROPPED", "EF-5a", format!("{n}(…) answers what undoes it (its declaration: `{decl}`), and {why}: what it set up — a listener, a subscription, a timer — then outlives the component — keep it and call it when the region ends: in `effect () {{ let stop = {n}(…); return () => {{ stop() }} }}`, or from the handler that ends it"));
+                                self.advise("DISPOSER_DROPPED", "EF-5a", format!("{n}(…) answers what undoes it (its declaration: `{decl}`), and {why}: what it set up — a listener, a subscription, a timer — then outlives the component — keep it and call it when the region ends: in `effect () {{ let stop = {n}(…); return () => {{ stop() }} }}`, or from the handler that ends it"));
                             }
                         }
                     }
@@ -6549,7 +6686,7 @@ impl<'a> Checker<'a> {
                     // W-1a: a functional write's function is given the slot's value: it answers the next one, and does
                     // not change the one it is given
                     if matches!(e.k, ExprKind::Fn { .. }) && target.path.is_empty() && self.lookup(env, &target.name).is_some_and(|t| self.syms[t].kind == SymKind::Source) {
-                        self.write_fns.insert(e as *const Expr);
+                        self.write_fns.insert(e as *const Expr, (target.name.clone(), env));
                     }
                     let op = if matches!(&s.k, StmtKind::Optimistic { .. }) { "optimistic" } else { "write" };
                     if ctx.server {
@@ -9832,6 +9969,12 @@ pub fn ty_step(t: &str, s: &TStep) -> Option<String> {
             None
         }
     }
+}
+/// Whether a type, as written, is an array's: `T[]`, `Array<T>`, a tuple.
+fn ty_list(t: &str) -> bool {
+    let ms = ty_members(t, true);
+    let [t] = ms.as_slice() else { return false };
+    t.ends_with("[]") || t.starts_with("Array<") || t.starts_with("ReadonlyArray<") || (t.starts_with('[') && t.ends_with(']'))
 }
 /// Whether a declared type is a primitive's — `string`, `number`, `boolean`, `bigint`, `null`, `undefined`, `void`, a
 /// literal, or a union of those: a value of it holds nothing.

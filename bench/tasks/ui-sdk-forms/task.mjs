@@ -13,7 +13,7 @@ export default {
     { name: "a radio beside its group, not inside it", edit: ['    <label><Radio class="express" value="express"><RadioIndicator /></Radio> Express</label>\n  </RadioGroup>', '  </RadioGroup>\n  <label><Radio class="express" value="express"><RadioIndicator /></Radio> Express</label>'], expect: "CONTEXT_NOT_FOUND" },
     { name: "the change handler called where it is passed", edit: ['onCheckedChange={(checked: boolean | "indeterminate") => { accepted := checked == true }}', "onCheckedChange={accept()}"], edit2: ["  source sent: number := 0", "  source sent: number := 0\n  action accept() { accepted := true }"], expect: "ACTION_CALLED_IN_OWNED_SCOPE" },
     { name: "the state read after its own write, in the handler", edit: ["onClick={() => { sent := n => n + 1 }}", "onClick={() => { sent := n => n + 1; log(sent) }}"], expect: "STALE_OWN_READ" },
-    { name: "the controlled value copied into a second source by an effect", edit: ["  source sent: number := 0", '  source sent: number := 0\n  source label: string := ""\n  effect (speed) { label := $0 ?? "none" }'], expect: "EFFECT_RELAY_TEAR" },
+    { name: "the controlled value copied into a second source by an effect", edit: ["  source sent: number := 0", '  source sent: number := 0\n  source label: string := ""\n  effect (speed) { label := $0 ?? "none" }'], advise: "EFFECT_RELAY_TEAR" },
     { name: "the app's state written while the view computes", edit: ["disabled={!accepted}", "disabled={speed == null}"], edit2: ['<p class="state">', '<p class="state">{reset()}'], expect: "UNBOUND" },
     { name: "a part the library has not", edit: ["<CheckboxIndicator>x</CheckboxIndicator>", "<CheckboxMark>x</CheckboxMark>"], expect: "UNKNOWN_COMPONENT" },
   ],

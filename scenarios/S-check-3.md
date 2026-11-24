@@ -99,12 +99,27 @@ export default component App() {
 }
 ```
 
-What a component hands its view is the component's (2026-11-22): the
-list a render prop is given is the library's state, changed by the
-library's own methods.
+A mutating method's name is not enough (revised 2026-11-24): the value must
+be an array by what the program writes — a type, a list, a call that answers
+one. A record's own `push` is its own method, and what a component hands its
+view is not read (its declared type is not followed).
 
 ```rx
--- reject: MUTATION_IN_PLACE
+-- accept
+component Link(props: { router: { push: (to: string) => string } }) {
+  <button onClick={() => { log(props.router.push("/a")) }}>go</button>
+}
+export default component App() {
+  router = { push: (to: string) => to }
+  source held: any := { reverse: () => 1 }
+  <p>{router.push("ok")}</p>
+  <Link router={router} />
+  <button onClick={() => { held := h => h.reverse() }}>x</button>
+}
+```
+
+```rx
+-- accept
 import { Rows } from "./keys.js"
 export default component App() {
   <Rows>{view (rows) { <button onClick={() => { rows.splice(0, 1) }}>{len(rows)}</button> }}</Rows>
@@ -271,7 +286,7 @@ The function a subscription answers, dropped (EF-5a): as a statement, and
 as a local nothing uses.
 
 ```rx
--- reject: DISPOSER_DROPPED
+-- accept: advice DISPOSER_DROPPED
 import { onShortcut } from "./keys.js"
 export default component App() {
   source hits := 0
@@ -281,7 +296,7 @@ export default component App() {
 ```
 
 ```rx
--- reject: DISPOSER_DROPPED
+-- accept: advice DISPOSER_DROPPED
 import { onShortcut } from "./keys.js"
 export default component App() {
   source hits := 0
@@ -294,7 +309,7 @@ or TypeScript's `VoidFunction`) or answers a subscription object; when
 only one branch keeps it; and when it is only given another name.
 
 ```rx
--- reject: DISPOSER_DROPPED
+-- accept: advice DISPOSER_DROPPED
 import { onResize } from "./keys.js"
 export default component App() {
   source hits := 0
@@ -304,7 +319,7 @@ export default component App() {
 ```
 
 ```rx
--- reject: DISPOSER_DROPPED
+-- accept: advice DISPOSER_DROPPED
 import { subscribe } from "./keys.js"
 export default component App() {
   source hits := 0
@@ -314,7 +329,7 @@ export default component App() {
 ```
 
 ```rx
--- reject: DISPOSER_DROPPED
+-- accept: advice DISPOSER_DROPPED
 import { onShortcut } from "./keys.js"
 export default component App() {
   source hits := 0
@@ -328,7 +343,7 @@ export default component App() {
 ```
 
 ```rx
--- reject: DISPOSER_DROPPED
+-- accept: advice DISPOSER_DROPPED
 import { onShortcut } from "./keys.js"
 export default component App() {
   source hits := 0

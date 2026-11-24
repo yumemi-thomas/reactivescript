@@ -6,9 +6,9 @@ export default {
     { name: "the helper's callback takes no argument", edit: ['onShortcut("k", () => { hits := h => h + 1 })', 'onShortcut("k", (e: string) => { hits := h => h + 1 })'], expect: /TS2345/ },
   ],
   bad: [
-    { name: "the disposer dropped in the mount effect", edit: ["let stop = onShortcut(\"k\", () => { hits := h => h + 1 })\n    return () => { stop() }", "onShortcut(\"k\", () => { hits := h => h + 1 })"], expect: "DISPOSER_DROPPED" },
-    { name: "the disposer dropped in a click handler: a listener added per click", edit: ["onClick={() => { listeners := liveListeners() }}", "onClick={() => { onShortcut(\"j\", () => { listeners := 0 }) }}"], expect: "DISPOSER_DROPPED" },
-    { name: "the disposer kept in a local, and never called nor returned", edit: ["return () => { stop() }", "log(\"listening\")"], expect: "DISPOSER_DROPPED" },
+    { name: "the disposer dropped in the mount effect", edit: ["let stop = onShortcut(\"k\", () => { hits := h => h + 1 })\n    return () => { stop() }", "onShortcut(\"k\", () => { hits := h => h + 1 })"], advise: "DISPOSER_DROPPED" },
+    { name: "the disposer dropped in a click handler: a listener added per click", edit: ["onClick={() => { listeners := liveListeners() }}", "onClick={() => { onShortcut(\"j\", () => { listeners := 0 }) }}"], advise: "DISPOSER_DROPPED" },
+    { name: "the disposer kept in a local, and never called nor returned", edit: ["return () => { stop() }", "log(\"listening\")"], advise: "DISPOSER_DROPPED" },
     { name: "a subscription made while the view computes", edit: ['<p class="hits">{hits} hits</p>', '<p class="hits">{hits} hits {onShortcut("j", () => {}) ? "" : ""}</p>'], expect: "IO_IN_REACTIVE" },
   ],
   async run(h) {

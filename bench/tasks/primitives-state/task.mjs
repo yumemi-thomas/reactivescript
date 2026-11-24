@@ -19,7 +19,7 @@ export default {
     // or not it is `pure` — so the word is held where it can be: against the code, by rx-verify)
     { name: "the library's createSorted declared `pure`, as it was by hand: it sorts the list it is given in place when asked", file: "rx-types/@solid-primitives/sortable.d.rx", edit: ["export fn createSorted<T>(", "export pure fn createSorted<T>("], verify: ["rx-types/@solid-primitives/sortable.d.rx", /createSorted: pure is contradicted by the code: it changes its argument `list` in place \(\.sort\(\)\)/] },
     { name: "the memo's function writes a source", edit: ["createWritableMemo<number>(() => people.length > 3 ? 3 : 2)", "createWritableMemo<number>(() => { page := 1; return 2 })"], expect: "REACTIVE_WRITE_IN_OWNED_SCOPE" },
-    { name: "the persisted name copied into a source by an effect", edit: ['  <p class="who">hello {name}</p>', '  source greeting: string := ""\n  effect (name) { greeting := "hello " + $0 }\n  <p class="who">{greeting}</p>'], expect: "EFFECT_RELAY_TEAR" },
+    { name: "the persisted name copied into a source by an effect", edit: ['  <p class="who">hello {name}</p>', '  source greeting: string := ""\n  effect (name) { greeting := "hello " + $0 }\n  <p class="who">{greeting}</p>'], advise: "EFFECT_RELAY_TEAR" },
     { name: "a primitive's value written as a source is", edit: ["onClick={() => { setPerPage(10); page := 1 }}", "onClick={() => { perPage := 10 }}"], expect: "WRITE_TO_NON_SOURCE" },
     { name: "a list primitive given a list computed from state, read once", edit: ["shown = createSegment(sorted, perPage, page)", "shown = createSegment(sorted, perPage, peek page)"], expect: "SNAPSHOT_KEPT" },
   ],

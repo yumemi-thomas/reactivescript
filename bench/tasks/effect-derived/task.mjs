@@ -8,9 +8,9 @@ export default {
     { name: "the equation keeps its type: a number", edit: ["{qty} × {price} = {total}", "{qty} × {price} = {total.length}"], expect: /TS2339/ },
   ],
   bad: [
-    { name: "the total kept in a source, written by a mount effect that reads the others: computed once, stale after", edit: ["total = qty * price", "source total := 0\n  effect () { total := qty * price }"], expect: "EFFECT_RELAY_TEAR" },
-    { name: "the same with the inputs named: a frame late, an equation written the long way", edit: ["total = qty * price", "source total := 0\n  effect (qty, price) { total := $0 * $1 }"], expect: "EFFECT_RELAY_TEAR" },
-    { name: "the history appended by an effect on the quantity, not by the click that changed it", edit: ["let n = qty + 1; qty := n; history := h => [...h, n]", "qty := qty + 1"], edit2: ["effect (total) {", "effect (qty) { history := [...history, $0] }\n  effect (total) {"], expect: "EFFECT_RELAY_TEAR" },
+    { name: "the total kept in a source, written by a mount effect that reads the others: computed once, stale after", edit: ["total = qty * price", "source total := 0\n  effect () { total := qty * price }"], advise: "EFFECT_RELAY_TEAR" },
+    { name: "the same with the inputs named: a frame late, an equation written the long way", edit: ["total = qty * price", "source total := 0\n  effect (qty, price) { total := $0 * $1 }"], advise: "EFFECT_RELAY_TEAR" },
+    { name: "the history appended by an effect on the quantity, not by the click that changed it", edit: ["let n = qty + 1; qty := n; history := h => [...h, n]", "qty := qty + 1"], edit2: ["effect (total) {", "effect (qty) { history := [...history, $0] }\n  effect (total) {"], advise: "EFFECT_RELAY_TEAR" },
     { name: "the title set by a mount effect that reads the total by name: sent once, never again", edit: ["effect (total) { setTitle(`cart: ${$0}`) }", "effect () { setTitle(`cart: ${total}`) }"], advise: "SNAPSHOT_IN_EFFECT" },
     { name: "the effect's own input written by it", edit: ["effect (total) { setTitle(`cart: ${$0}`) }", "effect (qty) { qty := $0 + 1 }"], expect: "EFFECT_WRITES_OWN_SOURCE" },
   ],

@@ -350,10 +350,12 @@ Function application `f(e…)` covers both language functions and FFI imports;
   `unshift`, `splice`, `sort`, `reverse`, `fill`, `copyWithin` — called on
   the value of a source, an equation, a prop, a provision, a row of one
   (a `for`'s, a loop's), the value a functional write is given (`rows :=
-  rs => rs.reverse()`), what a JS component hands its view (`view (list)
-  { … }`: the library's own state, as Formisch's list of row ids is —
-  2026-11-22), or a local that names a path of one (`let first =
-  rows[0]`) is `MUTATION_IN_PLACE` (bin S), in either scope: `rows.push(x)`
+  rs => rs.reverse()`), or a local that names a path of one (`let first =
+  rows[0]`) is `MUTATION_IN_PLACE` (bin S), in either scope, where the value
+  is an array by what the program writes (revised 2026-11-24): a type
+  (`rows: Row[]`), a list, a call that answers one (`filter`, `slice`). A
+  record's own `push` (`router.push("/a")`) is a method of its own, and a
+  value nothing says is an array is let be. `rows.push(x)`
   in a handler changes the array and no reader hears of it;
   `props.items.sort()` in an equation reorders the parent's source under
   it. This is Solid's own trap (a signal's array pushed to, a store
@@ -363,9 +365,7 @@ Function application `f(e…)` covers both language functions and FFI imports;
   `toSpliced`, `slice`, a spread). What the code made itself is its own
   to change (`let xs = [...rows]; xs.push(x)`), a library's draft is
   changed by its methods (09 MO-10i), and a JS instance's methods are its
-  declaration's. The check reads names, as 09 MO-10k's do, and the method
-  by its name: a Map's or a Set's `set`, `add`, `delete` and `clear` are
-  left out, their names being any object's.
+  declaration's.
 - **W-2 (No writes in reactive scope).** Reactive scope has no statement
   position; a bare `x := e` there (without `source`) is a parse error, not a
   semantic one.
@@ -460,8 +460,9 @@ Function application `f(e…)` covers both language functions and FFI imports;
   the checker and are the runtime's. (S-check-2.)
 - **C-3a (State is not derived through an apply) — 2026-11-22.** An apply
   block's own statement that writes a source declared in the effect's own
-  block, with a value or a path computed from reactive values, is a
-  compile error (`EFFECT_RELAY_TEAR`, bin S). "Computed from reactive
+  block, with a value or a path computed from reactive values, is advice
+  (`EFFECT_RELAY_TEAR`, 99; an error from 2026-11-22 to 2026-11-24, against
+  99's ruling that it stays advisory). "Computed from reactive
   values" is read off the write, and only what is written counts: the
   expression reads `$n` (what the effect fired for), a source, an
   equation or a prop — an input read by its name too — directly, through
@@ -503,9 +504,7 @@ Function application `f(e…)` covers both language functions and FFI imports;
   A write C-3 already refuses is reported once, as C-3's. Writes through
   an action or a provision are not seen, as in C-3. Solid reports the
   same at run time, graph-proven, as a warning (`EFFECT_RELAY_TEAR`: "it
-  is derived state kept one flush late … make it a memo"); here the
-  write is in the text, the equation it should have been is too, so it
-  is an error (99: until 2026-11-22 it was an advisory row).
+  is derived state kept one flush late … make it a memo").
   (S-check-2; `bench/tasks/effect-derived`, `projection-selection`.)
 
 ### EF — Effects
@@ -522,7 +521,7 @@ Function application `f(e…)` covers both language functions and FFI imports;
   checker says it as advice, once per effect (`SNAPSHOT_IN_EFFECT`, 99
   the advisory rows): name the value as an input, or say the snapshot is
   meant, `peek(x)`. Where the value read is written into a source, it is
-  not advice but C-3a's error.
+  C-3a's.
 - **EF-2 (When).** `B` runs in an instant iff at least one `eᵢ`'s value
   differs from the value `B` last received for it, or it is the instant in
   which the effect was declared. A value that was pending and lands equal to
@@ -552,15 +551,15 @@ Function application `f(e…)` covers both language functions and FFI imports;
   that subscribes — to a DOM event, a store, a timer — answers the
   function that unsubscribes, and its declaration says so: a result of
   `() => void` (`export fn onShortcut(key: string, run: handler () =>
-  void): () => void`). A call of it whose result is dropped is
-  `DISPOSER_DROPPED` (bin S): the call written as a statement, or its
+  void): () => void`). A call of it whose result is dropped is advised of,
+  `DISPOSER_DROPPED` (99; an error until 2026-11-24): the type alone does
+  not say the function undoes anything (it may be a follow-up the caller
+  need not take). The call written as a statement, or its
   result bound to a local that the rest of the block never names. What it
   set up would outlive the region (a listener after the component is
   gone; one more on every click, from a handler). The result is kept and
   called: by an effect's cleanup (`effect () { let stop = onShortcut(…);
-  return () => { stop() } }`), or by the handler that ends it. There is
-  no way to say "dropped on purpose": a subscription with no end is one
-  whose cleanup the region runs. The evidence is the declared type, as
+  return () => { stop() } }`), or by the handler that ends it. The evidence is the declared type, as
   09 MO-10k's is; a function that answers anything else, or takes
   arguments, is not read as a disposer.
 

@@ -40,7 +40,7 @@ export default {
     { name: "the state written from the function of state, which the part calls while it renders", edit: ['<span>{state.pressed ? "Notify people: on" : "Notify people: off"}</span>', '<span>{(() => { notify := state.pressed })()}</span>'], expect: "REACTIVE_WRITE_IN_OWNED_SCOPE" },
     { name: "the handler called where it is passed", edit: ["onPressedChange={(pressed: boolean) => { notify := pressed }}", "onPressedChange={flip(true)}"], edit2: ["  source sent: number := 0", "  source sent: number := 0\n  action flip(pressed: boolean) { notify := pressed }"], expect: "ACTION_CALLED_IN_OWNED_SCOPE" },
     { name: "the send reads its own write back (the count it just wrote)", edit: ["sent := sent + 1; open := false", "sent := sent + 1; open := sent > 3"], expect: "STALE_OWN_READ" },
-    { name: "the controlled state copied into a second source by an effect", edit: ["  source sent: number := 0", "  source sent: number := 0\n  source wasOpen: boolean := false\n  effect (open) { wasOpen := $0 }"], expect: "EFFECT_RELAY_TEAR" },
+    { name: "the controlled state copied into a second source by an effect", edit: ["  source sent: number := 0", "  source sent: number := 0\n  source wasOpen: boolean := false\n  effect (open) { wasOpen := $0 }"], advise: "EFFECT_RELAY_TEAR" },
   ],
   async run(h) {
     const base = await h.serve(); const page = await h.open(base);

@@ -8,8 +8,8 @@ export default {
     { name: "a row's props keep their types", edit: ["on={selected[str(mail.id)] == true}", "on={mail.subject}"], expect: /TS2322/ },
   ],
   bad: [
-    { name: "the selection kept in a store, written by an effect on the picked id", edit: ["selected: Record<string, boolean> = draft(pre selected -> {}) { d[str(pre picked -> 0)] := false; d[str(picked)] := true }", "source selected: Record<string, boolean> := {}\n  effect (picked) { selected := {}; selected[str($0)] := true }"], expect: "EFFECT_RELAY_TEAR" },
-    { name: "…by a mount effect that reads the picked id: the first row stays selected for ever", edit: ["selected: Record<string, boolean> = draft(pre selected -> {}) { d[str(pre picked -> 0)] := false; d[str(picked)] := true }", "source selected: Record<string, boolean> := {}\n  effect () { selected[str(picked)] := true }"], expect: "EFFECT_RELAY_TEAR" },
+    { name: "the selection kept in a store, written by an effect on the picked id", edit: ["selected: Record<string, boolean> = draft(pre selected -> {}) { d[str(pre picked -> 0)] := false; d[str(picked)] := true }", "source selected: Record<string, boolean> := {}\n  effect (picked) { selected := {}; selected[str($0)] := true }"], advise: "EFFECT_RELAY_TEAR" },
+    { name: "…by a mount effect that reads the picked id: the first row stays selected for ever", edit: ["selected: Record<string, boolean> = draft(pre selected -> {}) { d[str(pre picked -> 0)] := false; d[str(picked)] := true }", "source selected: Record<string, boolean> := {}\n  effect () { selected[str(picked)] := true }"], advise: "EFFECT_RELAY_TEAR" },
     { name: "the projection's draft written from a handler", edit: ["onPick={() => { picked := mail.id }}", "onPick={() => { selected[str(mail.id)] := true }}"], expect: "WRITE_TO_NON_SOURCE" },
     { name: "the projection writing something that is not its draft", edit: ["d[str(picked)] := true }", "d[str(picked)] := true; picked := 2 }"], expect: "DRAFT_WRITE_OUTSIDE_DRAFT" },
   ],

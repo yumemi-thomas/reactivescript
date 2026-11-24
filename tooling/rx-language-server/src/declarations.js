@@ -5,7 +5,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { declaration } = require("./rxc");
-const { declarationOf } = require("./beside.js");
+const { declarationOf, projectTop } = require("./beside.js");
 
 // TypeScript asks for the declaration of `lib.js` as `lib.d.ts`, of `lib.mjs` as `lib.d.mts` and of `lib.cjs` as `lib.d.cts`
 const DECL = [[".d.ts", [".jsx", ".js", ".mjs"]], [".d.mts", [".mjs"]], [".d.cts", [".cjs"]]];   // `.jsx` first: `view.jsx.d.rx` names it
@@ -85,13 +85,13 @@ function hasOwnTypes(root, pkg) {
   }
 }
 /** MO-8k, as the crate's `declaration_for` looks (the package's own .d.rx is TY-4b's case beside its file): the project's
- *  `rx-types/<spec>.d.rx` in `root` or above, a shared `node_modules/@rx-types/…`, a generated `node_modules/.rx-types/…`. */
+ *  `rx-types/<spec>.d.rx` in `root` or above, up to the project's folder, a shared `node_modules/@rx-types/…`, a generated `node_modules/.rx-types/…`. */
 function packageDeclaration(root, spec) {
   const seg = spec.split("/"); const n = spec.startsWith("@") ? 2 : 1;
   if (hasOwnTypes(root, seg.slice(0, n).join("/"))) return null;   // TY-4b: a package with types of its own is typed by them, whatever declares its rows (`@rx-types/solid-js`)
   const shared = seg.slice(0, n).join("/").replace(/^@/, "").replace("/", "__"); const sub = seg.slice(n).join("/") || "index";
   for (const rel of [`rx-types/${spec}.d.rx`, `node_modules/@rx-types/${shared}/${sub}.d.rx`, `node_modules/.rx-types/${spec}.d.rx`])
-    for (let dir = root; ; dir = path.dirname(dir)) { const f = path.join(dir, rel); if (real.existsSync(f)) return f; if (path.dirname(dir) === dir) break; }
+    for (let dir = root, top = rel.startsWith("rx-types/") ? projectTop(root) : undefined; ; dir = path.dirname(dir)) { const f = path.join(dir, rel); if (real.existsSync(f)) return f; if (dir === top || path.dirname(dir) === dir) break; }
   return null;
 }
 /** Whether `p` is a directory TypeScript probes on the way to such a `.d.ts` (`node_modules/@types`, `…/@types/<m>`). */

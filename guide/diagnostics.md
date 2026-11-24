@@ -222,14 +222,13 @@ export default component App() {
 
 ### MUTATION_IN_PLACE
 
-The value of a source, an equation or a prop — and what a JS component hands its view (`view (list) { … }`) — is
-changed by a write or by the library's own methods, never in place (W-1a). `rows.push(x)`, `rows.sort()`
+A list that is the value of a source, an equation or a prop is changed by a write, never in place (W-1a). `rows.push(x)`, `rows.sort()`
 and the like change the array itself: nothing is told that it changed, so the view does not follow, and every other
 reader of that array — an equation over it, the parent that passed it as a prop — now holds a changed value it did not
 ask for. Solid has the same trap (a signal's array pushed to, a memo's array sorted). Write the new value; for a sorted
-or reversed view of a list, `toSorted`, `toReversed` and `toSpliced` give a copy. The check reads the names: a list read
-from a source, an equation, a prop, a provision, a row, the value a functional write is given, or a local that names
-one of those. A list the code made itself (`let xs = [...rows]`) is its own to change.
+or reversed view of a list, `toSorted`, `toReversed` and `toSpliced` give a copy. The check reads what
+says the value is a list: a type (`items: string[]`), a list written out, a call that answers one. An object's own `push`
+(`router.push("/a")`) is its method. A list the code made itself (`let xs = [...rows]`) is its own to change.
 
 ```rx before
 export default component App() {
@@ -567,12 +566,12 @@ export default component App() {
 ### EFFECT_RELAY_TEAR
 
 State computed from other state is an equation, not a source an effect keeps in step (C-3a). An effect's block that
-writes a source declared beside it, with a value computed from reactive values, is refused. Where the block reads what
+writes a source declared beside it, with a value computed from reactive values, is advised of (the program is accepted and the build goes on). Where the block reads what
 the effect does not name, the source is computed once and never again; where it reads what the effect fired for, the
 source is one frame late (the screen shows the new input beside the old total), and the server, which runs no effect,
 never computes it.
 
-```rx before
+```rx advice
 export default component App() {
   source qty := 1
   source price := 5
@@ -582,7 +581,7 @@ export default component App() {
 }
 ```
 
-```rx before
+```rx advice
 export default component App() {
   source qty := 1
   source history: number[] := []
@@ -949,7 +948,7 @@ export default component App() {
 ### DISPOSER_DROPPED
 
 A JS function that subscribes — to a DOM event, a store, a timer — usually answers the function that unsubscribes. Its
-declaration says so with a result of `() => void` (EF-5a), and a call whose result is dropped is refused: the statement
+declaration says so with a result of `() => void` (EF-5a), and a call whose result is dropped is advised of (the program is accepted and the build goes on): the statement
 `listen(…)`, or `let stop = listen(…)` with `stop` never used. What the call set up would outlive the component, and a
 handler that calls it would add another on every click. Keep the function and call it when the region ends: an effect's
 cleanup (`return () => { stop() }`), or the handler that ends what the call started.
@@ -960,7 +959,7 @@ The type is read through a name the declaration file gives it (`export type Unsu
 stop() } }` drops it when `on` is false (return the cleanup on both paths), and `let later = stop` keeps it only if
 `later` is used.
 
-```rx before
+```rx advice
 -- module: ./keys.d.rx
 export fn onShortcut(key: string, run: handler () => void): () => void
 -- main

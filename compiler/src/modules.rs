@@ -260,8 +260,19 @@ pub fn package_declaration(from_file: &str, spec: &str, read: &dyn Fn(&str) -> O
     }
     None
 }
+/// MO-8k, MO-14a: a project's folder, as how many of `dirs` lead to it: the nearest one whose package.json has a name (a
+/// `{"type":"module"}` scope is passed over, as in SV-5a); with none, the outermost folder there is.
+pub fn project_top(dirs: &[&str], lo: usize, read: &dyn Fn(&str) -> Option<String>) -> usize {
+    (lo..=dirs.len())
+        .rev()
+        .find(|i| {
+            let f = dirs[..*i].iter().copied().chain(std::iter::once("package.json")).collect::<Vec<_>>().join("/");
+            read(&f).and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).is_some_and(|v| v.get("name").and_then(|n| n.as_str()).is_some_and(|n| !n.is_empty()))
+        })
+        .unwrap_or(lo)
+}
 /// MO-8k: where a package import's declaration is found, first match wins: the project's `rx-types/<spec>.d.rx` (in the
-/// importer's directory or one above it), the package's own beside the file it resolves to (MO-10c), a shared
+/// importer's directory or one above it, no higher than the project's folder: `project_top`), the package's own beside the file it resolves to (MO-10c), a shared
 /// `node_modules/@rx-types/<scope>__<name>/<subpath or index>.d.rx`, then a generated `node_modules/.rx-types/<spec>.d.rx`
 /// (MO-8l). `None` when none exists.
 pub fn declaration_for(from_file: &str, spec: &str, read: &dyn Fn(&str) -> Option<String>) -> Option<String> {
@@ -273,25 +284,15 @@ pub fn declaration_for(from_file: &str, spec: &str, read: &dyn Fn(&str) -> Optio
     let all: Vec<&str> = from_file.split('/').collect();
     let dirs = &all[..all.len() - 1];
     let lo = if from_file.starts_with('/') { 1 } else { 0 };
-    let up = |rel: &str| -> Option<String> {
-        let mut i = dirs.len() as i64;
-        while i >= lo {
-            let mut parts: Vec<&str> = dirs[..i as usize].to_vec();
-            parts.push(rel);
-            let f = parts.join("/");
-            if read(&f).is_some() {
-                return Some(f);
-            }
-            i -= 1;
-        }
-        None
+    let up = |rel: &str, top: usize| -> Option<String> {
+        (top..=dirs.len()).rev().map(|i| dirs[..i].iter().copied().chain(std::iter::once(rel)).collect::<Vec<_>>().join("/")).find(|f| read(f).is_some())
     };
     let shared = seg[..n].join("/").trim_start_matches('@').replacen('/', "__", 1);
     let sub = if seg.len() > n { seg[n..].join("/") } else { "index".to_string() };
-    up(&format!("rx-types/{spec}.d.rx"))
+    up(&format!("rx-types/{spec}.d.rx"), project_top(dirs, lo, read))
         .or_else(|| package_declaration(from_file, spec, read).filter(|f| read(f).is_some()))
-        .or_else(|| up(&format!("node_modules/@rx-types/{shared}/{sub}.d.rx")))
-        .or_else(|| up(&format!("node_modules/.rx-types/{spec}.d.rx")))
+        .or_else(|| up(&format!("node_modules/@rx-types/{shared}/{sub}.d.rx"), lo))
+        .or_else(|| up(&format!("node_modules/.rx-types/{spec}.d.rx"), lo))
 }
 /// SV-5a (ruled 2026-11-22): what a declared error class is identified by. It is read from the declaration's own place
 /// and nothing else — not the entry, not the checkout — so a server and a client name it alike whatever each was built
@@ -551,7 +552,7 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool, confo
     let dirs = &dirs[..dirs.len() - 1];
     let lo = if entry.starts_with('/') { 1 } else { 0 };
     let mut found = None;
-    for i in (lo..=dirs.len()).rev() {
+    for i in (project_top(dirs, lo, read)..=dirs.len()).rev() {
         let file = dirs[..i].iter().copied().chain(std::iter::once(HOST_DECLARATION)).collect::<Vec<_>>().join("/");
         if let Some(src) = read(&file) {
             found = Some((file, src));
@@ -967,8 +968,8 @@ mod tests {
         assert_eq!(diags("good", false), [] as [&str; 0]);
         // the context provided above the call, not above the toaster
         assert_eq!(diags("beside", false), ["CONTEXT_NOT_FOUND@beside.rx:8"] as [&str; 1]);
-        // two toasters, one without the provision: every application is held to it
-        assert_eq!(diags("two", false), ["CONTEXT_NOT_FOUND@two.rx:11"] as [&str; 1]);
+        // two toasters, one without the provision: which one the call is for is the library's to say
+        assert_eq!(diags("two", false), [] as [&str; 0]);
         // no toaster in the program: held to what the toaster itself uses (the region's context is credited, the app's is not)
         assert_eq!(diags("nosite", false), ["CONTEXT_NOT_FOUND@nosite.rx:8"] as [&str; 1]);
         // the row without the word: a root of its own (MO-11s), nothing credited

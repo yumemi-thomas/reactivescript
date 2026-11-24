@@ -19,7 +19,7 @@ export default {
     { name: "a ward made in a click handler, not where the component is made", edit: ["onClick={() => { big := b => !b }}", "onClick={() => { ward() }}"], expect: "INSTANTIATION_NOT_BOUND" },
     { name: "the hearing started while the component computes, not from its mount effect", edit: ["effect () { hear() }", "started = hear()"], expect: "ACTION_CALLED_IN_OWNED_SCOPE" },
     { name: "the ward's end let out of the action: its promise rejects when the element leaves", edit: ["    try {\n      await card.next(\"tap\")\n      taps := n => n + 1\n      onFlush(() => { hear() })\n    } catch (e) {\n      // the ward went with its element: nothing more to hear\n    }", "    await card.next(\"tap\")\n    taps := n => n + 1\n    onFlush(() => { hear() })"], expect: "UNCAUGHT_ACTION_FAILURE" },
-    { name: "the taps counted by an effect, from a value the effect never hears of", edit: ["effect () { hear() }", "effect () { taps := props.big ? 1 : 0 }"], expect: "EFFECT_RELAY_TEAR" },
+    { name: "the taps counted by an effect, from a value the effect never hears of", edit: ["effect () { hear() }", "effect () { taps := props.big ? 1 : 0 }"], advise: "EFFECT_RELAY_TEAR" },
     { name: "the prop read once into a local: the target would never follow it", edit: ["  card = ward()", "  let scale = props.big ? 1.5 : 1\n  card = ward()"], expect: "JS_LOCAL" },
   ],
   async run(h) {

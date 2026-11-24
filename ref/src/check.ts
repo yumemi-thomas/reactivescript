@@ -160,6 +160,7 @@ type Sym = {
   disposer?: string;                   // EF-5a (2026-11-22): a declared JS fn whose result undoes the call (a subscription's disposer): the declared type that says so, `() => void` or `{ unsubscribe: () => void }` (tyUndoes)
   updater?: number[];                  // MO-10i (2026-11-22): a closure bound to this name that is used only as the callback of a function that hands it a draft: the parameter positions that are drafts
   retTy?: string;                      // MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or of a part of it, that part's: the closed set of what the value answers (`tyStep`)
+  made?: { e: Expr; env: Env; ty?: string };   // W-1a: what a source or an equation is made from, and the type written on it
   eqExpr?: { e: Expr; env: Env };   // every equation's expression (E-10: whether it ever changes)
   val?: { e: Expr; env: Env };          // MO-10k: the expression a name is bound to — an equation's, a local's
   srcs?: { e: Expr; env: Env }[];       // MO-10k: what else a name's value may come from — a closure's parameter: the call's other arguments and its receiver; a loop's variable: what it loops over; an effect's `$n`: its input
@@ -636,7 +637,8 @@ export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: 
 /** MO-11u: a fn declared `renders(H)` hands the components it is given to H, which renders them later, any number of times,
  *  among its children. So each is checked as applied there, with no arguments, at every application of H in the program:
  *  what it lets out of H's children (its failures, the contexts it uses, a first load it waits on) must be discharged
- *  above each one. With no application of H anywhere, nothing renders them yet, and they are held to the least H could
+ *  above one of them: which application a call is for is the library's to say (an id, the nearest), so a need that one
+ *  application meets is let be (revised 2026-11-24). With no application of H anywhere, nothing renders them yet, and they are held to the least H could
  *  have above it: what H itself uses and provides (already taken off), under a root of its own (MO-11s). */
 export function judgeHosted(sigs: ModSig[], extra: Record<string, HostSite[]>[], spa: boolean): Diagnostic[] {
   const sites = new Map<string, HostSite[]>(); const seen = new Set<string>();
@@ -661,13 +663,13 @@ export function judgeHosted(sigs: ModSig[], extra: Record<string, HostSite[]>[],
       const at = sites.get(h.host) ?? []; const none = !at.length; const xs = none ? [{ f: new Set<string>(), p: new Set<string>() } as HostSite] : at;
       const where = none
         ? `${h.fn}() is declared \`renders(${h.name})\`, and the program applies <${h.name}> nowhere: what it is given is checked under a root of its own, with what <${h.name}> itself uses and provides (MO-11u, MO-11s)`
-        : `${h.fn}() is declared \`renders(${h.name})\`: what it is given is rendered beneath <${h.name}>, and is checked among its children at every place the program applies it (MO-11u)`;
+        : `${h.fn}() is declared \`renders(${h.name})\`: what it is given is rendered beneath <${h.name}>, and no place the program applies it has that above it (MO-11u)`;
       const file = s.file ? { file: s.file } : {};
-      for (const cls of h.fails) if (xs.some(x => !caught(x.f, cls))) out.push({ code: "UNHANDLED_FAILURE", rule: "R-f-5", line: h.line, msg: `a component given to ${h.fn}() can fail with ${cls} where it renders, and no errored boundary above ${none ? "it" : `an application of <${h.name}>`} discharges ${cls} — ${where}: put <${h.name}> under \`errored fallback(e${cls === "Error" ? "" : `: ${cls}`}) { … } { … }\`, or catch it inside the component`, ...file });
+      for (const cls of h.fails) if (xs.every(x => !caught(x.f, cls))) out.push({ code: "UNHANDLED_FAILURE", rule: "R-f-5", line: h.line, msg: `a component given to ${h.fn}() can fail with ${cls} where it renders, and no errored boundary above ${none ? "it" : `any application of <${h.name}>`} discharges ${cls} — ${where}: put <${h.name}> under \`errored fallback(e${cls === "Error" ? "" : `: ${cls}`}) { … } { … }\`, or catch it inside the component`, ...file });
       for (const k of h.requires) {
-        if (!xs.some(x => !(x.p === "all" || x.p.has(k)))) continue;
-        if (k === HOLD) out.push({ code: spa ? "ASYNC_OUTSIDE_LOADING_BOUNDARY" : "CLIENT_QUESTION_UNHELD", rule: spa ? "CN-3d" : "SV-7b", line: h.line, msg: `a reader in a component given to ${h.fn}() can have no value yet, and no \`loading\` region above ${none ? "it" : `an application of <${h.name}>`} holds it — ${where}: put <${h.name}> under \`loading fallback { … } { … }\`, or the reader under one inside the component`, ...file });
-        else out.push({ code: "CONTEXT_NOT_FOUND", rule: "RG-7b", line: h.line, msg: `a component given to ${h.fn}() uses ${keyName(k)} (declared in ${k.split("#")[0].split("/").pop()}), and no provision of it is above ${none ? "it" : `an application of <${h.name}>`} — ${where}: provide it above <${h.name}>, or give the component the value as a prop`, ...file });
+        if (xs.some(x => x.p === "all" || x.p.has(k))) continue;
+        if (k === HOLD) out.push({ code: spa ? "ASYNC_OUTSIDE_LOADING_BOUNDARY" : "CLIENT_QUESTION_UNHELD", rule: spa ? "CN-3d" : "SV-7b", line: h.line, msg: `a reader in a component given to ${h.fn}() can have no value yet, and no \`loading\` region above ${none ? "it" : `any application of <${h.name}>`} holds it — ${where}: put <${h.name}> under \`loading fallback { … } { … }\`, or the reader under one inside the component`, ...file });
+        else out.push({ code: "CONTEXT_NOT_FOUND", rule: "RG-7b", line: h.line, msg: `a component given to ${h.fn}() uses ${keyName(k)} (declared in ${k.split("#")[0].split("/").pop()}), and no provision of it is above ${none ? "it" : `any application of <${h.name}>`} — ${where}: provide it above <${h.name}>, or give the component the value as a prop`, ...file });
       }
     }
   }
@@ -720,6 +722,8 @@ class Checker {
   private rowsBusy = new Set<string>();
   private retains = new Map<Region, Map<string, Set<string>>>();   // O-3: per component, the props it stores where they outlive it — "d:<depth>" (a source), "p:<key>" (a provision above)
   private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
+  /** 99, the advisory rows: about a program that is accepted. */
+  private advise(code: string, rule: string, msg: string) { if (!this.advice.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.advice.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
   private region(parent: Region | null, kind: RegionKind, opts: { component?: boolean; provParent?: Region | null; name?: string } = {}): Region {
     const r: Region = { id: this.seq++, depth: parent ? parent.depth + 1 : 0, parent, component: null, isComponentRoot: !!opts.component, provParent: opts.provParent === undefined ? parent : opts.provParent, appSites: [], provides: new Set() };
     r.component = opts.component ? r : parent?.component ?? null;
@@ -981,6 +985,7 @@ class Checker {
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = instantiates(d); sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); sym.compRegion.key = `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${sym.compRegion.id}` : ""}`; }   // E-5a
       if (d.k === "eq") sym.eqDecl = d;
+      if (d.k === "source" || d.k === "eq") sym.made = { e: d.k === "source" ? d.init : d.e, env, ty: d.type };
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); sym.eqExpr = { e: d.e, env }; sym.val = { e: d.e, env }; }   // MO-10k
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
       this.bind(env, d.name, sym);
@@ -1433,7 +1438,7 @@ class Checker {
   /** E-10: a reactive argument for a value parameter of an instantiating fn is snapshotted. */
   /** C-3a (2026-11-22): state derived through an effect. An apply block's own write of a source declared beside the
    *  effect (in its block), with a value or a path computed from reactive values — the effect's inputs (`$n`, or an input read by its name), another source, an
-   *  equation, a prop — is `EFFECT_RELAY_TEAR`: it is an equation written the long way, a frame late where the effect
+   *  equation, a prop — is `EFFECT_RELAY_TEAR`, advice: it is an equation written the long way, a frame late where the effect
    *  names what it reads, and never again where it does not. What is not derived stays an apply's to write: a constant,
    *  the target's own value, what an io call answers (a measurement, a JS module's state), a reading under `peek(…)`,
    *  and every write of a closure the apply creates (a later event). The same walk gives the advice
@@ -1478,7 +1483,7 @@ class Checker {
             if (!names.length) break;
             const stale = names.find(n => !/^\$\d+$/.test(n) && !locals.has(n) && !inputs.has(n));
             const fix = `write the equation, \`${t.name} = …\` (or \`source ${t.name} = …\`, ST-5, if it is also written by hand; \`pre ${t.name}\` for a value built on its last one), or write ${t.name} from the event that changes what it is computed from; a reading taken once on purpose — a measurement of the page as it is now — says so: \`peek(…)\``;
-            this.err("EFFECT_RELAY_TEAR", "C-3a", stale !== undefined
+            this.advise("EFFECT_RELAY_TEAR", "C-3a", stale !== undefined
               ? `the apply block writes ${t.name} from ${stale}, which is not one of the effect's inputs: the block runs ${d.inputs.length ? "when its inputs change" : "once, when the effect is declared (it has no inputs)"}, so ${t.name} is computed from ${stale} as it was then and never follows it — ${fix}`
               : `the apply block writes ${t.name} from what the effect fired for (${names.join(", ")}): state derived through an effect is one instant late — the frame in between shows the new value beside the old ${t.name}, and the server, which runs no apply block, never computes it — ${fix}`);
             break;
@@ -2069,7 +2074,7 @@ class Checker {
     return found;
   }
   /** W-1a: the functions of functional writes of a source (`x := xs => …`): their parameter is the slot's value. */
-  private writeFns = new Set<Expr>();
+  private writeFns = new Map<Expr, { name: string; env: Env }>();   // a functional write's function, and the source it writes
   /** W-1a: what `e` reads its value from, when that is reactive state of `.rx` — a source, an equation, a prop, a
    *  provision, a row of one, the value a functional write is given, or a local that names a path of one. A JS instance
    *  (a declared result) is the library's; what a call answers, a literal, and a local bound to either are the program's
@@ -2084,6 +2089,37 @@ class Checker {
     const x = s.expr;
     if (x && (x.k === "member" || x.k === "index") && x.o.k === "id") { const o = (s.env ?? env).lookup(x.o.name); if (o && o.kind !== "fn" && o.kind !== "import" && o.partDrafts && Object.keys(o.partDrafts).length) return `the store ${r.name}`; }
     return undefined;
+  }
+  /** W-1a: whether `e`, read down `steps`, is an array by what the program writes: a type (`string[]`), a list, or a call
+   *  that answers one. A record's own `push` (`router.push("/a")`) is a method of its own, and what nothing says is an
+   *  array is let be. */
+  private isList(e: Expr, env: Env, steps: TStep[] = [], depth = 0): boolean {
+    if (depth > 32) return false;
+    const go = (x: Expr, en = env, ss = steps) => this.isList(x, en, ss, depth + 1);
+    const typed = (t: string | undefined) => { for (const s of steps) t = t === undefined ? undefined : tyStep(t, s); return t !== undefined && tyList(t); };
+    if (typed(this.declTy(e, env))) return true;
+    switch (e.k) {
+      case "arr": return !steps.length || (steps[0] === "elem" && e.items.length > 0 && e.items.every(x => x.k === "spread" ? go(x.e) : go(x, env, steps.slice(1))));
+      case "rec": { const s = steps[0]; const f = s !== undefined && typeof s === "object" ? e.fields.findLast(f => !("spread" in f) && f.key === s.field) : undefined; return !!f && !("spread" in f) && go(f.v, env, steps.slice(1)); }
+      case "member": return go(e.o, env, [{ field: e.p }, ...steps]);
+      case "index": { const k = litKey(e.i); return go(e.o, env, [k === undefined || (e.i.k === "lit" && typeof e.i.v === "number") ? "elem" : { field: k }, ...steps]); }
+      case "if": return go(e.t) && go(e.f);
+      case "bin": return (e.op === "??" || e.op === "||") && go(e.l) && go(e.r);
+      case "peek": case "latest": return go(e.e);
+      case "pre": return go({ k: "id", name: e.name });
+      case "call":
+        if (e.f.k === "id" && !env.lookup(e.f.name)) return e.f.name === "map" ? !steps.length : e.f.name === "filter" && (!steps.length || (!!e.args[0] && go(e.args[0])));
+        if (e.f.k !== "member" || !["filter", "slice", "concat", "toSorted", "toReversed", "toSpliced", "map", "flatMap"].includes(e.f.p)) return false;
+        return e.f.p === "map" || e.f.p === "flatMap" ? !steps.length && go(e.f.o, env, []) : go(e.f.o);
+      case "id": {
+        const sy = env.lookup(e.name); if (!sy) return false;
+        if (sy.rowOf) return go(sy.rowOf.e, sy.rowOf.env, ["elem", ...steps]);
+        const w = sy.ofFn && this.writeFns.get(sy.ofFn); if (w) return go({ k: "id", name: w.name }, w.env);
+        if (sy.made) return typed(sy.made.ty) || go(sy.made.e, sy.made.env);
+        return !!sy.val && go(sy.val.e, sy.val.env);
+      }
+      default: return false;
+    }
   }
   private reactivePlace(e: Expr, env: Env, depth = 0): string | undefined {
     if (depth > 32) return undefined;
@@ -2106,11 +2142,25 @@ class Checker {
    *  declared JS result, a component's props or what a context provides: it is called for what it does. */
   /** MO-8t (2026-11-25): a method, one step from an import that is io — an undeclared one (R-io-4), or a declared `fn` —
    *  with no row of its own: it is io as its object is. (A declared value's method is read by its type; a `pure` import's
-   *  is pure; one with a row is that row's fn, by the name the loader gave it.) */
-  private ioMember(f: Expr, env: Env): string | undefined {
-    if (f.k !== "member" || f.o.k !== "id") return undefined;
-    const s = env.lookup(f.o.name);
-    return s?.kind === "import" && s.io ? f.o.name : undefined;
+   *  is pure; one with a row is that row's fn, by the name the loader gave it.) Through another name of the import it is
+   *  the same method, and its row is read (2026-11-24): `t = toast`, `{ success } = t`, a field of a record written here. */
+  private ioMember(f: Expr, env: Env, depth = 0): string | undefined {
+    if (depth > 32) return undefined;
+    if (f.k === "id") { const s = env.lookup(f.name); return s && (s.kind === "eq" || s.kind === "value") && !s.io && s.val && !s.rowOf ? this.ioMember(s.val.e, s.val.env, depth + 1) : undefined; }
+    if (f.k !== "member") return undefined;
+    const r = this.importOf(f.o, env); if (!r) return undefined;
+    const row = r.env.lookup(`${r.s.name}.${f.p}`);
+    return (row ? row.io : r.s.io) ? r.s.name : undefined;
+  }
+  /** The import `e` is, as far as the names and the records written here say. */
+  private importOf(e: Expr, env: Env, depth = 0): { s: Sym; env: Env } | undefined {
+    if (depth > 32) return undefined;
+    if (e.k === "peek") return this.importOf(e.e, env, depth + 1);
+    if (e.k === "id") { const s = env.lookup(e.name); return s?.kind === "import" ? { s, env } : s && (s.kind === "eq" || s.kind === "value") && s.val && !s.rowOf ? this.importOf(s.val.e, s.val.env, depth + 1) : undefined; }
+    if (e.k !== "member" || e.o.k !== "id") return undefined;
+    const s = env.lookup(e.o.name); if (!s || (s.kind !== "eq" && s.kind !== "value") || s.val?.e.k !== "rec") return undefined;
+    const f = s.val.e.fields.findLast(f => "spread" in f || f.key === e.p);
+    return f && !("spread" in f) ? this.importOf(f.v, s.val.env, depth + 1) : undefined;
   }
   private voidMethod(f: Expr, env: Env): boolean {
     if (f.k !== "member" && f.k !== "index") return false;
@@ -2227,7 +2277,7 @@ class Checker {
   private handlerCalled(e: Expr, env: Env, attr: string) {
     if (e.k === "call") {
       let code: string | undefined;
-      if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io ? "IO_IN_REACTIVE" : lang(env, e.f.name) === "log" ? "IO_IN_REACTIVE" : undefined; }
+      if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io || this.ioMember(e.f, env) !== undefined ? "IO_IN_REACTIVE" : lang(env, e.f.name) === "log" ? "IO_IN_REACTIVE" : undefined; }
       else if (this.voidMethod(e.f, env)) code = this.providedAction(e.f, env) ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE";
       else if (this.promiseMethod(e.f, env)) code = "IO_IN_REACTIVE";
       else if (this.ioMember(e.f, env) !== undefined) code = "IO_IN_REACTIVE";
@@ -2313,7 +2363,7 @@ class Checker {
         // W-1a (2026-11-22): the value of a source, an equation or a prop is changed by a write, never in place:
         // `rows.push(x)` changes the array every reader holds and tells none of them
         if (e.f.k === "member" && ARRAY_MUTATORS.has(e.f.p) && !this.draftChain(e.f.o, env)) {
-          const what = this.reactivePlace(e.f.o, env);
+          const what = this.isList(e.f.o, env) ? this.reactivePlace(e.f.o, env) : undefined;
           if (what !== undefined) {
             const o = show(e.f.o);
             const fix = e.f.p === "sort" ? `\`${o}.toSorted(…)\` gives a sorted copy` : e.f.p === "reverse" ? `\`${o}.toReversed()\` gives a reversed copy` : e.f.p === "splice" ? `\`${o}.toSpliced(…)\` gives a changed copy` : "write the new value, `xs := v => [...v, x]`, in the block that declares the source (or through an action it exports)";
@@ -2345,8 +2395,8 @@ class Checker {
         // MO-8t: a method of an io import, with no row of its own, is io as its object is
         { const of = ctx.scope !== "imperative" && !this.voidMethod(e.f, env) && !this.promiseMethod(e.f, env) ? this.ioMember(e.f, env) : undefined;
           if (of !== undefined) {
-            if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (a method of ${of}, which is io, with no row of its own); a fn is pure by definition`);
-            else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): it is a method of ${of}, which is io (an import with no declaration, or a declared \`fn\`), and has no row of its own — call it from a handler or an action; if it only reads, its declaration says so, \`export pure fn ${show(e.f)}(…)\` (MO-8t)`);
+            if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (a method of ${of}, which no row says is \`pure\`); a fn is pure by definition`);
+            else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): it is a method of ${of}, which is io (an import with no declaration, or a declared \`fn\`), and no row says it is \`pure\` — call it from a handler or an action; if it only reads, its declaration says so, \`export pure fn ${of}.<method>(…)\` (MO-8t)`);
           } }
         if (e.f.k === "id" && lang(env, e.f.name) === "until") {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
           if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited");
@@ -2465,7 +2515,7 @@ class Checker {
             : paths.left || (paths.ends && !paths.named) ? `\`${s.name}\` is not used on every path after it is bound (a branch that is not taken, an early \`return\`, another name for it that is never used: the run ends there without it)`
             : undefined;
         }
-        if (why !== undefined) { const n = s.e.f.name; this.err("DISPOSER_DROPPED", "EF-5a", `${n}(…) answers what undoes it (its declaration: \`${env.lookup(n)!.disposer}\`), and ${why}: what it set up — a listener, a subscription, a timer — then outlives the component — keep it and call it when the region ends: in \`effect () { let stop = ${n}(…); return () => { stop() } }\`, or from the handler that ends it`); }
+        if (why !== undefined) { const n = s.e.f.name; this.advise("DISPOSER_DROPPED", "EF-5a", `${n}(…) answers what undoes it (its declaration: \`${env.lookup(n)!.disposer}\`), and ${why}: what it set up — a listener, a subscription, a timer — then outlives the component — keep it and call it when the region ends: in \`effect () { let stop = ${n}(…); return () => { stop() } }\`, or from the handler that ends it`); }
       }
       if (s.k === "let" || s.k === "expr") { const t = s.e.k === "catch" ? s.e.e : s.e; if (t.k === "await") this.stmtAwaits.add(t); }
       switch (s.k) {
@@ -2496,7 +2546,7 @@ class Checker {
               if (v !== undefined) this.err("DUPLICATE_KEY", "ST-4d", `${t.name} is keyed by ${t.rowKey}, and two of the rows written here have ${t.rowKey}: ${v} — a key names one row: rows with one key share one identity, so one's state shows for both, or one is dropped. Give each row its own ${t.rowKey}`);
             }
           }
-          if (s.e.k === "fn" && !s.target.path.length && env.lookup(s.target.name)?.kind === "source") this.writeFns.add(s.e);   // W-1a: a functional write's function is given the slot's value: it answers the next one, and does not change the one it is given
+          if (s.e.k === "fn" && !s.target.path.length && env.lookup(s.target.name)?.kind === "source") this.writeFns.set(s.e, { name: s.target.name, env });   // W-1a: a functional write's function is given the slot's value: it answers the next one, and does not change the one it is given
           if (ctx.server) {                                                                  // SF-4: return the value; the action that awaited the call writes it
             this.err("SERVER_WRITE", "SF-4", `a server function writes ${s.target.ctx ? "use " : ""}${s.target.name}: return the value, and write it in the action that awaited the call (\`let r = await f(…); ${s.target.name} := r\`)`);
             s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx)); this.expr(s.e, env, ctx); break;
@@ -3332,6 +3382,8 @@ export function tyStep(t: string, s: TStep): string | undefined {
   if (s === "elem") { if (t.endsWith("[]")) return t.slice(0, -2).trim(); for (const w of ["Array<", "ReadonlyArray<"]) if (t.startsWith(w)) return t.endsWith(">") ? t.slice(w.length, -1).trim() : undefined; return undefined; }
   return tyFields(t)?.find(f => f[0] === s.field)?.[1];
 }
+/** Whether a type, as written, is an array's: `T[]`, `Array<T>`, a tuple. */
+function tyList(t: string): boolean { const ms = tyMembers(t, true); return ms.length === 1 && (ms[0].endsWith("[]") || /^(Readonly)?Array</.test(ms[0]) || (ms[0].startsWith("[") && ms[0].endsWith("]"))); }
 /** Whether a declared type is a primitive's — `string`, `number`, `boolean`, `bigint`, `null`, `undefined`, `void`, a
  *  literal, or a union of those: a value of it holds nothing. */
 export function tyScalar(t: string): boolean {

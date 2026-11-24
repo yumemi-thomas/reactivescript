@@ -48,7 +48,7 @@ Bins:
 | `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary; S within a component (08 CN-3e), R through a prop |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`  | S/R | H: a pending reader with no armed boundary on its path; S only in a client-only build, for a first load (08 CN-3d) |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3: an error (ruled 2026-10-23); closures the apply creates are exempt |
-| `EFFECT_RELAY_TEAR`               | S   | C-3a: an apply's own write of a source declared beside the effect, computed from reactive values — an error since 2026-11-22 (it was advisory) |
+| `EFFECT_RELAY_TEAR`               | –   | advisory (below): C-3a, an apply's own write of a source declared beside the effect, computed from reactive values |
 | `ASYNC_WATERFALL`                 | S   | R-pending: `await` whose inputs depend on another `await`          |
 | `SILENT_HOLD` (structural form)   | S/R | H-9: a write whose cone contains no probe; timing form stays R     |
 | `HUGE_FAN_IN`, `WIDE_SCOPE_DEPS`  | S   | counts on the static graph                                         |
@@ -127,8 +127,8 @@ named.
 | `WRITE_TO_NON_SOURCE` (MO-2)      | S   | MO-2a: an imported source is read-only | S-module-1 |
 | `IMPORT_ROW_MISMATCH`             | S   | MO-4a: `pure` / `fails` on an `.rx` import | S-module-1 |
 | `MODULE_CYCLE`                    | S   | MO-5  | S-module-1 |
-| `MUTATION_IN_PLACE` (new)         | S   | 02 W-1a: an Array's mutating method on the value of a source, an equation, a prop, a provision or a row (Solid: a signal's array pushed to, a store written outside its setter — silent, or a dev warning) | guide/diagnostics.md, `bench/tasks/source-mutation` |
-| `DISPOSER_DROPPED` (new)          | S   | 02 EF-5a: a declared JS call whose result is `() => void`, dropped | guide/diagnostics.md, `bench/tasks/listener-cleanup` |
+| `MUTATION_IN_PLACE` (new)         | S   | 02 W-1a: an Array's mutating method on an array that is the value of a source, an equation, a prop, a provision or a row (Solid: a signal's array pushed to, a store written outside its setter — silent, or a dev warning) | guide/diagnostics.md, `bench/tasks/source-mutation` |
+| `DISPOSER_DROPPED` (new)          | –   | advisory (below): 02 EF-5a, a declared JS call whose result is `() => void`, dropped | guide/diagnostics.md, `bench/tasks/listener-cleanup` |
 | `DUPLICATE_KEY` (new)             | S/R | 06 ST-4d: two rows of a keyed list written with one key (S); keys computed at run time are the data's (R: named on the console by the runtime in a development build, since 2026-11-24; unreported in production, as in Solid) | guide/diagnostics.md, `bench/tasks/duplicate-keys` |
 | `HOST_VIEW_STALE` (new)           | tools | 09 MO-14g: a host declaration derived from the router's tree (`//@ routes`) that has fallen behind it — refused by `rx-tsc`, `rx-verify` and a build; the dev server writes it again. Not a checker's diagnostic: the checkers read no router's file (08 CN-8) | guide/diagnostics.md, `bench/tasks/router-rx-routes`, `file-routes`, `start-mode` |
 | `DUPLICATE_WIRE_ID` (new)         | S   | 10 SV-5a: two declared error classes, in packages with no name, that would cross to the client under one identity (refused where the declarations are loaded) | `a_wire_id_does_not_depend_on_the_entry_and_two_classes_never_share_one` (crate, `ref/units.ts`) |
@@ -184,7 +184,8 @@ once per effect, on the statement. S-check-2, `bench/tasks/effect-derived`.
 The third row, `GUESS_AFTER_AWAIT` (06 AC-3): an action's first guess
 written after a statement-level `await` — the guess is ahead of nothing,
 and shows once that has answered — once per action, on the guess.
-`bench/tasks/optimistic-todo`.)
+`bench/tasks/optimistic-todo`. `EFFECT_RELAY_TEAR` (02 C-3a) and
+`DISPOSER_DROPPED` (02 EF-5a) are the fourth and the fifth.)
 
 Under CN-1a there is no warning tier, so an S row is a compile error or it
 is not a diagnostic. `ASYNC_WATERFALL`, `HUGE_FAN_IN`, `HUGE_FAN_OUT`,
@@ -194,13 +195,7 @@ separate advisory tool that reads the same static graph and never fails a
 build (the rustc/clippy split). `EFFECT_WRITES_OWN_SOURCE` is an error
 (C-3); `EFFECT_RELAY_TEAR` (an effect copying one source into another — an
 equation written the long way, with a one-instant tear, but also how a
-source is synced into a JS-owned one) was advisory, and is an error since
-2026-11-22 for the half that is in the program's text (02 C-3a): an apply
-that writes a source declared beside it from reactive values. A frame
-that shows one value beside another computed from its old self is not
-"advice about a correct program" — it is the defect H-1 names, and the
-server never computes such a source at all. What is synced into a
-JS-owned value is a call, not a write, and stays the apply's. `DYNAMIC_ASYNC_COMPONENT` is a type question for the type layer (13);
+source is synced into a JS-owned one) stays advisory (02 C-3a). `DYNAMIC_ASYNC_COMPONENT` is a type question for the type layer (13);
 `UNRECOGNIZED_INSERT_VALUE` stays Solid's, at run time (13 TY-3b). `LOADING_ON_OUTSIDE_HOLD` was one; since 2026-10-30 (Ryan) it is an error, 08 CN-3e: the old content stays up with no sign of the wait, a silent hold, which is a defect, not advice. (`SERVER_WRITE` was one; 12 SF-4 makes it a row rule.)
 
 ## Parse errors that name a habit

@@ -16,7 +16,7 @@ export default {
     { name: "a primitive made in a click handler, not where the component is made", edit: ["onClick={() => { compact := c => !c }}", "onClick={() => { createMousePosition() }}"], expect: "INSTANTIATION_NOT_BOUND" },
     { name: "the query computed from state: the primitive reads it once", edit: ['createMediaQuery("(min-width: 600px)")', 'createMediaQuery(compact ? "(min-width: 900px)" : "(min-width: 600px)")'], expect: "SNAPSHOT_ARGUMENT" },
     { name: "a sensor's value written", edit: ["onClick={() => { compact := c => !c }}", "onClick={() => { wide := false }}"], expect: "WRITE_TO_NON_SOURCE" },
-    { name: "the layout kept in a source by an effect, not derived", edit: ['  layout = compact || !wide ? "narrow" : "wide"', '  source layout: string := "narrow"\n  effect (wide) { layout := $0 && !compact ? "wide" : "narrow" }'], expect: "EFFECT_RELAY_TEAR" },
+    { name: "the layout kept in a source by an effect, not derived", edit: ['  layout = compact || !wide ? "narrow" : "wide"', '  source layout: string := "narrow"\n  effect (wide) { layout := $0 && !compact ? "wide" : "narrow" }'], advise: "EFFECT_RELAY_TEAR" },
     { name: "the shortcut's callback called where it is given", edit: ["() => { saves := n => n + 1 }, { preventDefault: true }", "bump(), { preventDefault: true }"], edit2: ["  wide = createMediaQuery", "  action bump() { saves := n => n + 1 }\n  wide = createMediaQuery"], expect: "ACTION_CALLED_IN_OWNED_SCOPE" },
     { name: "the accessor called, as in Solid", edit: ['{online ? "online" : "offline"}', '{online() ? "online" : "offline"}'], ts: /TS2349|TS6234/ },
   ],

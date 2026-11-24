@@ -7,7 +7,7 @@ type Table = { title: string; program: string | null; rows: Row[] };
 type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean; types?: boolean; spa?: boolean; whole?: boolean; hosts?: string[]; app?: boolean };   // app: checked as an app's program, not a conformance build's (CP-4c), an `-- app` line   // whole: checked as the whole program (E-5a), a `-- whole-program` line   // spa: checked as a client-only build (08 CN-3d), a `-- spa` line   // types: refused by the type layer (TY, types/run.ts)
 export type Divergence = { table: string; instant: number; frame: string; effects?: string[]; runner: "oracle" | "server" | "hydrated"; ruled?: true };   // effects: the effect log Solid gives at that instant, when it differs too   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
 export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[]; divergences: Divergence[];
-  accepted: { program: string; whole: boolean; untyped?: boolean }[];   // untyped: TypeScript refuses it (a `-- untyped` line; types/run.ts); `-- accept: whole-program` blocks: programs the checker accepts only so (E-5a); `-- accept`: per module
+  accepted: { program: string; whole: boolean; advice?: string; untyped?: boolean }[];   // untyped: TypeScript refuses it (a `-- untyped` line; types/run.ts); `-- accept: whole-program` blocks: programs the checker accepts only so (E-5a); `-- accept`: per module
   entry: string; modules: Map<string, string>;
   server: Row[];     // 10: `## Server frames` — what a browser shows from the server's stream (ref/ssr/run.ts only)
   before: Row[];
@@ -138,8 +138,8 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
       if (!fences.length) refuse(s.title, "no program");
       for (const b of fences) {
         const [first, ...lines] = b.split("\n");
-        const ok = /^-- accept(: whole-program)?\s*$/.exec(first);
-        if (ok) { const { program, said } = directives(s.title, lines, /^-- untyped\s*$/); accepted.push({ program, whole: !!ok[1], ...(said.length ? { untyped: true } : {}) }); continue; }   // a program the checker accepts, per module (a regression's other side)
+        const ok = /^-- accept(: whole-program|: advice ([A-Z_]+))?\s*$/.exec(first);
+        if (ok) { const { program, said } = directives(s.title, lines, /^-- untyped\s*$/); accepted.push({ program, whole: !!ok[1] && !ok[2], ...(ok[2] ? { advice: ok[2] } : {}), ...(said.length ? { untyped: true } : {}) }); continue; }   // a program the checker accepts, per module (a regression's other side)
         const r = s.title.startsWith("Rejected") ? /^-- (reject|warn|types): ([\w-]+)\s*$/.exec(first) : null;
         if (!r) { refuse(s.title, `a block that begins with no directive of this heading: ${first}`); continue; }
         const { program, said } = directives(s.title, lines, /^-- (spa|app|whole-program|handler: \S.*|host: \S+)\s*$/);
@@ -208,8 +208,9 @@ export function runScenario(sc: Scenario): Result {
   }
   for (const ac of sc.accepted) {                                       // E-5a: accepted when checked as the whole program; `-- accept`: per module
     const how = ac.whole ? "whole program" : "per module";
-    let d; try { d = checkModules(moduleSet(sc, ac.program), false, ac.whole).diags; } catch (e) { ok = false; lines.push(`  ✗ accepted(${how}): ${(e as Error).message}`); continue; }
-    if (!d.length) lines.push(`  ✓ accepted(${how})`); else { ok = false; lines.push(`  ✗ accepted(${how}): got ${d.map(x => `${x.code} line ${x.line}`).join(", ")}`); }
+    let d, advice: string[]; try { const c = checkModules(moduleSet(sc, ac.program), false, ac.whole); d = c.diags; advice = c.advice.map(x => x.code); } catch (e) { ok = false; lines.push(`  ✗ accepted(${how}): ${(e as Error).message}`); continue; }
+    if (!d.length && ac.advice !== undefined && !advice.includes(ac.advice)) { ok = false; lines.push(`  ✗ accepted(${how}): no advice ${ac.advice}`); }
+    else if (!d.length) lines.push(`  ✓ accepted(${how}${ac.advice ? `, advice ${ac.advice}` : ""})`); else { ok = false; lines.push(`  ✗ accepted(${how}): got ${d.map(x => `${x.code} line ${x.line}`).join(", ")}`); }
   }
   for (const rj of sc.rejected) {
     if (rj.types) continue;                                              // TY: the type layer's, over the projection (types/run.ts)

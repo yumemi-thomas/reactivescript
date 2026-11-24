@@ -18,8 +18,9 @@ fn path(a: any, r: Row, c: any) => a<r.n>(c)
 fn one(r: any) => r.n
 export default component App() {
   source n: any := 1
+  source z: any := 0
   source xs: any := [2]
-  <p>{own(n, 2, 0) ? "y" : "n"}{two(n, 2, 3, 0) ? "y" : "n"}{path(n, { n: 2 }, 0) ? "y" : "n"}{n<2>(0) ? "y" : "n"}{for x in xs { <b>{n<x>(0) ? "y" : "n"}</b> }}</p>
+  <p>{own(n, 2, 0) ? "y" : "n"}{two(n, 2, 3, 0) ? "y" : "n"}{path(n, { n: 2 }, 0) ? "y" : "n"}{n<2>(z) ? "y" : "n"}{for x in xs { <b>{n<x>(z) ? "y" : "n"}</b> }}</p>
 }
 ```
 
