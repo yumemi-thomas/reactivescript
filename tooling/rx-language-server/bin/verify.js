@@ -5,14 +5,14 @@
 // A row makes claims, each under a name of its own, as the crate's parser reads the row (src/rows.js; `obligations` in
 // compiler/src/parse.rs): `exists`, `pure`, `uses:<context>`, `provides:<context>`, `rejects`, `fields`, `fails`,
 // `callbacks:<position>`, `draft`, `placement`, `through:<component>`. Every result below is about one claim, by that
-// name, and says one of: `held`, `mismatch`, `unverified`, `n/a`. A claim no check answers is `unverified`. Nothing
+// name, and says one of: `held`, `read` (`pure` alone), `mismatch`, `unverified`, `n/a`. A claim no check answers is `unverified`. Nothing
 // printed that is not about a claim (the count of words read from the code) is a result, and none is recorded.
 //
 //   exists      the export is there, of its kind.
 //   pure        refuted by running (two calls that answer differently; the server and a browser's globals answering
 //               differently, 10 SV-7c; an argument changed, a global left, the clock asked): running cannot show a fn is
-//               pure, so the claim is held only where the code proves it (`rx-declare --audit`, 09 MO-8w) and no run
-//               refutes it.
+//               pure, so the claim is never held. It is `read` where the fn's own code only computes (`rx-declare --audit`,
+//               09 MO-8w) and no run refutes it; what a getter or a callback among its arguments does is the caller's.
 //   uses:c      evidence tied to `c`: the hook (or the component) fails or warns with no provider, runs cleanly under a
 //               provider of each context it names, and — where it names several — fails again with only `c`'s taken
 //               away. A provider of `c` is a component of the same file declared `provides(c)`, or the probe's
@@ -444,6 +444,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
     const mine = out.filter(r => r.line === row.line && [].concat(r.ob).includes(ob));
     if (mine.some(r => r.status === "mismatch" || r.status === "held")) continue;
     for (const r of mine) out.splice(out.indexOf(r), 1);   // an `unverified` the proof answers
+    if (ob === "pure") { out.push({ line: row.line, ob, status: "read", by: "code", what: `${row.name}: pure is read from the code (${why}: what a getter or a callback among its arguments does is the caller's), ${mine.length || called.has(`${row.line}:${ob}`) ? "and no run contradicts it" : "which was not run"}` }); continue; }
     out.push({ line: row.line, ob, status: "held", by: "code", what: `${row.name}: ${describe(ob)} is proven by the code (${why}), ${mine.length || called.has(`${row.line}:${ob}`) ? "and no run contradicts it" : "which was not run"}` });
   }
   out.push(...require("../src/strict.js").unanswered(file, out));
@@ -506,7 +507,7 @@ function environmental(e) {
   return !!e && (e instanceof ReferenceError || /\bis not defined\b|\b(window|document|navigator|localStorage|matchMedia)\b/.test(String(e.message ?? "")) || environmental(e.cause));
 }
 
-const LABEL = { held: "held      ", mismatch: "MISMATCH  ", na: "n/a       ", unverified: "unverified" };
+const LABEL = { held: "held      ", read: "read      ", mismatch: "MISMATCH  ", na: "n/a       ", unverified: "unverified" };
 (async () => {
   const flags = ["--dom", "--record", "--json"];
   const dom = process.argv.includes("--dom");

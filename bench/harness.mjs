@@ -480,10 +480,10 @@ export function claimsIn(dir, file, read = audited(file, declares(file)?.from ??
   if (read.error) problems.push(`the audit did not run (${read.error})`);
   const v = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/verify.js"), "--dom", "--json", path.relative(dir, file)], { cwd: dir, encoding: "utf8", timeout: 180000, maxBuffer: 1 << 26 });
   let res; try { res = JSON.parse(String(v.stdout).trim().split("\n").pop())[0].results; } catch { return { claims, problems: [...problems, `rx-verify did not run (${String(v.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${v.status ?? v.signal}`})`], mismatches: [] }; }
-  const worst = new Map(); const RANK = { mismatch: 3, unverified: 2, held: 1, na: 0 };
+  const worst = new Map(); const RANK = { mismatch: 3, unverified: 2, read: 1, held: 1, na: 0 };
   for (const r of res) { const k = `${r.line}:${r.ob}`; const was = worst.get(k); if (!was || RANK[r.status] > RANK[was.status]) worst.set(k, r); }
   const mismatches = [...worst.values()].filter(r => r.status === "mismatch").map(r => String(r.what).slice(0, 300));   // (an export that is not there, too)
-  const byOf = r => r?.status === "held" ? (r.by === "code" ? "code" : "run") : r?.status === "mismatch" ? "mismatch" : "unverified";
+  const byOf = r => r?.status === "read" ? "code" : r?.status === "held" ? (r.by === "code" ? "code" : "run") : r?.status === "mismatch" ? "mismatch" : "unverified";
   let rows = []; try { rows = rowsOf(file); } catch { /* said by rx-verify */ }
   const words = new Map(read.rows.map(x => [x.line, x.words]));
   for (const row of rows) {

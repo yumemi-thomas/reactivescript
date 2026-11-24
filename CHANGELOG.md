@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+**After a sceptical review** (`proposals/`, S-surface-11, S-pre-2, S-keyed-alias, S-check-2, S-check-3, S-module-22, S-module-42)
+
+- **No form of this branch changes a program `main` accepts.** `a<b>(c)`, `f(a<b, c>(d))` and `a<1>(c)` are comparisons again; a binding
+  named `peek`, `latest`, `throw` or `await`, a call of `for(…)` and `<svg.g>` are accepted again, and so are a `.d.rx` type, field or label named
+  as a word of a declaration.
+- **Checks narrowed.** `MUTATION_IN_PLACE` asks that the value be an array by what is written; `EFFECT_RELAY_TEAR` and `DISPOSER_DROPPED` are advice; a
+  component given to a `renders(H)` fn is refused where no application of H meets its need.
+- **Fixed.** A method's io through another name of its object (`t = toast`); `pre` of a store after a path write, in the three runners; a keyed equation over a
+  source with no key; `pending` and `fails(…)` in a parameter's type. `rx-types/` and `host.d.rx` are looked for up to the project's folder.
+- **`pure` is never held.** `rx-verify` says `read`: it is of the fn's own code, and what a getter or a callback among its arguments does is the caller's.
+
 **What nothing read, and what nothing said** (`scenarios/TEMPLATE.md`, 09 MO-8c, 11 CP-4c; `ref/units.ts`, `runtime/test.mjs`)
 
 - **A scenario is read whole or refused.** A heading, a block, a directive, a table, a column or a row that no runner reads fails

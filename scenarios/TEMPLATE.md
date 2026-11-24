@@ -31,14 +31,14 @@ export default component App() {
 
 ## Mechanics (for writing scenarios)
 
-- A scenario is read whole or refused: an unknown `##` heading, a block
+- A scenario is read whole or refused: a block or a table under an unknown `##` heading, a block
   under a heading that reads none (or a second where one is read), a block
   that begins with no directive where one is needed, a line that begins
   with `--` and is no directive, a table with no row, a column or a
   `Divergences` row no runner reads fail every runner
   (`ref/src/scenario.ts`). Text between the blocks is prose; a block marked
-  `text` is an illustration; a `note` column is a remark; a heading that is
-  prose throughout is listed in `PROSE` there.
+  `text` is an illustration; a `note` column is a remark; a heading with no
+  block and no table under it is prose.
 - `## Program` holds a fenced program, or a line `file: ../examples/x.rx`.
 - `## Modules` (09): fences beginning `-- module: ./x.rx` are modules every
   program in the scenario may import; a `file:` program finds its modules

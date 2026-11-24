@@ -94,7 +94,7 @@ check("a hook that reads its context only when used: the probe's run finds it", 
 check("a probe whose run throws under its providers too is not evidence", /lib\.d\.rx:10 unverified useWrongly: uses\(theme\) not shown: it fails under ThemeProvider too/.test(out), out);
 check("a tuple's ref part is read as an accessor", /lib\.d\.rx:11 held\s+usePair: its fields read as declared/.test(out), out);
 check("a ref part that is not an accessor is a mismatch", /lib\.d\.rx:12 MISMATCH\s+useBadRef: 0 is declared ref, but is not an accessor/.test(out), out);
-check("pure: proven by the code and not refuted by two calls, it is held by that proof (running alone cannot show it)", /lib\.d\.rx:13 held\s+double: pure is proven by the code/.test(out), out);
+check("pure: proven by the code and not refuted by two calls, it is read, not held (nothing shows it)", /lib\.d\.rx:13 read\s+double: pure is read from the code/.test(out), out);
 check("pure that answers differently is a mismatch", /lib\.d\.rx:14 MISMATCH\s+roll: declared pure, but two calls/.test(out), out);
 check("provides: a hook of the file runs under the component", /lib\.d\.rx:15 held\s+ThemeProvider: provides\(theme\) holds: useTheme, which fails without it, runs under it/.test(out), out);
 check("a component that provides nothing is a mismatch", /lib\.d\.rx:16 MISMATCH\s+FakeProvider: declared provides\(theme\), but useTheme, which uses it, still fails under it/.test(out), out);
@@ -384,7 +384,7 @@ check("provides(a, b): a hook that uses only a answers provides(a) alone; b is u
 check("...and strict refuses the row (no `ok` record for provides(a, b))", bothStrict.some(u => u.name === "Both" && /could not check provides\(b\)/.test(u.message)) && !bothStrict.some(u => u.name === "useA"), bothStrict);
 check("a component's handler prop it never calls: unverified, and strict refuses it", /both\.d\.rx:5 unverified Lone: prop ref never called/.test(both.stdout) && bothStrict.some(u => u.name === "Lone" && /could not check callback ref/.test(u.message)), { out: both.stdout, bothStrict });
 const bothRec = JSON.parse(fs.readFileSync(path.join(ws, "both.verified.json"), "utf8"));
-check("...in a version-9 record, which holds each claim's own result", bothRec.version === 9 && Object.values(bothRec.rows).find(r => r.line === 4).claims["provides:a"].status === "held" && Object.values(bothRec.rows).find(r => r.line === 4).claims["provides:b"].status === "unverified" && Object.values(bothRec.rows).find(r => r.line === 5).claims["callbacks:ref"].status === "unverified", bothRec);
+check("...in a version-10 record, which holds each claim's own result", bothRec.version === 10 && Object.values(bothRec.rows).find(r => r.line === 4).claims["provides:a"].status === "held" && Object.values(bothRec.rows).find(r => r.line === 4).claims["provides:b"].status === "unverified" && Object.values(bothRec.rows).find(r => r.line === 5).claims["callbacks:ref"].status === "unverified", bothRec);
 
 // RFC 28 (revised after review): provides(b) is not shown by a hook declared uses(a, b) that reads only a, nor by a part
 // that still fails under the provider; only actual provision verifies it
@@ -517,7 +517,13 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   const o = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "env.d.rx"], { cwd: dir, encoding: "utf8" }).stdout;
   if (happy) check("a `pure` fn that answers differently with a window than without is a mismatch: the page would be served with one answer and hydrated with the other (SV-7c)", /env\.d\.rx:1 MISMATCH\s+whereNow: declared pure, but it answers differently on the server and in the browser \("the server" with no window, "the browser" with one\)/.test(o), o);
   else console.log("  - (no @happy-dom/global-registrator here: the other side is not asked)");
-  check("...one that answers alike on both sides is not contradicted: held where the code proves it, and not verified where it does not (a run cannot show a fn is pure)", /env\.d\.rx:2 held\s+label: pure is proven by the code \(it only computes\), and no run contradicts it/.test(o) && (happy || /env\.d\.rx:1 unverified whereNow: pure not contradicted/.test(o)), o);
+  check("...one that answers alike on both sides is not contradicted: read where its own code only computes, and not verified where it does not (a run cannot show a fn is pure)", /env\.d\.rx:2 read\s+label: pure is read from the code \(its own code only computes[^)]*\), and no run contradicts it/.test(o) && (happy || /env\.d\.rx:1 unverified whereNow: pure not contradicted/.test(o)), o);
+  {
+    fs.writeFileSync(path.join(dir, "twice.mjs"), "export function twice(o) { return o.a + o.a; }\n"); fs.writeFileSync(path.join(dir, "twice.d.rx"), "export pure fn twice(o: { a: number }): number\n");
+    spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "twice.d.rx", "--record"], { cwd: dir, encoding: "utf8" });
+    const rec = fs.existsSync(path.join(dir, "twice.verified.json")) ? fs.readFileSync(path.join(dir, "twice.verified.json"), "utf8") : "";
+    check("a record says `pure` is read, never held: a getter of an argument is the caller's code, and runs", /"pure":\s*(\{\s*"status":\s*)?"read"/.test(rec) && !/"pure":\s*(\{\s*"status":\s*)?"held"/.test(rec), rec);
+  }
   check("...one that answers anew each call is refuted by its own two calls, as before", /env\.d\.rx:3 MISMATCH\s+nextId: declared pure, but two calls with the same arguments answer differently/.test(o), o);
   check("...and a `client` fn is asked on one side only", !/whereAmI: declared pure, but it answers differently/.test(o), o);
 }

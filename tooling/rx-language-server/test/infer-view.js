@@ -361,7 +361,7 @@ console.log("rx-verify tells the words the code proves from the ones written by 
   const v = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "lib.d.rx"], { cwd: ws, encoding: "utf8" });
   const said = v.stdout + v.stderr; if (process.env.VERBOSE) console.log(said);
   ok("a word the code contradicts is a mismatch, with what the code does", /MISMATCH\s+sortedInPlace: pure is contradicted by the code: it changes its argument `list` in place/.test(said) && /MISMATCH\s+onNow: handler\(cb\) is contradicted by the code/.test(said) && v.status === 1, said.slice(0, 1500));
-  ok("a `pure` the code proves is run against what the reading claims, with no mark in the file", /sortedCopy: pure is proven by the code \(it only computes[^)]*\), and no run contradicts it/.test(said), said.split("\n").filter(l => /sortedCopy/.test(l)).join("\n"));
+  ok("a `pure` the code proves is run against what the reading claims, with no mark in the file", /sortedCopy: pure is read from the code \(its own code only computes[^)]*\), and no run contradicts it/.test(said), said.split("\n").filter(l => /sortedCopy/.test(l)).join("\n"));
   ok("…a `handler` and a `rejects(E)` too", /onLater: callback cb holds/.test(said) && /finds: under the probe's failing arguments it rejects with NotFound, as its row says/.test(said), said.split("\n").filter(l => /onLater|finds:/.test(l)).join("\n"));
   ok("…and the file's words are counted", /words: 10 read from the code .* 6 contradicted by it, 5 it neither shows nor refutes/.test(said), said.split("\n").filter(l => /words:/.test(l)).join("\n"));
   // (a module that ships JSX is run compiled, by the project's Solid compiler — a native addon: where it is not built,

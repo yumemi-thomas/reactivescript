@@ -264,7 +264,7 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
     });
     // ---- pure
     if (row.kind === "fn" && !/\bpure\b/.test(row.words)) {
-      if (f.pure) { took.push("pure"); count.pure++; note(row.name, "pure", true, f.makes ? "it only computes and makes Solid nodes of its own" : "it only computes"); }
+      if (f.pure) { took.push("pure"); count.pure++; note(row.name, "pure", true, f.makes ? "its own code only computes, and makes Solid nodes of its own" : "its own code only computes"); }
       else { const w = f.why[0]; note(row.name, "pure", false, `${w.why} [${at(w)}]${w.via ? ` (called at ${at(w.via)})` : ""}`); }
     }
     // ---- rejects
@@ -307,7 +307,7 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
   const total = Object.values(count).reduce((a, b) => a + b, 0);
   // one line for the whole draft (MO-8w): which words were read is not written row by row — it is what the code shows,
   // and `rx-verify` and `rx-declare --why` say it again from the code whenever they are asked
-  const head = total ? [`// Read from the code that runs (MO-8v): ${Object.entries(count).filter(([, n]) => n).map(([w, n]) => `${n} ${w}`).join(", ")} — proven, not guessed. Which words, and how: \`rx-declare --why\`; \`rx-verify\` tells them from the words written by hand, and runs each.`] : [];
+  const head = total ? [`// Read from the code that runs (MO-8v): ${Object.entries(count).filter(([, n]) => n).map(([w, n]) => `${n} ${w}`).join(", ")} — read, not guessed. Which words, and how: \`rx-declare --why\`; \`rx-verify\` tells them from the words written by hand, and runs each.`] : [];
   return { lines: out, head, count, words, unread: total ? undefined : unread, facts: name => factsOf.get(name), provided, outside: (name, o) => views(name).outside(o), at };
 }
 

@@ -12,7 +12,7 @@ const { rowsOf, hashOf, describe } = require("./rows.js");
  *  declaration's view (09 MO-14) and an import of it that names a component the host renders through (MO-14f). */
 const CHECKED = new Set(["fn", "component", "error", "const", "host", "import"]);
 const claimed = file => rowsOf(file).filter(x => CHECKED.has(x.kind) && x.obligations.length);
-const RANK = { mismatch: 3, unverified: 2, held: 1, na: 0 };
+const RANK = { mismatch: 3, unverified: 2, read: 1, held: 1, na: 0 };   // read: `pure`, by its own code — nothing shows it (a run refutes; a getter or a callback among the arguments is the caller's)
 const rowAt = (rows, line) => rows.find(x => line >= x.line && line <= x.end);
 
 /** Each row's claims with what `results` show of them: `[{ row, claims: { ob: { status, what } } }]`. A result names
@@ -40,8 +40,9 @@ function unanswered(file, results) {
  *  row it fell on; `uses(c)` is a claim for each context, shown by the hook failing without that context's provider
  *  and running with it (it was any throw or any warning with no provider); ` rejects(E)` is a claim. 9 (2026-11-24): what a
  *  run holds is run again over a module changed so that the claim is false; a `ref` is read twice, a `pending` one seen
- *  to wait, what `provides(c)` is under it is made later too; a callback with no word claims nothing. */
-const RECORD_VERSION = 9;
+ *  to wait, what `provides(c)` is under it is made later too; a callback with no word claims nothing. 10
+ *  (2026-11-25): a `pure` the code proves is `read`, and not `held`. */
+const RECORD_VERSION = 10;
 /** What a record was verified against: the library (an installed package's version, or the JS module's own text beside
  *  the declaration) and the probe file. A record made against other inputs does not count (the library moved under it). */
 function inputsOf(file) {
@@ -78,7 +79,7 @@ function checkStrict(file) {
   const stale = rec && rec.version !== RECORD_VERSION;   // written by an rx-verify whose checks were different
   for (const row of claimed(file)) {
     const r = rec?.rows?.[hashOf(row.text)]; const claims = r?.claims ?? {};
-    const bad = row.obligations.map(ob => [ob, claims[ob]]).find(([, c]) => !c || (c.status !== "held" && c.status !== "na")) ?? Object.entries(claims).find(([, c]) => c.status === "mismatch");
+    const bad = row.obligations.map(ob => [ob, claims[ob]]).find(([, c]) => !c || !["held", "read", "na"].includes(c.status)) ?? Object.entries(claims).find(([, c]) => c.status === "mismatch");
     if (r && !bad && !moved.length && !stale) continue;
     const why = !rec ? `nothing verified it: run \`rx-verify --record ${path.basename(file)}\` (with a probe beside it)`
       : stale ? `${path.basename(at)} was recorded by an older rx-verify, whose checks differ: run it again`

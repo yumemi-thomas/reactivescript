@@ -73,7 +73,7 @@ function audit(ts, spec, from, rowsIn) {
     let f; try { f = inf.exportFacts(spec, from, row.name, row.kind === "fn" ? { ...types, refs: new Set(x.params.flatMap((p, k) => p.ref ? [k] : [])) } : {}); } catch (e) { f = { unread: `the code could not be read (${String(e?.message ?? e).slice(0, 120)})` }; }
     if (!f || f.unread) { unread ??= f?.unread; for (const n of w.all) say(n, "unproven", `not read: ${f?.unread ?? "no code"}`); continue; }
     if (w.pure) {
-      if (f.pure) say("pure", "proven", f.makes ? "it only computes and makes Solid nodes of its own" : "it only computes");
+      if (f.pure) say("pure", "proven", f.makes ? "its own code only computes, and makes Solid nodes of its own" : "its own code only computes");
       else {
         // a change in place of what it was given contradicts the word where that is data — a list, a record: what a
         // caller may hold in a source. An object with methods of its own (a socket whose `close` is wrapped, an

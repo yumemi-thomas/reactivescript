@@ -437,7 +437,7 @@ console.log("rx-verify runs each word the code proves: an observation against it
   ok("a `pure` that asks for a random number: mismatch", /rolls: read from its code as pure\b.*Math\.random\(\)/.test(said), line("rolls"));
   ok("a `pure` that changes its argument: mismatch", /pushes: read from its code as pure\b.*changed what it was given/.test(said), line("pushes"));
   ok("a `pure` that leaves a global: mismatch", /leaks: read from its code as pure\b.*__leaked/.test(said), line("leaks"));
-  ok("an honest one is not contradicted", /honest: pure is proven by the code \(it only computes\), and no run contradicts it/.test(said), line("honest"));
+  ok("an honest one is not contradicted", /honest: pure is read from the code \(its own code only computes[^)]*\), and no run contradicts it/.test(said), line("honest"));
   ok("a `handler` called while the call runs: mismatch", /callsNow: cb was read from the code as a handler\b.*while the call itself runs/.test(said), line("callsNow"));
   ok("…and one called only by the listener holds", /callsLater: callback cb holds/.test(said), line("callsLater"));
   ok("a `rejects(E)` that rejects with another class: mismatch", /rejectsOther: declared to reject with NotFound alone\b.*rejects with Other/.test(said), line("rejectsOther"));
@@ -451,7 +451,7 @@ console.log("rx-verify runs each word the code proves: an observation against it
   ok("the twins' draft has its words: 4 pure, 2 handler, 1 rejects", /4 pure, 2 handler, 1 rejects/.test(twins), twins);
   fs.writeFileSync(path.join(app, "twins.probe.mjs"), ["let last;", "export const probes = {", "  copies: { args: () => [[3, 1], 2] }, maps: { args: () => [[{ a: \" x \" }, {}], \"a\"] }, constantTable: { args: () => [1] },", "  listener: { args: () => [(last = new EventTarget()), () => {}], act: () => last.dispatchEvent(new Event(\"click\")) },", "  timer: { args: () => [() => {}, 1] },", "  twoClasses: { args: () => [\"7\"], fail: () => [\"0\"] },", "};", ""].join("\n"));
   const tv = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "twins.d.rx"], { cwd: app, encoding: "utf8" });
-  ok("…and run, none is contradicted: every probed word holds", tv.status === 0 && /copies: pure is proven by the code \(it only computes\), and no run contradicts it/.test(tv.stdout) && /listener: callback cb holds/.test(tv.stdout) && /timer: callback cb holds/.test(tv.stdout) && /twoClasses: under the probe's failing arguments it rejects with Stale, as its row says/.test(tv.stdout), tv.stdout + tv.stderr);
+  ok("…and run, none is contradicted: every probed word holds", tv.status === 0 && /copies: pure is read from the code \(its own code only computes[^)]*\), and no run contradicts it/.test(tv.stdout) && /listener: callback cb holds/.test(tv.stdout) && /timer: callback cb holds/.test(tv.stdout) && /twoClasses: under the probe's failing arguments it rejects with Stale, as its row says/.test(tv.stdout), tv.stdout + tv.stderr);
 }
 
 // ---- `ref` on a part only shaped as an accessor (`() => T`): where the code shows a reader, and nowhere else ----

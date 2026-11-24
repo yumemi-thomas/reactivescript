@@ -150,7 +150,7 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
       }
     }
     else if (PROSE.includes(s.title)) none();
-    else refuse(s.title, "a heading no runner reads");
+    else if (fences.length) refuse(s.title, "a heading no runner reads");   // prose alone is the author's
   }
   for (const d of divergences) {
     const rows = d.table === "Before hydration" ? before : d.table === "Server frames" ? server : tables.find(t => t.title === d.table)?.rows;

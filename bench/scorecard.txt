@@ -4,7 +4,7 @@ context-provider      1/1 ✓          5/5 ✓          4/4 ✓          7/7 ✓
 duplicate-keys        1/1 ✓          3/3 ✓          3/3 ✓          2/2 ✓          —                —                   —               —              —                —                 —            
 effect-derived        1/1 ✓          3/3 ✓          4/4 ✓          5/5 ✓          —                0                   0               0              0                0                 0            
 file-routes           2/2 ✓          5/5 ✓          8/8 ✓          14/14 ✓        —                22                  0               4              0                0                 0            
-formisch-field-array  1/1 ✓          6/6 ✓          7/7 ✓          5/5 ✓          —                0                   7               7              11               0                 0            
+formisch-field-array  1/1 ✓          6/6 ✓          7/7 ✓          4/4 ✓          —                0                   7               7              11               0                 0            
 formisch-field-path   1/1 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            0                   7               1              11               0                 0            
 frozen-read           1/1 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                0                   2               0              0                0                 0            
 keyed-edits           1/1 ✓          4/4 ✓          7/7 ✓          6/6 ✓          —                —                   —               —              —                —                 —            
@@ -38,7 +38,7 @@ ui-sdk-forms          1/1 ✓          5/5 ✓          5/5 ✓          4/4 ✓
 wardic-motion         1/1 ✓          6/6 ✓          10/10 ✓        6/6 ✓          1/1 ✓            12                  1               1              0                0                 0            
 wardic-values         1/1 ✓          5/5 ✓          4/4 ✓          6/6 ✓          —                13                  1               1              0                0                 0            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-total                 44/44          186/186        279/279        248/248        13/13            382                 77              45             55               0                 17           
+total                 44/44          186/186        279/279        247/247        13/13            382                 77              45             55               0                 17           
 
 All green.
 
@@ -128,16 +128,16 @@ Read from the code that runs (09 MO-8v): 77 words in the rows the tasks keep, co
   whole drafts: 1504 words read (796 pure, 534 handler, 129 instantiates, 27 draft, 7 provides, 6 uses, 5 rejects); 621 questions asked (434 pure, 92 handler, 43 overloads, 17 draft, 14 rejects, 11 renders, 5 uses, 5 nests)
   the audit (09 MO-8w: every behaviour word of the tasks' declarations held against the code): 77 proven, 0 contradicted, 56 the code neither shows nor refutes (bench/audit.txt lists each with what to check)
 
-Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 76 drafts, 4911 rows): 627 `any` the libraries' own, 0 introduced, 380 by place
+Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 76 drafts, 4907 rows): 627 `any` the libraries' own, 0 introduced, 380 by place
   effect-derived · ./page.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
   file-routes · @solidjs/router: 92 rows, 25 `any` the library's own, 0 introduced, 21 by place
   file-routes · the JS host: 6 rows, 0 `any` the library's own, 0 introduced, 0 by place
   file-routes · ./people.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   file-routes · ./router.ts: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
   formisch-field-array · @formisch/solid/v2: 93 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  formisch-field-array · valibot: 785 rows, 64 `any` the library's own, 0 introduced, 16 by place
+  formisch-field-array · valibot: 783 rows, 64 `any` the library's own, 0 introduced, 16 by place
   formisch-field-path · @formisch/solid/v2: 93 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  formisch-field-path · valibot: 785 rows, 64 `any` the library's own, 0 introduced, 16 by place
+  formisch-field-path · valibot: 783 rows, 64 `any` the library's own, 0 introduced, 16 by place
   frozen-read · ./label.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
   kobalte-toast · @kobalte/core/toast: 63 rows, 3 `any` the library's own, 0 introduced, 2 by place
   kobalte-toast · ./sync.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place

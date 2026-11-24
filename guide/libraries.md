@@ -17,7 +17,7 @@ JavaScript your import resolves to — your own module, a package's shipped ES m
 `solid` build), every build its export map has — and writes a word **only where the code proves it**:
 
 ```rx
-// Read from the code that runs (MO-8v): 2 pure, 2 handler, 1 rejects, 1 draft, 1 uses, 1 provides — proven, not guessed. …
+// Read from the code that runs (MO-8v): 2 pure, 2 handler, 1 rejects, 1 draft, 1 uses, 1 provides — read, not guessed. …
 export context tabs
 export pure fn fetchPerson(id: string): Promise<Person> rejects(NotFound)
 export fn onShortcut(key: string, run: handler () => void): () => void
@@ -56,7 +56,7 @@ contradicted word is a mismatch, and each proven word is run against what was re
 says, for every row, what proved each word or the first thing in the way, with its file and line:
 
 ```
-rx-declare: fetchPerson: pure proven — it only computes
+rx-declare: fetchPerson: pure proven — its own code only computes
 rx-declare: savePerson: pure not proven — it assigns saves, a variable of the module [api.js:5]
 rx-declare: each: handler(visit) not proven — called while the call runs or in a computation: given to .forEach(…), which calls it [api.js:7]
 ```

@@ -420,7 +420,12 @@ called on a parameter whose declared type has no function members of
 its own, is the built-in (one whose type has — a class's instance, a
 record of callbacks — is refused); a function the fn is given is its
 caller's, pure where it is called while the fn runs (MO-10g holds the
-closure to that at the call) and so no part of the fn's own effect;
+closure to that at the call) and so no part of the fn's own effect; a
+property of an argument is read as data: a getter there (`{ get a() { … } }`
+is a `{ a: number }`), a proxy's trap and a `valueOf` are the caller's code
+too, and not seen. So `pure` is said of the fn's own code, as CN-5's
+assertion is: nothing shows it of every argument, `rx-verify` calls it
+`read` and never `held`, and strict mode takes it as read;
 what the engine raises for a bug (`undefined.x`) is a panic (04
 R-f-10), not a failure, and no part of `rejects`.
 

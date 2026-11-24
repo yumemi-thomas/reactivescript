@@ -109,7 +109,7 @@ way with its file and line; `--no-infer` (or `RX_DECLARE_INFER=0`) drafts from t
 
 ```sh
 npx rx-declare ./api.js --why
-# rx-declare: fetchPerson: pure proven — it only computes
+# rx-declare: fetchPerson: pure proven — its own code only computes
 # rx-declare: fetchPerson: rejects proven — every throw the code reaches is of NotFound
 # rx-declare: savePerson: pure not proven — it assigns saves, a variable of the module [api.js:5]
 # rx-declare: onKey: handler(run) proven — called later [api.js:6]

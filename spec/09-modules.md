@@ -240,10 +240,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     `callbacks:<position>` for each function-typed parameter, record field or
     prop (one with no `handler` claims nothing of the library, and is not
     applicable); `draft`; `placement`; `through:<component>` for a host's import.
-  - *A result is about one claim*, by that name, and is `held`, `mismatch`,
+  - *A result is about one claim*, by that name, and is `held`, `read` (`pure`
+    alone), `mismatch`,
     `unverified` or not applicable. What is printed about no claim is no
     result and is never recorded. A claim no check answered is `unverified`.
-  - *A row is verified* when every claim of it but `exists` is held or not
+  - *A row is verified* when every claim of it but `exists` is held, read or not
     applicable, `exists` is held, and none is a mismatch. The record is
     keyed by a hash of the row's text (every line it spans, comments left
     out, whitespace collapsed outside string literals) and carries the
@@ -253,8 +254,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   - *Evidence is the claim's own.* `uses:c` needs a failure with no provider,
     a clean run under providers of every context named and, where several are
     named, a failure again with `c`'s alone taken away. `pure`, which running
-    can refute and not establish, is held where the code proves it and no run
-    refutes it. `rejects` is run under failing arguments. A `ref` part answers
+    can refute and not establish, is never held: it is `read` where the fn's
+    own code only computes and no run refutes it. The word is an assertion
+    (CN-5) of the fn's own code; what a getter, a proxy or a callback among
+    its arguments does is the caller's. `rejects` is run under failing arguments. A `ref` part answers
     alike when read twice, and one that is `pending` is seen to wait. `provides:c`
     holds for what is made under the component later, too. What a run holds is
     run again over the module changed so that the claim is false, and must not

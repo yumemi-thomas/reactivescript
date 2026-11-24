@@ -67,6 +67,48 @@ has no row, answers a number and is a read.
 
 ## Rejected variants
 
+Through another name of the object it is the same method (2026-11-24).
+
+```rx
+-- reject: IO_IN_REACTIVE
+import { toast } from "./kit.js"
+export default component App() {
+  t = toast
+  <p>{t.success("a")}</p>
+}
+```
+
+```rx
+-- reject: IO_IN_REACTIVE
+import { toast } from "./kit.js"
+export default component App() {
+  t = toast
+  { success } = t
+  <button onClick={success("a")}>x</button>
+}
+```
+
+```rx
+-- reject: IO_IN_FN
+import { toast } from "./kit.js"
+kit = { t: toast }
+fn shown() => kit.t.success("a")
+export default component App() {
+  <p>{shown()}</p>
+}
+```
+
+```rx
+-- accept
+import { toast } from "./kit.js"
+export default component App() {
+  t = toast
+  { success } = t
+  <button onClick={() => { success("a"); t.success("b") }}>{len(t.history())}</button>
+}
+```
+
+
 ```rx
 -- reject: IO_IN_REACTIVE
 import { toast } from "./kit.js"

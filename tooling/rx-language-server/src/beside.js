@@ -4,6 +4,7 @@
 // name first (`x.tsx.d.rx`), then by `x.d.rx`. rx-tsc's declarations, the boundary check, strict mode's inputs and
 // rx-verify all go through here; `test/tsc.js` holds the two lists against each other.
 const fs = require("node:fs");
+const path = require("node:path");
 
 const NAMED = [".mjs", ".cjs", ".jsx", ".tsx", ".mts", ".cts"];                       // whose whole name may name their declaration
 const JS = [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts"];   // a declaration's `x.d.rx` stands for `x` with one of these, first that exists

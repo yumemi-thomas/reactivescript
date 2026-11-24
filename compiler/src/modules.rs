@@ -757,6 +757,21 @@ mod tests {
         assert!(parse_declarations("export context client from query\n").is_err());
     }
 
+    /// MO-8k, MO-14a (2026-11-24): the nearest folder whose package.json has a name; a scope's is passed over.
+    #[test]
+    fn a_projects_declarations_are_looked_for_up_to_its_folder() {
+        let main = "import { f } from \"kit\"\nexport default component App() { <p>{f(1)}</p> }\n";
+        let named = [("/w/app/package.json", "{\"name\":\"app\"}"), ("/w/app/src/package.json", "{\"type\":\"module\"}")];
+        let codes = |at: &str, pkg: &[(&str, &str)]| -> Vec<String> {
+            let mut fs: Vec<(&str, &str)> = pkg.to_vec();
+            fs.extend([("/w/app/src/main.rx", main), (at, "export pure fn f(n: number): number\n")]);
+            let read = |p: &str| fs.iter().find(|(k, _)| *k == p).map(|(_, v)| v.to_string());
+            crate::check::check_modules(&load_modules("/w/app/src/main.rx", &read).unwrap(), false).diags.iter().map(|d| d.code.clone()).collect()
+        };
+        assert_eq!(codes("/w/app/rx-types/kit.d.rx", &named), [] as [&str; 0]);
+        assert_eq!(codes("/w/rx-types/kit.d.rx", &named), ["IO_IN_REACTIVE"] as [&str; 1]);
+        assert_eq!(codes("/w/rx-types/kit.d.rx", &[]), [] as [&str; 0]);
+    }
     /// MO-14: `host.d.rx`, found at or above a program — the `.rx` components a JS host renders (a file-based router's
     /// route files), imported by name, and the view it makes of them in a factory's words; checked as the app's view,
     /// what it says on the declaration's line.

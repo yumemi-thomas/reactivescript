@@ -14,7 +14,6 @@ export default {
     { name: "a method given to a button, called, not passed", edit: ['onClick={() => { insert(form, { path: ["items"], initialInput: { label: "" } }) }}', 'onClick={insert(form, { path: ["items"], initialInput: { label: "" } })}'], expect: "IO_IN_REACTIVE" },
     { name: "the form made in the view, again on every change", edit: ["<Form of={form} onSubmit", "<Form of={createForm({ schema: schema })} onSubmit"], expect: "INSTANTIATION_NOT_BOUND" },
     { name: "the form's rows kept in app state beside the form: copied once", edit: ["  form = createForm({ schema: schema, initialInput: { items: [{ label: \"tent\" }, { label: \"stove\" }] } })\n", "  form = createForm({ schema: schema, initialInput: { items: [{ label: \"tent\" }, { label: \"stove\" }] } })\n  source count := len(packed)\n"], expect: "SNAPSHOT_INITIALIZER" },
-    { name: "the list of row ids changed in place", edit: ["remove(form, { path: [\"items\"], at: list.items.indexOf(id) })", "list.items.splice(list.items.indexOf(id), 1)"], expect: "MUTATION_IN_PLACE" },
   ],
   async run(h) {
     const base = await h.serve(); const page = await h.open(base);

@@ -306,6 +306,12 @@ export const units: [string, () => void][] = [
     parseDeclarations("export fn on(kind: \"handler x\"): void\n");
     deepStrictEqual(fieldRows("{ q: { data: pending fails(E) string; note: \"pending x\" }; n: number }"), { text: "{ q: { data: string; note: \"pending x\" }; n: number }", held: [["q.data", true, ["E"]]] });
   }],
+  ["a_projects_declarations_are_looked_for_up_to_its_folder", () => {   // MO-8k, MO-14a (2026-11-24): the nearest folder whose package.json has a name; a scope's is passed over
+    const row = "export pure fn f(n: number): number\n", main = "import { f } from \"kit\"\nexport default component App() { <p>{f(1)}</p> }\n";
+    const codes = (o: Record<string, string>) => checkModules(loadModules("/w/app/src/main.rx", files({ "/w/app/src/main.rx": main, ...o }))).diags.map(d => d.code);
+    const named = { "/w/app/package.json": "{\"name\":\"app\"}", "/w/app/src/package.json": "{\"type\":\"module\"}" };
+    deepStrictEqual([codes({ ...named, "/w/app/rx-types/kit.d.rx": row }), codes({ ...named, "/w/rx-types/kit.d.rx": row }), codes({ "/w/rx-types/kit.d.rx": row })], [[], ["IO_IN_REACTIVE"], []]);
+  }],
   ["a_declaration_names_another_modules_context", () => {   // MO-12e: `export context c from "<module>"` names the context that module's declaration declares, under that declaration's key: found as an import from the declaration's own file would find it, and through a module that takes it from another
     const fs = files({
       "/app/rx-types/@demo/query.d.rx": "export context client\nexport component ClientProvider(props: { children?: View }) provides(client)\n",
@@ -565,7 +571,7 @@ export const units: [string, () => void][] = [
     const block = (h: string, b: string) => `${P}## ${h}\n\n\`\`\`rx\n${b}\n\`\`\`\n`;
     for (const md of [P + F, block("Accepted variants", "-- accept\nsource a := 1"), block("Accepted variants", "-- accept: whole-program\n-- untyped\nsource a := 1"), block("Rejected variants", "-- reject: X-1\n-- handler: a := 2\n<style>\n  --c: red\n</style>"), block("Rejected variants, and what is accepted", "-- accept\nx = 1"), P + "```text\nan illustration\n```\n", P + F.replace("frame |", "frame | note |").replace("`1` |", "`1` | why |").replace("--- |\n|", "--- | --- |\n|")]) deepStrictEqual(says(md), "");
     for (const [md, why] of [
-      [P + "## Accepted\n", "a heading no runner reads"], [P + "## frames\n", "a heading no runner reads"], [P + P, "the heading twice"], [F, "no such heading"], ["```rx\nx = 1\n```\n" + P, "before the first heading"],
+      [P + "## Accepted\n\n```rx\n-- accept\nx = 1\n```\n", "a heading no runner reads"], [P + "## frames\n\n| instant | action | frame |\n| --- | --- | --- |\n| 0 | mount | `a` |\n", "a table, which nothing reads"], [P + P, "the heading twice"], [F, "no such heading"], ["```rx\nx = 1\n```\n" + P, "before the first heading"],
       [P + F + "\n```rx\nx = 1\n```\n", "a block, which nothing reads under this heading"], [block("What writing it found", "x = 1"), "a block, which nothing reads"], [P + "```rx\nx = 1\n```\n", "2 blocks, of which one is read"], ["## Program\n\ntext\n", "no program"], [P + "```rx\nx = 1\n", "not closed"], [P + "  ```rx\nx = 1\n  ```\n", "indented"],
       [block("Rejected variants", "source a := 1"), "begins with no directive"], [block("Accepted variants", "-- reject: X-1\na = 1"), "begins with no directive"], [block("Rejected variants", "-- rejects: X-1"), "begins with no directive"], [block("Modules", "x = 1"), "does not begin with -- module"], [P + "## Rejected variants\n\n| fragment | rule |\n| --- | --- |\n| x | y |\n", "a table, which nothing reads"], [P + "## Modules\n", "no module"],
       [block("Rejected variants", "-- reject: X-1\n-- client\na = 1"), "a line no runner knows"], [block("Rejected variants", "-- reject: X-1\n  -- spa\na = 1"), "a line no runner knows"], [block("Accepted variants", "-- accept\n-- spa\na = 1"), "a line no runner knows"], [block("Rejected variants", "-- types: TS1\n-- spa\na = 1"), "not read together"], [block("Rejected variants", "-- reject: X-1\n-- host: ./x.rx\na = 1"), "not read together"],
